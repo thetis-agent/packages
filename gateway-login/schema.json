@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "thetis://internal/password-authority/1",
+  "$defs": {
+    "login": { "type": "object", "required": ["id", "password"], "properties": { "id": { "type": "string", "minLength": 1, "maxLength": 256 }, "password": { "type": "string", "minLength": 1, "maxLength": 1024 } }, "additionalProperties": true },
+    "credential": { "type": "object", "required": ["id", "salt", "hash"], "properties": { "id": { "type": "string", "minLength": 1, "maxLength": 256 }, "salt": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "hash": { "type": "string", "pattern": "^[a-f0-9]{128}$" } }, "additionalProperties": true },
+    "accounts": { "type": "object", "required": ["version", "accounts"], "properties": { "version": { "const": 1 }, "accounts": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/credential" } } }, "additionalProperties": true },
+    "session": { "type": "object", "required": ["sessionToken", "person", "role"], "properties": { "sessionToken": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9_-]+$" }, "person": { "type": "string", "minLength": 1, "maxLength": 256 }, "role": { "enum": ["admin", "reviewer", "user"] } }, "additionalProperties": true }
+  },
+  "$ref": "#/$defs/accounts"
+}

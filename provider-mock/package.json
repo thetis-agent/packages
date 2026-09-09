@@ -1,0 +1,79 @@
+{
+  "name": "provider-mock",
+  "version": "1.0.0",
+  "type": "module",
+  "stages": "./index.ts",
+  "settings": {
+    "type": "object",
+    "properties": {
+      "requestBytes": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 4194304,
+        "default": 4194304
+      },
+      "cacheEntries": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 256,
+        "default": 256
+      },
+      "scriptEvents": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 4096,
+        "default": 4096
+      },
+      "maximumCost": {
+        "type": "number",
+        "minimum": 0,
+        "default": 0.01
+      },
+      "scriptBytes": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 4194304,
+        "default": 4194304
+      },
+      "captureBytes": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1048576,
+        "default": 1048576
+      },
+      "scripts": {
+        "type": "array",
+        "maxItems": 4096,
+        "default": [],
+        "items": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "$ref": "thetis://contract/provider/1#/$defs/responseEvent"
+          }
+        }
+      },
+      "modelId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "default": "scripted"
+      }
+    },
+    "additionalProperties": true
+  },
+  "requires": {
+    "contract/provider": "^1.1"
+  },
+  "provides": {
+    "service/llm-provider.mock": "1.0.0"
+  },
+  "envelope": {
+    "requires": [],
+    "provides": [],
+    "spawn": {
+      "scope": "deployment",
+      "network": "none"
+    }
+  }
+}

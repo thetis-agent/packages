@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "thetis://internal/mock-configuration/1",
+  "type": "object",
+  "properties": {
+    "requestBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4194304,
+      "default": 4194304
+    },
+    "cacheEntries": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 256,
+      "default": 256
+    },
+    "scriptEvents": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4096,
+      "default": 4096
+    },
+    "maximumCost": {
+      "type": "number",
+      "minimum": 0,
+      "default": 0.01
+    },
+    "scriptBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4194304,
+      "default": 4194304
+    },
+    "captureBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1048576,
+      "default": 1048576
+    },
+    "scripts": {
+      "type": "array",
+      "maxItems": 4096,
+      "default": [],
+      "items": {
+        "type": "array",
+        "maxItems": 4096,
+        "items": {
+          "$ref": "thetis://contract/provider/1#/$defs/responseEvent"
+        }
+      }
+    },
+    "modelId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "default": "scripted"
+    }
+  },
+  "additionalProperties": true,
+  "required": [
+    "requestBytes",
+    "cacheEntries",
+    "scriptEvents",
+    "maximumCost",
+    "scriptBytes",
+    "captureBytes",
+    "scripts",
+    "modelId"
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "thetis://internal/cli-command/1",
+  "type": "object", "required": ["args"], "properties": { "args": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 65536 } } }, "additionalProperties": true
+}

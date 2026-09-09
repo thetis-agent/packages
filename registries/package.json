@@ -1,0 +1,35 @@
+{
+  "name": "registries",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": "./index.ts",
+  "stages": "./index.ts",
+  "requires": {
+    "contract/registry": "^1"
+  },
+  "provides": {
+    "service/registry": "1.0.0"
+  },
+  "envelope": {
+    "requires": [],
+    "provides": [],
+    "spawn": {
+      "scope": "deployment",
+      "network": "none"
+    }
+  },
+  "settings": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "maxLength": 4096,
+        "default": "/registry"
+      }
+    },
+    "required": [
+      "path"
+    ]
+  }
+}

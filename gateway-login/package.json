@@ -1,0 +1,7 @@
+{
+  "name": "gateway-login", "version": "1.0.0", "type": "module", "stages": "./index.ts",
+  "settings": { "type": "object", "properties": {}, "additionalProperties": true },
+  "requires": { "contract/kernel-socket": "^1" },
+  "provides": { "mount//login": "1.0.0" },
+  "envelope": { "requires": [], "provides": [], "spawn": { "scope": "deployment", "network": "none" } }
+}

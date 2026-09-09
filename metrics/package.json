@@ -1,0 +1,41 @@
+{
+  "name": "metrics",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": "./index.ts",
+  "stages": "./index.ts",
+  "requires": {
+    "contract/kernel-socket": "^1",
+    "contract/metrics": "^1"
+  },
+  "provides": {
+    "service/metrics": "1.0.0"
+  },
+  "envelope": {
+    "requires": [],
+    "provides": [],
+    "spawn": {
+      "scope": "deployment",
+      "network": "none"
+    }
+  },
+  "settings": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "bootstrapSamples": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 10000,
+        "default": 2000
+      },
+      "pageRows": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 256,
+        "default": 100
+      }
+    },
+    "additionalProperties": false
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "name": "evaluator",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": "./index.ts",
+  "stages": "./index.ts",
+  "requires": {
+    "core": "^1",
+    "service/registry": "^1",
+    "contract/kernel-socket": "^1",
+    "cap/os.linux": "*",
+    "setting/evaluator.margin": "*",
+    "setting/evaluator.runs": "*",
+    "setting/evaluator.budget_per_day": "*",
+    "secret/evaluator.seed": "*",
+    "contract/registry": "^1",
+    "contract/evaluator": "^1"
+  },
+  "provides": {
+    "service/evaluator": "1.0.0"
+  },
+  "envelope": {
+    "requires": [],
+    "provides": [],
+    "spawn": {
+      "scope": "deployment",
+      "network": "none"
+    }
+  },
+  "settings": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "evaluator.margin": {
+        "type": "number",
+        "minimum": -100,
+        "maximum": 0,
+        "default": -2
+      },
+      "evaluator.runs": {
+        "type": "integer",
+        "enum": [
+          3,
+          5
+        ],
+        "default": 3
+      },
+      "evaluator.budget_per_day": {
+        "type": "number",
+        "minimum": 0,
+        "default": 25
+      },
+      "evaluator.hold": {
+        "type": "array",
+        "items": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "minItems": 2,
+        "maxItems": 2,
+        "default": [
+          60,
+          80
+        ]
+      }
+    },
+    "additionalProperties": false
+  }
+}

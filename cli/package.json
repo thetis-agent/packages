@@ -1,0 +1,6 @@
+{
+  "name": "cli", "version": "1.0.0", "type": "module", "stages": "./index.ts",
+  "settings": { "type": "object", "properties": {}, "additionalProperties": true },
+  "requires": { "contract/kernel-socket": "^1" }, "provides": {},
+  "envelope": { "requires": [], "provides": [], "spawn": { "scope": "person", "network": "none" } }
+}

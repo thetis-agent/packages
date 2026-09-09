@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "thetis://internal/web-command/1",
+  "type": "object", "required": ["type"], "properties": {
+    "type": { "type": "string", "maxLength": 64 }, "id": { "type": "string", "maxLength": 256 },
+    "text": { "type": "string", "maxLength": 65536 }, "from": { "type": "integer", "minimum": 0 },
+    "attachments": { "type": "array", "maxItems": 32, "items": {} }
+  }, "additionalProperties": true
+}
