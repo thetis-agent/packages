@@ -49,12 +49,14 @@ export class Sessions {
     this.#generation = Math.max(this.#generation ?? 1, generation); return { ok: true, value: undefined };
   }
 
-  history(id: string): Promise<Result<Message[]>> { return this.#read(() => this.#history(id)); }
-  async #history(id: string): Promise<Result<Message[]>> {
+  history(id: string): Promise<Result<Message[]>> { return this.withHistory(id, history => ({ ok: true, value: history })); }
+  /** Join a durable snapshot to its live subscription without yielding between them. */
+  withHistory<T>(id: string, take: (history: Message[]) => Result<T>): Promise<Result<T>> { return this.#read(() => this.#history(id, take)); }
+  async #history<T>(id: string, take: (history: Message[]) => Result<T>): Promise<Result<T>> {
     const lease = this.#lease(id); if (!lease.ok) return lease;
     try {
       const entry = await lease.value.loading;
-      return entry.ok ? { ok: true, value: entry.value.history.project().history } : entry;
+      return entry.ok ? take(entry.value.history.project().history) : entry;
     } finally { lease.value.release(); }
   }
 

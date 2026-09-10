@@ -202,7 +202,18 @@ export function mountTranscriptInto(root) {
     RENDERERS[frame.kind]?.(frame);
   }
 
-  return { reset, addLocal, settleLocal, failLocal, applyEvent };
+  function restore(history) {
+    reset();
+    if (history.truncated) row("note", "Showing the most recent saved messages; earlier messages remain in conversation storage.");
+    for (const message of history.messages || []) {
+      const text = (message.content || []).filter(part => part.type === "text").map(part => part.text).join("");
+      if (message.role === "user") RENDERERS.user({ text });
+      else if (message.role === "assistant" && text) RENDERERS.assistant({ text });
+      else if (text) RENDERERS.note({ text });
+    }
+  }
+
+  return { reset, addLocal, settleLocal, failLocal, applyEvent, restore };
 }
 
 function safeJson(value) {

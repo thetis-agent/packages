@@ -13,6 +13,7 @@ import type { Runtime } from '@/lib/package-loader/types.ts';
 import { Sessions } from './sessions.ts';
 import { capabilities, publicCapabilities } from './protocol.ts';
 import { SessionEvents } from '@/lib/session/index.ts';
+import { historyTail } from '@/lib/session/history.ts';
 import { Service, serviceLimits } from '@/lib/service/lifecycle.ts';
 
 class SessionControl {
@@ -46,18 +47,24 @@ class SessionControl {
   }
 
   public(client: Peer): { handlers: ReadonlyMap<Method, Handler>; close(): void } {
-    const handlers = new Map(this.handlers()); let unsubscribe: (() => void) | undefined;
+    const handlers = new Map(this.handlers()); let unsubscribe: (() => void) | undefined; let subscribing = false; let closed = false;
     handlers.set('session.submit', () => Promise.resolve(failure('forbidden', 'Turns must enter through inherited kernel control so their outcomes are observed.')));
     handlers.set('session.subscribe', async params => {
       const conversation = params['conversation']; const from = params['from'];
       if (typeof conversation !== 'string' || from !== undefined && (typeof from !== 'number' || !Number.isSafeInteger(from) || from < 0)) return failure('invalid-args', 'The session subscription is invalid.');
-      if (unsubscribe) return failure('budget', 'This connection already has a conversation subscription.');
-      const exists = await this.#sessions.exists(conversation); if (!exists.ok) return exists;
-      const subscription = this.events.subscribe(conversation, from, params => client.notify({ note: 'notice', params }), () => { client.close(); });
-      if (!subscription.ok) return subscription;
-      unsubscribe = () => { subscription.value.close(); }; return { ok: true, value: subscription.value.result };
+      if (unsubscribe || subscribing) return failure('budget', 'This connection already has a conversation subscription.');
+      subscribing = true;
+      try {
+        return await this.#sessions.withHistory(conversation, messages => {
+          if (closed) return failure('io', 'The subscription connection closed while loading history.');
+          const subscription = this.events.subscribe(conversation, from, params => client.notify({ note: 'notice', params }), () => { client.close(); });
+          if (!subscription.ok) return subscription;
+          unsubscribe = () => { subscription.value.close(); };
+          return { ok: true, value: { ...subscription.value.result, ...(from === undefined ? { history: historyTail(messages) } : {}) } };
+        });
+      } finally { subscribing = false; }
     });
-    return { handlers, close: () => { unsubscribe?.(); } };
+    return { handlers, close: () => { closed = true; unsubscribe?.(); } };
   }
 
   async note(note: Note): Promise<Result<void>> {

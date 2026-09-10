@@ -51,17 +51,32 @@ export class Wire {
     try { return await this.#subscribe(id, from); } finally { this.#opening.delete(id); }
   }
   async #subscribe(id: string, from?: number): Promise<Result<void>> {
+    let opening = true; let pending: Record<string, unknown>[] = []; let bytes = 0;
     const stream = await mounted(this.#schemas, this.#clock, async batch => {
-      for (const frame of render(batch)) { const sent = await this.#send(frame); if (!sent.ok) return sent; }
-      return { ok: true, value: undefined };
+      const frames = render(batch);
+      if (!opening) return this.#frames(frames);
+      bytes += Buffer.byteLength(JSON.stringify(frames));
+      if (pending.length + frames.length > settings.openingFrames || bytes > settings.messageBytes) return failure('budget', 'The opening conversation exceeds its event buffer.');
+      pending.push(...frames); return { ok: true, value: undefined };
     }); if (!stream.ok) return stream;
     if (this.#closed) { stream.value.close(); return failure('switching', 'The gateway connection is closed.'); }
     this.#streams.set(id, stream.value);
     void stream.value.peer.finished().then(() => { if (this.#streams.get(id) === stream.value) this.#streams.delete(id); });
     const subscribed = await stream.value.subscribe(id, from);
     if (!subscribed.ok) { stream.value.close(); this.#streams.delete(id); return subscribed; }
-    const sent = await this.#send({ type: 'opened', session: id, cursor: subscribed.value.cursor, oldest: subscribed.value.oldest });
-    return sent.ok ? this.#envStatus() : sent;
+    const sent = await this.#send({ type: 'opened', session: id, cursor: subscribed.value.cursor, oldest: subscribed.value.oldest,
+      ...(subscribed.value.history ? { history: subscribed.value.history } : {}) });
+    if (!sent.ok) return sent;
+    // The UI must install its saved transcript before any live or replayed event.
+    while (pending.length) {
+      const frames = pending; pending = []; bytes = 0;
+      const flushed = await this.#frames(frames); if (!flushed.ok) return flushed;
+    }
+    opening = false; return this.#envStatus();
+  }
+  async #frames(frames: readonly Record<string, unknown>[]): Promise<Result<void>> {
+    for (const frame of frames) { const sent = await this.#send(frame); if (!sent.ok) return sent; }
+    return { ok: true, value: undefined };
   }
   /* `env.status`/`env.reset` are capability-gated (KS-019): `service.ts` does not request them from the kernel
    * today, so `#peer.supports` is false and both no-op, ok, exactly as the plan anticipates for this seam. */

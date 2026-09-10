@@ -105,8 +105,10 @@ connection
   })
   .on("opened", (frame) => {
     store.openTab(frame.session);
+    if (frame.history) transcriptFor(frame.session)?.restore(frame.history);
     store.set({ creating: false });
     composer.focus();
+    sendFrame({ type: "list" });
   })
   .on("accepted", (frame) => {
     store.setPending(frame.session, false);
