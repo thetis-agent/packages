@@ -24,6 +24,7 @@ it. The kernel matches names and names no package itself.
 | `registries` | Immutable local git registry delivery |
 | `metrics` | Metrics service |
 | `evaluator` | Paired-run scoring behind the gate |
+| `skills-core` | A content pack: `skills/` only, discovered by its alias mount |
 
 A package may depend only on shared libraries and contracts. Importing
 another package directly is refused.

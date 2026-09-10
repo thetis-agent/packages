@@ -1,0 +1,16 @@
+{
+  "name": "skills-core",
+  "version": "1.0.0",
+  "type": "module",
+  "requires": {},
+  "provides": {},
+  "envelope": {
+    "requires": [],
+    "provides": [],
+    "spawn": {
+      "scope": "person",
+      "network": "none"
+    }
+  },
+  "settings": {}
+}
