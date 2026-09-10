@@ -75,6 +75,17 @@ export function render(batch: EventBatch): Record<string, unknown>[] {
     // The whole retrieve answer, as the retriever reported it: a panel reads `score` and `how` when a
     // retriever chose to report them and says nothing about ranking when it did not.
     if (event.type === 'retrieve') frames.push({ type: 'event', session: batch.conversation, kind: 'retrieve', entries: payload['entries'], dropped: payload['dropped'] });
+    /* The four kinds the inspectors read. Hyphenated to match the wire's own `turn-finished` and
+     * `tool-call` rather than the envelope's dotted type, and flattened like every frame above.
+     * Passed through verbatim: `context` is the only source of the section split and the budget, and
+     * `model.begin`'s request is the exact body sent to the provider — a summary of either answers a
+     * different question than the one the Context inspector exists to answer. Neither is bounded here;
+     * lib/session/batch.ts's own eventBytes limit still applies upstream, and if a bound is ever put on
+     * these the agreed shape is a `truncated: true` field the inspector already draws. */
+    if (event.type === 'context') frames.push({ type: 'event', session: batch.conversation, kind: 'context', sections: payload['sections'], budget: payload['budget'] });
+    if (event.type === 'offer') frames.push({ type: 'event', session: batch.conversation, kind: 'offer', tools: payload['tools'], mode: payload['mode'] });
+    if (event.type === 'model.begin') frames.push({ type: 'event', session: batch.conversation, kind: 'model-begin', provider: payload['provider'], model: payload['model'], request: payload['request'] });
+    if (event.type === 'model.end') frames.push({ type: 'event', session: batch.conversation, kind: 'model-end', stop: payload['stop'], usage: payload['usage'] });
     if (event.type === 'output' && isObject(payload['message'])) {
       const content = payload['message']['content'];
       frames.push({ type: 'event', session: batch.conversation, kind: 'assistant', text: textOf(content), usage: payload['usage'] });

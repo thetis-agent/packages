@@ -126,3 +126,39 @@ await test('a reasoning model.event still batches into one reasoning frame, afte
     { type: 'event', session: conversation, kind: 'reasoning', text: 'think' }
   ]);
 });
+
+/* The four kinds the Context and Tools inspectors read. Shapes are the ones those panels were built
+ * and tested against; the panel's own fixtures are validated against contract/turn-events, so these
+ * assertions and those fixtures answer to the same authority from opposite sides of the wire. */
+await test('context projects its section split and budget verbatim', () => {
+  const sections = { system: [], skills: [], harness: [], history: [] };
+  const budget = { window: 24000, reserve: 5600, used: 18400 };
+  const frames = render(batch(envelope('context', { sections, budget })));
+  assert.deepEqual(frames, [{ type: 'event', session: conversation, kind: 'context', sections, budget }]);
+});
+
+await test('offer projects the tool table and the mode that narrowed it', () => {
+  const tools = [{ name: 'read_path', description: 'Read lines from a file.', schema: {}, readOnly: true, endsTurn: false, source: 'tools-files@1.0.0' }];
+  const mode = { readOnly: true, deny: ['tools-files/write_path'] };
+  const frames = render(batch(envelope('offer', { tools, mode })));
+  assert.deepEqual(frames, [{ type: 'event', session: conversation, kind: 'offer', tools, mode }]);
+});
+
+await test('model.begin projects the exact provider request, hyphenated as model-begin', () => {
+  const request = [{ type: 'begin', model: 'claude-opus-5', options: {} }];
+  const frames = render(batch(envelope('model.begin', { provider: 'openai-compatible', model: 'claude-opus-5', request })));
+  assert.deepEqual(frames, [{ type: 'event', session: conversation, kind: 'model-begin', provider: 'openai-compatible', model: 'claude-opus-5', request }]);
+});
+
+await test('model.end projects the usage counters the ledger reads', () => {
+  const frames = render(batch(envelope('model.end', { stop: 'end', usage: { cost: 0.42, in: 18400, out: 2100 } })));
+  assert.deepEqual(frames, [{ type: 'event', session: conversation, kind: 'model-end', stop: 'end', usage: { cost: 0.42, in: 18400, out: 2100 } }]);
+});
+
+await test('an inspector frame still flushes the token run that preceded it, keeping reading order', () => {
+  const frames = render(batch(envelope('token', { text: 'Hi' }), envelope('model.end', { stop: 'end', usage: {} })));
+  assert.deepEqual(frames, [
+    { type: 'event', session: conversation, kind: 'delta', text: 'Hi' },
+    { type: 'event', session: conversation, kind: 'model-end', stop: 'end', usage: {} }
+  ]);
+});
