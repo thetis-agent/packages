@@ -140,3 +140,13 @@ await test('TE-015 deadline refuses the call while its later pending notice rema
     assert.equal(f.conversation.project().history[0]?.content[0]?.['text'], 'late completion');
   } finally { await f.close(); }
 });
+
+await test('TE-015 a call deadline signals the running tool handler to stop external work', async () => {
+  const time = new ManualClock(); let aborted = false;
+  const dispatcher = new Dispatcher([{ source: 'tool', offer: () => Promise.resolve([definition]), call: (_request, _sink, signal) => {
+    assert.ok(signal); signal.addEventListener('abort', () => { aborted = true; }, { once: true }); return new Promise(() => undefined);
+  } }], schemas, time);
+  await dispatcher.offer({ mode }); const sink = new SpillSink('/tmp', 'deadline');
+  try { const pending = dispatcher.call(call, sink); time.advance(50); assert.equal((await pending).error?.code, 'deadline'); assert.equal(aborted, true); }
+  finally { await sink.abort(); }
+});
