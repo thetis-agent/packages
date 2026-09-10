@@ -100,3 +100,29 @@ await test('a trailing batched delta and reasoning both flush at the end of the 
     { type: 'event', session: conversation, kind: 'reasoning', text: 'trail' },
   ]);
 });
+
+/* The regression that widening lib/session/schema.json first exposed. core emits one `model.event`
+ * per provider event, so once those reached the gateway a token run interleaved with them flushed
+ * after every single token: one `delta` frame per token instead of one per batch (KS-020). The
+ * non-reasoning branch must skip without reaching flush(). */
+await test('a non-reasoning model.event does not break token batching (KS-020)', () => {
+  const frames = render(batch(
+    envelope('token', { text: 'Hel' }),
+    envelope('model.event', { event: { type: 'delta.text', text: 'Hel' } }),
+    envelope('token', { text: 'lo' }),
+    envelope('model.event', { event: { type: 'delta.text', text: 'lo' } })
+  ));
+  assert.deepEqual(frames, [{ type: 'event', session: conversation, kind: 'delta', text: 'Hello' }]);
+});
+
+await test('a reasoning model.event still batches into one reasoning frame, after the delta', () => {
+  const frames = render(batch(
+    envelope('token', { text: 'Hi' }),
+    envelope('model.event', { event: { type: 'delta.reasoning', text: 'th' } }),
+    envelope('model.event', { event: { type: 'delta.reasoning', text: 'ink' } })
+  ));
+  assert.deepEqual(frames, [
+    { type: 'event', session: conversation, kind: 'delta', text: 'Hi' },
+    { type: 'event', session: conversation, kind: 'reasoning', text: 'think' }
+  ]);
+});

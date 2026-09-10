@@ -61,6 +61,13 @@ export function render(batch: EventBatch): Record<string, unknown>[] {
       flushDelta(); reasoning += payload['event']['text']; continue;
     }
 
+    /* A `model.event` that is not a reasoning delta projects to nothing, and must not reach `flush()`.
+     * core emits one per provider event (index.ts's `#emit(state, options, 'model.event', ...)`), so a
+     * token run interleaved with them flushes after every single token and KS-020's batching is lost
+     * entirely — one `delta` frame per token rather than one per batch. Widening lib/session/schema.json
+     * to admit `model.event` is what first exposed this; before that these never reached the gateway. */
+    if (event.type === 'model.event') continue;
+
     flush();
     if (event.type === 'input' && typeof payload['text'] === 'string') frames.push({ type: 'event', session: batch.conversation, kind: 'user', text: payload['text'] });
     if (event.type === 'call') { const frame = payload['ok'] === undefined ? callRequestFrame(batch.conversation, payload) : callAnswerFrame(batch.conversation, payload); if (frame) frames.push(frame); }
