@@ -36,9 +36,9 @@ await test('a contributor is discovered and joined into the served table', async
   const base = await root([{ name: 'demo', surface: declares('demo') }]);
   try {
     const composed = await compose(own, await schemas(), base);
-    assert.ok(composed.ok);
-    assert.deepEqual(composed.value.table.assets.map(asset => asset.path).sort(), ['/app.js', '/surface/demo/panel.js']);
-    assert.deepEqual(composed.value.contribution.panels.map(panel => panel.id), ['skills']);
+    assert.deepEqual(composed.refused, []);
+    assert.deepEqual(composed.table.assets.map(asset => asset.path).sort(), ['/app.js', '/surface/demo/panel.js']);
+    assert.deepEqual(composed.contribution.panels.map(panel => panel.id), ['skills']);
   } finally { await rm(base, { recursive: true, force: true }); }
 });
 
@@ -46,9 +46,9 @@ await test('a package that provides no surface name contributes nothing', async 
   const base = await root([{ name: 'plain', provides: { 'stage/retrieve': '1.0.0' }, surface: declares('plain') }]);
   try {
     const composed = await compose(own, await schemas(), base);
-    assert.ok(composed.ok);
-    assert.deepEqual(composed.value.contribution.panels, []);
-    assert.deepEqual(composed.value.table.assets.map(asset => asset.path), ['/app.js']);
+    assert.deepEqual(composed.refused, []);
+    assert.deepEqual(composed.contribution.panels, []);
+    assert.deepEqual(composed.table.assets.map(asset => asset.path), ['/app.js']);
   } finally { await rm(base, { recursive: true, force: true }); }
 });
 
@@ -58,8 +58,12 @@ await test('a contributor serving outside its own name is refused by name', asyn
       { path: '/app.js', file: 'surface/other.js', type: 'text/javascript' }], files: ['surface/panel.js', 'surface/other.js'] }]);
   try {
     const composed = await compose(own, await schemas(), base);
-    assert.ok(!composed.ok);
-    assert.match(composed.error.message, /greedy serves \/app\.js, which is outside \/surface\/greedy\//u);
+    assert.equal(composed.refused.length, 1);
+    const [refusal] = composed.refused; assert.ok(refusal);
+    assert.match(refusal.message, /greedy serves \/app\.js, which is outside \/surface\/greedy\//u);
+    // The surface still starts, and still serves everything of its own.
+    assert.deepEqual(composed.table.assets.map(asset => asset.path), ['/app.js']);
+    assert.deepEqual(composed.contribution.panels, []);
   } finally { await rm(base, { recursive: true, force: true }); }
 });
 
@@ -67,8 +71,12 @@ await test('a declared entry its manifest does not serve is refused', async () =
   const base = await root([{ name: 'absent', surface: { v: '1', panels: [{ id: 'skills', label: 'Skills', entry: '/surface/absent/missing.js' }] } }]);
   try {
     const composed = await compose(own, await schemas(), base);
-    assert.ok(!composed.ok);
-    assert.match(composed.error.message, /asset manifest does not serve/u);
+    assert.equal(composed.refused.length, 1);
+    const [refusal] = composed.refused; assert.ok(refusal);
+    assert.match(refusal.message, /asset manifest does not serve/u);
+    // The surface still starts, and still serves everything of its own.
+    assert.deepEqual(composed.table.assets.map(asset => asset.path), ['/app.js']);
+    assert.deepEqual(composed.contribution.panels, []);
   } finally { await rm(base, { recursive: true, force: true }); }
 });
 
@@ -76,8 +84,12 @@ await test('a surface block that violates its contract is refused rather than sk
   const base = await root([{ name: 'broken', surface: { panels: [{ id: 'skills', label: 'Skills', entry: '/surface/broken/panel.js' }] } }]);
   try {
     const composed = await compose(own, await schemas(), base);
-    assert.ok(!composed.ok);
-    assert.match(composed.error.message, /broken provides a surface name but its surface block/u);
+    assert.equal(composed.refused.length, 1);
+    const [refusal] = composed.refused; assert.ok(refusal);
+    assert.match(refusal.message, /broken provides a surface name but its surface block/u);
+    // The surface still starts, and still serves everything of its own.
+    assert.deepEqual(composed.table.assets.map(asset => asset.path), ['/app.js']);
+    assert.deepEqual(composed.contribution.panels, []);
   } finally { await rm(base, { recursive: true, force: true }); }
 });
 
@@ -85,7 +97,12 @@ await test('two contributors claiming one panel id are refused', async () => {
   const base = await root([{ name: 'first', surface: declares('first') }, { name: 'second', surface: declares('second') }]);
   try {
     const composed = await compose(own, await schemas(), base);
-    assert.ok(!composed.ok);
-    assert.match(composed.error.message, /Two packages contribute the panel skills\./u);
+    // The first contributor wins by name order and the second is refused, so a late duplicate can
+    // never displace a panel that is already serving.
+    assert.deepEqual(composed.contribution.panels.map(panel => panel.id), ['skills']);
+    assert.equal(composed.refused.length, 1);
+    const [refusal] = composed.refused; assert.ok(refusal);
+    assert.equal(refusal.name, 'second');
+    assert.match(refusal.message, /Another package already contributes the panel skills\./u);
   } finally { await rm(base, { recursive: true, force: true }); }
 });

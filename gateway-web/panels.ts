@@ -9,8 +9,11 @@
  * are its own `assets.json`, loaded by the same bounded loader the surface uses for its own, and every
  * path it claims must sit under `/surface/<its package name>/` — the schema fixes the shape and the
  * check below ties the segment to the package, which is what stops one contributor serving over
- * another. A malformed contributor is refused by name rather than skipped: a panel that silently fails
- * to appear is worse than a gateway that says which package is wrong.
+ * another. A contributor that is malformed or unreadable is refused **by name and skipped**, never
+ * fatally: ADR 0016 settles the shape, leaving a package that cannot initialize inert with its gap
+ * reported, "never the environment down". A surface that refused to start because one contributed
+ * panel was unreadable would take the whole conversation with it, which is strictly worse than a
+ * missing tab beside a named refusal.
  */
 import { readdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -24,7 +27,8 @@ import type { Surface, Panel, Renderer } from '@/contracts/surface/types.ts';
 export const limits = { packages: 256, manifestBytes: 65536 };
 
 export interface Contribution { panels: Panel[]; renderers: Renderer[] }
-export interface Composed { table: Table; contribution: Contribution }
+export interface Refusal { name: string; message: string }
+export interface Composed { table: Table; contribution: Contribution; refused: Refusal[] }
 
 /** The directory holding this package and its siblings, in whatever layout the profile mounted. */
 export function siblingRoot(): string {
@@ -65,25 +69,30 @@ async function contributor(root: string, name: string, schemas: Schemas): Promis
   return { ok: true, value: { table: table.value, surface: declared } };
 }
 
-/** Joins this surface's own table with every contributor's, in a stable order. */
-export async function compose(own: Table, schemas: Schemas, root = siblingRoot()): Promise<Result<Composed>> {
+/** Joins this surface's own table with every contributor's, in a stable order. Only this surface's
+ *  own table is load-bearing: every contributor problem is collected in `refused` and skipped. */
+export async function compose(own: Table, schemas: Schemas, root = siblingRoot()): Promise<Composed> {
+  const empty: Composed = { table: own, contribution: { panels: [], renderers: [] }, refused: [] };
   let names: string[];
   try { names = (await readdir(root, { withFileTypes: true })).filter(entry => entry.isDirectory() && !entry.name.startsWith('.')).map(entry => entry.name).sort(); }
-  catch { return { ok: true, value: { table: own, contribution: { panels: [], renderers: [] } } }; }
-  if (names.length > limits.packages) return failure('budget', 'The package directory exceeds its entry limit.');
-  const tables: Table[] = [own]; const panels: Panel[] = []; const renderers: Renderer[] = [];
+  catch { return empty; }
+  if (names.length > limits.packages) return { ...empty, refused: [{ name: root, message: 'The package directory exceeds its entry limit.' }] };
+  const tables: Table[] = [own]; const panels: Panel[] = []; const renderers: Renderer[] = []; const refused: Refusal[] = [];
+  const claimed = new Set<string>();
   for (const name of names) {
-    const found = await contributor(root, name, schemas); if (!found.ok) return found;
+    const found = await contributor(root, name, schemas);
+    if (!found.ok) { refused.push({ name, message: found.error.message }); continue; }
     if (!found.value) continue;
+    const taken = (found.value.surface.panels ?? []).find(panel => claimed.has(panel.id));
+    if (taken) { refused.push({ name, message: `Another package already contributes the panel ${taken.id}.` }); continue; }
+    const joined = merge([...tables, found.value.table]);
+    if (!joined.ok) { refused.push({ name, message: joined.error.message }); continue; }
     tables.push(found.value.table);
+    for (const panel of found.value.surface.panels ?? []) claimed.add(panel.id);
     panels.push(...found.value.surface.panels ?? []);
     renderers.push(...found.value.surface.renderers ?? []);
   }
-  const joined = merge(tables); if (!joined.ok) return joined;
-  const claimed = new Set<string>();
-  for (const panel of panels) {
-    if (claimed.has(panel.id)) return failure('invalid-args', `Two packages contribute the panel ${panel.id}.`);
-    claimed.add(panel.id);
-  }
-  return { ok: true, value: { table: joined.value, contribution: { panels, renderers } } };
+  const joined = merge(tables);
+  if (!joined.ok) return { ...empty, refused: [...refused, { name: root, message: joined.error.message }] };
+  return { table: joined.value, contribution: { panels, renderers }, refused };
 }
