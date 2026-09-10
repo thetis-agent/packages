@@ -5,10 +5,22 @@
   "exports": "./index.ts",
   "stages": "./index.ts",
   "requires": {
-    "contract/skills": "^1"
+    "contract/skills": "^1",
+    "contract/surface": "^1"
   },
   "provides": {
-    "stage/retrieve": "1.0.0"
+    "stage/retrieve": "1.0.0",
+    "panel/skills": "1.0.0",
+    "renderer/retrieve": "1.0.0"
+  },
+  "surface": {
+    "v": "1",
+    "panels": [
+      { "id": "skills", "label": "Skills", "hint": "Skills \u2014 what reached this conversation's prompt, and why", "entry": "/surface/retriever-local/panel.js" }
+    ],
+    "renderers": [
+      { "kind": "retrieve", "entry": "/surface/retriever-local/panel.js" }
+    ]
   },
   "envelope": {
     "requires": [],

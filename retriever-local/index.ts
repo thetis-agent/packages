@@ -19,6 +19,10 @@ export function retriever(skills: readonly LoadedSkill[], vectors: ReadonlyMap<s
     retrieve(request: RetrieveRequest, vector?: readonly number[]): Promise<RetrieveAnswer> {
       const forced = [...skills.filter(skill => skill.card.universal).map(skill => skill.card.id), ...request.activate ?? []];
       const ranked = rank(corpus, request.query, request.k, vector, fusionWeight, settings.absorb);
+      const scores = new Map(ranked.map(item => [item.id, item.score]));
+      // `rank` scores every document 1 when the corpus fits the limit, so a bar drawn from those
+      // numbers would be flat and meaningless; the reading below says so instead of showing it.
+      const ranking = corpus.length <= request.k ? 'whole-corpus' : vector === undefined ? 'lexical' : 'fusion';
       const ids = [...new Set([...forced, ...ranked.map(item => item.id)])];
       const entries: RetrieveAnswer['entries'] = []; const dropped: string[] = [];
       let used = 0;
@@ -28,7 +32,10 @@ export function retriever(skills: readonly LoadedSkill[], vectors: ReadonlyMap<s
         const fits = used + tokens <= request.budget;
         if (!fits && !forced.includes(id)) { dropped.push(id); continue; }
         if (fits) used += tokens;
-        entries.push({ id, pack: skill.card.pack, version: skill.card.version, path: skill.card.path, contentHash: skill.card.contentHash, universal: skill.card.universal, ...(fits ? { body: skill.body } : { description: skill.card.description }) });
+        const how = skill.card.universal ? 'universal' : request.activate?.includes(id) === true ? 'activated' : ranking;
+        const score = scores.get(id);
+        entries.push({ id, pack: skill.card.pack, version: skill.card.version, path: skill.card.path, contentHash: skill.card.contentHash, universal: skill.card.universal, how,
+          ...(score === undefined || ranking === 'whole-corpus' ? {} : { score }), ...(fits ? { body: skill.body } : { description: skill.card.description }) });
       }
       return Promise.resolve({ entries, dropped });
     }

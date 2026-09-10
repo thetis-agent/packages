@@ -35,6 +35,14 @@ export function mountRail(tabList) {
   drawStrip();
 }
 
+/** Adds a tab a package contributed. The strip is built from `tabs`, so a tab that arrives after
+ *  mount only needs the strip redrawn; a duplicate id is ignored rather than shown twice. */
+export function addTab(tab) {
+  if (tabs.some((existing) => existing.id === tab.id)) return;
+  tabs.push(tab);
+  drawStrip();
+}
+
 export function isOpen(id) {
   return current === id;
 }
