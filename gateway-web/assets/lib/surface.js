@@ -58,7 +58,13 @@ export function onEvent(kind, handler) {
   watchers.set(kind, list);
 }
 
-/** Used by app.js to fan a received frame out to whoever asked for it. */
+/** Used by app.js to fan a received frame out to whoever asked for it.
+ *
+ * Each watcher is isolated: one contributor throwing must not stop the frame reaching the others,
+ * for the same reason a refused panel does not stop the surface starting. */
 export function deliver(frame) {
-  for (const handler of watchers.get(frame.kind) ?? []) handler(frame);
+  for (const handler of watchers.get(frame.kind) ?? []) {
+    try { handler(frame); }
+    catch (error) { console.error(`a contributed watcher for ${frame.kind} frames failed`, error); }
+  }
 }

@@ -91,6 +91,23 @@ mountSessions({ onOpen: openConversation, onNew: createConversation });
  * A module that fails to load is reported and skipped — one broken contributor must not take the
  * conversation down with it. */
 let loaded = false;
+/* Event frames that arrived while the contributed modules were still importing.
+ *
+ * Each `await import` yields, so a frame can land before a contributed renderer or watcher has
+ * registered — and that frame would then be drawn only by the built-in table and never reach the
+ * contributor at all. Holding them costs a few milliseconds on a same-origin import and is the
+ * difference between a panel that is merely late and one that is permanently missing its first
+ * turn. Bounded, like every other queue here: past the cap the surface stops waiting and delivers,
+ * because a late panel is better than a stalled conversation. */
+const queued = [];
+const QUEUED_MAX = 512;
+let contributionsReady = false;
+
+function releaseQueue() {
+  contributionsReady = true;
+  while (queued.length) applyFrame(queued.shift());
+}
+
 async function loadContributions(frame) {
   if (loaded) return;
   loaded = true;
@@ -102,6 +119,16 @@ async function loadContributions(frame) {
       toast(`A panel this environment offers could not be loaded: ${descriptor.id || descriptor.kind}.`, { tone: "error" });
     }
   }
+  releaseQueue();
+}
+
+/** Draws one event frame and hands it to whoever asked for that kind. */
+function applyFrame(frame) {
+  if (frame.kind === "turn-started") store.setBusy(frame.session, true);
+  if (frame.kind === "turn-finished") store.setBusy(frame.session, false);
+  transcriptFor(frame.session)?.applyEvent(frame);
+  // Panels read the same frames the transcript does, after it has drawn them.
+  deliver(frame);
 }
 
 store.watch("user", (user) => {
@@ -140,11 +167,9 @@ connection
     transcriptFor(frame.session)?.applyEvent({ kind: "note", text: "Turn stopped." });
   })
   .on("event", (frame) => {
-    if (frame.kind === "turn-started") store.setBusy(frame.session, true);
-    if (frame.kind === "turn-finished") store.setBusy(frame.session, false);
-    transcriptFor(frame.session)?.applyEvent(frame);
-    // Panels read the same frames the transcript does, after it has drawn them.
-    deliver(frame);
+    if (contributionsReady) { applyFrame(frame); return; }
+    queued.push(frame);
+    if (queued.length >= QUEUED_MAX) releaseQueue();
   })
   .on("error", (frame) => {
     // `error` carries no `session` field — it is a fault in the socket

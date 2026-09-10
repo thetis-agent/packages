@@ -204,8 +204,14 @@ export function mountTranscriptInto(root) {
     // fallback, so a contributor can add a kind without the surface knowing what it means.
     const contributed = rendererFor(frame.kind);
     if (contributed) {
-      const node = contributed(frame, { el });
-      if (node) { place(node); return; }
+      // A contributor that throws falls through to the built-in row rather than losing the event:
+      // the transcript is the reading order of the conversation and must not develop holes.
+      try {
+        const node = contributed(frame, { el });
+        if (node) { place(node); return; }
+      } catch (error) {
+        console.error(`a contributed renderer for ${frame.kind} rows failed`, error);
+      }
     }
     RENDERERS[frame.kind]?.(frame);
   }

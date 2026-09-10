@@ -15,9 +15,10 @@
  * panel was unreadable would take the whole conversation with it, which is strictly worse than a
  * missing tab beside a named refusal.
  */
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, access } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
+import { readBounded } from '@/lib/files/read-bounded.ts';
 import { load, merge } from '@/lib/assets/index.ts';
 import type { Table } from '@/lib/assets/index.ts';
 import { failure, isObject } from '@/lib/schema/index.ts';
@@ -55,9 +56,20 @@ function owned(name: string, table: Table, surface: Surface): Result<void, 'inva
 }
 
 async function contributor(root: string, name: string, schemas: Schemas): Promise<Result<{ table: Table; surface: Surface } | undefined>> {
+  // Bounded before the bytes are allocated, not after: a sibling directory is not necessarily a
+  // reviewed package, and reading an arbitrarily large file to then trim it is the allocation this
+  // gateway must not make.
+  const path = join(root, name, 'package.json');
+  // A sibling directory with no manifest is simply not a package, and never a refusal. Once one
+  // exists, every later failure is named: a manifest that is unreadable, oversized or malformed is
+  // a package that meant to say something, and skipping it silently is how a panel goes missing
+  // with no way to find out why.
+  try { await access(path); } catch { return { ok: true, value: undefined }; }
+  const bytes = await readBounded(path, limits.manifestBytes);
+  if (!bytes.ok) return failure('invalid-args', `${name} has a package manifest that could not be read within ${String(limits.manifestBytes)} bytes.`);
   let manifest: unknown;
-  try { manifest = JSON.parse((await readFile(join(root, name, 'package.json'))).subarray(0, limits.manifestBytes).toString('utf8')); }
-  catch { return { ok: true, value: undefined }; }
+  try { manifest = JSON.parse(bytes.value.toString('utf8')); }
+  catch { return failure('invalid-args', `${name} has a package manifest that is not valid JSON.`); }
   if (!isObject(manifest) || !contributes(manifest)) return { ok: true, value: undefined };
   const valid = schemas.validator<Surface>('surface', 'surface');
   const declared = manifest['surface'];
@@ -78,17 +90,22 @@ export async function compose(own: Table, schemas: Schemas, root = siblingRoot()
   catch { return empty; }
   if (names.length > limits.packages) return { ...empty, refused: [{ name: root, message: 'The package directory exceeds its entry limit.' }] };
   const tables: Table[] = [own]; const panels: Panel[] = []; const renderers: Renderer[] = []; const refused: Refusal[] = [];
-  const claimed = new Set<string>();
+  const claimed = new Set<string>(); const drawn = new Set<string>();
   for (const name of names) {
     const found = await contributor(root, name, schemas);
     if (!found.ok) { refused.push({ name, message: found.error.message }); continue; }
     if (!found.value) continue;
     const taken = (found.value.surface.panels ?? []).find(panel => claimed.has(panel.id));
     if (taken) { refused.push({ name, message: `Another package already contributes the panel ${taken.id}.` }); continue; }
+    // The browser keys renderers by kind, so a second contributor of one kind would silently replace
+    // the first as the modules import. Refuse it here, where the refusal can be named.
+    const drawnTwice = (found.value.surface.renderers ?? []).find(renderer => drawn.has(renderer.kind));
+    if (drawnTwice) { refused.push({ name, message: `Another package already draws ${drawnTwice.kind} rows.` }); continue; }
     const joined = merge([...tables, found.value.table]);
     if (!joined.ok) { refused.push({ name, message: joined.error.message }); continue; }
     tables.push(found.value.table);
     for (const panel of found.value.surface.panels ?? []) claimed.add(panel.id);
+    for (const renderer of found.value.surface.renderers ?? []) drawn.add(renderer.kind);
     panels.push(...found.value.surface.panels ?? []);
     renderers.push(...found.value.surface.renderers ?? []);
   }

@@ -106,3 +106,43 @@ await test('two contributors claiming one panel id are refused', async () => {
     assert.match(refusal.message, /Another package already contributes the panel skills\./u);
   } finally { await rm(base, { recursive: true, force: true }); }
 });
+
+await test('a manifest that is malformed or oversized is refused by name, not skipped', async () => {
+  const base = await mkdtemp('/tmp/panels-');
+  try {
+    for (const [name, body] of [['broken-json', '{ not json'], ['huge', `{"filler":"${'x'.repeat(70000)}"}`]] as [string, string][]) {
+      await mkdir(join(base, name, 'surface'), { recursive: true });
+      await writeFile(join(base, name, 'package.json'), body);
+    }
+    const composed = await compose(own, await schemas(), base);
+    // Both are named; neither stops the surface serving its own table.
+    assert.deepEqual(composed.refused.map(refusal => refusal.name).sort(), ['broken-json', 'huge']);
+    assert.deepEqual(composed.table.assets.map(asset => asset.path), ['/app.js']);
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+await test('a directory that is not a package at all contributes nothing and is not a refusal', async () => {
+  const base = await mkdtemp('/tmp/panels-');
+  try {
+    await mkdir(join(base, 'not-a-package'), { recursive: true });
+    const composed = await compose(own, await schemas(), base);
+    assert.deepEqual(composed.refused, []);
+    assert.deepEqual(composed.contribution.panels, []);
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+await test('two contributors drawing one event kind are refused', async () => {
+  const draws = (name: string) => ({ v: '1', renderers: [{ kind: 'retrieve', entry: `/surface/${name}/panel.js` }] });
+  const base = await root([
+    { name: 'first', provides: { 'renderer/retrieve': '1.0.0' }, surface: draws('first') },
+    { name: 'second', provides: { 'renderer/retrieve': '1.0.0' }, surface: draws('second') },
+  ]);
+  try {
+    const composed = await compose(own, await schemas(), base);
+    // The browser keys renderers by kind, so the second would have silently replaced the first.
+    assert.deepEqual(composed.contribution.renderers.map(renderer => renderer.kind), ['retrieve']);
+    const [refusal] = composed.refused; assert.ok(refusal);
+    assert.equal(refusal.name, 'second');
+    assert.match(refusal.message, /Another package already draws retrieve rows\./u);
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
