@@ -37,7 +37,10 @@ function methodNotAllowed(response: ServerResponse): Result<void> {
 }
 
 function redirectToLogin(response: ServerResponse, request: IncomingMessage): Result<void> {
-  const next = safePrefix(request.headers['x-forwarded-prefix']);
+  // The proxy stripped the prefix, so the page the browser asked for is prefix + the path we see; a bare
+  // prefix without its slash would land on `/alice`, where the surface's relative asset URLs resolve wrongly.
+  const prefix = safePrefix(request.headers['x-forwarded-prefix']);
+  const next = prefix === undefined ? undefined : safeRedirectPath(`${prefix}${request.url ?? '/'}`, settings.nextBytes);
   const location = next === undefined ? '/login' : `/login?next=${encodeURIComponent(next)}`;
   response.writeHead(303, { location, 'cache-control': 'no-store', 'content-length': '0' });
   response.end();

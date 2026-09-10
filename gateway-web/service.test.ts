@@ -59,6 +59,8 @@ await test('A signed-out browser is redirected to sign in for pages and refused 
     try {
       const page = await httpGet(gateway.socket, '/', { accept: 'text/html' });
       assert.equal(page.status, 303); assert.equal(page.headers['location'], '/login');
+      const deep = await httpGet(gateway.socket, '/', { accept: 'text/html', prefix: '/alice' });
+      assert.equal(deep.headers['location'], '/login?next=%2Falice%2F');
       const me = await httpGet(gateway.socket, '/api/me');
       assert.equal(me.status, 401);
       const asJson = await httpGet(gateway.socket, '/', { accept: 'application/json' });
