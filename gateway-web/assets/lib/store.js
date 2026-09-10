@@ -16,6 +16,8 @@
  * running" (the legacy store's only question) is not enough here.
  */
 
+import { IDLE } from "./activity.js";
+
 export const store = {
   /** The signed-in person's conversations, as last replied by `list`. */
   sessions: [],
@@ -31,8 +33,17 @@ export const store = {
    *  conversation: wire.ts's `#envStatus` is a property of the socket's own
    *  environment, not of any one stream. */
   env: null,
+  /* What each conversation is doing right now, by conversation id.
+   *
+   * Unlike the legacy store's field of the same name this is *derived*, not
+   * pushed: this wire sends `event` frames only for conversations the socket
+   * has subscribed to, so an entry exists only for a conversation with an open
+   * tab. lib/activity.js's header says what that costs and why. Written in one
+   * place (app.js's `applyFrame`) alongside `busyIds`, so the dot and the step
+   * cannot disagree about whether a conversation is working. */
+  activity: {},
   /** Conversation ids with a turn running (between `turn-started` and
-   *  `turn-finished`/`cancelled`). */
+   *  `turn-finished`/`cancelled`). Kept in step with `activity` by its writer. */
   busyIds: new Set(),
   /** Conversation ids with a submitted message still waiting on `accepted` —
    *  that conversation's composer is locked so a second Enter cannot send it
@@ -71,6 +82,16 @@ export const store = {
     }
   },
 
+  /** What `id` is doing, or the idle stand-in for a conversation nothing is known about. */
+  activityOf(id) {
+    return (id != null && this.activity[id]) || IDLE;
+  },
+  /** Replaces one conversation's activity, notifying only when it actually moved. */
+  setActivity(id, next) {
+    if (id == null || this.activity[id] === next) return;
+    this.activity = { ...this.activity, [id]: next };
+    this.touch("activity");
+  },
   isBusy(id) {
     return id != null && this.busyIds.has(id);
   },

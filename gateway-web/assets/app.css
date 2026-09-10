@@ -233,7 +233,9 @@ body { display: flex; flex-direction: column; }
    views/sessions.js's doc comment says what the legacy list also did that this
    one no longer speaks a wire for: day-grouping, an owner-grouped "everyone's
    conversations" view, sub-agent rows nested under their parent, and archive/
-   restore. This list is a flat, most-recent-first row of buttons. */
+   restore. This list is a flat, most-recent-first row of buttons, each saying
+   what its conversation is doing. Colour stays on the dot and the text, never
+   on the row. */
 
 .session-list {
   flex: 1 1 auto;
@@ -278,18 +280,24 @@ body { display: flex; flex-direction: column; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .session-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* The dot only ever appears on a working conversation's row (sessions.js
- * appends it conditionally), so it needs no idle state of its own. */
+/* The dot appears on the second line of a row that is doing something —
+ * working or failed (sessions.js appends it conditionally) — so it needs no
+ * idle state of its own. Its pulse runs off the same --phase as the sheen, so
+ * a redraw mid-pulse does not restart it. */
 .session-dot {
   flex: none;
   width: 6px; height: 6px;
   border-radius: var(--r-pill);
+}
+.session-line.is-working .session-dot {
   background: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-wash);
   animation: pulse 1.4s var(--ease) infinite;
+  animation-delay: var(--phase, 0ms);
 }
+.session-line.is-failed .session-dot { background: var(--err); }
 @media (prefers-reduced-motion: reduce) {
-  .session-dot { animation: none; }
+  .session-line.is-working .session-dot { animation: none; }
 }
 /* The clock at the row's right edge: how long since the conversation last
  * moved. Mono because it is a quantity. */
@@ -305,11 +313,98 @@ body { display: flex; flex-direction: column; }
 }
 
 .session-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-top: 1px;
   font-size: var(--text-xs);
   color: var(--text-faint);
   line-height: 1.4;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* An unusual ending — stopped by you, interrupted by a restart — standing in
+ * for the preview until the conversation moves again. */
+.session-line.is-noted { color: var(--text-dim); font-style: italic; }
+.session-line.is-failed .session-step { color: var(--err); }
+
+/* The step is laid out first at its full width and the tallies take what is
+ * left, truncating: "web-search · 12 steps · $0.34" is wider than the line even
+ * at 272px, and with the tallies fixed the step shrank to "R…" while they ran
+ * off the edge. A zero flex basis on the tallies is what makes the step win. */
+.session-step {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.session-tool { font-family: var(--mono); }
+.session-facts {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden; text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+/* The sheen. Two parts: a brighter band gliding through the step's text (the
+ * text is the gradient, clipped to its glyphs), and a fainter wash sweeping the
+ * whole row underneath. Both run off one clock via --phase, which
+ * views/sessions.js sets per row from wall time — through CSSOM, since the CSP
+ * blocks a style= attribute — so a redraw mid-pass does not snap them back to
+ * the start and every working row moves together. */
+.session-line.is-working .session-step {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  background-image: linear-gradient(
+    90deg,
+    var(--text-dim) 0%,
+    var(--text-dim) 38%,
+    var(--text) 50%,
+    var(--text-dim) 62%,
+    var(--text-dim) 100%
+  );
+  background-size: 250% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: sheen-text var(--sheen) linear infinite;
+  animation-delay: var(--phase, 0ms);
+}
+@keyframes sheen-text {
+  from { background-position: 100% 0; }
+  to   { background-position: 0% 0; }
+}
+.session.is-working::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(
+    100deg,
+    transparent 35%,
+    var(--accent-wash) 50%,
+    transparent 65%
+  );
+  background-size: 250% 100%;
+  background-repeat: no-repeat;
+  opacity: .55;
+  animation: sheen-row var(--sheen) linear infinite;
+  animation-delay: var(--phase, 0ms);
+}
+@keyframes sheen-row {
+  from { background-position: 100% 0; }
+  to   { background-position: 0% 0; }
+}
+/* Reduced motion keeps every state readable and drops only the movement: the
+ * step goes back to being ordinary text rather than a transparent gradient,
+ * which would otherwise leave it invisible with the animation switched off. */
+@media (prefers-reduced-motion: reduce) {
+  .session-line.is-working .session-step {
+    animation: none;
+    background-image: none;
+    color: var(--text);
+    -webkit-text-fill-color: currentColor;
+  }
+  .session.is-working::after { display: none; }
 }
 
 .session-empty { padding: 10px 11px; font-size: var(--text-xs); color: var(--text-faint); }

@@ -90,3 +90,47 @@ await test('Session metadata, input size, loading size and concurrent read queue
     const listed = await f.sessions.list(); assert.ok(!listed.ok); assert.equal(listed.error.code, 'io');
   } finally { await f.close(); }
 });
+
+await test('a submitted turn names its conversation from the first message and previews the reply', async () => {
+  let at = 5_000;
+  const f = await sessionFixture(undefined, () => { at += 1000; return at; });
+  try {
+    const created = await f.sessions.create({ surface: 'web' }); assert.ok(created.ok);
+    assert.equal(created.value.title, undefined, 'a conversation nobody has spoken to has no name to show.');
+    assert.ok((await f.sessions.submit(created.value.id, { text: 'Ship the sidebar', attachments: [] })).ok);
+    const listed = await f.sessions.list(); assert.ok(listed.ok);
+    const [row] = listed.value; assert.ok(row);
+    assert.equal(row.title, 'Ship the sidebar');
+    assert.equal(row.preview, 'Hello.', 'the row previews the reply, which is where the conversation now is.');
+    assert.ok(Number(row.updatedMs) > Number(row.createdMs), 'a turn moves the row to the top of the sidebar.');
+
+    assert.ok((await f.sessions.submit(created.value.id, { text: 'And the tabs', attachments: [] })).ok);
+    const again = await f.sessions.list(); assert.ok(again.ok);
+    const [second] = again.value; assert.ok(second);
+    assert.equal(second.title, 'Ship the sidebar', 'the first message keeps the name; nothing on this wire renames it.');
+    assert.ok(Number(second.updatedMs) > Number(row.updatedMs));
+  } finally { await f.close(); }
+});
+
+await test('a conversation is named even when its turn never returns a reply', async () => {
+  const refusing: Vendor = {
+    describe: () => Promise.resolve({ ok: true, value: { models: [] } }), estimate: () => 0.01,
+    async *exchange() { await Promise.resolve(); yield { type: 'error', code: 'provider', message: 'The vendor refused.' }; }
+  };
+  const f = await sessionFixture(refusing);
+  try {
+    const created = await f.sessions.create({ surface: 'web' }); assert.ok(created.ok);
+    const large = await f.sessions.submit(created.value.id, { text: 'x'.repeat(sessionLimits.inputBytes), attachments: [] });
+    assert.ok(!large.ok, 'an input refused before the store is reached names nothing.');
+    const before = await f.sessions.exists(created.value.id); assert.ok(before.ok);
+    assert.equal(before.value.title, undefined);
+
+    // The name is written before the vendor is called, so a turn that never produces a reply still
+    // leaves a row a person can find again — which is the whole point of naming it that early.
+    const failed = await f.sessions.submit(created.value.id, { text: 'Name me anyway', attachments: [] });
+    assert.ok(!failed.ok);
+    const after = await f.sessions.exists(created.value.id); assert.ok(after.ok);
+    assert.equal(after.value.title, 'Name me anyway');
+    assert.equal(after.value.preview, 'Name me anyway', 'with no reply, the row still shows what was asked.');
+  } finally { await f.close(); }
+});

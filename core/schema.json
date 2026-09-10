@@ -8,7 +8,12 @@
         "id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
         "surface": { "type": "string", "minLength": 1, "maxLength": 256 },
         "prefixGeneration": { "type": "integer", "minimum": 1 },
-        "project": { "type": "string", "minLength": 1, "maxLength": 256 }
+        "project": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "preview": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "createdMs": { "type": "integer", "minimum": 0 },
+        "updatedMs": { "type": "integer", "minimum": 0 },
+        "archived": { "type": "boolean" }
       }
     }
   },
