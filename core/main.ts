@@ -1,9 +1,9 @@
 /** Keep kernel authority on the responsive monitor and all turns inside its sandbox worker; ADR 0027, KS-001. */
-import { authority } from '../../lib/sandbox-runner/authority.ts';
-import { Peer } from '../../lib/socket/index.ts';
-import { Schemas } from '../../lib/schema/index.ts';
-import type { Result } from '../../lib/schema/index.ts';
-import { clock } from '../../lib/events/index.ts';
+import { authority } from '@/lib/sandbox-runner/authority.ts';
+import { Peer } from '@/lib/socket/index.ts';
+import { Schemas } from '@/lib/schema/index.ts';
+import type { Result } from '@/lib/schema/index.ts';
+import { clock } from '@/lib/events/index.ts';
 import { Environment } from './environment.ts';
 import { KernelControl } from './kernel-control.ts';
 import { initialize } from './startup.ts';

@@ -1,7 +1,7 @@
 /** Parse concrete scoped commands without inventing kernel-origin authority; KS-004–005, KS-015. */
-import type { Method } from '../../contracts/kernel-socket/types.ts';
-import { failure } from '../../lib/schema/index.ts';
-import type { Result } from '../../lib/schema/index.ts';
+import type { Method } from '@/contracts/kernel-socket/types.ts';
+import { failure } from '@/lib/schema/index.ts';
+import type { Result } from '@/lib/schema/index.ts';
 
 type Command = { method: Method; params: Record<string, unknown> };
 const mapped = new Map<string, Method>([['status', 'env.status'], ['logs', 'env.logs'], ['reset', 'env.reset'], ['profile', 'profile.get'], ['health', 'health.probe'], ['list', 'session.list']]);

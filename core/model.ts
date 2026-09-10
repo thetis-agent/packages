@@ -1,9 +1,9 @@
 /** Assemble bounded normalized provider events while preserving reasoning; TE-027–028, PR-015. */
-import type { Provider } from '../../lib/provider/index.ts';
-import type { RequestEvent, ResponseEvent } from '../../contracts/provider/types.ts';
-import type { Message } from '../../contracts/turn-events/types.ts';
-import type { Result } from '../../lib/schema/index.ts';
-import { failure } from '../../lib/schema/index.ts';
+import type { Provider } from '@/lib/provider/index.ts';
+import type { RequestEvent, ResponseEvent } from '@/contracts/provider/types.ts';
+import type { Message } from '@/contracts/turn-events/types.ts';
+import type { Result } from '@/lib/schema/index.ts';
+import { failure } from '@/lib/schema/index.ts';
 
 export const limits = { outputBytes: 1024 * 1024, calls: 64, callBytes: 1024 * 1024 };
 export interface ModelAnswer {

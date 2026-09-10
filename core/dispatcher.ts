@@ -1,11 +1,11 @@
 /** Enforce hook ownership, frozen observers and isolated appends; TE-002–003, TE-025–026. */
-import type { Envelope, Context, ToolDef, OfferRequest, CallRequest, CallAnswer } from '../../contracts/turn-events/types.ts';
-import type { RetrieveRequest, RetrieveAnswer } from '../../contracts/skills/types.ts';
-import type { Stage, StageRow } from '../../lib/events/stages.ts';
-import { frozen } from '../../lib/events/stages.ts';
-import type { Clock } from '../../lib/events/index.ts';
-import type { Schemas } from '../../lib/schema/index.ts';
-import type { SpillSink } from '../../lib/spill/index.ts';
+import type { Envelope, Context, ToolDef, OfferRequest, CallRequest, CallAnswer } from '@/contracts/turn-events/types.ts';
+import type { RetrieveRequest, RetrieveAnswer } from '@/contracts/skills/types.ts';
+import type { Stage, StageRow } from '@/lib/events/stages.ts';
+import { frozen } from '@/lib/events/stages.ts';
+import type { Clock } from '@/lib/events/index.ts';
+import type { Schemas } from '@/lib/schema/index.ts';
+import type { SpillSink } from '@/lib/spill/index.ts';
 
 export const defaults = { observerMs: 5, stages: 256, rows: 512, tools: 1024, appendMessages: 256 };
 interface Owner { stage: Stage; tool: ToolDef }

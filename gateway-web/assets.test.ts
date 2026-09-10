@@ -8,7 +8,7 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, posix, extname } from 'node:path';
-import { isObject } from '../../lib/schema/index.ts';
+import { isObject } from '@/lib/schema/index.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const assetsRoot = join(here, 'assets');

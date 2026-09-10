@@ -1,9 +1,9 @@
 /** Resolve the thetis_session cookie to a kernel identity on every request and once per WebSocket
  * upgrade, trusting the kernel's answer and never the request path; ADR 0038 §4, KS-023. */
-import type { Peer } from '../../lib/socket/index.ts';
-import { cookie } from '../../lib/http/index.ts';
-import { failure, isObject } from '../../lib/schema/index.ts';
-import type { Result } from '../../lib/schema/index.ts';
+import type { Peer } from '@/lib/socket/index.ts';
+import { cookie } from '@/lib/http/index.ts';
+import { failure, isObject } from '@/lib/schema/index.ts';
+import type { Result } from '@/lib/schema/index.ts';
 
 export interface Signed { person: string; role: string }
 

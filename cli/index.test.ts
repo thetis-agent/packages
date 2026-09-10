@@ -2,8 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execute, run, settings } from './index.ts';
-import { cliFixture } from '../../test/cli-fixture.ts';
-import { failure, isObject } from '../../lib/schema/index.ts';
+import { cliFixture } from '@/test/cli-fixture.ts';
+import { failure, isObject } from '@/lib/schema/index.ts';
 import { command } from './command.ts';
 
 await test('KS-004 CLI creates, lists and submits through the scoped session API without a person argument', async () => {

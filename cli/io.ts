@@ -1,6 +1,6 @@
 /** Wait for output delivery and refuse closed pipes without buffering commands; KS-018. */
 import type { Writable } from 'node:stream';
-import { failure } from '../../lib/schema/index.ts';
+import { failure } from '@/lib/schema/index.ts';
 import type { IO } from './index.ts';
 
 export function output(stream: Writable): IO {

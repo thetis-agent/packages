@@ -1,5 +1,5 @@
 /** Declare argument schemas and mutability separately from request policy; TE-012, TE-018. */
-import type { ToolDef } from '../../contracts/turn-events/types.ts';
+import type { ToolDef } from '@/contracts/turn-events/types.ts';
 
 const string = { type: 'string' };
 const count = { type: 'integer', minimum: 1, maximum: 10000 };

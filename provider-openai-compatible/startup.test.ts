@@ -2,10 +2,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { configure } from './startup.ts';
-import { providerFixture } from '../../test/provider-fixture.ts';
-import { Schemas } from '../../lib/schema/index.ts';
-import { ManualClock } from '../../lib/events/index.ts';
-import type { ModelCap } from '../../contracts/provider/types.ts';
+import { providerFixture } from '@/test/provider-fixture.ts';
+import { Schemas } from '@/lib/schema/index.ts';
+import { ManualClock } from '@/lib/events/index.ts';
+import type { ModelCap } from '@/contracts/provider/types.ts';
 
 const model: ModelCap = { id: 'model', contextWindow: 100, maxOutput: 10, tools: true, images: false, cache: 'none', seed: false, reasoning: false };
 

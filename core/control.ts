@@ -1,19 +1,19 @@
 /** Keep session control separate from the provider stream inside the environment; KS-004, ADR 0019. */
-import { connect } from '../../lib/ndjson/socket.ts';
-import { Peer } from '../../lib/socket/index.ts';
-import type { Handler } from '../../lib/socket/index.ts';
-import type { Method, Note } from '../../contracts/kernel-socket/types.ts';
-import type { Input } from '../../contracts/turn-events/types.ts';
-import { ProviderClient } from '../../lib/provider/client.ts';
-import { clock } from '../../lib/events/index.ts';
-import type { Stage } from '../../lib/events/stages.ts';
-import type { Schemas, Result } from '../../lib/schema/index.ts';
-import { failure } from '../../lib/schema/index.ts';
-import type { Runtime } from '../../lib/package-loader/types.ts';
+import { connect } from '@/lib/ndjson/socket.ts';
+import { Peer } from '@/lib/socket/index.ts';
+import type { Handler } from '@/lib/socket/index.ts';
+import type { Method, Note } from '@/contracts/kernel-socket/types.ts';
+import type { Input } from '@/contracts/turn-events/types.ts';
+import { ProviderClient } from '@/lib/provider/client.ts';
+import { clock } from '@/lib/events/index.ts';
+import type { Stage } from '@/lib/events/stages.ts';
+import type { Schemas, Result } from '@/lib/schema/index.ts';
+import { failure } from '@/lib/schema/index.ts';
+import type { Runtime } from '@/lib/package-loader/types.ts';
 import { Sessions } from './sessions.ts';
 import { capabilities, publicCapabilities } from './protocol.ts';
-import { SessionEvents } from '../../lib/session/index.ts';
-import { Service, serviceLimits } from '../../lib/service/lifecycle.ts';
+import { SessionEvents } from '@/lib/session/index.ts';
+import { Service, serviceLimits } from '@/lib/service/lifecycle.ts';
 
 class SessionControl {
   readonly #sessions: Sessions;

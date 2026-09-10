@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Schemas } from '../../lib/schema/index.ts';
+import { Schemas } from '@/lib/schema/index.ts';
 import { Conversation, compact } from './conversation.ts';
-import type { Message } from '../../contracts/turn-events/types.ts';
+import type { Message } from '@/contracts/turn-events/types.ts';
 
 await test('Conversation JSONL preserves id/parentId branches across reload', async () => {
   const root = await mkdtemp(join(tmpdir(), 'thetis-history-'));

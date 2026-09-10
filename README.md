@@ -38,3 +38,8 @@ verified offline distribution after all gates pass. Configure the peer checkout
 and release environment using the runtime's
 [CI and delivery guide](https://github.com/thetis-agent/runtime/blob/main/docs/ci-delivery.md).
 Production promotion remains the kernel's evaluator-backed, code-confirmed act.
+
+Imports of shared runtime code use `@/lib/...` and `@/contracts/...`; `@/`
+means the installed runtime root. Imports within a package stay relative.
+Run checks and tests through the sibling runtime's npm scripts, which install
+the resolution preload before loading source code.

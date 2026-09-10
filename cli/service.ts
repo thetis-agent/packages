@@ -1,13 +1,13 @@
 /** Serve bounded headless commands only through a person's mounted socket; KS-004–005. */
 import { readFile } from 'node:fs/promises';
-import { serve } from '../../lib/service/index.ts';
-import { socketFrames } from '../../lib/ndjson/socket.ts';
-import { FrameWriter } from '../../lib/ndjson/writer.ts';
-import { failure, isObject } from '../../lib/schema/index.ts';
+import { serve } from '@/lib/service/index.ts';
+import { socketFrames } from '@/lib/ndjson/socket.ts';
+import { FrameWriter } from '@/lib/ndjson/writer.ts';
+import { failure, isObject } from '@/lib/schema/index.ts';
 import { capabilities, execute } from './index.ts';
-import { clock } from '../../lib/events/index.ts';
+import { clock } from '@/lib/events/index.ts';
 import { streamFor } from './stream.ts';
-import type { SessionClient } from '../../lib/session/client.ts';
+import type { SessionClient } from '@/lib/session/client.ts';
 import type { Contract } from './types.ts';
 
 const result = await serve(async (_settings, schemas, peer) => {

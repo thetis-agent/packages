@@ -1,9 +1,9 @@
 /** Keep headless commands within inherited, scoped kernel authority; KS-001–005. */
 import { fileURLToPath } from 'node:url';
-import type { SessionClient } from '../../lib/session/client.ts';
-import type { Peer } from '../../lib/socket/index.ts';
-import { failure } from '../../lib/schema/index.ts';
-import type { Result } from '../../lib/schema/index.ts';
+import type { SessionClient } from '@/lib/session/client.ts';
+import type { Peer } from '@/lib/socket/index.ts';
+import { failure } from '@/lib/schema/index.ts';
+import type { Result } from '@/lib/schema/index.ts';
 import { command } from './command.ts';
 
 export const stages = {};

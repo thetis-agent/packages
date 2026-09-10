@@ -1,7 +1,7 @@
 /** Bound scrypt work outside the event loop and retain no plaintext passwords; ADR 0018 §2. */
 import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
-import { failure } from '../../lib/schema/index.ts';
-import type { Result } from '../../lib/schema/index.ts';
+import { failure } from '@/lib/schema/index.ts';
+import type { Result } from '@/lib/schema/index.ts';
 import type { Credential } from './types.ts';
 
 export const settings = { workers: 2, cost: 16384, blockSize: 8, parallelism: 1, memoryBytes: 33554432, passwordBytes: 4096 };

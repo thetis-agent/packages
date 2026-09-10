@@ -1,11 +1,11 @@
 /** Hold session admission until initialization is settled, while keeping health and stop responsive; ADR 0027. */
-import type { Method, Note } from '../../contracts/kernel-socket/types.ts';
-import type { Handler } from '../../lib/socket/index.ts';
-import type { Result } from '../../lib/schema/index.ts';
-import { failure } from '../../lib/schema/index.ts';
+import type { Method, Note } from '@/contracts/kernel-socket/types.ts';
+import type { Handler } from '@/lib/socket/index.ts';
+import type { Result } from '@/lib/schema/index.ts';
+import { failure } from '@/lib/schema/index.ts';
 import { timing } from './startup-timing.ts';
 import { flushCompileCache } from 'node:module';
-import { Queue } from '../../lib/events/queue.ts';
+import { Queue } from '@/lib/events/queue.ts';
 import type { Environment } from './environment.ts';
 import { sessionMethods } from './protocol.ts';
 

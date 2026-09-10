@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Rotation, rotation, rotationStage } from './rotation.ts';
-import { Schemas } from '../../lib/schema/index.ts';
-import type { Result } from '../../lib/result/index.ts';
+import { Schemas } from '@/lib/schema/index.ts';
+import type { Result } from '@/lib/result/index.ts';
 await test('ADR-0004 monthly stage init produces identical private drafts and never invents checks or promotes them', async () => {
   const root = await mkdtemp('/tmp/rotation-'); const schemas = new Schemas(); await schemas.load();
   try {

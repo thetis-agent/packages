@@ -5,8 +5,8 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { stages } from './index.ts';
-import { SpillSink } from '../../lib/spill/index.ts';
-import type { CallRequest } from '../../contracts/turn-events/types.ts';
+import { SpillSink } from '@/lib/spill/index.ts';
+import type { CallRequest } from '@/contracts/turn-events/types.ts';
 
 async function fixture() {
   const root = await mkdtemp('/tmp/files-'); const work = join(root, 'work');

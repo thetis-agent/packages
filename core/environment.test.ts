@@ -4,13 +4,13 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Environment } from './environment.ts';
-import { Schemas, isObject } from '../../lib/schema/index.ts';
-import { ManualClock } from '../../lib/events/index.ts';
-import { discover } from '../../lib/package-loader/index.ts';
-import type { Note } from '../../contracts/kernel-socket/types.ts';
-import type { Setup, WorkerMessage } from '../../lib/package-loader/types.ts';
-import { listen } from '../../lib/provider/server.ts';
-import { providerFixture } from '../../test/provider-fixture.ts';
+import { Schemas, isObject } from '@/lib/schema/index.ts';
+import { ManualClock } from '@/lib/events/index.ts';
+import { discover } from '@/lib/package-loader/index.ts';
+import type { Note } from '@/contracts/kernel-socket/types.ts';
+import type { Setup, WorkerMessage } from '@/lib/package-loader/types.ts';
+import { listen } from '@/lib/provider/server.ts';
+import { providerFixture } from '@/test/provider-fixture.ts';
 
 await test('TE-001 the worker runs imported file tools and keeps provider events off its monitor messages', async () => {
   const root = await mkdtemp('/tmp/environment-'); const schemas = new Schemas(); await schemas.load(); const clock = new ManualClock();

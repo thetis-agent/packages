@@ -1,15 +1,15 @@
 /** Canonicalize private suite assets before admitting their deterministic checks; EV-002, ADR 0004. */
 import { opendir } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Root } from '../../lib/files/index.ts';
-import { resolvePath } from '../../lib/files/index.ts';
-import { readBounded } from '../../lib/files/read-bounded.ts';
-import { snapshot } from '../../lib/snapshots/index.ts';
-import { failure, isObject } from '../../lib/result/index.ts';
-import type { Result } from '../../lib/result/index.ts';
-import { validators } from '../../lib/evaluation/index.ts';
-import type { Schemas } from '../../lib/schema/index.ts';
-import type { Task } from '../../lib/evaluation/index.ts';
+import type { Root } from '@/lib/files/index.ts';
+import { resolvePath } from '@/lib/files/index.ts';
+import { readBounded } from '@/lib/files/read-bounded.ts';
+import { snapshot } from '@/lib/snapshots/index.ts';
+import { failure, isObject } from '@/lib/result/index.ts';
+import type { Result } from '@/lib/result/index.ts';
+import { validators } from '@/lib/evaluation/index.ts';
+import type { Schemas } from '@/lib/schema/index.ts';
+import type { Task } from '@/lib/evaluation/index.ts';
 export const suiteLimits = { tasks: 256, taskBytes: 131072, bytes: 4194304 };
 
 async function task(root: string, id: string, schemas: Schemas): Promise<Result<{ task: Task; bytes: number }>> {

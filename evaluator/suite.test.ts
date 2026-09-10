@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { suite } from './suite.ts';
-import { Schemas } from '../../lib/schema/index.ts';
+import { Schemas } from '@/lib/schema/index.ts';
 await test('EV-002 private suite loader verifies every task path and hashes the complete suite', async () => {
   const root = await mkdtemp('/tmp/private-suite-'); const directory = join(root, 'tasks/task'); await mkdir(join(directory, 'fixture'), { recursive: true }); await mkdir(join(directory, 'checks'));
   await writeFile(join(directory, 'checks/run.sh'), 'exit 0\n');

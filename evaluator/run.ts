@@ -1,12 +1,12 @@
 /** Keep private task data at the evaluator while ordinary inputs cross the candidate boundary; EV-001–004. */
-import { failure } from '../../lib/result/index.ts';
-import type { Result } from '../../lib/result/index.ts';
-import { seed, seedIdentity } from '../../lib/evaluation/index.ts';
-import type { Plan, Row, Submission, Task } from '../../lib/evaluation/index.ts';
+import { failure } from '@/lib/result/index.ts';
+import type { Result } from '@/lib/result/index.ts';
+import { seed, seedIdentity } from '@/lib/evaluation/index.ts';
+import type { Plan, Row, Submission, Task } from '@/lib/evaluation/index.ts';
 import { mutate } from './mutate.ts';
 
-import type { TurnJob, Outcome, CheckJob } from '../../lib/evaluation/types.ts';
-export type { TurnJob, Outcome, CheckJob } from '../../lib/evaluation/types.ts';
+import type { TurnJob, Outcome, CheckJob } from '@/lib/evaluation/types.ts';
+export type { TurnJob, Outcome, CheckJob } from '@/lib/evaluation/types.ts';
 export interface Execution {
   turn(job: TurnJob): Promise<Result<Outcome>>;
   score(job: CheckJob): Promise<Result<{ pass: boolean }>>;

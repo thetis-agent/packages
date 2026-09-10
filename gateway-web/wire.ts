@@ -1,13 +1,13 @@
 /** Route authority through inherited control and content through person-scoped subscriptions; KS-004,
  * ADR 0019. The `hello` reply is a `user` frame carrying this connection's signed-in name and role,
  * per ADR 0038 D4/D2 — app.js's `.on("user", ...)` handler is the counterpart. */
-import type { Peer } from '../../lib/socket/index.ts';
-import type { ConnectKernel } from '../../contracts/kernel-socket/types.ts';
-import type { Schemas, Result } from '../../lib/schema/index.ts';
-import { failure, isObject } from '../../lib/schema/index.ts';
-import { mounted } from '../../lib/session/mount.ts';
-import type { SessionClient } from '../../lib/session/client.ts';
-import type { Clock } from '../../lib/events/index.ts';
+import type { Peer } from '@/lib/socket/index.ts';
+import type { ConnectKernel } from '@/contracts/kernel-socket/types.ts';
+import type { Schemas, Result } from '@/lib/schema/index.ts';
+import { failure, isObject } from '@/lib/schema/index.ts';
+import { mounted } from '@/lib/session/mount.ts';
+import type { SessionClient } from '@/lib/session/client.ts';
+import type { Clock } from '@/lib/events/index.ts';
 import type { Contract } from './types.ts';
 import { render } from './render.ts';
 import { settings } from './index.ts';

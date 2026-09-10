@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TurnReport, reportLimits } from './report.ts';
-import { isObject } from '../../lib/schema/index.ts';
+import { isObject } from '@/lib/schema/index.ts';
 
 await test('ADR-0019 token observations become one counted diagnostic row without token content', () => {
   const report = new TurnReport();

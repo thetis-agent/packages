@@ -5,8 +5,8 @@
  * forward-looking mappings: nothing in the running kernel emits them onto this wire yet (`lib/session/schema.json`
  * still narrows `session.events` to token/output/end), so these branches are exercised only by render.test.ts
  * until that schema is widened. */
-import { isObject } from '../../lib/schema/index.ts';
-import type { Batch } from '../../lib/session/types.ts';
+import { isObject } from '@/lib/schema/index.ts';
+import type { Batch } from '@/lib/session/types.ts';
 
 /** `events` accepts the real generated `Batch['events']` member for the kinds `lib/session/schema.json`
  *  already names (`token`/`output`/`end`, each carrying the full envelope now that the generator

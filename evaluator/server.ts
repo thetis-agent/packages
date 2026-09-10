@@ -1,10 +1,10 @@
 /** Accept bounded evaluation requests while keeping private rows off the query surface; ADR 0014 §5. */
-import type { Factory } from '../../lib/service/index.ts';
-import { failure } from '../../lib/result/index.ts';
-import { socketFrames, send } from '../../lib/ndjson/socket.ts';
-import schema from '../../contracts/evaluator/schema.json' with { type: 'json' };
-import type { Startup, Request } from '../../lib/evaluation/types.ts';
-import { calculate } from '../../lib/evaluation/index.ts';
+import type { Factory } from '@/lib/service/index.ts';
+import { failure } from '@/lib/result/index.ts';
+import { socketFrames, send } from '@/lib/ndjson/socket.ts';
+import schema from '@/contracts/evaluator/schema.json' with { type: 'json' };
+import type { Startup, Request } from '@/lib/evaluation/types.ts';
+import { calculate } from '@/lib/evaluation/index.ts';
 import { Evaluator } from './run.ts';
 import { delegated } from './execution.ts';
 

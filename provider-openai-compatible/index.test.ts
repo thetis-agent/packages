@@ -1,10 +1,10 @@
 /** Script only the HTTP vendor while exercising real reservations and normalization; PR-001–012. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { ModelCap, RequestEvent } from '../../contracts/provider/types.ts';
-import { Schemas, isObject } from '../../lib/schema/index.ts';
-import { ManualClock } from '../../lib/events/index.ts';
-import { providerFixture, collect, request, stream } from '../../test/provider-fixture.ts';
+import type { ModelCap, RequestEvent } from '@/contracts/provider/types.ts';
+import { Schemas, isObject } from '@/lib/schema/index.ts';
+import { ManualClock } from '@/lib/events/index.ts';
+import { providerFixture, collect, request, stream } from '@/test/provider-fixture.ts';
 import { create } from './index.ts';
 import type { Fetcher } from './index.ts';
 

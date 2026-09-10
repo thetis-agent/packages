@@ -1,8 +1,8 @@
 /** Exercise both shipped CLI entries with inherited authority rather than a process mock; KS-001–005. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cliProcess, cliRequest } from '../../test/cli-process.ts';
-import { isObject } from '../../lib/schema/index.ts';
+import { cliProcess, cliRequest } from '@/test/cli-process.ts';
+import { isObject } from '@/lib/schema/index.ts';
 
 await test('KS-001 the one-shot CLI consumes inherited authority and writes a bounded scoped result', async () => {
   const f = await cliProcess('main', ['status']);

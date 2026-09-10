@@ -3,14 +3,14 @@ import { realpath, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { Initializer } from './initialization.ts';
-import { validator } from '../../lib/package-loader/index.ts';
-import type { DiscoveryStartup, DiscoveryRequest, Captured, Setup } from '../../lib/package-loader/types.ts';
-import { failure } from '../../lib/schema/index.ts';
-import type { Schemas, Result } from '../../lib/schema/index.ts';
-import { socketFrames, send } from '../../lib/ndjson/socket.ts';
-import type { Connection } from '../../lib/service/lifecycle.ts';
-import { clock } from '../../lib/events/index.ts';
-import { encode } from '../../lib/ndjson/index.ts';
+import { validator } from '@/lib/package-loader/index.ts';
+import type { DiscoveryStartup, DiscoveryRequest, Captured, Setup } from '@/lib/package-loader/types.ts';
+import { failure } from '@/lib/schema/index.ts';
+import type { Schemas, Result } from '@/lib/schema/index.ts';
+import { socketFrames, send } from '@/lib/ndjson/socket.ts';
+import type { Connection } from '@/lib/service/lifecycle.ts';
+import { clock } from '@/lib/events/index.ts';
+import { encode } from '@/lib/ndjson/index.ts';
 
 async function checked(input: unknown, schemas: Schemas): Promise<Result<DiscoveryStartup>> {
   if (!(await validator<DiscoveryStartup>(schemas, 'discoveryStartup'))(input) || input.setup.runtime !== undefined) return failure('invalid-args', 'The discovery startup must contain a package-only profile.');

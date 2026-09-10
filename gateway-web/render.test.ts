@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { render, limits } from './render.ts';
 import type { EventBatch } from './render.ts';
-import type * as TurnEvents from '../../contracts/turn-events/types.ts';
+import type * as TurnEvents from '@/contracts/turn-events/types.ts';
 
 const conversation = 'c1';
 function envelope(type: TurnEvents.Envelope['type'], payload: Record<string, unknown>): TurnEvents.Envelope {

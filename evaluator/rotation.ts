@@ -2,14 +2,14 @@
 import { createHash } from 'node:crypto';
 import { mkdir, writeFile, rename, lstat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { resolvePath } from '../../lib/files/index.ts';
-import { readBounded } from '../../lib/files/read-bounded.ts';
-import { failure } from '../../lib/result/index.ts';
-import type { Result } from '../../lib/result/index.ts';
-import type { Schemas } from '../../lib/schema/index.ts';
-import type { Stage } from '../../lib/events/stages.ts';
-import schema from '../../contracts/evaluator/schema.json' with { type: 'json' };
-import type { Draft, RotationInput, TaskHistory } from '../../contracts/evaluator/types.ts';
+import { resolvePath } from '@/lib/files/index.ts';
+import { readBounded } from '@/lib/files/read-bounded.ts';
+import { failure } from '@/lib/result/index.ts';
+import type { Result } from '@/lib/result/index.ts';
+import type { Schemas } from '@/lib/schema/index.ts';
+import type { Stage } from '@/lib/events/stages.ts';
+import schema from '@/contracts/evaluator/schema.json' with { type: 'json' };
+import type { Draft, RotationInput, TaskHistory } from '@/contracts/evaluator/types.ts';
 
 export const rotationLimits = { inputs: 256, bytes: 4194304, history: 6144, retirementPassRate: 0.95, hold: [60, 80] };
 function monthIndex(month: string): number {

@@ -1,10 +1,10 @@
 /** Delegate verified run and snapshot operations without granting namespace authority to evaluation code; ADR 0017. */
-import type { Peer } from '../../lib/socket/index.ts';
-import type { Schemas } from '../../lib/schema/index.ts';
-import { failure } from '../../lib/result/index.ts';
-import type { Result } from '../../lib/result/index.ts';
-import schema from '../../contracts/evaluator/schema.json' with { type: 'json' };
-import type { Startup, Outcome, ScoreOutcome } from '../../lib/evaluation/types.ts';
+import type { Peer } from '@/lib/socket/index.ts';
+import type { Schemas } from '@/lib/schema/index.ts';
+import { failure } from '@/lib/result/index.ts';
+import type { Result } from '@/lib/result/index.ts';
+import schema from '@/contracts/evaluator/schema.json' with { type: 'json' };
+import type { Startup, Outcome, ScoreOutcome } from '@/lib/evaluation/types.ts';
 import type { Execution, TurnJob, CheckJob } from './run.ts';
 
 export function delegated(peer: Peer, settings: Startup, schemas: Schemas): Execution {

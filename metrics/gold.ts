@@ -1,12 +1,12 @@
 /** Split private retrieval gold reproducibly without exposing held-out queries to candidates; SK-012, ADR 0004. */
 import { createHmac } from 'node:crypto';
 import { join } from 'node:path';
-import { resolvePath } from '../../lib/files/index.ts';
-import { fileFrames } from '../../lib/ndjson/file.ts';
-import { failure } from '../../lib/schema/index.ts';
-import type { Schemas, Result } from '../../lib/schema/index.ts';
-import schema from '../../contracts/metrics/schema.json' with { type: 'json' };
-import type { GoldPair } from '../../contracts/metrics/types.ts';
+import { resolvePath } from '@/lib/files/index.ts';
+import { fileFrames } from '@/lib/ndjson/file.ts';
+import { failure } from '@/lib/schema/index.ts';
+import type { Schemas, Result } from '@/lib/schema/index.ts';
+import schema from '@/contracts/metrics/schema.json' with { type: 'json' };
+import type { GoldPair } from '@/contracts/metrics/types.ts';
 
 export const goldLimits = { rows: 512, frameBytes: 131072, bytes: 4194304 };
 export async function gold(root: string, seed: string, schemas: Schemas): Promise<Result<{ visible: GoldPair[]; heldOut: GoldPair[] }>> {

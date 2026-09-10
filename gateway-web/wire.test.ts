@@ -2,12 +2,12 @@
  * gate; KS-004, KS-019, ADR 0038 D4/D2. */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Peer } from '../../lib/socket/index.ts';
-import type { Handler } from '../../lib/socket/index.ts';
-import type { Method, ConnectKernel } from '../../contracts/kernel-socket/types.ts';
-import { Schemas } from '../../lib/schema/index.ts';
-import { ManualClock } from '../../lib/events/index.ts';
-import { socketPair } from '../../test/socket-pair.ts';
+import { Peer } from '@/lib/socket/index.ts';
+import type { Handler } from '@/lib/socket/index.ts';
+import type { Method, ConnectKernel } from '@/contracts/kernel-socket/types.ts';
+import { Schemas } from '@/lib/schema/index.ts';
+import { ManualClock } from '@/lib/events/index.ts';
+import { socketPair } from '@/test/socket-pair.ts';
 import { Wire } from './wire.ts';
 
 async function fixture(handlers: ReadonlyMap<Method, Handler>, capabilities: readonly string[] = [], role = 'user') {

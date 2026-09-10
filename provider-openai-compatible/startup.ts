@@ -1,12 +1,12 @@
 /** Validate adapter settings separately from the inherited budget and spawn secret; PR-010, PR-013. */
 import { fileURLToPath } from 'node:url';
-import { readBounded } from '../../lib/files/read-bounded.ts';
-import { configured } from '../../lib/schema/settings.ts';
-import { failure, isObject } from '../../lib/schema/index.ts';
-import type { Schemas, Result } from '../../lib/schema/index.ts';
-import type { Clock } from '../../lib/events/index.ts';
-import type { Authority, Budgets, Provider } from '../../lib/provider/index.ts';
-import { gap } from '../../lib/semver-match/index.ts';
+import { readBounded } from '@/lib/files/read-bounded.ts';
+import { configured } from '@/lib/schema/settings.ts';
+import { failure, isObject } from '@/lib/schema/index.ts';
+import type { Schemas, Result } from '@/lib/schema/index.ts';
+import type { Clock } from '@/lib/events/index.ts';
+import type { Authority, Budgets, Provider } from '@/lib/provider/index.ts';
+import { gap } from '@/lib/semver-match/index.ts';
 import { create } from './index.ts';
 import type { Configuration } from './index.ts';
 

@@ -1,7 +1,7 @@
 /** Preserve normalized message order and opaque reasoning at the vendor edge; PR-002, PR-005–007. */
-import type { Message, ModelCap, RequestEvent } from '../../contracts/provider/types.ts';
-import type { Result } from '../../lib/schema/index.ts';
-import { failure, isObject } from '../../lib/schema/index.ts';
+import type { Message, ModelCap, RequestEvent } from '@/contracts/provider/types.ts';
+import type { Result } from '@/lib/schema/index.ts';
+import { failure, isObject } from '@/lib/schema/index.ts';
 
 function message(source: Message): Result<Record<string, unknown>, 'context'> {
   const content: Record<string, unknown>[] = []; const calls: Record<string, unknown>[] = []; const details: unknown[] = [];

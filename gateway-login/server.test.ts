@@ -1,8 +1,8 @@
 /** Guard the sign-in page and the browser form flow beside the existing JSON login tests; ADR 0038 §4. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loginProcess, loginGet, loginFormRequest } from '../../test/login-process.ts';
-import { isObject } from '../../lib/schema/index.ts';
+import { loginProcess, loginGet, loginFormRequest } from '@/test/login-process.ts';
+import { isObject } from '@/lib/schema/index.ts';
 
 const csp = "default-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'";
 

@@ -1,9 +1,9 @@
 /** Validate scripted deployment settings before accepting callers; PR-014, ADR 0016 §1. */
 import { readFile } from 'node:fs/promises';
-import { configured } from '../../lib/schema/settings.ts';
-import { failure, isObject } from '../../lib/schema/index.ts';
-import type { Schemas, Result } from '../../lib/schema/index.ts';
-import type { Authority, Budgets, Provider } from '../../lib/provider/index.ts';
+import { configured } from '@/lib/schema/settings.ts';
+import { failure, isObject } from '@/lib/schema/index.ts';
+import type { Schemas, Result } from '@/lib/schema/index.ts';
+import type { Authority, Budgets, Provider } from '@/lib/provider/index.ts';
 import type { Contract as Configuration } from './types.ts';
 import { MockProvider } from './index.ts';
 

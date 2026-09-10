@@ -1,7 +1,7 @@
 /** Validate vendor chunks once and normalize accounting without exposing vendor error bodies; PR-003, PR-008–009. */
-import type { ResponseEvent, ModelCap } from '../../contracts/provider/types.ts';
-import type { Result, Schemas } from '../../lib/schema/index.ts';
-import { failure, isObject } from '../../lib/schema/index.ts';
+import type { ResponseEvent, ModelCap } from '@/contracts/provider/types.ts';
+import type { Result, Schemas } from '@/lib/schema/index.ts';
+import { failure, isObject } from '@/lib/schema/index.ts';
 
 const optionalText = { type: ['string', 'null'] };
 const amount = { type: 'number', minimum: 0 };

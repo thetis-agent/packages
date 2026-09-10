@@ -1,9 +1,9 @@
 /** Change declared variables while preserving retrieval vocabulary and the paired seed; EV-001, SK-013. */
-import { replace } from '../../lib/evaluation/replace.ts';
-import { seed } from '../../lib/evaluation/index.ts';
-import type { Task } from '../../lib/evaluation/index.ts';
-import { failure } from '../../lib/result/index.ts';
-import type { Result } from '../../lib/result/index.ts';
+import { replace } from '@/lib/evaluation/replace.ts';
+import { seed } from '@/lib/evaluation/index.ts';
+import type { Task } from '@/lib/evaluation/index.ts';
+import { failure } from '@/lib/result/index.ts';
+import type { Result } from '@/lib/result/index.ts';
 
 export interface Variant { request: string; replacements: Readonly<Record<string, string>> }
 export const mutationLimits = { stopWords: 65536, requestBytes: 65536, variables: 513 };

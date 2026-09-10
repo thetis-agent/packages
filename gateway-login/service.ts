@@ -1,8 +1,8 @@
 /** Start the designated password authority only with inherited control; KS-006–007, ADR 0018 §2, ADR 0038. */
 import { fileURLToPath } from 'node:url';
-import { serve } from '../../lib/service/index.ts';
-import { clock } from '../../lib/events/index.ts';
-import { load } from '../../lib/assets/index.ts';
+import { serve } from '@/lib/service/index.ts';
+import { clock } from '@/lib/events/index.ts';
+import { load } from '@/lib/assets/index.ts';
 import { PasswordAuthority } from './authority.ts';
 import { connection } from './server.ts';
 

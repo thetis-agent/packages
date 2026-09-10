@@ -1,11 +1,11 @@
 /** Keep conversation history append-only and branch views explicit; proposal §6, TE-009–011. */
 import { open } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { frames } from '../../lib/ndjson/index.ts';
-import { fileChunks } from '../../lib/ndjson/file.ts';
-import { isObject, failure } from '../../lib/schema/index.ts';
-import type { Result, Schemas } from '../../lib/schema/index.ts';
-import type { Message, Prefix } from '../../contracts/turn-events/types.ts';
+import { frames } from '@/lib/ndjson/index.ts';
+import { fileChunks } from '@/lib/ndjson/file.ts';
+import { isObject, failure } from '@/lib/schema/index.ts';
+import type { Result, Schemas } from '@/lib/schema/index.ts';
+import type { Message, Prefix } from '@/contracts/turn-events/types.ts';
 
 type Payload = { type: 'prefix'; value: Prefix } | { type: 'message'; value: Message };
 export type Record = Payload & { id: string; parentId: string | null };

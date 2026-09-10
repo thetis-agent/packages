@@ -1,12 +1,12 @@
 /** Enforce granted roots and request mode on every file operation; TE-018–020, proposal §13. */
 import { writeFile, mkdir, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { Schemas, failure, isObject } from '../../lib/schema/index.ts';
-import type { Result } from '../../lib/schema/index.ts';
-import { readBounded } from '../../lib/files/read-bounded.ts';
-import { resolvePath } from '../../lib/files/index.ts';
-import type { SpillSink } from '../../lib/spill/index.ts';
-import type { CallRequest, CallAnswer, OfferRequest } from '../../contracts/turn-events/types.ts';
+import { Schemas, failure, isObject } from '@/lib/schema/index.ts';
+import type { Result } from '@/lib/schema/index.ts';
+import { readBounded } from '@/lib/files/read-bounded.ts';
+import { resolvePath } from '@/lib/files/index.ts';
+import type { SpillSink } from '@/lib/spill/index.ts';
+import type { CallRequest, CallAnswer, OfferRequest } from '@/contracts/turn-events/types.ts';
 import { definitions } from './definitions.ts';
 import { readLines, list, find } from './read.ts';
 import { search } from './search.ts';

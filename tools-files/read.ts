@@ -1,10 +1,10 @@
 /** Stream line ranges and bounded directory walks into the core's sink; TE-016, TE-018. */
 import { opendir } from 'node:fs/promises';
 import { join, matchesGlob, relative } from 'node:path';
-import { fileChunks } from '../../lib/ndjson/file.ts';
-import type { SpillSink } from '../../lib/spill/index.ts';
-import type { Result } from '../../lib/schema/index.ts';
-import { failure } from '../../lib/schema/index.ts';
+import { fileChunks } from '@/lib/ndjson/file.ts';
+import type { SpillSink } from '@/lib/spill/index.ts';
+import type { Result } from '@/lib/schema/index.ts';
+import { failure } from '@/lib/schema/index.ts';
 
 export const limits = { entries: 10000, depth: 32, lineBytes: 1048576, results: 1000 };
 

@@ -1,8 +1,8 @@
 /** Keep retrieval and mutation scores deterministic, with held-out sample limits visible; SK-012, SK-013. */
-import { bootstrap } from '../../lib/evaluation/index.ts';
-import type { Interval, Row } from '../../lib/evaluation/index.ts';
-import { failure } from '../../lib/result/index.ts';
-import type { Result } from '../../lib/result/index.ts';
+import { bootstrap } from '@/lib/evaluation/index.ts';
+import type { Interval, Row } from '@/lib/evaluation/index.ts';
+import { failure } from '@/lib/result/index.ts';
+import type { Result } from '@/lib/result/index.ts';
 
 export const retrievalLimits = { queries: 256, ranking: 64, minimumPairs: 150, variants: 65536 };
 export interface Gold { query: string; skills: readonly string[] }

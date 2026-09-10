@@ -1,11 +1,11 @@
 /** Read runtime configuration from the inherited principal and activate only recorded packages; KS-001, KS-009. */
-import type { Peer } from '../../lib/socket/index.ts';
-import type { Schemas, Result } from '../../lib/schema/index.ts';
-import { failure, isObject } from '../../lib/schema/index.ts';
-import { validator } from '../../lib/package-loader/index.ts';
-import type { Setup } from '../../lib/package-loader/types.ts';
-import type { ConnectKernel } from '../../contracts/kernel-socket/types.ts';
-import { gap } from '../../lib/semver-match/index.ts';
+import type { Peer } from '@/lib/socket/index.ts';
+import type { Schemas, Result } from '@/lib/schema/index.ts';
+import { failure, isObject } from '@/lib/schema/index.ts';
+import { validator } from '@/lib/package-loader/index.ts';
+import type { Setup } from '@/lib/package-loader/types.ts';
+import type { ConnectKernel } from '@/contracts/kernel-socket/types.ts';
+import { gap } from '@/lib/semver-match/index.ts';
 import type { Environment } from './environment.ts';
 
 export async function initialize(peer: Peer, environment: Environment, schemas: Schemas, identity: ConnectKernel, token: string): Promise<Result<void>> {

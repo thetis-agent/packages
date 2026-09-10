@@ -1,6 +1,6 @@
 /** Bound SSE framing without buffering a completion or accepting malformed UTF-8; PR-003–004. */
-import { failure } from '../../lib/schema/index.ts';
-import type { Result } from '../../lib/schema/index.ts';
+import { failure } from '@/lib/schema/index.ts';
+import type { Result } from '@/lib/schema/index.ts';
 
 class Framing {
   line = '';

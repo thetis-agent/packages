@@ -1,14 +1,14 @@
 /** Evaluate packages away from the responsive environment monitor; ADR 0027, TE-022. */
 import { parentPort, workerData } from 'node:worker_threads';
 import { flushCompileCache, getCompileCacheDir } from 'node:module';
-import { Schemas } from '../../lib/schema/index.ts';
-import { limits, validator } from '../../lib/package-loader/index.ts';
-import { load } from '../../lib/package-loader/load.ts';
-import type { Setup, WorkerCommand, WorkerMessage } from '../../lib/package-loader/types.ts';
-import type { Stage } from '../../lib/events/stages.ts';
+import { Schemas } from '@/lib/schema/index.ts';
+import { limits, validator } from '@/lib/package-loader/index.ts';
+import { load } from '@/lib/package-loader/load.ts';
+import type { Setup, WorkerCommand, WorkerMessage } from '@/lib/package-loader/types.ts';
+import type { Stage } from '@/lib/events/stages.ts';
 import { control } from './control.ts';
 import { diagnostics } from './startup-timing.ts';
-import type { Peer } from '../../lib/socket/index.ts';
+import type { Peer } from '@/lib/socket/index.ts';
 
 const port = parentPort;
 if (!port) throw new Error('The environment loop requires its monitor port.');

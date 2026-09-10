@@ -2,12 +2,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Dispatcher } from './dispatcher.ts';
-import { Schemas } from '../../lib/schema/index.ts';
-import { ManualClock } from '../../lib/events/index.ts';
-import { loopFixture } from '../../test/loop-fixture.ts';
-import { SpillSink } from '../../lib/spill/index.ts';
-import type { Stage } from '../../lib/events/stages.ts';
-import type { Context, Envelope, ToolDef, CallRequest } from '../../contracts/turn-events/types.ts';
+import { Schemas } from '@/lib/schema/index.ts';
+import { ManualClock } from '@/lib/events/index.ts';
+import { loopFixture } from '@/test/loop-fixture.ts';
+import { SpillSink } from '@/lib/spill/index.ts';
+import type { Stage } from '@/lib/events/stages.ts';
+import type { Context, Envelope, ToolDef, CallRequest } from '@/contracts/turn-events/types.ts';
 
 const schemas = new Schemas(); await schemas.load();
 const mode = { readOnly: false, deny: [] };

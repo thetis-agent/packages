@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
-import { Identity, loginFixture as fixture } from '../../test/login-fixture.ts';
+import { Identity, loginFixture as fixture } from '@/test/login-fixture.ts';
 import { PasswordAuthority, settings } from './authority.ts';
 
 await test('KS-007 the kernel resolves verified external ids and ignores a login request naming another person', async () => {

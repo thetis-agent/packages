@@ -1,15 +1,15 @@
 /** Execute one headless command with inherited authority and responsive drain; KS-001, KS-017. */
-import { authority } from '../../lib/sandbox-runner/authority.ts';
-import { Schemas, failure } from '../../lib/schema/index.ts';
-import type { Result } from '../../lib/schema/index.ts';
-import { clock } from '../../lib/events/index.ts';
-import { Peer } from '../../lib/socket/index.ts';
-import type { Handler } from '../../lib/socket/index.ts';
-import type { Method } from '../../contracts/kernel-socket/types.ts';
+import { authority } from '@/lib/sandbox-runner/authority.ts';
+import { Schemas, failure } from '@/lib/schema/index.ts';
+import type { Result } from '@/lib/schema/index.ts';
+import { clock } from '@/lib/events/index.ts';
+import { Peer } from '@/lib/socket/index.ts';
+import type { Handler } from '@/lib/socket/index.ts';
+import type { Method } from '@/contracts/kernel-socket/types.ts';
 import { capabilities, run } from './index.ts';
 import { output } from './io.ts';
 import { streamFor } from './stream.ts';
-import type { SessionClient } from '../../lib/session/client.ts';
+import type { SessionClient } from '@/lib/session/client.ts';
 
 async function main(): Promise<Result<void>> {
   const inherited = await authority(); if (!inherited.ok) return inherited;

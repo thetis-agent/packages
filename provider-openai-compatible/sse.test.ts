@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sse } from './sse.ts';
-import { collect, stream } from '../../test/provider-fixture.ts';
+import { collect, stream } from '@/test/provider-fixture.ts';
 
 await test('SSE preserves Unicode and multiline data under every tested chunk boundary', async () => {
   const bytes = Buffer.from(': comment\r\ndata: α\r\ndata: β\r\n\r\ndata: third\r\r');

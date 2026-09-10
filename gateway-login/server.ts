@@ -1,12 +1,12 @@
 /** Bound the headless login surface within the shared service lifecycle; ADR 0012, ADR 0038, KS-017. */
 import { createServer } from 'node:http';
-import { body, bytes, reply, safeRedirectPath } from '../../lib/http/index.ts';
-import { respond } from '../../lib/assets/index.ts';
-import type { Table } from '../../lib/assets/index.ts';
+import { body, bytes, reply, safeRedirectPath } from '@/lib/http/index.ts';
+import { respond } from '@/lib/assets/index.ts';
+import type { Table } from '@/lib/assets/index.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { failure } from '../../lib/schema/index.ts';
-import type { Result } from '../../lib/schema/index.ts';
-import type { Connection } from '../../lib/service/lifecycle.ts';
+import { failure } from '@/lib/schema/index.ts';
+import type { Result } from '@/lib/schema/index.ts';
+import type { Connection } from '@/lib/service/lifecycle.ts';
 import type { PasswordAuthority } from './authority.ts';
 
 export const settings = { bodyBytes: 16384, headersBytes: 16384, deadlineMs: 10000, nextBytes: 1024 };

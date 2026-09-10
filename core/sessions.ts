@@ -1,13 +1,13 @@
 /** Route turns only through locally persisted conversation identities; KS-004, TE-009. */
 import { stat } from 'node:fs/promises';
-import type { SessionCreateParams } from '../../contracts/kernel-socket/types.ts';
-import type { Input, Message, Envelope } from '../../contracts/turn-events/types.ts';
-import type { Stage } from '../../lib/events/stages.ts';
-import { frozen } from '../../lib/events/stages.ts';
-import type { Clock } from '../../lib/events/index.ts';
-import type { Schemas, Result } from '../../lib/schema/index.ts';
-import { failure } from '../../lib/schema/index.ts';
-import type { Provider } from '../../lib/provider/index.ts';
+import type { SessionCreateParams } from '@/contracts/kernel-socket/types.ts';
+import type { Input, Message, Envelope } from '@/contracts/turn-events/types.ts';
+import type { Stage } from '@/lib/events/stages.ts';
+import { frozen } from '@/lib/events/stages.ts';
+import type { Clock } from '@/lib/events/index.ts';
+import type { Schemas, Result } from '@/lib/schema/index.ts';
+import { failure } from '@/lib/schema/index.ts';
+import type { Provider } from '@/lib/provider/index.ts';
 import { Loop } from './index.ts';
 import type { Options } from './index.ts';
 import { Conversation } from './conversation.ts';

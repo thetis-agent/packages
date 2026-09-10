@@ -1,8 +1,8 @@
 /** Port Legacy's ranker while returning bodies within the explicit retrieval budget; TE-005–008. */
-import { rank } from '../../lib/bm25/index.ts';
-import type { LoadedSkill } from '../../lib/skills/index.ts';
-import { uniqueSkills } from '../../lib/skills/index.ts';
-import type { RetrieveRequest, RetrieveAnswer } from '../../contracts/skills/types.ts';
+import { rank } from '@/lib/bm25/index.ts';
+import type { LoadedSkill } from '@/lib/skills/index.ts';
+import { uniqueSkills } from '@/lib/skills/index.ts';
+import type { RetrieveRequest, RetrieveAnswer } from '@/contracts/skills/types.ts';
 
 export const settings = { fusionWeight: 0.7, absorb: true };
 export const stages = {};

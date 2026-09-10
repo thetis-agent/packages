@@ -3,10 +3,10 @@
  * session.whois, never on the request itself; ADR 0038, KS-004, KS-023, ADR 0019. */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { serviceFixture } from '../../test/provider-service.ts';
-import { environmentProcess } from '../../test/environment-process.ts';
-import { gatewayProcess } from '../../test/gateway-process.ts';
-import { webClient, httpGet } from '../../test/web-client.ts';
+import { serviceFixture } from '@/test/provider-service.ts';
+import { environmentProcess } from '@/test/environment-process.ts';
+import { gatewayProcess } from '@/test/gateway-process.ts';
+import { webClient, httpGet } from '@/test/web-client.ts';
 
 async function person(shared: Awaited<ReturnType<typeof serviceFixture>>, who: string, other?: string): Promise<string> {
   const environment = await environmentProcess(shared, who, true); assert.ok((await environment.process.probe()).ok);

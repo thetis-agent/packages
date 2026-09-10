@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mutate, vocabulary } from './mutate.ts';
-import type { Task } from '../../lib/evaluation/index.ts';
+import type { Task } from '@/lib/evaluation/index.ts';
 
 const task: Task = { id: 'task', family: 'skill', request: 'Alice performs careful surgery with 12 files at {path}; malice stays.', mutable: { names: ['Alice', 'careful', 'surgery'], numbers: ['12'], path: 'path' }, requires: [], required: [], gold: { tools: [], skills: [] }, budget: { cost: 1, iterations: 3 }, checks: 'private/checks', fixture: 'fixture' };
 await test('SK-013 mutator property: every seed preserves card vocabulary and is reproducible', () => {

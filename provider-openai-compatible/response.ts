@@ -1,7 +1,7 @@
 /** Preserve fragmented calls and delay termination until accounting is received; PR-003, PR-006–007. */
-import type { ResponseEvent, ModelCap } from '../../contracts/provider/types.ts';
-import type { Result } from '../../lib/schema/index.ts';
-import { failure, isObject } from '../../lib/schema/index.ts';
+import type { ResponseEvent, ModelCap } from '@/contracts/provider/types.ts';
+import type { Result } from '@/lib/schema/index.ts';
+import { failure, isObject } from '@/lib/schema/index.ts';
 import { error, usage } from './wire.ts';
 
 export const settings = { calls: 64, identityBytes: 256 };

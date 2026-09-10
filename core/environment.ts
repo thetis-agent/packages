@@ -1,14 +1,14 @@
 /** Keep the monitor responsive while the worker owns sessions and provider content; ADR 0027, KS-004. */
 import { Initializer } from './initialization.ts';
 import type { Initialization } from './initialization.ts';
-import { privateEndpoint } from '../../lib/socket/private.ts';
-import type { PrivateEndpoint } from '../../lib/socket/private.ts';
-import { Peer } from '../../lib/socket/index.ts';
-import type { Schemas, Result } from '../../lib/schema/index.ts';
-import { failure } from '../../lib/schema/index.ts';
-import type { Clock } from '../../lib/events/index.ts';
-import type { Setup, WorkerMessage } from '../../lib/package-loader/types.ts';
-import type { Method, Note } from '../../contracts/kernel-socket/types.ts';
+import { privateEndpoint } from '@/lib/socket/private.ts';
+import type { PrivateEndpoint } from '@/lib/socket/private.ts';
+import { Peer } from '@/lib/socket/index.ts';
+import type { Schemas, Result } from '@/lib/schema/index.ts';
+import { failure } from '@/lib/schema/index.ts';
+import type { Clock } from '@/lib/events/index.ts';
+import type { Setup, WorkerMessage } from '@/lib/package-loader/types.ts';
+import type { Method, Note } from '@/contracts/kernel-socket/types.ts';
 import { capabilities } from './protocol.ts';
 export const controlLimits = { turnMs: 600000, probeMs: 10000 };
 

@@ -1,11 +1,11 @@
 /** Keep vendor requests outside the kernel and behind caller reservations; ADR 0019–0020, PR-001–012. */
-import type { RequestEvent, ResponseEvent, ModelCap } from '../../contracts/provider/types.ts';
+import type { RequestEvent, ResponseEvent, ModelCap } from '@/contracts/provider/types.ts';
 import { fileURLToPath } from 'node:url';
-import type { Authority, Budgets, Description } from '../../lib/provider/index.ts';
-import { ProviderEngine } from '../../lib/provider/engine.ts';
-import type { Vendor } from '../../lib/provider/engine.ts';
-import type { Clock } from '../../lib/events/index.ts';
-import type { Schemas } from '../../lib/schema/index.ts';
+import type { Authority, Budgets, Description } from '@/lib/provider/index.ts';
+import { ProviderEngine } from '@/lib/provider/engine.ts';
+import type { Vendor } from '@/lib/provider/engine.ts';
+import type { Clock } from '@/lib/events/index.ts';
+import type { Schemas } from '@/lib/schema/index.ts';
 import { vendorRequest } from './request.ts';
 import { sse } from './sse.ts';
 import { chunk, error } from './wire.ts';

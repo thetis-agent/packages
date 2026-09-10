@@ -5,8 +5,8 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Evaluator } from './run.ts';
 import type { Configuration } from './run.ts';
-import { seedIdentity } from '../../lib/evaluation/index.ts';
-import { EvaluationDriver } from '../../test/evaluator-driver.ts';
+import { seedIdentity } from '@/lib/evaluation/index.ts';
+import { EvaluationDriver } from '@/test/evaluator-driver.ts';
 
 async function fixture(coreChanged = false) {
   const directory = await mkdtemp('/tmp/evaluation-'); const checks = join(directory, 'run.sh');

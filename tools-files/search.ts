@@ -1,9 +1,9 @@
 /** Bound searches by traversed entries and line bytes while forwarding matches; TE-018. */
 import { matchesGlob, relative } from 'node:path';
-import { fileChunks } from '../../lib/ndjson/file.ts';
-import { failure } from '../../lib/schema/index.ts';
-import type { Result } from '../../lib/schema/index.ts';
-import type { SpillSink } from '../../lib/spill/index.ts';
+import { fileChunks } from '@/lib/ndjson/file.ts';
+import { failure } from '@/lib/schema/index.ts';
+import type { Result } from '@/lib/schema/index.ts';
+import type { SpillSink } from '@/lib/spill/index.ts';
 import { walk, limits } from './read.ts';
 
 async function* lines(path: string): AsyncGenerator<Result<string>> {

@@ -2,12 +2,12 @@
 import { mkdir, realpath, opendir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { SessionCreateParams } from '../../contracts/kernel-socket/types.ts';
-import type { Schemas, Result, Validator } from '../../lib/schema/index.ts';
-import { failure, isObject } from '../../lib/schema/index.ts';
-import { readBounded } from '../../lib/files/read-bounded.ts';
-import { resolvePath } from '../../lib/files/index.ts';
-import { atomicWrite, syncDirectory } from '../../lib/files/atomic.ts';
+import type { SessionCreateParams } from '@/contracts/kernel-socket/types.ts';
+import type { Schemas, Result, Validator } from '@/lib/schema/index.ts';
+import { failure, isObject } from '@/lib/schema/index.ts';
+import { readBounded } from '@/lib/files/read-bounded.ts';
+import { resolvePath } from '@/lib/files/index.ts';
+import { atomicWrite, syncDirectory } from '@/lib/files/atomic.ts';
 import type { SessionInfo } from './types.ts';
 import validate from './schema-validators.cjs';
 

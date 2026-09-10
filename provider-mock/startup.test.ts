@@ -2,8 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { configure } from './startup.ts';
-import { Schemas } from '../../lib/schema/index.ts';
-import { providerFixture, collect, request, stream } from '../../test/provider-fixture.ts';
+import { Schemas } from '@/lib/schema/index.ts';
+import { providerFixture, collect, request, stream } from '@/test/provider-fixture.ts';
 
 await test('PR-014 deployment settings script reasoning, fragmented calls and terminal usage deterministically', async () => {
   const schemas = new Schemas(); await schemas.load();

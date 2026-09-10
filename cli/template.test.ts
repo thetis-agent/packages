@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { Schemas } from '../../lib/schema/index.ts';
-import { validator } from '../../lib/profile/schema.ts';
-import { catalog } from '../../lib/profile/catalog.ts';
-import { kernelRoot } from '../../lib/profile/packages-root.ts';
-import type { Recipe, Process } from '../../lib/profile/types.ts';
+import { Schemas } from '@/lib/schema/index.ts';
+import { validator } from '@/lib/profile/schema.ts';
+import { catalog } from '@/lib/profile/catalog.ts';
+import { kernelRoot } from '@/lib/profile/packages-root.ts';
+import type { Recipe, Process } from '@/lib/profile/types.ts';
 await test('KS-009 the shipped two-account recipe resolves only existing packages and isolated person mounts', async () => {
   const schemas = new Schemas(); await schemas.load();
   const input: unknown = JSON.parse(await readFile(join(kernelRoot(), 'profiles/examples/two-account.recipe.json'), 'utf8'));

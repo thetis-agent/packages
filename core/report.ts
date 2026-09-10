@@ -1,10 +1,10 @@
 /** Summarize diagnostic metadata without forwarding provider content or per-token frames; ADR 0014, ADR 0019. */
 import { createHash } from 'node:crypto';
-import type { StageRow } from '../../lib/events/stages.ts';
-import type { End, CallAnswer, ToolDef } from '../../contracts/turn-events/types.ts';
-import type { Entry } from '../../contracts/skills/types.ts';
-import type { Result } from '../../lib/schema/index.ts';
-import { failure } from '../../lib/schema/index.ts';
+import type { StageRow } from '@/lib/events/stages.ts';
+import type { End, CallAnswer, ToolDef } from '@/contracts/turn-events/types.ts';
+import type { Entry } from '@/contracts/skills/types.ts';
+import type { Result } from '@/lib/schema/index.ts';
+import { failure } from '@/lib/schema/index.ts';
 
 export const reportLimits = { bytes: 60 * 1024, rows: 4096, identifiers: 256 };
 function identifier(value: string): string {

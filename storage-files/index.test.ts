@@ -1,6 +1,6 @@
 /** Require the default provider to pass the independent contract suite; ADR 0006, ADR 0040. */
 import { test } from 'node:test';
-import { persistence, bounds, paths, concurrent, failures, journal, configuration } from '../../contracts/storage/conformance.ts';
+import { persistence, bounds, paths, concurrent, failures, journal, configuration } from '@/contracts/storage/conformance.ts';
 import { storage } from './index.ts';
 
 await test('ST-001 file storage preserves existing objects and committed replacements across reopen', () => persistence(storage));

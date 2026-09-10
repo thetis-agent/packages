@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import { readdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Sessions, sessionLimits } from './sessions.ts';
-import { sessionFixture } from '../../test/session-fixture.ts';
-import type { Vendor } from '../../lib/provider/engine.ts';
+import { sessionFixture } from '@/test/session-fixture.ts';
+import type { Vendor } from '@/lib/provider/engine.ts';
 
 const input = { text: 'Hello', attachments: [] };
 

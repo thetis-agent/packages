@@ -1,12 +1,12 @@
 /** Keep health responsive while a late package is made inert; ADR 0027, TE-022. */
 import { Worker } from 'node:worker_threads';
-import type { Clock } from '../../lib/events/index.ts';
-import type { Schemas, Result } from '../../lib/schema/index.ts';
-import { failure } from '../../lib/schema/index.ts';
-import { limits, validator } from '../../lib/package-loader/index.ts';
-import type { Setup, WorkerMessage, Registration } from '../../lib/package-loader/types.ts';
-import { gap } from '../../lib/semver-match/index.ts';
-import { encode } from '../../lib/ndjson/index.ts';
+import type { Clock } from '@/lib/events/index.ts';
+import type { Schemas, Result } from '@/lib/schema/index.ts';
+import { failure } from '@/lib/schema/index.ts';
+import { limits, validator } from '@/lib/package-loader/index.ts';
+import type { Setup, WorkerMessage, Registration } from '@/lib/package-loader/types.ts';
+import { gap } from '@/lib/semver-match/index.ts';
+import { encode } from '@/lib/ndjson/index.ts';
 
 export interface Initialization {
   sources: readonly string[];

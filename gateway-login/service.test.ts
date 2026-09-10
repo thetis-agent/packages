@@ -1,8 +1,8 @@
 /** Authenticate over the shipped Unix HTTP surface in its own sandbox; KS-006–007, ADR 0018. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loginProcess, loginRequest } from '../../test/login-process.ts';
-import { isObject } from '../../lib/schema/index.ts';
+import { loginProcess, loginRequest } from '@/test/login-process.ts';
+import { isObject } from '@/lib/schema/index.ts';
 
 await test('KS-007 a real login gateway returns only kernel-resolved sessions and keeps passwords out of logs', async () => {
   const f = await loginProcess();

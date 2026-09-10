@@ -2,9 +2,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { retriever } from './index.ts';
-import { skillsFixture, skill } from '../../test/skills-fixture.ts';
-import { Schemas } from '../../lib/schema/index.ts';
-import type { RetrieveAnswer } from '../../contracts/skills/types.ts';
+import { skillsFixture, skill } from '@/test/skills-fixture.ts';
+import { Schemas } from '@/lib/schema/index.ts';
+import type { RetrieveAnswer } from '@/contracts/skills/types.ts';
 
 await test('TE-005 bodies fit the budget and omitted matches are named', async () => {
   const f = await skillsFixture({ query: skill('query', 'query', 'Long body '.repeat(100)) });

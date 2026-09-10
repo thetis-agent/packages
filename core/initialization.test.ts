@@ -4,10 +4,10 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Initializer } from './initialization.ts';
-import { Schemas } from '../../lib/schema/index.ts';
-import { ManualClock } from '../../lib/events/index.ts';
-import { discover } from '../../lib/package-loader/index.ts';
-import type { Setup } from '../../lib/package-loader/types.ts';
+import { Schemas } from '@/lib/schema/index.ts';
+import { ManualClock } from '@/lib/events/index.ts';
+import { discover } from '@/lib/package-loader/index.ts';
+import type { Setup } from '@/lib/package-loader/types.ts';
 
 async function fixture(bad: string) {
   const root = await mkdtemp('/tmp/initialization-'); const packages = join(root, 'packages'); await mkdir(packages);

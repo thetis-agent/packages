@@ -1,12 +1,12 @@
 /** Serve the lifted web surface and the small account endpoints behind a per-request identity check,
  * never naming a person from the request itself; ADR 0038 §4, docs/08-vocabulary.md. */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { respond } from '../../lib/assets/index.ts';
-import type { Table } from '../../lib/assets/index.ts';
-import { reply, safeRedirectPath } from '../../lib/http/index.ts';
-import { failure } from '../../lib/schema/index.ts';
-import type { Result } from '../../lib/schema/index.ts';
-import type { RequestHandler } from '../../lib/websocket/index.ts';
+import { respond } from '@/lib/assets/index.ts';
+import type { Table } from '@/lib/assets/index.ts';
+import { reply, safeRedirectPath } from '@/lib/http/index.ts';
+import { failure } from '@/lib/schema/index.ts';
+import type { Result } from '@/lib/schema/index.ts';
+import type { RequestHandler } from '@/lib/websocket/index.ts';
 import type { SignIn } from './identity.ts';
 import { sessionToken } from './identity.ts';
 

@@ -1,12 +1,12 @@
 /** Resolve password evidence only through the designated kernel authority; KS-006–007, ADR 0018 §2. */
 import { basename, dirname } from 'node:path';
-import type { IdentityAssertParams } from '../../contracts/kernel-socket/types.ts';
-import { resolvePath } from '../../lib/files/index.ts';
+import type { IdentityAssertParams } from '@/contracts/kernel-socket/types.ts';
+import { resolvePath } from '@/lib/files/index.ts';
 import { readFile } from 'node:fs/promises';
-import { readBounded } from '../../lib/files/read-bounded.ts';
-import { failure, isObject } from '../../lib/schema/index.ts';
-import type { Schemas, Result, Validator } from '../../lib/schema/index.ts';
-import type { Clock } from '../../lib/events/index.ts';
+import { readBounded } from '@/lib/files/read-bounded.ts';
+import { failure, isObject } from '@/lib/schema/index.ts';
+import type { Schemas, Result, Validator } from '@/lib/schema/index.ts';
+import type { Clock } from '@/lib/events/index.ts';
 import type { Accounts, Credential, Login, Session } from './types.ts';
 import { verify } from './password.ts';
 

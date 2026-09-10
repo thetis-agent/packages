@@ -1,13 +1,13 @@
 /** Keep the turn loop unprivileged and the stored head authoritative; ADR 0013, TE-001–011. */
-import type { Provider } from '../../lib/provider/index.ts';
-import type { Stage } from '../../lib/events/stages.ts';
-import type { Clock } from '../../lib/events/index.ts';
-import { failure } from '../../lib/schema/index.ts';
+import type { Provider } from '@/lib/provider/index.ts';
+import type { Stage } from '@/lib/events/stages.ts';
+import type { Clock } from '@/lib/events/index.ts';
+import { failure } from '@/lib/schema/index.ts';
 import { createHash } from 'node:crypto';
-import type { Result, Schemas } from '../../lib/schema/index.ts';
-import { SpillSink } from '../../lib/spill/index.ts';
-import type { RequestEvent } from '../../contracts/provider/types.ts';
-import type { Input, Envelope, Message, Prefix, ToolDef, Notice, End, CallAnswer } from '../../contracts/turn-events/types.ts';
+import type { Result, Schemas } from '@/lib/schema/index.ts';
+import { SpillSink } from '@/lib/spill/index.ts';
+import type { RequestEvent } from '@/contracts/provider/types.ts';
+import type { Input, Envelope, Message, Prefix, ToolDef, Notice, End, CallAnswer } from '@/contracts/turn-events/types.ts';
 import { Dispatcher } from './dispatcher.ts';
 import { compact } from './conversation.ts';
 import type { Conversation } from './conversation.ts';
