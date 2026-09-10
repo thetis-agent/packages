@@ -1,0 +1,21 @@
+/* The catalogue panel's own styling, and the `load_skill` rows. It ships with the package rather than
+   living in the surface's stylesheet, because the surface has no reason to know this panel exists.
+   Values are the surface's own tokens, so a contributed panel looks like the page it lands in. */
+.sl-card { background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); padding: var(--gap-3); }
+.sl-card.is-loaded { border-color: var(--accent-edge); }
+.sl-card.is-dropped { opacity: .55; }
+.sl-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--gap-3); }
+.sl-id { margin: 0; font-family: var(--mono); font-size: var(--text-sm); font-weight: 600; }
+.sl-pack { margin: 3px 0 0; font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); }
+.sl-pill { padding: 1px 7px; border: 1px solid var(--hairline); border-radius: var(--r-pill); font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); white-space: nowrap; }
+.sl-pill.is-on { border-color: var(--accent-edge); background: var(--accent-wash); color: var(--accent); }
+/* The description is the whole of level 1, so it is read at body size rather than shrunk to a caption. */
+.sl-desc { margin: var(--gap-2) 0 0; font-size: var(--text-xs); color: var(--text-dim); }
+
+.sl-load { display: flex; align-items: baseline; gap: var(--gap-2); }
+.sl-load-label { font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); text-transform: uppercase; letter-spacing: .06em; }
+.sl-load-name { font-family: var(--mono); font-size: var(--text-sm); font-weight: 600; }
+.sl-load-state { font-size: var(--text-xs); color: var(--text-faint); }
+.sl-load.is-running .sl-load-state { font-style: italic; }
+.sl-load.is-on .sl-load-state { color: var(--accent); }
+.sl-load.is-error .sl-load-state { color: var(--err); }
