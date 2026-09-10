@@ -17,6 +17,11 @@ interface Context { emit: (notice: { content: Content[] }) => void }
  * which is the only moment the profile is allowed to move (ADR 0012). */
 export const stages = {
   async init(_profile: unknown, context: Context): Promise<void> {
+    // Dropped before the first await, not after the last: an init that fails partway leaves the
+    // stage answering nothing, which is the inert package ADR 0016 asks for. Keeping the previous
+    // corpus would be worse than empty, because `renderPrefix` pins each entry's `contentHash`
+    // into the immutable prompt head and those bytes may no longer be installed.
+    corpus = undefined;
     await schemas.load();
     const loaded = await loadInstalled(schemas);
     // A pack that could not load is worth saying out loud: silently retrieving from a smaller

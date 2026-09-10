@@ -76,3 +76,22 @@ await test('a pack that cannot load is reported as a notice rather than swallowe
     assert.ok(notices.some(text => text.startsWith(`${alias.slice(0, -6)}@1.0.0 was skipped:`)), notices.join('; '));
   } finally { await rm(join('/packages', alias), { recursive: true, force: true }); }
 });
+
+await test('an init that fails partway leaves the stage answering nothing, not the previous corpus', async () => {
+  const id = `stale-${randomUUID()}`;
+  const alias = `pack-stale-${randomUUID()}@1.0.0`;
+  const broken = `pack-broken-${randomUUID()}@1.0.0`;
+  const request = { query: id, k: 4, budget: 4096, model: 'scripted' };
+  try {
+    await mkdir(join('/packages', alias, 'skills', id), { recursive: true });
+    await writeFile(join('/packages', alias, 'skills', id, 'SKILL.md'), skill(id));
+    await stages.init(undefined, { emit: () => undefined });
+    assert.ok((await stages.retrieve(request)).entries.some(entry => entry.id === id));
+    // `emit` throws when a notice violates its contract (lib/package-loader/load.ts), so a pack
+    // that warns is enough to fail the second init after the first one succeeded.
+    await mkdir(join('/packages', broken, 'skills'), { recursive: true });
+    await symlink('/etc', join('/packages', broken, 'skills', 'linked'));
+    await assert.rejects(stages.init(undefined, { emit: () => { throw new Error('A notice violates its contract.'); } }));
+    assert.deepEqual(await stages.retrieve(request), { entries: [], dropped: [] });
+  } finally { for (const name of [alias, broken]) await rm(join('/packages', name), { recursive: true, force: true }); }
+});
