@@ -279,9 +279,18 @@ function htmlLiterals(source: string): string[] {
  * actually means. */
 const NEVER_SAY = /\b(session|host|orchestrator|backend|merge|pull|install|module|component)\b/i;
 
+/** Vendored third-party bundles are not this project's copy. `vendor/mermaid.js` is a minified
+ * library whose internal identifiers and messages ("COMPONENT", ",component:", a bundler's
+ * `module.exports` probe) trip the scan roughly forty times, and none of it is text a reader of this
+ * UI can ever see: the only strings mermaid renders are the diagram source the model wrote. Editing
+ * a vendored bundle to satisfy a copy rule would also break its recorded hash (docs/dependencies.md),
+ * so the guard is scoped to the files this project writes. */
+const VENDORED = 'vendor/';
+
 await test('no user-visible string in assets/ names a never-say vocabulary word', async () => {
   const table = await manifest();
   for (const row of table) {
+    if (row.file.startsWith(VENDORED)) continue;
     if (!['text/html', 'text/javascript'].includes(row.type)) continue;
     const source = await readFile(join(assetsRoot, row.file), 'utf8');
     const literals = extname(row.file) === '.html' ? htmlLiterals(source) : stringLiterals(stripComments(source));

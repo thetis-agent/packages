@@ -18,6 +18,7 @@
  * panes that were drawn once and go on receiving events in the background.
  */
 
+import { chooseTranscriptRow } from "../lib/dispatch.js";
 import { clear, el } from "../lib/dom.js";
 import { renderMarkdown } from "../lib/markdown.js";
 import { rendererFor } from "../lib/surface.js";
@@ -201,19 +202,13 @@ export function mountTranscriptInto(root) {
    *  or not that tab is the one currently showing. */
   function applyEvent(frame) {
     // A package that contributed a renderer for this kind draws it; the built-in table is the
-    // fallback, so a contributor can add a kind without the surface knowing what it means.
-    const contributed = rendererFor(frame.kind);
-    if (contributed) {
-      // A contributor that throws falls through to the built-in row rather than losing the event:
-      // the transcript is the reading order of the conversation and must not develop holes.
-      try {
-        const node = contributed(frame, { el });
-        if (node) { place(node); return; }
-      } catch (error) {
-        console.error(`a contributed renderer for ${frame.kind} rows failed`, error);
-      }
-    }
-    RENDERERS[frame.kind]?.(frame);
+    // fallback, so a contributor can add a kind without the surface knowing what it means. The
+    // choice — including the rule that a contributor which declines or throws falls through rather
+    // than losing the event — is lib/dispatch.js's, which is where it is covered by tests.
+    const choice = chooseTranscriptRow(rendererFor(frame.kind), RENDERERS[frame.kind], frame, { el });
+    if (choice.failed) console.error(`a contributed renderer for ${frame.kind} rows failed`, choice.error);
+    if (choice.row === "contributed") { place(choice.node); return; }
+    choice.builtin?.(frame);
   }
 
   function restore(history) {
