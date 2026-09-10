@@ -108,7 +108,7 @@ export class Dispatcher {
     const controller = new AbortController();
     try {
       const answer: unknown = await Promise.race([
-        owner.stage.call(frozen(request), sink),
+        owner.stage.call(frozen(request), sink, controller.signal),
         this.#clock.wait(request.deadlineMs, controller.signal).then(() => this.#error(request.id, 'deadline', `${request.name} exceeded its deadline.`))
       ]);
       if (this.#schemas.validator<CallAnswer>('turn-events', 'callAnswer')(answer) && answer.id === request.id) return answer;

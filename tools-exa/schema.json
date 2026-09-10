@@ -1,0 +1,722 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "thetis://package/tools-exa/1",
+  "$defs": {
+    "contents": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "maxCharacters": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 20000,
+                  "default": 4000
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "highlights": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                "maxCharacters": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 10000,
+                  "default": 1000
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "maxAgeHours": {
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 8760
+        },
+        "livecrawlTimeout": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 90000
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "search": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "type": {
+          "enum": [
+            "auto",
+            "fast",
+            "instant",
+            "deep-lite",
+            "deep",
+            "deep-reasoning"
+          ],
+          "default": "auto"
+        },
+        "numResults": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 5
+        },
+        "includeDomains": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 253
+          }
+        },
+        "excludeDomains": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 253
+          }
+        },
+        "category": {
+          "enum": [
+            "company",
+            "publication",
+            "news",
+            "personal site",
+            "financial report",
+            "people"
+          ]
+        },
+        "startPublishedDate": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "endPublishedDate": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "contents": {
+          "$ref": "#/$defs/contents"
+        },
+        "userLocation": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$"
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "systemPrompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": true
+    },
+    "fetch": {
+      "type": "object",
+      "properties": {
+        "urls": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "maxCharacters": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 20000,
+                  "default": 4000
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "highlights": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                "maxCharacters": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 10000,
+                  "default": 1000
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "maxAgeHours": {
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 8760
+        },
+        "livecrawlTimeout": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 90000
+        }
+      },
+      "required": [
+        "urls"
+      ],
+      "additionalProperties": true
+    },
+    "answer": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "text": {
+          "type": "boolean"
+        },
+        "systemPrompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "userLocation": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": true
+    },
+    "agentStart": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "effort": {
+          "enum": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "auto",
+            "max"
+          ],
+          "default": "low"
+        },
+        "maxCostDollars": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "systemPrompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "previousRunId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "data": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "object"
+              }
+            },
+            "exclusion": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "object"
+              }
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": true
+    },
+    "agentId": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": true
+    },
+    "result": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 4096
+        },
+        "publishedDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 100
+        },
+        "author": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 4096
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "highlights": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "type": [
+            "string",
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": true
+    },
+    "cost": {
+      "type": "object",
+      "properties": {
+        "total": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [],
+      "additionalProperties": true
+    },
+    "searchResponse": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "results": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/result"
+          }
+        },
+        "output": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "costDollars": {
+          "$ref": "#/$defs/cost"
+        }
+      },
+      "required": [
+        "results"
+      ],
+      "additionalProperties": true
+    },
+    "contentsResponse": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "results": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/result"
+          }
+        },
+        "statuses": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object"
+          }
+        },
+        "costDollars": {
+          "$ref": "#/$defs/cost"
+        }
+      },
+      "required": [
+        "results"
+      ],
+      "additionalProperties": true
+    },
+    "answerResponse": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "answer": {
+          "type": [
+            "string",
+            "object"
+          ]
+        },
+        "citations": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/result"
+          }
+        },
+        "costDollars": {
+          "$ref": "#/$defs/cost"
+        }
+      },
+      "required": [
+        "answer"
+      ],
+      "additionalProperties": true
+    },
+    "agentResponse": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "running",
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "stopReason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "usage": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "costDollars": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "status"
+      ],
+      "additionalProperties": true
+    },
+    "settings": {
+      "type": "object",
+      "properties": {
+        "deadlineMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120000,
+          "default": 30000
+        },
+        "responseBytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 524288,
+          "default": 262144
+        },
+        "requestBytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65536,
+          "default": 32768
+        },
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "default": 4
+        },
+        "agentMaxCostDollars": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 1
+        },
+        "runLimit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096,
+          "default": 1024
+        },
+        "searchPrice": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.007
+        },
+        "deepPrice": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.012
+        },
+        "reasoningPrice": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.015
+        },
+        "resultPrice": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.001
+        },
+        "contentPrice": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.001
+        },
+        "answerPrice": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.005
+        }
+      },
+      "required": [
+        "deadlineMs",
+        "responseBytes",
+        "requestBytes",
+        "concurrency",
+        "agentMaxCostDollars",
+        "runLimit",
+        "searchPrice",
+        "deepPrice",
+        "reasoningPrice",
+        "resultPrice",
+        "contentPrice",
+        "answerPrice"
+      ],
+      "additionalProperties": false
+    },
+    "owners": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "runs": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[A-Za-z0-9_.:-]+$"
+              },
+              "person": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "effort": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              }
+            },
+            "required": [
+              "id",
+              "person",
+              "effort"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "version",
+        "runs"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$ref": "#/$defs/owners"
+}

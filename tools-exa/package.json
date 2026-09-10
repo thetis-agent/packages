@@ -1,0 +1,96 @@
+{
+  "name": "tools-exa",
+  "version": "1.0.0",
+  "type": "module",
+  "stages": "./index.ts",
+  "requires": {
+    "contract/turn-events": "^1.1",
+    "contract/tool-service": "^1",
+    "secret/exa-key": "*",
+    "cap/network.egress": "*"
+  },
+  "provides": {
+    "service/tool-service.exa": "1.0.0"
+  },
+  "envelope": {
+    "requires": [],
+    "provides": [],
+    "spawn": {
+      "scope": "deployment",
+      "network": "egress"
+    }
+  },
+  "settings": {
+    "type": "object",
+    "properties": {
+      "deadlineMs": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 120000,
+        "default": 30000
+      },
+      "responseBytes": {
+        "type": "integer",
+        "minimum": 1024,
+        "maximum": 524288,
+        "default": 262144
+      },
+      "requestBytes": {
+        "type": "integer",
+        "minimum": 1024,
+        "maximum": 65536,
+        "default": 32768
+      },
+      "concurrency": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 16,
+        "default": 4
+      },
+      "agentMaxCostDollars": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 1
+      },
+      "runLimit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 4096,
+        "default": 1024
+      },
+      "searchPrice": {
+        "type": "number",
+        "minimum": 0,
+        "default": 0.007
+      },
+      "deepPrice": {
+        "type": "number",
+        "minimum": 0,
+        "default": 0.012
+      },
+      "reasoningPrice": {
+        "type": "number",
+        "minimum": 0,
+        "default": 0.015
+      },
+      "resultPrice": {
+        "type": "number",
+        "minimum": 0,
+        "default": 0.001
+      },
+      "contentPrice": {
+        "type": "number",
+        "minimum": 0,
+        "default": 0.001
+      },
+      "answerPrice": {
+        "type": "number",
+        "minimum": 0,
+        "default": 0.005
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  }
+}
