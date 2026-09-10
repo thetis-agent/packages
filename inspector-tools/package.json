@@ -1,0 +1,39 @@
+{
+  "name": "inspector-tools",
+  "version": "1.0.0",
+  "type": "module",
+  "stages": "./index.ts",
+  "requires": {
+    "contract/surface": "^1",
+    "contract/turn-events": "^1"
+  },
+  "provides": {
+    "panel/tools": "1.0.0"
+  },
+  "surface": {
+    "v": "1",
+    "panels": [
+      {
+        "id": "tools",
+        "label": "Tools",
+        "hint": "Tools — everything the agent can call here, and what is withheld",
+        "wide": true,
+        "entry": "/surface/inspector-tools/panel.js"
+      }
+    ]
+  },
+  "envelope": {
+    "requires": [],
+    "provides": [],
+    "spawn": {
+      "scope": "person",
+      "network": "none"
+    }
+  },
+  "settings": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}
