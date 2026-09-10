@@ -1,0 +1,6 @@
+{
+  "assets": [
+    { "path": "/surface/retriever-local/panel.js", "file": "surface/panel.js", "type": "text/javascript" },
+    { "path": "/surface/retriever-local/panel.css", "file": "surface/panel.css", "type": "text/css" }
+  ]
+}

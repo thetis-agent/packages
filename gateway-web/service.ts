@@ -7,6 +7,7 @@ import { serve } from '@/lib/service/index.ts';
 import { accept, limits as wireLimits } from '@/lib/websocket/index.ts';
 import type { Channel, Handler, RequestHandler } from '@/lib/websocket/index.ts';
 import { load } from '@/lib/assets/index.ts';
+import { compose } from './panels.ts';
 import { clock } from '@/lib/events/index.ts';
 import { isObject, failure } from '@/lib/schema/index.ts';
 import type { Result } from '@/lib/schema/index.ts';
@@ -78,11 +79,16 @@ const result = await serve(async (_settings, schemas, peer, identity) => {
   const checkFrame = schemas.compile<Contract>(wireSchema);
   const table = await load(assetsRoot, manifestPath, schemas);
   if (!table.ok) return table;
+  // Packages that contribute a panel or a renderer are served from this same origin and this same
+  // sign-in gate; the surface never learns what any of them mean.
+  const composed = await compose(table.value, schemas);
+  // A contributor that cannot be served is named on stderr and left out; the surface still starts.
+  for (const refusal of composed.refused) process.stderr.write(`${JSON.stringify({ surface: 'panel refused', ...refusal })}\n`);
   return { ok: true, value: connection => {
     const signIn = new SignIn(peer, settings.pendingIdentity);
-    const request = requestHandler(table.value, signIn);
+    const request = requestHandler(composed.table, signIn);
     const factory = (channel: Channel, role: string): Handler => {
-      const wire = new Wire(peer, schemas, clock, identity, role, frame => channel.write(frame));
+      const wire = new Wire(peer, schemas, clock, identity, role, frame => channel.write(frame), composed.contribution);
       return {
         message: value => checkFrame(value) ? wire.command(value) : Promise.resolve(failure('invalid-args', 'The gateway frame violates its schema.')),
         close: () => { wire.close(); }

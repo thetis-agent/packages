@@ -24,6 +24,7 @@ import { mountRail } from "./views/rail.js";
 import { mountSessions } from "./views/sessions.js";
 import { mountStage, transcriptFor } from "./views/stage.js";
 import { mountStatusbar } from "./views/statusbar.js";
+import { deliver } from "./lib/surface.js";
 
 const statusEl = $("status");
 
@@ -83,6 +84,53 @@ mountSessions({ onOpen: openConversation, onNew: createConversation });
 
 // --- identity -----------------------------------------------------------------
 
+/* Panels and renderers a package contributed, named by the host in its `user` frame.
+ *
+ * Imported rather than bundled: each is served from this same origin under its own package's
+ * `/surface/<package>/` path, which is what the CSP's `default-src 'self'` permits and nothing wider.
+ * A module that fails to load is reported and skipped — one broken contributor must not take the
+ * conversation down with it. */
+let loaded = false;
+/* Event frames that arrived while the contributed modules were still importing.
+ *
+ * Each `await import` yields, so a frame can land before a contributed renderer or watcher has
+ * registered — and that frame would then be drawn only by the built-in table and never reach the
+ * contributor at all. Holding them costs a few milliseconds on a same-origin import and is the
+ * difference between a panel that is merely late and one that is permanently missing its first
+ * turn. Bounded, like every other queue here: past the cap the surface stops waiting and delivers,
+ * because a late panel is better than a stalled conversation. */
+const queued = [];
+const QUEUED_MAX = 512;
+let contributionsReady = false;
+
+function releaseQueue() {
+  contributionsReady = true;
+  while (queued.length) applyFrame(queued.shift());
+}
+
+async function loadContributions(frame) {
+  if (loaded) return;
+  loaded = true;
+  const entries = [...(frame.panels || []), ...(frame.renderers || [])];
+  for (const descriptor of entries) {
+    try { await import(descriptor.entry); }
+    catch (error) {
+      console.error(`the ${descriptor.id || descriptor.kind} contribution failed to load`, error);
+      toast(`A panel this environment offers could not be loaded: ${descriptor.id || descriptor.kind}.`, { tone: "error" });
+    }
+  }
+  releaseQueue();
+}
+
+/** Draws one event frame and hands it to whoever asked for that kind. */
+function applyFrame(frame) {
+  if (frame.kind === "turn-started") store.setBusy(frame.session, true);
+  if (frame.kind === "turn-finished") store.setBusy(frame.session, false);
+  transcriptFor(frame.session)?.applyEvent(frame);
+  // Panels read the same frames the transcript does, after it has drawn them.
+  deliver(frame);
+}
+
 store.watch("user", (user) => {
   $("user-name").textContent = user?.name || "";
   setHidden($("logout"), !user);
@@ -91,7 +139,7 @@ store.watch("user", (user) => {
 // --- inbound frames -------------------------------------------------------------
 
 connection
-  .on("user", (frame) => store.set({ user: frame.user }))
+  .on("user", (frame) => { store.set({ user: frame.user }); void loadContributions(frame); })
   .on("sessions", (frame) => {
     const list = Array.isArray(frame.sessions) ? frame.sessions : [];
     store.set({ sessions: list });
@@ -119,9 +167,9 @@ connection
     transcriptFor(frame.session)?.applyEvent({ kind: "note", text: "Turn stopped." });
   })
   .on("event", (frame) => {
-    if (frame.kind === "turn-started") store.setBusy(frame.session, true);
-    if (frame.kind === "turn-finished") store.setBusy(frame.session, false);
-    transcriptFor(frame.session)?.applyEvent(frame);
+    if (contributionsReady) { applyFrame(frame); return; }
+    queued.push(frame);
+    if (queued.length >= QUEUED_MAX) releaseQueue();
   })
   .on("error", (frame) => {
     // `error` carries no `session` field — it is a fault in the socket

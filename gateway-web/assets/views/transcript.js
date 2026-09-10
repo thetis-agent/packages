@@ -20,6 +20,7 @@
 
 import { clear, el } from "../lib/dom.js";
 import { renderMarkdown } from "../lib/markdown.js";
+import { rendererFor } from "../lib/surface.js";
 
 export function mountTranscriptInto(root) {
   /** The bubble currently receiving `delta`/`reasoning` text for the turn in
@@ -199,6 +200,19 @@ export function mountTranscriptInto(root) {
    *  instance only ever draws into the transcript it was built for, whether
    *  or not that tab is the one currently showing. */
   function applyEvent(frame) {
+    // A package that contributed a renderer for this kind draws it; the built-in table is the
+    // fallback, so a contributor can add a kind without the surface knowing what it means.
+    const contributed = rendererFor(frame.kind);
+    if (contributed) {
+      // A contributor that throws falls through to the built-in row rather than losing the event:
+      // the transcript is the reading order of the conversation and must not develop holes.
+      try {
+        const node = contributed(frame, { el });
+        if (node) { place(node); return; }
+      } catch (error) {
+        console.error(`a contributed renderer for ${frame.kind} rows failed`, error);
+      }
+    }
     RENDERERS[frame.kind]?.(frame);
   }
 

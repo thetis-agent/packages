@@ -65,6 +65,9 @@ export function render(batch: EventBatch): Record<string, unknown>[] {
     if (event.type === 'input' && typeof payload['text'] === 'string') frames.push({ type: 'event', session: batch.conversation, kind: 'user', text: payload['text'] });
     if (event.type === 'call') { const frame = payload['ok'] === undefined ? callRequestFrame(batch.conversation, payload) : callAnswerFrame(batch.conversation, payload); if (frame) frames.push(frame); }
     if (event.type === 'notice') frames.push({ type: 'event', session: batch.conversation, kind: 'note', text: textOf(payload['content']) });
+    // The whole retrieve answer, as the retriever reported it: a panel reads `score` and `how` when a
+    // retriever chose to report them and says nothing about ranking when it did not.
+    if (event.type === 'retrieve') frames.push({ type: 'event', session: batch.conversation, kind: 'retrieve', entries: payload['entries'], dropped: payload['dropped'] });
     if (event.type === 'output' && isObject(payload['message'])) {
       const content = payload['message']['content'];
       frames.push({ type: 'event', session: batch.conversation, kind: 'assistant', text: textOf(content), usage: payload['usage'] });
