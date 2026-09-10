@@ -34,7 +34,8 @@ documents bounds, durability and the kernel's fixed reviewed default.
 GitHub `CI` checks this repository with the sibling runtime, including the full
 conformance, deployment and performance suite. Manual `Release` delivery requires
 an existing version tag and an exact reviewed runtime commit; it publishes the
-verified offline distribution after all gates pass. Configure the peer checkout
+offline distribution without repeating CI acceptance checks (ADR 0055).
+Tag identity, transferred checksums and release signatures remain checked. Configure the peer checkout
 and release environment using the runtime's
 [CI and delivery guide](https://github.com/thetis-agent/runtime/blob/main/docs/ci-delivery.md).
 Production promotion remains the kernel's evaluator-backed, code-confirmed act.
