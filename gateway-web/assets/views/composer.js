@@ -4,10 +4,20 @@
  * The legacy composer also carried a mode picker, a model picker, a
  * starting-revision picker, @-mentions and a drag-and-drop attachment tray.
  * None of those have a wire to speak to any more: `send` takes only `id` and
- * `text` (wire.ts refuses attachments outright, and there is no mode/model/
- * branch concept in this protocol at all), so all of that machinery — and its
- * dependency on the now-removed picker.js and the dropped mentions.js — went
- * with the pickers.
+ * `text`, and every one of them is blocked on something outside this file:
+ *   - attachments are contracted (`contract/turn-events#input.attachments`)
+ *     but wire.ts refuses them, because an attachment is named by `path` and
+ *     `hash` rather than carried inline — lifting the refusal means choosing
+ *     where a person's uploaded bytes live and who reaps them, not editing a
+ *     composer;
+ *   - mode and model are profile fields on `Runtime`, changed through the
+ *     generation machine (ADR 0012 §1), not by a per-conversation frame the
+ *     way legacy sent `set-model`;
+ *   - starting revisions and `@`-mentions describe a git sandbox and a
+ *     workspace, neither of which this runtime has.
+ * `views/picker.js` is back in the tree ahead of the first three, but nothing
+ * imports it yet and this file is not the place to guess which of them lands
+ * first; see its own header.
  */
 
 import { $, AGENT_NAME } from "../lib/dom.js";
