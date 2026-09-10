@@ -1,11 +1,33 @@
 /** Port Legacy's ranker while returning bodies within the explicit retrieval budget; TE-005–008. */
 import { rank } from '@/lib/bm25/index.ts';
 import type { LoadedSkill } from '@/lib/skills/index.ts';
-import { uniqueSkills } from '@/lib/skills/index.ts';
+import { uniqueSkills, loadInstalled } from '@/lib/skills/index.ts';
+import { Schemas } from '@/lib/schema/index.ts';
 import type { RetrieveRequest, RetrieveAnswer } from '@/contracts/skills/types.ts';
+import type { Content } from '@/contracts/turn-events/types.ts';
 
 export const settings = { fusionWeight: 0.7, absorb: true };
-export const stages = {};
+const schemas = new Schemas();
+let corpus: ReturnType<typeof retriever> | undefined;
+
+interface Context { emit: (notice: { content: Content[] }) => void }
+
+/** The corpus is read once, at registration, so a turn never pays for disk and every turn of a
+ * conversation ranks the same bytes. A pack that changes is picked up at the next generation,
+ * which is the only moment the profile is allowed to move (ADR 0012). */
+export const stages = {
+  async init(_profile: unknown, context: Context): Promise<void> {
+    await schemas.load();
+    const loaded = await loadInstalled(schemas);
+    // A pack that could not load is worth saying out loud: silently retrieving from a smaller
+    // corpus looks like a bad ranker rather than a broken pack.
+    for (const warning of loaded.warnings) context.emit({ content: [{ type: 'text', text: warning }] });
+    corpus = retriever(loaded.skills);
+  },
+  retrieve(request: RetrieveRequest): Promise<RetrieveAnswer> {
+    return corpus?.retrieve(request) ?? Promise.resolve({ entries: [], dropped: [] });
+  }
+};
 export function retriever(skills: readonly LoadedSkill[], vectors: ReadonlyMap<string, readonly number[]> = new Map(), fusionWeight = settings.fusionWeight) {
   const unique = uniqueSkills(skills);
   if (!unique.ok) throw new Error(unique.error.message);
