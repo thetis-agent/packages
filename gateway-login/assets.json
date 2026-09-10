@@ -1,0 +1,7 @@
+{
+  "assets": [
+    { "path": "/login", "file": "login.html", "type": "text/html" },
+    { "path": "/login/theme.css", "file": "theme.css", "type": "text/css" },
+    { "path": "/login/login.js", "file": "login.js", "type": "text/javascript; charset=utf-8" }
+  ]
+}

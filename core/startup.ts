@@ -16,7 +16,7 @@ export async function initialize(peer: Peer, environment: Environment, schemas: 
   const check = await validator<Setup>(schemas, 'setup');
   if (!check(setup)) return failure('invalid-args', 'The kernel supplied an invalid environment profile.');
   const loaded = await environment.start(setup); if (!loaded.ok) return loaded;
-  for (const source of setup.runtime?.requiredSources ?? []) {
+  for (const source of setup.runtime.requiredSources ?? []) {
     if (loaded.value.sources.includes(source)) continue;
     const entry = setup.entries.find(entry => `${entry.manifest.name}@${entry.manifest.version}` === source);
     return entry ? failure('gap', gap(entry.manifest, 'cap/init.valid', '*')) : failure('invalid-args', 'The required initialization source is absent from the profile.');

@@ -9,6 +9,7 @@ import { readBounded } from '../../lib/files/read-bounded.ts';
 import { resolvePath } from '../../lib/files/index.ts';
 import { atomicWrite, syncDirectory } from '../../lib/files/atomic.ts';
 import type { SessionInfo } from './types.ts';
+import validate from './schema-validators.cjs';
 
 export const storeLimits = { conversations: 1024, metadataBytes: 4096 };
 const identifier = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
@@ -24,7 +25,7 @@ export class SessionStore {
       const schema: unknown = JSON.parse(await readFile(new URL('./schema.json', import.meta.url), 'utf8'));
       if (!isObject(schema)) throw new Error('The committed session schema is invalid.');
       await mkdir(root, { recursive: true, mode: 0o700 });
-      return { ok: true, value: new SessionStore(await realpath(root), schemas.compile<SessionInfo>(schema)) };
+      return { ok: true, value: new SessionStore(await realpath(root), schemas.precompiled<SessionInfo>(schema, validate.digest, validate)) };
     } catch { return failure('io', 'The environment conversation state could not be opened.'); }
   }
 

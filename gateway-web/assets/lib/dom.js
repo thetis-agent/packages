@@ -1,0 +1,83 @@
+/* Tiny DOM helpers. No framework, no build step. */
+
+export const $ = (id) => document.getElementById(id);
+
+/* This surface has no per-installation branding to substitute: `hello`'s
+ * reply carries a person's name, never an agent's, so there is nothing to read
+ * out of the document. Kept as a named constant (rather than the literal
+ * string at each call site) so a future wire that does carry a name has one
+ * place to plug it in. */
+export const AGENT_NAME = "Thetis";
+
+/** Creates an element. Children may be nodes or strings (inserted as text). */
+export function el(tag, props = {}, ...children) {
+  const node = document.createElement(tag);
+
+  for (const [key, value] of Object.entries(props)) {
+    if (value == null || value === false) continue;
+    if (key === "class") node.className = value;
+    else if (key.startsWith("on")) node.addEventListener(key.slice(2).toLowerCase(), value);
+    else if (key === "dataset") Object.assign(node.dataset, value);
+    else node.setAttribute(key, value === true ? "" : value);
+  }
+
+  for (const child of children.flat()) {
+    if (child == null || child === false) continue;
+    node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+  }
+  return node;
+}
+
+/** Inline SVG from a path spec, so icons stay markup rather than image loads. */
+export function icon(paths, { size = 16, fill = "none", width = 1.7 } = {}) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 20 20");
+  svg.setAttribute("width", size);
+  svg.setAttribute("height", size);
+  svg.setAttribute("aria-hidden", "true");
+
+  for (const d of [].concat(paths)) {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", d);
+    path.setAttribute("fill", fill);
+    if (fill === "none") {
+      path.setAttribute("stroke", "currentColor");
+      path.setAttribute("stroke-width", width);
+      path.setAttribute("stroke-linecap", "round");
+      path.setAttribute("stroke-linejoin", "round");
+    }
+    svg.append(path);
+  }
+  return svg;
+}
+
+export function clear(node) {
+  node.replaceChildren();
+  return node;
+}
+
+/* Hides or shows any element, including an SVG.
+ *
+ * `hidden` is an IDL attribute of `HTMLElement`, and `SVGElement` does not
+ * inherit it — so `svg.hidden = true` quietly sets an ordinary JS property and
+ * the element stays on screen. That is exactly how an avatar's <img> and its
+ * fallback <svg> mark both ended up visible at once: the image was shown and
+ * the mark was "hidden" by an assignment that did nothing.
+ *
+ * Going through the attribute works on every element, and is what the house
+ * rule about hiding with `hidden` actually means. */
+export function setHidden(node, hide) {
+  if (!node) return;
+  if (hide) node.setAttribute("hidden", "");
+  else node.removeAttribute("hidden");
+}
+
+/** Closes a menu when the next click lands outside it. */
+export function onClickOutside(node, handler) {
+  const listener = (event) => {
+    if (!node.contains(event.target)) handler(event);
+  };
+  // Deferred so the click that opened the menu does not immediately close it.
+  setTimeout(() => document.addEventListener("click", listener), 0);
+  return () => document.removeEventListener("click", listener);
+}

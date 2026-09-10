@@ -9,18 +9,18 @@ import { KernelControl } from './kernel-control.ts';
 import { initialize } from './startup.ts';
 import { capabilities } from './protocol.ts';
 
-import { timing } from './startup-timing.ts';
+import { timing, diagnostics } from './startup-timing.ts';
 
 async function main(): Promise<Result<void>> {
   timing.imports = performance.now();
   const inherited = await authority(); if (!inherited.ok) return inherited;
   const schemas = new Schemas(); await schemas.load(); timing.schemas = performance.now();
-  const environment: Environment = new Environment(schemas, clock, undefined, note => peer.notify(note)); const control = new KernelControl(environment);
+  const environment: Environment = new Environment(schemas, clock, message => { if (message.type === 'ready') timing['worker'] = message['startupTiming']; }, note => peer.notify(note)); const control = new KernelControl(environment);
   const peer = new Peer(inherited.value.socket, schemas, clock, [...capabilities, 'profile.get', 'package.register', 'notice'], { handlers: control.handlers(), note: note => control.note(note) });
   try {
     const connected = await peer.connect(); if (!connected.ok) return connected; timing.peer = performance.now();
     const ready = await control.ready(await initialize(peer, environment, schemas, connected.value, inherited.value.token));
-    if (!ready.ok) return ready; timing.initialized = performance.now();
+    if (!ready.ok) return ready; timing.initialized = performance.now(); Object.assign(timing, diagnostics());
     const ended = await Promise.race([peer.finished(), environment.finished()]);
     if (!ended.ok && ended.error.code === 'frame-too-large') {
       const notified = await environment.notify({ note: 'notice', params: { boundaryFailure: 'frame-too-large' } });

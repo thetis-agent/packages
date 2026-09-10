@@ -1,0 +1,14 @@
+{
+  "name": "storage-files",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": "./index.ts",
+  "stages": "./index.ts",
+  "requires": { "contract/storage": "^1", "lib/storage": "^1" },
+  "provides": { "storage/bytes": "1.0.0" },
+  "envelope": {
+    "requires": [], "provides": [],
+    "spawn": { "scope": "person", "network": "none" }
+  },
+  "settings": { "type": "object", "properties": {}, "additionalProperties": false }
+}

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Thetis — sign in</title>
+<link rel="stylesheet" href="/login/theme.css">
+</head>
+<body>
+<main>
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+      <circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" stroke-width="2.5"/>
+      <circle cx="16" cy="16" r="3" fill="currentColor"/>
+    </svg>
+    <h1>Thetis</h1>
+    <p class="lead">Sign in to continue</p>
+  </div>
+
+  <!-- Filled in and revealed by login.js, from `?error=refused` — never
+       server-rendered, since this page is a static asset served through
+       lib/assets rather than a per-request template. Never says which of the
+       id or the password was wrong, only that the pair was refused. Kept as a
+       separate served file (not inline) because lib/assets' CSP is
+       `default-src 'self'` with no `script-src` exception. -->
+  <p id="banner" class="banner" role="alert" hidden></p>
+
+  <form method="post" action="/login">
+    <input id="next" type="hidden" name="next" value="">
+    <label for="id">ID</label>
+    <input id="id" name="id" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button type="submit">Sign in</button>
+  </form>
+
+  <p class="foot">No account? Ask whoever runs this Thetis.</p>
+</main>
+<script type="module" src="/login/login.js"></script>
+</body>
+</html>

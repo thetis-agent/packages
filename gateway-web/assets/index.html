@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thetis</title>
+<link rel="stylesheet" href="./theme.css">
+<link rel="stylesheet" href="./app.css">
+</head>
+<body>
+<div id="app">
+
+  <aside class="sidebar">
+    <header class="sidebar-head">
+      <div class="brand">
+        <svg id="brand-mark" class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" stroke-width="2.5"/>
+          <circle cx="16" cy="16" r="3" fill="currentColor"/>
+        </svg>
+        <span class="brand-name">Thetis</span>
+      </div>
+      <button id="new-chat" class="icon-btn" title="New chat" aria-label="New chat">
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </header>
+
+    <div class="sidebar-search">
+      <svg viewBox="0 0 20 20" aria-hidden="true">
+        <circle cx="8.5" cy="8.5" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M12.5 12.5 16.5 16.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+      <input id="session-search" type="text" placeholder="Search conversations" aria-label="Search conversations" autocomplete="off" spellcheck="false">
+      <kbd>/</kbd>
+    </div>
+
+    <nav id="session-list" class="session-list" aria-label="Conversations"></nav>
+
+    <!-- Who is signed in, then the way to sign out. Filled from the host's `user`
+         frame; the logout form is a real POST rather than a fetch so signing out
+         works with the socket down, which is when it is most wanted. There is no
+         admin link and no "see everyone's conversations" control here: this
+         sidebar is always just the signed-in person's own conversations. -->
+    <footer class="sidebar-foot">
+      <div class="foot-row foot-identity">
+        <span id="user-name" class="foot-name" title="Signed in as"></span>
+        <span id="status" class="status is-offline">connecting</span>
+      </div>
+      <div class="foot-row foot-actions">
+        <form id="logout" method="post" action="./logout" hidden>
+          <button type="submit" class="quiet-link foot-action" title="Sign out of this account on this browser">
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M8 4H4.5v12H8M12 6.5 15.5 10 12 13.5M15 10H7.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>Log out</span>
+          </button>
+        </form>
+      </div>
+    </footer>
+  </aside>
+
+  <main class="main">
+    <!-- The tab strip over the centre stage: one tab per open conversation,
+         "+" opens another. views/stage.js fills this and owns which pane is
+         showing; it also builds each pane (chat-bar + transcript) as tabs
+         open, since a tab may be closed and there is no longer exactly one. -->
+    <nav id="stage-tabs" class="stage-tabs" aria-label="Open tabs"></nav>
+
+    <!-- Populated entirely by views/stage.js — a `<section class="stage-pane">`
+         per open conversation, shown or hidden to match the active tab.
+         File-editor and plan panes were part of the lifted-away legacy UI. -->
+    <div id="stage" class="stage"></div>
+
+    <!-- One composer, shared by every tab: it always addresses whichever
+         conversation is on screen (views/composer.js reads `store.current`),
+         so it lives outside the stage rather than being duplicated per pane. -->
+    <div class="composer-wrap">
+      <form id="composer" class="composer" autocomplete="off">
+        <div id="input-wrap" class="composer-field">
+          <textarea id="input" class="composer-input" rows="1"
+                    placeholder="Message…"
+                    aria-label="Message"></textarea>
+        </div>
+
+        <div class="composer-bar">
+          <div class="composer-run">
+            <button type="button" id="stop" class="stop-btn" title="Stop the running turn" hidden>
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <rect x="6" y="6" width="8" height="8" rx="1.5" fill="currentColor"/>
+              </svg>
+              <span>Stop</span>
+            </button>
+            <button id="send" type="submit" class="send-btn" title="Send" aria-label="Send">
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <path d="M4 10h11M10.5 5.5 15 10l-4.5 4.5" fill="none" stroke="currentColor"
+                      stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </form>
+      <p class="composer-hint">Enter to send · Shift+Enter for a newline</p>
+    </div>
+
+  </main>
+
+  <aside class="rail" aria-label="Inspectors">
+    <nav id="rail-tabs" class="rail-tabs" aria-label="Inspector tabs"></nav>
+    <section id="rail-panel" class="rail-panel" hidden></section>
+  </aside>
+
+</div>
+
+<footer id="statusbar" class="statusbar" aria-label="System status"></footer>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

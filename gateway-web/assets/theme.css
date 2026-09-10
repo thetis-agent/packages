@@ -1,0 +1,164 @@
+/* Thetis design tokens.
+ *
+ * Everything visual is expressed here, so restyling the whole surface is a
+ * one-file change. Layout and component rules live in app.css and refer to
+ * these names only.
+ */
+
+:root {
+  /* Depth: each surface sits one step above the last. */
+  --bg:          #0b0b0f;
+  --surface-1:   #101016;
+  --surface-2:   #16161f;
+  --surface-3:   #1d1d28;
+  --hairline:    #24242f;
+  --hairline-strong: #32323f;
+
+  /* Text */
+  --text:        #ececf2;
+  --text-dim:    #a3a3b4;
+  --text-faint:  #6e6e82;
+
+  /* Accent — a single hue, used sparingly */
+  --accent:      #7c9cff;
+  --accent-hot:  #96b0ff;
+  --accent-deep: #4a5fd0;
+  --accent-wash: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-edge: color-mix(in srgb, var(--accent) 38%, transparent);
+
+  /* Semantic */
+  --ok:          #7fd18f;
+  --warn:        #e8b673;
+  --err:         #f2788f;
+  --ok-wash:     color-mix(in srgb, var(--ok) 12%, transparent);
+  --err-wash:    color-mix(in srgb, var(--err) 12%, transparent);
+  --warn-wash:   color-mix(in srgb, var(--warn) 12%, transparent);
+
+  /* Type */
+  --font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  --text-xs:  11.5px;
+  --text-sm:  12.5px;
+  --text-md:  14px;
+  --text-lg:  15.5px;
+  --leading:  1.65;
+
+  /* Shape */
+  --r-sm: 7px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 18px;
+  --r-pill: 999px;
+
+  /* Space */
+  --gap-1: 4px;
+  --gap-2: 8px;
+  --gap-3: 12px;
+  --gap-4: 16px;
+  --gap-5: 24px;
+  --gap-6: 32px;
+
+  /* Elevation */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, .35);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, .5);
+
+  /* Motion — short enough to feel immediate, long enough to read */
+  --ease: cubic-bezier(.2, .7, .3, 1);
+  --fast: 110ms;
+  --med: 180ms;
+
+  /* Terminal — the palette the drawer renders shell output with.
+   *
+   * Here rather than in the view because it is colour, and colour lives in one
+   * file. xterm needs the values as JavaScript strings, so the drawer reads
+   * these back with getComputedStyle; that is also why every one is a plain hex
+   * literal, since a color-mix() would come back unresolved and xterm's own
+   * parser would reject it. Muted against the near-black surfaces: raw ANSI red
+   * and green on this background is a fairground.
+   *
+   * The neutrals and the hues are sampled from Cursor's terminal panel, which
+   * is the look this drawer was asked for: a true neutral grey ramp with no
+   * blue cast, and desaturated Nord-ish hues. The greys are deliberately warmer
+   * (i.e. less blue) than the app's own --surface-*, because a terminal reads
+   * as a device set into the page rather than as another panel of it. */
+  --term-bg:        #141414;
+  --term-fg:        #d4d4d4;
+  --term-cursor:    #a3b8cc;
+  --term-selection: #2f4a3a;
+  --term-black:     #232323;
+  --term-red:       #e387a7;
+  --term-green:     #3a8e5b;
+  --term-yellow:    #d9b48a;
+  --term-blue:      #81a1c1;
+  --term-magenta:   #e394dc;
+  --term-cyan:      #82d2ce;
+  --term-white:     #d4d4d4;
+  --term-bright-black:   #5a5a5a;
+  --term-bright-red:     #f0a3bd;
+  --term-bright-green:   #70b489;
+  --term-bright-yellow:  #e8cba6;
+  --term-bright-blue:    #a3bcd6;
+  --term-bright-magenta: #f0b3ea;
+  --term-bright-cyan:    #a0e0dd;
+  --term-bright-white:   #f0f0f0;
+
+  /* The drawer's own chrome, as opposed to the text it renders. Sampled the
+   * same way: panel one step up from the body, a hairline that is visible
+   * without being a line you look at, and a green-tinted wash for the selected
+   * shell — the one place the terminal departs from the app's periwinkle
+   * accent, because it is the terminal's own accent in the reference. */
+  --term-panel:     #181818;
+  --term-hairline:  #232323;
+  --term-hover:     #202020;
+  --term-wash:      #203327;
+  --term-wash-edge: #2f6948;
+  --term-list-w:    190px;
+
+  /* Layout */
+  --sidebar-w: 272px;
+  --measure: 48rem;
+  /* The system status bar's height. Anything that pins itself to the bottom of
+     the viewport clears this rather than guessing. */
+  --statusbar-h: 26px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --fast: 0ms; --med: 0ms; }
+}
+
+/* Light palette, for a system set to light mode. There is no in-app toggle —
+ * this surface follows the OS the same way the sign-in page
+ * (gateway-login's serving of /opt/thetis/crates/thetis/src/auth.rs's markup)
+ * already does, and the values here are that page's light palette, carried
+ * over so the two do not visibly disagree when a light-mode browser moves
+ * from one to the other. Only the base colours are restated: everything
+ * derived from them (--accent-wash, --ok-wash, --err-wash, …) is a
+ * color-mix() of a var() and recomputes on its own. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg:              #f5f5f8;
+    --surface-1:       #ffffff;
+    --surface-2:       #f1f1f6;
+    --surface-3:       #e6e6ee;
+    --hairline:        #dedee6;
+    --hairline-strong: #c8c8d4;
+
+    --text:      #17171f;
+    --text-dim:  #565669;
+    --text-faint:#8a8a9c;
+
+    --accent:      #4a5fd0;
+    --accent-hot:  #3646b3;
+    --accent-deep: #4a5fd0;
+
+    /* auth.rs's login page has no success/warning state, so it defines no
+     * light --ok/--warn. Chosen here to keep the dark palette's hues
+     * (--ok:#7fd18f, --warn:#e8b673) but darkened enough to read on the
+     * white --surface-1 above, the same way --err darkened from #f2788f
+     * to #c0384f. */
+    --ok:   #2f8f52;
+    --warn: #a3691f;
+    --err:  #c0384f;
+  }
+}

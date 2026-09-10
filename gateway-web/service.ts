@@ -1,19 +1,95 @@
-/** Serve the lifted chat wire only behind a kernel-established person endpoint; ADR 0009, ADR 0019. */
+/** Serve the lifted web surface and the /ws wire behind a per-request kernel identity check, over
+ * this person's own public socket; ADR 0009, ADR 0019, ADR 0038. */
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import type { Socket } from 'node:net';
 import { serve } from '../../lib/service/index.ts';
-import { accept } from '../../lib/websocket/index.ts';
+import { accept, limits as wireLimits } from '../../lib/websocket/index.ts';
+import type { Channel, Handler, RequestHandler } from '../../lib/websocket/index.ts';
+import { load } from '../../lib/assets/index.ts';
 import { clock } from '../../lib/events/index.ts';
 import { isObject, failure } from '../../lib/schema/index.ts';
+import type { Result } from '../../lib/schema/index.ts';
 import { Wire } from './wire.ts';
+import { SignIn, sessionToken } from './identity.ts';
+import { requestHandler } from './http.ts';
 import type { Contract } from './types.ts';
+import { settings } from './index.ts';
+
+const assetsRoot = fileURLToPath(new URL('./assets', import.meta.url));
+const manifestPath = fileURLToPath(new URL('./assets.json', import.meta.url));
+const headerEnd = Buffer.from('\r\n\r\n');
+
+interface Sniffed { raw: Buffer; upgrade: boolean; cookie: string | undefined }
+
+/** Peek at the request line and headers without consuming them, so a socket that turns out to be
+ * an unsigned-in WebSocket upgrade never reaches ws's own handshake writer (item 5: that writer
+ * commits its 101 response before any factory runs, so the gate must sit in front of it). Any
+ * request carrying an Upgrade header is treated as needing the gate, not only a genuine /ws
+ * handshake: accept() destroys anything else with that header anyway, so gating it too costs one
+ * harmless whois call and never admits an ungated Wire. */
+function sniff(socket: Socket, limit: number): Promise<Sniffed | undefined> {
+  return new Promise(resolve => {
+    let buffered = Buffer.alloc(0); let settled = false;
+    const finish = (value: Sniffed | undefined): void => {
+      if (settled) return; settled = true;
+      socket.removeListener('data', onData); socket.removeListener('close', onEnd); socket.removeListener('error', onEnd);
+      resolve(value);
+    };
+    const onEnd = (): void => { finish(undefined); };
+    const onData = (chunk: Buffer): void => {
+      buffered = Buffer.concat([buffered, chunk]);
+      const end = buffered.indexOf(headerEnd);
+      if (end === -1) {
+        if (buffered.length > limit) { socket.pause(); finish({ raw: buffered, upgrade: false, cookie: undefined }); }
+        return;
+      }
+      socket.pause();
+      const lines = buffered.subarray(0, end).toString('latin1').split('\r\n');
+      const cookieLine = lines.find(line => /^cookie\s*:/i.test(line));
+      finish({ raw: buffered, upgrade: lines.some(line => /^upgrade\s*:/i.test(line)), cookie: cookieLine ? cookieLine.slice(cookieLine.indexOf(':') + 1).trim() : undefined });
+    };
+    socket.on('data', onData); socket.on('close', onEnd); socket.on('error', onEnd);
+  });
+}
+
+/** Mirror ws's own abortHandshake: write the status line and close, before any 101 response could be sent. */
+function refuse(socket: Socket): void {
+  socket.once('finish', () => { socket.destroy(); });
+  socket.end('HTTP/1.1 401 Unauthorized\r\nconnection: close\r\n\r\n');
+}
+
+async function admit(socket: Socket, admitted: () => void, signIn: SignIn, person: string, factory: (channel: Channel, role: string) => Handler, request: RequestHandler): Promise<Result<void>> {
+  const sniffed = await sniff(socket, wireLimits.headerBytes);
+  if (!sniffed) return { ok: true, value: undefined };
+  let role = '';
+  if (sniffed.upgrade) {
+    const signed = await signIn.check(sessionToken(sniffed.cookie));
+    if (!signed.ok || signed.value.person !== person) { refuse(socket); return { ok: true, value: undefined }; }
+    role = signed.value.role;
+  }
+  socket.unshift(sniffed.raw);
+  return accept(socket, admitted, channel => factory(channel, role), request);
+}
 
 const result = await serve(async (_settings, schemas, peer, identity) => {
-  const schema: unknown = JSON.parse(await readFile(new URL('./schema.json', import.meta.url), 'utf8'));
-  if (!isObject(schema)) throw new Error('The committed gateway schema is invalid.');
-  const check = schemas.compile<Contract>(schema);
-  return { ok: true, value: connection => accept(connection.socket, () => { connection.admitted(); }, channel => {
-    const wire = new Wire(peer, schemas, clock, identity, frame => channel.write(frame));
-    return { message: value => check(value) ? wire.command(value) : Promise.resolve(failure('invalid-args', 'The gateway frame violates its schema.')), close: () => { wire.close(); } };
-  }) };
-}, outcome => { if (!outcome.ok) process.stderr.write(`${JSON.stringify(outcome)}\n`); }, ['session.list', 'session.create', 'session.submit', 'session.cancel'], 'person');
+  const wireSchema: unknown = JSON.parse(await readFile(new URL('./schema.json', import.meta.url), 'utf8'));
+  if (!isObject(wireSchema)) throw new Error('The committed gateway schema is invalid.');
+  const checkFrame = schemas.compile<Contract>(wireSchema);
+  const table = await load(assetsRoot, manifestPath, schemas);
+  if (!table.ok) return table;
+  return { ok: true, value: connection => {
+    const signIn = new SignIn(peer, settings.pendingIdentity);
+    const request = requestHandler(table.value, signIn);
+    const factory = (channel: Channel, role: string): Handler => {
+      const wire = new Wire(peer, schemas, clock, identity, role, frame => channel.write(frame));
+      return {
+        message: value => checkFrame(value) ? wire.command(value) : Promise.resolve(failure('invalid-args', 'The gateway frame violates its schema.')),
+        close: () => { wire.close(); }
+      };
+    };
+    return admit(connection.socket, connection.admitted, signIn, identity.person, factory, request);
+  } };
+}, outcome => { if (!outcome.ok) process.stderr.write(`${JSON.stringify(outcome)}\n`); },
+  ['session.list', 'session.create', 'session.submit', 'session.cancel', 'session.whois', 'env.status', 'env.reset'], 'person');
 if (!result.ok) { process.stderr.write(`${JSON.stringify(result)}\n`); process.exitCode = 1; }

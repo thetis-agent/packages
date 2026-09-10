@@ -4,6 +4,7 @@ import type { Handler } from '../../lib/socket/index.ts';
 import type { Result } from '../../lib/schema/index.ts';
 import { failure } from '../../lib/schema/index.ts';
 import { timing } from './startup-timing.ts';
+import { flushCompileCache } from 'node:module';
 import { Queue } from '../../lib/events/queue.ts';
 import type { Environment } from './environment.ts';
 import { sessionMethods } from './protocol.ts';
@@ -30,7 +31,7 @@ export class KernelControl {
       if (this.#shutdown) { const stopped = await this.#shutdown; return stopped.ok ? { ok: true, value: { ready: true, stopped: true } } : stopped; }
       if (this.#fault && !this.#fault.ok) return this.#fault;
       if (this.#stopping || params['activation'] === true) { const ready = await this.#ready.promise; if (!ready.ok) return ready; }
-      const result = this.#initialized ? await this.#environment.call('health.probe', {}, this.#stopping ? startupLimits.drainMs : startupLimits.probeMs) : { ok: true, value: { ...this.#environment.status(), admitting: false } };
+      const result: Result<unknown> = this.#initialized ? await this.#environment.call('health.probe', {}, this.#stopping ? startupLimits.drainMs : startupLimits.probeMs) : { ok: true, value: { ...this.#environment.status(), admitting: false } };
       if (result.ok && typeof result.value === 'object' && result.value !== null) return { ok: true, value: { ...result.value, startupTiming: timing } };
       return result;
     });
@@ -51,7 +52,7 @@ export class KernelControl {
   async ready(result: Result<void>): Promise<Result<void>> {
     this.#notes.close();
     if (!result.ok) { this.#fault = result; this.#ready.resolve(result); return result; }
-    this.#initialized = true;
+    flushCompileCache(); this.#initialized = true;
     for await (const note of this.#notes) {
       const sent = await this.#environment.notify(note);
       if (!sent.ok) { this.#fault = sent; this.#ready.resolve(sent); return sent; }

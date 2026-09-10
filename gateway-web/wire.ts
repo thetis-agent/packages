@@ -1,4 +1,6 @@
-/** Route authority through inherited control and content through person-scoped subscriptions; KS-004, ADR 0019. */
+/** Route authority through inherited control and content through person-scoped subscriptions; KS-004,
+ * ADR 0019. The `hello` reply is a `user` frame carrying this connection's signed-in name and role,
+ * per ADR 0038 D4/D2 — app.js's `.on("user", ...)` handler is the counterpart. */
 import type { Peer } from '../../lib/socket/index.ts';
 import type { ConnectKernel } from '../../contracts/kernel-socket/types.ts';
 import type { Schemas, Result } from '../../lib/schema/index.ts';
@@ -11,17 +13,17 @@ import { render } from './render.ts';
 import { settings } from './index.ts';
 export type Send = (frame: Record<string, unknown>) => Promise<Result<void>>;
 export class Wire {
-  readonly #peer: Peer; readonly #schemas: Schemas; readonly #clock: Clock; readonly #identity: ConnectKernel; readonly #send: Send;
+  readonly #peer: Peer; readonly #schemas: Schemas; readonly #clock: Clock; readonly #identity: ConnectKernel; readonly #role: string; readonly #send: Send;
   readonly #streams = new Map<string, SessionClient>();
   readonly #turns = new Set<string>();
   readonly #opening = new Set<string>();
   #closed = false;
-  constructor(peer: Peer, schemas: Schemas, clock: Clock, identity: ConnectKernel, send: Send) {
-    this.#peer = peer; this.#schemas = schemas; this.#clock = clock; this.#identity = identity; this.#send = send;
+  constructor(peer: Peer, schemas: Schemas, clock: Clock, identity: ConnectKernel, role: string, send: Send) {
+    this.#peer = peer; this.#schemas = schemas; this.#clock = clock; this.#identity = identity; this.#role = role; this.#send = send;
   }
   async command(input: Contract): Promise<Result<void>> {
     if (this.#closed) return failure('switching', 'The gateway connection is closed.');
-    if (input.type === 'hello') return this.#send({ type: 'hello', user: { name: this.#identity.person }, capabilities: ['list', 'new', 'open', 'send', 'turn-cancel', 'cursor-replay'] });
+    if (input.type === 'hello') return this.#send({ type: 'user', user: { name: this.#identity.person, role: this.#role }, capabilities: ['list', 'new', 'open', 'send', 'turn-cancel', 'cursor-replay', 'env-reset'] });
     if (input.type === 'list') {
       const result = await this.#peer.call('session.list', {}); return result.ok ? this.#send({ type: 'sessions', sessions: result.value }) : result;
     }
@@ -30,6 +32,7 @@ export class Wire {
       if (!isObject(result.value) || typeof result.value['id'] !== 'string') return failure('protocol', 'The environment returned invalid conversation metadata.');
       return this.#open(result.value['id']);
     }
+    if (input.type === 'env-reset') return this.#envReset();
     if (!['open', 'send', 'turn-cancel'].includes(input.type)) return failure('unsupported', 'The requested gateway capability is unavailable.');
     if (!input.id) return failure('invalid-args', 'The gateway command requires a conversation id.');
     if (input.type === 'open') return this.#open(input.id, input.from);
@@ -39,7 +42,10 @@ export class Wire {
     return this.#turn(input.id, input.text);
   }
   async #open(id: string, from?: number): Promise<Result<void>> {
-    if (this.#streams.has(id)) return from === undefined ? this.#send({ type: 'opened', session: id }) : failure('invalid-args', 'An existing subscription cannot change its cursor.');
+    if (this.#streams.has(id)) {
+      if (from !== undefined) return failure('invalid-args', 'An existing subscription cannot change its cursor.');
+      const sent = await this.#send({ type: 'opened', session: id }); return sent.ok ? this.#envStatus() : sent;
+    }
     if (this.#opening.has(id) || this.#streams.size + this.#opening.size >= settings.streams) return failure('budget', 'The gateway subscription pool is full.');
     this.#opening.add(id);
     try { return await this.#subscribe(id, from); } finally { this.#opening.delete(id); }
@@ -54,7 +60,21 @@ export class Wire {
     void stream.value.peer.finished().then(() => { if (this.#streams.get(id) === stream.value) this.#streams.delete(id); });
     const subscribed = await stream.value.subscribe(id, from);
     if (!subscribed.ok) { stream.value.close(); this.#streams.delete(id); return subscribed; }
-    return this.#send({ type: 'opened', session: id, cursor: subscribed.value.cursor, oldest: subscribed.value.oldest });
+    const sent = await this.#send({ type: 'opened', session: id, cursor: subscribed.value.cursor, oldest: subscribed.value.oldest });
+    return sent.ok ? this.#envStatus() : sent;
+  }
+  /* `env.status`/`env.reset` are capability-gated (KS-019): `service.ts` does not request them from the kernel
+   * today, so `#peer.supports` is false and both no-op, ok, exactly as the plan anticipates for this seam. */
+  async #envStatus(): Promise<Result<void>> {
+    if (!this.#peer.supports('env.status')) return { ok: true, value: undefined };
+    const status = await this.#peer.call('env.status', {}); if (!status.ok) return status;
+    if (!isObject(status.value)) return failure('protocol', 'The environment returned an invalid status.');
+    return this.#send({ type: 'env-status', ...status.value });
+  }
+  async #envReset(): Promise<Result<void>> {
+    if (!this.#peer.supports('env.reset')) return failure('unsupported', 'The requested gateway capability is unavailable.');
+    const reset = await this.#peer.call('env.reset', {}); if (!reset.ok) return reset;
+    return this.#envStatus();
   }
   async #turn(id: string, text: string): Promise<Result<void>> {
     if (this.#turns.has(id)) return failure('budget', 'The gateway conversation already has an active turn.');

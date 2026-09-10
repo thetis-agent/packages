@@ -1,0 +1,22 @@
+{
+  "assets": [
+    { "path": "/", "file": "index.html", "type": "text/html" },
+    { "path": "/index.html", "file": "index.html", "type": "text/html" },
+    { "path": "/theme.css", "file": "theme.css", "type": "text/css" },
+    { "path": "/app.css", "file": "app.css", "type": "text/css" },
+    { "path": "/app.js", "file": "app.js", "type": "text/javascript" },
+    { "path": "/lib/dom.js", "file": "lib/dom.js", "type": "text/javascript" },
+    { "path": "/lib/store.js", "file": "lib/store.js", "type": "text/javascript" },
+    { "path": "/lib/socket.js", "file": "lib/socket.js", "type": "text/javascript" },
+    { "path": "/lib/toast.js", "file": "lib/toast.js", "type": "text/javascript" },
+    { "path": "/lib/markdown.js", "file": "lib/markdown.js", "type": "text/javascript" },
+    { "path": "/views/sessions.js", "file": "views/sessions.js", "type": "text/javascript" },
+    { "path": "/views/composer.js", "file": "views/composer.js", "type": "text/javascript" },
+    { "path": "/views/transcript.js", "file": "views/transcript.js", "type": "text/javascript" },
+    { "path": "/views/stage.js", "file": "views/stage.js", "type": "text/javascript" },
+    { "path": "/views/rail.js", "file": "views/rail.js", "type": "text/javascript" },
+    { "path": "/views/panel.js", "file": "views/panel.js", "type": "text/javascript" },
+    { "path": "/views/environment.js", "file": "views/environment.js", "type": "text/javascript" },
+    { "path": "/views/statusbar.js", "file": "views/statusbar.js", "type": "text/javascript" }
+  ]
+}
