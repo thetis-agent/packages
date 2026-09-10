@@ -25,6 +25,11 @@ await test('an available, verified update produces the exact status line', async
   try { assert.equal(await updateNotice(f.path), 'update: v2 available (verified 12:00)'); } finally { await f.close(); }
 });
 
+await test('a staging conflict or verification failure never produces a verified notice', async () => {
+  const f = await serving(() => ({ ok: true, value: { known: true, current: 'v1', available: 'v2', verified: false, checkedAt: 0 } }));
+  try { assert.equal(await updateNotice(f.path), undefined); } finally { await f.close(); }
+});
+
 await test('a known status with no available version prints nothing extra', async () => {
   const f = await serving(() => ({ ok: true, value: { known: true, current: 'v1', verified: true, checkedAt: 0 } }));
   try { assert.equal(await updateNotice(f.path), undefined); } finally { await f.close(); }
