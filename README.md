@@ -15,6 +15,7 @@ it. The kernel matches names and names no package itself.
 | `gateway-web` | WebSocket gateway and the lifted web surface, served per person on the target's public socket |
 | `gateway-login` | The `password` authority |
 | `tools-files` | File read/search/edit handlers with canonical grant checks |
+| `tools-exa` | Direct Exa API search, page contents, answers, and research agents |
 | `storage-files` | Default bounded byte objects and durable append logs behind `contract/storage` |
 | `retriever-local` | BM25 + dense with fusion as a setting; answers `retrieve` |
 | `provider-mock` | Scripted provider with a cache model |
@@ -39,6 +40,16 @@ Tag identity, transferred checksums and release signatures remain checked. Confi
 and release environment using the runtime's
 [CI and delivery guide](https://github.com/thetis-agent/runtime/blob/main/docs/ci-delivery.md).
 Production promotion remains the kernel's evaluator-backed, code-confirmed act.
+
+When a PR needs a runtime change, add this line to its body before pushing:
+
+```text
+Thetis peer commit: <full 40-character lowercase runtime commit hash>
+```
+
+PR CI uses that exact runtime commit. It rejects malformed or duplicate pins.
+Use manual CI's `peer_ref` to test another pair without a new push. Ordinary PRs
+use the configured peer default. Every pair must pass the full suite.
 
 Imports of shared runtime code use `@/lib/...` and `@/contracts/...`; `@/`
 means the installed runtime root. Imports within a package stay relative.
