@@ -1,0 +1,17 @@
+{
+  "name": "autoupdate",
+  "version": "1.0.0",
+  "type": "module",
+  "settings": {
+    "type": "object",
+    "properties": {
+      "statusPath": { "type": "string", "default": "/updates/status.json" },
+      "pollMs": { "type": "integer", "minimum": 1000, "default": 60000 },
+      "statusBytes": { "type": "integer", "minimum": 1, "default": 65536 }
+    },
+    "additionalProperties": false
+  },
+  "requires": { "contract/kernel-socket": "^1" },
+  "provides": { "service/update-status": "1.0.0" },
+  "envelope": { "requires": [], "provides": [], "spawn": { "scope": "deployment", "network": "none" } }
+}

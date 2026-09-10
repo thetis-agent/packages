@@ -31,9 +31,13 @@ export async function execute(args: readonly string[], peer: Peer, stream?: Sess
   return peer.call(parsed.value.method, parsed.value.params, parsed.value.method === 'session.submit' ? settings.turnMs : settings.timeoutMs);
 }
 
-export async function run(args: readonly string[], peer: Peer, io: IO, stream?: SessionClient): Promise<Result<void>> {
+export async function run(args: readonly string[], peer: Peer, io: IO, stream?: SessionClient, notice?: () => Promise<string | undefined>): Promise<Result<void>> {
   const result = await execute(args, peer, stream); const bytes = `${JSON.stringify(result)}\n`;
   if (Buffer.byteLength(bytes) > settings.outputBytes) return failure('frame-too-large', 'The command output exceeds its byte limit.');
   const written = await io.write(bytes); if (!written.ok) return written;
+  if (args[0] === 'status' && result.ok && notice) {
+    const line = await notice();
+    if (line !== undefined) { const announced = await io.write(`${line}\n`); if (!announced.ok) return announced; }
+  }
   return result.ok ? { ok: true, value: undefined } : result;
 }

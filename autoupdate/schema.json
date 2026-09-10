@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "thetis://internal/autoupdate/1",
+  "$defs": {
+    "statusFile": {
+      "type": "object",
+      "required": ["version", "current", "verified", "checkedAt", "policy"],
+      "properties": {
+        "version": { "const": 1 },
+        "current": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "available": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "verified": { "type": "boolean" },
+        "checkedAt": { "type": "integer", "minimum": 0 },
+        "stagedAt": { "type": "integer", "minimum": 0 },
+        "policy": { "enum": ["none", "fixes", "improvements"] }
+      }
+    },
+    "request": {
+      "type": "object",
+      "required": ["method"],
+      "properties": {
+        "method": { "type": "string", "minLength": 1, "maxLength": 32 }
+      }
+    },
+    "update": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["known"],
+          "properties": { "known": { "const": false } }
+        },
+        {
+          "type": "object",
+          "required": ["known", "current", "verified", "checkedAt", "policy"],
+          "properties": {
+            "known": { "const": true },
+            "current": { "type": "string", "minLength": 1, "maxLength": 32 },
+            "available": { "type": "string", "minLength": 1, "maxLength": 32 },
+            "verified": { "type": "boolean" },
+            "checkedAt": { "type": "integer", "minimum": 0 },
+            "stagedAt": { "type": "integer", "minimum": 0 },
+            "policy": { "enum": ["none", "fixes", "improvements"] }
+          }
+        }
+      ]
+    }
+  },
+  "$ref": "#/$defs/statusFile"
+}

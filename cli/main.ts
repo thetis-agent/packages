@@ -9,6 +9,7 @@ import type { Method } from '@/contracts/kernel-socket/types.ts';
 import { capabilities, run } from './index.ts';
 import { output } from './io.ts';
 import { streamFor } from './stream.ts';
+import { updateNotice } from './update-notice.ts';
 import type { SessionClient } from '@/lib/session/client.ts';
 
 async function main(): Promise<Result<void>> {
@@ -31,7 +32,7 @@ async function main(): Promise<Result<void>> {
     if (status.stopping) return failure('switching', 'The command run is stopping.');
     const io = output(process.stdout); const opened = await streamFor(process.argv.slice(2), schemas, clock, batch => io.write(`${JSON.stringify({ ok: true, value: batch })}\n`));
     if (!opened.ok) return opened; stream = opened.value;
-    active = run(process.argv.slice(2), peer, io, stream); return await active;
+    active = run(process.argv.slice(2), peer, io, stream, () => updateNotice()); return await active;
   } finally { stream?.close(); await cancelling; peer.close(); await peer.finished(); }
 }
 

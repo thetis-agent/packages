@@ -34,3 +34,23 @@ await test('KS-015 CLI refuses origin impersonation, invalid arguments and unava
     const output = await run(['health'], f.peer, { write: () => Promise.resolve(failure('io', 'closed')) }); assert.ok(!output.ok); assert.equal(output.error.code, 'io');
   } finally { await f.close(); }
 });
+
+await test('status prints the update notice line only when the update-status service is granted and reports an available version', async () => {
+  const f = await cliFixture();
+  try {
+    const rows: string[] = []; const io = { write: (value: string) => { rows.push(value); return Promise.resolve({ ok: true, value: undefined } as const); } };
+    const present = await run(['status'], f.peer, io, undefined, () => Promise.resolve('update: v2 available (verified 12:00)'));
+    assert.ok(present.ok); assert.equal(rows.length, 2); assert.equal(rows[1], 'update: v2 available (verified 12:00)\n');
+  } finally { await f.close(); }
+});
+
+await test('status prints nothing extra when the update-status service is absent or reports no available version', async () => {
+  const f = await cliFixture();
+  try {
+    const rows: string[] = []; const io = { write: (value: string) => { rows.push(value); return Promise.resolve({ ok: true, value: undefined } as const); } };
+    const withoutGrant = await run(['status'], f.peer, io); assert.ok(withoutGrant.ok); assert.equal(rows.length, 1);
+    const withUnknown = await run(['status'], f.peer, io, undefined, () => Promise.resolve(undefined)); assert.ok(withUnknown.ok); assert.equal(rows.length, 2);
+    const nonStatus = await run(['health'], f.peer, io, undefined, () => { throw new Error('must not be called for a non-status command'); });
+    assert.ok(nonStatus.ok); assert.equal(rows.length, 3);
+  } finally { await f.close(); }
+});

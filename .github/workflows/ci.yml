@@ -36,6 +36,8 @@ jobs:
           repository: thetis-agent/runtime
           ref: ${{ inputs.peer_ref || vars.THETIS_RUNTIME_REF || 'main' }}
           token: ${{ secrets.THETIS_SOURCE_TOKEN || github.token }}
+          # KS-003 archives the pinned previous socket implementation from its tag.
+          fetch-depth: 0
           path: runtime
           persist-credentials: false
           submodules: false
