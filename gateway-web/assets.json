@@ -6,6 +6,7 @@
     { "path": "/app.css", "file": "app.css", "type": "text/css" },
     { "path": "/app.js", "file": "app.js", "type": "text/javascript" },
     { "path": "/lib/dom.js", "file": "lib/dom.js", "type": "text/javascript" },
+    { "path": "/lib/activity.js", "file": "lib/activity.js", "type": "text/javascript" },
     { "path": "/lib/store.js", "file": "lib/store.js", "type": "text/javascript" },
     { "path": "/lib/socket.js", "file": "lib/socket.js", "type": "text/javascript" },
     { "path": "/lib/toast.js", "file": "lib/toast.js", "type": "text/javascript" },

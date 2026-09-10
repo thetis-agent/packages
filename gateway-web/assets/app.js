@@ -25,6 +25,7 @@ import { mountSessions } from "./views/sessions.js";
 import { mountStage, transcriptFor } from "./views/stage.js";
 import { mountStatusbar } from "./views/statusbar.js";
 import { deliver } from "./lib/surface.js";
+import { applyActivity, cancelled, mergeSessions, sortSessions } from "./lib/activity.js";
 
 const statusEl = $("status");
 
@@ -122,10 +123,28 @@ async function loadContributions(frame) {
   releaseQueue();
 }
 
+/* The conversation list is the only carrier of a row's title, preview and
+ * recency, and the host moves all three at exactly two points: a message sent,
+ * and a turn finished (core/session-store.ts `record`). Asking then is what
+ * keeps the sidebar current. Coalesced, because a burst of finishing turns
+ * should ask once. */
+let listTimer = null;
+const LIST_DEBOUNCE_MS = 250;
+function scheduleList() {
+  clearTimeout(listTimer);
+  listTimer = setTimeout(() => { listTimer = null; sendFrame({ type: "list" }); }, LIST_DEBOUNCE_MS);
+}
+
 /** Draws one event frame and hands it to whoever asked for that kind. */
 function applyFrame(frame) {
-  if (frame.kind === "turn-started") store.setBusy(frame.session, true);
-  if (frame.kind === "turn-finished") store.setBusy(frame.session, false);
+  // Activity and the working dot are derived in one place from one frame, so
+  // they cannot disagree about whether a conversation is working — the class of
+  // bug legacy's `rev` merge existed to close, on the half of it that is
+  // derived here. See lib/activity.js for the half that still needs a merge.
+  const next = applyActivity(store.activity[frame.session], frame, Date.now());
+  store.setActivity(frame.session, next);
+  store.setBusy(frame.session, next.state === "working");
+  if (frame.kind === "user" || frame.kind === "turn-finished") scheduleList();
   transcriptFor(frame.session)?.applyEvent(frame);
   // Panels read the same frames the transcript does, after it has drawn them.
   deliver(frame);
@@ -141,15 +160,16 @@ store.watch("user", (user) => {
 connection
   .on("user", (frame) => { store.set({ user: frame.user }); void loadContributions(frame); })
   .on("sessions", (frame) => {
-    const list = Array.isArray(frame.sessions) ? frame.sessions : [];
+    // Merged rather than replaced: a reply asked for before a turn ended can
+    // land after it, and taking whichever arrived last would put the older row
+    // back. `updatedMs` is the host's stamp for the row and decides — the same
+    // reasoning legacy's `rev` merge was built on. lib/activity.js says why.
+    const list = mergeSessions(store.sessions, Array.isArray(frame.sessions) ? frame.sessions : []);
     store.set({ sessions: list });
     // The first time the list arrives with no tab open yet, open whatever was
     // most recently active — an empty stage with conversations sitting
     // unopened in the sidebar is not a useful first screen.
-    if (!store.tabs.length && list.length) {
-      const latest = [...list].sort((a, b) => (b.updated_ms || 0) - (a.updated_ms || 0))[0];
-      openConversation(latest.id);
-    }
+    if (!store.tabs.length && list.length) openConversation(sortSessions(list)[0].id);
   })
   .on("opened", (frame) => {
     store.openTab(frame.session);
@@ -163,6 +183,12 @@ connection
     transcriptFor(frame.session)?.settleLocal();
   })
   .on("cancelled", (frame) => {
+    // `cancelled` is the reply to this tab's own stop, and the host may or may
+    // not follow it with a `turn-finished`; settling the row here means the
+    // sheen stops when the button was pressed rather than whenever a frame
+    // happens to arrive. A later `turn-finished` carrying `cancel` lands on the
+    // same state, so the two cannot contradict each other.
+    store.setActivity(frame.session, cancelled());
     store.setBusy(frame.session, false);
     transcriptFor(frame.session)?.applyEvent({ kind: "note", text: "Turn stopped." });
   })

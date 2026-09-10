@@ -11,21 +11,44 @@ import { atomicWrite, syncDirectory } from '@/lib/files/atomic.ts';
 import type { SessionInfo } from './types.ts';
 import validate from './schema-validators.cjs';
 
-export const storeLimits = { conversations: 1024, metadataBytes: 4096 };
+export const storeLimits = { conversations: 1024, metadataBytes: 4096, titleChars: 96, previewChars: 200 };
 const identifier = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+
+/** Epoch milliseconds, injected the way the kernel injects its own (`() => Date.now()`; kernel/main.ts).
+ * `lib/events`'s `Clock` is deliberately not used here: its `now()` is `performance.now()`, a monotonic
+ * reading since process start, and these stamps are compared against a browser's `Date.now()`. */
+export type Now = () => number;
+
+/** One line, whitespace collapsed, capped in code points.
+ *
+ * Code points, not UTF-16 units, because that is the unit JSON Schema's `maxLength` counts and the
+ * schema is what this has to satisfy — cutting in code units would also leave half a character behind.
+ * `Array.from` rather than a spread, which lint refuses on a string for the coarser reason that neither
+ * unit is a grapheme cluster; segmenting by grapheme is not an option here, since one cluster may be
+ * many code points and slicing N of them could still exceed the bound.
+ *
+ * Returns undefined for text with nothing in it, which is what keeps `title`/`preview` honest: the
+ * schema requires a minimum length of one, so an empty message writes no field at all. */
+function summarise(text: string, characters: number): string | undefined {
+  const line = text.replace(/\s+/gu, ' ').trim();
+  if (!line) return undefined;
+  const points = Array.from(line);
+  return points.length <= characters ? line : `${points.slice(0, characters - 1).join('')}\u2026`;
+}
 
 export class SessionStore {
   readonly #root: string;
   readonly #check: Validator<SessionInfo>;
+  readonly #now: Now;
   #creating = false;
-  private constructor(root: string, check: Validator<SessionInfo>) { this.#root = root; this.#check = check; }
+  private constructor(root: string, check: Validator<SessionInfo>, now: Now) { this.#root = root; this.#check = check; this.#now = now; }
 
-  static async open(root: string, schemas: Schemas): Promise<Result<SessionStore>> {
+  static async open(root: string, schemas: Schemas, now: Now = () => Date.now()): Promise<Result<SessionStore>> {
     try {
       const schema: unknown = JSON.parse(await readFile(new URL('./schema.json', import.meta.url), 'utf8'));
       if (!isObject(schema)) throw new Error('The committed session schema is invalid.');
       await mkdir(root, { recursive: true, mode: 0o700 });
-      return { ok: true, value: new SessionStore(await realpath(root), schemas.precompiled<SessionInfo>(schema, validate.digest, validate)) };
+      return { ok: true, value: new SessionStore(await realpath(root), schemas.precompiled<SessionInfo>(schema, validate.digest, validate), now) };
     } catch { return failure('io', 'The environment conversation state could not be opened.'); }
   }
 
@@ -45,7 +68,8 @@ export class SessionStore {
     try {
       const names = await this.#names(); if (!names.ok) return names;
       if (names.value.length >= storeLimits.conversations) return failure('budget', 'The environment conversation pool is full.');
-      const info = { id: randomUUID(), surface: input.surface, ...(input.project === undefined ? {} : { project: input.project }) };
+      const at = this.#now();
+      const info = { id: randomUUID(), surface: input.surface, ...(input.project === undefined ? {} : { project: input.project }), createdMs: at, updatedMs: at };
       if (!this.#check(info)) return failure('invalid-args', 'The conversation metadata violates its schema.');
       const target = join(this.#root, info.id); await mkdir(target, { mode: 0o700 });
       const saved = await atomicWrite(join(target, 'metadata.json'), Buffer.from(JSON.stringify(info)));
@@ -69,6 +93,35 @@ export class SessionStore {
     const info = await this.info(id); if (!info.ok) return info;
     const value = { ...info.value, prefixGeneration: generation };
     if (!this.#check(value)) return failure('invalid-args', 'The conversation prefix generation is invalid.');
+    return this.#save(id, value);
+  }
+
+  /** Records the newest thing said in a conversation: its `preview` always, and its `title` when it
+   * has none yet, so the first message names the conversation and nothing renames it afterwards.
+   * `updatedMs` moves on every call, including one whose text summarises to nothing — a conversation
+   * that has just been spoken to sorts first whether or not the words survived the cap. That stamp is
+   * also the merge key the web sidebar orders replies by, so it must move on every recorded change. */
+  async record(id: string, text: string): Promise<Result<void>> {
+    const info = await this.info(id); if (!info.ok) return info;
+    const preview = summarise(text, storeLimits.previewChars);
+    const title = info.value.title ?? summarise(text, storeLimits.titleChars);
+    const value = { ...info.value, ...(title === undefined ? {} : { title }),
+      ...(preview === undefined ? {} : { preview }), updatedMs: this.#now() };
+    if (!this.#check(value)) return failure('invalid-args', 'The conversation summary violates its schema.');
+    return this.#save(id, value);
+  }
+
+  /** Moves a conversation in or out of the archive. Storage only: no gateway command reaches this yet
+   * (runtime TODO.md, "Carry conversation archiving to the wire"), so the flag is written by tests and
+   * by any future caller, and the web sidebar already filters an archived row out of its list. */
+  async archive(id: string, archived: boolean): Promise<Result<void>> {
+    const info = await this.info(id); if (!info.ok) return info;
+    const value = { ...info.value, archived, updatedMs: this.#now() };
+    if (!this.#check(value)) return failure('invalid-args', 'The conversation archive flag violates its schema.');
+    return this.#save(id, value);
+  }
+
+  async #save(id: string, value: SessionInfo): Promise<Result<void>> {
     const path = await this.path(id, 'metadata.json', true); if (!path.ok) return path;
     return atomicWrite(path.value, Buffer.from(JSON.stringify(value)));
   }

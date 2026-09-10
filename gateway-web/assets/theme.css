@@ -67,6 +67,11 @@
   --ease: cubic-bezier(.2, .7, .3, 1);
   --fast: 110ms;
   --med: 180ms;
+  /* One pass of the sheen over a working sidebar row. A named duration because
+   * views/sessions.js has to know it: it sets each row's --phase from wall time
+   * modulo this, so a redraw mid-pass does not snap the sheen back to the start
+   * (lib/activity.js's SHEEN_MS is the same number, and must stay the same). */
+  --sheen: 2600ms;
 
   /* Terminal — the palette the drawer renders shell output with.
    *

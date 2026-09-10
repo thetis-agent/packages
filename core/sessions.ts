@@ -12,10 +12,22 @@ import { Loop } from './index.ts';
 import type { Options } from './index.ts';
 import { Conversation } from './conversation.ts';
 import { SessionStore } from './session-store.ts';
+import type { Now } from './session-store.ts';
 import type { SessionInfo } from './types.ts';
 
 export const sessionLimits = { loaded: 8, fileBytes: 1024 * 1024, inputBytes: 65536, writes: 32, reads: 8 };
-export interface Runtime { observe?: (event: Envelope) => void; stages: readonly Stage[]; schemas: Schemas; clock: Clock; provider: Provider; options: Omit<Options, 'conversation' | 'refresh'>; report?: (params: Record<string, unknown>) => Promise<Result<void>> }
+/** `now` is epoch milliseconds for stored conversation stamps, separate from `clock` on purpose: `clock.now()`
+ * is `performance.now()`, which is monotonic since process start and meaningless to a browser (session-store.ts). */
+export interface Runtime { observe?: (event: Envelope) => void; stages: readonly Stage[]; schemas: Schemas; clock: Clock; now?: Now; provider: Provider; options: Omit<Options, 'conversation' | 'refresh'>; report?: (params: Record<string, unknown>) => Promise<Result<void>> }
+
+/** The newest assistant text in a conversation, which is what a finished row previews: the sidebar's
+ * second line answers "where is this conversation now", and after a turn that is the reply, not the
+ * question. Empty when the turn produced no text at all — `record` then leaves the preview standing. */
+function reply(history: readonly Message[]): string {
+  const last = history.findLast(message => message.role === 'assistant');
+  return (last?.content ?? []).map(part => part.type === 'text' ? part.text : '').join('');
+}
+
 type Entry = { history: Conversation; loop: Loop };
 type Slot = { users: number; loading: Promise<Result<Entry>> };
 type Lease = { loading: Promise<Result<Entry>>; release(): void };
@@ -35,7 +47,7 @@ export class Sessions {
   }
 
   static async open(root: string, runtime: Runtime): Promise<Result<Sessions>> {
-    const store = await SessionStore.open(root, runtime.schemas);
+    const store = await SessionStore.open(root, runtime.schemas, runtime.now);
     return store.ok ? { ok: true, value: new Sessions(store.value, runtime) } : store;
   }
   list(): Promise<Result<SessionInfo[]>> { return this.#read(() => this.#store.list()); }
@@ -43,6 +55,7 @@ export class Sessions {
     return this.#write(() => this.#store.create(input));
   }
   exists(id: string): Promise<Result<SessionInfo>> { return this.#read(() => this.#store.info(id)); }
+  archive(id: string, archived: boolean): Promise<Result<void>> { return this.#write(() => this.#store.archive(id, archived)); }
   get active(): number { return this.#active.size; }
   changed(generation: number): Result<void> {
     if (!Number.isSafeInteger(generation) || generation < 1) return failure('invalid-args', 'The announced generation is invalid.');
@@ -77,6 +90,9 @@ export class Sessions {
       if (this.#active.has(id)) return failure('budget', 'The conversation already has an active turn.');
       const cancel = new AbortController(); this.#active.set(id, cancel);
       try {
+        // Named and previewed before the vendor is called, so a conversation carries its own name from the
+        // moment it is spoken to rather than only once a reply lands — including a turn that never finishes.
+        const named = await this.#store.record(id, input.text); if (!named.ok) return named;
         const result = await loaded.value.loop.turn(input, { ...this.#runtime.options, conversation: id, refresh }, cancel.signal);
         const report = loaded.value.loop.report;
         if (!report) throw new Error('A completed turn has no diagnostic report.');
@@ -84,7 +100,9 @@ export class Sessions {
         if (sent && !sent.ok) return sent;
         if (!report.ok) return report;
         if (result.ok && generation !== undefined && info.value.prefixGeneration !== generation) { const saved = await this.#store.prefixGeneration(id, generation); if (!saved.ok) return saved; }
-        return result.ok ? { ok: true, value: { conversation: id, head: loaded.value.history.head } } : result;
+        if (!result.ok) return result;
+        const previewed = await this.#store.record(id, reply(loaded.value.history.project().history)); if (!previewed.ok) return previewed;
+        return { ok: true, value: { conversation: id, head: loaded.value.history.head } };
       } finally { this.#active.delete(id); }
     } finally { lease.value.release(); }
   }

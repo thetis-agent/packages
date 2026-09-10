@@ -15,6 +15,7 @@
 
 import { $, clear, el, icon, setHidden } from "../lib/dom.js";
 import { store } from "../lib/store.js";
+import { titleOf } from "../lib/activity.js";
 import { mountTranscriptInto } from "./transcript.js";
 
 const CLOSE = ["M5 5l8 8", "M13 5l-8 8"];
@@ -52,9 +53,14 @@ export function transcriptFor(id) {
   return panes.get(id)?.transcript;
 }
 
+/* A tab is named by its conversation's stored title — the first thing said in
+ * it (core/session-store.ts `record`). "Untitled" is now a real answer rather
+ * than the only one: a conversation opened and not yet spoken to has no title,
+ * and a tab for one that is not in the list yet (a `new` whose `list` reply has
+ * not landed) has nothing to read. Both settle on the next `sessions` frame,
+ * which `showCurrent` and `drawStrip` both run on. */
 function title(id) {
-  const session = (store.sessions || []).find((s) => s.id === id);
-  return session?.title || "Untitled";
+  return titleOf((store.sessions || []).find((session) => session.id === id));
 }
 
 function ensurePane(id) {
