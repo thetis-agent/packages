@@ -1,0 +1,18 @@
+/* The Skills panel's own styling, shipped with the package rather than with the surface, which has
+   no reason to know this panel exists. Values are the surface's own tokens, so a contributed panel
+   looks like the page it lands in.
+
+   A list rather than cards: there is no ranking to give any one skill more room than another, and a
+   corpus is long — a hundred cards would bury the count and the total that are the actual reading. */
+.sa-list { display: flex; flex-direction: column; border: 1px solid var(--hairline); border-radius: var(--r-md); overflow: hidden; }
+.sa-row { display: flex; align-items: baseline; gap: var(--gap-2); padding: 5px var(--gap-3); background: var(--surface-2); }
+.sa-row + .sa-row { border-top: 1px solid var(--hairline); }
+.sa-row.is-thin { background: transparent; }
+.sa-row.is-cut { background: transparent; opacity: .6; }
+.sa-mark { flex: 0 0 auto; width: 12px; font-size: var(--text-xs); color: var(--accent); text-align: center; }
+.sa-row.is-cut .sa-mark { color: var(--text-faint); }
+.sa-what { flex: 1 1 auto; display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--gap-2); min-width: 0; }
+.sa-id { font-family: var(--mono); font-size: var(--text-sm); font-weight: 600; overflow-wrap: anywhere; }
+.sa-pack { font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); }
+.sa-tokens { flex: 0 0 auto; font-family: var(--mono); font-size: var(--text-xs); color: var(--text-dim); }
+.sa-row.is-thin .sa-tokens { color: var(--warn); }
