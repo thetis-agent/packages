@@ -12,16 +12,19 @@ import type { Contract } from './types.ts';
 import { render } from './render.ts';
 import { settings } from './index.ts';
 import type { Contribution } from './panels.ts';
+import { Admin } from './admin.ts';
 export type Send = (frame: Record<string, unknown>) => Promise<Result<void>>;
 export class Wire {
   readonly #peer: Peer; readonly #schemas: Schemas; readonly #clock: Clock; readonly #identity: ConnectKernel; readonly #role: string; readonly #send: Send;
   readonly #contribution: Contribution;
+  readonly #admin: Admin;
   readonly #streams = new Map<string, SessionClient>();
   readonly #turns = new Set<string>();
   readonly #opening = new Set<string>();
   #closed = false;
   constructor(peer: Peer, schemas: Schemas, clock: Clock, identity: ConnectKernel, role: string, send: Send, contribution: Contribution = { panels: [], renderers: [] }) {
     this.#peer = peer; this.#schemas = schemas; this.#clock = clock; this.#identity = identity; this.#role = role; this.#send = send; this.#contribution = contribution;
+    this.#admin = new Admin(peer, role, send);
   }
   async command(input: Contract): Promise<Result<void>> {
     if (this.#closed) return failure('switching', 'The gateway connection is closed.');
@@ -39,6 +42,7 @@ export class Wire {
       return this.#open(result.value['id']);
     }
     if (input.type === 'env-reset') return this.#envReset();
+    if (input.type.startsWith('admin.')) return this.#admin.command(input);
     if (!['open', 'send', 'turn-cancel'].includes(input.type)) return failure('unsupported', 'The requested gateway capability is unavailable.');
     if (!input.id) return failure('invalid-args', 'The gateway command requires a conversation id.');
     if (input.type === 'open') return this.#open(input.id, input.from);

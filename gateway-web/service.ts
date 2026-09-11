@@ -97,5 +97,9 @@ const result = await serve(async (_settings, schemas, peer, identity) => {
     return admit(connection.socket, connection.admitted, signIn, identity.person, factory, request);
   } };
 }, outcome => { if (!outcome.ok) process.stderr.write(`${JSON.stringify(outcome)}\n`); },
-  ['session.list', 'session.create', 'session.submit', 'session.cancel', 'session.whois', 'env.status', 'env.reset'], 'person');
+  ['session.list', 'session.create', 'session.submit', 'session.cancel', 'session.whois', 'env.status', 'env.reset',
+    // The operator surface's reads and the one act it can drive (admin.ts). `install`, `snapshot` and
+    // `prune` are deliberately absent: on this socket they are the evaluation runtime's run, score and
+    // release, not anything a person means by those words.
+    'profile.get', 'env.logs', 'default.prepare', 'default.set'], 'person');
 if (!result.ok) { process.stderr.write(`${JSON.stringify(result)}\n`); process.exitCode = 1; }
