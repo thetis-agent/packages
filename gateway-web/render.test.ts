@@ -162,3 +162,54 @@ await test('an inspector frame still flushes the token run that preceded it, kee
     { type: 'event', session: conversation, kind: 'model-end', stop: 'end', usage: {} }
   ]);
 });
+
+/* A subscriber that loses its connection resumes from the last frame it drew, so each frame has to
+ * name the envelope it came from. `batch.cursor` counts the last envelope of the batch, and the rest
+ * are numbered backwards from it. */
+function counted(cursor: number, ...events: TurnEvents.Envelope[]): EventBatch { return { conversation, cursor, events }; }
+
+await test('each frame names the position of the envelope it came from', () => {
+  const frames = render(counted(12, envelope('input', { text: 'Go', attachments: [] }), envelope('model.end', { stop: 'end', usage: {} })));
+  assert.deepEqual(frames.map(frame => frame['cursor']), [11, 12]);
+});
+
+/** The position a batched run carries is the last envelope folded into it, not the one whose arrival
+ *  happened to flush it — stamping the flusher would step a resume over everything in between. */
+await test('a batched delta carries the position of the last token folded into it, not of what flushed it', () => {
+  const frames = render(counted(20, envelope('token', { text: 'He' }), envelope('token', { text: 'llo' }), envelope('end', { reason: 'answer', iterations: 1, compactions: 0 })));
+  assert.deepEqual(frames, [
+    { type: 'event', session: conversation, kind: 'delta', text: 'Hello', cursor: 19 },
+    { type: 'event', session: conversation, kind: 'turn-finished', stopped_by: 'answer', iterations: 1, compactions: 0, cursor: 20 }
+  ]);
+});
+
+await test('interleaved reasoning and token runs each carry their own last position', () => {
+  const frames = render(counted(4,
+    envelope('model.event', { event: { type: 'delta.reasoning', text: 'why' } }),
+    envelope('token', { text: 'A' }),
+    envelope('model.event', { event: { type: 'delta.reasoning', text: ' not' } }),
+    envelope('token', { text: 'B' })));
+  assert.deepEqual(frames, [
+    { type: 'event', session: conversation, kind: 'reasoning', text: 'why', cursor: 1 },
+    { type: 'event', session: conversation, kind: 'delta', text: 'A', cursor: 2 },
+    { type: 'event', session: conversation, kind: 'reasoning', text: ' not', cursor: 3 },
+    { type: 'event', session: conversation, kind: 'delta', text: 'B', cursor: 4 }
+  ]);
+});
+
+/** An envelope that projects to nothing still takes a position, so the numbering must skip rather
+ *  than compact — a resume asking to continue from 2 below would otherwise be handed event 3 twice. */
+await test('an envelope that renders nothing still consumes its position', () => {
+  const frames = render(counted(3,
+    envelope('model.event', { event: { type: 'delta.tool_call', callId: 'c', args: '{}' } }),
+    envelope('token', { text: 'x' }),
+    envelope('end', { reason: 'answer', iterations: 1, compactions: 0 })));
+  assert.deepEqual(frames.map(frame => frame['cursor']), [2, 3]);
+});
+
+/** Nothing upstream of the surface reads the field, so a caller with no cursor to give (this file's
+ *  own hand-built batches, everywhere above) leaves it off rather than sending a made-up number. */
+await test('a batch with no position leaves the field off every frame', () => {
+  const frames = render(batch(envelope('token', { text: 'x' }), envelope('end', { reason: 'answer', iterations: 1, compactions: 0 })));
+  assert.ok(frames.every(frame => !('cursor' in frame)));
+});

@@ -16,12 +16,13 @@
 import { $, clear, el, icon, setHidden } from "../lib/dom.js";
 import { store } from "../lib/store.js";
 import { titleOf } from "../lib/activity.js";
+import { conversationSummary } from "../lib/usage.js";
 import { mountTranscriptInto } from "./transcript.js";
 
 const CLOSE = ["M5 5l8 8", "M13 5l-8 8"];
 const PLUS = ["M9 3.5v11M3.5 9h11"];
 
-const panes = new Map(); // conversation id -> { paneEl, subEl, transcript }
+const panes = new Map(); // conversation id -> { paneEl, subEl, usageEl, transcript }
 
 let stripEl = null;
 let stageEl = null;
@@ -43,6 +44,7 @@ export function mountStage(config) {
   });
   store.watch("sessions", drawStrip);
   store.watch("busyIds", drawStrip);
+  store.watch("usage", drawUsage);
 
   syncPanes();
   drawStrip();
@@ -66,14 +68,31 @@ function title(id) {
 function ensurePane(id) {
   if (panes.has(id)) return panes.get(id);
   const subEl = el("span", { class: "chat-sub" }, title(id));
-  const bar = el("div", { class: "chat-bar" }, subEl, el("span", { class: "chat-bar-gap" }));
+  /* The far end of the bar carries what this conversation has spent so far — the calmest place on the
+   * screen that is still attached to the conversation it belongs to. It stays empty until there is
+   * something to say, so a conversation nobody has spent anything on shows nothing at all rather than
+   * a row of zeroes. */
+  const usageEl = el("span", { class: "chat-usage" });
+  const bar = el("div", { class: "chat-bar" }, subEl, el("span", { class: "chat-bar-gap" }), usageEl);
   const transcriptEl = el("div", { class: "transcript", tabindex: "0" });
   const paneEl = el("section", { class: "stage-pane", "data-pane": id }, bar, transcriptEl);
   setHidden(paneEl, true);
   stageEl.append(paneEl);
-  const entry = { paneEl, subEl, transcript: mountTranscriptInto(transcriptEl) };
+  const entry = { paneEl, subEl, usageEl, transcript: mountTranscriptInto(transcriptEl) };
   panes.set(id, entry);
+  drawUsageInto(id, entry);
   return entry;
+}
+
+function drawUsageInto(id, entry) {
+  const summary = conversationSummary(store.usageOf(id).total);
+  entry.usageEl.textContent = summary ? summary.text : "";
+  if (summary) entry.usageEl.setAttribute("title", summary.detail);
+  else entry.usageEl.removeAttribute("title");
+}
+
+function drawUsage() {
+  for (const [id, entry] of panes) drawUsageInto(id, entry);
 }
 
 /** Creates or drops panes so they match `store.tabs` exactly, then shows

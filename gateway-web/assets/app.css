@@ -556,6 +556,15 @@ body { display: flex; flex-direction: column; }
 }
 .chat-bar-gap { flex: 1 1 auto; }
 .chat-sub { font-size: var(--text-xs); color: var(--text-faint); white-space: nowrap; }
+/* What this conversation has spent so far, at the quiet end of the bar. Mono because the eye compares
+   these down a column of turns, and they should not reflow as the digits change. */
+.chat-usage {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
 
 /* --- transcript -------------------------------------------------------------
    A gutter is reserved on each side of the text column for a per-turn face:
@@ -827,6 +836,35 @@ body { display: flex; flex-direction: column; }
 .msg.is-note.is-error,
 .msg.is-note.is-incident {
   color: var(--err);
+}
+
+/* --- usage ---------------------------------------------------------------
+   What a finished turn spent, from the counters the provider itself reported on
+   `model.end` — never an estimate, and never a price this surface invented. A
+   turn is over by the time this appears, so it reads as a footnote: centred,
+   hairline, and skippable. It wraps rather than truncating, because the phrase
+   that explains an unusual stop is the part most worth reading and would be the
+   first thing an ellipsis took. */
+
+.msg-usage {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--gap-1) var(--gap-3);
+  width: fit-content;
+  max-width: min(100%, var(--measure));
+  padding: 2px var(--gap-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--text-faint);
+}
+.msg-usage span + span::before {
+  content: "·";
+  margin-right: var(--gap-3);
+  color: var(--hairline-strong);
 }
 
 /* --- composer ----------------------------------------------------------- */
