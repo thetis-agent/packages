@@ -54,9 +54,19 @@ export class Wire {
     }
     if (this.#opening.has(id) || this.#streams.size + this.#opening.size >= settings.streams) return failure('budget', 'The gateway subscription pool is full.');
     this.#opening.add(id);
-    try { return await this.#subscribe(id, from); } finally { this.#opening.delete(id); }
+    try {
+      const resumed = from === undefined ? undefined : await this.#subscribe(id, from);
+      if (resumed && (resumed.ok || resumed.error.code !== 'not-found')) return resumed;
+      /* The environment retains a bounded window of events (lib/session/index.ts's `historyBytes`) and
+       * starts counting afresh when it restarts, so a cursor can fall off either end of it. Refusing the
+       * open would leave the person looking at a conversation that silently stopped; subscribing plainly
+       * instead costs one extra round trip on the rarest path and gets them the saved transcript plus
+       * everything from here on. `gap` is how app.js knows to say so, once, in the conversation it
+       * happened to — the surface is the only place that can phrase it for a person. */
+      return await this.#subscribe(id, undefined, resumed !== undefined);
+    } finally { this.#opening.delete(id); }
   }
-  async #subscribe(id: string, from?: number): Promise<Result<void>> {
+  async #subscribe(id: string, from?: number, gap = false): Promise<Result<void>> {
     let opening = true; let pending: Record<string, unknown>[] = []; let bytes = 0;
     const stream = await mounted(this.#schemas, this.#clock, async batch => {
       const frames = render(batch);
@@ -71,7 +81,7 @@ export class Wire {
     const subscribed = await stream.value.subscribe(id, from);
     if (!subscribed.ok) { stream.value.close(); this.#streams.delete(id); return subscribed; }
     const sent = await this.#send({ type: 'opened', session: id, cursor: subscribed.value.cursor, oldest: subscribed.value.oldest,
-      ...(subscribed.value.history ? { history: subscribed.value.history } : {}) });
+      ...(gap ? { gap: true } : {}), ...(subscribed.value.history ? { history: subscribed.value.history } : {}) });
     if (!sent.ok) return sent;
     // The UI must install its saved transcript before any live or replayed event.
     while (pending.length) {

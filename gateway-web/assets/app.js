@@ -26,6 +26,7 @@ import { mountStage, transcriptFor } from "./views/stage.js";
 import { mountStatusbar } from "./views/statusbar.js";
 import { deliver } from "./lib/surface.js";
 import { applyActivity, cancelled, mergeSessions, sortSessions } from "./lib/activity.js";
+import { createCursors } from "./lib/cursors.js";
 import { addCall, addTurn, blankTurn, turnSummary } from "./lib/usage.js";
 
 const statusEl = $("status");
@@ -37,6 +38,10 @@ function setStatus(state, text) {
 
 const connection = new Connection({ onStatus: setStatus });
 const sendFrame = (frame) => connection.send(frame);
+/* Where each open conversation got to, so that a connection which drops mid-turn comes back to the
+ * same transcript rather than to a hole. lib/cursors.js holds the rule; the two places it is
+ * consulted are the `opened` handler and `applyFrame`. */
+const cursors = createCursors();
 
 /** Switches to a conversation's tab, opening one if it has none yet. A tab
  *  click always hits the first branch — stage.js only ever offers ids already
@@ -48,7 +53,7 @@ function openConversation(id) {
     store.set({ current: id });
     return;
   }
-  sendFrame({ type: "open", id });
+  sendFrame(cursors.openFrame(id));
 }
 
 /** Starts a new conversation. Guarded by `store.creating` so a second click
@@ -168,6 +173,9 @@ function applyFrame(frame) {
   const finished = applyLedger(frame);
   transcriptFor(frame.session)?.applyEvent(frame);
   if (finished) transcriptFor(frame.session)?.showUsage(turnSummary(finished, frame));
+  // Recorded after the row is on screen, never before: the position this client reports on a
+  // reconnect has to be one it has actually drawn, or the replay starts past something nobody saw.
+  cursors.drew(frame.session, frame.cursor);
   // Panels read the same frames the transcript does, after it has drawn them.
   deliver(frame);
 }
@@ -194,8 +202,14 @@ connection
     if (!store.tabs.length && list.length) openConversation(sortSessions(list)[0].id);
   })
   .on("opened", (frame) => {
+    const { lost } = cursors.opened(frame.session, frame);
     store.openTab(frame.session);
+    // A conversation reopened from scratch arrives with its saved messages and rebuilds from them,
+    // which is also how the transcript stays free of duplicates: either the host replays only what
+    // this client has not drawn, or it sends the whole saved conversation and the pane starts over.
     if (frame.history) transcriptFor(frame.session)?.restore(frame.history);
+    // Said once, where it happened, and in terms of what was lost rather than why.
+    if (lost) transcriptFor(frame.session)?.applyEvent({ kind: "note", text: "Some earlier messages could not be restored." });
     store.set({ creating: false });
     composer.focus();
     sendFrame({ type: "list" });
@@ -239,8 +253,10 @@ connection.onOpen(() => {
   sendFrame({ type: "list" });
   // Every open tab is its own subscription on the socket (wire.ts's
   // `#streams`), and a reconnect starts with none of them — so all of them,
-  // not just the one on screen, need to ask again.
-  for (const id of store.tabs) sendFrame({ type: "open", id });
+  // not just the one on screen, need to ask again. Each asks to continue from
+  // where it left off, so a turn that ran while the connection was down is
+  // still there when it comes back.
+  for (const id of store.tabs) sendFrame(cursors.resumeFrame(id));
 });
 
 connection.connect();
