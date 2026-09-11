@@ -70,15 +70,40 @@ export function mountTranscriptInto(root) {
     return place(el("div", { class: `msg is-${kind}` }, children));
   }
 
+  /* The images that went with a message.
+   *
+   * `url` is whatever handed them over: a `data:` URL for a row this client has just drawn from the file
+   * still in the page, and a same-origin path for one the host replayed (render.ts mints it). The policy
+   * this surface is served under allows both and nothing else, so a row can be drawn the same way in
+   * either case. A row with no usable URL still names its file rather than drawing an empty frame —
+   * knowing a picture was sent matters more than seeing it. */
+  function attachmentsOf(list) {
+    const files = Array.isArray(list) ? list : [];
+    if (!files.length) return null;
+    return el(
+      "div",
+      { class: "msg-files" },
+      files.map((file) =>
+        el(
+          "figure",
+          { class: "msg-file", title: file.name || "" },
+          file.url ? el("img", { class: "msg-file-thumb", src: file.url, alt: file.name || "" }) : null,
+          el("figcaption", { class: "msg-file-name" }, file.name || "Image")
+        )
+      )
+    );
+  }
+
   /** The person's own message, drawn immediately on send with a pending mark
    *  that `settleLocal`/`failLocal` clears once the socket says what happened
    *  — `accepted`, this wire's actual send-acknowledgement, standing in for
    *  the legacy `input`-echo settle (the running kernel does not emit `input`
    *  events onto this wire; render.ts's own doc comment says so). */
-  function addLocal(text) {
+  function addLocal(text, files) {
     live = null;
     const note = el("span", { class: "pending-note" }, "Sending…");
-    pendingRow = row("user", el("div", { class: "msg-text" }, text), note);
+    // A message may be nothing but pictures, and an empty bubble under them reads as a mistake.
+    pendingRow = row("user", attachmentsOf(files), text ? el("div", { class: "msg-text" }, text) : null, note);
     pendingRow.classList.add("is-pending");
   }
 
@@ -119,8 +144,8 @@ export function mountTranscriptInto(root) {
   const RENDERERS = {
     user(frame) {
       // An echo of a message this client did not itself just draw — another
-      // tab, another device. Rare today (see the module doc), handled anyway.
-      row("user", el("div", { class: "msg-text" }, frame.text || ""));
+      // tab, another device, or this conversation being reopened.
+      row("user", attachmentsOf(frame.attachments), frame.text ? el("div", { class: "msg-text" }, frame.text) : null);
     },
     delta(frame) {
       const bubble = openLive();

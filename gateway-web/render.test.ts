@@ -36,6 +36,61 @@ await test('input renders a user frame', () => {
   assert.deepEqual(frames, [{ type: 'event', session: conversation, kind: 'user', text: 'Hello there' }]);
 });
 
+/* A turn that carried images must still show them when the conversation is reopened, so the projection
+ * has to survive: the recorded input names a file under the person's own state, and the frame has to name
+ * something a browser can ask for instead. The address is minted here because this is the only place that
+ * knows both halves of it; everything else about the row is checked rather than trusted, because a
+ * conversation's recorded events outlive whatever wrote them. */
+const stored = `${'ab'.repeat(32)}.png`;
+function attachment(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return { name: 'sunset.png', mime: 'image/png', bytes: 2048, hash: `sha256:${'ab'.repeat(32)}`, path: `/state/attachments/${conversation}/${stored}`, ...over };
+}
+
+await test('an input that carried images renders them beside the text, addressed where the surface can fetch them', () => {
+  const frames = render(batch(envelope('input', { text: 'look at this', attachments: [attachment()] })));
+  assert.deepEqual(frames, [{ type: 'event', session: conversation, kind: 'user', text: 'look at this',
+    attachments: [{ name: 'sunset.png', mime: 'image/png', bytes: 2048, url: `./api/attachments/${conversation}/${stored}` }] }]);
+});
+
+await test('a message that was nothing but images still renders them', () => {
+  const frames = render(batch(envelope('input', { text: '', attachments: [attachment(), attachment({ name: 'other.png' })] })));
+  const frame = frames[0]; assert.ok(frame);
+  assert.equal(frame['text'], '');
+  assert.ok(Array.isArray(frame['attachments'])); assert.equal(frame['attachments'].length, 2);
+});
+
+await test('a recorded attachment this gateway could not have written, or would not serve, is dropped rather than linked to', () => {
+  const bad = [
+    attachment({ path: '/etc/passwd' }),
+    attachment({ path: `/state/attachments/${conversation}/notes.txt` }),
+    attachment({ path: `/state/attachments/${conversation}/${stored}`, mime: 'image/svg+xml' }),
+    attachment({ path: 42 }),
+    'not an attachment at all',
+  ];
+  const frames = render(batch(envelope('input', { text: 'hi', attachments: bad })));
+  assert.deepEqual(frames, [{ type: 'event', session: conversation, kind: 'user', text: 'hi' }],
+    'nothing survivable means no attachments field at all, so the transcript draws the row it always drew.');
+});
+
+await test('a recorded input with more images than may be attached renders only as many as may be', () => {
+  const many = Array.from({ length: 20 }, (_, index) => attachment({ name: `n${String(index)}.png` }));
+  const frame = render(batch(envelope('input', { text: 'hi', attachments: many })))[0]; assert.ok(frame);
+  assert.ok(Array.isArray(frame['attachments'])); assert.equal(frame['attachments'].length, 8);
+});
+
+await test('an attachment name longer than a name is cut to one, and a missing one falls back to the stored file', () => {
+  const frame = render(batch(envelope('input', { text: 'hi', attachments: [attachment({ name: 'x'.repeat(500) }), attachment({ name: 7 })] })))[0];
+  assert.ok(frame); assert.ok(Array.isArray(frame['attachments']));
+  const shown: unknown[] = frame['attachments'];
+  const long: unknown = shown[0]; const absent: unknown = shown[1];
+  assert.ok(isRecord(long) && typeof long['name'] === 'string' && long['name'].length === limits.nameLength);
+  assert.ok(isRecord(absent)); assert.equal(absent['name'], stored);
+});
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 await test('a call envelope without ok renders a tool-call frame (request)', () => {
   const frames = render(batch(envelope('call', {
     id: 'call-1', name: 'read_file', args: { path: '/a' }, deadlineMs: 1000,

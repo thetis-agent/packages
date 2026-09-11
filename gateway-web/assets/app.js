@@ -68,12 +68,16 @@ mountRail([railEnvironment]);
 mountStatusbar();
 
 const composer = mountComposer({
-  onSend(text) {
+  /* `files` are the tray's own entries: each carries the descriptor the host answered the upload with,
+   * which is the only part the frame may name, and the `data:` picture the page already drew, which is
+   * what the optimistic row shows until the turn's own `user` event arrives with a served URL. */
+  onSend(text, files = []) {
     const id = store.current;
     if (!id) return false;
-    if (!sendFrame({ type: "send", id, text })) return false;
+    const attachments = files.map((file) => file.descriptor).filter(Boolean);
+    if (!sendFrame({ type: "send", id, text, attachments })) return false;
     store.setPending(id, true);
-    transcriptFor(id)?.addLocal(text);
+    transcriptFor(id)?.addLocal(text, files.map((file) => ({ name: file.name, bytes: file.size, url: file.preview })));
     return true;
   },
   onStop() {

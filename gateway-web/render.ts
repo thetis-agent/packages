@@ -5,8 +5,10 @@
  * forward-looking mappings: nothing in the running kernel emits them onto this wire yet (`lib/session/schema.json`
  * still narrows `session.events` to token/output/end), so these branches are exercised only by render.test.ts
  * until that schema is widened. */
+import { basename } from 'node:path';
 import { isObject } from '@/lib/schema/index.ts';
 import type { Batch } from '@/lib/session/types.ts';
+import { settings } from './index.ts';
 
 /** `events` accepts the real generated `Batch['events']` member for the kinds `lib/session/schema.json`
  *  already names (`token`/`output`/`end`, each carrying the full envelope now that the generator
@@ -17,7 +19,35 @@ import type { Batch } from '@/lib/session/types.ts';
 export type EventBatch = { conversation: string; events: readonly (Batch['events'][number] | { type?: string; payload?: unknown })[] };
 
 /** Bounds on what a rendered frame carries; named per house rule (AGENTS.md "bound everything"). */
-export const limits = { summaryBytes: 4096 };
+export const limits = { summaryBytes: 4096, nameLength: 128 };
+
+/** What attachments.ts writes, and so the only file name that can be read back through /api/attachments. */
+const storedName = /^[0-9a-f]{64}\.[a-z0-9]{2,5}$/u;
+
+/** An attached image, turned from a file on disk into something a browser can draw.
+ *
+ * The recorded input names a `path` under the person's own state, which is meaningless to a page and must
+ * never be shown to one. The same-origin route that serves it is derived here instead, because this is the
+ * only place that knows both the conversation and the stored file name — the surface stays ignorant of
+ * where attachments live, exactly as it is ignorant of where anything else lives. Relative, like every
+ * other URL this surface uses: a proxy may serve the page under a prefix it has already stripped, so an
+ * absolute path would resolve above it.
+ *
+ * Everything is checked rather than trusted. A conversation's recorded events are durable and older ones
+ * were written by whatever wrote them; a row whose path is not a name this gateway could have stored, or
+ * whose type is not one it will serve, is dropped rather than turned into a link that 404s. */
+function attachmentsOf(conversation: string, value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  const shown: Record<string, unknown>[] = [];
+  for (const entry of value.slice(0, settings.attachments)) {
+    if (!isObject(entry) || typeof entry['path'] !== 'string' || typeof entry['mime'] !== 'string') continue;
+    const file = basename(entry['path']);
+    if (!storedName.test(file) || !settings.attachmentTypes.includes(entry['mime'])) continue;
+    const name = typeof entry['name'] === 'string' ? entry['name'].slice(0, limits.nameLength) : file;
+    shown.push({ name, mime: entry['mime'], bytes: entry['bytes'], url: `./api/attachments/${conversation}/${file}` });
+  }
+  return shown;
+}
 
 function textOf(content: unknown): string {
   if (!Array.isArray(content)) return '';
@@ -69,7 +99,10 @@ export function render(batch: EventBatch): Record<string, unknown>[] {
     if (event.type === 'model.event') continue;
 
     flush();
-    if (event.type === 'input' && typeof payload['text'] === 'string') frames.push({ type: 'event', session: batch.conversation, kind: 'user', text: payload['text'] });
+    if (event.type === 'input' && typeof payload['text'] === 'string') {
+      const attachments = attachmentsOf(batch.conversation, payload['attachments']);
+      frames.push({ type: 'event', session: batch.conversation, kind: 'user', text: payload['text'], ...(attachments.length ? { attachments } : {}) });
+    }
     if (event.type === 'call') { const frame = payload['ok'] === undefined ? callRequestFrame(batch.conversation, payload) : callAnswerFrame(batch.conversation, payload); if (frame) frames.push(frame); }
     if (event.type === 'notice') frames.push({ type: 'event', session: batch.conversation, kind: 'note', text: textOf(payload['content']) });
     // The whole retrieve answer, as the retriever reported it: a panel reads `score` and `how` when a

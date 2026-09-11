@@ -77,6 +77,11 @@
          so it lives outside the stage rather than being duplicated per pane. -->
     <div class="composer-wrap">
       <form id="composer" class="composer" autocomplete="off">
+        <!-- The images going with this message. Drawn by views/composer.js, empty and hidden until
+             something is dropped, pasted or picked; the note under it says how many and how much. -->
+        <div id="attachments" class="tray" aria-label="Images going with this message" hidden></div>
+        <p id="attachments-note" class="tray-note" hidden></p>
+
         <div id="input-wrap" class="composer-field">
           <textarea id="input" class="composer-input" rows="1"
                     placeholder="Message…"
@@ -84,6 +89,17 @@
         </div>
 
         <div class="composer-bar">
+          <div class="composer-tools">
+            <button type="button" id="attach" class="icon-btn" title="Add a file" aria-label="Add a file">
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <path d="M13 6.5 7.8 11.7a2.3 2.3 0 0 0 3.2 3.2l5.3-5.2a4 4 0 0 0-5.7-5.7L5.2 9.4a5.7 5.7 0 0 0 8 8l4.3-4.3"
+                      fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <!-- Hidden rather than styled away: the button above opens it, and the accept list is the
+                 same one the host enforces, so the file chooser offers only what can actually go. -->
+            <input id="file-picker" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
+          </div>
           <div class="composer-run">
             <button type="button" id="stop" class="stop-btn" title="Stop the running turn" hidden>
               <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -110,6 +126,12 @@
     <section id="rail-panel" class="rail-panel" hidden></section>
   </aside>
 
+</div>
+
+<!-- Shown while a file is being dragged over the window, so it is obvious where a drop will land.
+     Held open by a lapsing timer in views/composer.js rather than by dragenter/dragleave counting. -->
+<div id="drop-veil" class="drop-veil" hidden>
+  <p class="drop-veil-note">Drop an image to add it to your message</p>
 </div>
 
 <footer id="statusbar" class="statusbar" aria-label="System status"></footer>
