@@ -62,11 +62,23 @@ await test('a section with nothing behind it is left out of the list the surface
     ['environments', 'activity', 'undo']);
 });
 
-await test('the act is offered only to a role that may review, even when the kernel negotiated both calls', () => {
+await test('no updates section is offered, because nothing on this socket names a version to act on', () => {
   const offers = (method: string): boolean => ['default.prepare', 'default.set'].includes(method);
-  assert.ok(!sections({ packages: [] }, offers, 'user').includes('updates'));
-  assert.ok(sections({ packages: [] }, offers, 'reviewer').includes('updates'));
-  assert.ok(sections({ packages: [] }, offers, 'admin').includes('updates'));
+  for (const role of ['user', 'reviewer', 'admin']) assert.deepEqual(sections({ packages: [] }, offers, role), []);
+});
+
+await test('a target record that carries only its registrations still describes what is installed', () => {
+  const read = describe({ registrations: [
+    { source: 'gateway-web@1.0.0', hash: 'abc', registration: { requires: { 'contract/kernel-socket': '^1' }, provides: { 'mount//ws': '1.0.0' }, spawn: [{ id: 'web', scope: 'person', network: 'none' }] } },
+    { source: 'provider-openai-compatible@1.0.2', hash: 'def', registration: { requires: {}, provides: {}, spawn: [{ id: 'provider', scope: 'deployment', network: 'egress' }] } },
+    { source: 'skills-core@1.0.0', hash: 'ghi', registration: { requires: {}, provides: { 'skills/core': '1.0.0' } } },
+  ] });
+  assert.deepEqual(read.packages.map(row => [row.name, row.version, row.scope, row.internet]), [
+    ['gateway-web', '1.0.0', 'person', false],
+    ['provider-openai-compatible', '1.0.2', 'deployment', true],
+    ['skills-core', '1.0.0', undefined, false],
+  ]);
+  assert.deepEqual(read.packages[0]?.gives, ['mount//ws']);
 });
 
 await test('every withheld capability degrades into an unsupported answer rather than a throw', async () => {

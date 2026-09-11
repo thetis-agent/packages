@@ -42,7 +42,7 @@ const rank = (role: string): number => role in ranks ? ranks[role as keyof typeo
  * `scope` is the real axis behind "only me" and "everyone" — it is a package's declared spawn scope,
  * not a preference, and there is no third value to invent. `network` is fixed when a package is
  * installed and is reported, never offered as a setting. */
-export interface Installed { name: string; version: string; scope: 'person' | 'deployment'; internet: boolean; needs: string[]; gives: string[] }
+export interface Installed { name: string; version: string; scope?: 'person' | 'deployment'; internet: boolean; needs: string[]; gives: string[] }
 /** What `profile.get` turned out to describe. Every field is optional because a deployment describes
  * as much or as little as it chooses, and the surface draws exactly what arrived. */
 export interface Described {
@@ -54,6 +54,18 @@ export interface Described {
 }
 
 function text(value: unknown, fallback = ''): string { return typeof value === 'string' ? value : fallback; }
+function names(value: unknown): string[] { return isObject(value) ? Object.keys(value).slice(0, adminLimits.packages) : []; }
+
+/** What a package's own declared services say about it: who it runs for, and whether it reaches the
+ *  internet. Both are fixed when a package is installed rather than settable afterwards, so they are
+ *  reported and never offered as a control. A package that runs no service of its own declares
+ *  neither, and its scope stays absent rather than being guessed at. */
+function declared(spawn: readonly unknown[]): { scope?: 'person' | 'deployment'; internet: boolean } {
+  const declarations = spawn.filter(isObject);
+  const internet = declarations.some(value => value['network'] === 'egress');
+  if (declarations.some(value => value['scope'] === 'deployment')) return { scope: 'deployment', internet };
+  return declarations.some(value => value['scope'] === 'person') ? { scope: 'person', internet } : { internet };
+}
 
 /** Reads the `Setup` record `profile.get` may answer with into the handful of plain facts the surface
  * shows. Deliberately total: anything missing or misshapen is simply absent from the result, because a
@@ -61,24 +73,31 @@ function text(value: unknown, fallback = ''): string { return typeof value === '
 export function describe(value: unknown): Described {
   const described: Described = { packages: [] };
   if (!isObject(value)) return described;
+  const found = new Map<string, Installed>();
+  /* `entries` is what an environment's own record carries; `registrations` is what every target's
+   * record carries, and is what a gateway actually finds in front of it. They describe the same
+   * packages from two angles, so both are read and the richer one wins by arriving second. */
   const entries = Array.isArray(value['entries']) ? value['entries'] : [];
   for (const entry of entries.slice(0, adminLimits.packages)) {
     if (!isObject(entry) || !isObject(entry['manifest'])) continue;
     const manifest = entry['manifest'];
-    const envelope = isObject(manifest['envelope']) ? manifest['envelope'] : {};
-    const spawn = isObject(envelope['spawn']) ? envelope['spawn'] : {};
-    const requires = isObject(manifest['requires']) ? manifest['requires'] : {};
-    const provides = isObject(manifest['provides']) ? manifest['provides'] : {};
     if (typeof manifest['name'] !== 'string' || typeof manifest['version'] !== 'string') continue;
-    described.packages.push({
-      name: manifest['name'], version: manifest['version'],
-      scope: spawn['scope'] === 'deployment' ? 'deployment' : 'person',
-      internet: spawn['network'] === 'egress',
-      needs: Object.keys(requires).slice(0, adminLimits.packages),
-      gives: Object.keys(provides).slice(0, adminLimits.packages)
-    });
+    const envelope = isObject(manifest['envelope']) ? manifest['envelope'] : {};
+    found.set(manifest['name'], { name: manifest['name'], version: manifest['version'],
+      ...declared(isObject(envelope['spawn']) ? [envelope['spawn']] : []),
+      needs: names(manifest['requires']), gives: names(manifest['provides']) });
   }
-  described.packages.sort((a, b) => a.name.localeCompare(b.name));
+  const registrations = Array.isArray(value['registrations']) ? value['registrations'] : [];
+  for (const record of registrations.slice(0, adminLimits.packages)) {
+    if (!isObject(record) || typeof record['source'] !== 'string' || !isObject(record['registration'])) continue;
+    const at = record['source'].lastIndexOf('@'); if (at <= 0) continue;
+    const registration = record['registration'];
+    const name = record['source'].slice(0, at);
+    found.set(name, { name, version: record['source'].slice(at + 1),
+      ...declared(Array.isArray(registration['spawn']) ? registration['spawn'] : []),
+      needs: names(registration['requires']), gives: names(registration['provides']) });
+  }
+  described.packages = [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
   const runtime = isObject(value['runtime']) ? value['runtime'] : undefined;
   if (!runtime) return described;
   if (typeof runtime['model'] === 'string') described.model = { model: runtime['model'], provider: text(runtime['provider']) };
@@ -116,11 +135,17 @@ export function sections(described: Described, offers: (method: string) => boole
   if (described.mode) open.push('modes');
   if (described.limits) open.push('limits');
   if (described.spaces) open.push('spaces');
-  if (offers('default.prepare') && offers('default.set') && rank(role) >= ranks.reviewer) open.push('updates');
+  /* `updates` is deliberately not here, even though `#review` and `#confirm` are implemented and this
+   * deployment may well have negotiated both calls. The act needs a version and the setup it was
+   * measured against, and nothing on this socket names either: no method lists what has been published,
+   * what has been checked, or what everyone is on now. A section that asked a person to type in a
+   * version they have no way to read is worse than no section, so it is left out until something can
+   * name a candidate — at which point this is one line and the two commands are already here. */
   if (offers('env.status')) open.push('environments');
   if (offers('env.logs')) open.push('activity');
   if (offers('env.reset')) open.push('undo');
-  if (offers('snapshot')) open.push('restore-points');
+  // Keeping restore points is an administrator's, so a section only they could act in is theirs alone.
+  if (offers('snapshot') && rank(role) >= ranks.admin) open.push('restore-points');
   return open;
 }
 
