@@ -26,6 +26,7 @@ import { mountStage, transcriptFor } from "./views/stage.js";
 import { mountStatusbar } from "./views/statusbar.js";
 import { deliver } from "./lib/surface.js";
 import { applyActivity, cancelled, mergeSessions, sortSessions } from "./lib/activity.js";
+import { addCall, addTurn, blankTurn, turnSummary } from "./lib/usage.js";
 
 const statusEl = $("status");
 
@@ -135,6 +136,25 @@ function scheduleList() {
   listTimer = setTimeout(() => { listTimer = null; sendFrame({ type: "list" }); }, LIST_DEBOUNCE_MS);
 }
 
+/* Folds a frame into the conversation's usage ledger, and hands back the finished turn on the frame
+ * that ends one.
+ *
+ * The ledger lives in the store rather than in the transcript because two views read it: the
+ * transcript draws one chip per finished turn, and the stage draws the running total in the tab's own
+ * bar. Keeping one copy is what stops the two disagreeing — the same reasoning `activity` is derived
+ * in one place for. */
+function applyLedger(frame) {
+  if (frame.kind === "model-end") {
+    const ledger = store.usageOf(frame.session);
+    store.setUsage(frame.session, { ...ledger, turn: addCall(ledger.turn, frame.usage, frame.stop) });
+    return null;
+  }
+  if (frame.kind !== "turn-finished") return null;
+  const ledger = store.usageOf(frame.session);
+  store.setUsage(frame.session, { turn: blankTurn(), total: addTurn(ledger.total, ledger.turn) });
+  return ledger.turn;
+}
+
 /** Draws one event frame and hands it to whoever asked for that kind. */
 function applyFrame(frame) {
   // Activity and the working dot are derived in one place from one frame, so
@@ -145,7 +165,9 @@ function applyFrame(frame) {
   store.setActivity(frame.session, next);
   store.setBusy(frame.session, next.state === "working");
   if (frame.kind === "user" || frame.kind === "turn-finished") scheduleList();
+  const finished = applyLedger(frame);
   transcriptFor(frame.session)?.applyEvent(frame);
+  if (finished) transcriptFor(frame.session)?.showUsage(turnSummary(finished, frame));
   // Panels read the same frames the transcript does, after it has drawn them.
   deliver(frame);
 }

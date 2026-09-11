@@ -211,6 +211,14 @@ export function mountTranscriptInto(root) {
     choice.builtin?.(frame);
   }
 
+  /** The chip for a turn that just finished: what it spent, and a plain word for a stop that was not
+   *  an ordinary finish. Called by app.js right after the `turn-finished` frame has been drawn, with
+   *  the phrases lib/usage.js worked out; nothing is drawn when there is nothing to say. */
+  function showUsage(parts) {
+    if (!parts.length) return;
+    place(el("div", { class: "msg msg-usage" }, ...parts.map((part) => el("span", {}, part))));
+  }
+
   function restore(history) {
     reset();
     if (history.truncated) row("note", "Showing the most recent saved messages; earlier messages remain in conversation storage.");
@@ -222,7 +230,7 @@ export function mountTranscriptInto(root) {
     }
   }
 
-  return { reset, addLocal, settleLocal, failLocal, applyEvent, restore };
+  return { reset, addLocal, settleLocal, failLocal, applyEvent, showUsage, restore };
 }
 
 function safeJson(value) {

@@ -11,6 +11,7 @@
     { "path": "/lib/socket.js", "file": "lib/socket.js", "type": "text/javascript" },
     { "path": "/lib/toast.js", "file": "lib/toast.js", "type": "text/javascript" },
     { "path": "/lib/dispatch.js", "file": "lib/dispatch.js", "type": "text/javascript" },
+    { "path": "/lib/usage.js", "file": "lib/usage.js", "type": "text/javascript" },
     { "path": "/lib/markdown.js", "file": "lib/markdown.js", "type": "text/javascript" },
     { "path": "/lib/mermaid.js", "file": "lib/mermaid.js", "type": "text/javascript" },
     { "path": "/lib/surface.js", "file": "lib/surface.js", "type": "text/javascript" },

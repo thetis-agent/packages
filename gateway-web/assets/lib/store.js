@@ -17,6 +17,11 @@
  */
 
 import { IDLE } from "./activity.js";
+import { blankLedger } from "./usage.js";
+
+/** The stand-in for a conversation nothing has been counted for. Shared and never written, the way
+ *  activity.js's IDLE is, so every unspent conversation reads as the same object. */
+const EMPTY_LEDGER = blankLedger();
 
 export const store = {
   /** The signed-in person's conversations, as last replied by `list`. */
@@ -49,6 +54,12 @@ export const store = {
    *  that conversation's composer is locked so a second Enter cannot send it
    *  twice, and its optimistic row keeps its pending mark. */
   pendingIds: new Set(),
+  /* What each conversation has spent, by conversation id: `{ turn, total }`, the turn in flight and
+   * the running total it will fold into. Derived from `model.end`, which carries the provider's own
+   * counters and nothing this surface made up; lib/usage.js does the arithmetic and app.js's
+   * `applyFrame` is the only writer. Keyed like `activity`, and like `activity` it exists only for a
+   * conversation with an open tab, because those are the only ones this socket streams. */
+  usage: {},
   /** True between clicking "New chat" and the conversation opening. */
   creating: false,
 
@@ -91,6 +102,15 @@ export const store = {
     if (id == null || this.activity[id] === next) return;
     this.activity = { ...this.activity, [id]: next };
     this.touch("activity");
+  },
+  /** What `id` has spent, or an empty ledger for a conversation nothing has been counted for. */
+  usageOf(id) {
+    return (id != null && this.usage[id]) || EMPTY_LEDGER;
+  },
+  setUsage(id, next) {
+    if (id == null) return;
+    this.usage = { ...this.usage, [id]: next };
+    this.touch("usage");
   },
   isBusy(id) {
     return id != null && this.busyIds.has(id);
