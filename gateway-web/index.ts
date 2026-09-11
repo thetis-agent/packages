@@ -9,7 +9,7 @@ export const stages = {};
  * `image/svg+xml` is an image that carries script, and a prefix match would admit it. Every entry must be
  * `image/<subtype>` with a subtype that is a safe file suffix, because the stored file is named
  * `<sha256>.<subtype>` and read back by that suffix alone — see attachments.ts. */
-export const settings = { messageBytes: 1048576, pending: 8, streams: 8, turnMs: 600000, headerBytes: 16384, pendingIdentity: 8, openingFrames: 256,
+export const settings = { messageBytes: 1048576, pending: 8, streams: 8, turnMs: 600000, headerBytes: 16384, pendingIdentity: 8, pendingRequests: 8, openingFrames: 256,
   attachmentBytes: 8388608, attachments: 8, attachmentTypes: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] };
 export const spawn = [{ id: 'web', cmd: 'node', args: [fileURLToPath(new URL('./service.ts', import.meta.url))], env: {}, health: { rpc: 'health.probe' }, restart: 'on-failure', scope: 'person', network: 'none' }];
 

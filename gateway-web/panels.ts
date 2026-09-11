@@ -14,6 +14,12 @@
  * reported, "never the environment down". A surface that refused to start because one contributed
  * panel was unreadable would take the whole conversation with it, which is strictly worse than a
  * missing tab beside a named refusal.
+ *
+ * A contributor may also declare `commands`: the verbs its panels may send back to its own service
+ * (ADR 0051). They are collected here, per package, and handed to `surface-request.ts`, which is what
+ * checks a request against them. A declaration the host could not honour is refused by name like
+ * everything else above, and for the same reason — a command silently dropped is a panel that fails
+ * at the person's click with nothing anywhere saying why.
  */
 import { readdir, access } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -23,11 +29,15 @@ import { load, merge } from '@/lib/assets/index.ts';
 import type { Table } from '@/lib/assets/index.ts';
 import { failure, isObject } from '@/lib/schema/index.ts';
 import type { Result, Schemas } from '@/lib/schema/index.ts';
-import type { Surface, Panel, Renderer } from '@/contracts/surface/types.ts';
+import type { Surface, Panel, Renderer, Command } from '@/contracts/surface/types.ts';
 
 export const limits = { packages: 256, manifestBytes: 65536 };
 
-export interface Contribution { panels: Panel[]; renderers: Renderer[] }
+/** What one contributing package may ask its own service to do, by verb; contract/surface, ADR 0051.
+ *  Kept beside the panels rather than sent with them: the browser never needs the list, because the
+ *  host is what checks it, and a list the browser holds is a list a panel could read. */
+export interface Declared { package: string; commands: Command[] }
+export interface Contribution { panels: Panel[]; renderers: Renderer[]; declared: Declared[] }
 export interface Refusal { name: string; message: string }
 export interface Composed { table: Table; contribution: Contribution; refused: Refusal[] }
 
@@ -39,6 +49,22 @@ export function siblingRoot(): string {
 function contributes(manifest: Record<string, unknown>): boolean {
   const provides = manifest['provides'];
   return isObject(provides) && Object.keys(provides).some(name => name.startsWith('panel/') || name.startsWith('renderer/'));
+}
+
+/** A declaration is refused for the same reason an asset outside a package's own segment is: it is a
+ *  package saying something the host cannot honour, and a panel whose command is silently dropped is
+ *  a panel that fails at the person's click with nothing to read. A verb declared twice has no single
+ *  answer, and a command with no panel on this surface has nothing that could ever send it. */
+function declares(name: string, surface: Surface): Result<void, 'invalid-args'> {
+  const commands = surface.commands ?? [];
+  if (!commands.length) return { ok: true, value: undefined };
+  if (!(surface.panels ?? []).length) return failure('invalid-args', `${name} declares a command but contributes no panel to send it.`);
+  const seen = new Set<string>();
+  for (const command of commands) {
+    if (seen.has(command.verb)) return failure('invalid-args', `${name} declares ${command.verb} more than once.`);
+    seen.add(command.verb);
+  }
+  return { ok: true, value: undefined };
 }
 
 /** Every served path a contributor claims must sit under its own name, so no two can collide. */
@@ -78,18 +104,19 @@ async function contributor(root: string, name: string, schemas: Schemas): Promis
   const table = await load(directory, join(directory, 'assets.json'), schemas);
   if (!table.ok) return table;
   const own = owned(name, table.value, declared); if (!own.ok) return own;
+  const says = declares(name, declared); if (!says.ok) return says;
   return { ok: true, value: { table: table.value, surface: declared } };
 }
 
 /** Joins this surface's own table with every contributor's, in a stable order. Only this surface's
  *  own table is load-bearing: every contributor problem is collected in `refused` and skipped. */
 export async function compose(own: Table, schemas: Schemas, root = siblingRoot()): Promise<Composed> {
-  const empty: Composed = { table: own, contribution: { panels: [], renderers: [] }, refused: [] };
+  const empty: Composed = { table: own, contribution: { panels: [], renderers: [], declared: [] }, refused: [] };
   let names: string[];
   try { names = (await readdir(root, { withFileTypes: true })).filter(entry => entry.isDirectory() && !entry.name.startsWith('.')).map(entry => entry.name).sort(); }
   catch { return empty; }
   if (names.length > limits.packages) return { ...empty, refused: [{ name: root, message: 'The package directory exceeds its entry limit.' }] };
-  const tables: Table[] = [own]; const panels: Panel[] = []; const renderers: Renderer[] = []; const refused: Refusal[] = [];
+  const tables: Table[] = [own]; const panels: Panel[] = []; const renderers: Renderer[] = []; const declared: Declared[] = []; const refused: Refusal[] = [];
   const claimed = new Set<string>(); const drawn = new Set<string>();
   for (const name of names) {
     const found = await contributor(root, name, schemas);
@@ -108,8 +135,9 @@ export async function compose(own: Table, schemas: Schemas, root = siblingRoot()
     for (const renderer of found.value.surface.renderers ?? []) drawn.add(renderer.kind);
     panels.push(...found.value.surface.panels ?? []);
     renderers.push(...found.value.surface.renderers ?? []);
+    if (found.value.surface.commands?.length) declared.push({ package: name, commands: found.value.surface.commands });
   }
   const joined = merge(tables);
   if (!joined.ok) return { ...empty, refused: [...refused, { name: root, message: joined.error.message }] };
-  return { table: joined.value, contribution: { panels, renderers }, refused };
+  return { table: joined.value, contribution: { panels, renderers, declared }, refused };
 }

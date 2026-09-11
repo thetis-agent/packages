@@ -72,6 +72,24 @@ await test('a tool card names only the flags the tool actually declared', () => 
   assert.equal(classed([loud], 'is-danger').length, 1, 'only the destructive flag is coloured');
 });
 
+await test('a count of finished calls is a badge only once there is one to show', () => {
+  // Nothing asked, or nothing used: no badge, because "used 0×" is noise beside a list that is
+  // already the set of things nothing has called.
+  assert.deepEqual(classed([card(dom, tool('read_file'))], 'is-used'), []);
+  assert.deepEqual(classed([card(dom, tool('read_file'), 0)], 'is-used'), []);
+  const used = classed([card(dom, tool('read_file'), 12)], 'is-used');
+  assert.deepEqual(used.map(textOf), ['used 12×']);
+  assert.equal(titles([card(dom, tool('read_file'), 12)]).some(title => /every conversation/u.test(title)), true);
+});
+
+await test('the tally reaches the card for the tool it names, and no other', () => {
+  const rows = blocks(described, dom, new Set(['tools-files@1.0.0']), { read_file: 4 });
+  const cards = classed(rows, 'ti-card');
+  const withCount = cards.filter(node => classed([node], 'is-used').length);
+  assert.deepEqual(withCount.map(node => textOf(classed([node], 'ti-name')[0] ?? node)), ['read_file']);
+  assert.deepEqual(classed(rows, 'is-used').map(textOf), ['used 4×']);
+});
+
 await test('a tool card carries its description and its arguments, with a hint on every flag', () => {
   const node = card(dom, tool('read_file'));
   assert.match(textOf(node), /The read_file tool\./u);

@@ -15,15 +15,18 @@ import { capabilities, publicCapabilities } from './protocol.ts';
 import { SessionEvents } from '@/lib/session/index.ts';
 import { historyTail } from '@/lib/session/history.ts';
 import { Service, serviceLimits } from '@/lib/service/lifecycle.ts';
+import { surfaceCommand } from './surface-command.ts';
 
 class SessionControl {
   readonly #sessions: Sessions;
   readonly #schemas: Schemas;
   readonly #person: string;
   readonly #connections: () => number;
+  readonly #stages: readonly Stage[];
+  readonly #space: string;
   readonly events: SessionEvents;
   #drained: Promise<Result<void>> | undefined;
-  constructor(sessions: Sessions, schemas: Schemas, person: string, events: SessionEvents, connections: () => number) { this.#sessions = sessions; this.#schemas = schemas; this.#person = person; this.events = events; this.#connections = connections; }
+  constructor(sessions: Sessions, schemas: Schemas, person: string, events: SessionEvents, connections: () => number, stages: readonly Stage[] = [], space = '/state') { this.#sessions = sessions; this.#schemas = schemas; this.#person = person; this.events = events; this.#connections = connections; this.#stages = stages; this.#space = space; }
 
   handlers(): ReadonlyMap<Method, Handler> {
     return new Map<Method, Handler>([
@@ -64,8 +67,10 @@ class SessionControl {
   }
 
   public(client: Peer): { handlers: ReadonlyMap<Method, Handler>; close(): void } {
-    const handlers = new Map(this.handlers()); let unsubscribe: (() => void) | undefined; let subscribing = false; let closed = false;
+    const handlers = new Map(this.handlers()); let unsubscribe: (() => void) | undefined; let subscribing = false; let closed = false; let opened: string | undefined;
     handlers.set('session.submit', () => Promise.resolve(failure('forbidden', 'Turns must enter through inherited kernel control so their outcomes are observed.')));
+    // A contributed panel's one way to act, bound to whatever this connection is reading; ADR 0051.
+    handlers.set('session.request', surfaceCommand(this.#stages, this.#schemas, clock, this.#space, () => opened));
     handlers.set('session.subscribe', async params => {
       const conversation = params['conversation']; const from = params['from'];
       if (typeof conversation !== 'string' || from !== undefined && (typeof from !== 'number' || !Number.isSafeInteger(from) || from < 0)) return failure('invalid-args', 'The session subscription is invalid.');
@@ -76,6 +81,7 @@ class SessionControl {
           if (closed) return failure('io', 'The subscription connection closed while loading history.');
           const subscription = this.events.subscribe(conversation, from, params => client.notify({ note: 'notice', params }), () => { client.close(); });
           if (!subscription.ok) return subscription;
+          opened = conversation;
           unsubscribe = () => { subscription.value.close(); };
           return { ok: true, value: { ...subscription.value.result, ...(from === undefined ? { history: historyTail(messages) } : {}) } };
         });
@@ -105,7 +111,7 @@ export async function control(config: Runtime, stages: readonly Stage[], schemas
   if (config.generation !== undefined) { const changed = sessions.value.changed(config.generation); if (!changed.ok) return changed; }
   const opened = await connect(config.controlPath); if (!opened.ok) return opened;
   const endpoint = config.endpoint ? new Service(clock, serviceLimits, 'io') : undefined;
-  const handler = new SessionControl(sessions.value, schemas, config.person, events, () => endpoint?.connections ?? 0);
+  const handler = new SessionControl(sessions.value, schemas, config.person, events, () => endpoint?.connections ?? 0, stages, config.space);
   const peer = new Peer(opened.value, schemas, clock, capabilities, { handlers: handler.handlers(), note: note => handler.note(note) });
   const connected = await peer.connect(); if (!connected.ok) return connected;
   if (config.endpoint && endpoint) {

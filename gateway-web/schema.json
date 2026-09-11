@@ -5,6 +5,8 @@
     "text": { "type": "string", "maxLength": 65536 }, "from": { "type": "integer", "minimum": 0 },
     "title": { "type": "string", "minLength": 1, "maxLength": 96 },
     "scope": { "enum": ["mine", "everyone"] },
+    "request": { "type": "string", "maxLength": 64 }, "package": { "type": "string", "maxLength": 64 },
+    "verb": { "type": "string", "maxLength": 32 }, "args": { "type": "object" },
     "attachments": { "type": "array", "maxItems": 8, "items": {
       "type": "object", "required": ["name", "mime", "bytes", "hash", "path"], "properties": {
         "name": { "type": "string", "maxLength": 256 }, "mime": { "type": "string", "maxLength": 128 },
