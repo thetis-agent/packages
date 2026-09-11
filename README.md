@@ -20,11 +20,13 @@ it. The kernel matches names and names no package itself.
 | `tools-exa` | Direct Exa API search, page contents, answers, and research agents |
 | `storage-files` | Default bounded byte objects and durable append logs behind `contract/storage` |
 | `retriever-local` | BM25 + dense with fusion as a setting; answers `retrieve` |
+| `skills-all` | Attaches every installed skill each turn; the second `retrieve` provider |
 | `provider-mock` | Scripted provider with a cache model |
 | `provider-openai-compatible` | HTTP/SSE adapter, OpenRouter-compatible |
 | `registries` | Immutable local git registry delivery |
 | `metrics` | Metrics service |
 | `evaluator` | Paired-run scoring behind the gate |
+| `skills-core` | A content pack: `skills/` only, discovered by its alias mount |
 
 A package may depend only on shared libraries and contracts. Importing
 another package directly is refused.

@@ -1,0 +1,7 @@
+{
+  "assets": [
+    { "path": "/surface/skills-l1/panel.js", "file": "surface/panel.js", "type": "text/javascript" },
+    { "path": "/surface/skills-l1/rows.js", "file": "surface/rows.js", "type": "text/javascript" },
+    { "path": "/surface/skills-l1/panel.css", "file": "surface/panel.css", "type": "text/css" }
+  ]
+}
