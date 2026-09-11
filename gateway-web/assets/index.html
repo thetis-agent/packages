@@ -47,6 +47,9 @@
          sidebar is always just the signed-in person's own conversations. -->
     <footer class="sidebar-foot">
       <div class="foot-row foot-identity">
+        <!-- The face is drawn by app.js once the name arrives; there is nothing
+             to put here before then, and an empty tile is worse than none. -->
+        <span id="user-face" class="foot-face"></span>
         <span id="user-name" class="foot-name" title="Signed in as"></span>
         <span id="status" class="status is-offline">connecting</span>
       </div>

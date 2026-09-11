@@ -146,7 +146,11 @@ body { display: flex; flex-direction: column; }
 }
 .foot-row { display: flex; align-items: center; gap: var(--gap-2); min-width: 0; }
 
-/* Who: the name, and the connection state at the far end. */
+/* Who: a face, the name, and the connection state at the far end. The face is
+   the same tile the transcript draws, at the size a sidebar row can spare —
+   held here rather than in the tile's own rule so the two cannot drift apart. */
+.foot-identity { --avatar-lg: 22px; }
+.foot-identity .turn-initial { font-size: 10px; }
 .foot-identity .status { margin-left: auto; flex: none; }
 .foot-name {
   min-width: 0;
@@ -647,17 +651,15 @@ body { display: flex; flex-direction: column; }
   .pending-note::before { animation: none; }
 }
 
-/* --- turn faces -------------------------------------------------------------
-   Drawn, not fetched: a letter on a colour worked out from the name (see
-   assets/lib/avatar.js). Positioned out of the row's flow into the gutter the
-   transcript reserved, pulled to the gutter's inner edge so a tile hugs the
-   text it belongs to rather than drifting outward as the window changes. */
+/* --- faces -------------------------------------------------------------------
+   Drawn, not fetched: letters on a colour worked out from the name (see
+   assets/lib/avatar.js). This rule is the look only; where a tile goes is the
+   business of whatever holds it, and its size is --avatar-lg, which a holder
+   may narrow for itself. */
 .turn-avatar {
-  position: absolute;
-  right: calc(100% + var(--gap-3));
-  top: 2px;
   width: var(--avatar-lg);
   height: var(--avatar-lg);
+  flex: none;
   display: grid;
   place-items: center;
   border-radius: var(--r-md);
@@ -665,10 +667,18 @@ body { display: flex; flex-direction: column; }
   box-shadow: inset 0 0 0 1px var(--hairline);
   user-select: none;
 }
+/* In a transcript, out of the row's flow and into the gutter reserved for it,
+   pulled to the gutter's inner edge so the tile hugs the text it belongs to
+   rather than drifting outward as the window changes. */
+.msg > .turn-avatar {
+  position: absolute;
+  right: calc(100% + var(--gap-3));
+  top: 2px;
+}
 /* The reader's mirrors into the right-hand gutter. `right: auto` is required:
    the rule above would otherwise win alongside `left` and stretch the tile
    across the whole row. */
-.turn-avatar.is-person {
+.msg > .turn-avatar.is-person {
   right: auto;
   left: calc(100% + var(--gap-3));
 }

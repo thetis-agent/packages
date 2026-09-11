@@ -14,7 +14,8 @@
  * conversation id instead. See lib/store.js.
  */
 
-import { $, setHidden } from "./lib/dom.js";
+import { avatarFor } from "./lib/avatar.js";
+import { clear, $, setHidden } from "./lib/dom.js";
 import { Connection } from "./lib/socket.js";
 import { store } from "./lib/store.js";
 import { toast } from "./lib/toast.js";
@@ -152,6 +153,10 @@ function applyFrame(frame) {
 
 store.watch("user", (user) => {
   $("user-name").textContent = user?.name || "";
+  // The same face the transcript puts beside this person's own messages, so the
+  // colour in the sidebar and the colour on the rows are visibly one person.
+  const face = clear($("user-face"));
+  if (user?.name) face.append(avatarFor("person", user.name));
   setHidden($("logout"), !user);
 });
 
