@@ -16,6 +16,7 @@
     { "path": "/lib/toast.js", "file": "lib/toast.js", "type": "text/javascript" },
     { "path": "/lib/dispatch.js", "file": "lib/dispatch.js", "type": "text/javascript" },
     { "path": "/lib/cursors.js", "file": "lib/cursors.js", "type": "text/javascript" },
+    { "path": "/lib/follow.js", "file": "lib/follow.js", "type": "text/javascript" },
     { "path": "/lib/usage.js", "file": "lib/usage.js", "type": "text/javascript" },
     { "path": "/lib/status.js", "file": "lib/status.js", "type": "text/javascript" },
     { "path": "/lib/markdown.js", "file": "lib/markdown.js", "type": "text/javascript" },
