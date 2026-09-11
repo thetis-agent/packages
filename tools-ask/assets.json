@@ -1,0 +1,8 @@
+{
+  "assets": [
+    { "path": "/surface/tools-ask/panel.js", "file": "surface/panel.js", "type": "text/javascript" },
+    { "path": "/surface/tools-ask/rows.js", "file": "surface/rows.js", "type": "text/javascript" },
+    { "path": "/surface/tools-ask/form.js", "file": "surface/form.js", "type": "text/javascript" },
+    { "path": "/surface/tools-ask/ask.css", "file": "surface/ask.css", "type": "text/css" }
+  ]
+}

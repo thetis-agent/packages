@@ -1,0 +1,80 @@
+{
+  "name": "tools-ask",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": "./index.ts",
+  "stages": "./index.ts",
+  "requires": {
+    "contract/surface": "^1.1",
+    "contract/turn-events": "^1"
+  },
+  "provides": {
+    "panel/questions": "1.0.0",
+    "renderer/tool-call": "1.0.0",
+    "renderer/tool-result": "1.0.0"
+  },
+  "surface": {
+    "v": "1",
+    "panels": [
+      {
+        "id": "questions",
+        "label": "Questions",
+        "hint": "Questions \u2014 what the agent has asked you here, and what you said",
+        "entry": "/surface/tools-ask/panel.js"
+      }
+    ],
+    "renderers": [
+      {
+        "kind": "tool-call",
+        "entry": "/surface/tools-ask/rows.js"
+      },
+      {
+        "kind": "tool-result",
+        "entry": "/surface/tools-ask/rows.js"
+      }
+    ],
+    "commands": [
+      {
+        "verb": "asked",
+        "label": "See the questions asked in this conversation"
+      },
+      {
+        "verb": "reply",
+        "label": "Answer a question the agent asked"
+      }
+    ]
+  },
+  "envelope": {
+    "requires": [],
+    "provides": [],
+    "spawn": {
+      "scope": "person",
+      "network": "none"
+    }
+  },
+  "settings": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "answerMs": {
+        "type": "integer",
+        "minimum": 60000,
+        "maximum": 86400000,
+        "default": 900000
+      },
+      "questions": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 256,
+        "default": 32
+      },
+      "remembered": {
+        "type": "integer",
+        "minimum": 8,
+        "maximum": 4096,
+        "default": 256
+      }
+    },
+    "additionalProperties": false
+  }
+}

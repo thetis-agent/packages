@@ -1,0 +1,6 @@
+{
+  "assets": [
+    { "path": "/surface/tools-todo/panel.js", "file": "surface/panel.js", "type": "text/javascript" },
+    { "path": "/surface/tools-todo/panel.css", "file": "surface/panel.css", "type": "text/css" }
+  ]
+}

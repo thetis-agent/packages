@@ -1,0 +1,47 @@
+{
+  "name": "tools-todo",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": "./index.ts",
+  "stages": "./index.ts",
+  "requires": {
+    "contract/surface": "^1.1",
+    "contract/turn-events": "^1"
+  },
+  "provides": {
+    "panel/todo": "1.0.0"
+  },
+  "surface": {
+    "v": "1",
+    "panels": [
+      {
+        "id": "todo",
+        "label": "Todo",
+        "hint": "Todo — the plan the agent is working to, and what is left",
+        "entry": "/surface/tools-todo/panel.js"
+      }
+    ],
+    "commands": [
+      { "verb": "plan", "label": "See the plan for this conversation" },
+      { "verb": "tick", "label": "Tick an item off the plan yourself" }
+    ]
+  },
+  "envelope": {
+    "requires": [],
+    "provides": [],
+    "spawn": {
+      "scope": "person",
+      "network": "none"
+    }
+  },
+  "settings": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "items": { "type": "integer", "minimum": 1, "maximum": 256, "default": 64 },
+      "textLength": { "type": "integer", "minimum": 8, "maximum": 2000, "default": 200 },
+      "conversations": { "type": "integer", "minimum": 1, "maximum": 256, "default": 64 }
+    },
+    "additionalProperties": false
+  }
+}

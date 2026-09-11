@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "items": { "type": "integer", "minimum": 1, "maximum": 256, "default": 64 },
+    "textLength": { "type": "integer", "minimum": 8, "maximum": 2000, "default": 200 },
+    "conversations": { "type": "integer", "minimum": 1, "maximum": 256, "default": 64 }
+  },
+  "additionalProperties": false
+}
