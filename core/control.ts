@@ -16,6 +16,7 @@ import { SessionEvents } from '@/lib/session/index.ts';
 import { historyTail } from '@/lib/session/history.ts';
 import { Service, serviceLimits } from '@/lib/service/lifecycle.ts';
 import { surfaceCommand } from './surface-command.ts';
+import { NoticeQueue } from './notices.ts';
 
 class SessionControl {
   readonly #sessions: Sessions;
@@ -111,10 +112,10 @@ class SessionControl {
   }
 }
 
-export async function control(config: Runtime, stages: readonly Stage[], schemas: Schemas): Promise<Result<Peer>> {
+export async function control(config: Runtime, stages: readonly Stage[], schemas: Schemas, notices = new NoticeQueue()): Promise<Result<Peer>> {
   if (!config.controlPath) return failure('io', 'The environment monitor endpoint is absent.');
   const events = new SessionEvents(clock);
-  const sessions = await Sessions.open(config.root, { stages, schemas, clock, observe: event => { events.observe(event); }, provider: new ProviderClient(config.providerSocket, schemas, config.token), options: config,
+  const sessions = await Sessions.open(config.root, { stages, schemas, clock, notices, observe: event => { events.observe(event); }, provider: new ProviderClient(config.providerSocket, schemas, config.token), options: config,
     report: params => peer.notify({ note: 'turn.report', params }) });
   if (!sessions.ok) return sessions;
   if (config.generation !== undefined) { const changed = sessions.value.changed(config.generation); if (!changed.ok) return changed; }

@@ -14,6 +14,7 @@ import { Conversation } from './conversation.ts';
 import { SessionStore } from './session-store.ts';
 import type { Now } from './session-store.ts';
 import type { SessionInfo } from './types.ts';
+import type { NoticeQueue } from './notices.ts';
 
 export const sessionLimits = { loaded: 8, fileBytes: 1024 * 1024, inputBytes: 65536, writes: 32, reads: 8, models: 64 };
 
@@ -33,7 +34,7 @@ export type Mode = 'agent' | 'plan';
 const isMode = (value: unknown): value is Mode => value === 'agent' || value === 'plan';
 /** `now` is epoch milliseconds for stored conversation stamps, separate from `clock` on purpose: `clock.now()`
  * is `performance.now()`, which is monotonic since process start and meaningless to a browser (session-store.ts). */
-export interface Runtime { observe?: (event: Envelope) => void; stages: readonly Stage[]; schemas: Schemas; clock: Clock; now?: Now; provider: Provider; options: Omit<Options, 'conversation' | 'refresh'>; report?: (params: Record<string, unknown>) => Promise<Result<void>> }
+export interface Runtime { observe?: (event: Envelope) => void; stages: readonly Stage[]; schemas: Schemas; clock: Clock; now?: Now; provider: Provider; options: Omit<Options, 'conversation' | 'refresh'>; report?: (params: Record<string, unknown>) => Promise<Result<void>>; notices?: NoticeQueue }
 
 /** The newest assistant text in a conversation, which is what a finished row previews: the sidebar's
  * second line answers "where is this conversation now", and after a turn that is the reply, not the
@@ -157,6 +158,11 @@ export class Sessions {
         // Named and previewed before the vendor is called, so a conversation carries its own name from the
         // moment it is spoken to rather than only once a reply lands — including a turn that never finishes.
         const named = await this.#store.record(id, input.text); if (!named.ok) return named;
+        // The turn boundary the contract names: anything a stage emitted since the last turn for this
+        // conversation is handed to the loop before the turn starts, and the loop writes each one into
+        // history as a `tool` message (index.ts `#prepare`). Queued outside the loop because a loop
+        // lives only as long as a lease on its conversation, and a notice usually arrives between two.
+        for (const queued of this.#runtime.notices?.take(id) ?? []) loaded.value.loop.notice(queued.source, queued.notice);
         const result = await loaded.value.loop.turn(input, { ...this.#runtime.options, ...await this.#chosen(info.value), conversation: id, refresh }, cancel.signal);
         const report = loaded.value.loop.report;
         if (!report) throw new Error('A completed turn has no diagnostic report.');
