@@ -1,7 +1,7 @@
 /* The rail's one inspector: the environment the open conversation runs in.
  *
- * Shows `env-status` as last received — generation, whether it is ready, the
- * kernel's own state word — and a "Reset environment" button that sends
+ * Shows `env-status` as last received — how often it has been rebuilt, whether it is ready, the
+ * kernel's own state word — and a "Start fresh" button that sends
  * `env-reset`. `hello` advertises the `env-reset` capability unconditionally
  * (wire.ts's capability list is not filtered by what the kernel actually
  * negotiated), so the button is always offered; a kernel that has not
@@ -32,9 +32,9 @@ export function mountEnvironment({ sendFrame }) {
   // destructive control here uses, rather than firing on the first click.
   function confirmReset(event) {
     popover(event.currentTarget, {
-      message: "Reset environment?",
-      detail: "Tears down and rebuilds this conversation's environment. Anything running inside it now is lost.",
-      confirmLabel: "Reset",
+      message: "Start this workspace fresh?",
+      detail: "Throws away everything in this conversation's workspace and builds it again. Anything running there now stops.",
+      confirmLabel: "Start fresh",
       danger: true,
       onConfirm: () => sendFrame({ type: "env-reset" }),
     });
@@ -51,17 +51,20 @@ export function mountEnvironment({ sendFrame }) {
     if (!env.ready && env.reason) {
       blocks.push(el("div", { class: "panel-warning" }, env.reason));
     }
+    /* The count is how many times this environment has been rebuilt, which is a true and useful
+     * thing to know and reads as nothing at all when it is called a generation number. It is left
+     * out entirely rather than printed as a question mark when the host did not say. */
     blocks.push(
       section({
         title: env.state || (env.ready ? "Ready" : "Not ready"),
-        note: `Generation ${env.generation ?? "?"}`,
+        ...(typeof env.generation === "number" && env.generation > 1 ? { note: `Rebuilt ${String(env.generation - 1)} time${env.generation === 2 ? "" : "s"}` } : {}),
       })
     );
     blocks.push(
       el(
         "button",
-        { type: "button", class: "ghost-btn", title: "Tear down and rebuild this conversation's environment", onClick: confirmReset },
-        "Reset environment"
+        { type: "button", class: "ghost-btn", title: "Throw this conversation's workspace away and start it fresh", onClick: confirmReset },
+        "Start fresh"
       )
     );
 
