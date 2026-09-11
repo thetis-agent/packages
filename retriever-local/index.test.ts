@@ -1,7 +1,10 @@
 /** Pin bounded and deterministic retrieval with forced activation; TE-005–008. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { retriever } from './index.ts';
+import { mkdir, writeFile, rm, symlink } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
+import { retriever, stages } from './index.ts';
 import { skillsFixture, skill } from '@/test/skills-fixture.ts';
 import { Schemas } from '@/lib/schema/index.ts';
 import type { RetrieveAnswer } from '@/contracts/skills/types.ts';
@@ -44,4 +47,51 @@ await test('TE-008 activation keeps an unranked entry even without body budget',
     const answer = await retriever(loaded.value.skills).retrieve({ query: 'unrelated', k: 0, budget: 0, activate: ['query'], model: 'scripted' });
     assert.equal(answer.entries[0]?.id, 'query'); assert.equal(answer.entries[0].body, undefined);
   } finally { await f.close(); }
+});
+
+await test('the stage answers nothing until init has read the corpus, then answers from it', async () => {
+  const id = `wired-${randomUUID()}`;
+  const alias = `pack-wired-${randomUUID()}@1.0.0`;
+  const request = { query: id, k: 4, budget: 4096, model: 'scripted' };
+  const empty = await stages.retrieve(request);
+  assert.deepEqual(empty, { entries: [], dropped: [] });
+  await mkdir(join('/packages', alias, 'skills', id), { recursive: true });
+  await writeFile(join('/packages', alias, 'skills', id, 'SKILL.md'), skill(id));
+  const notices: string[] = [];
+  try {
+    await stages.init(undefined, { emit: notice => { notices.push(notice.content.map(part => part['text']).join('')); } });
+    const answer = await stages.retrieve(request);
+    assert.ok(answer.entries.some(entry => entry.id === id), JSON.stringify(answer.entries.map(entry => entry.id)));
+    assert.deepEqual(notices, []);
+  } finally { await rm(join('/packages', alias), { recursive: true, force: true }); }
+});
+
+await test('a pack that cannot load is reported as a notice rather than swallowed', async () => {
+  const alias = `pack-broken-${randomUUID()}@1.0.0`;
+  await mkdir(join('/packages', alias, 'skills'), { recursive: true });
+  await symlink('/etc', join('/packages', alias, 'skills', 'linked'));
+  const notices: string[] = [];
+  try {
+    await stages.init(undefined, { emit: notice => { notices.push(notice.content.map(part => part['text']).join('')); } });
+    assert.ok(notices.some(text => text.startsWith(`${alias.slice(0, -6)}@1.0.0 was skipped:`)), notices.join('; '));
+  } finally { await rm(join('/packages', alias), { recursive: true, force: true }); }
+});
+
+await test('an init that fails partway leaves the stage answering nothing, not the previous corpus', async () => {
+  const id = `stale-${randomUUID()}`;
+  const alias = `pack-stale-${randomUUID()}@1.0.0`;
+  const broken = `pack-broken-${randomUUID()}@1.0.0`;
+  const request = { query: id, k: 4, budget: 4096, model: 'scripted' };
+  try {
+    await mkdir(join('/packages', alias, 'skills', id), { recursive: true });
+    await writeFile(join('/packages', alias, 'skills', id, 'SKILL.md'), skill(id));
+    await stages.init(undefined, { emit: () => undefined });
+    assert.ok((await stages.retrieve(request)).entries.some(entry => entry.id === id));
+    // `emit` throws when a notice violates its contract (lib/package-loader/load.ts), so a pack
+    // that warns is enough to fail the second init after the first one succeeded.
+    await mkdir(join('/packages', broken, 'skills'), { recursive: true });
+    await symlink('/etc', join('/packages', broken, 'skills', 'linked'));
+    await assert.rejects(stages.init(undefined, { emit: () => { throw new Error('A notice violates its contract.'); } }));
+    assert.deepEqual(await stages.retrieve(request), { entries: [], dropped: [] });
+  } finally { for (const name of [alias, broken]) await rm(join('/packages', name), { recursive: true, force: true }); }
 });

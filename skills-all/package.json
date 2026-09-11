@@ -1,0 +1,39 @@
+{
+  "name": "skills-all",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": "./index.ts",
+  "stages": "./index.ts",
+  "requires": {
+    "contract/skills": "^1",
+    "contract/surface": "^1"
+  },
+  "provides": {
+    "stage/retrieve": "1.0.0",
+    "panel/skills": "1.0.0",
+    "renderer/retrieve": "1.0.0"
+  },
+  "surface": {
+    "v": "1",
+    "panels": [
+      { "id": "skills", "label": "Skills", "hint": "Skills \u2014 the whole installed corpus, and what the budget cut", "entry": "/surface/skills-all/panel.js" }
+    ],
+    "renderers": [
+      { "kind": "retrieve", "entry": "/surface/skills-all/panel.js" }
+    ]
+  },
+  "envelope": {
+    "requires": [],
+    "provides": [],
+    "spawn": {
+      "scope": "person",
+      "network": "none"
+    }
+  },
+  "settings": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}
