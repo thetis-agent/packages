@@ -35,6 +35,7 @@ await test('hello replies with a user frame carrying the identity name and role,
     assert.equal(frame['type'], 'user');
     assert.deepEqual(frame['user'], { name: 'alice', role: 'user' });
     assert.ok(Array.isArray(frame['capabilities']));
+    for (const capability of ['rename', 'archive', 'unarchive', 'everyone']) assert.ok(frame['capabilities'].includes(capability), capability);
   } finally { await f.close(); }
 });
 
@@ -70,11 +71,59 @@ await test('attachments are refused as unsupported before any subscription is at
   } finally { await f.close(); }
 });
 
-await test('list forwards to session.list and renders a sessions frame', async () => {
-  const f = await fixture(new Map<Method, Handler>([['session.list', () => Promise.resolve({ ok: true, value: [{ id: 'c1' }] })]]), ['session.list']);
+await test('list forwards to session.list, asks for the archive with it, and renders a sessions frame', async () => {
+  const asked: Record<string, unknown>[] = [];
+  const f = await fixture(new Map<Method, Handler>([['session.list', params => { asked.push(params); return Promise.resolve({ ok: true, value: [{ id: 'c1' }] }); }]]), ['session.list']);
   try {
     const result = await f.wire.command({ type: 'list' }); assert.ok(result.ok);
-    assert.deepEqual(f.sent.at(-1), { type: 'sessions', sessions: [{ id: 'c1' }] });
+    assert.deepEqual(f.sent.at(-1), { type: 'sessions', scope: 'mine', sessions: [{ id: 'c1' }] });
+    assert.deepEqual(asked, [{ archived: true }],
+      'one list carries the live conversations and the archived ones; the sidebar draws both and asks once.');
+  } finally { await f.close(); }
+});
+
+await test('an administrator asking for everyone names the reserved person, and a user is refused before the kernel is asked', async () => {
+  const asked: Record<string, unknown>[] = [];
+  const handlers = new Map<Method, Handler>([['session.list', params => { asked.push(params); return Promise.resolve({ ok: true, value: [] }); }]]);
+  const admin = await fixture(handlers, ['session.list'], 'admin');
+  try {
+    assert.ok((await admin.wire.command({ type: 'list', scope: 'everyone' })).ok);
+    assert.deepEqual(asked, [{ archived: true, person: '*' }]);
+    assert.equal(admin.sent.at(-1)?.['scope'], 'everyone', 'the reply says which list it answered, so a crossing reply cannot be mistaken for the other.');
+  } finally { await admin.close(); }
+  const user = await fixture(handlers, ['session.list']);
+  try {
+    const refused = await user.wire.command({ type: 'list', scope: 'everyone' });
+    assert.ok(!refused.ok); assert.equal(refused.error.code, 'forbidden');
+    assert.deepEqual(asked.length, 1, 'the refusal happens here, so nothing about anyone else is asked for on this account\'s behalf.');
+  } finally { await user.close(); }
+});
+
+await test('rename and archive forward to their kernel methods and acknowledge without echoing a stored name', async () => {
+  const asked: [Method, Record<string, unknown>][] = [];
+  const record = (method: Method): Handler => params => { asked.push([method, params]); return Promise.resolve({ ok: true, value: undefined }); };
+  const f = await fixture(new Map<Method, Handler>([['session.rename', record('session.rename')], ['session.archive', record('session.archive')]]),
+    ['session.rename', 'session.archive']);
+  try {
+    assert.ok((await f.wire.command({ type: 'rename', id: 'c1', title: 'Sidebar parity' })).ok);
+    assert.deepEqual(f.sent.at(-1), { type: 'renamed', session: 'c1' },
+      'the environment caps and collapses a name, so the row comes back from the next list rather than from here.');
+    assert.ok((await f.wire.command({ type: 'archive', id: 'c1' })).ok);
+    assert.deepEqual(f.sent.at(-1), { type: 'archived', session: 'c1', archived: true });
+    assert.ok((await f.wire.command({ type: 'unarchive', id: 'c1' })).ok);
+    assert.deepEqual(f.sent.at(-1), { type: 'archived', session: 'c1', archived: false });
+    assert.deepEqual(asked, [['session.rename', { conversation: 'c1', title: 'Sidebar parity' }],
+      ['session.archive', { conversation: 'c1', archived: true }], ['session.archive', { conversation: 'c1', archived: false }]]);
+  } finally { await f.close(); }
+});
+
+await test('rename without a name and archive without a conversation are refused before the peer is reached', async () => {
+  const f = await fixture(new Map());
+  try {
+    const unnamed = await f.wire.command({ type: 'rename', id: 'c1' });
+    assert.ok(!unnamed.ok); assert.equal(unnamed.error.code, 'invalid-args');
+    const anonymous = await f.wire.command({ type: 'archive' });
+    assert.ok(!anonymous.ok); assert.equal(anonymous.error.code, 'invalid-args');
   } finally { await f.close(); }
 });
 

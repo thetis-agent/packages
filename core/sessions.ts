@@ -50,11 +50,12 @@ export class Sessions {
     const store = await SessionStore.open(root, runtime.schemas, runtime.now);
     return store.ok ? { ok: true, value: new Sessions(store.value, runtime) } : store;
   }
-  list(): Promise<Result<SessionInfo[]>> { return this.#read(() => this.#store.list()); }
+  list(options: { archived?: boolean } = {}): Promise<Result<SessionInfo[]>> { return this.#read(() => this.#store.list(options)); }
   create(input: SessionCreateParams): Promise<Result<SessionInfo>> {
     return this.#write(() => this.#store.create(input));
   }
   exists(id: string): Promise<Result<SessionInfo>> { return this.#read(() => this.#store.info(id)); }
+  rename(id: string, title: string): Promise<Result<void>> { return this.#write(() => this.#store.rename(id, title)); }
   archive(id: string, archived: boolean): Promise<Result<void>> { return this.#write(() => this.#store.archive(id, archived)); }
   get active(): number { return this.#active.size; }
   changed(generation: number): Result<void> {

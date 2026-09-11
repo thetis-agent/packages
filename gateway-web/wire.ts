@@ -13,6 +13,10 @@ import { render } from './render.ts';
 import { settings } from './index.ts';
 import type { Contribution } from './panels.ts';
 export type Send = (frame: Record<string, unknown>) => Promise<Result<void>>;
+/** The signed-in roles whose sidebar may ask for everyone's conversations, mirroring `observeOthers`
+ * on the configured principal (lib/deployment). The kernel is what actually refuses; checking here
+ * first turns a routing refusal into a sentence, and keeps `person: '*'` out of a user's reach. */
+const observers = ['admin', 'reviewer'];
 export class Wire {
   readonly #peer: Peer; readonly #schemas: Schemas; readonly #clock: Clock; readonly #identity: ConnectKernel; readonly #role: string; readonly #send: Send;
   readonly #contribution: Contribution;
@@ -27,25 +31,48 @@ export class Wire {
     if (this.#closed) return failure('switching', 'The gateway connection is closed.');
     if (input.type === 'hello') {
       return this.#send({ type: 'user', user: { name: this.#identity.person, role: this.#role },
-        capabilities: ['list', 'new', 'open', 'send', 'turn-cancel', 'cursor-replay', 'env-reset'],
+        capabilities: ['list', 'new', 'open', 'send', 'turn-cancel', 'cursor-replay', 'env-reset', 'rename', 'archive', 'unarchive', 'everyone'],
         panels: this.#contribution.panels, renderers: this.#contribution.renderers });
     }
-    if (input.type === 'list') {
-      const result = await this.#peer.call('session.list', {}); return result.ok ? this.#send({ type: 'sessions', sessions: result.value }) : result;
-    }
+    if (input.type === 'list') return this.#list(input.scope ?? 'mine');
     if (input.type === 'new') {
       const result = await this.#peer.call('session.create', { surface: 'web' }); if (!result.ok) return result;
       if (!isObject(result.value) || typeof result.value['id'] !== 'string') return failure('protocol', 'The environment returned invalid conversation metadata.');
       return this.#open(result.value['id']);
     }
     if (input.type === 'env-reset') return this.#envReset();
-    if (!['open', 'send', 'turn-cancel'].includes(input.type)) return failure('unsupported', 'The requested gateway capability is unavailable.');
+    if (!['open', 'send', 'turn-cancel', 'rename', 'archive', 'unarchive'].includes(input.type)) return failure('unsupported', 'The requested gateway capability is unavailable.');
     if (!input.id) return failure('invalid-args', 'The gateway command requires a conversation id.');
     if (input.type === 'open') return this.#open(input.id, input.from);
     if (input.type === 'turn-cancel') { const result = await this.#peer.call('session.cancel', { conversation: input.id }); return result.ok ? this.#send({ type: 'cancelled', session: input.id, result: result.value }) : result; }
+    if (input.type === 'archive' || input.type === 'unarchive') return this.#archive(input.id, input.type === 'archive');
+    if (input.type === 'rename') return input.title === undefined ? failure('invalid-args', 'The gateway rename requires a name.') : this.#rename(input.id, input.title);
     if (typeof input.text !== 'string') return failure('invalid-args', 'The gateway turn requires text.');
     if (input.attachments?.length) return failure('unsupported', 'The gateway attachment capability is unavailable.');
     return this.#turn(input.id, input.text);
+  }
+  /* One list carries both the live conversations and the archived ones, because the sidebar draws an
+   * Archived section under the live rows and every row already says which it is; asking twice would
+   * leave the client stitching two replies that can cross. `scope` decides only *whose*: the kernel
+   * reads `person: '*'` as everyone whose environment is running and stamps each row with its owner.
+   * The reply echoes the scope it answered, so a reply to the previous setting cannot be mistaken for
+   * the current one after the switch is flipped. */
+  async #list(scope: 'mine' | 'everyone'): Promise<Result<void>> {
+    if (scope === 'everyone' && !observers.includes(this.#role)) return failure('forbidden', 'This account can only see its own conversations.');
+    const result = await this.#peer.call('session.list', { archived: true, ...(scope === 'everyone' ? { person: '*' } : {}) });
+    return result.ok ? this.#send({ type: 'sessions', scope, sessions: result.value }) : result;
+  }
+  /* Both reply with an acknowledgement and nothing else. The row's new state comes from the next
+   * `list`, which the client asks for on the acknowledgement: the store caps and collapses a name
+   * (core/session-store.ts `rename`), so echoing back what was typed would show a title the
+   * environment does not hold. */
+  async #rename(id: string, title: string): Promise<Result<void>> {
+    const result = await this.#peer.call('session.rename', { conversation: id, title });
+    return result.ok ? this.#send({ type: 'renamed', session: id }) : result;
+  }
+  async #archive(id: string, archived: boolean): Promise<Result<void>> {
+    const result = await this.#peer.call('session.archive', { conversation: id, archived });
+    return result.ok ? this.#send({ type: 'archived', session: id, archived }) : result;
   }
   async #open(id: string, from?: number): Promise<Result<void>> {
     if (this.#streams.has(id)) {

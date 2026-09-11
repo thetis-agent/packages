@@ -93,10 +93,10 @@ await test('archiving round-trips through the list and refuses an id outside thi
   try {
     const created = await f.store.create({ surface: 'web' }); assert.ok(created.ok);
     assert.ok((await f.store.archive(created.value.id, true)).ok);
-    const listed = await f.store.list(); assert.ok(listed.ok);
+    const listed = await f.store.list({ archived: true }); assert.ok(listed.ok);
     assert.deepEqual(listed.value.map(row => row.archived), [true]);
     assert.ok((await f.store.archive(created.value.id, false)).ok);
-    const restored = await f.store.list(); assert.ok(restored.ok);
+    const restored = await f.store.list({ archived: true }); assert.ok(restored.ok);
     assert.deepEqual(restored.value.map(row => row.archived), [false]);
 
     const missing = await f.store.archive('00000000-0000-0000-0000-000000000001', true);
@@ -121,5 +121,49 @@ await test('a summary that violates the metadata schema is refused on write and 
 
     await writeFile(path, JSON.stringify({ ...stored, archived: 'yes' }));
     const wrong = await f.store.info(created.value.id); assert.ok(!wrong.ok); assert.equal(wrong.error.code, 'io');
+  } finally { await f.close(); }
+});
+
+await test('an ordinary list leaves the archive out, and asking for it adds those rows rather than replacing them', async () => {
+  const f = await opened();
+  try {
+    const kept = await f.store.create({ surface: 'web' }); assert.ok(kept.ok);
+    const filed = await f.store.create({ surface: 'web' }); assert.ok(filed.ok);
+    assert.ok((await f.store.archive(filed.value.id, true)).ok);
+    const live = await f.store.list(); assert.ok(live.ok);
+    assert.deepEqual(live.value.map(row => row.id), [kept.value.id],
+      'the archive is out of the way by default, so a caller that asks for nothing gets the live conversations.');
+    const both = await f.store.list({ archived: true }); assert.ok(both.ok);
+    assert.deepEqual(both.value.map(row => row.id).sort(), [kept.value.id, filed.value.id].sort(),
+      'asking for the archive adds it to the live rows; a sidebar draws both at once and asks once.');
+  } finally { await f.close(); }
+});
+
+await test('renaming replaces a title the first message set, collapses it and moves the conversation', async () => {
+  const f = await opened(ticking(5_000, 1000));
+  try {
+    const created = await f.store.create({ surface: 'web' }); assert.ok(created.ok);
+    assert.ok((await f.store.record(created.value.id, 'Ship the sidebar')).ok);
+    assert.ok((await f.store.rename(created.value.id, '  Sidebar\n  parity  ')).ok);
+    const read = await f.store.info(created.value.id); assert.ok(read.ok);
+    assert.equal(read.value.title, 'Sidebar parity', 'a typed name is collapsed to one line exactly as a derived one is.');
+    assert.equal(read.value.preview, 'Ship the sidebar', 'renaming says nothing about what was last said.');
+    assert.ok((read.value.updatedMs ?? 0) > (created.value.updatedMs ?? 0), 'the sidebar orders by this stamp, and the row changed.');
+  } finally { await f.close(); }
+});
+
+await test('a conversation cannot be renamed to nothing, or past the cap a stored title keeps', async () => {
+  const f = await opened();
+  try {
+    const created = await f.store.create({ surface: 'web' }); assert.ok(created.ok);
+    for (const empty of ['', '   ', '\n\t']) {
+      const refused = await f.store.rename(created.value.id, empty);
+      assert.ok(!refused.ok); assert.equal(refused.error.code, 'invalid-args');
+    }
+    assert.ok((await f.store.rename(created.value.id, 'x'.repeat(storeLimits.titleChars * 2))).ok);
+    const read = await f.store.info(created.value.id); assert.ok(read.ok);
+    assert.equal(Array.from(read.value.title ?? '').length, storeLimits.titleChars);
+    const missing = await f.store.rename('00000000-0000-0000-0000-000000000001', 'Anything');
+    assert.ok(!missing.ok); assert.equal(missing.error.code, 'not-found');
   } finally { await f.close(); }
 });
