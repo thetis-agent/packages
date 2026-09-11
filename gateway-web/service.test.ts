@@ -6,7 +6,11 @@ import { test } from 'node:test';
 import { serviceFixture } from '@/test/provider-service.ts';
 import { environmentProcess } from '@/test/environment-process.ts';
 import { gatewayProcess } from '@/test/gateway-process.ts';
-import { webClient, httpGet } from '@/test/web-client.ts';
+import { webClient, httpGet, httpSend } from '@/test/web-client.ts';
+import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { join } from 'node:path';
+import { isObject } from '@/lib/schema/index.ts';
 
 async function person(shared: Awaited<ReturnType<typeof serviceFixture>>, who: string, other?: string): Promise<string> {
   const environment = await environmentProcess(shared, who, true); assert.ok((await environment.process.probe()).ok);
@@ -40,7 +44,9 @@ async function person(shared: Awaited<ReturnType<typeof serviceFixture>>, who: s
     const gatewayRows = await gateway.rows();
     assert.ok(!rows.includes(session)); assert.ok(!gatewayRows.includes(session)); assert.ok(!(await shared.rows()).includes(session));
     await client.send({ type: 'history', id }); assert.equal((await client.next())['code'], 'unsupported');
-    await client.send({ type: 'send', id, text: 'unsupported', attachments: [{}] }); assert.equal((await client.next())['code'], 'unsupported');
+    // An attachment that is not even shaped like one never reaches the wire: schema.json names the five
+    // fields a descriptor must carry. What a well-formed but untrue one does is the next test's business.
+    await client.send({ type: 'send', id, text: 'malformed', attachments: [{}] }); assert.equal((await client.next())['code'], 'invalid-args');
     return id;
   } finally { client.close(); await gateway.close(); await environment.close(); }
 }
@@ -198,6 +204,75 @@ await test('A turn that calls a tool delivers the call, its answer and the turn 
       assert.ok(kinds.indexOf('tool-result') < kinds.indexOf('turn-finished'), 'the answer arrived after the turn ended');
       // The second iteration is the proof the subscription survived the call rather than dying quietly on it.
       assert.equal(kinds.filter(kind => kind === 'model-begin').length, 2, 'the turn did not reach its second model exchange');
+    } finally { client.close(); await gateway.close(); await environment.close(); }
+  } finally { await shared.close(); }
+});
+
+/** A real image, all the way through: uploaded over this person's own origin, written into their own
+ * state, named by a `send`, and drawn back out of the turn's own recorded input.
+ *
+ * This is the test that says the feature works rather than that its parts do. The gateway here is a real
+ * spawned, sandboxed process with `/state` as its only writable mount, so "the bytes land inside that
+ * conversation's own space and nowhere else" is checked against the filesystem the process actually has,
+ * not against a temporary directory a unit test made up. */
+const png = Buffer.from('89504e470d0a1a0a0000000d494844520000000200000002080600000072b60d24'
+  + '0000001849444154789c6360f8cfc0f01f8819186a30d40100005e0e05fbd0b2dc0d0000000049454e44ae426082', 'hex');
+
+await test('An image travels the whole way: uploaded over the same origin, named by a send, and drawn from the turn', async () => {
+  const shared = await serviceFixture(); assert.ok((await shared.process.probe()).ok);
+  try {
+    const environment = await environmentProcess(shared, 'alice', true); assert.ok((await environment.process.probe()).ok);
+    const gateway = await gatewayProcess(shared, environment, 'alice', 'gateway-web'); assert.ok((await gateway.process.probe()).ok);
+    const cookie = `thetis_session=${shared.mintSession('alice')}`;
+    const client = await webClient(gateway.socket, { cookie });
+    try {
+      await client.send({ type: 'new' }); const opened = await client.next();
+      assert.equal(opened['type'], 'opened'); const id = opened['session']; assert.ok(typeof id === 'string');
+      const digest = createHash('sha256').update(png).digest('hex');
+      const stored = `${digest}.png`;
+
+      const upload = await httpSend(gateway.socket, `/api/attachments/${id}?name=sunset.png`, { cookie, method: 'POST', type: 'image/png', body: png });
+      assert.equal(upload.status, 200, upload.body);
+      const answer: unknown = JSON.parse(upload.body);
+      assert.ok(isObject(answer) && answer['ok'] === true && isObject(answer['value']), upload.body);
+      const descriptor = answer['value'];
+      assert.deepEqual(descriptor, { name: 'sunset.png', mime: 'image/png', bytes: png.byteLength, hash: `sha256:${digest}`, path: `/state/attachments/${id}/${stored}` });
+      // The gateway's `/state` is this directory on the host, and nothing else in it was touched.
+      assert.deepEqual(await readFile(join(gateway.root, 'state', 'attachments', id, stored)), png);
+
+      const back = await httpSend(gateway.socket, `/api/attachments/${id}/${stored}`, { cookie });
+      assert.equal(back.status, 200); assert.equal(back.headers['content-type'], 'image/png');
+      assert.equal(back.headers['content-length'], String(png.byteLength));
+      assert.equal(back.headers['cache-control'], 'private, max-age=31536000, immutable');
+
+      // The refusals a person can actually provoke, in the words they are shown.
+      const wrongType = await httpSend(gateway.socket, `/api/attachments/${id}?name=notes.pdf`, { cookie, method: 'POST', type: 'application/pdf', body: png });
+      assert.equal(wrongType.status, 400); assert.match(wrongType.body, /Only images can be attached\./u);
+      const noConversation = await httpSend(gateway.socket, '/api/attachments/not-a-conversation', { cookie, method: 'POST', type: 'image/png', body: png });
+      assert.equal(noConversation.status, 400);
+      const signedOut = await httpSend(gateway.socket, `/api/attachments/${id}`, { method: 'POST', type: 'image/png', body: png });
+      assert.equal(signedOut.status, 401, 'an upload is refused outright when nobody is signed in.');
+      assert.equal((await httpSend(gateway.socket, `/api/attachments/${id}/..`, { cookie })).status, 400);
+      assert.equal((await httpSend(gateway.socket, `/api/attachments/${id}/${stored}`, { cookie, method: 'DELETE' })).status, 405);
+
+      // Named by a send, the image comes back inside the turn's own recorded input, addressed where the
+      // page can fetch it — which is the whole point of the round trip.
+      await client.send({ type: 'send', id, text: 'what is this?', attachments: [descriptor] });
+      let drawn: Record<string, unknown> | undefined; let accepted = false; let finished = false;
+      for (let count = 0; count < 128 && (!finished || !accepted); count++) {
+        const frame = await client.next(); assert.notEqual(frame['type'], 'error', JSON.stringify(frame));
+        if (frame['kind'] === 'user') drawn = frame;
+        if (frame['kind'] === 'turn-finished') finished = true;
+        accepted ||= frame['type'] === 'accepted';
+      }
+      assert.ok(finished && accepted);
+      assert.ok(drawn, 'the turn should have recorded the input it was given.');
+      assert.equal(drawn['text'], 'what is this?');
+      assert.deepEqual(drawn['attachments'], [{ name: 'sunset.png', mime: 'image/png', bytes: png.byteLength, url: `./api/attachments/${id}/${stored}` }]);
+
+      // A descriptor that is well formed and untrue is refused at the wire, however plausible it looks.
+      await client.send({ type: 'send', id, text: 'nope', attachments: [{ ...descriptor, path: '/etc/passwd' }] });
+      const refused = await client.next(); assert.equal(refused['type'], 'error'); assert.equal(refused['code'], 'invalid-args');
     } finally { client.close(); await gateway.close(); await environment.close(); }
   } finally { await shared.close(); }
 });

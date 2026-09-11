@@ -3,6 +3,12 @@
   "type": "object", "required": ["type"], "properties": {
     "type": { "type": "string", "maxLength": 64 }, "id": { "type": "string", "maxLength": 256 },
     "text": { "type": "string", "maxLength": 65536 }, "from": { "type": "integer", "minimum": 0 },
-    "attachments": { "type": "array", "maxItems": 32, "items": {} }
+    "attachments": { "type": "array", "maxItems": 8, "items": {
+      "type": "object", "required": ["name", "mime", "bytes", "hash", "path"], "properties": {
+        "name": { "type": "string", "maxLength": 256 }, "mime": { "type": "string", "maxLength": 128 },
+        "bytes": { "type": "integer", "minimum": 0 }, "hash": { "type": "string", "maxLength": 128 },
+        "path": { "type": "string", "maxLength": 1024 }
+      }, "additionalProperties": true
+    } }
   }, "additionalProperties": true
 }

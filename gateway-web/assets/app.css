@@ -638,6 +638,34 @@ body { display: flex; flex-direction: column; }
    dims slightly and a small note sits under it until the socket says what
    happened — settled quietly, or turned into "Not sent" on a hard error. */
 .msg.is-user.is-pending .msg-text { opacity: 0.72; }
+/* The pictures a message carried, above its words and aligned with the bubble under them. */
+.msg-files {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--gap-2);
+  max-width: 85%;
+}
+.msg-file {
+  margin: 0;
+  max-width: 160px;
+}
+.msg-file-thumb {
+  display: block;
+  max-width: 160px;
+  max-height: 160px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.msg-file-name {
+  margin-top: 3px;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .msg.is-user.is-failed .msg-text { border-color: var(--err); }
 .pending-note {
   font-size: var(--text-xs);
@@ -922,6 +950,87 @@ body { display: flex; flex-direction: column; }
   margin-top: 2px;
 }
 .composer-run { display: flex; align-items: center; gap: var(--gap-2); flex: 0 0 auto; }
+.composer-tools { display: flex; align-items: center; gap: var(--gap-2); flex: 0 0 auto; }
+.composer-tools .icon-btn:disabled { opacity: 0.4; cursor: default; }
+.composer-tools .icon-btn:disabled:hover { background: transparent; color: var(--text-dim); border-color: transparent; }
+
+/* --- the tray, and the images going with a message ----------------------- */
+
+/* Wraps rather than scrolls: eight chips is the most there can ever be, and a row that grows downward
+   pushes the box up in place rather than hiding half of what is about to be sent. */
+.tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-2);
+  padding: 2px 4px var(--gap-2);
+}
+.tray-note {
+  margin: 0 0 var(--gap-2);
+  padding: 0 4px;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 4px 4px 4px 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  font-size: var(--text-xs);
+}
+/* Still going up: the chip is present and removable, but visibly not finished. */
+.chip.is-arriving { opacity: 0.6; }
+.chip-thumb {
+  width: 28px; height: 28px;
+  object-fit: cover;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+}
+.chip-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-dim);
+}
+.chip-x {
+  display: grid;
+  place-items: center;
+  width: 20px; height: 20px;
+  flex: 0 0 auto;
+  padding: 0;
+  color: var(--text-faint);
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.chip-x:hover { color: var(--text); background: var(--surface-3); }
+
+/* The veil over the whole window while a file is being dragged. `hidden` does the showing and hiding,
+   so nothing here has to be set from script. */
+.drop-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+}
+.drop-veil-note {
+  margin: 0;
+  padding: var(--gap-3) var(--gap-5);
+  color: var(--text);
+  background: var(--surface-1);
+  border: 1px dashed var(--accent-edge);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-md);
+}
 
 .composer-hint {
   max-width: var(--measure);

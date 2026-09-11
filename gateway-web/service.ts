@@ -13,6 +13,7 @@ import { isObject, failure } from '@/lib/schema/index.ts';
 import type { Result } from '@/lib/schema/index.ts';
 import { Wire } from './wire.ts';
 import { SignIn, sessionToken } from './identity.ts';
+import { Attachments } from './attachments.ts';
 import { requestHandler } from './http.ts';
 import type { Contract } from './types.ts';
 import { brand, settings } from './index.ts';
@@ -83,6 +84,10 @@ const result = await serve(async (profile, schemas, peer, identity) => {
   const branding = brand(profile);
   const table = await load(assetsRoot, manifestPath, schemas, filled(branding));
   if (!table.ok) return table;
+  /* `/state` is this target's single writable mount and belongs to this person alone
+   * (kernel/generations/prepare.ts); an attached image has nowhere else it could go, and the upload route
+   * and the wire must agree on where that is, so both are handed the same store. */
+  const attachments = Attachments.open('/state', settings); if (!attachments.ok) return attachments;
   // Packages that contribute a panel or a renderer are served from this same origin and this same
   // sign-in gate; the surface never learns what any of them mean.
   const composed = await compose(table.value, schemas);
@@ -90,9 +95,9 @@ const result = await serve(async (profile, schemas, peer, identity) => {
   for (const refusal of composed.refused) process.stderr.write(`${JSON.stringify({ surface: 'panel refused', ...refusal })}\n`);
   return { ok: true, value: connection => {
     const signIn = new SignIn(peer, settings.pendingIdentity);
-    const request = requestHandler(composed.table, signIn);
+    const request = requestHandler(composed.table, signIn, attachments.value, identity.person, settings.attachmentBytes);
     const factory = (channel: Channel, role: string): Handler => {
-      const wire = new Wire(peer, schemas, clock, identity, role, frame => channel.write(frame), composed.contribution, branding);
+      const wire = new Wire(peer, schemas, clock, identity, role, frame => channel.write(frame), composed.contribution, branding, attachments.value);
       return {
         message: value => checkFrame(value) ? wire.command(value) : Promise.resolve(failure('invalid-args', 'The gateway frame violates its schema.')),
         close: () => { wire.close(); }

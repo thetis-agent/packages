@@ -9,6 +9,7 @@
     { "path": "/lib/dom.js", "file": "lib/dom.js", "type": "text/javascript" },
     { "path": "/lib/brand.js", "file": "lib/brand.js", "type": "text/javascript" },
     { "path": "/lib/avatar.js", "file": "lib/avatar.js", "type": "text/javascript" },
+    { "path": "/lib/attach.js", "file": "lib/attach.js", "type": "text/javascript" },
     { "path": "/lib/activity.js", "file": "lib/activity.js", "type": "text/javascript" },
     { "path": "/lib/store.js", "file": "lib/store.js", "type": "text/javascript" },
     { "path": "/lib/socket.js", "file": "lib/socket.js", "type": "text/javascript" },

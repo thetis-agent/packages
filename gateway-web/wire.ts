@@ -13,16 +13,31 @@ import { render } from './render.ts';
 import { brandDefaults, settings } from './index.ts';
 import type { Brand } from './index.ts';
 import type { Contribution } from './panels.ts';
+import { Attachments } from './attachments.ts';
+import type { Descriptor } from './attachments.ts';
 export type Send = (frame: Record<string, unknown>) => Promise<Result<void>>;
+/** Where a wire that was handed no store keeps attachments: this process's own working directory, which
+ * is `/state` for a spawned gateway (lib/profile/target.ts sets `cwd`). service.ts names that root
+ * explicitly and passes the same store the upload route writes through, so the two cannot drift apart;
+ * this exists so a caller that never attaches anything — every test of the other commands — needs no
+ * store at all. It throws rather than returning a Result because the only way to fail is an allow-list
+ * this package writes itself, which is a mistake in the source and not a condition to handle. */
+function localStore(): Attachments {
+  const store = Attachments.open(process.cwd(), settings);
+  if (!store.ok) throw new Error('The gateway attachment limits name a type it cannot store.');
+  return store.value;
+}
 export class Wire {
   readonly #peer: Peer; readonly #schemas: Schemas; readonly #clock: Clock; readonly #identity: ConnectKernel; readonly #role: string; readonly #send: Send;
   readonly #contribution: Contribution; readonly #brand: Brand;
+  readonly #attachments: Attachments;
   readonly #streams = new Map<string, SessionClient>();
   readonly #turns = new Set<string>();
   readonly #opening = new Set<string>();
   #closed = false;
-  constructor(peer: Peer, schemas: Schemas, clock: Clock, identity: ConnectKernel, role: string, send: Send, contribution: Contribution = { panels: [], renderers: [] }, brand: Brand = brandDefaults) {
+  constructor(peer: Peer, schemas: Schemas, clock: Clock, identity: ConnectKernel, role: string, send: Send, contribution: Contribution = { panels: [], renderers: [] }, brand: Brand = brandDefaults, attachments: Attachments = localStore()) {
     this.#peer = peer; this.#schemas = schemas; this.#clock = clock; this.#identity = identity; this.#role = role; this.#send = send; this.#contribution = contribution; this.#brand = brand;
+    this.#attachments = attachments;
   }
   async command(input: Contract): Promise<Result<void>> {
     if (this.#closed) return failure('switching', 'The gateway connection is closed.');
@@ -33,7 +48,7 @@ export class Wire {
       // reading one value instead of carrying a second copy of it.
       return this.#send({ type: 'user', user: { name: this.#identity.person, role: this.#role },
         agent: { name: this.#brand.agentName, accent: this.#brand.accent },
-        capabilities: ['list', 'new', 'open', 'send', 'turn-cancel', 'cursor-replay', 'env-reset'],
+        capabilities: ['list', 'new', 'open', 'send', 'turn-cancel', 'cursor-replay', 'env-reset', 'attach'],
         panels: this.#contribution.panels, renderers: this.#contribution.renderers });
     }
     if (input.type === 'list') {
@@ -50,8 +65,11 @@ export class Wire {
     if (input.type === 'open') return this.#open(input.id, input.from);
     if (input.type === 'turn-cancel') { const result = await this.#peer.call('session.cancel', { conversation: input.id }); return result.ok ? this.#send({ type: 'cancelled', session: input.id, result: result.value }) : result; }
     if (typeof input.text !== 'string') return failure('invalid-args', 'The gateway turn requires text.');
-    if (input.attachments?.length) return failure('unsupported', 'The gateway attachment capability is unavailable.');
-    return this.#turn(input.id, input.text);
+    /* Everything the browser said about an attachment is re-derived from the conversation, the hash and the
+     * type before it is believed; see attachments.ts. The refusal messages are the store's own, so what the
+     * page shows after an upload and what it shows after a send are the same sentences. */
+    const attachments = await this.#attachments.accept(input.id, input.attachments); if (!attachments.ok) return attachments;
+    return this.#turn(input.id, input.text, attachments.value);
   }
   async #open(id: string, from?: number): Promise<Result<void>> {
     if (this.#streams.has(id)) {
@@ -113,13 +131,13 @@ export class Wire {
     const reset = await this.#peer.call('env.reset', {}); if (!reset.ok) return reset;
     return this.#envStatus();
   }
-  async #turn(id: string, text: string): Promise<Result<void>> {
+  async #turn(id: string, text: string, attachments: readonly Descriptor[]): Promise<Result<void>> {
     if (this.#turns.has(id)) return failure('budget', 'The gateway conversation already has an active turn.');
     this.#turns.add(id);
     try {
       if (!this.#streams.has(id)) { const opened = await this.#open(id); if (!opened.ok) return opened; }
       const sent = await this.#send({ type: 'event', session: id, kind: 'turn-started' }); if (!sent.ok) return sent;
-      const result = await this.#peer.call('session.submit', { conversation: id, input: { text, attachments: [] } }, settings.turnMs);
+      const result = await this.#peer.call('session.submit', { conversation: id, input: { text, attachments } }, settings.turnMs);
       return result.ok ? await this.#send({ type: 'accepted', session: id }) : result;
     } finally { this.#turns.delete(id); }
   }
