@@ -12,6 +12,7 @@ import { clock } from '@/lib/events/index.ts';
 import { isObject, failure } from '@/lib/schema/index.ts';
 import type { Result } from '@/lib/schema/index.ts';
 import { Wire } from './wire.ts';
+import type { Versions } from './wire.ts';
 import { SignIn, sessionToken } from './identity.ts';
 import { requestHandler } from './http.ts';
 import type { Contract } from './types.ts';
@@ -19,6 +20,23 @@ import { settings } from './index.ts';
 
 const assetsRoot = fileURLToPath(new URL('./assets', import.meta.url));
 const manifestPath = fileURLToPath(new URL('./assets.json', import.meta.url));
+
+/* The two versions the foot of the page reports back to the person looking at it.
+ *
+ * The first is read from this package's own manifest rather than declared anywhere: the served
+ * assets and the process serving them are one install, so the manifest beside them is the only
+ * figure that cannot drift out of step with what is on screen. The second is whatever version the
+ * kernel's own profile answer carries, which today is none — the reply is this target's settings,
+ * and the deployment's setup version is not among them. It is read rather than omitted because the
+ * bar already hides an item whose datum is absent, so wiring the seam costs nothing and the day the
+ * kernel does answer with one the bar shows it without another change here. */
+async function versions(supplied: unknown): Promise<Versions> {
+  const manifest: unknown = JSON.parse(await readFile(new URL('./package.json', import.meta.url), 'utf8'));
+  return {
+    agent: isObject(manifest) && typeof manifest['version'] === 'string' ? manifest['version'] : '',
+    setup: isObject(supplied) && typeof supplied['version'] === 'string' ? supplied['version'] : ''
+  };
+}
 const headerEnd = Buffer.from('\r\n\r\n');
 
 interface Sniffed { raw: Buffer; upgrade: boolean; cookie: string | undefined }
@@ -73,10 +91,11 @@ async function admit(socket: Socket, admitted: () => void, signIn: SignIn, perso
   return accept(socket, admitted, channel => factory(channel, role), request);
 }
 
-const result = await serve(async (_settings, schemas, peer, identity) => {
+const result = await serve(async (supplied, schemas, peer, identity) => {
   const wireSchema: unknown = JSON.parse(await readFile(new URL('./schema.json', import.meta.url), 'utf8'));
   if (!isObject(wireSchema)) throw new Error('The committed gateway schema is invalid.');
   const checkFrame = schemas.compile<Contract>(wireSchema);
+  const reported = await versions(supplied);
   const table = await load(assetsRoot, manifestPath, schemas);
   if (!table.ok) return table;
   // Packages that contribute a panel or a renderer are served from this same origin and this same
@@ -88,7 +107,7 @@ const result = await serve(async (_settings, schemas, peer, identity) => {
     const signIn = new SignIn(peer, settings.pendingIdentity);
     const request = requestHandler(composed.table, signIn);
     const factory = (channel: Channel, role: string): Handler => {
-      const wire = new Wire(peer, schemas, clock, identity, role, frame => channel.write(frame), composed.contribution);
+      const wire = new Wire(peer, schemas, clock, identity, role, frame => channel.write(frame), composed.contribution, reported);
       return {
         message: value => checkFrame(value) ? wire.command(value) : Promise.resolve(failure('invalid-args', 'The gateway frame violates its schema.')),
         close: () => { wire.close(); }
@@ -97,5 +116,5 @@ const result = await serve(async (_settings, schemas, peer, identity) => {
     return admit(connection.socket, connection.admitted, signIn, identity.person, factory, request);
   } };
 }, outcome => { if (!outcome.ok) process.stderr.write(`${JSON.stringify(outcome)}\n`); },
-  ['session.list', 'session.create', 'session.submit', 'session.cancel', 'session.whois', 'env.status', 'env.reset'], 'person');
+  ['session.list', 'session.create', 'session.submit', 'session.cancel', 'session.whois', 'env.status', 'env.logs', 'env.reset'], 'person');
 if (!result.ok) { process.stderr.write(`${JSON.stringify(result)}\n`); process.exitCode = 1; }

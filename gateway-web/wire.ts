@@ -12,22 +12,30 @@ import type { Contract } from './types.ts';
 import { render } from './render.ts';
 import { settings } from './index.ts';
 import type { Contribution } from './panels.ts';
+import { host } from './host.ts';
 export type Send = (frame: Record<string, unknown>) => Promise<Result<void>>;
+/** What the foot of the page reports about the software it is part of. Either may be empty, and an
+ *  empty one leaves its item off the bar rather than drawing a blank: `agent` is this package's own
+ *  manifest version, `setup` whatever version the kernel's profile answer carries, which today is
+ *  none. See service.ts, which reads both. */
+export interface Versions { agent: string; setup: string }
 export class Wire {
   readonly #peer: Peer; readonly #schemas: Schemas; readonly #clock: Clock; readonly #identity: ConnectKernel; readonly #role: string; readonly #send: Send;
-  readonly #contribution: Contribution;
+  readonly #contribution: Contribution; readonly #versions: Versions;
   readonly #streams = new Map<string, SessionClient>();
   readonly #turns = new Set<string>();
   readonly #opening = new Set<string>();
   #closed = false;
-  constructor(peer: Peer, schemas: Schemas, clock: Clock, identity: ConnectKernel, role: string, send: Send, contribution: Contribution = { panels: [], renderers: [] }) {
-    this.#peer = peer; this.#schemas = schemas; this.#clock = clock; this.#identity = identity; this.#role = role; this.#send = send; this.#contribution = contribution;
+  /** When the status bar last cost the kernel an `env.status` call; see `#status`. */
+  #asked = Number.NEGATIVE_INFINITY;
+  constructor(peer: Peer, schemas: Schemas, clock: Clock, identity: ConnectKernel, role: string, send: Send, contribution: Contribution = { panels: [], renderers: [] }, versions: Versions = { agent: '', setup: '' }) {
+    this.#peer = peer; this.#schemas = schemas; this.#clock = clock; this.#identity = identity; this.#role = role; this.#send = send; this.#contribution = contribution; this.#versions = versions;
   }
   async command(input: Contract): Promise<Result<void>> {
     if (this.#closed) return failure('switching', 'The gateway connection is closed.');
     if (input.type === 'hello') {
       return this.#send({ type: 'user', user: { name: this.#identity.person, role: this.#role },
-        capabilities: ['list', 'new', 'open', 'send', 'turn-cancel', 'cursor-replay', 'env-reset'],
+        capabilities: ['list', 'new', 'open', 'send', 'turn-cancel', 'cursor-replay', 'env-reset', 'status', 'env-logs'],
         panels: this.#contribution.panels, renderers: this.#contribution.renderers });
     }
     if (input.type === 'list') {
@@ -38,6 +46,8 @@ export class Wire {
       if (!isObject(result.value) || typeof result.value['id'] !== 'string') return failure('protocol', 'The environment returned invalid conversation metadata.');
       return this.#open(result.value['id']);
     }
+    if (input.type === 'status') return this.#status();
+    if (input.type === 'env-logs') return this.#envLogs(input.limit);
     if (input.type === 'env-reset') return this.#envReset();
     if (!['open', 'send', 'turn-cancel'].includes(input.type)) return failure('unsupported', 'The requested gateway capability is unavailable.');
     if (!input.id) return failure('invalid-args', 'The gateway command requires a conversation id.');
@@ -84,13 +94,41 @@ export class Wire {
     for (const frame of frames) { const sent = await this.#send(frame); if (!sent.ok) return sent; }
     return { ok: true, value: undefined };
   }
-  /* `env.status`/`env.reset` are capability-gated (KS-019): `service.ts` does not request them from the kernel
-   * today, so `#peer.supports` is false and both no-op, ok, exactly as the plan anticipates for this seam. */
+  /* The environment methods are capability-gated (KS-019) and `service.ts` requests all three, but a
+   * deployment is free to withhold any of them — so each is guarded rather than assumed, and a
+   * withheld one leaves the foot of the page quieter instead of erroring. `logs` rides along on the
+   * status because the bar's "recent activity" affordance has no other way to learn whether asking
+   * for output would be answered; a bar that offers a button the kernel refuses is worse than one
+   * that never offers it. */
   async #envStatus(): Promise<Result<void>> {
     if (!this.#peer.supports('env.status')) return { ok: true, value: undefined };
     const status = await this.#peer.call('env.status', {}); if (!status.ok) return status;
     if (!isObject(status.value)) return failure('protocol', 'The environment returned an invalid status.');
-    return this.#send({ type: 'env-status', ...status.value });
+    return this.#send({ type: 'env-status', ...status.value, logs: this.#peer.supports('env.logs') });
+  }
+  /* The status bar asks; nothing pushes. The two halves of its answer cost very different things:
+   * `system-status` is read out of this process and is free, while a fresh `env-status` is a kernel
+   * call, so the poll is allowed to refresh the first on every tick and the second only once per
+   * `settings.statusMs`. That is what bounds the kernel's share of this feature no matter how many
+   * tabs a person opens or how fast a client decides to ask. */
+  async #status(): Promise<Result<void>> {
+    const sent = await this.#send({ type: 'system-status', ...this.#versions,
+      conversations: this.#streams.size, turns: this.#turns.size, host: await host() });
+    if (!sent.ok) return sent;
+    const now = this.#clock.now();
+    if (now - this.#asked < settings.statusMs) return { ok: true, value: undefined };
+    this.#asked = now;
+    return this.#envStatus();
+  }
+  /* The kernel already bounds a log reply by rows and by bytes; this bounds the ask as well, so the
+   * frame stays a tail rather than a transcript however large the journal has grown and whatever a
+   * client puts in `limit`. */
+  async #envLogs(limit?: number): Promise<Result<void>> {
+    if (!this.#peer.supports('env.logs')) return failure('unsupported', 'The requested gateway capability is unavailable.');
+    const rows = Math.min(typeof limit === 'number' && Number.isSafeInteger(limit) && limit > 0 ? limit : settings.logRows, settings.logRows);
+    const logs = await this.#peer.call('env.logs', { limit: rows }); if (!logs.ok) return logs;
+    if (!isObject(logs.value)) return failure('protocol', 'The environment returned invalid output.');
+    return this.#send({ type: 'env-logs', ...logs.value });
   }
   async #envReset(): Promise<Result<void>> {
     if (!this.#peer.supports('env.reset')) return failure('unsupported', 'The requested gateway capability is unavailable.');
