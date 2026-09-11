@@ -167,11 +167,12 @@ const panel = registerPanel({
   draw,
 });
 
-// A command the agent starts should bring the dock up on its own; that is the whole reason for a
-// dock rather than a tool result read afterwards.
+// A command the agent starts brings the dock up on its own, which is the whole reason for a dock
+// rather than a tool result read afterwards — unless the person has closed it, which stops the
+// auto-open for the rest of the session exactly as collapsing the rail does (views/rail.js). The
+// tab is still there, and it still says what is running.
 onEvent("tool-call", (frame) => {
   if (frame.session !== conversation.current || frame.name !== "run_command") return;
-  dismissed = false;
   schedule(0);
 });
 

@@ -98,6 +98,7 @@ export class Dock {
     this.field.spellcheck = false;
     const form = make("form", "tt-input", this.prompt, this.field);
     form.addEventListener("submit", (event) => { event.preventDefault(); this.#submit(); });
+    this.fold = button("tt-icon", "Fold away", ICONS.chevron, () => { this.collapsed = !this.collapsed; this.render(); });
     const grip = make("div", "tt-grip");
     grip.addEventListener("pointerdown", (event) => { this.#drag(event); });
     this.body = make("div", "tt-body", make("div", "tt-panes", this.pane), this.list);
@@ -107,7 +108,7 @@ export class Dock {
         make("span", "tt-name", "Terminal"),
         this.standing,
         button("tt-icon", "Add another command", ICONS.plus, () => { this.forceRun = true; this.render(); this.field.focus(); }),
-        button("tt-icon", "Fold away", ICONS.chevron, () => { this.collapsed = !this.collapsed; this.render(); }),
+        this.fold,
         button("tt-icon", "Hide the terminal", ICONS.close, () => { this.handlers.onClose(); })),
       this.body,
       form);
@@ -190,6 +191,8 @@ export class Dock {
     if (!this.node) return;
     this.node.classList.toggle("is-folded", this.collapsed);
     this.body.hidden = this.collapsed;
+    this.fold.title = this.collapsed ? "Open it back up" : "Fold away";
+    this.fold.setAttribute("aria-label", this.fold.title);
     const current = this.#current();
     this.standing.replaceChildren(document.createTextNode(this.#standing(current)));
     this.prompt.replaceChildren(document.createTextNode(this.readOnly ? "Watching only" : this.#typing() ? `Type into ${current.name}` : "Run a command"));
