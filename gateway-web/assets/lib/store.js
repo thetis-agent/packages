@@ -5,8 +5,8 @@
  *
  * Deliberately small: the wire this UI now speaks (wire.ts) carries a person's
  * name and role, a conversation list, N conversations' streams of turn events,
- * and the environment's health — nothing about branches, files, skills, tools
- * or models. There is no `denied()` helper here the way the legacy store had
+ * the environment's health, and what a conversation may be set to — nothing
+ * about branches, files or skills. There is no `denied()` helper here the way the legacy store had
  * one: the role decides exactly one thing on this surface, whether the sidebar
  * may ask for everyone's conversations, and views/sessions.js reads it there.
  *
@@ -82,6 +82,13 @@ export const store = {
    * `applyFrame` is the only writer. Keyed like `activity`, and like `activity` it exists only for a
    * conversation with an open tab, because those are the only ones this socket streams. */
   usage: {},
+  /** What a conversation here may be set to: `{ models, model, mode }` — the models the environment's
+   *  provider describes, and the environment's own defaults for a conversation that has chosen
+   *  nothing. Null until the `choices` frame arrives, and an environment that offers nothing to choose
+   *  sends an empty list rather than nothing at all, so "not asked yet" and "nothing to offer" stay
+   *  different answers. What each *conversation* was set to is not here: it is a field on the row, and
+   *  the rows arrive on `sessions` like every other fact about them. */
+  choices: null,
   /** True between clicking "New chat" and the conversation opening. */
   creating: false,
 

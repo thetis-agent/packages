@@ -117,6 +117,12 @@
             <!-- Hidden rather than styled away: the button above opens it, and the accept list is the
                  same one the host enforces, so the file chooser offers only what can actually go. -->
             <input id="file-picker" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
+            <!-- How much this conversation may do, and which model answers it. Both are drawn by
+                 views/composer.js from what the environment said it offers, and both stay hidden
+                 until it has said: an environment with one model and no mode to change has nothing
+                 to put here, and an empty pill would be worse than no pill. -->
+            <span id="mode-picker" class="picker" hidden></span>
+            <span id="model-picker" class="picker" hidden></span>
           </div>
           <div class="composer-run">
             <button type="button" id="stop" class="stop-btn" title="Stop the running turn" hidden>

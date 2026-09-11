@@ -95,6 +95,12 @@ const composer = mountComposer({
   onStop() {
     if (store.current) sendFrame({ type: "turn-cancel", id: store.current });
   },
+  /* Which model answers this conversation, and how much it may do. An ask, not a change: the
+   * environment refuses a model it does not have, so the pill moves when `chosen` comes back rather
+   * than the moment it is clicked. */
+  onChoose(id, choice) {
+    return sendFrame({ type: "choose", id, ...choice });
+  },
 });
 
 /* The sidebar's own commands. Each is an ask, not a change: the row that comes
@@ -310,6 +316,17 @@ connection
     }
     toast(frame.message || "The environment reported an error.", { tone: "error" });
   })
+  .on("choices", (frame) => store.set({ choices: { models: frame.models || [], model: frame.model, mode: frame.mode } }))
+  /* The environment honoured a choice. Written straight onto the row rather than waited for from the
+   * next list, because the row is where every view reads it from and the list is debounced: the pill
+   * would otherwise sit on the old answer for a quarter of a second after the host agreed. The list
+   * is asked for anyway, so the host's own row is what stands a moment later. */
+  .on("chosen", (frame) => {
+    store.set({ sessions: store.sessions.map((session) => (session.id === frame.session
+      ? { ...session, ...(frame.model === undefined ? {} : { model: frame.model }), ...(frame.mode === undefined ? {} : { mode: frame.mode }) }
+      : session)) });
+    requestList();
+  })
   .on("env-status", (frame) => store.set({ env: frame }))
   .on("surface-answer", (frame) => answer(frame))
   .on("admin", (frame) => admin.apply(frame))
@@ -318,6 +335,10 @@ connection
 
 connection.onOpen(() => {
   sendFrame({ type: "hello" });
+  // What a conversation here may be set to. Asked on every connection rather than held across one:
+  // the models are the environment's provider's, and a reconnect may be to an environment that has
+  // been rebuilt since.
+  sendFrame({ type: "choices" });
   // The everyone switch lives on this socket's own request, so a reconnect
   // starts personal; the scope is named again before the sidebar draws a list
   // that quietly lost half its rows.

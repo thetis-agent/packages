@@ -68,10 +68,11 @@ export class Wire {
       // reading one value instead of carrying a second copy of it.
       return this.#send({ type: 'user', user: { name: this.#identity.person, role: this.#role },
         agent: { name: this.#brand.agentName, accent: this.#brand.accent },
-        capabilities: ['list', 'new', 'open', 'send', 'turn-cancel', 'cursor-replay', 'env-reset', 'attach', 'rename', 'archive', 'unarchive', 'everyone', 'status', 'env-logs'],
+        capabilities: ['list', 'new', 'open', 'send', 'turn-cancel', 'cursor-replay', 'env-reset', 'attach', 'rename', 'archive', 'unarchive', 'everyone', 'status', 'env-logs', 'choices', 'choose'],
         panels: this.#contribution.panels, renderers: this.#contribution.renderers });
     }
     if (input.type === 'list') return this.#list(input.scope ?? 'mine');
+    if (input.type === 'choices') return this.#choices();
     if (input.type === 'new') {
       const result = await this.#peer.call('session.create', { surface: 'web' }); if (!result.ok) return result;
       if (!isObject(result.value) || typeof result.value['id'] !== 'string') return failure('protocol', 'The environment returned invalid conversation metadata.');
@@ -82,11 +83,12 @@ export class Wire {
     if (input.type === 'env-logs') return this.#envLogs(input.limit);
     if (input.type === 'env-reset') return this.#envReset();
     if (input.type.startsWith('admin.')) return this.#admin.command(input);
-    if (!['open', 'send', 'turn-cancel', 'rename', 'archive', 'unarchive'].includes(input.type)) return failure('unsupported', 'The requested gateway capability is unavailable.');
+    if (!['open', 'send', 'turn-cancel', 'rename', 'archive', 'unarchive', 'choose'].includes(input.type)) return failure('unsupported', 'The requested gateway capability is unavailable.');
     if (!input.id) return failure('invalid-args', 'The gateway command requires a conversation id.');
     if (input.type === 'open') return this.#open(input.id, input.from);
     if (input.type === 'turn-cancel') { const result = await this.#peer.call('session.cancel', { conversation: input.id }); return result.ok ? this.#send({ type: 'cancelled', session: input.id, result: result.value }) : result; }
     if (input.type === 'archive' || input.type === 'unarchive') return this.#archive(input.id, input.type === 'archive');
+    if (input.type === 'choose') return this.#choose(input.id, input.model, input.mode);
     if (input.type === 'rename') return input.title === undefined ? failure('invalid-args', 'The gateway rename requires a name.') : this.#rename(input.id, input.title);
     if (typeof input.text !== 'string') return failure('invalid-args', 'The gateway turn requires text.');
     /* Everything the browser said about an attachment is re-derived from the conversation, the hash and the
@@ -118,6 +120,29 @@ export class Wire {
     const result = await this.#peer.call('session.archive', { conversation: id, archived });
     return result.ok ? this.#send({ type: 'archived', session: id, archived }) : result;
   }
+  /* What a conversation here may be set to, and the setting of it.
+   *
+   * An environment that never negotiated these answers an empty list rather than a refusal — the same
+   * shape `#envStatus` established for a withheld capability — because the surface's honest response to
+   * "there is nothing to choose" is to draw no picker, not to show a broken one. The models are the
+   * provider's own answer to `describe`; the gateway invents none and reorders none.
+   *
+   * Setting one answers with what was set rather than with the stored row, and the client asks for the
+   * list afterwards, exactly as `rename` and `archive` do: the environment is what decides whether a
+   * choice was honoured, and a page that echoed back what it sent would show a setting nothing holds. */
+  async #choices(): Promise<Result<void>> {
+    if (!this.#peer.supports('session.choices')) return this.#send({ type: 'choices', models: [] });
+    const choices = await this.#peer.call('session.choices', {}); if (!choices.ok) return choices;
+    if (!isObject(choices.value)) return failure('protocol', 'The environment returned invalid conversation choices.');
+    return this.#send({ type: 'choices', models: [], ...choices.value });
+  }
+  async #choose(id: string, model?: string, mode?: string): Promise<Result<void>> {
+    if (!this.#peer.supports('session.choose')) return failure('unsupported', 'The requested gateway capability is unavailable.');
+    if (model === undefined && mode === undefined) return failure('invalid-args', 'The gateway choice names nothing to set.');
+    const chosen = await this.#peer.call('session.choose', { conversation: id, ...(model === undefined ? {} : { model }), ...(mode === undefined ? {} : { mode }) });
+    return chosen.ok ? this.#send({ type: 'chosen', session: id, ...(model === undefined ? {} : { model }), ...(mode === undefined ? {} : { mode }) }) : chosen;
+  }
+
   async #open(id: string, from?: number): Promise<Result<void>> {
     if (this.#streams.has(id)) {
       if (from !== undefined) return failure('invalid-args', 'An existing subscription cannot change its cursor.');

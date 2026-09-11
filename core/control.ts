@@ -62,6 +62,15 @@ class SessionControl {
         const { conversation, archived } = params;
         if (typeof conversation !== 'string' || typeof archived !== 'boolean') return Promise.resolve(failure('invalid-args', 'The conversation archive flag is invalid.'));
         return this.#sessions.archive(conversation, archived);
+      }],
+      // The other half of the same pair: what a conversation may be set to, and setting it. Reading is
+      // an environment-wide answer (the provider's models and this environment's own defaults) because
+      // it is the same for every conversation in it; writing names one.
+      ['session.choices', () => this.#sessions.choices()],
+      ['session.choose', params => {
+        const { conversation, model, mode } = params;
+        if (typeof conversation !== 'string' || model !== undefined && typeof model !== 'string' || mode !== undefined && typeof mode !== 'string') return Promise.resolve(failure('invalid-args', 'The conversation choice is invalid.'));
+        return this.#sessions.choose(conversation, { ...(model === undefined ? {} : { model }), ...(mode === undefined ? {} : { mode }) });
       }]
     ]);
   }
