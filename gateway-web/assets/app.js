@@ -65,7 +65,7 @@ function createConversation() {
 mountStage({ onOpen: openConversation, onClose: (id) => store.closeTab(id), onNew: createConversation });
 const railEnvironment = mountEnvironment({ sendFrame });
 mountRail([railEnvironment]);
-mountStatusbar();
+const statusbar = mountStatusbar({ sendFrame });
 
 const composer = mountComposer({
   onSend(text) {
@@ -210,7 +210,9 @@ connection
     }
     toast(frame.message || "The environment reported an error.", { tone: "error" });
   })
-  .on("env-status", (frame) => store.set({ env: frame }));
+  .on("env-status", (frame) => store.set({ env: frame }))
+  .on("system-status", (frame) => store.set({ system: frame }))
+  .on("env-logs", (frame) => store.set({ logs: frame }));
 
 connection.onOpen(() => {
   sendFrame({ type: "hello" });
@@ -219,6 +221,9 @@ connection.onOpen(() => {
   // `#streams`), and a reconnect starts with none of them — so all of them,
   // not just the one on screen, need to ask again.
   for (const id of store.tabs) sendFrame({ type: "open", id });
+  // The status bar's poll survives a reconnect but its last answer does not, and the host counts
+  // conversations per socket — so a fresh one starts from zero until it is asked again.
+  statusbar.refresh();
 });
 
 connection.connect();

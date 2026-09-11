@@ -1352,17 +1352,20 @@ body { display: flex; flex-direction: column; }
 }
 
 /* --- system status bar --------------------------------------------------------
-   One line across the foot of every zone: what environment the open
-   conversation runs in, and whether it is ready. views/statusbar.js draws
-   exactly two spans, so unlike the legacy multi-item bar there is no `.sb-item`
-   wrapper and no responsive item-dropping — there is nothing left to drop. */
+   One line across the foot of every zone. Each item is an `.sb-item`; they are
+   built and omitted by views/statusbar.js according to what the host actually
+   sent, so this stylesheet never assumes any of them is present. The `sb-drop-*`
+   classes rank them by how much a person would miss them, and the responsive
+   block below takes them away from the least urgent as the window narrows —
+   there is no wrapping here, because a status bar that grows to two lines
+   pushes the composer off the screen. */
 
 .statusbar {
   flex: 0 0 var(--statusbar-h);
   height: var(--statusbar-h);
   display: flex;
   align-items: center;
-  gap: var(--gap-2);
+  gap: var(--gap-4);
   padding: 0 var(--gap-4);
   background: var(--surface-1);
   border-top: 1px solid var(--hairline);
@@ -1372,15 +1375,124 @@ body { display: flex; flex-direction: column; }
   white-space: nowrap;
   user-select: none;
 }
-.statusbar-dot {
+.sb-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+/* Whichever item carries this is the first one pushed to the right-hand end. */
+.sb-right { margin-left: auto; }
+.sb-label { color: var(--text-faint); opacity: .75; }
+.sb-strong { color: var(--text-dim); font-weight: 600; }
+.sb-mono { font-family: var(--mono); color: var(--text-dim); }
+.sb-mono.is-warn { color: var(--warn); }
+.sb-mono.is-err { color: var(--err); }
+.sb-quiet { color: var(--text-faint); opacity: .7; }
+
+.sb-dot {
   width: 6px; height: 6px;
   flex: 0 0 auto;
   border-radius: 50%;
   background: var(--text-faint);
 }
-.statusbar-dot.is-ok { background: var(--ok); }
-.statusbar-dot.is-bad { background: var(--err); }
-.statusbar-text { color: var(--text-faint); }
+.sb-dot.is-ok { background: var(--ok); }
+.sb-dot.is-warn { background: var(--warn); animation: pulse 1.4s var(--ease) infinite; }
+.sb-dot.is-err { background: var(--err); }
+
+.sb-flag {
+  padding: 0 5px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  font-family: var(--mono);
+  color: var(--text-faint);
+}
+.sb-flag.is-warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+.sb-flag.is-err { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, transparent); }
+
+/* Proportion first, number second: the eye reads the bar before it reads the
+   figure, and the figure is what you quote when something is wrong. */
+.sb-meter {
+  width: 46px; height: 4px;
+  flex: 0 0 auto;
+  background: var(--surface-3);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+.sb-meter-fill {
+  display: block;
+  height: 4px;
+  background: var(--accent);
+  border-radius: var(--r-pill);
+}
+.sb-meter-fill.is-warn { background: var(--warn); }
+.sb-meter-fill.is-err { background: var(--err); }
+
+.sb-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  font-family: var(--font);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+}
+.sb-button:hover { color: var(--text-dim); border-color: var(--hairline); }
+.sb-button.is-on { color: var(--accent); border-color: var(--accent-edge); background: var(--accent-wash); }
+
+/* --- recent environment activity ----------------------------------------------
+   The log the bar opens. Fixed to the corner it was opened from, a fixed height
+   so it can never grow into the conversation, and its own scroller — the rows
+   are the machine's own output and are shown verbatim, so nothing here may
+   depend on their length. */
+
+.log-panel {
+  position: fixed;
+  right: var(--gap-3);
+  bottom: calc(var(--statusbar-h) + var(--gap-2));
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  width: min(760px, calc(100vw - 2 * var(--gap-3)));
+  max-height: min(380px, 60vh);
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.log-head {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+  padding: var(--gap-2) var(--gap-2) var(--gap-2) var(--gap-3);
+  border-bottom: 1px solid var(--hairline);
+}
+.log-title { font-size: var(--text-sm); font-weight: 600; color: var(--text); }
+.log-note { flex: 1 1 auto; min-width: 0; font-size: var(--text-xs); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; }
+.log-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--gap-2) 0;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+.log-row {
+  display: flex;
+  gap: var(--gap-2);
+  padding: 0 var(--gap-3);
+  white-space: pre;
+}
+.log-row:hover { background: var(--surface-2); }
+.log-at { flex: 0 0 auto; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.log-kind { flex: 0 0 auto; color: var(--accent); }
+.log-detail { flex: 1 1 auto; min-width: 0; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; }
 
 /* --- responsive ------------------------------------------------------------ */
 
@@ -1398,6 +1510,15 @@ body { display: flex; flex-direction: column; }
   }
   .rail-panel.is-wide { width: min(560px, calc(100vw - 60px)); }
 }
+
+/* The bar drops items from the least urgent inwards rather than wrapping or
+   scrolling. Load goes first — it is the one figure that is interesting only
+   when something is already wrong — then memory and the activity button, then
+   the environment and the conversation count. What survives at any width is the
+   word for what the machine is doing and the version serving the page. */
+@media (max-width: 1100px) { .statusbar .sb-drop-3 { display: none; } }
+@media (max-width: 900px)  { .statusbar .sb-drop-2 { display: none; } }
+@media (max-width: 700px)  { .statusbar .sb-drop-1 { display: none; } }
 
 @media (max-width: 860px) {
   :root { --sidebar-w: 210px; }

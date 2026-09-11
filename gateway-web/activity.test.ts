@@ -1,4 +1,4 @@
-/** Cover the served sidebar's pure logic and hold the served scripts to the CSP the host sends; ADR 0005, ADR 0019. */
+/** Cover the served UI's pure logic and hold the served scripts to the CSP the host sends; ADR 0005, ADR 0019. */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -14,25 +14,29 @@ const run = promisify(execFile);
 /** Bounds the child test runner, so a hung check fails this suite instead of the whole run. */
 export const limits = { checksMs: 60_000 };
 
-/* assets/lib/activity.js is a served ES module with no declarations, and this repository type-checks
- * `.ts` only (tsconfig.base.json sets no `allowJs`), so importing it from here would need a silencing
- * cast the house rules forbid. Its assertions live in activity.checks.mjs and run under node's own
- * test runner in a child; this test is the thing that makes them part of `npm run test`, and reports
- * what the child said so a failure names the case rather than an exit code. */
-await test('assets/lib/activity.js passes its own branch checks', async () => {
-  // `NODE_TEST_CONTEXT` is how node's runner tells a child it is a test worker: inherited, it switches
-  // the child to the serialized worker protocol and leaves stdout empty, so the report below would be
-  // blank whether the checks passed or failed. Dropped, the child reports plain TAP for its own sake.
-  const environment = { ...process.env };
-  delete environment['NODE_TEST_CONTEXT'];
-  const finished = await run(process.execPath, ['--test', '--test-reporter=tap', join(here, 'activity.checks.mjs')],
-    { timeout: limits.checksMs, encoding: 'utf8', env: environment })
-    .catch((error: unknown) => error);
-  const said = (stream: string): string => isObject(finished) && typeof finished[stream] === 'string' ? finished[stream] : '';
-  const output = `${said('stdout')}\n${said('stderr')}`;
-  assert.ok(!(finished instanceof Error), `activity.checks.mjs failed:\n${output}`);
-  assert.match(output, /# fail 0/, `activity.checks.mjs reported failures:\n${output}`);
-});
+/* The served modules with logic worth testing — the sidebar's derivations in assets/lib/activity.js,
+ * the status bar's wording and arithmetic in assets/lib/status.js — are plain ES modules with no
+ * declarations, and this repository type-checks `.ts` only (tsconfig.base.json sets no `allowJs`), so
+ * importing either from here would need a silencing cast the house rules forbid. Their assertions
+ * live in the `.checks.mjs` files beside this one and run under node's own test runner in a child;
+ * these tests are what make them part of `npm run test`, and they report what the child said so a
+ * failure names the case rather than an exit code. */
+for (const checks of ['activity.checks.mjs', 'status.checks.mjs']) {
+  await test(`assets/lib/${checks.replace('.checks.mjs', '.js')} passes its own branch checks`, async () => {
+    // `NODE_TEST_CONTEXT` is how node's runner tells a child it is a test worker: inherited, it switches
+    // the child to the serialized worker protocol and leaves stdout empty, so the report below would be
+    // blank whether the checks passed or failed. Dropped, the child reports plain TAP for its own sake.
+    const environment = { ...process.env };
+    delete environment['NODE_TEST_CONTEXT'];
+    const finished = await run(process.execPath, ['--test', '--test-reporter=tap', join(here, checks)],
+      { timeout: limits.checksMs, encoding: 'utf8', env: environment })
+      .catch((error: unknown) => error);
+    const said = (stream: string): string => isObject(finished) && typeof finished[stream] === 'string' ? finished[stream] : '';
+    const output = `${said('stdout')}\n${said('stderr')}`;
+    assert.ok(!(finished instanceof Error), `${checks} failed:\n${output}`);
+    assert.match(output, /# fail 0/, `${checks} reported failures:\n${output}`);
+  });
+}
 
 /* lib/assets sends `default-src 'self'` with no `style-src` exception, which blocks a `style=`
  * attribute as surely as it blocks an inline <script>. The sidebar's sheen still needs one value per
