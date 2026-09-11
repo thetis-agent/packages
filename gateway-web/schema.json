@@ -8,6 +8,8 @@
     "reach": { "enum": ["person", "deployment"], "description": "who an install reaches" },
     "request": { "type": "string", "maxLength": 64 }, "package": { "type": "string", "maxLength": 64 },
     "verb": { "type": "string", "maxLength": 32 }, "args": { "type": "object" },
+    "model": { "type": "string", "minLength": 1, "maxLength": 128, "description": "the model a conversation is being set to" },
+    "mode": { "type": "string", "minLength": 1, "maxLength": 32, "description": "how much a conversation may do; the environment names the ones it offers" },
     "attachments": { "type": "array", "maxItems": 8, "items": {
       "type": "object", "required": ["name", "mime", "bytes", "hash", "path"], "properties": {
         "name": { "type": "string", "maxLength": 256 }, "mime": { "type": "string", "maxLength": 128 },

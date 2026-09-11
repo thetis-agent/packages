@@ -13,7 +13,9 @@
         "preview": { "type": "string", "minLength": 1, "maxLength": 200 },
         "createdMs": { "type": "integer", "minimum": 0 },
         "updatedMs": { "type": "integer", "minimum": 0 },
-        "archived": { "type": "boolean" }
+        "archived": { "type": "boolean" },
+        "model": { "type": "string", "minLength": 1, "maxLength": 128, "description": "the model this conversation was set to; absent means the environment's own" },
+        "mode": { "enum": ["agent", "plan"], "description": "how much this conversation may do; absent means the environment's own" }
       }
     }
   },

@@ -131,6 +131,22 @@ export class SessionStore {
     return this.#save(id, value);
   }
 
+  /** Records what one conversation was set to: which model answers it, and how much it may do.
+   *
+   * Both live on the stored row rather than on the turn that used them, because the choice outlives
+   * the turn — a browser that reloads, reconnects or opens the conversation in another tab has to find
+   * the same answer, and `list` already carries every row to every surface. An absent field means the
+   * environment's own setting, which is why neither is written when nothing was chosen: "unset" and
+   * "set to whatever the default happens to be today" are different answers the moment the default
+   * moves. `updatedMs` deliberately does not move — a sidebar orders by when a conversation was last
+   * spoken to, and choosing a mode is not speaking to it. */
+  async choose(id: string, choice: { model?: string; mode?: 'agent' | 'plan' }): Promise<Result<void>> {
+    const info = await this.info(id); if (!info.ok) return info;
+    const value = { ...info.value, ...(choice.model === undefined ? {} : { model: choice.model }), ...(choice.mode === undefined ? {} : { mode: choice.mode }) };
+    if (!this.#check(value)) return failure('invalid-args', 'The conversation choice violates its schema.');
+    return this.#save(id, value);
+  }
+
   /** Moves a conversation in or out of the archive. `list` leaves an archived conversation out unless
    * it is asked for, and `session.archive` on the kernel socket is what reaches this from outside. */
   async archive(id: string, archived: boolean): Promise<Result<void>> {
