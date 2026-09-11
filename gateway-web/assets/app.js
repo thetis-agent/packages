@@ -22,6 +22,7 @@ import { toast } from "./lib/toast.js";
 import { mountAdmin } from "./views/admin.js";
 import { mountComposer } from "./views/composer.js";
 import { mountEnvironment } from "./views/environment.js";
+import { mountPeople } from "./views/people.js";
 import { mountRail } from "./views/rail.js";
 import { mountSessions } from "./views/sessions.js";
 import { mountStage, transcriptFor } from "./views/stage.js";
@@ -75,7 +76,7 @@ function createConversation() {
 
 mountStage({ onOpen: openConversation, onClose: (id) => store.closeTab(id), onNew: createConversation });
 const railEnvironment = mountEnvironment({ sendFrame });
-mountRail([railEnvironment]);
+mountRail([railEnvironment, mountPeople()]);
 mountStatusbar();
 
 const composer = mountComposer({
