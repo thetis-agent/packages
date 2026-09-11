@@ -90,3 +90,128 @@ await test('Session metadata, input size, loading size and concurrent read queue
     const listed = await f.sessions.list(); assert.ok(!listed.ok); assert.equal(listed.error.code, 'io');
   } finally { await f.close(); }
 });
+
+await test('a submitted turn names its conversation from the first message and previews the reply', async () => {
+  let at = 5_000;
+  const f = await sessionFixture(undefined, () => { at += 1000; return at; });
+  try {
+    const created = await f.sessions.create({ surface: 'web' }); assert.ok(created.ok);
+    assert.equal(created.value.title, undefined, 'a conversation nobody has spoken to has no name to show.');
+    assert.ok((await f.sessions.submit(created.value.id, { text: 'Ship the sidebar', attachments: [] })).ok);
+    const listed = await f.sessions.list(); assert.ok(listed.ok);
+    const [row] = listed.value; assert.ok(row);
+    assert.equal(row.title, 'Ship the sidebar');
+    assert.equal(row.preview, 'Hello.', 'the row previews the reply, which is where the conversation now is.');
+    assert.ok(Number(row.updatedMs) > Number(row.createdMs), 'a turn moves the row to the top of the sidebar.');
+
+    assert.ok((await f.sessions.submit(created.value.id, { text: 'And the tabs', attachments: [] })).ok);
+    const again = await f.sessions.list(); assert.ok(again.ok);
+    const [second] = again.value; assert.ok(second);
+    assert.equal(second.title, 'Ship the sidebar', 'the first message keeps the name; nothing on this wire renames it.');
+    assert.ok(Number(second.updatedMs) > Number(row.updatedMs));
+  } finally { await f.close(); }
+});
+
+await test('a conversation is named even when its turn never returns a reply', async () => {
+  const refusing: Vendor = {
+    describe: () => Promise.resolve({ ok: true, value: { models: [] } }), estimate: () => 0.01,
+    async *exchange() { await Promise.resolve(); yield { type: 'error', code: 'provider', message: 'The vendor refused.' }; }
+  };
+  const f = await sessionFixture(refusing);
+  try {
+    const created = await f.sessions.create({ surface: 'web' }); assert.ok(created.ok);
+    const large = await f.sessions.submit(created.value.id, { text: 'x'.repeat(sessionLimits.inputBytes), attachments: [] });
+    assert.ok(!large.ok, 'an input refused before the store is reached names nothing.');
+    const before = await f.sessions.exists(created.value.id); assert.ok(before.ok);
+    assert.equal(before.value.title, undefined);
+
+    // The name is written before the vendor is called, so a turn that never produces a reply still
+    // leaves a row a person can find again — which is the whole point of naming it that early.
+    const failed = await f.sessions.submit(created.value.id, { text: 'Name me anyway', attachments: [] });
+    assert.ok(!failed.ok);
+    const after = await f.sessions.exists(created.value.id); assert.ok(after.ok);
+    assert.equal(after.value.title, 'Name me anyway');
+    assert.equal(after.value.preview, 'Name me anyway', 'with no reply, the row still shows what was asked.');
+  } finally { await f.close(); }
+});
+
+await test('a conversation chooses its own model and mode, and the choice outlives the process that took it', async () => {
+  const f = await sessionFixture();
+  try {
+    const created = await f.sessions.create({ surface: 'web' }); assert.ok(created.ok);
+    const offered = await f.sessions.choices(); assert.ok(offered.ok);
+    assert.deepEqual(offered.value.models.map(model => model.id), ['scripted'], 'the list is the provider\'s own describe, not anything this package made up');
+    assert.deepEqual([offered.value.model, offered.value.mode], ['scripted', 'agent']);
+
+    // Both are checked against what this environment will honour, because a browser is what sends them.
+    const absent = await f.sessions.choose(created.value.id, { model: 'not-installed' });
+    assert.ok(!absent.ok); assert.equal(absent.error.code, 'invalid-args');
+    assert.ok(!(await f.sessions.choose(created.value.id, { mode: 'root' })).ok);
+
+    assert.ok((await f.sessions.choose(created.value.id, { mode: 'plan' })).ok);
+    assert.ok((await f.sessions.submit(created.value.id, input)).ok);
+    const offers = f.events.filter(event => event.type === 'offer');
+    assert.ok(offers.length > 0);
+    assert.deepEqual(offers.map(event => event.payload['mode']), offers.map(() => ({ readOnly: true, deny: [] })),
+      'plan has to reach the loop itself: the offer hook is where a mode is enforced, so an unchanged offer means an unchanged mode');
+
+    // The row is where the answer lives, so a surface that reconnects to a restarted environment finds
+    // the same one rather than the default.
+    const reopened = await Sessions.open(f.state, f.runtime); assert.ok(reopened.ok);
+    const listed = await reopened.value.list(); assert.ok(listed.ok);
+    assert.equal(listed.value[0]?.mode, 'plan');
+    assert.ok((await reopened.value.submit(created.value.id, { text: 'Again', attachments: [] })).ok);
+    assert.deepEqual(f.events.filter(event => event.type === 'offer').at(-1)?.payload['mode'], { readOnly: true, deny: [] });
+  } finally { await f.close(); }
+});
+
+await test('a conversation cannot widen the mode its environment was configured with', async () => {
+  const f = await sessionFixture();
+  try {
+    // The environment itself is read-only here, so `agent` is not a wider setting a conversation can
+    // ask for — it is the environment's own, and the environment's own is read-only.
+    const sessions = await Sessions.open(f.state, { ...f.runtime, options: { ...f.runtime.options, mode: { readOnly: true, deny: ['write_path'] } } });
+    assert.ok(sessions.ok);
+    const created = await sessions.value.create({ surface: 'web' }); assert.ok(created.ok);
+    const offered = await sessions.value.choices(); assert.ok(offered.ok);
+    assert.equal(offered.value.mode, 'plan', 'a surface must not draw an Agent it cannot actually get');
+    assert.ok((await sessions.value.choose(created.value.id, { mode: 'agent' })).ok);
+    assert.ok((await sessions.value.submit(created.value.id, input)).ok);
+    assert.deepEqual(f.events.filter(event => event.type === 'offer').at(-1)?.payload['mode'], { readOnly: true, deny: ['write_path'] });
+  } finally { await f.close(); }
+});
+
+await test('a chosen model is the one the request is made with, and a model the provider drops falls back rather than failing every turn', async () => {
+  const models = [{ id: 'scripted', contextWindow: 1000, maxOutput: 100, tools: true, images: false, seed: false, cache: 'none' as const },
+    { id: 'thorough', contextWindow: 2000, maxOutput: 200, tools: true, images: false, seed: false, cache: 'none' as const }];
+  const asked: string[] = [];
+  let offering = models;
+  const vendor: Vendor = {
+    describe: () => Promise.resolve({ ok: true, value: { models: offering } }), estimate: () => 0.01,
+    async *exchange(request) {
+      const begin = request[0]; if (begin?.type !== 'begin') throw new Error('The normalized request lost begin.');
+      asked.push(begin.model);
+      await Promise.resolve();
+      yield { type: 'start', id: begin.id, model: begin.model };
+      yield { type: 'usage', counters: { cost: 0.001, input: 1, output: 1 } };
+      yield { type: 'stop', reason: 'end' };
+    }
+  };
+  const f = await sessionFixture(vendor);
+  try {
+    const created = await f.sessions.create({ surface: 'web' }); assert.ok(created.ok);
+    const offered = await f.sessions.choices(); assert.ok(offered.ok);
+    assert.deepEqual(offered.value.models.map(model => model.id), ['scripted', 'thorough']);
+    assert.ok((await f.sessions.choose(created.value.id, { model: 'thorough' })).ok);
+    assert.ok((await f.sessions.submit(created.value.id, input)).ok);
+    assert.deepEqual(asked, ['thorough'], 'the choice has to reach the provider\'s own request, not just the stored row');
+
+    /* A deployment that stops offering a model leaves conversations pointing at it. Falling back beats
+     * refusing: one model later is a conversation that carries on, and a refusal on every message is a
+     * conversation nobody can use until an operator notices. */
+    offering = models.slice(0, 1);
+    const reopened = await Sessions.open(f.state, f.runtime); assert.ok(reopened.ok);
+    assert.ok((await reopened.value.submit(created.value.id, { text: 'Again', attachments: [] })).ok);
+    assert.deepEqual(asked, ['thorough', 'scripted']);
+  } finally { await f.close(); }
+});

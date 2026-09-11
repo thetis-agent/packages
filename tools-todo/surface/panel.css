@@ -1,0 +1,20 @@
+/* The Todo panel's own styling. It ships with the package rather than living in the surface's
+   stylesheet, because the surface has no reason to know what a plan is. Every value is one of the
+   surface's own tokens (assets/theme.css), so a contributed panel looks like the page it lands in. */
+
+.td-item { display: flex; align-items: flex-start; gap: var(--gap-3); padding: var(--gap-3); border: 1px solid var(--hairline); border-radius: var(--r-sm); cursor: pointer; }
+.td-item:hover { border-color: var(--hairline-strong); background: var(--surface-2); }
+.td-item.is-active { border-color: color-mix(in srgb, var(--warn) 38%, transparent); background: var(--warn-wash); }
+
+/* A real checkbox, sized to the row rather than restyled into a glyph: the tick is the control, and a
+   control a person cannot reach with a keyboard is a plan only the agent can change. */
+.td-box { flex: none; width: 15px; height: 15px; margin: 2px 0 0; accent-color: var(--accent); cursor: pointer; }
+.td-box:disabled { cursor: progress; opacity: .5; }
+
+.td-copy { display: flex; flex-direction: column; gap: var(--gap-1); min-width: 0; }
+.td-text { font-size: var(--text-sm); line-height: var(--leading); color: var(--text); overflow-wrap: anywhere; }
+.td-item.is-done .td-text { color: var(--text-faint); text-decoration: line-through; }
+/* What the agent said it was doing on the line it has in hand, which is the one thing in the panel
+   that answers "where is it now" rather than "what is left". */
+.td-note { font-size: var(--text-xs); line-height: 1.5; color: var(--warn); }
+.td-id { font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); }

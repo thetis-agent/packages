@@ -1,0 +1,26 @@
+/* The Tools inspector's own styling. It ships with the package rather than living in the surface's
+   stylesheet, because the surface has no reason to know this panel exists. Every value is one of the
+   surface's own tokens (assets/theme.css), so a contributed panel looks like the page it lands in. */
+
+.ti-banner { display: flex; flex-direction: column; gap: var(--gap-1); padding: var(--gap-2) var(--gap-3); background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); }
+.ti-note { margin: 0; font-size: var(--text-xs); line-height: var(--leading); color: var(--text-dim); }
+.ti-note.is-dim { color: var(--text-faint); }
+
+.ti-card { background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); padding: var(--gap-3); }
+.ti-card.is-withheld { opacity: .62; }
+.ti-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--gap-3); }
+.ti-name { margin: 0; font-family: var(--mono); font-size: var(--text-sm); font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.ti-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--gap-1); }
+.ti-badge { padding: 1px 7px; border: 1px solid var(--hairline); border-radius: var(--r-pill); font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); white-space: nowrap; }
+.ti-badge.is-danger { border-color: color-mix(in srgb, var(--err) 40%, transparent); background: var(--err-wash); color: var(--err); }
+.ti-badge.is-withheld { border-color: var(--hairline-strong); background: var(--surface-3); color: var(--text-dim); }
+/* A count of work that happened, rather than a claim the tool makes about itself, so it reads in the
+   body colour rather than as one more declared flag. */
+.ti-badge.is-used { border-color: var(--hairline-strong); color: var(--text-dim); }
+.ti-desc { margin: var(--gap-2) 0 0; font-size: var(--text-sm); line-height: var(--leading); color: var(--text-dim); }
+
+.ti-more { margin-top: var(--gap-2); }
+.ti-summary { font-size: var(--text-xs); color: var(--text-faint); cursor: pointer; list-style: none; }
+.ti-summary::-webkit-details-marker { display: none; }
+.ti-summary:hover { color: var(--text-dim); }
+.ti-pre { margin: var(--gap-2) 0 0; padding: var(--gap-2) var(--gap-3); background: var(--surface-1); border: 1px solid var(--hairline); border-radius: var(--r-sm); font-family: var(--mono); font-size: var(--text-xs); line-height: var(--leading); color: var(--text-dim); white-space: pre-wrap; overflow-wrap: anywhere; }

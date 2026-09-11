@@ -7,9 +7,12 @@
  * flat lists, blockquotes, rules and pipe tables. Anything fancier renders as
  * plain text, which is exactly what the old transcript did for everything.
  *
+ * A ```mermaid fence is the one exception to the DOM-building rule; see
+ * `mermaid.js` for what keeps that safe and why it is worth it.
  */
 
 import { el } from "./dom.js";
+import { isMermaid, mermaidBlock } from "./mermaid.js";
 
 /** Renders markdown to an array of block nodes. */
 export function renderMarkdown(text) {
@@ -50,7 +53,11 @@ export function renderMarkdown(text) {
       while (++i < lines.length && !/^```\s*$/.test(lines[i])) body.push(lines[i]);
       const code = body.join("\n");
       const lang = fence[1];
-      blocks.push(codeBlock(code, lang));
+      // A mermaid fence draws a diagram, and falls back to exactly this code
+      // block if the library or the source will not cooperate.
+      blocks.push(
+        isMermaid(lang) ? mermaidBlock(code, () => codeBlock(code, lang)) : codeBlock(code, lang)
+      );
       continue;
     }
 

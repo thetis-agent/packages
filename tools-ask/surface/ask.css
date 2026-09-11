@@ -1,0 +1,37 @@
+/* The question form and the Questions panel, styled from the surface's own tokens (assets/theme.css)
+   so a contributed row looks like the transcript it lands in rather than like a guest. */
+
+.ask { display: flex; flex-direction: column; gap: var(--gap-3); padding: var(--gap-3) var(--gap-4); background: var(--surface-2); border: 1px solid var(--accent-edge); border-radius: var(--r-lg); }
+.ask.is-answered { border-color: var(--hairline); background: var(--surface-1); }
+.ask.is-expired { border-color: var(--hairline); background: var(--surface-1); opacity: .7; }
+
+.ask-head { display: flex; align-items: center; gap: var(--gap-2); }
+.ask-mark { display: grid; place-items: center; flex: none; width: 20px; height: 20px; border-radius: var(--r-pill); background: var(--accent-wash); color: var(--accent); font-size: var(--text-xs); font-weight: 700; }
+.ask-title { font-size: var(--text-sm); font-weight: 600; color: var(--text); }
+.ask-status { margin-left: auto; font-size: var(--text-xs); color: var(--text-faint); }
+.ask.is-waiting .ask-status { color: var(--accent); }
+
+.ask-body { display: flex; flex-direction: column; gap: var(--gap-3); }
+.ask-question { margin: 0; font-size: var(--text-md); line-height: var(--leading); color: var(--text); }
+
+.ask-controls { display: flex; flex-direction: column; gap: var(--gap-2); }
+.ask-controls.is-confirm { flex-direction: row; gap: var(--gap-4); }
+.ask-option { display: flex; align-items: center; gap: var(--gap-2); font-size: var(--text-sm); color: var(--text-dim); cursor: pointer; }
+.ask-option input { accent-color: var(--accent); cursor: pointer; }
+.ask-option input:disabled { cursor: default; }
+.ask-text { width: 100%; padding: var(--gap-2); background: var(--surface-1); color: var(--text); border: 1px solid var(--hairline-strong); border-radius: var(--r-sm); font-family: var(--font); font-size: var(--text-sm); line-height: var(--leading); resize: vertical; }
+
+.ask-foot { display: flex; align-items: center; flex-wrap: wrap; gap: var(--gap-2); }
+.ask-send, .ask-skip { padding: 5px 10px; font-family: var(--font); font-size: var(--text-sm); background: transparent; border: 1px solid var(--hairline); border-radius: var(--r-md); color: var(--text-dim); cursor: pointer; }
+.ask-send { color: var(--accent); border-color: var(--accent-edge); }
+.ask-send:disabled, .ask-skip:disabled { opacity: .45; cursor: default; }
+.ask-note { margin: 0; font-size: var(--text-xs); line-height: 1.5; color: var(--text-faint); }
+
+.aq-card { display: flex; flex-direction: column; gap: var(--gap-1); padding: var(--gap-3); background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); }
+.aq-card.is-waiting { border-color: var(--accent-edge); background: var(--accent-wash); }
+.aq-card.is-expired { opacity: .62; }
+.aq-question { margin: 0; font-size: var(--text-sm); line-height: var(--leading); color: var(--text); }
+.aq-state { margin: 0; font-size: var(--text-xs); color: var(--text-faint); }
+.aq-card.is-waiting .aq-state { color: var(--accent); }
+.aq-answer { margin: 0; font-size: var(--text-sm); line-height: var(--leading); color: var(--text-dim); }
+.aq-hint { margin: 0; font-size: var(--text-xs); color: var(--text-faint); }

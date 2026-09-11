@@ -1,24 +1,93 @@
-/* The composer: text, the stop button that appears while a turn is running,
- * and nothing else.
+/* The composer: text, the images going with it, and the stop button that appears while a turn is
+ * running.
  *
- * The legacy composer also carried a mode picker, a model picker, a
- * starting-revision picker, @-mentions and a drag-and-drop attachment tray.
- * None of those have a wire to speak to any more: `send` takes only `id` and
- * `text` (wire.ts refuses attachments outright, and there is no mode/model/
- * branch concept in this protocol at all), so all of that machinery — and its
- * dependency on the now-removed picker.js and the dropped mentions.js — went
- * with the pickers.
+ * The mode and model pickers are here too, and they set the conversation rather than the installation.
+ * That is not where they looked as though they lived: the parity record calls both profile fields on
+ * `Runtime`, which would make changing one a whole setup switch (ADR 0012 §1). Inside the environment
+ * they were never anything of the sort — `Loop` takes both per turn, the dispatcher enforces the mode on
+ * every offer and every call, and the provider matches the model named in `begin` against the ones it
+ * has — so what was missing was somewhere for a conversation to say which, and a check that it may.
+ * `session.choices` and `session.choose` are that, and the choice is stored on the conversation's own
+ * row, which is why it is still there after a reload and after a reconnect.
+ *
+ * Both pills are drawn only once the environment has said what it offers. An environment that
+ * negotiated neither method sends an empty list and gets no pickers at all — a pill that cannot change
+ * anything teaches people to distrust the ones that can.
+ *
+ * What is *not* here, and what it would take. Three things about model and mode really are the
+ * installation's rather than a conversation's, and none of them can be a pill in a composer:
+ *
+ *   - the default a conversation starts on. That is `runtime.model`/`runtime.mode` in the profile
+ *     record, and moving it is a generation switch (ADR 0012 §1) — it goes through the control panel's
+ *     own path, which already asks the facts-then-a-separate-press question a shared change needs.
+ *   - which models exist at all. The list here is the provider package's `describe`, and its contents
+ *     are that package's configured settings; adding one is installing or reconfiguring a package,
+ *     which is the same generation switch.
+ *   - a third mode. `mode` is read in exactly one place (packages/core/dispatcher.ts, on every offer
+ *     and every call) and it reads exactly `readOnly` and `deny`. A third name would resolve to what
+ *     `plan` already resolves to, so it is not offered.
+ *
+ * The legacy composer also carried a starting-revision picker and @-mentions. Those describe a git
+ * sandbox and a workspace, neither of which this runtime has, so neither is here.
+ *
+ * The attachment tray is here again, and works differently from legacy's. Legacy read the file with a
+ * FileReader and sent the base64 inside the `send` frame; that frame is capped at 1 MiB and the input it
+ * becomes is capped at 64 KiB, so anything but a thumbnail never arrived. An image now goes up its own
+ * way — a POST to the same origin, before the message is sent — and the frame carries only what the host
+ * answered with. The FileReader is still here, but only for the small picture in the tray: the page can
+ * draw the file it already holds without waiting on a round trip, because the policy this surface is
+ * served under allows a `data:` image.
+ *
+ * An image is uploaded as it is added, not as the message is sent. Adding is when the person is looking
+ * at the file, so it is when a refusal makes sense; and it means Enter sends immediately rather than
+ * pausing on a 3 MB upload with the message already cleared from the box.
  */
 
-import { $, AGENT_NAME } from "../lib/dom.js";
+import { limits, nameOf, readAnswer, reviewFiles, summarise, uploadPath } from "../lib/attach.js";
+import { $, clear, el, icon, setHidden } from "../lib/dom.js";
 import { store } from "../lib/store.js";
 import { toast } from "../lib/toast.js";
+import { Picker } from "./picker.js";
 
-export function mountComposer({ onSend, onStop }) {
+const X = ["M5 5l10 10", "M15 5l-10 10"];
+
+/* What each mode is called and what it does, in the words a person would use rather than the two
+ * fields it sets. There are two because the environment enforces two: `agent` is whatever this
+ * installation is configured for, and `plan` withholds everything that does not declare itself
+ * read-only. A third entry would set exactly what `plan` sets and change nothing on screen but its own
+ * label, which is the one thing a control must never do. */
+const MODES = [
+  { id: "agent", label: "Agent", note: "It can change files in the folders shared with it." },
+  { id: "plan", label: "Plan", note: "It reads and works things out. Nothing gets changed." },
+];
+
+/** A model's one line under its name: how much it can hold, and whether it can use tools at all. */
+function modelNote(model) {
+  const parts = [];
+  if (model.contextWindow) parts.push(`holds about ${Math.round(model.contextWindow / 1000)}k words of conversation`);
+  if (model.tools === false) parts.push("cannot use tools");
+  return parts.join(" · ");
+}
+
+export function mountComposer({ onSend, onStop, onChoose }) {
   const form = $("composer");
   const input = $("input");
   const sendBtn = $("send");
   const stopBtn = $("stop");
+  const attachBtn = $("attach");
+  const filePicker = $("file-picker");
+  const tray = $("attachments");
+  const trayNote = $("attachments-note");
+  const modeMount = $("mode-picker");
+  const modelMount = $("model-picker");
+  const veil = $("drop-veil");
+
+  /* The images going with the message being typed. Each entry is
+   * `{name, size, mime, preview, descriptor}`: `preview` is the `data:` URL the tray draws, and
+   * `descriptor` is what the host answered with — null until the upload finishes, which is how the tray
+   * knows to show the chip as still arriving and the send button knows to stay disabled. Held here
+   * rather than in the store because nothing outside this file reads them: they leave through `onSend`. */
+  let held = [];
 
   // The stop control lives where the eyes already are while a turn runs. It
   // shows on busy and asks no confirmation: stopping a turn is not
@@ -40,18 +109,26 @@ export function mountComposer({ onSend, onStop }) {
     return store.isPending(store.current) || store.creating;
   }
 
+  /** True while any image in the tray is still going up. Enter must wait for it: the frame names files
+   *  by what the host answered, and there is nothing to name until it has. */
+  function arriving() {
+    return held.some((entry) => !entry.descriptor);
+  }
+
   function updateSendState() {
-    sendBtn.disabled = input.value.trim() === "" || !store.current || locked();
+    const hasContent = input.value.trim() !== "" || held.length > 0;
+    sendBtn.disabled = !hasContent || !store.current || locked() || arriving();
   }
 
   function drawLock() {
     const busy = locked();
     input.disabled = busy;
+    attachBtn.disabled = busy || !store.current;
     input.placeholder = busy
       ? store.creating
         ? "Creating the conversation…"
         : "Sending…"
-      : `Message ${AGENT_NAME}…`;
+      : `Message ${store.agent.name}…`;
     form.classList.toggle("is-locked", busy);
     updateSendState();
     // Focus comes back by itself when the lock lifts, so typing can continue
@@ -61,17 +138,240 @@ export function mountComposer({ onSend, onStop }) {
 
   store.watch("pendingIds", drawLock);
   store.watch("creating", drawLock);
+  // The prompt names the agent, and the name is configuration rather than a
+  // constant, so it is redrawn when the connection confirms it.
+  store.watch("agent", drawLock);
 
   // A tab switch shows a different conversation's lock state, and starts
   // from an empty box: a draft in progress belongs to the tab it was typed
   // into, not to whichever one is now on screen, and there is nowhere yet
-  // that remembers it per tab.
+  // that remembers it per tab. The images go with the draft, for the same
+  // reason and because each was uploaded into the conversation it was added
+  // to and cannot follow the person to another.
   store.watch("current", () => {
     input.value = "";
+    held = [];
+    drawTray();
     autosize();
     drawStop();
     drawLock();
+    drawPickers();
   });
+
+  // --- what this conversation is set to --------------------------------------
+
+  /* The conversation's own row is where the answer lives, and the row arrives on the `sessions` list
+   * like every other fact about it. Reading it here rather than holding a copy is what makes the
+   * choice survive a reload and a reconnect for free: the list is asked for on every connection, and
+   * a conversation that has chosen nothing simply has no field, which is the environment's default. */
+  function row() {
+    return store.sessions.find((session) => session.id === store.current) || null;
+  }
+  /* The installation's own setting is the ceiling: a conversation may narrow it and can never widen it
+   * (packages/core/sessions.ts resolves the name against it), so inside an installation that is itself
+   * read-only every conversation is read-only whatever its row says. Both the pill and the menu read
+   * that ceiling, because a pill saying "Agent" over a conversation that cannot change anything is the
+   * exact lie this control exists to avoid. */
+  const ceiling = () => store.choices?.mode === "plan";
+  const chosenMode = () => (ceiling() ? "plan" : row()?.mode || store.choices?.mode || "agent");
+  const chosenModel = () => row()?.model || store.choices?.model || "";
+  const modes = () => (ceiling() ? MODES.filter((mode) => mode.id === "plan") : MODES);
+  const models = () => store.choices?.models || [];
+
+  const modePicker = new Picker(modeMount, {
+    label: "What this conversation may do",
+    options: modes,
+    selected: chosenMode,
+    render: (id) => MODES.find((mode) => mode.id === id)?.label || "Agent",
+    dotClass: (id) => (id === "plan" ? "is-plan" : ""),
+    onSelect: (mode) => choose({ mode }),
+  });
+
+  const modelPicker = new Picker(modelMount, {
+    label: "Which model answers",
+    mono: true,
+    options: () => models().map((model) => ({ id: model.id, label: model.id, note: modelNote(model) })),
+    selected: chosenModel,
+    render: (id) => id || "No model",
+    onSelect: (model) => choose({ model }),
+  });
+
+  /* Sent, then shown. The environment decides whether a choice is honoured — it refuses a model it
+   * does not have — so the pill waits for the answer rather than moving first and being corrected;
+   * `chosen` comes back in the same breath and app.js writes it onto the row. */
+  function choose(choice) {
+    if (!store.current) return;
+    if (onChoose(store.current, choice) === false) {
+      toast("Not connected — that was not changed.", { tone: "error" });
+    }
+  }
+
+  function drawPickers() {
+    const open = Boolean(store.current);
+    setHidden(modeMount, !open || !store.choices);
+    setHidden(modelMount, !open || models().length === 0);
+    modePicker.refresh();
+    modelPicker.refresh();
+  }
+
+  store.watch("choices", drawPickers);
+  store.watch("sessions", drawPickers);
+
+  // --- the tray -------------------------------------------------------------
+
+  function drawTray() {
+    clear(tray);
+    setHidden(tray, held.length === 0);
+    for (const entry of held) {
+      tray.append(
+        el(
+          "div",
+          { class: `chip${entry.descriptor ? "" : " is-arriving"}`, title: entry.name },
+          entry.preview ? el("img", { class: "chip-thumb", src: entry.preview, alt: "" }) : null,
+          el("span", { class: "chip-name" }, entry.name),
+          el(
+            "button",
+            {
+              type: "button",
+              class: "chip-x",
+              title: "Remove",
+              "aria-label": `Remove ${entry.name}`,
+              onClick: () => { held = held.filter((other) => other !== entry); drawTray(); },
+            },
+            icon(X, { size: 11, width: 1.9 })
+          )
+        )
+      );
+    }
+    trayNote.textContent = summarise(held);
+    setHidden(trayNote, held.length === 0);
+    updateSendState();
+  }
+
+  /** Sorts what was dropped, pasted or picked, says once what could not go, and starts the rest. */
+  function addFiles(files) {
+    const id = store.current;
+    const list = [...(files ?? [])];
+    if (!list.length) return;
+    if (!id) {
+      toast("Open a conversation first, then add a file.", { tone: "error" });
+      return;
+    }
+    const { accept, refusals } = reviewFiles(list, held.length, limits);
+    for (const message of refusals) toast(message, { tone: "error" });
+    for (const file of accept) void add(id, file);
+  }
+
+  /* The chip appears before either the picture or the upload is ready, so the person sees the file land
+   * where they dropped it. Both are awaited afterwards, and both check that the entry is still in the
+   * tray before touching it: removing a chip mid-upload is the obvious thing to do to a file you have
+   * just realised you did not mean to add, and it must not come back when its answer arrives. */
+  async function add(conversation, file) {
+    const entry = { name: nameOf(file) || "Pasted image", size: file.size, mime: file.type, preview: "", descriptor: null };
+    held.push(entry);
+    drawTray();
+
+    entry.preview = await preview(file);
+    if (held.includes(entry)) drawTray();
+
+    const answer = await upload(conversation, file);
+    if (!held.includes(entry)) return;
+    if (!answer.ok) {
+      held = held.filter((other) => other !== entry);
+      drawTray();
+      toast(answer.message, { tone: "error" });
+      return;
+    }
+    entry.descriptor = answer.value;
+    entry.name = answer.value.name;
+    drawTray();
+  }
+
+  /** Sends one image to the host and reads the answer. A refusal is shown in the host's own words. */
+  async function upload(conversation, file) {
+    try {
+      const response = await fetch(uploadPath(conversation, nameOf(file)), {
+        method: "POST",
+        headers: { "content-type": file.type },
+        body: file,
+        credentials: "same-origin",
+      });
+      return readAnswer(await response.json());
+    } catch {
+      return { ok: false, message: "Not connected — that image was not added." };
+    }
+  }
+
+  /** The small picture in the chip, read straight out of the file the browser already holds. */
+  function preview(file) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => resolve("");
+      reader.readAsDataURL(file);
+    });
+  }
+
+  attachBtn.addEventListener("click", () => filePicker.click());
+  filePicker.addEventListener("change", () => {
+    addFiles(filePicker.files);
+    // Cleared so picking the same file twice in a row still fires a change.
+    filePicker.value = "";
+  });
+
+  input.addEventListener("paste", (event) => {
+    const files = [...(event.clipboardData?.files ?? [])];
+    if (!files.length) return;
+    event.preventDefault();
+    addFiles(files);
+  });
+
+  // --- drag and drop --------------------------------------------------------
+
+  /* The veil is held open by a timer that every `dragover` refreshes, rather than by counting
+   * dragenter/dragleave pairs. Those fire once per child element and go missing entirely when a drag
+   * ends outside the window, which strands the overlay on screen. A lapsing timer cannot get stuck: the
+   * moment events stop arriving, the veil clears itself. */
+  const VEIL_LINGER_MS = 160;
+  let veilTimer = null;
+
+  const draggingFiles = (event) => [...(event.dataTransfer?.types ?? [])].includes("Files");
+
+  function holdVeil() {
+    setHidden(veil, false);
+    clearTimeout(veilTimer);
+    veilTimer = setTimeout(dropVeil, VEIL_LINGER_MS);
+  }
+
+  function dropVeil() {
+    clearTimeout(veilTimer);
+    veilTimer = null;
+    setHidden(veil, true);
+  }
+
+  // Bound to the window so a drop anywhere adds the file, and so a file dropped
+  // outside the composer never navigates the page away.
+  window.addEventListener("dragover", (event) => {
+    if (!draggingFiles(event)) return;
+    event.preventDefault();
+    holdVeil();
+  });
+
+  window.addEventListener("drop", (event) => {
+    if (!draggingFiles(event)) return;
+    event.preventDefault();
+    dropVeil();
+    addFiles(event.dataTransfer?.files);
+  });
+
+  // Belt and braces for the cases the timer would only catch a beat later.
+  window.addEventListener("dragend", dropVeil);
+  window.addEventListener("blur", dropVeil);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) dropVeil();
+  });
+
+  // --- sending --------------------------------------------------------------
 
   function autosize() {
     input.style.height = "auto";
@@ -95,12 +395,15 @@ export function mountComposer({ onSend, onStop }) {
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     const text = input.value.trim();
-    if (locked() || !text || !store.current) return;
+    // An image on its own is a message: the picture is the content, and the host takes an empty text
+    // beside a non-empty list of files.
+    if (locked() || arriving() || !store.current) return;
+    if (!text && !held.length) return;
 
     // `onSend` reports whether the frame actually reached the socket. A send
     // into a closed socket used to swallow the message silently, clearing the
     // box as if it had gone.
-    if (onSend(text) === false) {
+    if (onSend(text, held) === false) {
       toast("Not connected — the message was not sent. It is still in the box.", {
         tone: "error",
       });
@@ -108,6 +411,8 @@ export function mountComposer({ onSend, onStop }) {
     }
 
     input.value = "";
+    held = [];
+    drawTray();
     autosize();
   });
 
@@ -119,6 +424,8 @@ export function mountComposer({ onSend, onStop }) {
     input.focus();
   }
 
+  drawTray();
   drawLock();
+  drawPickers();
   return { focus: () => input.focus(), restore };
 }

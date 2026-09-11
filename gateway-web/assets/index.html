@@ -1,9 +1,12 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-agent-name="{agent_name}" data-agent-accent="{agent_accent}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Thetis</title>
+<title>{agent_name}</title>
+<!-- Both the name and the tab icon are filled in when this page is served (brand.ts), so the window is
+     already labelled correctly on the first paint rather than a round trip later. -->
+<link rel="icon" href="./favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="./theme.css">
 <link rel="stylesheet" href="./app.css">
 </head>
@@ -17,8 +20,20 @@
           <circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" stroke-width="2.5"/>
           <circle cx="16" cy="16" r="3" fill="currentColor"/>
         </svg>
-        <span class="brand-name">Thetis</span>
+        <span class="brand-name">{agent_name}</span>
       </div>
+      <!-- Everyone's conversations, for an account whose role may observe others.
+           Hidden until the host's `user` frame says the role allows it; the
+           sidebar is this person's own even for an administrator, and this is
+           the switch. views/sessions.js wires it and keeps aria-pressed true. -->
+      <button id="see-all" class="icon-btn" title="Show everyone's conversations" aria-label="Show everyone's conversations" aria-pressed="false" hidden>
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <circle cx="7" cy="7" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <circle cx="13.5" cy="7.5" r="2.1" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <path d="M2.5 15.5a4.5 4.5 0 0 1 9 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          <path d="M12.2 12.2a3.6 3.6 0 0 1 5.3 3.3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </button>
       <button id="new-chat" class="icon-btn" title="New chat" aria-label="New chat">
         <svg viewBox="0 0 20 20" aria-hidden="true">
           <path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -40,10 +55,13 @@
     <!-- Who is signed in, then the way to sign out. Filled from the host's `user`
          frame; the logout form is a real POST rather than a fetch so signing out
          works with the socket down, which is when it is most wanted. There is no
-         admin link and no "see everyone's conversations" control here: this
-         sidebar is always just the signed-in person's own conversations. -->
+         admin link: the one thing a role changes on this surface is the
+         everyone's-conversations switch in the header above. -->
     <footer class="sidebar-foot">
       <div class="foot-row foot-identity">
+        <!-- The face is drawn by app.js once the name arrives; there is nothing
+             to put here before then, and an empty tile is worse than none. -->
+        <span id="user-face" class="foot-face"></span>
         <span id="user-name" class="foot-name" title="Signed in as"></span>
         <span id="status" class="status is-offline">connecting</span>
       </div>
@@ -77,6 +95,11 @@
          so it lives outside the stage rather than being duplicated per pane. -->
     <div class="composer-wrap">
       <form id="composer" class="composer" autocomplete="off">
+        <!-- The images going with this message. Drawn by views/composer.js, empty and hidden until
+             something is dropped, pasted or picked; the note under it says how many and how much. -->
+        <div id="attachments" class="tray" aria-label="Images going with this message" hidden></div>
+        <p id="attachments-note" class="tray-note" hidden></p>
+
         <div id="input-wrap" class="composer-field">
           <textarea id="input" class="composer-input" rows="1"
                     placeholder="Message…"
@@ -84,6 +107,23 @@
         </div>
 
         <div class="composer-bar">
+          <div class="composer-tools">
+            <button type="button" id="attach" class="icon-btn" title="Add a file" aria-label="Add a file">
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <path d="M13 6.5 7.8 11.7a2.3 2.3 0 0 0 3.2 3.2l5.3-5.2a4 4 0 0 0-5.7-5.7L5.2 9.4a5.7 5.7 0 0 0 8 8l4.3-4.3"
+                      fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <!-- Hidden rather than styled away: the button above opens it, and the accept list is the
+                 same one the host enforces, so the file chooser offers only what can actually go. -->
+            <input id="file-picker" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
+            <!-- How much this conversation may do, and which model answers it. Both are drawn by
+                 views/composer.js from what the environment said it offers, and both stay hidden
+                 until it has said: an environment with one model and no mode to change has nothing
+                 to put here, and an empty pill would be worse than no pill. -->
+            <span id="mode-picker" class="picker" hidden></span>
+            <span id="model-picker" class="picker" hidden></span>
+          </div>
           <div class="composer-run">
             <button type="button" id="stop" class="stop-btn" title="Stop the running turn" hidden>
               <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -110,6 +150,12 @@
     <section id="rail-panel" class="rail-panel" hidden></section>
   </aside>
 
+</div>
+
+<!-- Shown while a file is being dragged over the window, so it is obvious where a drop will land.
+     Held open by a lapsing timer in views/composer.js rather than by dragenter/dragleave counting. -->
+<div id="drop-veil" class="drop-veil" hidden>
+  <p class="drop-veil-note">Drop an image to add it to your message</p>
 </div>
 
 <footer id="statusbar" class="statusbar" aria-label="System status"></footer>

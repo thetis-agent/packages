@@ -1,0 +1,8 @@
+{
+  "assets": [
+    { "path": "/surface/inspector-tools/panel.js", "file": "surface/panel.js", "type": "text/javascript" },
+    { "path": "/surface/inspector-tools/fold.js", "file": "surface/fold.js", "type": "text/javascript" },
+    { "path": "/surface/inspector-tools/view.js", "file": "surface/view.js", "type": "text/javascript" },
+    { "path": "/surface/inspector-tools/panel.css", "file": "surface/panel.css", "type": "text/css" }
+  ]
+}

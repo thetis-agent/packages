@@ -14,6 +14,8 @@ it. The kernel matches names and names no package itself.
 | `cli` | Person-scoped command service over a Unix socket |
 | `gateway-web` | WebSocket gateway and the lifted web surface, served per person on the target's public socket |
 | `gateway-login` | The `password` authority |
+| `inspector-context` | Contributed `panel/context`: what the model actually received, folded from `context`, `model.begin` and `model.end` |
+| `inspector-tools` | Contributed `panel/tools`: what this conversation can call and what its mode withholds, folded from `offer` |
 | `tools-files` | File read/search/edit handlers with canonical grant checks |
 | `tools-exa` | Direct Exa API search, page contents, answers, and research agents |
 | `storage-files` | Default bounded byte objects and durable append logs behind `contract/storage` |

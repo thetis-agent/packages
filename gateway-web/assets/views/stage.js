@@ -15,12 +15,14 @@
 
 import { $, clear, el, icon, setHidden } from "../lib/dom.js";
 import { store } from "../lib/store.js";
+import { titleOf } from "../lib/activity.js";
+import { conversationSummary } from "../lib/usage.js";
 import { mountTranscriptInto } from "./transcript.js";
 
 const CLOSE = ["M5 5l8 8", "M13 5l-8 8"];
 const PLUS = ["M9 3.5v11M3.5 9h11"];
 
-const panes = new Map(); // conversation id -> { paneEl, subEl, transcript }
+const panes = new Map(); // conversation id -> { paneEl, subEl, usageEl, transcript }
 
 let stripEl = null;
 let stageEl = null;
@@ -40,8 +42,15 @@ export function mountStage(config) {
     showCurrent();
     drawStrip();
   });
-  store.watch("sessions", drawStrip);
+  /* A pane's own header carries the same name as its tab, so a `sessions` reply that names a
+   * conversation for the first time has to reach both. It reached only the strip, which is why a
+   * chat whose tab already said what it was about still read "Untitled" above the transcript. */
+  store.watch("sessions", () => {
+    showCurrent();
+    drawStrip();
+  });
   store.watch("busyIds", drawStrip);
+  store.watch("usage", drawUsage);
 
   syncPanes();
   drawStrip();
@@ -52,22 +61,44 @@ export function transcriptFor(id) {
   return panes.get(id)?.transcript;
 }
 
+/* A tab is named by its conversation's stored title — the first thing said in
+ * it (core/session-store.ts `record`). "Untitled" is now a real answer rather
+ * than the only one: a conversation opened and not yet spoken to has no title,
+ * and a tab for one that is not in the list yet (a `new` whose `list` reply has
+ * not landed) has nothing to read. Both settle on the next `sessions` frame,
+ * which redraws the strip and every pane's header together. */
 function title(id) {
-  const session = (store.sessions || []).find((s) => s.id === id);
-  return session?.title || "Untitled";
+  return titleOf((store.sessions || []).find((session) => session.id === id));
 }
 
 function ensurePane(id) {
   if (panes.has(id)) return panes.get(id);
   const subEl = el("span", { class: "chat-sub" }, title(id));
-  const bar = el("div", { class: "chat-bar" }, subEl, el("span", { class: "chat-bar-gap" }));
+  /* The far end of the bar carries what this conversation has spent so far — the calmest place on the
+   * screen that is still attached to the conversation it belongs to. It stays empty until there is
+   * something to say, so a conversation nobody has spent anything on shows nothing at all rather than
+   * a row of zeroes. */
+  const usageEl = el("span", { class: "chat-usage" });
+  const bar = el("div", { class: "chat-bar" }, subEl, el("span", { class: "chat-bar-gap" }), usageEl);
   const transcriptEl = el("div", { class: "transcript", tabindex: "0" });
   const paneEl = el("section", { class: "stage-pane", "data-pane": id }, bar, transcriptEl);
   setHidden(paneEl, true);
   stageEl.append(paneEl);
-  const entry = { paneEl, subEl, transcript: mountTranscriptInto(transcriptEl) };
+  const entry = { paneEl, subEl, usageEl, transcript: mountTranscriptInto(transcriptEl) };
   panes.set(id, entry);
+  drawUsageInto(id, entry);
   return entry;
+}
+
+function drawUsageInto(id, entry) {
+  const summary = conversationSummary(store.usageOf(id).total);
+  entry.usageEl.textContent = summary ? summary.text : "";
+  if (summary) entry.usageEl.setAttribute("title", summary.detail);
+  else entry.usageEl.removeAttribute("title");
+}
+
+function drawUsage() {
+  for (const [id, entry] of panes) drawUsageInto(id, entry);
 }
 
 /** Creates or drops panes so they match `store.tabs` exactly, then shows

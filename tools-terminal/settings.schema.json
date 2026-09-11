@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "sessions": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 4
+    },
+    "bufferBytes": {
+      "type": "integer",
+      "minimum": 1024,
+      "default": 262144
+    },
+    "totalBytes": {
+      "type": "integer",
+      "minimum": 1024,
+      "default": 4194304
+    },
+    "idleMs": {
+      "type": "integer",
+      "minimum": 1000,
+      "default": 300000
+    },
+    "readBytes": {
+      "type": "integer",
+      "minimum": 1024,
+      "default": 16384
+    }
+  },
+  "additionalProperties": false
+}

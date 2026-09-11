@@ -12,13 +12,33 @@ import { clock } from '@/lib/events/index.ts';
 import { isObject, failure } from '@/lib/schema/index.ts';
 import type { Result } from '@/lib/schema/index.ts';
 import { Wire } from './wire.ts';
+import type { Versions } from './wire.ts';
 import { SignIn, sessionToken } from './identity.ts';
+import { Attachments } from './attachments.ts';
 import { requestHandler } from './http.ts';
 import type { Contract } from './types.ts';
-import { settings } from './index.ts';
+import { brand, settings } from './index.ts';
+import { filled } from './brand.ts';
 
 const assetsRoot = fileURLToPath(new URL('./assets', import.meta.url));
 const manifestPath = fileURLToPath(new URL('./assets.json', import.meta.url));
+
+/* The two versions the foot of the page reports back to the person looking at it.
+ *
+ * The first is read from this package's own manifest rather than declared anywhere: the served
+ * assets and the process serving them are one install, so the manifest beside them is the only
+ * figure that cannot drift out of step with what is on screen. The second is whatever version the
+ * kernel's own profile answer carries, which today is none — the reply is this target's settings,
+ * and the deployment's setup version is not among them. It is read rather than omitted because the
+ * bar already hides an item whose datum is absent, so wiring the seam costs nothing and the day the
+ * kernel does answer with one the bar shows it without another change here. */
+async function versions(supplied: unknown): Promise<Versions> {
+  const manifest: unknown = JSON.parse(await readFile(new URL('./package.json', import.meta.url), 'utf8'));
+  return {
+    agent: isObject(manifest) && typeof manifest['version'] === 'string' ? manifest['version'] : '',
+    setup: isObject(supplied) && typeof supplied['version'] === 'string' ? supplied['version'] : ''
+  };
+}
 const headerEnd = Buffer.from('\r\n\r\n');
 
 interface Sniffed { raw: Buffer; upgrade: boolean; cookie: string | undefined }
@@ -73,12 +93,20 @@ async function admit(socket: Socket, admitted: () => void, signIn: SignIn, perso
   return accept(socket, admitted, channel => factory(channel, role), request);
 }
 
-const result = await serve(async (_settings, schemas, peer, identity) => {
+const result = await serve(async (profile, schemas, peer, identity) => {
   const wireSchema: unknown = JSON.parse(await readFile(new URL('./schema.json', import.meta.url), 'utf8'));
   if (!isObject(wireSchema)) throw new Error('The committed gateway schema is invalid.');
   const checkFrame = schemas.compile<Contract>(wireSchema);
-  const table = await load(assetsRoot, manifestPath, schemas);
+  // The agent's name and colour are configuration, so they are filled into the pages, the styles and the
+  // tab icon here rather than being baked into a served module: a rename reaches all of them at once.
+  const branding = brand(profile);
+  const reported = await versions(profile);
+  const table = await load(assetsRoot, manifestPath, schemas, filled(branding));
   if (!table.ok) return table;
+  /* `/state` is this target's single writable mount and belongs to this person alone
+   * (kernel/generations/prepare.ts); an attached image has nowhere else it could go, and the upload route
+   * and the wire must agree on where that is, so both are handed the same store. */
+  const attachments = Attachments.open('/state', settings); if (!attachments.ok) return attachments;
   // Packages that contribute a panel or a renderer are served from this same origin and this same
   // sign-in gate; the surface never learns what any of them mean.
   const composed = await compose(table.value, schemas);
@@ -86,9 +114,9 @@ const result = await serve(async (_settings, schemas, peer, identity) => {
   for (const refusal of composed.refused) process.stderr.write(`${JSON.stringify({ surface: 'panel refused', ...refusal })}\n`);
   return { ok: true, value: connection => {
     const signIn = new SignIn(peer, settings.pendingIdentity);
-    const request = requestHandler(composed.table, signIn);
+    const request = requestHandler(composed.table, signIn, attachments.value, identity.person, settings.attachmentBytes);
     const factory = (channel: Channel, role: string): Handler => {
-      const wire = new Wire(peer, schemas, clock, identity, role, frame => channel.write(frame), composed.contribution);
+      const wire = new Wire(peer, schemas, clock, identity, role, frame => channel.write(frame), composed.contribution, branding, attachments.value, reported);
       return {
         message: value => checkFrame(value) ? wire.command(value) : Promise.resolve(failure('invalid-args', 'The gateway frame violates its schema.')),
         close: () => { wire.close(); }
@@ -97,5 +125,9 @@ const result = await serve(async (_settings, schemas, peer, identity) => {
     return admit(connection.socket, connection.admitted, signIn, identity.person, factory, request);
   } };
 }, outcome => { if (!outcome.ok) process.stderr.write(`${JSON.stringify(outcome)}\n`); },
-  ['session.list', 'session.create', 'session.submit', 'session.cancel', 'session.whois', 'env.status', 'env.reset'], 'person');
+  ['session.list', 'session.create', 'session.submit', 'session.cancel', 'session.rename', 'session.archive', 'session.choices', 'session.choose', 'session.whois', 'env.status', 'env.reset',
+    // The operator surface's reads and the one act it can drive (admin.ts). `install`, `snapshot` and
+    // `prune` are deliberately absent: on this socket they are the evaluation runtime's run, score and
+    // release, not anything a person means by those words.
+    'profile.get', 'env.logs', 'default.prepare', 'default.set'], 'person');
 if (!result.ok) { process.stderr.write(`${JSON.stringify(result)}\n`); process.exitCode = 1; }

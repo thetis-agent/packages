@@ -1,0 +1,39 @@
+{
+  "name": "inspector-context",
+  "version": "1.0.0",
+  "type": "module",
+  "stages": "./index.ts",
+  "requires": {
+    "contract/surface": "^1",
+    "contract/turn-events": "^1"
+  },
+  "provides": {
+    "panel/context": "1.0.0"
+  },
+  "surface": {
+    "v": "1",
+    "panels": [
+      {
+        "id": "context",
+        "label": "Context",
+        "hint": "Context — what the model actually received",
+        "wide": true,
+        "entry": "/surface/inspector-context/panel.js"
+      }
+    ]
+  },
+  "envelope": {
+    "requires": [],
+    "provides": [],
+    "spawn": {
+      "scope": "person",
+      "network": "none"
+    }
+  },
+  "settings": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}

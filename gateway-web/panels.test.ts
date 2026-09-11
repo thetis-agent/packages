@@ -131,7 +131,11 @@ await test('a directory that is not a package at all contributes nothing and is 
   } finally { await rm(base, { recursive: true, force: true }); }
 });
 
-await test('two contributors drawing one event kind are refused', async () => {
+/* Two packages drawing one kind is ordinary, not a clash: skills-l1 draws the `tool-call` rows for
+ * its own `load_skill` and tools-ask draws the ones for its own `ask_user`, each declining the other's
+ * (lib/dispatch.js asks them in turn). Refusing the second here made those two packages mutually
+ * exclusive — and refused the whole package, panel and declared commands with it. */
+await test('two contributors drawing one event kind are both carried, in a stable order', async () => {
   const draws = (name: string) => ({ v: '1', renderers: [{ kind: 'retrieve', entry: `/surface/${name}/panel.js` }] });
   const base = await root([
     { name: 'first', provides: { 'renderer/retrieve': '1.0.0' }, surface: draws('first') },
@@ -139,10 +143,8 @@ await test('two contributors drawing one event kind are refused', async () => {
   ]);
   try {
     const composed = await compose(own, await schemas(), base);
-    // The browser keys renderers by kind, so the second would have silently replaced the first.
-    assert.deepEqual(composed.contribution.renderers.map(renderer => renderer.kind), ['retrieve']);
-    const [refusal] = composed.refused; assert.ok(refusal);
-    assert.equal(refusal.name, 'second');
-    assert.match(refusal.message, /Another package already draws retrieve rows\./u);
+    assert.deepEqual(composed.contribution.renderers.map(renderer => renderer.entry),
+      ['/surface/first/panel.js', '/surface/second/panel.js'], 'both are announced, in readdir order.');
+    assert.deepEqual(composed.refused, []);
   } finally { await rm(base, { recursive: true, force: true }); }
 });

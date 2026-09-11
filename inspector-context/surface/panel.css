@@ -1,0 +1,47 @@
+/* The Context inspector's own styling. It ships with the package rather than living in the surface's
+   stylesheet, because the surface has no reason to know this panel exists. Every value is one of the
+   surface's own tokens (assets/theme.css), so a contributed panel looks like the page it lands in. */
+
+.ci-segmented { display: flex; gap: var(--gap-1); padding: 3px; background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); }
+.ci-segment { flex: 1 1 0; padding: 5px 8px; font-size: var(--text-sm); color: var(--text-dim); background: transparent; border: 0; border-radius: var(--r-sm); cursor: pointer; }
+.ci-segment:hover { color: var(--text); background: var(--surface-3); }
+.ci-segment.is-active { color: var(--accent); background: var(--accent-wash); }
+
+.ci-meta { display: flex; flex-direction: column; gap: var(--gap-1); margin-top: var(--gap-3); }
+.ci-name { font-family: var(--mono); font-size: var(--text-sm); color: var(--text); }
+.ci-dim { font-size: var(--text-xs); color: var(--text-faint); }
+
+.ci-scalars { display: flex; flex-direction: column; gap: 2px; padding: var(--gap-2) var(--gap-3); background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); }
+.ci-line { display: flex; gap: var(--gap-2); font-family: var(--mono); font-size: var(--text-xs); }
+.ci-key { color: var(--text-faint); min-width: 88px; }
+.ci-value { color: var(--text-dim); overflow-wrap: anywhere; }
+
+.ci-msg { background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); }
+.ci-msg-head { display: flex; align-items: center; gap: var(--gap-2); padding: var(--gap-2) var(--gap-3); cursor: pointer; list-style: none; }
+.ci-msg-head::-webkit-details-marker { display: none; }
+.ci-idx { font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); min-width: 18px; }
+.ci-role { font-size: var(--text-xs); color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; min-width: 62px; }
+.ci-role.is-system { color: var(--warn); }
+.ci-role.is-assistant { color: var(--accent); }
+.ci-role.is-tool { color: var(--ok); }
+.ci-gist { flex: 1 1 auto; font-size: var(--text-xs); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ci-size { font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); white-space: nowrap; }
+.ci-pill { padding: 1px 7px; border: 1px solid var(--hairline); border-radius: var(--r-pill); font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); white-space: nowrap; }
+.ci-pill.is-on { border-color: var(--accent-edge); background: var(--accent-wash); color: var(--accent); }
+.ci-pre { margin: 0; padding: var(--gap-3); font-family: var(--mono); font-size: var(--text-xs); line-height: var(--leading); color: var(--text-dim); white-space: pre-wrap; overflow-wrap: anywhere; border-top: 1px solid var(--hairline); }
+.ci-pre.is-prompt { background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); }
+
+.ci-budget { display: flex; flex-direction: column; gap: var(--gap-2); margin-top: var(--gap-3); }
+.ci-bar { height: 4px; background: var(--hairline); border-radius: var(--r-pill); overflow: hidden; }
+.ci-fill { display: block; height: 100%; background: var(--accent); border-radius: var(--r-pill); }
+.ci-budget-legend { display: flex; justify-content: space-between; gap: var(--gap-2); font-size: var(--text-xs); color: var(--text-dim); }
+
+.ci-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: var(--gap-2); margin-top: var(--gap-3); }
+.ci-stat { padding: var(--gap-2) var(--gap-3); background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); }
+.ci-stat-value { font-family: var(--mono); font-size: var(--text-md); color: var(--text); }
+.ci-stat-label { font-size: var(--text-xs); color: var(--text-faint); }
+
+.ci-call { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-2); padding: var(--gap-2) var(--gap-3); background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); font-family: var(--mono); font-size: var(--text-xs); color: var(--text-dim); }
+.ci-call-n { color: var(--text-faint); }
+.ci-call-counter { color: var(--text-dim); }
+.ci-stop { color: var(--warn); }

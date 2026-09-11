@@ -7,6 +7,7 @@ import { load } from '@/lib/package-loader/load.ts';
 import type { Setup, WorkerCommand, WorkerMessage } from '@/lib/package-loader/types.ts';
 import type { Stage } from '@/lib/events/stages.ts';
 import { control } from './control.ts';
+import { NoticeQueue } from './notices.ts';
 import { diagnostics } from './startup-timing.ts';
 import type { Peer } from '@/lib/socket/index.ts';
 
@@ -20,8 +21,14 @@ const setup: unknown = workerData;
 const stages: Stage[] = [];
 let endpoint: Peer | undefined;
 let outgoing = 0;
+/* Where `ctx.emit` actually goes. The message still crosses to the monitor, which observes every one
+ * of them and keeps the initialization round's; this is the other half, the one that reaches the
+ * conversation the notice names (notices.ts). It is created before any package loads because `emit`
+ * is handed over at `init` and a stage may use it from that moment. */
+const notices = new NoticeQueue();
 function send(message: WorkerMessage): void {
   if (++outgoing > limits.messages || Buffer.byteLength(JSON.stringify(message)) > limits.messageBytes) throw new Error('The initialization message budget is full.');
+  if (message.type === 'notice') notices.add(message.source, message.notice);
   port?.postMessage(message);
 }
 
@@ -36,7 +43,7 @@ async function initialize(value: Setup): Promise<void> {
   }
   startupTiming.packages = performance.now();
   if (value.runtime) {
-    const opened = await control(value.runtime, stages, schemas);
+    const opened = await control(value.runtime, stages, schemas, notices);
     if (!opened.ok) { send({ type: 'refused', source: '', error: { code: 'io', message: opened.error.message } }); return; }
     endpoint = opened.value;
     void endpoint.finished().then(result => { if (!result.ok) send({ type: 'refused', source: '', error: { code: 'io', message: 'The environment monitor endpoint closed.' } }); });

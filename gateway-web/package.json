@@ -1,6 +1,9 @@
 {
   "name": "gateway-web", "version": "1.0.0", "type": "module", "stages": "./index.ts",
-  "settings": { "type": "object", "properties": {}, "additionalProperties": true },
+  "settings": { "type": "object", "additionalProperties": false, "properties": {
+    "agentName": { "type": "string", "minLength": 1, "maxLength": 48, "default": "Thetis" },
+    "accent": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "default": "#7c9cff" }
+  } },
   "requires": { "contract/kernel-socket": "^1" }, "provides": { "mount//ws": "1.0.0", "assets/web": "1.0.0" },
   "envelope": { "requires": [], "provides": ["mount//ws"], "spawn": { "scope": "person", "network": "none" } }
 }

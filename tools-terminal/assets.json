@@ -1,0 +1,8 @@
+{
+  "assets": [
+    { "path": "/surface/tools-terminal/panel.js", "file": "surface/panel.js", "type": "text/javascript" },
+    { "path": "/surface/tools-terminal/dock.js", "file": "surface/dock.js", "type": "text/javascript" },
+    { "path": "/surface/tools-terminal/screen.js", "file": "surface/screen.js", "type": "text/javascript" },
+    { "path": "/surface/tools-terminal/panel.css", "file": "surface/panel.css", "type": "text/css" }
+  ]
+}

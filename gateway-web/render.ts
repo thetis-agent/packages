@@ -1,23 +1,48 @@
 /** Preserve text order while projecting turn-event envelopes into the lifted gateway wire; ADR 0019, KS-020.
  * `token` batches into `delta` exactly as before (KS-020); `model.event` reasoning deltas batch the same way
  * into `reasoning`, each flushed only when the other kind (or a non-batched frame) is about to be emitted, so
- * interleaved streams keep their arrival order. `input`, `call` (request and answer) and `notice` are new,
- * forward-looking mappings: nothing in the running kernel emits them onto this wire yet (`lib/session/schema.json`
- * still narrows `session.events` to token/output/end), so these branches are exercised only by render.test.ts
- * until that schema is widened. */
+ * interleaved streams keep their arrival order. `call` draws two rows from one
+ * envelope, because the core reports a call only once it has been answered. */
+import { basename } from 'node:path';
 import { isObject } from '@/lib/schema/index.ts';
 import type { Batch } from '@/lib/session/types.ts';
+import { settings } from './index.ts';
 
-/** `events` accepts the real generated `Batch['events']` member for the kinds `lib/session/schema.json`
- *  already names (`token`/`output`/`end`, each carrying the full envelope now that the generator
- *  parenthesizes `allOf: [envelope, oneOf(...)]` before intersecting it), plus a generic `type`/`payload`
- *  fallback for `input`, `call` (request and answer), `model.event` and `notice`: forward-looking kinds
- *  nothing running emits onto this wire yet, so no schema types their shape, and only `render.test.ts`
- *  exercises them until `lib/session/schema.json` is widened to name them. */
-export type EventBatch = { conversation: string; events: readonly (Batch['events'][number] | { type?: string; payload?: unknown })[] };
+/** `events` accepts the real generated `Batch['events']` member, plus a generic `type`/`payload`
+ *  fallback: the generated union names the kinds whose payload the contract types, and a batch that
+ *  arrives over a socket is validated against the schema before it reaches here either way. */
+export type EventBatch = { conversation: string; cursor?: number; events: readonly (Batch['events'][number] | { type?: string; payload?: unknown })[] };
 
 /** Bounds on what a rendered frame carries; named per house rule (AGENTS.md "bound everything"). */
-export const limits = { summaryBytes: 4096 };
+export const limits = { summaryBytes: 4096, nameLength: 128 };
+
+/** What attachments.ts writes, and so the only file name that can be read back through /api/attachments. */
+const storedName = /^[0-9a-f]{64}\.[a-z0-9]{2,5}$/u;
+
+/** An attached image, turned from a file on disk into something a browser can draw.
+ *
+ * The recorded input names a `path` under the person's own state, which is meaningless to a page and must
+ * never be shown to one. The same-origin route that serves it is derived here instead, because this is the
+ * only place that knows both the conversation and the stored file name — the surface stays ignorant of
+ * where attachments live, exactly as it is ignorant of where anything else lives. Relative, like every
+ * other URL this surface uses: a proxy may serve the page under a prefix it has already stripped, so an
+ * absolute path would resolve above it.
+ *
+ * Everything is checked rather than trusted. A conversation's recorded events are durable and older ones
+ * were written by whatever wrote them; a row whose path is not a name this gateway could have stored, or
+ * whose type is not one it will serve, is dropped rather than turned into a link that 404s. */
+function attachmentsOf(conversation: string, value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  const shown: Record<string, unknown>[] = [];
+  for (const entry of value.slice(0, settings.attachments)) {
+    if (!isObject(entry) || typeof entry['path'] !== 'string' || typeof entry['mime'] !== 'string') continue;
+    const file = basename(entry['path']);
+    if (!storedName.test(file) || !settings.attachmentTypes.includes(entry['mime'])) continue;
+    const name = typeof entry['name'] === 'string' ? entry['name'].slice(0, limits.nameLength) : file;
+    shown.push({ name, mime: entry['mime'], bytes: entry['bytes'], url: `./api/attachments/${conversation}/${file}` });
+  }
+  return shown;
+}
 
 function textOf(content: unknown): string {
   if (!Array.isArray(content)) return '';
@@ -34,45 +59,94 @@ function cap(value: string): string {
   return buffer.byteLength <= limits.summaryBytes ? value : buffer.subarray(0, limits.summaryBytes).toString('utf8');
 }
 
-/** A `call` envelope carries either the request or its answer; the answer is the only shape with `ok`. */
-function callAnswerFrame(conversation: string, payload: Record<string, unknown>): Record<string, unknown> {
-  const ok = payload['ok'] === true;
-  const summary = ok ? textOf(payload['content']) : errorMessage(payload['error']);
-  return { type: 'event', session: conversation, kind: 'tool-result', id: payload['id'], ok, summary: cap(summary) };
+function callAnswerFrame(conversation: string, answer: Record<string, unknown>): Record<string, unknown> {
+  const ok = answer['ok'] === true;
+  const summary = ok ? textOf(answer['content']) : errorMessage(answer['error']);
+  return { type: 'event', session: conversation, kind: 'tool-result', id: answer['id'], ok, summary: cap(summary) };
 }
 
-function callRequestFrame(conversation: string, payload: Record<string, unknown>): Record<string, unknown> | undefined {
-  if (typeof payload['id'] !== 'string' || typeof payload['name'] !== 'string') return undefined;
-  return { type: 'event', session: conversation, kind: 'tool-call', id: payload['id'], name: payload['name'], args: payload['args'] };
+function callRequestFrame(conversation: string, request: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (typeof request['id'] !== 'string' || typeof request['name'] !== 'string') return undefined;
+  return { type: 'event', session: conversation, kind: 'tool-call', id: request['id'], name: request['name'], args: request['args'] };
+}
+
+/** One `call` envelope is a finished call, so it draws two rows: what was asked and what came back.
+ *
+ * `packages/core/index.ts` emits `{ request, answer }` together — the request is not observable on its
+ * own, because the core only reports a call once the dispatcher has answered it. The surface still wants
+ * them as separate rows so a slow call reads the way a person expects, and the pair's shared `id` is what
+ * ties the second to the first. A payload missing either half draws nothing rather than half a call. */
+function callFrames(conversation: string, payload: Record<string, unknown>): Record<string, unknown>[] {
+  const request = payload['request']; const answer = payload['answer'];
+  if (!isObject(request) || !isObject(answer)) return [];
+  const asked = callRequestFrame(conversation, request);
+  return asked ? [asked, callAnswerFrame(conversation, answer)] : [];
+}
+
+/* Where one envelope of a batch sits in the conversation, so a subscriber that loses its connection
+ * can ask to continue from the last frame it actually drew rather than from wherever the environment
+ * happens to have reached. `batch.cursor` counts the last envelope in the batch (lib/session/index.ts
+ * increments one per admitted event), so the nth of m is `cursor - (m - 1 - n)`. Undefined when the
+ * caller supplied no cursor (render.test.ts's hand-built batches), which leaves the field off the
+ * frame and leaves the subscriber's position where it was. */
+function positionOf(batch: EventBatch, index: number): number | undefined {
+  return batch.cursor === undefined ? undefined : batch.cursor - (batch.events.length - 1 - index);
 }
 
 export function render(batch: EventBatch): Record<string, unknown>[] {
   const frames: Record<string, unknown>[] = []; let text = ''; let reasoning = '';
-  const flushDelta = () => { if (text) { frames.push({ type: 'event', session: batch.conversation, kind: 'delta', text }); text = ''; } };
-  const flushReasoning = () => { if (reasoning) { frames.push({ type: 'event', session: batch.conversation, kind: 'reasoning', text: reasoning }); reasoning = ''; } };
+  /* A batched `delta` or `reasoning` carries the position recorded when its text was appended, not
+   * when it is flushed: the flush happens while a later envelope is already being handled, and
+   * stamping that later position would quietly skip the events in between on a resume. */
+  const push = (at: number | undefined, frame: Record<string, unknown>): void => { frames.push(at === undefined ? frame : { ...frame, cursor: at }); };
+  let textAt: number | undefined; let reasoningAt: number | undefined;
+  const flushDelta = () => { if (text) { push(textAt, { type: 'event', session: batch.conversation, kind: 'delta', text }); text = ''; } };
+  const flushReasoning = () => { if (reasoning) { push(reasoningAt, { type: 'event', session: batch.conversation, kind: 'reasoning', text: reasoning }); reasoning = ''; } };
   const flush = () => { flushDelta(); flushReasoning(); };
 
-  for (const event of batch.events) {
+  for (const [index, event] of batch.events.entries()) {
     const payload = event.payload; if (!isObject(payload)) throw new Error('A validated stream event lost its payload.');
+    const at = positionOf(batch, index);
 
-    if (event.type === 'token' && typeof payload['text'] === 'string') { flushReasoning(); text += payload['text']; continue; }
+    if (event.type === 'token' && typeof payload['text'] === 'string') { flushReasoning(); text += payload['text']; textAt = at; continue; }
 
     if (event.type === 'model.event' && isObject(payload['event']) && payload['event']['type'] === 'delta.reasoning' && typeof payload['event']['text'] === 'string') {
-      flushDelta(); reasoning += payload['event']['text']; continue;
+      flushDelta(); reasoning += payload['event']['text']; reasoningAt = at; continue;
     }
 
+    /* A `model.event` that is not a reasoning delta projects to nothing, and must not reach `flush()`.
+     * core emits one per provider event (index.ts's `#emit(state, options, 'model.event', ...)`), so a
+     * token run interleaved with them flushes after every single token and KS-020's batching is lost
+     * entirely — one `delta` frame per token rather than one per batch. Widening lib/session/schema.json
+     * to admit `model.event` is what first exposed this; before that these never reached the gateway. */
+    if (event.type === 'model.event') continue;
+
     flush();
-    if (event.type === 'input' && typeof payload['text'] === 'string') frames.push({ type: 'event', session: batch.conversation, kind: 'user', text: payload['text'] });
-    if (event.type === 'call') { const frame = payload['ok'] === undefined ? callRequestFrame(batch.conversation, payload) : callAnswerFrame(batch.conversation, payload); if (frame) frames.push(frame); }
-    if (event.type === 'notice') frames.push({ type: 'event', session: batch.conversation, kind: 'note', text: textOf(payload['content']) });
+    if (event.type === 'input' && typeof payload['text'] === 'string') {
+      const attachments = attachmentsOf(batch.conversation, payload['attachments']);
+      push(at, { type: 'event', session: batch.conversation, kind: 'user', text: payload['text'], ...(attachments.length ? { attachments } : {}) });
+    }
+    if (event.type === 'call') for (const frame of callFrames(batch.conversation, payload)) push(at, frame);
+    if (event.type === 'notice') push(at, { type: 'event', session: batch.conversation, kind: 'note', text: textOf(payload['content']) });
     // The whole retrieve answer, as the retriever reported it: a panel reads `score` and `how` when a
     // retriever chose to report them and says nothing about ranking when it did not.
-    if (event.type === 'retrieve') frames.push({ type: 'event', session: batch.conversation, kind: 'retrieve', entries: payload['entries'], dropped: payload['dropped'] });
+    if (event.type === 'retrieve') push(at, { type: 'event', session: batch.conversation, kind: 'retrieve', entries: payload['entries'], dropped: payload['dropped'] });
+    /* The four kinds the inspectors read. Hyphenated to match the wire's own `turn-finished` and
+     * `tool-call` rather than the envelope's dotted type, and flattened like every frame above.
+     * Passed through verbatim: `context` is the only source of the section split and the budget, and
+     * `model.begin`'s request is the exact body sent to the provider — a summary of either answers a
+     * different question than the one the Context inspector exists to answer. Neither is bounded here;
+     * lib/session/batch.ts's own eventBytes limit still applies upstream, and if a bound is ever put on
+     * these the agreed shape is a `truncated: true` field the inspector already draws. */
+    if (event.type === 'context') push(at, { type: 'event', session: batch.conversation, kind: 'context', sections: payload['sections'], budget: payload['budget'] });
+    if (event.type === 'offer') push(at, { type: 'event', session: batch.conversation, kind: 'offer', tools: payload['tools'], mode: payload['mode'] });
+    if (event.type === 'model.begin') push(at, { type: 'event', session: batch.conversation, kind: 'model-begin', provider: payload['provider'], model: payload['model'], request: payload['request'] });
+    if (event.type === 'model.end') push(at, { type: 'event', session: batch.conversation, kind: 'model-end', stop: payload['stop'], usage: payload['usage'] });
     if (event.type === 'output' && isObject(payload['message'])) {
       const content = payload['message']['content'];
-      frames.push({ type: 'event', session: batch.conversation, kind: 'assistant', text: textOf(content), usage: payload['usage'] });
+      push(at, { type: 'event', session: batch.conversation, kind: 'assistant', text: textOf(content), usage: payload['usage'] });
     }
-    if (event.type === 'end') frames.push({ type: 'event', session: batch.conversation, kind: 'turn-finished', stopped_by: payload['reason'], iterations: payload['iterations'], compactions: payload['compactions'], ...(payload['code'] === undefined ? {} : { code: payload['code'] }) });
+    if (event.type === 'end') push(at, { type: 'event', session: batch.conversation, kind: 'turn-finished', stopped_by: payload['reason'], iterations: payload['iterations'], compactions: payload['compactions'], ...(payload['code'] === undefined ? {} : { code: payload['code'] }) });
   }
   flush(); return frames;
 }

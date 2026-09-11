@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- The tab icon: the agent's first letter, in the accent colour, inside the same ring the sidebar
+       draws. Both the letter and the colour are filled in when this file is served (brand.ts), which is
+       why they are written out rather than taken from currentColor — a tab icon inherits nothing. -->
+  <rect width="32" height="32" rx="8" fill="#101016"/>
+  <circle cx="16" cy="16" r="12" fill="none" stroke="{agent_accent}" stroke-width="1.6" opacity="0.45"/>
+  <text x="16" y="16.5" fill="{agent_accent}" font-family="ui-sans-serif, system-ui, sans-serif"
+        font-size="16" font-weight="600" text-anchor="middle" dominant-baseline="central">{agent_initial}</text>
+</svg>

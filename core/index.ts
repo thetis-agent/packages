@@ -97,9 +97,14 @@ export class Loop {
   async #prepare(state: TurnState, input: Input, options: Options): Promise<Result<void, 'io' | 'budget'>> {
     this.#emit(state, options, 'input', input);
     if (this.#report.exhausted) return failure('budget', 'The turn report exceeds its byte limit.');
+    // Written into the conversation and said out loud in the same step. The append is what the model
+    // reads on this turn and every later one; the event is what a gateway draws as a line in the
+    // transcript, which is the only way a person finds out that something finished while they were
+    // away. Both, because a notice nobody can see is indistinguishable from one that never arrived.
     for (const notice of this.#notices.splice(0)) {
       const saved = await this.#conversation.append({ type: 'message', value: { role: 'tool', content: notice.content, source: notice.source } });
       if (!saved.ok) return saved;
+      this.#emit(state, options, 'notice', notice);
     }
     if (options.refresh?.length) {
       const saved = await this.#conversation.append({ type: 'message', value: { role: 'system', content: [{ type: 'text', text: `The environment changed: ${options.refresh.join(', ')}.` }], source: 'core' } });
