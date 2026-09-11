@@ -1382,6 +1382,215 @@ body { display: flex; flex-direction: column; }
 .statusbar-dot.is-bad { background: var(--err); }
 .statusbar-text { color: var(--text-faint); }
 
+/* --- the control panel --------------------------------------------------------
+ *
+ * Lifted from the approved artboards rather than approximated: the class names and every value here
+ * are the ones drawn in design-canvas/ControlPanel.dc.html, Packages.dc.html and Installing.dc.html,
+ * and every colour is a token from theme.css so restyling the surface still moves this with it.
+ *
+ * The panel replaces the middle of the window instead of covering it — `#app.is-admin` hides the
+ * stage and the rail rather than laying anything over them, so there is no stacking context to get
+ * wrong and nothing underneath still taking clicks. */
+
+.admin-panel {
+  flex: 1 1 auto; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+}
+#app.is-admin .main, #app.is-admin .rail { display: none; }
+
+.admin-head {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: var(--gap-3);
+  padding: var(--gap-3) var(--gap-5);
+  border-bottom: 1px solid var(--hairline);
+}
+.admin-head-title { margin: 0; font-size: var(--text-lg); font-weight: 600; letter-spacing: -.01em; }
+.admin-head-sub { margin: 1px 0 0; font-size: var(--text-xs); color: var(--text-faint); }
+.admin-head-gap { flex: 1 1 auto; }
+
+.admin-shell { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 12.5rem minmax(0, 1fr); }
+.admin-nav {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: var(--gap-3) var(--gap-2);
+  border-right: 1px solid var(--hairline);
+  background: var(--surface-1);
+  overflow-y: auto;
+}
+.admin-nav-btn {
+  text-align: left;
+  font-size: var(--text-sm); font-family: var(--font); color: var(--text-dim);
+  background: transparent; border: 1px solid transparent; border-radius: var(--r-sm);
+  padding: 6px var(--gap-2); cursor: pointer;
+}
+.admin-nav-btn:hover { color: var(--text); background: var(--surface-2); }
+.admin-nav-btn.is-active { color: var(--accent); background: var(--accent-wash); border-color: var(--accent-edge); }
+
+.admin-main { min-height: 0; overflow-y: auto; padding: var(--gap-4) var(--gap-5) var(--gap-5); }
+.admin-title { margin: 0 0 var(--gap-1); font-size: var(--text-lg); font-weight: 600; letter-spacing: -.01em; }
+.lede { margin: 0 0 var(--gap-4); font-size: var(--text-sm); color: var(--text-dim); line-height: 1.55; max-width: 64rem; }
+
+.admin-fields { display: flex; flex-direction: column; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface-2); max-width: 44rem; }
+.admin-field {
+  display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(10rem, 1fr);
+  align-items: start; gap: var(--gap-3) var(--gap-4);
+  padding: var(--gap-3); border-bottom: 1px solid var(--hairline);
+}
+.admin-field:last-child { border-bottom: none; }
+.admin-field-copy { min-width: 0; }
+.admin-field-key { font-size: var(--text-sm); color: var(--text); }
+.admin-field-control { display: flex; flex-direction: column; gap: var(--gap-1); min-width: 0; }
+.admin-field-value { font-family: var(--mono); font-size: var(--text-sm); color: var(--text-dim); overflow-wrap: anywhere; }
+
+/* --- the package explorer -----------------------------------------------------
+ *
+ * A table and one package's detail beside it: the columns answer what is here, the column beside them
+ * answers what this is without losing your place in the list. */
+
+.cols { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: var(--gap-5); align-items: start; }
+.colscroll { min-width: 0; }
+.sec { margin: 0 0 var(--gap-2); display: flex; align-items: flex-start; justify-content: space-between; gap: var(--gap-3); }
+.sec-aside { display: flex; align-items: center; gap: var(--gap-2); flex: 0 0 auto; }
+.srch {
+  display: flex; align-items: center; gap: var(--gap-2);
+  padding: 6px var(--gap-3);
+  background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md);
+  color: var(--text-faint); max-width: 22rem; flex: 1 1 auto;
+}
+.srch:focus-within { border-color: var(--accent-edge); }
+.srch input { flex: 1 1 auto; min-width: 0; background: transparent; border: 0; outline: none; font-size: var(--text-sm); color: var(--text); font-family: var(--font); }
+.srch input::placeholder { color: var(--text-faint); }
+
+.tbl-wrap { border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface-2); overflow: hidden; }
+.tbl { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.tbl th {
+  text-align: left; padding: var(--gap-2) var(--gap-3);
+  font-size: var(--text-xs); font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-dim); border-bottom: 1px solid var(--hairline);
+}
+.tbl td { padding: 7px var(--gap-3); border-bottom: 1px solid var(--hairline); vertical-align: middle; }
+.tbl tr:last-child td { border-bottom: none; }
+.tbl tbody tr { cursor: pointer; }
+.tbl tbody tr:hover td { background: var(--surface-3); }
+.tbl tr.is-sel td { background: var(--accent-wash); }
+.tbl tr.is-sel td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+.tbl tr:focus-visible { outline: 2px solid var(--accent-hot); outline-offset: -2px; }
+.pk-name { font-family: var(--mono); color: var(--text); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.pk-ver { font-family: var(--mono); color: var(--text-dim); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.quiet { color: var(--text-faint); font-size: var(--text-xs); }
+
+.pill {
+  display: inline-flex; align-items: center;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .03em;
+  padding: 1px 7px; border-radius: var(--r-pill);
+  border: 1px solid var(--hairline); background: var(--surface-1); color: var(--text-dim);
+}
+.pill-warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 38%, transparent); }
+.pill-on { color: var(--accent); border-color: var(--accent-edge); }
+
+.det { border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface-1); overflow: hidden; }
+.det-head { padding: var(--gap-3); border-bottom: 1px solid var(--hairline); background: var(--surface-2); }
+.det-name { font-family: var(--mono); font-size: var(--text-md); font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.det-body { padding: var(--gap-3); }
+.kv { display: grid; grid-template-columns: 5.6rem minmax(0, 1fr); gap: 3px var(--gap-2); font-size: var(--text-xs); line-height: 1.6; margin: 0; }
+.kv dt { color: var(--text-faint); }
+.kv dd { margin: 0; font-family: var(--mono); color: var(--text-dim); overflow-wrap: anywhere; }
+.det-sec { margin-top: var(--gap-3); padding-top: var(--gap-3); border-top: 1px solid var(--hairline); }
+.det-sec-t { font-size: var(--text-xs); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim); margin-bottom: var(--gap-2); }
+.taglist { display: flex; flex-wrap: wrap; gap: 4px; }
+
+/* The two ways to put a version in place, side by side, so the difference between them is what is
+ * being read rather than something hidden behind a menu. */
+.install { margin-top: var(--gap-3); border: 1px solid var(--accent-edge); border-radius: var(--r-md); background: var(--accent-wash); overflow: hidden; }
+.install-head { padding: var(--gap-2) var(--gap-3); border-bottom: 1px solid var(--accent-edge); display: flex; align-items: center; gap: var(--gap-2); }
+.install-t { font-size: var(--text-sm); font-weight: 600; color: var(--text); }
+.install-body { padding: var(--gap-3); display: flex; flex-direction: column; gap: var(--gap-3); }
+.opt { display: flex; flex-direction: column; gap: 6px; }
+.opt-top { display: flex; align-items: center; gap: var(--gap-2); }
+.opt-scope {
+  font-size: 10.5px; font-weight: 600; letter-spacing: .04em;
+  padding: 1px 7px; border-radius: var(--r-pill);
+  border: 1px solid var(--hairline); background: var(--surface-1); color: var(--text-faint);
+}
+.opt-scope.is-person { color: var(--accent); border-color: var(--accent-edge); }
+.opt-scope.is-deployment { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 38%, transparent); }
+.opt-note { font-size: var(--text-xs); color: var(--text-dim); line-height: 1.55; }
+.btn-row { display: flex; gap: var(--gap-2); align-items: center; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 7px 12px; font-size: var(--text-sm); font-weight: 600; font-family: var(--font);
+  border-radius: var(--r-md); border: 1px solid transparent; cursor: pointer;
+}
+.btn-primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.btn-primary:hover { background: var(--accent-hot); }
+.btn-warn { background: var(--warn); color: var(--bg); border-color: var(--warn); }
+.btn-warn:hover { filter: brightness(1.08); }
+
+/* --- a change being applied ---------------------------------------------------
+ *
+ * The steps a person watches. Every one of them is something that is actually happening, in the order
+ * it happens; the pulse is on exactly one row, which is what makes the list readable as progress
+ * rather than as a checklist somebody is ticking off out of view. */
+
+.change { display: flex; flex-direction: column; gap: var(--gap-4); max-width: 52rem; }
+.change-head { padding: var(--gap-3) var(--gap-4); border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface-1); }
+.change-head.is-busy { border-color: var(--accent-edge); background: var(--accent-wash); }
+.change-head.is-ok { border-color: color-mix(in srgb, var(--ok) 38%, transparent); background: var(--ok-wash); }
+.change-head.is-warn { border-color: color-mix(in srgb, var(--warn) 38%, transparent); background: var(--warn-wash); }
+.change-head.is-error { border-color: color-mix(in srgb, var(--err) 38%, transparent); background: var(--err-wash); }
+.change-headline { margin: 0; font-size: var(--text-lg); font-weight: 600; letter-spacing: -.01em; color: var(--text); }
+.change-note { margin: 3px 0 0; font-size: var(--text-sm); color: var(--text-dim); line-height: 1.55; }
+
+.steps { display: flex; flex-direction: column; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface-1); overflow: hidden; }
+.step { display: flex; align-items: flex-start; gap: var(--gap-3); padding: var(--gap-3); border-bottom: 1px solid var(--hairline); }
+.step:last-child { border-bottom: 0; }
+.step-mark {
+  flex: none; width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 11px; font-weight: 700; font-family: var(--mono);
+  border: 1px solid var(--hairline); color: var(--text-faint); background: var(--surface-2);
+}
+.step.is-done .step-mark { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); background: var(--ok-wash); }
+.step.is-live .step-mark { color: var(--accent); border-color: var(--accent-edge); background: var(--accent-wash); animation: step-pulse var(--sheen) var(--ease) infinite; }
+.step-copy { flex: 1 1 auto; min-width: 0; }
+.step-name { font-size: var(--text-sm); font-weight: 600; color: var(--text); }
+.step.is-todo .step-name { color: var(--text-dim); font-weight: 500; }
+.step-note { font-size: var(--text-xs); color: var(--text-faint); line-height: 1.55; margin-top: 2px; }
+.step-time { flex: none; font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); }
+@keyframes step-pulse { 50% { opacity: .35; } }
+
+.warnbox {
+  display: flex; gap: var(--gap-2); align-items: center;
+  padding: var(--gap-2) var(--gap-3);
+  border: 1px solid color-mix(in srgb, var(--warn) 38%, transparent); border-radius: var(--r-md);
+  background: var(--warn-wash); color: var(--warn);
+  font-size: var(--text-xs); line-height: 1.55;
+}
+.warnbox-gap { flex: 1 1 auto; }
+
+.list { border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface-1); overflow: hidden; max-width: 52rem; }
+.list-row { display: flex; align-items: center; gap: var(--gap-2); padding: 7px var(--gap-3); border-bottom: 1px solid var(--hairline); font-size: var(--text-sm); }
+.list-row:last-child { border-bottom: 0; }
+.list-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--text-dim); }
+.dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--text-faint); }
+.dot.is-ok { background: var(--ok); }
+.dot.is-warn { background: var(--warn); }
+.dot.is-error { background: var(--err); }
+.dot.is-busy { background: var(--accent); }
+
+/* The particulars beside the question a confirming action asks. They are rendered rather than
+ * summarised into the sentence, because seeing them is what makes the second press explicit. */
+.confirm-body { display: flex; flex-direction: column; gap: var(--gap-2); }
+.confirm-detail { margin: 0; font-size: var(--text-xs); color: var(--text-dim); line-height: 1.55; }
+.popover-facts {
+  display: grid; grid-template-columns: 4.6rem minmax(0, 1fr); gap: 2px var(--gap-2);
+  font-family: var(--mono); font-size: 11px; line-height: 1.6; margin: 0;
+  padding: var(--gap-2);
+  background: var(--bg); border: 1px solid var(--hairline); border-radius: var(--r-sm);
+}
+.popover-facts dt { color: var(--text-faint); }
+.popover-facts dd { margin: 0; color: var(--text-dim); overflow-wrap: anywhere; }
+
 /* --- responsive ------------------------------------------------------------ */
 
 @media (max-width: 1100px) {
@@ -1408,4 +1617,8 @@ body { display: flex; flex-direction: column; }
   .stage-tab { max-width: 10rem; }
   .chat-bar { padding: var(--gap-2) var(--gap-3); }
   .composer-hint { display: none; }
+  /* Narrow: the detail column goes under the table rather than squeezing both. */
+  .cols { grid-template-columns: minmax(0, 1fr); gap: var(--gap-4); }
+  .admin-shell { grid-template-columns: 9.5rem minmax(0, 1fr); }
+  .admin-main { padding: var(--gap-3) var(--gap-3) var(--gap-4); }
 }

@@ -18,6 +18,7 @@ import { $, setHidden } from "./lib/dom.js";
 import { Connection } from "./lib/socket.js";
 import { store } from "./lib/store.js";
 import { toast } from "./lib/toast.js";
+import { mountAdmin } from "./views/admin.js";
 import { mountComposer } from "./views/composer.js";
 import { mountEnvironment } from "./views/environment.js";
 import { mountRail } from "./views/rail.js";
@@ -82,6 +83,7 @@ const composer = mountComposer({
 });
 
 mountSessions({ onOpen: openConversation, onNew: createConversation });
+const admin = mountAdmin({ sendFrame });
 
 // --- identity -----------------------------------------------------------------
 
@@ -210,7 +212,8 @@ connection
     }
     toast(frame.message || "The environment reported an error.", { tone: "error" });
   })
-  .on("env-status", (frame) => store.set({ env: frame }));
+  .on("env-status", (frame) => store.set({ env: frame }))
+  .on("admin", (frame) => admin.apply(frame));
 
 connection.onOpen(() => {
   sendFrame({ type: "hello" });
@@ -219,6 +222,7 @@ connection.onOpen(() => {
   // `#streams`), and a reconnect starts with none of them — so all of them,
   // not just the one on screen, need to ask again.
   for (const id of store.tabs) sendFrame({ type: "open", id });
+  admin.reconnected();
 });
 
 connection.connect();
