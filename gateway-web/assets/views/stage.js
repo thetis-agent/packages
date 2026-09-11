@@ -42,7 +42,13 @@ export function mountStage(config) {
     showCurrent();
     drawStrip();
   });
-  store.watch("sessions", drawStrip);
+  /* A pane's own header carries the same name as its tab, so a `sessions` reply that names a
+   * conversation for the first time has to reach both. It reached only the strip, which is why a
+   * chat whose tab already said what it was about still read "Untitled" above the transcript. */
+  store.watch("sessions", () => {
+    showCurrent();
+    drawStrip();
+  });
   store.watch("busyIds", drawStrip);
   store.watch("usage", drawUsage);
 
@@ -60,7 +66,7 @@ export function transcriptFor(id) {
  * than the only one: a conversation opened and not yet spoken to has no title,
  * and a tab for one that is not in the list yet (a `new` whose `list` reply has
  * not landed) has nothing to read. Both settle on the next `sessions` frame,
- * which `showCurrent` and `drawStrip` both run on. */
+ * which redraws the strip and every pane's header together. */
 function title(id) {
   return titleOf((store.sessions || []).find((session) => session.id === id));
 }

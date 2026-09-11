@@ -41,8 +41,13 @@ export class Pending {
    *   when nothing is coming back at all rather than racing a slow but honest answer
    * @param {(run: () => void, ms: number) => unknown} [options.schedule]
    * @param {(handle: unknown) => void} [options.cancel]
+   *
+   * Both timer defaults are wrappers rather than the functions themselves. Held on the instance and
+   * called as `this.schedule(...)`, a bare `setTimeout` is invoked with this object as its receiver —
+   * which Node tolerates and a browser refuses outright with "Illegal invocation". Every contributed
+   * panel's first request threw, and no test saw it, because no test ran in a browser.
    */
-  constructor({ max = 8, timeoutMs = 35000, schedule = setTimeout, cancel = clearTimeout } = {}) {
+  constructor({ max = 8, timeoutMs = 35000, schedule = (run, ms) => setTimeout(run, ms), cancel = handle => { clearTimeout(handle); } } = {}) {
     this.waiting = new Map();
     this.max = max;
     this.timeoutMs = timeoutMs;

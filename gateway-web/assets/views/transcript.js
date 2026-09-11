@@ -109,11 +109,14 @@ export function mountTranscriptInto(root) {
     );
   }
 
-  /** The person's own message, drawn immediately on send with a pending mark
-   *  that `settleLocal`/`failLocal` clears once the socket says what happened
-   *  — `accepted`, this wire's actual send-acknowledgement, standing in for
-   *  the legacy `input`-echo settle (the running kernel does not emit `input`
-   *  events onto this wire; render.ts's own doc comment says so). */
+  /** The person's own message, drawn immediately on send with a pending mark.
+   *
+   *  The mark is cleared by the host's own echo of the message — the `user` frame the stream now
+   *  carries for every `input` — which arrives as soon as the turn starts rather than when it ends.
+   *  `settleLocal`/`failLocal` remain for `accepted` and for a send that failed, and settling twice
+   *  is harmless. Before the stream was widened there was no echo, the optimistic row was the only
+   *  one, and `accepted` was the only signal; now both exist, and drawing both is what put every
+   *  message on the screen twice. */
   function addLocal(text, files) {
     live = null;
     const note = el("span", { class: "pending-note" }, "Sending…");
@@ -156,10 +159,27 @@ export function mountTranscriptInto(root) {
     bubble.reasoningEl.querySelector("summary").textContent = "Thought for a moment";
   }
 
+  /** Finishes the streaming bubble in place: its text becomes markdown and it stops being live.
+   *  Unlike `assistant`, it keeps what was streamed rather than replacing it, because there is no
+   *  canonical message for an iteration that ended in a tool call. */
+  function settleLive() {
+    if (!live) return;
+    const bubble = live;
+    live = null;
+    settleReasoning(bubble);
+    bubble.textEl.classList.remove("is-live");
+    if (!bubble.text) return;
+    clear(bubble.textEl);
+    bubble.textEl.append(...renderMarkdown(bubble.text));
+  }
+
   const RENDERERS = {
     user(frame) {
-      // An echo of a message this client did not itself just draw — another
-      // tab, another device, or this conversation being reopened.
+      /* The host's echo of a message. If this client drew it optimistically a moment ago, this frame
+       * is that same message coming back settled, not a second one — a conversation admits one turn
+       * at a time (wire.ts's `#turns`), so a row still waiting can only be this. Otherwise it came
+       * from somewhere this client is not: another tab, another device, or a conversation reopened. */
+      if (pendingRow) { settleLocal(); return; }
       row("user", attachmentsOf(frame.attachments), frame.text ? el("div", { class: "msg-text" }, frame.text) : null);
     },
     delta(frame) {
@@ -183,6 +203,16 @@ export function mountTranscriptInto(root) {
       live = null;
     },
     "tool-call"(frame) {
+      /* A call ends the message that asked for it.
+       *
+       * A turn can run several model exchanges — say something, call a tool, say something else —
+       * and only the last of them produces an `assistant` frame, because `output` carries the turn's
+       * final message and nothing before it. Leaving the streaming bubble open across a call meant
+       * the next iteration's text landed in the same bubble, `assistant` then cleared it and wrote
+       * the final answer over the top, and everything the model said before the call disappeared —
+       * while the tool row, appended after the bubble that was already on screen, ended up below the
+       * answer it came before. Settling here is what keeps the transcript in the order it happened. */
+      settleLive();
       const args = safeJson(frame.args);
       const node = place(
         el(
