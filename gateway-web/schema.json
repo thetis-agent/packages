@@ -3,6 +3,8 @@
   "type": "object", "required": ["type"], "properties": {
     "type": { "type": "string", "maxLength": 64 }, "id": { "type": "string", "maxLength": 256 },
     "text": { "type": "string", "maxLength": 65536 }, "from": { "type": "integer", "minimum": 0 },
+    "title": { "type": "string", "minLength": 1, "maxLength": 96 },
+    "scope": { "enum": ["mine", "everyone"] },
     "attachments": { "type": "array", "maxItems": 8, "items": {
       "type": "object", "required": ["name", "mime", "bytes", "hash", "path"], "properties": {
         "name": { "type": "string", "maxLength": 256 }, "mime": { "type": "string", "maxLength": 128 },

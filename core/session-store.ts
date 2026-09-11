@@ -52,12 +52,18 @@ export class SessionStore {
     } catch { return failure('io', 'The environment conversation state could not be opened.'); }
   }
 
-  async list(): Promise<Result<SessionInfo[]>> {
+  /** The conversations this environment holds, archive excluded unless it is asked for.
+   *
+   * `archived: true` *adds* the archived rows rather than returning them instead: every row already
+   * says which it is, and the caller that wants the archive — a sidebar drawing a collapsed Archived
+   * section under the live list — wants both at once, and asking twice would leave it stitching two
+   * replies that can cross. A caller that wants only the live ones asks for nothing. */
+  async list({ archived = false } = {}): Promise<Result<SessionInfo[]>> {
     const names = await this.#names(); if (!names.ok) return names;
     const result: SessionInfo[] = [];
     for (const name of names.value.sort()) {
       const info = await this.info(name); if (!info.ok) return info;
-      result.push(info.value);
+      if (archived || info.value.archived !== true) result.push(info.value);
     }
     return { ok: true, value: result };
   }
@@ -111,9 +117,22 @@ export class SessionStore {
     return this.#save(id, value);
   }
 
-  /** Moves a conversation in or out of the archive. Storage only: no gateway command reaches this yet
-   * (runtime TODO.md, "Carry conversation archiving to the wire"), so the flag is written by tests and
-   * by any future caller, and the web sidebar already filters an archived row out of its list. */
+  /** Names a conversation by hand — the one thing `record` will not do twice, since the first message
+   * titles a conversation and nothing renames it afterwards. Held to the same cap and the same
+   * one-line shape as a derived title, so a name typed in a sidebar and a name taken from a first
+   * message are the same kind of thing. `updatedMs` moves because the row changed and the sidebar
+   * orders by that stamp; a rename that did not move it would sort under its own old position. */
+  async rename(id: string, title: string): Promise<Result<void>> {
+    const named = summarise(title, storeLimits.titleChars);
+    if (named === undefined) return failure('invalid-args', 'A conversation name cannot be empty.');
+    const info = await this.info(id); if (!info.ok) return info;
+    const value = { ...info.value, title: named, updatedMs: this.#now() };
+    if (!this.#check(value)) return failure('invalid-args', 'The conversation name violates its schema.');
+    return this.#save(id, value);
+  }
+
+  /** Moves a conversation in or out of the archive. `list` leaves an archived conversation out unless
+   * it is asked for, and `session.archive` on the kernel socket is what reaches this from outside. */
   async archive(id: string, archived: boolean): Promise<Result<void>> {
     const info = await this.info(id); if (!info.ok) return info;
     const value = { ...info.value, archived, updatedMs: this.#now() };

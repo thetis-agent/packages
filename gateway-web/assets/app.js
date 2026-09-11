@@ -92,7 +92,27 @@ const composer = mountComposer({
   },
 });
 
-mountSessions({ onOpen: openConversation, onNew: createConversation });
+/* The sidebar's own commands. Each is an ask, not a change: the row that comes
+ * back from the next `list` is the host's answer, since the environment caps
+ * and collapses a name and this tab has no business guessing either. */
+const sessions = mountSessions({
+  onOpen: openConversation,
+  onNew: createConversation,
+  onRename(id, title) {
+    if (!sendFrame({ type: "rename", id, title })) toast("Not connected — the name was not changed.", { tone: "error" });
+  },
+  onArchive(id, archived) {
+    if (!sendFrame({ type: archived ? "archive" : "unarchive", id })) {
+      toast("Not connected — try again once the connection is back.", { tone: "error" });
+    }
+  },
+  /* Whose conversations the list holds. The host decides whether this account
+   * may ask at all; the switch is only on screen for a role that may. */
+  onScope(scope) {
+    if (!sendFrame({ type: "list", scope })) return toast("Not connected — the list did not change.", { tone: "error" });
+    store.set({ scope });
+  },
+});
 
 // --- identity -----------------------------------------------------------------
 
@@ -141,9 +161,12 @@ async function loadContributions(frame) {
  * should ask once. */
 let listTimer = null;
 const LIST_DEBOUNCE_MS = 250;
+/** Always named with the scope on screen, so the reply can be told apart from
+ *  one answered for the other setting and still in flight. */
+const requestList = () => sendFrame({ type: "list", scope: store.scope });
 function scheduleList() {
   clearTimeout(listTimer);
-  listTimer = setTimeout(() => { listTimer = null; sendFrame({ type: "list" }); }, LIST_DEBOUNCE_MS);
+  listTimer = setTimeout(() => { listTimer = null; requestList(); }, LIST_DEBOUNCE_MS);
 }
 
 /* Folds a frame into the conversation's usage ledger, and hands back the finished turn on the frame
@@ -205,6 +228,11 @@ connection
    * letter on the agent's face in each turn. */
   .on("user", (frame) => { store.set({ user: frame.user, agent: frame.agent || store.agent }); void loadContributions(frame); })
   .on("sessions", (frame) => {
+    // A reply carries the scope it answered. One answered for the other
+    // setting is still in flight when the switch is flipped, and membership
+    // comes from the reply — so taking it would empty the sidebar of the half
+    // it just asked for.
+    if ((frame.scope || "mine") !== store.scope) return;
     // Merged rather than replaced: a reply asked for before a turn ended can
     // land after it, and taking whichever arrived last would put the older row
     // back. `updatedMs` is the host's stamp for the row and decides — the same
@@ -227,7 +255,22 @@ connection
     if (lost) transcriptFor(frame.session)?.applyEvent({ kind: "note", text: "Some earlier messages could not be restored." });
     store.set({ creating: false });
     composer.focus();
-    sendFrame({ type: "list" });
+    requestList();
+  })
+  /* Both are acknowledgements, and the row itself comes from the list they ask
+   * for: the host caps and collapses a name, and an archived row belongs in a
+   * different section of the sidebar. Archiving offers the way back, because a
+   * one-click change is only safe when undoing it is one click too. */
+  .on("renamed", () => { requestList(); })
+  .on("archived", (frame) => {
+    requestList();
+    if (!frame.archived) return toast("Conversation restored.");
+    // The section the row moved into is opened, so the one thing that changed
+    // on screen is visible rather than folded away at the foot of the list.
+    sessions.openArchive();
+    toast("Conversation archived.", {
+      action: { label: "Undo", run: () => sendFrame({ type: "unarchive", id: frame.session }) },
+    });
   })
   .on("accepted", (frame) => {
     store.setPending(frame.session, false);
@@ -265,7 +308,10 @@ connection
 
 connection.onOpen(() => {
   sendFrame({ type: "hello" });
-  sendFrame({ type: "list" });
+  // The everyone switch lives on this socket's own request, so a reconnect
+  // starts personal; the scope is named again before the sidebar draws a list
+  // that quietly lost half its rows.
+  requestList();
   // Every open tab is its own subscription on the socket (wire.ts's
   // `#streams`), and a reconnect starts with none of them — so all of them,
   // not just the one on screen, need to ask again. Each asks to continue from

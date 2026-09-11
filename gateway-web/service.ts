@@ -106,5 +106,5 @@ const result = await serve(async (profile, schemas, peer, identity) => {
     return admit(connection.socket, connection.admitted, signIn, identity.person, factory, request);
   } };
 }, outcome => { if (!outcome.ok) process.stderr.write(`${JSON.stringify(outcome)}\n`); },
-  ['session.list', 'session.create', 'session.submit', 'session.cancel', 'session.whois', 'env.status', 'env.reset'], 'person');
+  ['session.list', 'session.create', 'session.submit', 'session.cancel', 'session.rename', 'session.archive', 'session.whois', 'env.status', 'env.reset'], 'person');
 if (!result.ok) { process.stderr.write(`${JSON.stringify(result)}\n`); process.exitCode = 1; }

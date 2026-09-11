@@ -4,11 +4,11 @@
  * and re-render; nothing mutates the DOM behind the store's back.
  *
  * Deliberately small: the wire this UI now speaks (wire.ts) carries a person's
- * name, a conversation list, N conversations' streams of turn events, and the
- * environment's health — nothing about roles, branches, files, skills, tools,
- * models, or other people's conversations. There is no `denied()` helper here
- * the way the legacy store had one: the `user` frame is frozen to `{name}`, so
- * there is no role for anything to withhold.
+ * name and role, a conversation list, N conversations' streams of turn events,
+ * and the environment's health — nothing about branches, files, skills, tools
+ * or models. There is no `denied()` helper here the way the legacy store had
+ * one: the role decides exactly one thing on this surface, whether the sidebar
+ * may ask for everyone's conversations, and views/sessions.js reads it there.
  *
  * `busyIds`/`pendingIds` are sets rather than one flag apiece because
  * `wire.ts`'s `#streams`/`#turns` are keyed by conversation id — several tabs
@@ -25,14 +25,15 @@ import { blankLedger } from "./usage.js";
 const EMPTY_LEDGER = blankLedger();
 
 export const store = {
-  /** The signed-in person's conversations, as last replied by `list`. */
+  /** The conversations as last replied by `list`: this person's, or everyone's
+   *  when `scope` says so, in which case each row carries an `owner`. */
   sessions: [],
   /** Conversation ids with an open tab, in stage-tab order. */
   tabs: [],
   /** The tab id showing in the stage, or null. */
   current: null,
-  /** The `user` frame's name — who this socket is for. Null until it arrives,
-   *  which is the first thing the host sends. */
+  /** The `user` frame — `{ name, role }`, who this socket is for. Null until it
+   *  arrives, which is the first thing the host sends. */
   user: null,
   /** What the agent is called and the colour it is drawn in — configuration,
    *  not anything this browser chose. Seeded from the page, which was served
@@ -40,6 +41,11 @@ export const store = {
    *  have the right word; the `user` frame replaces it with the same answer
    *  from the same process a moment later. lib/brand.js says why twice. */
   agent: pageAgent(),
+  /** Whose conversations `sessions` holds: "mine", or "everyone" once the
+   *  sidebar's switch is on. Held here rather than in the view because app.js
+   *  has to name it on every `list` it sends, including the ones a reconnect
+   *  sends before any view has drawn. */
+  scope: "mine",
   /** The last `env-status` frame, or null before one has arrived (the
    *  environment predates `env.status`, or none has landed yet). Not keyed by
    *  conversation: wire.ts's `#envStatus` is a property of the socket's own

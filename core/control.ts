@@ -31,7 +31,12 @@ class SessionControl {
         const drained = await this.#drained; if (drained && !drained.ok) return drained;
         return { ok: true, value: { ready: true, active: this.#sessions.active, connections: this.#connections(), draining: this.#drained !== undefined } };
       }],
-      ['session.list', params => params['person'] !== undefined && params['person'] !== this.#person ? Promise.resolve(failure('forbidden', 'The conversation list belongs to this environment.')) : this.#sessions.list()],
+      ['session.list', params => {
+        const { person, archived } = params;
+        if (person !== undefined && person !== this.#person) return Promise.resolve(failure('forbidden', 'The conversation list belongs to this environment.'));
+        if (archived !== undefined && typeof archived !== 'boolean') return Promise.resolve(failure('invalid-args', 'The conversation list arguments are invalid.'));
+        return this.#sessions.list({ archived: archived === true });
+      }],
       ['session.create', params => {
         const { surface, project } = params;
         if (typeof surface !== 'string' || project !== undefined && typeof project !== 'string') return Promise.resolve(failure('invalid-args', 'The conversation metadata is invalid.'));
@@ -42,7 +47,19 @@ class SessionControl {
         if (typeof conversation !== 'string' || !this.#schemas.validator<Input>('turn-events', 'input')(input)) return Promise.resolve(failure('invalid-args', 'The input violates the turn-event schema.'));
         return this.#sessions.submit(conversation, input);
       }],
-      ['session.cancel', params => Promise.resolve(typeof params['conversation'] === 'string' ? this.#sessions.cancel(params['conversation']) : failure('invalid-args', 'The conversation id is invalid.'))]
+      ['session.cancel', params => Promise.resolve(typeof params['conversation'] === 'string' ? this.#sessions.cancel(params['conversation']) : failure('invalid-args', 'The conversation id is invalid.'))],
+      // Metadata, not turns: renaming and archiving touch the stored row and never the loop, so both
+      // stay available while a conversation is mid-turn and neither goes through the drain.
+      ['session.rename', params => {
+        const { conversation, title } = params;
+        if (typeof conversation !== 'string' || typeof title !== 'string') return Promise.resolve(failure('invalid-args', 'The conversation name is invalid.'));
+        return this.#sessions.rename(conversation, title);
+      }],
+      ['session.archive', params => {
+        const { conversation, archived } = params;
+        if (typeof conversation !== 'string' || typeof archived !== 'boolean') return Promise.resolve(failure('invalid-args', 'The conversation archive flag is invalid.'));
+        return this.#sessions.archive(conversation, archived);
+      }]
     ]);
   }
 
