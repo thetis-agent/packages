@@ -1,0 +1,51 @@
+{
+  "name": "tools-terminal",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": "./index.ts",
+  "stages": "./index.ts",
+  "requires": {
+    "contract/surface": "^1.1",
+    "contract/turn-events": "^1"
+  },
+  "provides": {
+    "panel/terminal": "1.0.0"
+  },
+  "surface": {
+    "v": "1",
+    "panels": [
+      {
+        "id": "terminal",
+        "label": "Terminal",
+        "hint": "Terminal — commands running in your space, live",
+        "entry": "/surface/tools-terminal/panel.js"
+      }
+    ],
+    "commands": [
+      { "verb": "start", "label": "Run a command" },
+      { "verb": "output", "label": "See what a command has printed" },
+      { "verb": "input", "label": "Type into a running command" },
+      { "verb": "stop", "label": "Stop a running command" }
+    ]
+  },
+  "envelope": {
+    "requires": [],
+    "provides": [],
+    "spawn": {
+      "scope": "person",
+      "network": "none"
+    }
+  },
+  "settings": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "sessions": { "type": "integer", "minimum": 1, "default": 4 },
+      "bufferBytes": { "type": "integer", "minimum": 1024, "default": 262144 },
+      "totalBytes": { "type": "integer", "minimum": 1024, "default": 4194304 },
+      "idleMs": { "type": "integer", "minimum": 1000, "default": 300000 },
+      "readBytes": { "type": "integer", "minimum": 1024, "default": 16384 }
+    },
+    "additionalProperties": false
+  }
+}
