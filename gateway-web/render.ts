@@ -1,19 +1,14 @@
 /** Preserve text order while projecting turn-event envelopes into the lifted gateway wire; ADR 0019, KS-020.
  * `token` batches into `delta` exactly as before (KS-020); `model.event` reasoning deltas batch the same way
  * into `reasoning`, each flushed only when the other kind (or a non-batched frame) is about to be emitted, so
- * interleaved streams keep their arrival order. `input`, `call` (request and answer) and `notice` are new,
- * forward-looking mappings: nothing in the running kernel emits them onto this wire yet (`lib/session/schema.json`
- * still narrows `session.events` to token/output/end), so these branches are exercised only by render.test.ts
- * until that schema is widened. */
+ * interleaved streams keep their arrival order. `call` draws two rows from one
+ * envelope, because the core reports a call only once it has been answered. */
 import { isObject } from '@/lib/schema/index.ts';
 import type { Batch } from '@/lib/session/types.ts';
 
-/** `events` accepts the real generated `Batch['events']` member for the kinds `lib/session/schema.json`
- *  already names (`token`/`output`/`end`, each carrying the full envelope now that the generator
- *  parenthesizes `allOf: [envelope, oneOf(...)]` before intersecting it), plus a generic `type`/`payload`
- *  fallback for `input`, `call` (request and answer), `model.event` and `notice`: forward-looking kinds
- *  nothing running emits onto this wire yet, so no schema types their shape, and only `render.test.ts`
- *  exercises them until `lib/session/schema.json` is widened to name them. */
+/** `events` accepts the real generated `Batch['events']` member, plus a generic `type`/`payload`
+ *  fallback: the generated union names the kinds whose payload the contract types, and a batch that
+ *  arrives over a socket is validated against the schema before it reaches here either way. */
 export type EventBatch = { conversation: string; cursor?: number; events: readonly (Batch['events'][number] | { type?: string; payload?: unknown })[] };
 
 /** Bounds on what a rendered frame carries; named per house rule (AGENTS.md "bound everything"). */
@@ -34,16 +29,28 @@ function cap(value: string): string {
   return buffer.byteLength <= limits.summaryBytes ? value : buffer.subarray(0, limits.summaryBytes).toString('utf8');
 }
 
-/** A `call` envelope carries either the request or its answer; the answer is the only shape with `ok`. */
-function callAnswerFrame(conversation: string, payload: Record<string, unknown>): Record<string, unknown> {
-  const ok = payload['ok'] === true;
-  const summary = ok ? textOf(payload['content']) : errorMessage(payload['error']);
-  return { type: 'event', session: conversation, kind: 'tool-result', id: payload['id'], ok, summary: cap(summary) };
+function callAnswerFrame(conversation: string, answer: Record<string, unknown>): Record<string, unknown> {
+  const ok = answer['ok'] === true;
+  const summary = ok ? textOf(answer['content']) : errorMessage(answer['error']);
+  return { type: 'event', session: conversation, kind: 'tool-result', id: answer['id'], ok, summary: cap(summary) };
 }
 
-function callRequestFrame(conversation: string, payload: Record<string, unknown>): Record<string, unknown> | undefined {
-  if (typeof payload['id'] !== 'string' || typeof payload['name'] !== 'string') return undefined;
-  return { type: 'event', session: conversation, kind: 'tool-call', id: payload['id'], name: payload['name'], args: payload['args'] };
+function callRequestFrame(conversation: string, request: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (typeof request['id'] !== 'string' || typeof request['name'] !== 'string') return undefined;
+  return { type: 'event', session: conversation, kind: 'tool-call', id: request['id'], name: request['name'], args: request['args'] };
+}
+
+/** One `call` envelope is a finished call, so it draws two rows: what was asked and what came back.
+ *
+ * `packages/core/index.ts` emits `{ request, answer }` together — the request is not observable on its
+ * own, because the core only reports a call once the dispatcher has answered it. The surface still wants
+ * them as separate rows so a slow call reads the way a person expects, and the pair's shared `id` is what
+ * ties the second to the first. A payload missing either half draws nothing rather than half a call. */
+function callFrames(conversation: string, payload: Record<string, unknown>): Record<string, unknown>[] {
+  const request = payload['request']; const answer = payload['answer'];
+  if (!isObject(request) || !isObject(answer)) return [];
+  const asked = callRequestFrame(conversation, request);
+  return asked ? [asked, callAnswerFrame(conversation, answer)] : [];
 }
 
 /* Where one envelope of a batch sits in the conversation, so a subscriber that loses its connection
@@ -86,7 +93,7 @@ export function render(batch: EventBatch): Record<string, unknown>[] {
 
     flush();
     if (event.type === 'input' && typeof payload['text'] === 'string') push(at, { type: 'event', session: batch.conversation, kind: 'user', text: payload['text'] });
-    if (event.type === 'call') { const frame = payload['ok'] === undefined ? callRequestFrame(batch.conversation, payload) : callAnswerFrame(batch.conversation, payload); if (frame) push(at, frame); }
+    if (event.type === 'call') for (const frame of callFrames(batch.conversation, payload)) push(at, frame);
     if (event.type === 'notice') push(at, { type: 'event', session: batch.conversation, kind: 'note', text: textOf(payload['content']) });
     // The whole retrieve answer, as the retriever reported it: a panel reads `score` and `how` when a
     // retriever chose to report them and says nothing about ranking when it did not.

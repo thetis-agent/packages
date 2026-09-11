@@ -157,3 +157,47 @@ await test('An unconfigured or malformed name falls back to the default rather t
     } finally { await gateway.close(); await environment.close(); }
   } finally { await shared.close(); }
 });
+
+/* The regression this file exists to hold onto.
+ *
+ * Every projection in render.ts had a unit test built from a fabricated envelope, and the `call` one was
+ * fabricated wrong: it invented a payload that was either a request or an answer, where `core/index.ts`
+ * emits the pair together. Nothing caught it, because until the session stream was widened no `call` ever
+ * reached a subscriber. Once one did, the batch failed its schema, `lib/session/batch.ts` closed the
+ * subscriber, and a conversation went silent the instant the model used a tool — no rows, no `end`, no
+ * error a person could see. A unit test on either side would still pass today.
+ *
+ * So this one asks the real environment for a real tool call and reads what a browser would have read. */
+await test('A turn that calls a tool delivers the call, its answer and the turn that follows it', async () => {
+  const scripts = [
+    [{ type: 'delta.text', text: 'Looking.' }, { type: 'delta.tool_call', callId: 'call-1', name: 'list_path', args: '{"path":"/space"}' }, { type: 'stop', reason: 'tool_calls' }],
+    [{ type: 'delta.text', text: 'Nothing there.' }, { type: 'stop', reason: 'end' }]
+  ];
+  const shared = await serviceFixture(1000, { scripts, maximumCost: 0.01 }); assert.ok((await shared.process.probe()).ok);
+  try {
+    const environment = await environmentProcess(shared, 'alice', true); assert.ok((await environment.process.probe()).ok);
+    const gateway = await gatewayProcess(shared, environment, 'alice', 'gateway-web'); assert.ok((await gateway.process.probe()).ok);
+    const client = await webClient(gateway.socket, { cookie: `thetis_session=${shared.mintSession('alice')}` });
+    try {
+      await client.send({ type: 'new' }); const opened = await client.next(); assert.equal(opened['type'], 'opened');
+      const id = opened['session']; assert.ok(typeof id === 'string');
+      await client.send({ type: 'send', id, text: 'What is in my space?' });
+      const kinds: string[] = []; let call: Record<string, unknown> | undefined; let answer: Record<string, unknown> | undefined;
+      for (let count = 0; count < 256; count++) {
+        const frame = await client.next();
+        assert.notEqual(frame['type'], 'error', JSON.stringify(frame));
+        if (typeof frame['kind'] === 'string') kinds.push(frame['kind']);
+        if (frame['kind'] === 'tool-call') call = frame;
+        if (frame['kind'] === 'tool-result') answer = frame;
+        if (frame['kind'] === 'turn-finished') break;
+      }
+      assert.ok(call, `no tool-call frame arrived; the wire carried ${kinds.join(', ')}`);
+      assert.equal(call['name'], 'list_path'); assert.deepEqual(call['args'], { path: '/space' });
+      assert.ok(answer, 'a tool-call frame arrived without its answer');
+      assert.equal(answer['id'], call['id']); assert.equal(answer['ok'], true);
+      assert.ok(kinds.indexOf('tool-result') < kinds.indexOf('turn-finished'), 'the answer arrived after the turn ended');
+      // The second iteration is the proof the subscription survived the call rather than dying quietly on it.
+      assert.equal(kinds.filter(kind => kind === 'model-begin').length, 2, 'the turn did not reach its second model exchange');
+    } finally { client.close(); await gateway.close(); await environment.close(); }
+  } finally { await shared.close(); }
+});

@@ -36,29 +36,34 @@ await test('input renders a user frame', () => {
   assert.deepEqual(frames, [{ type: 'event', session: conversation, kind: 'user', text: 'Hello there' }]);
 });
 
-await test('a call envelope without ok renders a tool-call frame (request)', () => {
-  const frames = render(batch(envelope('call', {
-    id: 'call-1', name: 'read_file', args: { path: '/a' }, deadlineMs: 1000,
-    mode: { readOnly: true, deny: [] }, roots: [], budget: { resultBytes: 1024 },
-  })));
-  assert.deepEqual(frames, [{ type: 'event', session: conversation, kind: 'tool-call', id: 'call-1', name: 'read_file', args: { path: '/a' } }]);
+/* The shapes here are the ones `packages/core/index.ts` actually emits — `{ request, answer }` on one
+ * envelope — not either half alone. Fixtures that invented a bare request passed this file for as long
+ * as nothing on the wire carried a `call`, and closed every real subscription the moment one did. */
+const request = { id: 'call-1', name: 'read_file', args: { path: '/a' }, deadlineMs: 1000, mode: { readOnly: true, deny: [] }, roots: [], budget: { resultBytes: 1024 } };
+
+await test('one call envelope renders the call and its answer, in that order', () => {
+  const frames = render(batch(envelope('call', { request, answer: { id: 'call-1', ok: true, content: [{ type: 'text', text: 'contents' }] } })));
+  assert.deepEqual(frames, [
+    { type: 'event', session: conversation, kind: 'tool-call', id: 'call-1', name: 'read_file', args: { path: '/a' } },
+    { type: 'event', session: conversation, kind: 'tool-result', id: 'call-1', ok: true, summary: 'contents' }
+  ]);
 });
 
-await test('a call envelope with ok:true renders a tool-result frame carrying the answer text', () => {
-  const frames = render(batch(envelope('call', { id: 'call-1', ok: true, content: [{ type: 'text', text: 'contents' }] })));
-  assert.deepEqual(frames, [{ type: 'event', session: conversation, kind: 'tool-result', id: 'call-1', ok: true, summary: 'contents' }]);
+await test('a refused call carries its error message as the result summary', () => {
+  const frames = render(batch(envelope('call', { request, answer: { id: 'call-1', ok: false, error: { code: 'not-found', message: 'The file does not exist.' } } })));
+  assert.deepEqual(frames.at(-1), { type: 'event', session: conversation, kind: 'tool-result', id: 'call-1', ok: false, summary: 'The file does not exist.' });
 });
 
-await test('a call envelope with ok:false renders a tool-result frame carrying the error message', () => {
-  const frames = render(batch(envelope('call', { id: 'call-1', ok: false, error: { code: 'not-found', message: 'The file does not exist.' } })));
-  assert.deepEqual(frames, [{ type: 'event', session: conversation, kind: 'tool-result', id: 'call-1', ok: false, summary: 'The file does not exist.' }]);
+await test('a call envelope missing either half draws nothing rather than half a call', () => {
+  assert.deepEqual(render(batch(envelope('call', { request }))), []);
+  assert.deepEqual(render(batch(envelope('call', { answer: { id: 'call-1', ok: true, content: [] } }))), []);
 });
 
 await test('a tool-result summary is capped at limits.summaryBytes', () => {
   const long = 'x'.repeat(limits.summaryBytes + 500);
-  const frames = render(batch(envelope('call', { id: 'call-1', ok: true, content: [{ type: 'text', text: long }] })));
-  assert.equal(frames.length, 1);
-  const [frame] = frames; assert.ok(frame);
+  const frames = render(batch(envelope('call', { request, answer: { id: 'call-1', ok: true, content: [{ type: 'text', text: long }] } })));
+  assert.equal(frames.length, 2);
+  const frame = frames.at(-1); assert.ok(frame);
   assert.equal(Buffer.byteLength(String(frame['summary']), 'utf8'), limits.summaryBytes);
 });
 
