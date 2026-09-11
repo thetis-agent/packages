@@ -207,3 +207,38 @@ await test('an unhealthy env-status carries the kernel-provided reason verbatim'
     assert.deepEqual(f.sent.at(-1), { type: 'env-status', target: 'work', ready: false, generation: 2, state: 'FAILED', reason: 'The environment could not start: disk quota exceeded.' });
   } finally { await f.close(); }
 });
+
+await test('choices answers what the environment offers, and an environment that offers nothing answers an empty list', async () => {
+  const withheld = await fixture(new Map());
+  try {
+    const result = await withheld.wire.command({ type: 'choices' }); assert.ok(result.ok);
+    assert.deepEqual(withheld.sent, [{ type: 'choices', models: [] }],
+      'a capability this deployment never negotiated is an answer, not a refusal: the surface draws no picker rather than a broken one');
+  } finally { await withheld.close(); }
+
+  const models = [{ id: 'scripted', contextWindow: 200000, tools: true, images: true }];
+  const offered = await fixture(new Map<Method, Handler>([
+    ['session.choices', () => Promise.resolve({ ok: true, value: { models, model: 'scripted', mode: 'agent' } })]
+  ]), ['session.choices']);
+  try {
+    const result = await offered.wire.command({ type: 'choices' }); assert.ok(result.ok);
+    assert.deepEqual(offered.sent, [{ type: 'choices', models, model: 'scripted', mode: 'agent' }]);
+  } finally { await offered.close(); }
+});
+
+await test('choose forwards one conversation\'s setting and acknowledges only what it set', async () => {
+  const asked: Record<string, unknown>[] = [];
+  const f = await fixture(new Map<Method, Handler>([
+    ['session.choose', params => { asked.push(params); return Promise.resolve({ ok: true, value: undefined }); }]
+  ]), ['session.choose']);
+  try {
+    assert.ok((await f.wire.command({ type: 'choose', id: 'c1', mode: 'plan' })).ok);
+    assert.deepEqual(asked, [{ conversation: 'c1', mode: 'plan' }], 'nothing unset is invented on the way through');
+    assert.deepEqual(f.sent, [{ type: 'chosen', session: 'c1', mode: 'plan' }]);
+
+    const nothing = await f.wire.command({ type: 'choose', id: 'c1' });
+    assert.ok(!nothing.ok); assert.equal(nothing.error.code, 'invalid-args');
+    const nameless = await f.wire.command({ type: 'choose', model: 'scripted' });
+    assert.ok(!nameless.ok); assert.equal(nameless.error.code, 'invalid-args');
+  } finally { await f.close(); }
+});

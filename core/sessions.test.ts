@@ -134,3 +134,84 @@ await test('a conversation is named even when its turn never returns a reply', a
     assert.equal(after.value.preview, 'Name me anyway', 'with no reply, the row still shows what was asked.');
   } finally { await f.close(); }
 });
+
+await test('a conversation chooses its own model and mode, and the choice outlives the process that took it', async () => {
+  const f = await sessionFixture();
+  try {
+    const created = await f.sessions.create({ surface: 'web' }); assert.ok(created.ok);
+    const offered = await f.sessions.choices(); assert.ok(offered.ok);
+    assert.deepEqual(offered.value.models.map(model => model.id), ['scripted'], 'the list is the provider\'s own describe, not anything this package made up');
+    assert.deepEqual([offered.value.model, offered.value.mode], ['scripted', 'agent']);
+
+    // Both are checked against what this environment will honour, because a browser is what sends them.
+    const absent = await f.sessions.choose(created.value.id, { model: 'not-installed' });
+    assert.ok(!absent.ok); assert.equal(absent.error.code, 'invalid-args');
+    assert.ok(!(await f.sessions.choose(created.value.id, { mode: 'root' })).ok);
+
+    assert.ok((await f.sessions.choose(created.value.id, { mode: 'plan' })).ok);
+    assert.ok((await f.sessions.submit(created.value.id, input)).ok);
+    const offers = f.events.filter(event => event.type === 'offer');
+    assert.ok(offers.length > 0);
+    assert.deepEqual(offers.map(event => event.payload['mode']), offers.map(() => ({ readOnly: true, deny: [] })),
+      'plan has to reach the loop itself: the offer hook is where a mode is enforced, so an unchanged offer means an unchanged mode');
+
+    // The row is where the answer lives, so a surface that reconnects to a restarted environment finds
+    // the same one rather than the default.
+    const reopened = await Sessions.open(f.state, f.runtime); assert.ok(reopened.ok);
+    const listed = await reopened.value.list(); assert.ok(listed.ok);
+    assert.equal(listed.value[0]?.mode, 'plan');
+    assert.ok((await reopened.value.submit(created.value.id, { text: 'Again', attachments: [] })).ok);
+    assert.deepEqual(f.events.filter(event => event.type === 'offer').at(-1)?.payload['mode'], { readOnly: true, deny: [] });
+  } finally { await f.close(); }
+});
+
+await test('a conversation cannot widen the mode its environment was configured with', async () => {
+  const f = await sessionFixture();
+  try {
+    // The environment itself is read-only here, so `agent` is not a wider setting a conversation can
+    // ask for — it is the environment's own, and the environment's own is read-only.
+    const sessions = await Sessions.open(f.state, { ...f.runtime, options: { ...f.runtime.options, mode: { readOnly: true, deny: ['write_path'] } } });
+    assert.ok(sessions.ok);
+    const created = await sessions.value.create({ surface: 'web' }); assert.ok(created.ok);
+    const offered = await sessions.value.choices(); assert.ok(offered.ok);
+    assert.equal(offered.value.mode, 'plan', 'a surface must not draw an Agent it cannot actually get');
+    assert.ok((await sessions.value.choose(created.value.id, { mode: 'agent' })).ok);
+    assert.ok((await sessions.value.submit(created.value.id, input)).ok);
+    assert.deepEqual(f.events.filter(event => event.type === 'offer').at(-1)?.payload['mode'], { readOnly: true, deny: ['write_path'] });
+  } finally { await f.close(); }
+});
+
+await test('a chosen model is the one the request is made with, and a model the provider drops falls back rather than failing every turn', async () => {
+  const models = [{ id: 'scripted', contextWindow: 1000, maxOutput: 100, tools: true, images: false, seed: false, cache: 'none' as const },
+    { id: 'thorough', contextWindow: 2000, maxOutput: 200, tools: true, images: false, seed: false, cache: 'none' as const }];
+  const asked: string[] = [];
+  let offering = models;
+  const vendor: Vendor = {
+    describe: () => Promise.resolve({ ok: true, value: { models: offering } }), estimate: () => 0.01,
+    async *exchange(request) {
+      const begin = request[0]; if (begin?.type !== 'begin') throw new Error('The normalized request lost begin.');
+      asked.push(begin.model);
+      await Promise.resolve();
+      yield { type: 'start', id: begin.id, model: begin.model };
+      yield { type: 'usage', counters: { cost: 0.001, input: 1, output: 1 } };
+      yield { type: 'stop', reason: 'end' };
+    }
+  };
+  const f = await sessionFixture(vendor);
+  try {
+    const created = await f.sessions.create({ surface: 'web' }); assert.ok(created.ok);
+    const offered = await f.sessions.choices(); assert.ok(offered.ok);
+    assert.deepEqual(offered.value.models.map(model => model.id), ['scripted', 'thorough']);
+    assert.ok((await f.sessions.choose(created.value.id, { model: 'thorough' })).ok);
+    assert.ok((await f.sessions.submit(created.value.id, input)).ok);
+    assert.deepEqual(asked, ['thorough'], 'the choice has to reach the provider\'s own request, not just the stored row');
+
+    /* A deployment that stops offering a model leaves conversations pointing at it. Falling back beats
+     * refusing: one model later is a conversation that carries on, and a refusal on every message is a
+     * conversation nobody can use until an operator notices. */
+    offering = models.slice(0, 1);
+    const reopened = await Sessions.open(f.state, f.runtime); assert.ok(reopened.ok);
+    assert.ok((await reopened.value.submit(created.value.id, { text: 'Again', attachments: [] })).ok);
+    assert.deepEqual(asked, ['thorough', 'scripted']);
+  } finally { await f.close(); }
+});

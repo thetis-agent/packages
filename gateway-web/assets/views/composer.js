@@ -1,12 +1,34 @@
 /* The composer: text, the images going with it, and the stop button that appears while a turn is
  * running.
  *
- * The legacy composer also carried a mode picker, a model picker, a starting-revision picker and
- * @-mentions. None of those have a wire to speak to: mode and model are profile fields on `Runtime`,
- * changed through the generation machine (ADR 0012 §1) rather than by a per-conversation frame the way
- * legacy sent `set-model`, and starting revisions and `@`-mentions describe a git sandbox and a
- * workspace, neither of which this runtime has. `views/picker.js` is back in the tree ahead of the
- * first two, but nothing imports it yet; see its own header.
+ * The mode and model pickers are here too, and they set the conversation rather than the installation.
+ * That is not where they looked as though they lived: the parity record calls both profile fields on
+ * `Runtime`, which would make changing one a whole setup switch (ADR 0012 §1). Inside the environment
+ * they were never anything of the sort — `Loop` takes both per turn, the dispatcher enforces the mode on
+ * every offer and every call, and the provider matches the model named in `begin` against the ones it
+ * has — so what was missing was somewhere for a conversation to say which, and a check that it may.
+ * `session.choices` and `session.choose` are that, and the choice is stored on the conversation's own
+ * row, which is why it is still there after a reload and after a reconnect.
+ *
+ * Both pills are drawn only once the environment has said what it offers. An environment that
+ * negotiated neither method sends an empty list and gets no pickers at all — a pill that cannot change
+ * anything teaches people to distrust the ones that can.
+ *
+ * What is *not* here, and what it would take. Three things about model and mode really are the
+ * installation's rather than a conversation's, and none of them can be a pill in a composer:
+ *
+ *   - the default a conversation starts on. That is `runtime.model`/`runtime.mode` in the profile
+ *     record, and moving it is a generation switch (ADR 0012 §1) — it goes through the control panel's
+ *     own path, which already asks the facts-then-a-separate-press question a shared change needs.
+ *   - which models exist at all. The list here is the provider package's `describe`, and its contents
+ *     are that package's configured settings; adding one is installing or reconfiguring a package,
+ *     which is the same generation switch.
+ *   - a third mode. `mode` is read in exactly one place (packages/core/dispatcher.ts, on every offer
+ *     and every call) and it reads exactly `readOnly` and `deny`. A third name would resolve to what
+ *     `plan` already resolves to, so it is not offered.
+ *
+ * The legacy composer also carried a starting-revision picker and @-mentions. Those describe a git
+ * sandbox and a workspace, neither of which this runtime has, so neither is here.
  *
  * The attachment tray is here again, and works differently from legacy's. Legacy read the file with a
  * FileReader and sent the base64 inside the `send` frame; that frame is capped at 1 MiB and the input it
@@ -25,10 +47,29 @@ import { limits, nameOf, readAnswer, reviewFiles, summarise, uploadPath } from "
 import { $, clear, el, icon, setHidden } from "../lib/dom.js";
 import { store } from "../lib/store.js";
 import { toast } from "../lib/toast.js";
+import { Picker } from "./picker.js";
 
 const X = ["M5 5l10 10", "M15 5l-10 10"];
 
-export function mountComposer({ onSend, onStop }) {
+/* What each mode is called and what it does, in the words a person would use rather than the two
+ * fields it sets. There are two because the environment enforces two: `agent` is whatever this
+ * installation is configured for, and `plan` withholds everything that does not declare itself
+ * read-only. A third entry would set exactly what `plan` sets and change nothing on screen but its own
+ * label, which is the one thing a control must never do. */
+const MODES = [
+  { id: "agent", label: "Agent", note: "It can change files in the folders shared with it." },
+  { id: "plan", label: "Plan", note: "It reads and works things out. Nothing gets changed." },
+];
+
+/** A model's one line under its name: how much it can hold, and whether it can use tools at all. */
+function modelNote(model) {
+  const parts = [];
+  if (model.contextWindow) parts.push(`holds about ${Math.round(model.contextWindow / 1000)}k words of conversation`);
+  if (model.tools === false) parts.push("cannot use tools");
+  return parts.join(" · ");
+}
+
+export function mountComposer({ onSend, onStop, onChoose }) {
   const form = $("composer");
   const input = $("input");
   const sendBtn = $("send");
@@ -37,6 +78,8 @@ export function mountComposer({ onSend, onStop }) {
   const filePicker = $("file-picker");
   const tray = $("attachments");
   const trayNote = $("attachments-note");
+  const modeMount = $("mode-picker");
+  const modelMount = $("model-picker");
   const veil = $("drop-veil");
 
   /* The images going with the message being typed. Each entry is
@@ -112,7 +155,67 @@ export function mountComposer({ onSend, onStop }) {
     autosize();
     drawStop();
     drawLock();
+    drawPickers();
   });
+
+  // --- what this conversation is set to --------------------------------------
+
+  /* The conversation's own row is where the answer lives, and the row arrives on the `sessions` list
+   * like every other fact about it. Reading it here rather than holding a copy is what makes the
+   * choice survive a reload and a reconnect for free: the list is asked for on every connection, and
+   * a conversation that has chosen nothing simply has no field, which is the environment's default. */
+  function row() {
+    return store.sessions.find((session) => session.id === store.current) || null;
+  }
+  /* The installation's own setting is the ceiling: a conversation may narrow it and can never widen it
+   * (packages/core/sessions.ts resolves the name against it), so inside an installation that is itself
+   * read-only every conversation is read-only whatever its row says. Both the pill and the menu read
+   * that ceiling, because a pill saying "Agent" over a conversation that cannot change anything is the
+   * exact lie this control exists to avoid. */
+  const ceiling = () => store.choices?.mode === "plan";
+  const chosenMode = () => (ceiling() ? "plan" : row()?.mode || store.choices?.mode || "agent");
+  const chosenModel = () => row()?.model || store.choices?.model || "";
+  const modes = () => (ceiling() ? MODES.filter((mode) => mode.id === "plan") : MODES);
+  const models = () => store.choices?.models || [];
+
+  const modePicker = new Picker(modeMount, {
+    label: "What this conversation may do",
+    options: modes,
+    selected: chosenMode,
+    render: (id) => MODES.find((mode) => mode.id === id)?.label || "Agent",
+    dotClass: (id) => (id === "plan" ? "is-plan" : ""),
+    onSelect: (mode) => choose({ mode }),
+  });
+
+  const modelPicker = new Picker(modelMount, {
+    label: "Which model answers",
+    mono: true,
+    options: () => models().map((model) => ({ id: model.id, label: model.id, note: modelNote(model) })),
+    selected: chosenModel,
+    render: (id) => id || "No model",
+    onSelect: (model) => choose({ model }),
+  });
+
+  /* Sent, then shown. The environment decides whether a choice is honoured — it refuses a model it
+   * does not have — so the pill waits for the answer rather than moving first and being corrected;
+   * `chosen` comes back in the same breath and app.js writes it onto the row. */
+  function choose(choice) {
+    if (!store.current) return;
+    if (onChoose(store.current, choice) === false) {
+      toast("Not connected — that was not changed.", { tone: "error" });
+    }
+  }
+
+  function drawPickers() {
+    const open = Boolean(store.current);
+    setHidden(modeMount, !open || !store.choices);
+    setHidden(modelMount, !open || models().length === 0);
+    modePicker.refresh();
+    modelPicker.refresh();
+  }
+
+  store.watch("choices", drawPickers);
+  store.watch("sessions", drawPickers);
 
   // --- the tray -------------------------------------------------------------
 
@@ -323,5 +426,6 @@ export function mountComposer({ onSend, onStop }) {
 
   drawTray();
   drawLock();
+  drawPickers();
   return { focus: () => input.focus(), restore };
 }
