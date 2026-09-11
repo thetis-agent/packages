@@ -45,7 +45,9 @@ export function describeEnv(env) {
   if (!env) return null;
   const word = ENV_WORDS[env.state] || (env.ready ? "ready" : "not ready");
   return {
-    name: env.target || "environment",
+    // No name is not the word "environment": the item is already labelled that, and the bar read
+    // "environment environment" wherever the host did not say whose it was.
+    name: env.target || null,
     word,
     tone: env.ready ? null : env.state === "FAILED" ? "err" : "warn",
     title: env.ready
@@ -65,9 +67,15 @@ export function describeOverall(env, working) {
     return { word: "working", tone: "warn", title: working === 1 ? "A turn is running." : `${working} turns are running.` };
   }
   if (!env) return { word: "connecting", tone: null, title: "Waiting for the first word about this environment." };
-  if (env.ready) return { word: "running", tone: "ok", title: "Nothing is running and the environment is ready." };
   if (env.state === "FAILED") {
     return { word: "problem", tone: "err", title: env.reason || "The environment your conversations run in has stopped." };
+  }
+  /* `state` decides, and readiness only stands in for a state this does not know — which is the same
+   * order `describeEnv` reads them in. Reading readiness first made the two disagree about one frame:
+   * a `LIVE` environment that had not also said `ready` was drawn as "updating" here and "ready" three
+   * items along, in the same bar. Whichever is right, a bar cannot say both. */
+  if (env.state === "LIVE" || (env.state === undefined && env.ready)) {
+    return { word: "running", tone: "ok", title: "Nothing is running and the environment is ready." };
   }
   return { word: "updating", tone: "warn", title: `The environment your conversations run in is ${ENV_WORDS[env.state] || "not ready"}.` };
 }

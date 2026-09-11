@@ -178,7 +178,8 @@ export function mountStatusbar({ sendFrame }) {
       "span",
       { class: "sb-item sb-drop-1", title: shown.title },
       el("span", { class: "sb-label" }, "environment"),
-      el("span", { class: `sb-mono${shown.tone === "err" ? " is-err" : ""}` }, shown.name),
+      // An unnamed environment draws no name rather than repeating the label beside itself.
+      shown.name ? el("span", { class: `sb-mono${shown.tone === "err" ? " is-err" : ""}` }, shown.name) : null,
       el("span", { class: `sb-flag${shown.tone ? ` is-${shown.tone}` : ""}` }, shown.word)
     );
   }

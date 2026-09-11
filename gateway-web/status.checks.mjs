@@ -32,7 +32,7 @@ await test('the environment item says what the machine means in words a person a
   assert.equal(describeEnv({ target: 'admin', ready: false, state: 'APPLYING' }).word, 'updating');
   assert.equal(describeEnv({ target: 'admin', ready: false, state: 'APPLYING' }).tone, 'warn');
   assert.equal(describeEnv({ target: 'admin', ready: false, state: 'FAILED' }).tone, 'err');
-  assert.equal(describeEnv({ ready: true, state: 'LIVE' }).name, 'environment', 'a status without a target still names something.');
+  assert.equal(describeEnv({ ready: true, state: 'LIVE' }).name, null, 'a status without a target names nothing, rather than repeating the item\'s own label beside it.');
   assert.equal(describeEnv({ target: 'admin', ready: true, state: 'INVENTED' }).word, 'ready',
     'a newer host inventing a state must not blank the item.');
   assert.equal(describeEnv({ target: 'admin', ready: false, state: 'INVENTED' }).word, 'not ready');
@@ -49,6 +49,12 @@ await test('the left-hand word follows work first and the environment second', (
   assert.equal(describeOverall({ ready: false, state: 'FAILED' }, 0).word, 'problem');
   assert.equal(describeOverall({ ready: false, state: 'FAILED', reason: 'it stopped' }, 0).title, 'it stopped');
   assert.equal(describeOverall({ ready: false, state: 'SWITCHING' }, 0).word, 'updating');
+  /* One frame, one answer. `state` decides and readiness only stands in for a state this does not
+   * know, which is the order describeEnv reads them in too — reading readiness first made the bar
+   * say "updating" at the left and "ready" three items along, about the same environment. */
+  assert.equal(describeOverall({ state: 'LIVE' }, 0).word, 'running', 'a live environment that did not also say ready is still running.');
+  assert.equal(describeEnv({ state: 'LIVE' }).word, describeOverall({ state: 'LIVE' }, 0).word === 'running' ? 'ready' : 'x');
+  assert.equal(describeOverall({ ready: true }, 0).word, 'running', 'readiness alone still answers when no state was sent.');
 });
 
 await test('versions and counts are drawn only when the host actually sent them', () => {
