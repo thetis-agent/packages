@@ -1476,6 +1476,44 @@ body { display: flex; flex-direction: column; }
   margin-top: var(--gap-2);
 }
 
+/* A person's row in the People panel (views/people.js). One face and one or two
+   lines beside it, in the same card the rest of the rail draws its rows in. The
+   tile is narrowed here rather than in `.turn-avatar`, which holds the look and
+   leaves the size to whatever holds it — the sidebar's identity block does the
+   same thing. */
+.person {
+  --avatar-lg: 26px;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gap-3);
+  padding: var(--gap-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+}
+.person .turn-initial { font-size: var(--text-xs); }
+.person-copy { min-width: 0; flex: 1; }
+.person-name {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--gap-2);
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+.person-tag {
+  padding: 0 5px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+.person-meta {
+  margin-top: var(--gap-1);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
 /* --- toasts -------------------------------------------------------------------
    Outcomes land here: protocol errors, refusals. */
 

@@ -183,4 +183,14 @@ export const ICONS = {
       ["circle", { cx: "10", cy: "10", r: "6.5" }],
       ["circle", { cx: "10", cy: "10", r: "2", fill: "currentColor" }],
     ]),
+  /** One head and shoulders with a second behind it — deliberately the same
+   *  drawing as the sidebar's everyone switch, because the two answer halves of
+   *  one question and a reader should see them as a pair. */
+  people: () =>
+    svg([
+      ["circle", { cx: "7.4", cy: "7.2", r: "2.7" }],
+      ["circle", { cx: "13.6", cy: "7.6", r: "2.1" }],
+      ["path", { d: "M2.9 15.6a4.5 4.5 0 0 1 9 0" }],
+      ["path", { d: "M12.3 12.3a3.6 3.6 0 0 1 5.2 3.3" }],
+    ]),
 };
