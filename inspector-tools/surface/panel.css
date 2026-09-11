@@ -14,6 +14,9 @@
 .ti-badge { padding: 1px 7px; border: 1px solid var(--hairline); border-radius: var(--r-pill); font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); white-space: nowrap; }
 .ti-badge.is-danger { border-color: color-mix(in srgb, var(--err) 40%, transparent); background: var(--err-wash); color: var(--err); }
 .ti-badge.is-withheld { border-color: var(--hairline-strong); background: var(--surface-3); color: var(--text-dim); }
+/* A count of work that happened, rather than a claim the tool makes about itself, so it reads in the
+   body colour rather than as one more declared flag. */
+.ti-badge.is-used { border-color: var(--hairline-strong); color: var(--text-dim); }
 .ti-desc { margin: var(--gap-2) 0 0; font-size: var(--text-sm); line-height: var(--leading); color: var(--text-dim); }
 
 .ti-more { margin-top: var(--gap-2); }

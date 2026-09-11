@@ -21,7 +21,7 @@ export interface Dom<Node> {
 }
 
 export declare const limits: { readonly chars: number; readonly denied: number };
-export declare function card<Node>(dom: Dom<Node>, tool: Tool): Node;
+export declare function card<Node>(dom: Dom<Node>, tool: Tool, count?: number): Node;
 export declare function withheldCard<Node>(dom: Dom<Node>, row: Withheld): Node;
 export declare function subtitle(described: Described): string | undefined;
-export declare function blocks<Node>(described: Described, dom: Dom<Node>, open: Set<string>): Node[];
+export declare function blocks<Node>(described: Described, dom: Dom<Node>, open: Set<string>, usage?: Readonly<Record<string, number>>): Node[];

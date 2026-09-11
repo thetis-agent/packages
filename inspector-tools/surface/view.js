@@ -48,12 +48,20 @@ function flags(dom, tool) {
   return FLAGS.filter(([key]) => tool[key] === true).map(([key, label, hint]) => badge(dom, label, hint, key === "destructive" ? "danger" : ""));
 }
 
+/** How often a tool has actually been called in this environment, when the package has been asked.
+ *  Absent until the answer arrives and absent for a tool nothing has called, because a badge reading
+ *  "used 0×" is noise: the list is already the set of things that have not been used. */
+function used(dom, count) {
+  if (!count) return null;
+  return badge(dom, `used ${String(count)}×`, "Calls this environment has finished since it started, across every conversation in it.", "used");
+}
+
 /** One offered tool: what it does, who provides it, what it declares, and the arguments it takes. */
-export function card(dom, tool) {
+export function card(dom, tool, count) {
   return dom.el("article", { class: "ti-card" },
     dom.el("div", { class: "ti-head" },
       dom.el("h3", { class: "ti-name" }, tool.name),
-      dom.el("div", { class: "ti-badges" }, flags(dom, tool))),
+      dom.el("div", { class: "ti-badges" }, [...flags(dom, tool), used(dom, count)].filter(Boolean))),
     tool.description ? dom.el("p", { class: "ti-desc" }, tool.description) : null,
     tool.data.length ? note(dom, `Reports ${tool.data.join(", ")}.`) : null,
     dom.el("details", { class: "ti-more" },
@@ -102,7 +110,7 @@ export function subtitle(described) {
 }
 
 /** Which source groups the person left open, so a redraw mid-turn does not fold them shut. */
-export function blocks(described, dom, open) {
+export function blocks(described, dom, open, usage = {}) {
   if (!described.known) return [dom.el("div", { class: "panel-note" }, "No offer seen yet — send a message to see what this conversation can call.")];
   const rows = [banner(dom, described)];
   for (const group of described.sources) {
@@ -110,7 +118,7 @@ export function blocks(described, dom, open) {
       title: group.source, mono: true, count: group.tools.length, open: open.has(group.source),
       note: `Offered by ${group.source}.`,
       onToggle: (isOpen) => { if (isOpen) open.add(group.source); else open.delete(group.source); },
-    }, group.tools.map(tool => card(dom, tool))));
+    }, group.tools.map(tool => card(dom, tool, usage[tool.name]))));
   }
   if (described.withheld.length) {
     rows.push(dom.section({ title: "withheld", count: described.withheld.length, note: "Named rather than hidden: a withheld tool is still part of the answer to what this conversation can do." }));

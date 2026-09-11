@@ -4,7 +4,7 @@
   "type": "module",
   "stages": "./index.ts",
   "requires": {
-    "contract/surface": "^1",
+    "contract/surface": "^1.1",
     "contract/turn-events": "^1"
   },
   "provides": {
@@ -19,6 +19,12 @@
         "hint": "Tools — everything the agent can call here, and what is withheld",
         "wide": true,
         "entry": "/surface/inspector-tools/panel.js"
+      }
+    ],
+    "commands": [
+      {
+        "verb": "usage",
+        "label": "See how often each tool has been used here"
       }
     ]
   },
