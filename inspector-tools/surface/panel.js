@@ -44,9 +44,17 @@ function draw() {
 
 /** Asks this package for the tally, and redraws when it answers. Never called from `draw`: drawing
  *  must not send, or every answer would ask again. A refusal is left to the console — the panel still
- *  says everything it said before, minus one badge, which is not worth a toast in the person's way. */
+ *  says everything it said before, minus one badge, which is not worth a toast in the person's way.
+ *
+ *  That stance is about a refusal nobody could have predicted. A conversation that is not open is
+ *  not one of those: closing the last tab sets `store.current` to null, which notifies the `current`
+ *  watchers, and the watcher below asked for a tally for a conversation that had just gone — so
+ *  `/lib/surface.js`'s own "That conversation is not open any more." came back and was logged, every
+ *  single time a tab was closed. Leaving that to the console would be leaving a message there that
+ *  says nothing went wrong. The panel knows the answer before it asks, so it does not ask; the same
+ *  guard is what tools-ask and tools-todo already open their own reads with. */
 function refresh() {
-  if (asking) return;
+  if (asking || !conversation.current) return;
   asking = true;
   request("usage")
     .then((answer) => { usage = answer.data; panel.redraw(); })

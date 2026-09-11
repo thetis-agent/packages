@@ -21,9 +21,23 @@
 import { avatarFor } from "../lib/avatar.js";
 import { chooseTranscriptRow } from "../lib/dispatch.js";
 import { clear, el } from "../lib/dom.js";
+import { createFollow } from "../lib/follow.js";
 import { renderMarkdown } from "../lib/markdown.js";
 import { store } from "../lib/store.js";
 import { rendererFor } from "../lib/surface.js";
+
+const limits = {
+  /** How many of the most recently placed rows are watched for growing after the fact.
+   *
+   *  Every placed row is watched so that a row rewritten in place, an `<img>` that finishes loading
+   *  and an SVG that lays out late all re-stick (see the comment on `growth` below), but a
+   *  conversation is unbounded and a ResizeObserver over every row of a thousand-turn transcript is
+   *  a cost paid forever for rows nobody will ever see move again. The bound protects that: only
+   *  the tail of the transcript is watched, which is the only part of it the reader can be at the
+   *  bottom of. A row that scrolls out of this window and only then changes size does not bring the
+   *  view down, and should not — it is far above the fold by then. */
+  watchedRows: 64,
+};
 
 export function mountTranscriptInto(root) {
   /** The bubble currently receiving `delta`/`reasoning` text for the turn in
@@ -35,17 +49,44 @@ export function mountTranscriptInto(root) {
    *  composer refuses a second send while one is pending. */
   let pendingRow = null;
 
-  reset();
+  /* Whether the reader is following the bottom is state, kept in lib/follow.js, fed by this
+   * element's own scroll events — not a sample taken at the moment a row is appended. That module's
+   * header has the browser session this came out of and the reasoning; the short of it is that a
+   * row which grows after it was placed used to leave the view stranded above the bottom for the
+   * rest of the conversation. */
+  const follow = createFollow({
+    distanceFromBottom: () => root.scrollHeight - root.scrollTop - root.clientHeight,
+    scrollPosition: () => root.scrollTop,
+    scrollToBottom: () => { root.scrollTop = root.scrollHeight; },
+  });
+  // Passive: this listener only reads geometry, and saying so lets the browser scroll without
+  // waiting to find out whether the handler will cancel it.
+  root.addEventListener("scroll", () => follow.scrolled(), { passive: true });
 
-  function atBottom() {
-    return root.scrollHeight - root.scrollTop - root.clientHeight < 48;
-  }
-  function toBottom() {
-    root.scrollTop = root.scrollHeight;
-  }
+  /* Rows that grow after they were placed.
+   *
+   * A ResizeObserver rather than a MutationObserver, because the three things that strand the view
+   * are not all mutations of this tree: tools-ask filling in a question row after placing its
+   * header is (a MutationObserver would catch it), but an `<img>` in a message finishing its
+   * download and a mermaid diagram finishing its layout change the box without changing the
+   * markup, and a MutationObserver sees neither. The box is what actually moved the bottom, so the
+   * box is what is watched — which is also what makes this general rather than a special case for
+   * whichever contributed renderer happened to be caught doing it first.
+   *
+   * There is no feedback loop to guard against: the catch-up sets `scrollTop`, which moves no box
+   * and resizes nothing, so it cannot re-enter this callback. The callback ignores its entries and
+   * asks once per batch rather than once per row. */
+  const growth = new ResizeObserver(() => follow.grew());
+  /** The rows `growth` is watching, oldest first, so the window above can be kept to its bound. */
+  const watched = [];
+
+  reset();
 
   function reset() {
     clear(root);
+    growth.disconnect();
+    watched.length = 0;
+    follow.reset();
     live = null;
     pendingRow = null;
     showEmpty();
@@ -59,12 +100,16 @@ export function mountTranscriptInto(root) {
     root.querySelector(".transcript-empty")?.remove();
   }
 
-  /** Appends a prebuilt node (a `<div>` or a `<details>`) as a transcript row. */
+  /** Appends a prebuilt node (a `<div>` or a `<details>`) as a transcript row, and watches it for
+   *  changing size later. The catch-up is the same one the growth observer makes: whether to follow
+   *  was decided by the reader's own scrolling, so appending needs no measurement of its own. */
   function place(node) {
-    const stick = atBottom();
     clearEmpty();
     root.append(node);
-    if (stick) toBottom();
+    growth.observe(node);
+    watched.push(node);
+    if (watched.length > limits.watchedRows) growth.unobserve(watched.shift());
+    follow.placed();
     return node;
   }
 
