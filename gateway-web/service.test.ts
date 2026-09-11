@@ -11,6 +11,7 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { isObject } from '@/lib/schema/index.ts';
+import { settings } from './index.ts';
 
 async function person(shared: Awaited<ReturnType<typeof serviceFixture>>, who: string, other?: string): Promise<string> {
   const environment = await environmentProcess(shared, who, true); assert.ok((await environment.process.probe()).ok);
@@ -322,6 +323,46 @@ await test('A conversation is renamed, archived and restored over the real wire,
 
       await client.send({ type: 'list', scope: 'everyone' });
       assert.equal((await client.next())['code'], 'forbidden', 'an ordinary account cannot ask for anyone else\'s conversations.');
+    } finally { client.close(); await gateway.close(); await environment.close(); }
+  } finally { await shared.close(); }
+});
+
+
+/* The status bar's frames, over the same real socket everything else here uses.
+ *
+ * Worth a case at this altitude rather than only in wire.test.ts because the whole point of the
+ * bar's capability guards is what a *deployment* negotiated, and that is settled by the kernel
+ * fixture and the capability list at the foot of service.ts — neither of which a unit test with a
+ * hand-built peer can get wrong on the gateway's behalf. It also proves the bound the gateway puts
+ * on a log request survives the trip: the fixture echoes back the limit it was asked for. */
+await test('The status bar asks over the real wire and is answered with this machine\'s own figures', async () => {
+  const shared = await serviceFixture(); assert.ok((await shared.process.probe()).ok);
+  try {
+    const environment = await environmentProcess(shared, 'alice', true); assert.ok((await environment.process.probe()).ok);
+    const gateway = await gatewayProcess(shared, environment, 'alice', 'gateway-web'); assert.ok((await gateway.process.probe()).ok);
+    const client = await webClient(gateway.socket, { cookie: `thetis_session=${shared.mintSession('alice')}` });
+    try {
+      await client.send({ type: 'status' });
+      const system = await client.next();
+      assert.equal(system['type'], 'system-status');
+      assert.equal(system['agent'], '1.0.0', 'the bar reports the gateway package\'s own manifest version.');
+      assert.equal(system['setup'], '', 'the profile reply carries no setup version today, so the item stays hidden.');
+      assert.equal(system['conversations'], 0); assert.equal(system['turns'], 0);
+      const machine = system['host']; assert.ok(isObject(machine));
+      assert.ok(typeof machine['memTotal'] === 'number' && machine['memTotal'] > 0, 'a Linux sandbox can read its own /proc/meminfo.');
+      assert.ok(typeof machine['memAvailable'] === 'number' && machine['memAvailable'] <= machine['memTotal']);
+      assert.ok(typeof machine['cpus'] === 'number' && machine['cpus'] > 0);
+
+      const env = await client.next();
+      assert.equal(env['type'], 'env-status');
+      assert.equal(env['logs'], true, 'a kernel offering env.logs must let the bar offer the affordance.');
+
+      // The schema bounds the ask before the wire sees it; this is the largest a client can even
+      // state, and the wire still cuts it down to its own tail.
+      await client.send({ type: 'env-logs', limit: 1000 });
+      const logs = await client.next();
+      assert.equal(logs['type'], 'env-logs');
+      assert.deepEqual(logs['rows'], [{ cursor: 1, at: 1700000000000, kind: 'process.start', data: { limit: settings.logRows } }]);
     } finally { client.close(); await gateway.close(); await environment.close(); }
   } finally { await shared.close(); }
 });

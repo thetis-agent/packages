@@ -17,6 +17,7 @@ import { Attachments } from './attachments.ts';
 import type { Descriptor } from './attachments.ts';
 import { SurfaceRequests } from './surface-request.ts';
 import { Admin } from './admin.ts';
+import { host } from './host.ts';
 export type Send = (frame: Record<string, unknown>) => Promise<Result<void>>;
 /** Where a wire that was handed no store keeps attachments: this process's own working directory, which
  * is `/state` for a spawned gateway (lib/profile/target.ts sets `cwd`). service.ts names that root
@@ -33,19 +34,28 @@ function localStore(): Attachments {
  * on the configured principal (lib/deployment). The kernel is what actually refuses; checking here
  * first turns a routing refusal into a sentence, and keeps `person: '*'` out of a user's reach. */
 const observers = ['admin', 'reviewer'];
+/** What the foot of the page reports about the software it is part of. Either may be empty, and an
+ *  empty one leaves its item off the bar rather than drawing a blank: `agent` is this package's own
+ *  manifest version, `setup` whatever version the kernel's profile answer carries, which today is
+ *  none. See service.ts, which reads both. */
+export interface Versions { agent: string; setup: string }
 export class Wire {
   readonly #peer: Peer; readonly #schemas: Schemas; readonly #clock: Clock; readonly #identity: ConnectKernel; readonly #role: string; readonly #send: Send;
   readonly #contribution: Contribution; readonly #brand: Brand;
   readonly #attachments: Attachments;
   readonly #requests: SurfaceRequests;
   readonly #admin: Admin;
+  readonly #versions: Versions;
   readonly #streams = new Map<string, SessionClient>();
   readonly #turns = new Set<string>();
   readonly #opening = new Set<string>();
   #closed = false;
-  constructor(peer: Peer, schemas: Schemas, clock: Clock, identity: ConnectKernel, role: string, send: Send, contribution: Contribution = { panels: [], renderers: [], declared: [] }, brand: Brand = brandDefaults, attachments: Attachments = localStore()) {
+  /** When the status bar last cost the kernel an `env.status` call; see `#status`. */
+  #asked = Number.NEGATIVE_INFINITY;
+  constructor(peer: Peer, schemas: Schemas, clock: Clock, identity: ConnectKernel, role: string, send: Send, contribution: Contribution = { panels: [], renderers: [], declared: [] }, brand: Brand = brandDefaults, attachments: Attachments = localStore(), versions: Versions = { agent: '', setup: '' }) {
     this.#peer = peer; this.#schemas = schemas; this.#clock = clock; this.#identity = identity; this.#role = role; this.#send = send; this.#contribution = contribution; this.#brand = brand;
     this.#attachments = attachments;
+    this.#versions = versions;
     this.#requests = new SurfaceRequests(contribution.declared, role, id => this.#streams.get(id), send);
     this.#admin = new Admin(peer, role, send);
   }
@@ -58,7 +68,7 @@ export class Wire {
       // reading one value instead of carrying a second copy of it.
       return this.#send({ type: 'user', user: { name: this.#identity.person, role: this.#role },
         agent: { name: this.#brand.agentName, accent: this.#brand.accent },
-        capabilities: ['list', 'new', 'open', 'send', 'turn-cancel', 'cursor-replay', 'env-reset', 'attach', 'rename', 'archive', 'unarchive', 'everyone'],
+        capabilities: ['list', 'new', 'open', 'send', 'turn-cancel', 'cursor-replay', 'env-reset', 'attach', 'rename', 'archive', 'unarchive', 'everyone', 'status', 'env-logs'],
         panels: this.#contribution.panels, renderers: this.#contribution.renderers });
     }
     if (input.type === 'list') return this.#list(input.scope ?? 'mine');
@@ -68,6 +78,8 @@ export class Wire {
       return this.#open(result.value['id']);
     }
     if (SurfaceRequests.claims(input)) return this.#requests.handle(input);
+    if (input.type === 'status') return this.#status();
+    if (input.type === 'env-logs') return this.#envLogs(input.limit);
     if (input.type === 'env-reset') return this.#envReset();
     if (input.type.startsWith('admin.')) return this.#admin.command(input);
     if (!['open', 'send', 'turn-cancel', 'rename', 'archive', 'unarchive'].includes(input.type)) return failure('unsupported', 'The requested gateway capability is unavailable.');
@@ -153,13 +165,41 @@ export class Wire {
     for (const frame of frames) { const sent = await this.#send(frame); if (!sent.ok) return sent; }
     return { ok: true, value: undefined };
   }
-  /* `env.status`/`env.reset` are capability-gated (KS-019): `service.ts` does not request them from the kernel
-   * today, so `#peer.supports` is false and both no-op, ok, exactly as the plan anticipates for this seam. */
+  /* The environment methods are capability-gated (KS-019) and `service.ts` requests all three, but a
+   * deployment is free to withhold any of them — so each is guarded rather than assumed, and a
+   * withheld one leaves the foot of the page quieter instead of erroring. `logs` rides along on the
+   * status because the bar's "recent activity" affordance has no other way to learn whether asking
+   * for output would be answered; a bar that offers a button the kernel refuses is worse than one
+   * that never offers it. */
   async #envStatus(): Promise<Result<void>> {
     if (!this.#peer.supports('env.status')) return { ok: true, value: undefined };
     const status = await this.#peer.call('env.status', {}); if (!status.ok) return status;
     if (!isObject(status.value)) return failure('protocol', 'The environment returned an invalid status.');
-    return this.#send({ type: 'env-status', ...status.value });
+    return this.#send({ type: 'env-status', ...status.value, logs: this.#peer.supports('env.logs') });
+  }
+  /* The status bar asks; nothing pushes. The two halves of its answer cost very different things:
+   * `system-status` is read out of this process and is free, while a fresh `env-status` is a kernel
+   * call, so the poll is allowed to refresh the first on every tick and the second only once per
+   * `settings.statusMs`. That is what bounds the kernel's share of this feature no matter how many
+   * tabs a person opens or how fast a client decides to ask. */
+  async #status(): Promise<Result<void>> {
+    const sent = await this.#send({ type: 'system-status', ...this.#versions,
+      conversations: this.#streams.size, turns: this.#turns.size, host: await host() });
+    if (!sent.ok) return sent;
+    const now = this.#clock.now();
+    if (now - this.#asked < settings.statusMs) return { ok: true, value: undefined };
+    this.#asked = now;
+    return this.#envStatus();
+  }
+  /* The kernel already bounds a log reply by rows and by bytes; this bounds the ask as well, so the
+   * frame stays a tail rather than a transcript however large the journal has grown and whatever a
+   * client puts in `limit`. */
+  async #envLogs(limit?: number): Promise<Result<void>> {
+    if (!this.#peer.supports('env.logs')) return failure('unsupported', 'The requested gateway capability is unavailable.');
+    const rows = Math.min(typeof limit === 'number' && Number.isSafeInteger(limit) && limit > 0 ? limit : settings.logRows, settings.logRows);
+    const logs = await this.#peer.call('env.logs', { limit: rows }); if (!logs.ok) return logs;
+    if (!isObject(logs.value)) return failure('protocol', 'The environment returned invalid output.');
+    return this.#send({ type: 'env-logs', ...logs.value });
   }
   async #envReset(): Promise<Result<void>> {
     if (!this.#peer.supports('env.reset')) return failure('unsupported', 'The requested gateway capability is unavailable.');

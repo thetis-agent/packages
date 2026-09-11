@@ -76,7 +76,7 @@ function createConversation() {
 mountStage({ onOpen: openConversation, onClose: (id) => store.closeTab(id), onNew: createConversation });
 const railEnvironment = mountEnvironment({ sendFrame });
 mountRail([railEnvironment]);
-mountStatusbar();
+const statusbar = mountStatusbar({ sendFrame });
 
 const composer = mountComposer({
   /* `files` are the tray's own entries: each carries the descriptor the host answered the upload with,
@@ -311,7 +311,9 @@ connection
   })
   .on("env-status", (frame) => store.set({ env: frame }))
   .on("surface-answer", (frame) => answer(frame))
-  .on("admin", (frame) => admin.apply(frame));
+  .on("admin", (frame) => admin.apply(frame))
+  .on("system-status", (frame) => store.set({ system: frame }))
+  .on("env-logs", (frame) => store.set({ logs: frame }));
 
 connection.onOpen(() => {
   sendFrame({ type: "hello" });
@@ -326,6 +328,9 @@ connection.onOpen(() => {
   // still there when it comes back.
   for (const id of store.tabs) sendFrame(cursors.resumeFrame(id));
   admin.reconnected();
+  // The status bar's poll survives a reconnect but its last answer does not, and the host counts
+  // conversations per socket — so a fresh one starts from zero until it is asked again.
+  statusbar.refresh();
 });
 
 connection.connect();

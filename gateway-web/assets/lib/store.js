@@ -51,6 +51,15 @@ export const store = {
    *  conversation: wire.ts's `#envStatus` is a property of the socket's own
    *  environment, not of any one stream. */
   env: null,
+  /** The last `system-status` reply, or null before one has arrived. What the machine and this
+   *  socket are doing — versions, open conversations, memory and load — as of the last poll
+   *  views/statusbar.js made. Separate from `env` because the two have different costs and
+   *  different lifetimes: this one is asked for, that one is pushed. */
+  system: null,
+  /** The last `env-logs` reply, held only while the status bar's activity panel is open and
+   *  cleared when it closes. A log is read when it is asked for; keeping one around would mean
+   *  showing an hour-old tail the next time somebody opened the panel. */
+  logs: null,
   /* What each conversation is doing right now, by conversation id.
    *
    * Unlike the legacy store's field of the same name this is *derived*, not

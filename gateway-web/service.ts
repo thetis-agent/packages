@@ -12,6 +12,7 @@ import { clock } from '@/lib/events/index.ts';
 import { isObject, failure } from '@/lib/schema/index.ts';
 import type { Result } from '@/lib/schema/index.ts';
 import { Wire } from './wire.ts';
+import type { Versions } from './wire.ts';
 import { SignIn, sessionToken } from './identity.ts';
 import { Attachments } from './attachments.ts';
 import { requestHandler } from './http.ts';
@@ -21,6 +22,23 @@ import { filled } from './brand.ts';
 
 const assetsRoot = fileURLToPath(new URL('./assets', import.meta.url));
 const manifestPath = fileURLToPath(new URL('./assets.json', import.meta.url));
+
+/* The two versions the foot of the page reports back to the person looking at it.
+ *
+ * The first is read from this package's own manifest rather than declared anywhere: the served
+ * assets and the process serving them are one install, so the manifest beside them is the only
+ * figure that cannot drift out of step with what is on screen. The second is whatever version the
+ * kernel's own profile answer carries, which today is none — the reply is this target's settings,
+ * and the deployment's setup version is not among them. It is read rather than omitted because the
+ * bar already hides an item whose datum is absent, so wiring the seam costs nothing and the day the
+ * kernel does answer with one the bar shows it without another change here. */
+async function versions(supplied: unknown): Promise<Versions> {
+  const manifest: unknown = JSON.parse(await readFile(new URL('./package.json', import.meta.url), 'utf8'));
+  return {
+    agent: isObject(manifest) && typeof manifest['version'] === 'string' ? manifest['version'] : '',
+    setup: isObject(supplied) && typeof supplied['version'] === 'string' ? supplied['version'] : ''
+  };
+}
 const headerEnd = Buffer.from('\r\n\r\n');
 
 interface Sniffed { raw: Buffer; upgrade: boolean; cookie: string | undefined }
@@ -82,6 +100,7 @@ const result = await serve(async (profile, schemas, peer, identity) => {
   // The agent's name and colour are configuration, so they are filled into the pages, the styles and the
   // tab icon here rather than being baked into a served module: a rename reaches all of them at once.
   const branding = brand(profile);
+  const reported = await versions(profile);
   const table = await load(assetsRoot, manifestPath, schemas, filled(branding));
   if (!table.ok) return table;
   /* `/state` is this target's single writable mount and belongs to this person alone
@@ -97,7 +116,7 @@ const result = await serve(async (profile, schemas, peer, identity) => {
     const signIn = new SignIn(peer, settings.pendingIdentity);
     const request = requestHandler(composed.table, signIn, attachments.value, identity.person, settings.attachmentBytes);
     const factory = (channel: Channel, role: string): Handler => {
-      const wire = new Wire(peer, schemas, clock, identity, role, frame => channel.write(frame), composed.contribution, branding, attachments.value);
+      const wire = new Wire(peer, schemas, clock, identity, role, frame => channel.write(frame), composed.contribution, branding, attachments.value, reported);
       return {
         message: value => checkFrame(value) ? wire.command(value) : Promise.resolve(failure('invalid-args', 'The gateway frame violates its schema.')),
         close: () => { wire.close(); }
