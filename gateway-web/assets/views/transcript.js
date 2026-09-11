@@ -18,9 +18,11 @@
  * panes that were drawn once and go on receiving events in the background.
  */
 
+import { avatarFor } from "../lib/avatar.js";
 import { chooseTranscriptRow } from "../lib/dispatch.js";
 import { clear, el } from "../lib/dom.js";
 import { renderMarkdown } from "../lib/markdown.js";
+import { store } from "../lib/store.js";
 import { rendererFor } from "../lib/surface.js";
 
 export function mountTranscriptInto(root) {
@@ -66,8 +68,21 @@ export function mountTranscriptInto(root) {
     return node;
   }
 
+  /* A face for the two kinds that have a speaker, parked in the gutter beside
+   * the row (lib/avatar.js draws it, app.css places it). Tool cards and notes
+   * get none: nobody said them.
+   *
+   * The reader's own name arrives in the same frame that opens the connection,
+   * before any transcript is drawn, so in practice it is always known by the
+   * time a row needs it; the fallback is there for the one frame where it is
+   * not, and reads as a word rather than as a blank tile. */
+  function faceFor(kind) {
+    if (kind === "assistant") return avatarFor("agent", store.agent.name);
+    return kind === "user" ? avatarFor("person", store.user?.name || "You") : null;
+  }
+
   function row(kind, ...children) {
-    return place(el("div", { class: `msg is-${kind}` }, children));
+    return place(el("div", { class: `msg is-${kind}` }, faceFor(kind), children));
   }
 
   /** The person's own message, drawn immediately on send with a pending mark

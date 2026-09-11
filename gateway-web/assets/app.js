@@ -158,7 +158,13 @@ store.watch("user", (user) => {
 // --- inbound frames -------------------------------------------------------------
 
 connection
-  .on("user", (frame) => { store.set({ user: frame.user }); void loadContributions(frame); })
+  /* Two names arrive here and they are not the same kind of thing: `user` is
+   * whoever this connection belongs to, `agent` is what the installation calls
+   * itself. The window title and the sidebar were filled in when the page was
+   * served — they are spent before this frame exists — so what the store's copy
+   * is for is text a script builds afterwards: the composer's prompt, and the
+   * letter on the agent's face in each turn. */
+  .on("user", (frame) => { store.set({ user: frame.user, agent: frame.agent || store.agent }); void loadContributions(frame); })
   .on("sessions", (frame) => {
     // Merged rather than replaced: a reply asked for before a turn ended can
     // land after it, and taking whichever arrived last would put the older row

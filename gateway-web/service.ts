@@ -15,7 +15,8 @@ import { Wire } from './wire.ts';
 import { SignIn, sessionToken } from './identity.ts';
 import { requestHandler } from './http.ts';
 import type { Contract } from './types.ts';
-import { settings } from './index.ts';
+import { brand, settings } from './index.ts';
+import { filled } from './brand.ts';
 
 const assetsRoot = fileURLToPath(new URL('./assets', import.meta.url));
 const manifestPath = fileURLToPath(new URL('./assets.json', import.meta.url));
@@ -73,11 +74,14 @@ async function admit(socket: Socket, admitted: () => void, signIn: SignIn, perso
   return accept(socket, admitted, channel => factory(channel, role), request);
 }
 
-const result = await serve(async (_settings, schemas, peer, identity) => {
+const result = await serve(async (profile, schemas, peer, identity) => {
   const wireSchema: unknown = JSON.parse(await readFile(new URL('./schema.json', import.meta.url), 'utf8'));
   if (!isObject(wireSchema)) throw new Error('The committed gateway schema is invalid.');
   const checkFrame = schemas.compile<Contract>(wireSchema);
-  const table = await load(assetsRoot, manifestPath, schemas);
+  // The agent's name and colour are configuration, so they are filled into the pages, the styles and the
+  // tab icon here rather than being baked into a served module: a rename reaches all of them at once.
+  const branding = brand(profile);
+  const table = await load(assetsRoot, manifestPath, schemas, filled(branding));
   if (!table.ok) return table;
   // Packages that contribute a panel or a renderer are served from this same origin and this same
   // sign-in gate; the surface never learns what any of them mean.
@@ -88,7 +92,7 @@ const result = await serve(async (_settings, schemas, peer, identity) => {
     const signIn = new SignIn(peer, settings.pendingIdentity);
     const request = requestHandler(composed.table, signIn);
     const factory = (channel: Channel, role: string): Handler => {
-      const wire = new Wire(peer, schemas, clock, identity, role, frame => channel.write(frame), composed.contribution);
+      const wire = new Wire(peer, schemas, clock, identity, role, frame => channel.write(frame), composed.contribution, branding);
       return {
         message: value => checkFrame(value) ? wire.command(value) : Promise.resolve(failure('invalid-args', 'The gateway frame violates its schema.')),
         close: () => { wire.close(); }

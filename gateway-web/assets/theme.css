@@ -19,10 +19,14 @@
   --text-dim:    #a3a3b4;
   --text-faint:  #6e6e82;
 
-  /* Accent — a single hue, used sparingly */
-  --accent:      #7c9cff;
-  --accent-hot:  #96b0ff;
-  --accent-deep: #4a5fd0;
+  /* Accent — a single hue, used sparingly. The base is configuration (this
+     package's `accent` setting) and is filled in when this file is served; the
+     two companions are mixed from it, so a deployment that picks its own colour
+     gets a coherent set rather than one changed value beside two hand-picked
+     blues. At the default they land within a shade of the values they replace. */
+  --accent:      {agent_accent};
+  --accent-hot:  color-mix(in srgb, var(--accent) 82%, #ffffff);
+  --accent-deep: color-mix(in srgb, var(--accent) 74%, #0b0b0f);
   --accent-wash: color-mix(in srgb, var(--accent) 14%, transparent);
   --accent-edge: color-mix(in srgb, var(--accent) 38%, transparent);
 
@@ -123,6 +127,11 @@
   /* Layout */
   --sidebar-w: 272px;
   --measure: 48rem;
+  /* A turn's avatar, and the gutter beside the conversation it sits in. The
+     gutter is reserved on both sides of the text column so the conversation
+     stays visually centred; it is the tile plus its breathing room. */
+  --avatar-lg: 34px;
+  --avatar-gutter: 46px;
   /* The system status bar's height. Anything that pins itself to the bottom of
      the viewport clears this rather than guessing. */
   --statusbar-h: 26px;
@@ -153,9 +162,14 @@
     --text-dim:  #565669;
     --text-faint:#8a8a9c;
 
-    --accent:      #4a5fd0;
-    --accent-hot:  #3646b3;
-    --accent-deep: #4a5fd0;
+    /* Darkened from the same configured colour rather than restated, so an agent
+       named in orange is orange in a light-mode browser too. `oklch(from …)`
+       moves only the lightness and leaves the hue and chroma alone; a browser
+       that does not know the syntax drops these three lines and keeps the dark
+       palette's accent, which still reads on white at any hue this accepts. */
+    --accent:      oklch(from {agent_accent} 0.52 c h);
+    --accent-hot:  oklch(from {agent_accent} 0.42 c h);
+    --accent-deep: oklch(from {agent_accent} 0.52 c h);
 
     /* auth.rs's login page has no success/warning state, so it defines no
      * light --ok/--warn. Chosen here to keep the dark palette's hues

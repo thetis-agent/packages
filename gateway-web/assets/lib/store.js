@@ -17,6 +17,7 @@
  */
 
 import { IDLE } from "./activity.js";
+import { pageAgent } from "./brand.js";
 
 export const store = {
   /** The signed-in person's conversations, as last replied by `list`. */
@@ -28,6 +29,12 @@ export const store = {
   /** The `user` frame's name — who this socket is for. Null until it arrives,
    *  which is the first thing the host sends. */
   user: null,
+  /** What the agent is called and the colour it is drawn in — configuration,
+   *  not anything this browser chose. Seeded from the page, which was served
+   *  with both already filled in, so views built before the connection opens
+   *  have the right word; the `user` frame replaces it with the same answer
+   *  from the same process a moment later. lib/brand.js says why twice. */
+  agent: pageAgent(),
   /** The last `env-status` frame, or null before one has arrived (the
    *  environment predates `env.status`, or none has landed yet). Not keyed by
    *  conversation: wire.ts's `#envStatus` is a property of the socket's own

@@ -2,10 +2,13 @@
   "assets": [
     { "path": "/", "file": "index.html", "type": "text/html" },
     { "path": "/index.html", "file": "index.html", "type": "text/html" },
+    { "path": "/favicon.svg", "file": "favicon.svg", "type": "image/svg+xml" },
     { "path": "/theme.css", "file": "theme.css", "type": "text/css" },
     { "path": "/app.css", "file": "app.css", "type": "text/css" },
     { "path": "/app.js", "file": "app.js", "type": "text/javascript" },
     { "path": "/lib/dom.js", "file": "lib/dom.js", "type": "text/javascript" },
+    { "path": "/lib/brand.js", "file": "lib/brand.js", "type": "text/javascript" },
+    { "path": "/lib/avatar.js", "file": "lib/avatar.js", "type": "text/javascript" },
     { "path": "/lib/activity.js", "file": "lib/activity.js", "type": "text/javascript" },
     { "path": "/lib/store.js", "file": "lib/store.js", "type": "text/javascript" },
     { "path": "/lib/socket.js", "file": "lib/socket.js", "type": "text/javascript" },

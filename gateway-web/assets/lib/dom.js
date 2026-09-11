@@ -2,13 +2,6 @@
 
 export const $ = (id) => document.getElementById(id);
 
-/* This surface has no per-installation branding to substitute: `hello`'s
- * reply carries a person's name, never an agent's, so there is nothing to read
- * out of the document. Kept as a named constant (rather than the literal
- * string at each call site) so a future wire that does carry a name has one
- * place to plug it in. */
-export const AGENT_NAME = "Thetis";
-
 /** Creates an element. Children may be nodes or strings (inserted as text). */
 export function el(tag, props = {}, ...children) {
   const node = document.createElement(tag);

@@ -20,7 +20,7 @@
  * first; see its own header.
  */
 
-import { $, AGENT_NAME } from "../lib/dom.js";
+import { $ } from "../lib/dom.js";
 import { store } from "../lib/store.js";
 import { toast } from "../lib/toast.js";
 
@@ -61,7 +61,7 @@ export function mountComposer({ onSend, onStop }) {
       ? store.creating
         ? "Creating the conversation…"
         : "Sending…"
-      : `Message ${AGENT_NAME}…`;
+      : `Message ${store.agent.name}…`;
     form.classList.toggle("is-locked", busy);
     updateSendState();
     // Focus comes back by itself when the lock lifts, so typing can continue
@@ -71,6 +71,9 @@ export function mountComposer({ onSend, onStop }) {
 
   store.watch("pendingIds", drawLock);
   store.watch("creating", drawLock);
+  // The prompt names the agent, and the name is configuration rather than a
+  // constant, so it is redrawn when the connection confirms it.
+  store.watch("agent", drawLock);
 
   // A tab switch shows a different conversation's lock state, and starts
   // from an empty box: a draft in progress belongs to the tab it was typed

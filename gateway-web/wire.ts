@@ -10,23 +10,29 @@ import type { SessionClient } from '@/lib/session/client.ts';
 import type { Clock } from '@/lib/events/index.ts';
 import type { Contract } from './types.ts';
 import { render } from './render.ts';
-import { settings } from './index.ts';
+import { brandDefaults, settings } from './index.ts';
+import type { Brand } from './index.ts';
 import type { Contribution } from './panels.ts';
 export type Send = (frame: Record<string, unknown>) => Promise<Result<void>>;
 export class Wire {
   readonly #peer: Peer; readonly #schemas: Schemas; readonly #clock: Clock; readonly #identity: ConnectKernel; readonly #role: string; readonly #send: Send;
-  readonly #contribution: Contribution;
+  readonly #contribution: Contribution; readonly #brand: Brand;
   readonly #streams = new Map<string, SessionClient>();
   readonly #turns = new Set<string>();
   readonly #opening = new Set<string>();
   #closed = false;
-  constructor(peer: Peer, schemas: Schemas, clock: Clock, identity: ConnectKernel, role: string, send: Send, contribution: Contribution = { panels: [], renderers: [] }) {
-    this.#peer = peer; this.#schemas = schemas; this.#clock = clock; this.#identity = identity; this.#role = role; this.#send = send; this.#contribution = contribution;
+  constructor(peer: Peer, schemas: Schemas, clock: Clock, identity: ConnectKernel, role: string, send: Send, contribution: Contribution = { panels: [], renderers: [] }, brand: Brand = brandDefaults) {
+    this.#peer = peer; this.#schemas = schemas; this.#clock = clock; this.#identity = identity; this.#role = role; this.#send = send; this.#contribution = contribution; this.#brand = brand;
   }
   async command(input: Contract): Promise<Result<void>> {
     if (this.#closed) return failure('switching', 'The gateway connection is closed.');
     if (input.type === 'hello') {
+      // `agent` sits beside `user` rather than inside it: `user` is who this socket belongs to, and the
+      // two are frozen apart by service.test.ts. The page was already served with the same name filled in,
+      // so this is what keeps a script that builds text — the composer's prompt, an avatar's letter —
+      // reading one value instead of carrying a second copy of it.
       return this.#send({ type: 'user', user: { name: this.#identity.person, role: this.#role },
+        agent: { name: this.#brand.agentName, accent: this.#brand.accent },
         capabilities: ['list', 'new', 'open', 'send', 'turn-cancel', 'cursor-replay', 'env-reset'],
         panels: this.#contribution.panels, renderers: this.#contribution.renderers });
     }

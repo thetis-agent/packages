@@ -554,17 +554,27 @@ body { display: flex; flex-direction: column; }
 .chat-sub { font-size: var(--text-xs); color: var(--text-faint); white-space: nowrap; }
 
 /* --- transcript -------------------------------------------------------------
-   The legacy transcript reserved a gutter on each side of the text column for
-   a per-turn avatar (agent's face left, yours right). This wire's `hello`
-   never carries a picture — only a name — and no view here draws one, so the
-   gutter goes with it: the column is centred by its own max-width instead. */
+   A gutter is reserved on each side of the text column for a per-turn face:
+   the agent's on the left, the reader's on the right, so which margin holds a
+   tile says whose turn it is before a word is read.
+
+   The gutters are padding on this scroll container, not margin on the rows.
+   Margin is slack that vanishes as the window narrows, and a tile in vanished
+   slack lands on top of the sidebar; reserved padding shrinks the text column
+   instead, which is recoverable and never overlaps. Every centred child is
+   `max-width: --measure; margin: 0 auto`, so narrowing the content box moves
+   rows, tool cards and notes together with no per-element change. The composer
+   takes the same padding, which is what keeps it on the column's axis.
+
+   A gutter on one side only would push the conversation off-centre in the
+   window by half a gutter, which is the other reason there are two. */
 
 .transcript {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--gap-6) var(--gap-5) var(--gap-4);
+  padding: var(--gap-6) calc(var(--gap-5) + var(--avatar-gutter)) var(--gap-4);
   outline: none;
   scroll-behavior: smooth;
 }
@@ -583,9 +593,9 @@ body { display: flex; flex-direction: column; }
    family. views/transcript.js draws exactly the kinds render.ts can send —
    user, assistant, tool, note (and note's `.is-incident` variant) — as
    `.msg.is-<kind>`, so that is exactly what is styled here. There is no
-   byline: with no avatar and no name to show (see above), the user's own
-   messages are told apart the ordinary chat-app way, by aligning them to the
-   right. */
+   byline: the face in the gutter and the right-hand alignment of the reader's
+   own messages already say who spoke, and a name under every row would repeat
+   both of them. */
 
 .msg {
   max-width: var(--measure);
@@ -635,6 +645,61 @@ body { display: flex; flex-direction: column; }
 @keyframes pending-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .pending-note::before { animation: none; }
+}
+
+/* --- turn faces -------------------------------------------------------------
+   Drawn, not fetched: a letter on a colour worked out from the name (see
+   assets/lib/avatar.js). Positioned out of the row's flow into the gutter the
+   transcript reserved, pulled to the gutter's inner edge so a tile hugs the
+   text it belongs to rather than drifting outward as the window changes. */
+.turn-avatar {
+  position: absolute;
+  right: calc(100% + var(--gap-3));
+  top: 2px;
+  width: var(--avatar-lg);
+  height: var(--avatar-lg);
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-md);
+  background: var(--avatar-tint, var(--surface-2));
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  user-select: none;
+}
+/* The reader's mirrors into the right-hand gutter. `right: auto` is required:
+   the rule above would otherwise win alongside `left` and stretch the tile
+   across the whole row. */
+.turn-avatar.is-person {
+  right: auto;
+  left: calc(100% + var(--gap-3));
+}
+.turn-initial {
+  font-size: var(--text-sm);
+  font-weight: 650;
+  letter-spacing: .01em;
+  /* The reader's tile is a solid colour at a fixed lightness (lib/avatar.js
+     holds it there), so one text colour reads on every hue it can produce. */
+  color: #ffffff;
+}
+/* The agent wears the accent it is branded in, so this tile, the sidebar mark
+   and the tab icon are visibly one thing. Taken from --accent rather than set
+   per tile, which is what gets it the light-mode darkening the palette already
+   does. A wash behind the letter rather than a solid fill, matching the
+   sidebar: the letter then keeps its contrast for any colour a deployment
+   configures, which a fixed black or white letter on a solid accent would not. */
+.turn-avatar.is-agent {
+  background: var(--accent-wash);
+  box-shadow: inset 0 0 0 1px var(--accent-edge);
+}
+.turn-avatar.is-agent .turn-initial { color: var(--accent); }
+.turn-img {
+  width: 100%;
+  height: 100%;
+  /* Square, not a portrait crop: squares line up down the edge of the
+     transcript, and `cover` from the top keeps a face in frame whatever the
+     source ratio turns out to be. */
+  object-fit: cover;
+  object-position: top center;
+  border-radius: inherit;
 }
 
 /* Caret shown while tokens are still arriving. */
@@ -757,7 +822,7 @@ body { display: flex; flex-direction: column; }
 /* --- composer ----------------------------------------------------------- */
 
 .composer-wrap {
-  padding: 0 var(--gap-5) var(--gap-3);
+  padding: 0 calc(var(--gap-5) + var(--avatar-gutter)) var(--gap-3);
   flex: 0 0 auto;
 }
 
@@ -1400,9 +1465,12 @@ body { display: flex; flex-direction: column; }
 }
 
 @media (max-width: 860px) {
-  :root { --sidebar-w: 210px; }
-  .transcript { padding: var(--gap-4) var(--gap-3) var(--gap-3); }
-  .composer-wrap { padding: 0 var(--gap-3) var(--gap-2); }
+  /* The face shrinks rather than going away: at this width a 46px gutter on
+     each side leaves too little for the text, but dropping the tiles would
+     take the only mark of who spoke on the agent's rows with it. */
+  :root { --sidebar-w: 210px; --avatar-lg: 26px; --avatar-gutter: 34px; }
+  .transcript { padding: var(--gap-4) calc(var(--gap-3) + var(--avatar-gutter)) var(--gap-3); }
+  .composer-wrap { padding: 0 calc(var(--gap-3) + var(--avatar-gutter)) var(--gap-2); }
   .stage-tabs { padding: var(--gap-2) var(--gap-2) 0; }
   /* Narrow: the tab is a name, not a name plus its accounting. */
   .stage-tab { max-width: 10rem; }

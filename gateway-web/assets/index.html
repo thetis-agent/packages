@@ -1,9 +1,12 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-agent-name="{agent_name}" data-agent-accent="{agent_accent}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Thetis</title>
+<title>{agent_name}</title>
+<!-- Both the name and the tab icon are filled in when this page is served (brand.ts), so the window is
+     already labelled correctly on the first paint rather than a round trip later. -->
+<link rel="icon" href="./favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="./theme.css">
 <link rel="stylesheet" href="./app.css">
 </head>
@@ -17,7 +20,7 @@
           <circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" stroke-width="2.5"/>
           <circle cx="16" cy="16" r="3" fill="currentColor"/>
         </svg>
-        <span class="brand-name">Thetis</span>
+        <span class="brand-name">{agent_name}</span>
       </div>
       <button id="new-chat" class="icon-btn" title="New chat" aria-label="New chat">
         <svg viewBox="0 0 20 20" aria-hidden="true">

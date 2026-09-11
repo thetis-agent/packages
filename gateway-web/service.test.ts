@@ -100,3 +100,60 @@ await test('Signing out clears the cookie and redirects even without one', async
     } finally { await gateway.close(); await environment.close(); }
   } finally { await shared.close(); }
 });
+
+/* The one thing the configured name has to prove is that it reaches the browser before the browser has
+ * asked anything: the window title and the tab icon are both spent by the time a connection exists.
+ * Everything here is a real spawned gateway reading a real target profile, which is why the assertions
+ * are on served bytes rather than on the function that produced them. */
+await test('A configured name and colour reach the page, the styles, the tab icon and the opening frame', async () => {
+  const shared = await serviceFixture(); assert.ok((await shared.process.probe()).ok);
+  try {
+    const environment = await environmentProcess(shared, 'alice', true); assert.ok((await environment.process.probe()).ok);
+    const settings = { settings: { agentName: 'Ada', accent: '#ff8844' } };
+    const gateway = await gatewayProcess(shared, environment, 'alice', 'gateway-web', [], 'service.ts', settings); assert.ok((await gateway.process.probe()).ok);
+    const cookie = `thetis_session=${shared.mintSession('alice')}`;
+    const client = await webClient(gateway.socket, { cookie });
+    try {
+      const page = await httpGet(gateway.socket, '/', { cookie, accept: 'text/html' });
+      assert.equal(page.status, 200);
+      assert.match(page.body, /<title>Ada<\/title>/u);
+      assert.match(page.body, /data-agent-name="Ada"/u);
+      assert.ok(!page.body.includes('{agent_'), 'every marker in the page must have been filled in.');
+      // The body is rewritten, so content-length and the ETag have to describe the rewrite rather than
+      // the file: a browser handed the file's length truncates the page it is given.
+      assert.equal(Number(page.headers['content-length']), Buffer.byteLength(page.body));
+
+      const icon = await httpGet(gateway.socket, '/favicon.svg', { cookie });
+      assert.equal(icon.status, 200); assert.equal(icon.headers['content-type'], 'image/svg+xml');
+      assert.match(icon.body, />A<\/text>/u); assert.ok(icon.body.includes('#ff8844'));
+      // Revalidation has to agree with the rewritten bytes too, or the browser keeps a stale icon forever.
+      const again = await httpGet(gateway.socket, '/favicon.svg', { cookie });
+      assert.equal(again.headers['etag'], icon.headers['etag']);
+
+      const styles = await httpGet(gateway.socket, '/theme.css', { cookie });
+      assert.equal(styles.status, 200); assert.ok(styles.body.includes('--accent:      #ff8844;'));
+
+      await client.send({ type: 'hello' }); const hello = await client.next();
+      assert.deepEqual(hello['agent'], { name: 'Ada', accent: '#ff8844' });
+      assert.deepEqual(hello['user'], { name: 'alice', role: 'user' });
+    } finally { client.close(); await gateway.close(); await environment.close(); }
+  } finally { await shared.close(); }
+});
+
+/* A deployment that says nothing, and one that says something impossible, must both come up: a surface
+ * refusing to start over a mistyped colour is a worse failure than a surface in the wrong colour. */
+await test('An unconfigured or malformed name falls back to the default rather than refusing to serve', async () => {
+  const shared = await serviceFixture(); assert.ok((await shared.process.probe()).ok);
+  try {
+    const environment = await environmentProcess(shared, 'alice', true); assert.ok((await environment.process.probe()).ok);
+    const settings = { settings: { agentName: '   ', accent: 'rebeccapurple' } };
+    const gateway = await gatewayProcess(shared, environment, 'alice', 'gateway-web', [], 'service.ts', settings); assert.ok((await gateway.process.probe()).ok);
+    const cookie = `thetis_session=${shared.mintSession('alice')}`;
+    try {
+      const page = await httpGet(gateway.socket, '/', { cookie, accept: 'text/html' });
+      assert.equal(page.status, 200); assert.match(page.body, /<title>Thetis<\/title>/u);
+      const styles = await httpGet(gateway.socket, '/theme.css', { cookie });
+      assert.ok(styles.body.includes('--accent:      #7c9cff;'));
+    } finally { await gateway.close(); await environment.close(); }
+  } finally { await shared.close(); }
+});
