@@ -30,6 +30,10 @@
     { "path": "/views/panel.js", "file": "views/panel.js", "type": "text/javascript" },
     { "path": "/views/picker.js", "file": "views/picker.js", "type": "text/javascript" },
     { "path": "/views/environment.js", "file": "views/environment.js", "type": "text/javascript" },
-    { "path": "/views/statusbar.js", "file": "views/statusbar.js", "type": "text/javascript" }
+    { "path": "/views/statusbar.js", "file": "views/statusbar.js", "type": "text/javascript" },
+    { "path": "/lib/operator.js", "file": "lib/operator.js", "type": "text/javascript" },
+    { "path": "/views/admin.js", "file": "views/admin.js", "type": "text/javascript" },
+    { "path": "/views/packages.js", "file": "views/packages.js", "type": "text/javascript" },
+    { "path": "/views/installing.js", "file": "views/installing.js", "type": "text/javascript" }
   ]
 }

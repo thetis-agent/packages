@@ -19,6 +19,7 @@ import { clear, $, setHidden } from "./lib/dom.js";
 import { Connection } from "./lib/socket.js";
 import { store } from "./lib/store.js";
 import { toast } from "./lib/toast.js";
+import { mountAdmin } from "./views/admin.js";
 import { mountComposer } from "./views/composer.js";
 import { mountEnvironment } from "./views/environment.js";
 import { mountRail } from "./views/rail.js";
@@ -116,6 +117,7 @@ const sessions = mountSessions({
     store.set({ scope });
   },
 });
+const admin = mountAdmin({ sendFrame });
 
 // --- identity -----------------------------------------------------------------
 
@@ -308,7 +310,8 @@ connection
     toast(frame.message || "The environment reported an error.", { tone: "error" });
   })
   .on("env-status", (frame) => store.set({ env: frame }))
-  .on("surface-answer", (frame) => answer(frame));
+  .on("surface-answer", (frame) => answer(frame))
+  .on("admin", (frame) => admin.apply(frame));
 
 connection.onOpen(() => {
   sendFrame({ type: "hello" });
@@ -322,6 +325,7 @@ connection.onOpen(() => {
   // where it left off, so a turn that ran while the connection was down is
   // still there when it comes back.
   for (const id of store.tabs) sendFrame(cursors.resumeFrame(id));
+  admin.reconnected();
 });
 
 connection.connect();

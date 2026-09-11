@@ -16,6 +16,7 @@ import type { Contribution } from './panels.ts';
 import { Attachments } from './attachments.ts';
 import type { Descriptor } from './attachments.ts';
 import { SurfaceRequests } from './surface-request.ts';
+import { Admin } from './admin.ts';
 export type Send = (frame: Record<string, unknown>) => Promise<Result<void>>;
 /** Where a wire that was handed no store keeps attachments: this process's own working directory, which
  * is `/state` for a spawned gateway (lib/profile/target.ts sets `cwd`). service.ts names that root
@@ -37,6 +38,7 @@ export class Wire {
   readonly #contribution: Contribution; readonly #brand: Brand;
   readonly #attachments: Attachments;
   readonly #requests: SurfaceRequests;
+  readonly #admin: Admin;
   readonly #streams = new Map<string, SessionClient>();
   readonly #turns = new Set<string>();
   readonly #opening = new Set<string>();
@@ -45,6 +47,7 @@ export class Wire {
     this.#peer = peer; this.#schemas = schemas; this.#clock = clock; this.#identity = identity; this.#role = role; this.#send = send; this.#contribution = contribution; this.#brand = brand;
     this.#attachments = attachments;
     this.#requests = new SurfaceRequests(contribution.declared, role, id => this.#streams.get(id), send);
+    this.#admin = new Admin(peer, role, send);
   }
   async command(input: Contract): Promise<Result<void>> {
     if (this.#closed) return failure('switching', 'The gateway connection is closed.');
@@ -66,6 +69,7 @@ export class Wire {
     }
     if (SurfaceRequests.claims(input)) return this.#requests.handle(input);
     if (input.type === 'env-reset') return this.#envReset();
+    if (input.type.startsWith('admin.')) return this.#admin.command(input);
     if (!['open', 'send', 'turn-cancel', 'rename', 'archive', 'unarchive'].includes(input.type)) return failure('unsupported', 'The requested gateway capability is unavailable.');
     if (!input.id) return failure('invalid-args', 'The gateway command requires a conversation id.');
     if (input.type === 'open') return this.#open(input.id, input.from);
