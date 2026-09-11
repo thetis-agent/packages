@@ -15,7 +15,7 @@ import type { CallAnswer } from '@/contracts/turn-events/types.ts';
 import type { Table } from '@/lib/assets/index.ts';
 import { compose } from './panels.ts';
 import type { Declared } from './panels.ts';
-import { SurfaceRequests } from './surface-request.ts';
+import { SurfaceRequests, limits as answerLimits } from './surface-request.ts';
 import type { Stream } from './surface-request.ts';
 import { settings } from './index.ts';
 
@@ -143,6 +143,19 @@ await test('a package answering with a refusal reaches the panel as that refusal
   const f = await fixture({ answer: () => ({ ok: true, value: { id: 'x', ok: false, error: { code: 'not-offered', message: 'That panel is not allowed to do this.' } } }) });
   const result = await f.requests.handle(ask()); assert.ok(result.ok);
   assert.deepEqual(f.sent.at(-1), { type: 'surface-answer', request: 'r1', session: 'c1', ok: false, message: 'That panel is not allowed to do this.' });
+});
+
+await test('a transport failure is said plainly rather than forwarded in the wire\'s own words', async () => {
+  const f = await fixture({ answer: () => ({ ok: false, error: { code: 'deadline', message: 'session.request exceeded its deadline.' } }) });
+  const result = await f.requests.handle(ask()); assert.ok(result.ok);
+  assert.deepEqual(f.sent.at(-1), { type: 'surface-answer', request: 'r1', session: 'c1', ok: false, message: 'That did not work. Nothing was changed.' });
+});
+
+await test('an answer longer than its bound is cut rather than sent whole', async () => {
+  const long = 'x'.repeat(answerLimits.answerBytes + 64);
+  const f = await fixture({ answer: () => ({ ok: true, value: { id: 'x', ok: true, content: [{ type: 'text', text: long }] } }) });
+  const result = await f.requests.handle(ask()); assert.ok(result.ok);
+  assert.equal(String(f.sent.at(-1)?.['text']).length, answerLimits.answerBytes);
 });
 
 await test('a frame with no reply address is a malformed frame, not a refusal nobody could receive', async () => {

@@ -36,6 +36,10 @@ const ranks = ['user', 'reviewer', 'admin'];
 const clears = (role: string, least: string | undefined): boolean =>
   least === undefined ? ranks.includes(role) : ranks.indexOf(role) >= ranks.indexOf(least) && ranks.includes(role);
 
+/** What a panel may be handed back from one answer, in UTF-8 bytes like every other budget here. The
+ *  environment already bounds what it asks a package for; this bounds what crosses to the browser. */
+export const limits = { answerBytes: 65536 };
+
 /** Refusals a person reads. They say what happened, not what the machinery calls it. */
 const refusals = {
   unknown: 'That panel is not allowed to do this.',
@@ -44,6 +48,12 @@ const refusals = {
   full: 'Too much is happening at once. Try that again in a moment.',
   failed: 'That did not work. Nothing was changed.',
 };
+
+/** Caps an answer's text at `limits.answerBytes`, measured in UTF-8 bytes as render.ts measures its own. */
+function cap(value: string): string {
+  const buffer = Buffer.from(value, 'utf8');
+  return buffer.byteLength <= limits.answerBytes ? value : buffer.subarray(0, limits.answerBytes).toString('utf8');
+}
 
 export class SurfaceRequests {
   readonly #declared = new Map<string, Map<string, Command>>();
@@ -71,18 +81,23 @@ export class SurfaceRequests {
     const declared = this.#declared.get(name)?.get(verb);
     if (!declared) return this.#refuse(request, input.id, refusals.unknown);
     if (!clears(this.#role, typeof declared['role'] === 'string' ? declared['role'] : undefined)) return this.#refuse(request, input.id, refusals.role);
-    const stream = typeof input.id === 'string' ? this.#stream(input.id) : undefined;
-    if (!stream || typeof input.id !== 'string') return this.#refuse(request, input.id, refusals.closed);
+    const conversation = input.id;
+    if (typeof conversation !== 'string') return this.#refuse(request, undefined, refusals.closed);
+    const stream = this.#stream(conversation);
+    if (!stream) return this.#refuse(request, conversation, refusals.closed);
     // Bounded like every other pool on this connection (settings.pendingIdentity): a panel that asks
     // faster than the environment answers is refused rather than allowed to queue work behind itself.
-    if (this.#pending >= settings.pendingRequests) return this.#refuse(request, input.id, refusals.full);
+    if (this.#pending >= settings.pendingRequests) return this.#refuse(request, conversation, refusals.full);
     this.#pending++;
     try {
-      const answer = await stream.request(input.id, name, verb, args);
-      if (!answer.ok) return await this.#refuse(request, input.id, answer.error.message || refusals.failed);
-      if (!answer.value.ok) return await this.#refuse(request, input.id, answer.value.error?.message ?? refusals.failed);
-      const text = (answer.value.content ?? []).map(part => part.type === 'text' ? part.text : '').join('');
-      return await this.#send({ type: 'surface-answer', request, session: input.id, ok: true,
+      const answer = await stream.request(conversation, name, verb, args);
+      // A transport failure is said plainly and never forwarded: those messages name deadlines,
+      // sockets and methods, which is the vocabulary the house rules keep off the screen. A package's
+      // own refusal is forwarded, because the package is the only thing that knows what it refused.
+      if (!answer.ok) return await this.#refuse(request, conversation, refusals.failed);
+      if (!answer.value.ok) return await this.#refuse(request, conversation, answer.value.error?.message ?? refusals.failed);
+      const text = cap((answer.value.content ?? []).map(part => part.type === 'text' ? part.text : '').join(''));
+      return await this.#send({ type: 'surface-answer', request, session: conversation, ok: true,
         ...(text ? { text } : {}), ...(answer.value.data ? { data: answer.value.data } : {}) });
     } finally { this.#pending--; }
   }

@@ -14,6 +14,12 @@
  * reported, "never the environment down". A surface that refused to start because one contributed
  * panel was unreadable would take the whole conversation with it, which is strictly worse than a
  * missing tab beside a named refusal.
+ *
+ * A contributor may also declare `commands`: the verbs its panels may send back to its own service
+ * (ADR 0051). They are collected here, per package, and handed to `surface-request.ts`, which is what
+ * checks a request against them. A declaration the host could not honour is refused by name like
+ * everything else above, and for the same reason — a command silently dropped is a panel that fails
+ * at the person's click with nothing anywhere saying why.
  */
 import { readdir, access } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
