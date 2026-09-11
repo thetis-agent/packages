@@ -12,16 +12,19 @@ import type { Contract } from './types.ts';
 import { render } from './render.ts';
 import { settings } from './index.ts';
 import type { Contribution } from './panels.ts';
+import { SurfaceRequests } from './surface-request.ts';
 export type Send = (frame: Record<string, unknown>) => Promise<Result<void>>;
 export class Wire {
   readonly #peer: Peer; readonly #schemas: Schemas; readonly #clock: Clock; readonly #identity: ConnectKernel; readonly #role: string; readonly #send: Send;
   readonly #contribution: Contribution;
+  readonly #requests: SurfaceRequests;
   readonly #streams = new Map<string, SessionClient>();
   readonly #turns = new Set<string>();
   readonly #opening = new Set<string>();
   #closed = false;
-  constructor(peer: Peer, schemas: Schemas, clock: Clock, identity: ConnectKernel, role: string, send: Send, contribution: Contribution = { panels: [], renderers: [] }) {
+  constructor(peer: Peer, schemas: Schemas, clock: Clock, identity: ConnectKernel, role: string, send: Send, contribution: Contribution = { panels: [], renderers: [], declared: [] }) {
     this.#peer = peer; this.#schemas = schemas; this.#clock = clock; this.#identity = identity; this.#role = role; this.#send = send; this.#contribution = contribution;
+    this.#requests = new SurfaceRequests(contribution.declared, role, id => this.#streams.get(id), send);
   }
   async command(input: Contract): Promise<Result<void>> {
     if (this.#closed) return failure('switching', 'The gateway connection is closed.');
@@ -38,6 +41,7 @@ export class Wire {
       if (!isObject(result.value) || typeof result.value['id'] !== 'string') return failure('protocol', 'The environment returned invalid conversation metadata.');
       return this.#open(result.value['id']);
     }
+    if (SurfaceRequests.claims(input)) return this.#requests.handle(input);
     if (input.type === 'env-reset') return this.#envReset();
     if (!['open', 'send', 'turn-cancel'].includes(input.type)) return failure('unsupported', 'The requested gateway capability is unavailable.');
     if (!input.id) return failure('invalid-args', 'The gateway command requires a conversation id.');

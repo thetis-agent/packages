@@ -3,6 +3,8 @@
   "type": "object", "required": ["type"], "properties": {
     "type": { "type": "string", "maxLength": 64 }, "id": { "type": "string", "maxLength": 256 },
     "text": { "type": "string", "maxLength": 65536 }, "from": { "type": "integer", "minimum": 0 },
-    "attachments": { "type": "array", "maxItems": 32, "items": {} }
+    "attachments": { "type": "array", "maxItems": 32, "items": {} },
+    "request": { "type": "string", "maxLength": 64 }, "package": { "type": "string", "maxLength": 64 },
+    "verb": { "type": "string", "maxLength": 32 }, "args": { "type": "object" }
   }, "additionalProperties": true
 }

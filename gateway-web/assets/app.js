@@ -24,7 +24,7 @@ import { mountRail } from "./views/rail.js";
 import { mountSessions } from "./views/sessions.js";
 import { mountStage, transcriptFor } from "./views/stage.js";
 import { mountStatusbar } from "./views/statusbar.js";
-import { deliver } from "./lib/surface.js";
+import { answer, attach, deliver } from "./lib/surface.js";
 import { applyActivity, cancelled, mergeSessions, sortSessions } from "./lib/activity.js";
 
 const statusEl = $("status");
@@ -36,6 +36,8 @@ function setStatus(state, text) {
 
 const connection = new Connection({ onStatus: setStatus });
 const sendFrame = (frame) => connection.send(frame);
+// The one thing a contributed panel may originate, and the only way it reaches the socket; ADR 0051.
+attach(sendFrame);
 
 /** Switches to a conversation's tab, opening one if it has none yet. A tab
  *  click always hits the first branch — stage.js only ever offers ids already
@@ -210,7 +212,8 @@ connection
     }
     toast(frame.message || "The environment reported an error.", { tone: "error" });
   })
-  .on("env-status", (frame) => store.set({ env: frame }));
+  .on("env-status", (frame) => store.set({ env: frame }))
+  .on("surface-answer", (frame) => answer(frame));
 
 connection.onOpen(() => {
   sendFrame({ type: "hello" });
