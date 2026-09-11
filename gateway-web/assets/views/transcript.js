@@ -276,7 +276,7 @@ export function mountTranscriptInto(root) {
     // choice — including the rule that a contributor which declines or throws falls through rather
     // than losing the event — is lib/dispatch.js's, which is where it is covered by tests.
     const choice = chooseTranscriptRow(rendererFor(frame.kind), RENDERERS[frame.kind], frame, { el });
-    if (choice.failed) console.error(`a contributed renderer for ${frame.kind} rows failed`, choice.error);
+    for (const error of choice.failures) console.error(`a contributed renderer for ${frame.kind} rows failed`, error);
     if (choice.row === "contributed") { place(choice.node); return; }
     choice.builtin?.(frame);
   }

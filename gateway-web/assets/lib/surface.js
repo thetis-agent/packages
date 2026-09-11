@@ -24,7 +24,8 @@ const pending = new Pending();
 /** app.js hands this module the one way it may send; until then a request is refused, not queued. */
 let dispatch = null;
 
-/** Registered transcript renderers, by event kind. views/transcript.js consults this first. */
+/** Registered transcript renderers, by event kind, in registration order. views/transcript.js
+ *  consults these before its own table; lib/dispatch.js says how they are tried. */
 const renderers = new Map();
 /** Handlers watching a frame kind, in registration order. */
 const watchers = new Map();
@@ -88,14 +89,20 @@ export function answer(frame) {
   pending.settle(frame);
 }
 
-/** Contributes a transcript row for one event kind. `render` returns a Node, or null to fall back. */
+/** Contributes a transcript row for one event kind. `render` returns a Node, or null to fall back.
+ *
+ *  More than one package may draw a kind: each is asked in turn and the first to return a node wins,
+ *  so a package draws the rows that are its own and declines the rest. Returning null is how a
+ *  contributor says "not mine", and it is the only reason two packages can share a kind at all. */
 export function registerRenderer(kind, render) {
-  renderers.set(kind, render);
+  const list = renderers.get(kind) ?? [];
+  list.push(render);
+  renderers.set(kind, list);
 }
 
 /** Used by views/transcript.js; not part of the panel-facing API. */
 export function rendererFor(kind) {
-  return renderers.get(kind);
+  return renderers.get(kind) ?? [];
 }
 
 /** Calls `handler` for every frame of `kind` the surface receives, for any conversation. */

@@ -56,7 +56,7 @@ await test('a contributed renderer that returns a node draws the row, and the no
   const result = decision((...args: unknown[]) => { seen.push(args); return node; }, builtin, frame, context);
   assert.equal(result['row'], 'contributed');
   assert.equal(result['node'], node);
-  assert.equal(result['failed'], undefined);
+  assert.deepEqual(result['failures'], []);
   assert.deepEqual(seen, [[frame, context]], 'the contributed renderer receives the frame and the helper bag, in that order and nothing else.');
 });
 
@@ -65,7 +65,7 @@ await test('a contributed renderer that returns null falls through to the built-
   const result = decision(() => null, builtin);
   assert.equal(result['row'], 'builtin');
   assert.equal(result['builtin'], builtin);
-  assert.equal(result['failed'], undefined);
+  assert.deepEqual(result['failures'], []);
   assert.ok(!('node' in result), 'a fallthrough decision must not carry a node for the caller to place.');
 });
 
@@ -74,7 +74,7 @@ await test('a contributed renderer that returns undefined falls through to the b
   const result = decision(() => undefined, builtin);
   assert.equal(result['row'], 'builtin');
   assert.equal(result['builtin'], builtin);
-  assert.equal(result['failed'], undefined);
+  assert.deepEqual(result['failures'], []);
 });
 
 await test('a contributed renderer that throws falls through to the built-in row and reports what it threw', () => {
@@ -83,20 +83,18 @@ await test('a contributed renderer that throws falls through to the built-in row
   const result = decision(() => { throw thrown; }, builtin);
   assert.equal(result['row'], 'builtin');
   assert.equal(result['builtin'], builtin);
-  assert.equal(result['failed'], true);
-  assert.equal(result['error'], thrown);
+  assert.deepEqual(result['failures'], [thrown]);
 });
 
 /** A contributor may throw anything, including a falsy value — `throw null` is legal JavaScript. The
- *  caller must therefore gate its report on the flag and not on the value, or a contributor that
- *  throws one fails silently. Typed `unknown` because that is what a thrown value honestly is, and
- *  because a bare `throw null` is what `only-throw-error` exists to catch in ordinary code. */
+ *  caller must therefore gate its report on the list's length and not on what is in it, or a
+ *  contributor that throws one fails silently. Typed `unknown` because that is what a thrown value
+ *  honestly is, and because a bare `throw null` is what `only-throw-error` catches in ordinary code. */
 await test('a contributed renderer that throws a falsy value is still reported as failed', () => {
   const falsy: unknown = null;
   const result = decision(() => { throw falsy; }, builtinRenderer());
   assert.equal(result['row'], 'builtin');
-  assert.equal(result['failed'], true);
-  assert.equal(result['error'], null);
+  assert.deepEqual(result['failures'], [null]);
 });
 
 /** A contributor registers whatever it likes; something truthy but uncallable used to be indistinguishable
@@ -104,8 +102,8 @@ await test('a contributed renderer that throws a falsy value is still reported a
 await test('a contributed entry that is truthy but not callable is reported as failed, not as a decline', () => {
   const result = decision({ notAFunction: true }, builtinRenderer());
   assert.equal(result['row'], 'builtin');
-  assert.equal(result['failed'], true);
-  assert.ok(result['error'] instanceof TypeError);
+  const failures = result['failures']; assert.ok(Array.isArray(failures)); assert.equal(failures.length, 1);
+  assert.ok(failures[0] instanceof TypeError);
 });
 
 await test('no contributed renderer at all goes straight to the built-in row, with nothing reported', () => {
@@ -114,7 +112,7 @@ await test('no contributed renderer at all goes straight to the built-in row, wi
     const result = decision(absent, builtin);
     assert.equal(result['row'], 'builtin', `a ${JSON.stringify(absent)} contribution should fall through.`);
     assert.equal(result['builtin'], builtin);
-    assert.equal(result['failed'], undefined);
+    assert.deepEqual(result['failures'], []);
   }
 });
 
@@ -135,4 +133,35 @@ await test('the decision never calls the built-in renderer itself', () => {
     decision(contributed, builtin);
   }
   assert.equal(calls, 0, 'chooseTranscriptRow must hand the built-in renderer back rather than invoke it.');
+});
+
+/* Two packages draw one kind and each declines what is not its own — the arrangement that made
+ * skills-l1 and tools-ask mutually exclusive when a kind admitted only one drawer. Registration
+ * order decides between two that both want a frame, and a broken one must cost only its own row. */
+await test('several contributors are asked in order and the first to draw a node wins', () => {
+  const asked: string[] = [];
+  const declines = (name: string) => () => { asked.push(name); return null; };
+  const draws = (name: string, node: unknown) => () => { asked.push(name); return node; };
+  const node = { own: true };
+  const result = decision([declines('first'), draws('second', node), draws('third', { other: true })], builtinRenderer());
+  assert.equal(result['row'], 'contributed');
+  assert.equal(result['node'], node);
+  assert.deepEqual(asked, ['first', 'second'], 'a contributor past the one that drew must not be asked.');
+});
+
+await test('one contributor throwing costs only its own row, not the ones after it', () => {
+  const thrown = new Error('the first contributor is broken');
+  const node = { own: true };
+  const result = decision([() => { throw thrown; }, () => node], builtinRenderer());
+  assert.equal(result['row'], 'contributed');
+  assert.equal(result['node'], node);
+  assert.deepEqual(result['failures'], [thrown], 'the throw is still reported, even though another row was drawn.');
+});
+
+await test('every contributor declining falls through to the built-in row', () => {
+  const builtin = builtinRenderer();
+  const result = decision([() => null, () => undefined], builtin);
+  assert.equal(result['row'], 'builtin');
+  assert.equal(result['builtin'], builtin);
+  assert.deepEqual(result['failures'], []);
 });

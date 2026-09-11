@@ -5,6 +5,11 @@
  * the target that already serves the surface, so no deployment-scope process reaches into a person's
  * sandbox and the boundary rule ADR 0038 declined to weaken is untouched.
  *
+ * Two packages may draw the same row kind and neither is refused for it: the browser asks each in
+ * turn and takes the first that returns a node, so a package draws its own tool's rows and declines
+ * everybody else's (lib/dispatch.js). A panel *id* is still one package's, because a tab is a place
+ * on screen and two cannot have it.
+ *
  * A contributor is any sibling whose manifest provides `panel/<id>` or `renderer/<kind>`. Its assets
  * are its own `assets.json`, loaded by the same bounded loader the surface uses for its own, and every
  * path it claims must sit under `/surface/<its package name>/` — the schema fixes the shape and the
@@ -117,22 +122,17 @@ export async function compose(own: Table, schemas: Schemas, root = siblingRoot()
   catch { return empty; }
   if (names.length > limits.packages) return { ...empty, refused: [{ name: root, message: 'The package directory exceeds its entry limit.' }] };
   const tables: Table[] = [own]; const panels: Panel[] = []; const renderers: Renderer[] = []; const declared: Declared[] = []; const refused: Refusal[] = [];
-  const claimed = new Set<string>(); const drawn = new Set<string>();
+  const claimed = new Set<string>();
   for (const name of names) {
     const found = await contributor(root, name, schemas);
     if (!found.ok) { refused.push({ name, message: found.error.message }); continue; }
     if (!found.value) continue;
     const taken = (found.value.surface.panels ?? []).find(panel => claimed.has(panel.id));
     if (taken) { refused.push({ name, message: `Another package already contributes the panel ${taken.id}.` }); continue; }
-    // The browser keys renderers by kind, so a second contributor of one kind would silently replace
-    // the first as the modules import. Refuse it here, where the refusal can be named.
-    const drawnTwice = (found.value.surface.renderers ?? []).find(renderer => drawn.has(renderer.kind));
-    if (drawnTwice) { refused.push({ name, message: `Another package already draws ${drawnTwice.kind} rows.` }); continue; }
     const joined = merge([...tables, found.value.table]);
     if (!joined.ok) { refused.push({ name, message: joined.error.message }); continue; }
     tables.push(found.value.table);
     for (const panel of found.value.surface.panels ?? []) claimed.add(panel.id);
-    for (const renderer of found.value.surface.renderers ?? []) drawn.add(renderer.kind);
     panels.push(...found.value.surface.panels ?? []);
     renderers.push(...found.value.surface.renderers ?? []);
     if (found.value.surface.commands?.length) declared.push({ package: name, commands: found.value.surface.commands });

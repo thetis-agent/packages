@@ -80,12 +80,12 @@ await test('the surface block matches contract/surface and declares only paths t
     assert.ok(entry.entry.startsWith(prefix), `${entry.entry} is outside ${prefix}.`);
     assert.ok(rows.has(entry.entry), `${entry.entry} is declared but not served.`);
   }
-  /* This package does claim the two tool row kinds, which is the one thing gateway-web's panels.ts
-   * permits exactly one contributor of: a question is a form a person fills in where it was asked, so
-   * it has to be a transcript row and there is no other kind for it to be. `skills-l1` claims the same
-   * two for its `load_skill` rows, and whichever is read first (readdir order, so `skills-l1`) wins —
-   * the other is refused by name and loses its panel and its commands with it. Asserted here so the
-   * clash is a line in a test rather than a tab that is silently missing. */
+  /* This package claims the two tool row kinds, and so does `skills-l1` for its `load_skill` rows: a
+   * question is a form a person fills in where it was asked, so it has to be a transcript row and
+   * there is no other kind for it to be. Both are carried — the surface asks each in turn and takes
+   * the first that returns a node, and each declines the calls that are not its own (see
+   * gateway-web/lib/dispatch.js). Asserted here because that sharing is load-bearing: a kind that
+   * admitted one drawer made these two packages mutually exclusive, panel and commands included. */
   assert.deepEqual((declared.renderers ?? []).map(renderer => renderer.kind), ['tool-call', 'tool-result']);
   assert.deepEqual(Object.keys(isObject(raw['provides']) ? raw['provides'] : {}), ['panel/questions', 'renderer/tool-call', 'renderer/tool-result']);
   // A command with no panel to send it is refused by panels.ts, by name, and the package goes with it.
