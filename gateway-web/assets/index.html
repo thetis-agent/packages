@@ -19,6 +19,18 @@
         </svg>
         <span class="brand-name">Thetis</span>
       </div>
+      <!-- Everyone's conversations, for an account whose role may observe others.
+           Hidden until the host's `user` frame says the role allows it; the
+           sidebar is this person's own even for an administrator, and this is
+           the switch. views/sessions.js wires it and keeps aria-pressed true. -->
+      <button id="see-all" class="icon-btn" title="Show everyone's conversations" aria-label="Show everyone's conversations" aria-pressed="false" hidden>
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <circle cx="7" cy="7" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <circle cx="13.5" cy="7.5" r="2.1" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <path d="M2.5 15.5a4.5 4.5 0 0 1 9 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          <path d="M12.2 12.2a3.6 3.6 0 0 1 5.3 3.3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </button>
       <button id="new-chat" class="icon-btn" title="New chat" aria-label="New chat">
         <svg viewBox="0 0 20 20" aria-hidden="true">
           <path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -40,8 +52,8 @@
     <!-- Who is signed in, then the way to sign out. Filled from the host's `user`
          frame; the logout form is a real POST rather than a fetch so signing out
          works with the socket down, which is when it is most wanted. There is no
-         admin link and no "see everyone's conversations" control here: this
-         sidebar is always just the signed-in person's own conversations. -->
+         admin link: the one thing a role changes on this surface is the
+         everyone's-conversations switch in the header above. -->
     <footer class="sidebar-foot">
       <div class="foot-row foot-identity">
         <span id="user-name" class="foot-name" title="Signed in as"></span>

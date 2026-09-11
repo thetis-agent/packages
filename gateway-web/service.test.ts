@@ -100,3 +100,52 @@ await test('Signing out clears the cookie and redirects even without one', async
     } finally { await gateway.close(); await environment.close(); }
   } finally { await shared.close(); }
 });
+
+/* The sidebar's own commands, end to end: a real gateway process, a real environment process, and
+ * the real conversation store behind both. Nothing here is fabricated except the provider's script —
+ * which is what gives the conversation a name to replace. */
+await test('A conversation is renamed, archived and restored over the real wire, and the list follows', async () => {
+  const shared = await serviceFixture(); assert.ok((await shared.process.probe()).ok);
+  try {
+    const environment = await environmentProcess(shared, 'alice', true); assert.ok((await environment.process.probe()).ok);
+    const gateway = await gatewayProcess(shared, environment, 'alice', 'gateway-web'); assert.ok((await gateway.process.probe()).ok);
+    const cookie = `thetis_session=${shared.mintSession('alice')}`;
+    const client = await webClient(gateway.socket, { cookie });
+    /** Drains until the named frame arrives, since a turn puts many between the ask and the answer. */
+    const until = async (type: string): Promise<Record<string, unknown>> => {
+      for (let count = 0; count < 128; count++) {
+        const frame = await client.next(); assert.notEqual(frame['type'], 'error', JSON.stringify(frame));
+        if (frame['type'] === type) return frame;
+      }
+      throw new Error(`no ${type} frame arrived`);
+    };
+    const rows = async (): Promise<Record<string, unknown>[]> => {
+      await client.send({ type: 'list' }); const listed = await until('sessions');
+      assert.equal(listed['scope'], 'mine');
+      return Array.isArray(listed['sessions']) ? listed['sessions'].filter(row => typeof row === 'object' && row !== null) as Record<string, unknown>[] : [];
+    };
+    try {
+      await client.send({ type: 'hello' }); assert.equal((await until('user'))['type'], 'user');
+      await client.send({ type: 'new' }); const id = (await until('opened'))['session']; assert.ok(typeof id === 'string');
+      await client.send({ type: 'send', id, text: 'Draft the quarterly plan' }); await until('accepted');
+      const named = await rows(); assert.equal(named.length, 1); assert.equal(named[0]?.['title'], 'Draft the quarterly plan');
+
+      await client.send({ type: 'rename', id, title: '  Quarterly   plan  ' });
+      assert.deepEqual(await until('renamed'), { type: 'renamed', session: id });
+      const renamed = await rows();
+      assert.equal(renamed[0]?.['title'], 'Quarterly plan', 'the environment collapses the name it stores, and the list is what says so.');
+
+      await client.send({ type: 'archive', id });
+      assert.deepEqual(await until('archived'), { type: 'archived', session: id, archived: true });
+      assert.deepEqual((await rows()).map(row => [row['id'], row['archived']]), [[id, true]],
+        'an archived conversation still reaches the sidebar, which draws it in its own section.');
+
+      await client.send({ type: 'unarchive', id });
+      assert.deepEqual(await until('archived'), { type: 'archived', session: id, archived: false });
+      assert.deepEqual((await rows()).map(row => row['archived']), [false]);
+
+      await client.send({ type: 'list', scope: 'everyone' });
+      assert.equal((await client.next())['code'], 'forbidden', 'an ordinary account cannot ask for anyone else\'s conversations.');
+    } finally { client.close(); await gateway.close(); await environment.close(); }
+  } finally { await shared.close(); }
+});

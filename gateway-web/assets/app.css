@@ -230,12 +230,19 @@ body { display: flex; flex-direction: column; }
 .ghost-btn.is-danger:hover { background: var(--err-wash); color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, transparent); }
 
 /* --- session list ----------------------------------------------------------
-   views/sessions.js's doc comment says what the legacy list also did that this
-   one no longer speaks a wire for: day-grouping, an owner-grouped "everyone's
-   conversations" view, sub-agent rows nested under their parent, and archive/
-   restore. This list is a flat, most-recent-first row of buttons, each saying
-   what its conversation is doing. Colour stays on the dot and the text, never
-   on the row. */
+   A flat, most-recent-first list of rows, each saying what its conversation is
+   doing, with the archive folded into a section at the foot. Colour stays on
+   the dot and the text, never on the row. Day-grouping and sub-agent rows are
+   the two things the legacy list did that this wire still carries nothing for
+   (views/sessions.js says so). */
+
+/* The everyone's-conversations switch stays lit while it is on, so what the
+   sidebar is showing is never a mystery. */
+#see-all[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-wash);
+  border-color: var(--accent-edge);
+}
 
 .session-list {
   flex: 1 1 auto;
@@ -244,20 +251,38 @@ body { display: flex; flex-direction: column; }
   padding: 0 var(--gap-2) var(--gap-3);
 }
 
+/* A row is a container, not a button: the overflow control and the menu it
+   opens are siblings of the part that opens the conversation, because a button
+   inside a button is not markup a browser will keep. `overflow: hidden` clips
+   the sheen to the row's corners, so the menu is positioned `fixed`-like out
+   of flow instead — see .session-menu. */
 .session {
   position: relative;
-  display: block;
+  display: flex;
+  align-items: stretch;
   width: 100%;
   margin-bottom: 2px;
-  padding: 9px 11px;
-  text-align: left;
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--r-md);
-  overflow: hidden;
-  cursor: pointer;
   transition: background-color var(--fast) var(--ease);
 }
+.session-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
+  padding: 9px 4px 9px 11px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  border-radius: var(--r-md);
+}
+/* Someone else's row, and a row mid-rename: there is nothing to click. */
+.session-open.is-inert { cursor: default; }
 .session:hover { background: var(--surface-2); }
 .session.is-active { background: var(--accent-wash); border-color: var(--accent-edge); }
 .session.is-active::before {
@@ -377,6 +402,10 @@ body { display: flex; flex-direction: column; }
   content: "";
   position: absolute;
   inset: 0;
+  /* The row no longer clips its own children — the overflow menu has to escape
+     it — so the sheen rounds itself to the corners it is drawn over. */
+  border-radius: var(--r-md);
+  overflow: hidden;
   pointer-events: none;
   background-image: linear-gradient(
     100deg,
@@ -408,6 +437,124 @@ body { display: flex; flex-direction: column; }
 }
 
 .session-empty { padding: 10px 11px; font-size: var(--text-xs); color: var(--text-faint); }
+
+/* --- overflow, rename, owner ------------------------------------------------
+   The per-row actions. The button stays out of the way until the row is
+   hovered or something inside it has focus, so a quiet list stays quiet; it
+   remains visible while its own menu is open, which is what :focus-within
+   covers once the menu has taken focus. */
+
+.session-more {
+  flex: none;
+  align-self: flex-start;
+  display: grid;
+  place-items: center;
+  width: 24px; height: 26px;
+  margin: 7px 5px 0 0;
+  padding: 0;
+  visibility: hidden;
+  color: var(--text-faint);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.session:hover .session-more,
+.session:focus-within .session-more,
+.session-more[aria-expanded="true"] { visibility: visible; }
+.session-more:hover, .session-more[aria-expanded="true"] { color: var(--text); background: var(--surface-3); border-color: var(--hairline); }
+
+/* Drawn over the rows below it rather than pushing them down, which is why the
+   row's own clipping is on .session-open and not on .session. */
+.session-menu {
+  position: absolute;
+  top: calc(100% - 4px);
+  right: 6px;
+  z-index: 30;
+  min-width: 150px;
+  padding: var(--gap-1);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+  animation: fall var(--med) var(--ease);
+}
+.session-menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 9px;
+  text-align: left;
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.session-menu-item:hover, .session-menu-item:focus-visible { color: var(--text); background: var(--surface-3); }
+@media (prefers-reduced-motion: reduce) { .session-menu { animation: none; } }
+
+/* The name, being typed. Sized to the title line it replaces so the row does
+   not change height when it turns into a field and back. */
+.session-rename {
+  width: 100%;
+  padding: 1px 5px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1.4;
+  border-radius: var(--r-sm);
+}
+
+/* Whose a row is, when the list is showing more than one person's. */
+.session-owner {
+  flex: none;
+  padding: 0 6px;
+  font-size: var(--text-xs);
+  font-weight: 400;
+  color: var(--text-faint);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+}
+.session.is-theirs .session-open { opacity: .8; }
+
+/* --- the archive ------------------------------------------------------------
+   A native <details>, so the keyboard opens it the way it opens any other. */
+
+.session-archived { margin-top: var(--gap-2); }
+.session-archived > summary { list-style: none; cursor: pointer; }
+.session-archived > summary::-webkit-details-marker { display: none; }
+.session-archived > summary .session-group::before {
+  content: "";
+  width: 5px; height: 5px;
+  border-right: 1.4px solid currentColor;
+  border-bottom: 1.4px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--med) var(--ease);
+}
+.session-archived[open] > summary .session-group::before { transform: rotate(45deg); }
+.session-archived > summary:hover .session-group { color: var(--text-dim); }
+.session-archived .session-open { opacity: .75; }
+
+.session-group {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+  padding: var(--gap-3) 11px 4px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.session-count {
+  font-family: var(--mono);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 0 6px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+}
 
 /* --- status ----------------------------------------------------------------
    The connection dot in the sidebar footer. */
