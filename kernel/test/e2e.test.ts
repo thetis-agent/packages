@@ -127,6 +127,37 @@ test("a user cannot install into another scope, and bob does not see alice's pac
   assert.throws(() => kernel.sessions.inspect("bob", kernel.sessions.list("alice")[0].id), /unknown session/);
 });
 
+test("cancel: a running turn stops mid-stream, keeps the partial text, and the session is idle again", async () => {
+  const s = kernel.sessions.create("alice");
+  const words = Array.from({ length: 40 }, (_, i) => `w${i}`).join(" ");
+  const events = kernel.sessions.send("alice", s.id, `slow: ${words}`);
+  assert.equal(kernel.sessions.cancel("alice", "s_000000000000"), false, "no turn on an unknown session");
+  setTimeout(() => assert.equal(kernel.sessions.cancel("alice", s.id), true), 300);
+  const r = await collect(events);
+  const error = r.all.find((e) => e.type === "error") as { code?: string } | undefined;
+  assert.equal(error?.code, "cancelled");
+  assert.equal(r.all.at(-1)?.type, "turn.end");
+  assert.ok(r.text.length > 0 && r.text.split(" ").length < 40, `stopped early: ${JSON.stringify(r.text)}`);
+  const rec = kernel.sessions.inspect("alice", s.id);
+  assert.equal(rec.status, "idle");
+  assert.deepEqual(rec.conversation.map((m) => m.role), ["user", "assistant"]);
+  assert.equal(rec.conversation[1].content, r.text);
+  const again = await collect(kernel.sessions.send("alice", s.id, "hello"));
+  assert.deepEqual(again.errors, []);
+});
+
+test("cancel: a running exec tool is killed and the turn ends", async () => {
+  const s = kernel.sessions.create("alice");
+  const events = kernel.sessions.send("alice", s.id, "run: sleep 30; echo late");
+  setTimeout(() => kernel.sessions.cancel("alice", s.id), 500);
+  const started = Date.now();
+  const r = await collect(events);
+  assert.ok(Date.now() - started < 10_000, "the turn did not wait for the sleep");
+  assert.equal((r.all.find((e) => e.type === "error") as { code?: string })?.code, "cancelled");
+  const again = await collect(kernel.sessions.send("alice", s.id, "run: echo alive"));
+  assert.match(again.text, /alive/);
+});
+
 test("suspended users cannot start turns", async () => {
   kernel.users.setStatus("bob", "suspended");
   assert.throws(() => kernel.sessions.create("bob"), /suspended/);

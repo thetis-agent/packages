@@ -23,10 +23,10 @@ export class FencePool {
   }
 
   /** Sends one request, dropping the handle if the agent died so the next call reopens it. */
-  async request(us: Userspace, op: string, payload: unknown, onEvent?: (e: unknown) => void): Promise<unknown> {
+  async request(us: Userspace, op: string, payload: unknown, onEvent?: (e: unknown) => void, signal?: AbortSignal): Promise<unknown> {
     const h = await this.handle(us);
     try {
-      return await h.request(op, payload, onEvent);
+      return await h.request(op, payload, onEvent, signal);
     } catch (err) {
       if ((err as { code?: string }).code === "fence") this.handles.delete(us.id);
       throw err;

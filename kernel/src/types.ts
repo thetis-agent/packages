@@ -133,7 +133,7 @@ export type TurnEvent =
   | { type: "tool.result"; id: string; name: string; result: string }
   | { type: "message"; message: Message }
   | { type: "usage"; usage: Record<string, number> }
-  | { type: "error"; message: string }
+  | { type: "error"; message: string; code?: string }
   | { type: "turn.end"; turn: string; session: string };
 
 export type UserRole = "system" | "admin" | "user";

@@ -7,7 +7,8 @@ export type EventSink = (event: unknown) => void;
 
 /** A live channel into one userspace. Every crossing of the fence goes through here. */
 export interface FenceHandle {
-  request(op: string, payload: unknown, onEvent?: EventSink): Promise<unknown>;
+  /** Sends one operation. An aborted `signal` cancels it: the agent is told, and the promise rejects with code `cancelled`. */
+  request(op: string, payload: unknown, onEvent?: EventSink, signal?: AbortSignal): Promise<unknown>;
   close(): Promise<void>;
 }
 

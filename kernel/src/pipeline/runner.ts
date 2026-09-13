@@ -5,7 +5,7 @@ import type { SessionStore } from "../sessions/store.js";
 import type { Message, SessionRecord, StepContext, StepResult, Userspace } from "../types.js";
 import { KernelError, newId } from "../util.js";
 import { Enumerator, isBuiltin } from "./enumerator.js";
-import type { Emit, ProviderCallStep } from "./provider-call.js";
+import { checkCancelled, type Emit, type ProviderCallStep } from "./provider-call.js";
 
 const ROLES = new Set(["system", "user", "assistant", "tool"]);
 
@@ -20,7 +20,8 @@ export class PipelineRunner {
     private readonly store: SessionStore,
   ) {}
 
-  async runTurn(us: Userspace, session: SessionRecord, input: Message[], emit: Emit): Promise<SessionRecord> {
+  /** An aborted `signal` ends the turn with an `error` event of code `cancelled`; whatever was applied before is still saved. */
+  async runTurn(us: Userspace, session: SessionRecord, input: Message[], emit: Emit, signal?: AbortSignal): Promise<SessionRecord> {
     const turn = { id: newId("t"), input };
     const info = { id: session.id, user: session.user, parent: session.parent };
     const packages = this.packages.installed(us);
@@ -37,16 +38,18 @@ export class PipelineRunner {
     try {
       const plan = await this.enumerator.enumerate(us, info, packages);
       for (const step of plan) {
+        checkCancelled(signal);
         emit({ type: "step.start", step });
         const started = Date.now();
         const result = isBuiltin(step)
-          ? await this.providerCall.run(us, ctx, emit)
-          : await this.fences.request(us, "step", { package: step.package, export: step.export, ctx: { ...ctx, config: this.config.packages[step.package] ?? {} } });
+          ? await this.providerCall.run(us, ctx, emit, signal)
+          : await this.fences.request(us, "step", { package: step.package, export: step.export, ctx: { ...ctx, config: this.config.packages[step.package] ?? {} } }, undefined, signal);
         this.apply(ctx, result, step.id ?? step.export);
         emit({ type: "step.end", step, ms: Date.now() - started });
       }
     } catch (err) {
-      emit({ type: "error", message: err instanceof Error ? err.message : String(err) });
+      const code = err instanceof KernelError ? err.code : undefined;
+      emit({ type: "error", message: err instanceof Error ? err.message : String(err), code });
     } finally {
       session.conversation = ctx.conversation;
       session.harness = ctx.harness;

@@ -22,6 +22,7 @@ interface Pending {
   reject: (e: unknown) => void;
   onEvent?: EventSink;
   timer: NodeJS.Timeout;
+  unlisten?: () => void;
 }
 
 /**
@@ -93,12 +94,18 @@ class ProcessHandle implements FenceHandle {
     child.on("exit", (code) => this.onExit(code));
   }
 
-  request(op: string, payload: unknown, onEvent?: EventSink): Promise<unknown> {
+  request(op: string, payload: unknown, onEvent?: EventSink, signal?: AbortSignal): Promise<unknown> {
     if (this.closed) return Promise.reject(new KernelError(`fence for ${this.us.id} is closed`, "fence"));
+    if (signal?.aborted) return Promise.reject(new KernelError(`fence request ${op} cancelled`, "cancelled"));
     const id = `r${++this.seq}`;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => this.settle(id, undefined, new KernelError(`fence request ${op} timed out`, "fence")), this.opts.requestTimeoutMs);
-      this.pending.set(id, { resolve, reject, onEvent, timer });
+      const onAbort = () => {
+        this.send({ cancel: id });
+        this.settle(id, undefined, new KernelError(`fence request ${op} cancelled`, "cancelled"));
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      this.pending.set(id, { resolve, reject, onEvent, timer, unlisten: () => signal?.removeEventListener("abort", onAbort) });
       this.send({ id, op, payload });
     });
   }
@@ -110,7 +117,7 @@ class ProcessHandle implements FenceHandle {
   }
 
   private send(msg: unknown): void {
-    this.child.stdin!.write(JSON.stringify(msg) + "\n");
+    if (this.child.stdin?.writable) this.child.stdin.write(JSON.stringify(msg) + "\n");
   }
 
   private onLine(line: string): void {
@@ -143,6 +150,7 @@ class ProcessHandle implements FenceHandle {
     if (!p) return;
     this.pending.delete(id);
     clearTimeout(p.timer);
+    p.unlisten?.();
     if (error) p.reject(error);
     else p.resolve(result);
   }

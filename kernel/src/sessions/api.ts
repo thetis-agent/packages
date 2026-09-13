@@ -19,7 +19,7 @@ export type TurnInput = string | Message[];
 
 /** The session API: the only surface gateways and subagent-spawning steps use. Every call is authorized against a user. */
 export class SessionApi {
-  private readonly running = new Set<string>();
+  private readonly running = new Map<string, AbortController>();
 
   constructor(
     private readonly users: UserStore,
@@ -50,14 +50,24 @@ export class SessionApi {
     const session = this.store.load(us, sessionId);
     const key = `${userId}/${sessionId}`;
     assert(!this.running.has(key), `session ${sessionId} already has a turn in progress`, "busy");
-    this.running.add(key);
+    const control = new AbortController();
+    this.running.set(key, control);
     const messages: Message[] = typeof input === "string" ? [{ role: "user", content: input }] : input;
     const queue = new AsyncQueue<TurnEvent>();
     this.runner
-      .runTurn(us, session, messages, (e) => queue.push(e))
+      .runTurn(us, session, messages, (e) => queue.push(e), control.signal)
       .then(() => queue.close(), (err) => queue.close(err))
       .finally(() => this.running.delete(key));
     return queue;
+  }
+
+  /** Stops the running turn of a session. Returns false when no turn is running. The turn ends with an `error` event of code `cancelled`. */
+  cancel(userId: string, sessionId: string): boolean {
+    this.users.authorize(userId);
+    const control = this.running.get(`${userId}/${sessionId}`);
+    if (!control) return false;
+    control.abort();
+    return true;
   }
 
   /** Runs a turn to completion and returns the assistant's final text. Convenient for subagents and one-shot calls. */

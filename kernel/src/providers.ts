@@ -57,8 +57,8 @@ export class ProviderRegistry {
     throw new KernelError(`no installed provider serves model "${model}"`, "provider");
   }
 
-  async call(p: ResolvedProvider, call: ProviderCall, onEvent: (e: ProviderEvent) => void): Promise<void> {
-    await this.fences.request(p.userspace, "provider.call", this.payload(p, { call }), (e) => onEvent(e as ProviderEvent));
+  async call(p: ResolvedProvider, call: ProviderCall, onEvent: (e: ProviderEvent) => void, signal?: AbortSignal): Promise<void> {
+    await this.fences.request(p.userspace, "provider.call", this.payload(p, { call }), (e) => onEvent(e as ProviderEvent), signal);
   }
 
   private async modelsOf(p: ResolvedProvider): Promise<ModelDescriptor[]> {

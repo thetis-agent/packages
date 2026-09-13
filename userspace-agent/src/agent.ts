@@ -45,11 +45,11 @@ const kernel: KernelClient = {
 };
 
 // ---- environment handed to package code ----
-function exec(cmd: string, opts: ExecOptions = {}) {
+function exec(cmd: string, opts: ExecOptions = {}, signal?: AbortSignal) {
   return new Promise<{ code: number; stdout: string; stderr: string }>((res) => {
     const cwd = opts.cwd ? resolve(HOME, opts.cwd) : HOME;
     const env = { ...process.env, ...(opts.env ?? {}) };
-    cpExec(cmd, { cwd, env, timeout: opts.timeoutMs ?? 120_000, maxBuffer: 16 * 1024 * 1024, shell: "/bin/bash" }, (err, stdout, stderr) => {
+    cpExec(cmd, { cwd, env, timeout: opts.timeoutMs ?? 120_000, maxBuffer: 16 * 1024 * 1024, shell: "/bin/bash", signal }, (err, stdout, stderr) => {
       const code = err && typeof (err as { code?: unknown }).code === "number" ? (err as { code: number }).code : err ? 1 : 0;
       res({ code, stdout: cap(String(stdout)), stderr: cap(String(stderr) + (err && !stderr ? `\n${err.message}` : "")) });
     });
@@ -106,12 +106,14 @@ function provider(pkg: string, exp: string, config: unknown): Promise<Provider> 
 }
 
 // ---- operations the kernel dispatches ----
+// Each request carries an AbortSignal. The kernel sends `{ cancel: <id> }` to abort it; `exec` kills its
+// process and `provider.call` stops reading the stream, which closes the provider's iterator.
 type Emit = (event: unknown) => void;
 type Payload = Record<string, any>;
 
-const ops: Record<string, (p: Payload, emit: Emit) => Promise<unknown>> = {
+const ops: Record<string, (p: Payload, emit: Emit, signal: AbortSignal) => Promise<unknown>> = {
   ping: async () => "pong",
-  exec: (p) => exec(String(p.cmd), { cwd: p.cwd, timeoutMs: p.timeoutMs }),
+  exec: (p, _emit, signal) => exec(String(p.cmd), { cwd: p.cwd, timeoutMs: p.timeoutMs }, signal),
   step: async (p) => {
     const fn = await loadExport(p.package, p.export);
     const wire = p.ctx as StepContext;
@@ -131,22 +133,31 @@ const ops: Record<string, (p: Payload, emit: Emit) => Promise<unknown>> = {
     return fn(ctx);
   },
   "provider.models": async (p) => (await provider(p.package, p.export, p.config)).models(),
-  "provider.call": async (p, emit) => {
+  "provider.call": async (p, emit, signal) => {
     const prov = await provider(p.package, p.export, p.config);
-    for await (const e of prov.call(p.call as ProviderCall)) emit(e as ProviderEvent);
+    for await (const e of prov.call(p.call as ProviderCall)) {
+      if (signal.aborted) break;
+      emit(e as ProviderEvent);
+    }
     return null;
   },
 };
 
+const inflight = new Map<string, AbortController>();
+
 async function dispatch(msg: Payload): Promise<void> {
   const { id, op, payload } = msg as { id: string; op: string; payload: Payload };
   const handler = ops[op];
+  const control = new AbortController();
+  inflight.set(id, control);
   try {
     if (!handler) throw new Error(`unknown op: ${op}`);
-    const result = await handler(payload ?? {}, (event) => send({ id, event }));
+    const result = await handler(payload ?? {}, (event) => send({ id, event }), control.signal);
     send({ id, result: result === undefined ? null : result });
   } catch (err) {
     send({ id, error: err instanceof Error ? (err.stack ?? err.message) : String(err) });
+  } finally {
+    inflight.delete(id);
   }
 }
 
@@ -158,6 +169,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   } catch {
     return console.error(`agent: bad line ${line.slice(0, 80)}`);
   }
+  if (typeof msg.cancel === "string") return void inflight.get(msg.cancel)?.abort();
   if (typeof msg.rpcResult === "string") {
     const p = rpcPending.get(msg.rpcResult);
     rpcPending.delete(msg.rpcResult);
