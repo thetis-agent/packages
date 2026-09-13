@@ -1,0 +1,106 @@
+/* The sign-in page. Same tokens as the app, so the two never look like different products. */
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: var(--bg);
+  background-image: radial-gradient(60rem 30rem at 50% -10%, var(--glow), transparent 60%);
+  color: var(--text);
+  font: 15px/1.6 var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  width: 100%;
+  max-width: 24rem;
+  padding: 2rem 2rem 1.5rem;
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+  box-shadow: var(--shadow-sm), var(--shadow-lg);
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .7rem;
+  margin: 0 0 1.4rem;
+  text-align: center;
+}
+.mark {
+  width: 44px; height: 44px;
+  border-radius: 12px;
+  color: var(--accent);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  padding: 6px;
+}
+
+h1 { font-size: 1.2rem; font-weight: 600; margin: 0; letter-spacing: -.01em; }
+.lead { margin: 0; color: var(--text-dim); font-size: .88rem; }
+
+label {
+  display: block;
+  margin: 1rem 0 .35rem;
+  color: var(--text-dim);
+  font-size: .72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+input {
+  font: inherit;
+  width: 100%;
+  padding: .6rem .75rem;
+  border-radius: 9px;
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  outline: none;
+  transition: border-color .12s, box-shadow .12s, background .12s;
+}
+input:hover { border-color: var(--text-faint); }
+input:focus { border-color: var(--accent); background: var(--surface-1); box-shadow: 0 0 0 3px var(--glow); }
+
+button {
+  font: inherit;
+  font-weight: 600;
+  width: 100%;
+  margin-top: 1.4rem;
+  padding: .65rem .9rem;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: var(--accent-deep);
+  color: #fff;
+  cursor: pointer;
+  transition: background .12s, transform .06s;
+}
+button:hover { background: var(--accent-hot); }
+button:active { transform: translateY(1px); }
+button:focus-visible { outline: 2px solid var(--accent-hot); outline-offset: 2px; }
+
+.banner {
+  margin: 0 0 .25rem;
+  padding: .6rem .8rem;
+  border-radius: 9px;
+  font-size: .88rem;
+  color: var(--err);
+  background: var(--err-wash);
+  border: 1px solid color-mix(in srgb, var(--err) 35%, transparent);
+}
+[hidden] { display: none !important; }
+
+.foot {
+  margin: 1.4rem 0 0;
+  color: var(--text-faint);
+  font-size: .78rem;
+  text-align: center;
+  line-height: 1.5;
+}
+.foot code { font-family: var(--mono); font-size: .9em; }

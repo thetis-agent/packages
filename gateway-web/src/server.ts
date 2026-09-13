@@ -197,8 +197,9 @@ export function createGateway(kernel: Kernel, store: GatewayStore, opts: Gateway
 
 // ---- helpers ----
 
+/** One line of plain text for a sidebar row: markdown markers dropped, whitespace collapsed. */
 function clip(text: string, max: number): string {
-  const line = text.replace(/\s+/g, " ").trim();
+  const line = text.replace(/^\s*(?:[#>*-]+|\d+[.)])\s+/gm, "").replace(/[`*]/g, "").replace(/\s+/g, " ").trim();
   return line.length > max ? line.slice(0, max - 1) + "…" : line;
 }
 
@@ -288,6 +289,7 @@ function serveAsset(res: ServerResponse, root: string, name: string, extra: Reco
   if (!file.startsWith(root + sep) || !existsSync(file) || !statSync(file).isFile()) throw new HttpError(404, "not found");
   const type = TYPES[extname(file)];
   if (!type) throw new HttpError(404, "not found");
+  if (type.startsWith("text/html")) res.setHeader("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'");
   res.writeHead(200, { "Content-Type": type, "Cache-Control": "no-cache", ...extra });
   res.end(readFileSync(file));
 }
