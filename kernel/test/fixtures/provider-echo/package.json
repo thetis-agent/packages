@@ -1,0 +1,7 @@
+{
+  "name": "@thetis/provider-echo",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "index.js",
+  "thetis": { "type": "provider", "export": "createProvider" }
+}

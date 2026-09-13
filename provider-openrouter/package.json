@@ -1,0 +1,10 @@
+{
+  "name": "@thetis/provider-openrouter",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "scripts": { "build": "tsc -b" },
+  "peerDependencies": { "@thetis/kernel": "^0.1.0" },
+  "devDependencies": { "@thetis/kernel": "^0.1.0" },
+  "thetis": { "type": "provider", "export": "createProvider" }
+}
