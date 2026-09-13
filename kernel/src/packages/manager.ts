@@ -3,7 +3,7 @@ import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import type { KernelConfig } from "../config.js";
 import type { FencePool } from "../fence/pool.js";
 import type { ExecResult } from "../fence/fence.js";
-import { SYSTEM_SCOPE, type Manifest, type PackageInfo, type UserRecord, type Userspace } from "../types.js";
+import { SYSTEM_SCOPE, type Manifest, type PackageInfo, type PackageRecord, type UserRecord, type Userspace } from "../types.js";
 import { assert, KernelError } from "../util.js";
 import { readManifest, scopeOf, toInfo } from "./manifest.js";
 import type { PackageRegistry } from "./registry.js";
@@ -27,7 +27,8 @@ export class PackageManager {
     for (const rec of this.registry.installedIn(us.id)) {
       const root = this.linkPath(us, rec.name);
       if (!existsSync(resolve(root, "package.json"))) {
-        if (rec.source.kind === "system" && this.systemPackageDir(rec.name)) out.push(this.installSystem(us, rec.name));
+        const relinked = this.relink(us, rec);
+        if (relinked) out.push(relinked);
         else console.error(`[packages] ${rec.name} is recorded for ${us.id} but its files are missing`);
         continue;
       }
@@ -136,11 +137,22 @@ export class PackageManager {
     if (r.code !== 0) throw new KernelError(`command failed (${r.code}): ${cmd}\n${r.stderr || r.stdout}`.slice(0, 4000), "build");
   }
 
+  /** Repairs a dead store link after the checkout or the data directory moved. */
+  private relink(us: Userspace, rec: PackageRecord): PackageInfo | undefined {
+    if (rec.source.kind === "system") return this.systemPackageDir(rec.name) ? this.installSystem(us, rec.name) : undefined;
+    const dir = rec.source.kind === "local" ? resolve(us.home, rec.source.ref) : resolve(us.store, "src", basename(rec.source.ref).replace(/\.git$/, ""));
+    if (!existsSync(resolve(dir, "package.json"))) return undefined;
+    this.link(us, rec.name, dir);
+    return toInfo(readManifest(dir), this.linkPath(us, rec.name));
+  }
+
+  /** Links inside the userspace are relative, so a moved data directory keeps working. */
   private link(us: Userspace, name: string, target: string): void {
     const link = this.linkPath(us, name);
     mkdirSync(dirname(link), { recursive: true });
     if (isLink(link)) rmSync(link);
-    symlinkSync(target, link, "dir");
+    const inside = !relative(us.root, target).startsWith("..");
+    symlinkSync(inside ? relative(dirname(link), target) : target, link, "dir");
   }
 
   private linkPath(us: Userspace, name: string): string {

@@ -55,8 +55,10 @@ export function loadConfig(home: string, projectRoot: string, env: NodeJS.Proces
   return interpolate(merged, env) as KernelConfig;
 }
 
+/** Writes the config without derived paths, so the file stays valid when the checkout moves. */
 export function saveConfig(config: KernelConfig): void {
-  writeJson(configPath(config.home), config);
+  const { home, systemPackagesDir, agentPath, fence, ...portable } = config;
+  writeJson(configPath(home), { ...portable, fence: { sandbox: fence.sandbox } });
 }
 
 function interpolate<T>(value: T, env: NodeJS.ProcessEnv): T {
