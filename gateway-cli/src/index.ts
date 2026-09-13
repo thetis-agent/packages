@@ -1,10 +1,16 @@
-// CLI gateway: boots the kernel in-process, maps the operator to a --user, sends turns
-// and renders events. Also exposes user moderation and package administration.
+// CLI gateway. When `thetis serve` runs, every command is a client of that one kernel over the control
+// socket, so installs, passwords and moderation reach the running services. Without a daemon, a command
+// boots a kernel in-process. Both paths speak to the same operator handler, so the commands are one code.
 import { existsSync, readFileSync } from "node:fs";
+import { createConnection } from "node:net";
 import { dirname, resolve } from "node:path";
-import { createInterface } from "node:readline/promises";
+import { createInterface } from "node:readline";
+import { createInterface as createPrompt } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
-import { createKernel, defaultConfig, loadConfig, saveConfig, configPath, type Kernel, type TurnEvent, type UserRole } from "@thetis/kernel";
+import {
+  ControlServer, controlSocketPath, createControlHandler, createKernel, defaultConfig, loadConfig, saveConfig, configPath,
+  type KernelRpc, type PackageInfo, type ModelDescriptor, type SessionRef, type SessionRecord, type TurnEvent, type UserRecord,
+} from "@thetis/kernel";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 
@@ -13,7 +19,7 @@ const HELP = `thetis - recursive language model service
 usage: thetis <command> [options]
 
   init                                 create the data dir and default config
-  serve                                run the kernel and every installed service (gateways) until stopped
+  serve                                run the kernel, its control socket, and every installed service until stopped
   chat --user <id> [--session <id>]    interactive conversation (streams output)
   send --user <id> [--session <id>] <text>   one-shot turn
   sessions list --user <id>
@@ -26,6 +32,7 @@ usage: thetis <command> [options]
   models [--user <id>]                 models advertised by installed providers
   config                               print effective config
 
+When \`thetis serve\` runs, the other commands talk to it through $THETIS_HOME/thetis.sock.
 env: THETIS_HOME (data dir, default ~/.thetis; a relative path is resolved against the repository root),
      OPENROUTER_API_KEY. A .env in the cwd and in the repository root is loaded.
 `;
@@ -34,6 +41,8 @@ interface Args {
   _: string[];
   [k: string]: string | boolean | string[];
 }
+
+type Call = KernelRpc;
 
 export async function run(argv: string[]): Promise<void> {
   loadDotEnv(resolve(process.cwd(), ".env"));
@@ -49,128 +58,142 @@ export async function run(argv: string[]): Promise<void> {
     return;
   }
   if (cmd === "config") return void process.stdout.write(JSON.stringify(config, null, 2) + "\n");
+
+  const socket = controlSocketPath(home);
+  const remote = await connectControl(socket);
+  if (cmd === "serve") {
+    if (remote) {
+      remote.close();
+      throw new Error(`a thetis daemon is already running on ${socket}`);
+    }
+    return serve(config, socket);
+  }
+  if (remote) {
+    try {
+      await dispatch(remote.call, cmd, args);
+    } finally {
+      remote.close();
+    }
+    return;
+  }
   const kernel = createKernel(config);
   try {
-    await dispatch(kernel, cmd, args);
+    await dispatch(createControlHandler(kernel), cmd, args);
   } finally {
     await kernel.shutdown();
   }
 }
 
-async function dispatch(k: Kernel, cmd: string, args: Args): Promise<void> {
+/** Runs the kernel until SIGINT or SIGTERM: control socket for the CLI, services for everyone else. */
+async function serve(config: ReturnType<typeof loadConfig>, socket: string): Promise<void> {
+  const kernel = createKernel(config);
+  const control = new ControlServer(socket, createControlHandler(kernel), (line) => process.stderr.write(line + "\n"));
+  try {
+    await control.listen();
+    await kernel.services.boot();
+    print(`thetis is serving; control socket ${socket}; press Ctrl+C to stop`);
+    await new Promise<void>((done) => {
+      process.once("SIGINT", () => done());
+      process.once("SIGTERM", () => done());
+    });
+    print("stopping");
+  } finally {
+    await control.close();
+    await kernel.shutdown();
+  }
+}
+
+async function dispatch(call: Call, cmd: string, args: Args): Promise<void> {
   const user = typeof args.user === "string" ? args.user : undefined;
   const need = (): string => {
     if (!user) throw new Error("--user <id> is required");
     return user;
   };
   switch (cmd) {
-    case "serve":
-      return serve(k);
     case "users":
-      return usersCmd(k, args);
+      return usersCmd(call, args);
     case "packages":
-      return packagesCmd(k, args, user);
+      return packagesCmd(call, args, user);
     case "install":
     case "uninstall":
-      return packagesCmd(k, { ...args, _: ["packages", ...args._] }, user);
+      return packagesCmd(call, { ...args, _: ["packages", ...args._] }, user);
     case "models": {
-      const us = k.sessions.userspaceFor(k.users.authorize(user ?? "_system"));
-      for (const m of await k.providers.listModels(us)) print(`${m.id}\t${m.provider}`);
+      for (const m of (await call("models", { user })) as ModelDescriptor[]) print(`${m.id}\t${m.provider}`);
       return;
     }
     case "sessions": {
       const u = need();
-      if (args._[1] === "show") return print(JSON.stringify(k.sessions.inspect(u, String(args.session)), null, 2));
-      for (const s of k.sessions.list(u)) print(`${s.id}\tturns=${s.turns}\t${s.updatedAt}${s.parent ? `\tparent=${s.parent}` : ""}`);
+      if (args._[1] === "show") return print(JSON.stringify(await call("sessions.inspect", { user: u, session: String(args.session) }), null, 2));
+      for (const s of (await call("sessions.list", { user: u })) as SessionRef[]) print(`${s.id}\tturns=${s.turns}\t${s.updatedAt}${s.parent ? `\tparent=${s.parent}` : ""}`);
       return;
     }
     case "send": {
       const u = need();
       const text = args._.slice(1).join(" ");
       if (!text) throw new Error("send needs a message");
-      const session = typeof args.session === "string" ? args.session : k.sessions.create(u).id;
-      await render(k.sessions.send(u, session, text), !!args.verbose);
+      const session = typeof args.session === "string" ? args.session : ((await call("sessions.create", { user: u })) as SessionRef).id;
+      await render(call, u, session, text, !!args.verbose);
       return;
     }
     case "chat":
-      return chat(k, need(), typeof args.session === "string" ? args.session : undefined, !!args.verbose);
+      return chat(call, need(), typeof args.session === "string" ? args.session : undefined, !!args.verbose);
     default:
       throw new Error(`unknown command: ${cmd}\n${HELP}`);
   }
 }
 
-async function usersCmd(k: Kernel, args: Args): Promise<void> {
+async function usersCmd(call: Call, args: Args): Promise<void> {
   const [, sub, id, extra] = args._;
   switch (sub) {
-    case "passwd": {
-      const password = typeof args.password === "string" ? args.password : (await readLine()).trim();
-      await k.auth.setPassword(String(id), password);
-      return print(`password set for ${id}`);
-    }
     case "list":
     case undefined:
-      for (const u of k.users.list()) print(`${u.id}\t${u.role}\t${u.status}\t${u.createdAt}`);
+      for (const u of (await call("users.list", {})) as UserRecord[]) print(`${u.id}\t${u.role}\t${u.status}\t${u.createdAt}`);
       return;
     case "add":
-      return print(`created ${k.users.create(String(id), args.admin ? "admin" : "user").id}`);
+      return print(`created ${((await call("users.create", { id, role: args.admin ? "admin" : "user" })) as UserRecord).id}`);
     case "remove":
-      return void k.removeUser(String(id)).then(() => print(`removed ${id} and its userspace`));
+      await call("users.remove", { id });
+      return print(`removed ${id} and its userspace`);
     case "suspend":
-      return print(`suspended ${k.users.setStatus(String(id), "suspended").id}`);
+      return print(`suspended ${((await call("users.setStatus", { id, status: "suspended" })) as UserRecord).id}`);
     case "unsuspend":
-      return print(`reactivated ${k.users.setStatus(String(id), "active").id}`);
+      return print(`reactivated ${((await call("users.setStatus", { id, status: "active" })) as UserRecord).id}`);
     case "role":
-      return print(`${id} is now ${k.users.setRole(String(id), extra as UserRole).role}`);
+      return print(`${id} is now ${((await call("users.setRole", { id, role: extra })) as UserRecord).role}`);
+    case "passwd": {
+      const password = typeof args.password === "string" ? args.password : (await readLine()).trim();
+      await call("users.passwd", { id, password });
+      return print(`password set for ${id}`);
+    }
     default:
       throw new Error(`unknown users subcommand: ${sub}`);
   }
 }
 
-async function packagesCmd(k: Kernel, args: Args, user?: string): Promise<void> {
+async function packagesCmd(call: Call, args: Args, user?: string): Promise<void> {
   const [, sub, source] = args._;
-  const actor = k.users.authorize(user ?? "_system");
-  const us = k.sessions.userspaceFor(actor);
+  const target = user ?? "_system";
   switch (sub) {
     case "list":
     case undefined:
-      for (const p of k.packages.installed(us)) print(`${p.name}@${p.version}\t${p.type}\t${p.root}`);
+      for (const p of (await call("packages.list", { user: target })) as PackageInfo[]) print(`${p.name}@${p.version}\t${p.type}\t${p.root}`);
       return;
     case "install": {
-      const info = await k.packages.install(us, actor, String(source));
-      return print(`installed ${info.name}@${info.version} (${info.type}) in ${us.id}`);
+      const info = (await call("packages.install", { user: target, source })) as PackageInfo;
+      return print(`installed ${info.name}@${info.version} (${info.type}) in ${target}`);
     }
     case "uninstall":
-      await k.packages.uninstall(us, String(source));
-      return print(`uninstalled ${source} from ${us.id}`);
+      await call("packages.uninstall", { user: target, name: source });
+      return print(`uninstalled ${source} from ${target}`);
     default:
       throw new Error(`unknown packages subcommand: ${sub}`);
   }
 }
 
-/** Keeps the kernel alive and its services running until SIGINT or SIGTERM. */
-async function serve(k: Kernel): Promise<void> {
-  await k.services.boot();
-  print("thetis is serving; press Ctrl+C to stop");
-  await new Promise<void>((done) => {
-    process.once("SIGINT", () => done());
-    process.once("SIGTERM", () => done());
-  });
-  print("stopping");
-}
-
-function readLine(): Promise<string> {
-  return new Promise((done) => {
-    let data = "";
-    process.stdin.setEncoding("utf8");
-    process.stdin.on("data", (chunk) => (data += chunk));
-    process.stdin.on("end", () => done(data.split("\n")[0] ?? ""));
-  });
-}
-
-async function chat(k: Kernel, user: string, sessionId: string | undefined, verbose: boolean): Promise<void> {
-  let session = sessionId ?? k.sessions.create(user).id;
+async function chat(call: Call, user: string, sessionId: string | undefined, verbose: boolean): Promise<void> {
+  let session = sessionId ?? ((await call("sessions.create", { user })) as SessionRef).id;
   print(`thetis chat as ${user} in session ${session}. /new starts a session, /inspect shows state, /quit exits.`);
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const rl = createPrompt({ input: process.stdin, output: process.stdout });
   for (;;) {
     let line: string;
     try {
@@ -181,24 +204,25 @@ async function chat(k: Kernel, user: string, sessionId: string | undefined, verb
     if (!line) continue;
     if (line === "/quit" || line === "/exit") break;
     if (line === "/new") {
-      session = k.sessions.create(user).id;
+      session = ((await call("sessions.create", { user })) as SessionRef).id;
       print(`new session ${session}`);
       continue;
     }
     if (line === "/inspect") {
-      const s = k.sessions.inspect(user, session);
+      const s = (await call("sessions.inspect", { user, session })) as SessionRecord & { status: string };
       print(JSON.stringify({ id: s.id, turns: s.turns, messages: s.conversation.length, harness: s.harness, status: s.status }, null, 2));
       continue;
     }
     process.stdout.write("\nthetis> ");
-    await render(k.sessions.send(user, session, line), verbose);
+    await render(call, user, session, line, verbose);
   }
   rl.close();
 }
 
-async function render(events: AsyncIterable<TurnEvent>, verbose: boolean): Promise<void> {
+async function render(call: Call, user: string, session: string, input: string, verbose: boolean): Promise<void> {
   const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
-  for await (const e of events) {
+  await call("sessions.send", { user, session, input }, (raw) => {
+    const e = raw as TurnEvent;
     switch (e.type) {
       case "text":
         process.stdout.write(e.delta);
@@ -220,8 +244,64 @@ async function render(events: AsyncIterable<TurnEvent>, verbose: boolean): Promi
       default:
         break;
     }
-  }
+  });
   process.stdout.write("\n");
+}
+
+// ---- the control socket client ----
+
+interface Remote {
+  call: Call;
+  close(): void;
+}
+
+/** Connects to a running daemon. Resolves undefined when there is none (no socket, or a stale one). */
+function connectControl(path: string): Promise<Remote | undefined> {
+  if (!existsSync(path)) return Promise.resolve(undefined);
+  return new Promise((done) => {
+    const socket = createConnection(path);
+    const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; emit?: (e: unknown) => void }>();
+    let seq = 0;
+    socket.once("error", () => done(undefined));
+    socket.once("connect", () => {
+      createInterface({ input: socket }).on("line", (line) => {
+        let msg: { id: string; event?: unknown; result?: unknown; error?: string; code?: string };
+        try {
+          msg = JSON.parse(line);
+        } catch {
+          return;
+        }
+        const p = pending.get(msg.id);
+        if (!p) return;
+        if ("event" in msg) return p.emit?.(msg.event);
+        pending.delete(msg.id);
+        if (msg.error !== undefined) p.reject(Object.assign(new Error(msg.error), { code: msg.code }));
+        else p.resolve(msg.result);
+      });
+      socket.on("close", () => {
+        for (const p of pending.values()) p.reject(new Error("the daemon closed the connection"));
+        pending.clear();
+      });
+      done({
+        call: (method, args, emit) =>
+          new Promise((resolve, reject) => {
+            const id = `c${++seq}`;
+            pending.set(id, { resolve, reject, emit });
+            socket.write(JSON.stringify({ id, method, args }) + "\n");
+          }),
+        close: () => socket.end(),
+      });
+    });
+  });
+}
+
+function readLine(): Promise<string> {
+  return new Promise((done) => {
+    let data = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => (data += chunk));
+    process.stdin.on("end", () => done(data.split("\n")[0] ?? ""));
+  });
 }
 
 function parse(argv: string[]): Args {

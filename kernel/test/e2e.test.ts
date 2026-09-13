@@ -7,7 +7,9 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createKernel, createRpcHandler, T, type Kernel, type TurnEvent } from "../src/index.js";
+import { createConnection } from "node:net";
+import { createInterface } from "node:readline";
+import { ControlServer, createControlHandler, createKernel, createRpcHandler, T, type Kernel, type TurnEvent } from "../src/index.js";
 import { defaultConfig } from "../src/config.js";
 import { ProcessFence } from "../src/fence/process-fence.js";
 
@@ -175,6 +177,46 @@ test("rpc: a user fence acts as itself only; the system fence may act for a user
   assert.equal(events.at(-1)?.type, "turn.end");
   assert.equal(kernel.sessions.inspect("alice", created.id).conversation.length, 2);
   assert.equal(await forSystem("auth.authenticate", { token: "nope" }), null);
+});
+
+test("control socket: an operator client lists users, installs into the system userspace, and streams a turn", async () => {
+  const path = join(home, "thetis.sock");
+  const control = new ControlServer(path, createControlHandler(kernel));
+  await control.listen();
+  try {
+    const socket = createConnection(path);
+    await new Promise<void>((done, fail) => socket.once("connect", done).once("error", fail));
+    const lines: Record<string, unknown>[] = [];
+    const waiters: (() => void)[] = [];
+    createInterface({ input: socket }).on("line", (line) => {
+      lines.push(JSON.parse(line));
+      waiters.splice(0).forEach((w) => w());
+    });
+    const call = async (id: string, method: string, args: unknown) => {
+      socket.write(JSON.stringify({ id, method, args }) + "\n");
+      for (;;) {
+        const done = lines.find((l) => l.id === id && ("result" in l || "error" in l));
+        if (done) return done;
+        await new Promise<void>((w) => waiters.push(w));
+      }
+    };
+    assert.equal((await call("1", "ping", {})).result, "pong");
+    const users = (await call("2", "users.list", {})).result as { id: string }[];
+    assert.ok(users.some((u) => u.id === "alice"));
+    const s = (await call("3", "sessions.create", { user: "alice" })).result as { id: string };
+    const done = await call("4", "sessions.send", { user: "alice", session: s.id, input: "over the socket" });
+    assert.equal(done.result, null);
+    const text = lines.filter((l) => l.id === "4" && "event" in l).map((l) => l.event as TurnEvent).filter((e) => e.type === "text").map((e) => (e as { delta: string }).delta).join("");
+    assert.equal(text, "echo: over the socket (t1)");
+    const bad = await call("5", "sessions.inspect", { user: "alice", session: "s_000000000000" });
+    assert.match(String(bad.error), /unknown session/);
+    assert.equal(bad.code, "not-found");
+    assert.equal((await call("6", "nope", {})).code, "rpc");
+    socket.end();
+  } finally {
+    await control.close();
+  }
+  assert.ok(!existsSync(path), "the socket file is removed on close");
 });
 
 test("suspended users cannot start turns", async () => {

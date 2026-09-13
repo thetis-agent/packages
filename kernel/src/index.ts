@@ -6,6 +6,7 @@ export { UserStore } from "./users.js";
 export { AuthService } from "./auth.js";
 export { ServiceSupervisor } from "./services.js";
 export { createRpcHandler } from "./rpc.js";
+export { ControlServer, createControlHandler, controlSocketPath } from "./control.js";
 export { UserspaceManager } from "./userspaces.js";
 export type { Fence, FenceHandle, KernelRpc, ExecResult } from "./fence/fence.js";
 export { ProcessFence } from "./fence/process-fence.js";
