@@ -35,15 +35,15 @@ before(() => {
   home = mkdtempSync(join(tmpdir(), "thetis-e2e-"));
   const sys = join(home, "system-packages");
   mkdirSync(sys);
-  for (const name of ["harness-core", "tool-exec"]) symlinkSync(resolve(PROJECT, "packages", name), join(sys, name));
+  for (const name of ["harness-core", "tool-exec", "prompt-cache"]) symlinkSync(resolve(PROJECT, "packages", name), join(sys, name));
   symlinkSync(join(FIXTURES, "provider-echo"), join(sys, "provider-echo"));
   const config = defaultConfig(join(home, "data"), PROJECT);
   config.systemPackagesDir = sys;
   config.model = "echo";
   config.fence.sandbox = SANDBOX;
   config.fence.readOnly.push(sys, FIXTURES);
-  config.systemPackages = { "*": ["@thetis/harness-core", "@thetis/tool-exec"], _system: ["@thetis/provider-echo"] };
-  config.packages = { "@thetis/provider-echo": { tag: "t1" } };
+  config.systemPackages = { "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache"], _system: ["@thetis/provider-echo"] };
+  config.packages = { "@thetis/provider-echo": { tag: "t1" }, "@thetis/prompt-cache": { explicitVendors: ["echo"], ttl: "1h" } };
   config.requestTimeoutMs = 60_000;
   kernel = createKernel(config, (c) => c.bind(T.log, () => (line: string) => process.env.THETIS_TEST_VERBOSE && console.error(line)));
   kernel.users.create("alice");
@@ -61,8 +61,23 @@ test("first turn seeds the userspace and round-trips through the provider", asyn
   assert.deepEqual(r.errors, []);
   assert.equal(r.text, "echo: hello (t1)");
   const names = kernel.packages.installed(kernel.userspaces.pathFor("alice")).map((p) => p.name);
-  assert.deepEqual(names, ["@thetis/harness-core", "@thetis/tool-exec"]);
+  assert.deepEqual(names, ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache"]);
   assert.equal(kernel.sessions.inspect("alice", s.id).conversation.length, 2);
+});
+
+test("the prompt-cache step hands the provider a policy hint and keeps diagnostics", async () => {
+  const s = kernel.sessions.create("alice");
+  const r = await collect(kernel.sessions.send("alice", s.id, "hints?"));
+  assert.deepEqual(r.errors, []);
+  const hints = JSON.parse(r.text) as { cache: { strategy?: string; ttl?: string; systemTtl?: string; affinity?: string } };
+  assert.equal(hints.cache.strategy, "breakpoints", "echo is configured as an explicit vendor");
+  assert.equal(hints.cache.ttl, "1h");
+  assert.equal(hints.cache.systemTtl, undefined, "the hint names only what is configured");
+  assert.match(hints.cache.affinity ?? "", /^thetis:[0-9a-f]{16}$/);
+  await collect(kernel.sessions.send("alice", s.id, "hints?"));
+  const diag = kernel.sessions.inspect("alice", s.id).harness["@thetis/prompt-cache"] as { turns: number; divergences: number };
+  assert.equal(diag.turns, 2);
+  assert.equal(diag.divergences, 0, "an append-only conversation never rewrites its prefix");
 });
 
 test("harness steps build the system prompt and attach tools", async () => {

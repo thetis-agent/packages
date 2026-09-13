@@ -36,10 +36,10 @@ export class ProviderCallStep {
     const partial = { text: "" };
     try {
       for (let round = 0; round <= this.config.maxToolRounds; round++) {
-        const assistant = await this.callOnce(provider, call, emit, partial, signal);
+        const { message: assistant, usage } = await this.callOnce(provider, call, emit, partial, signal);
         conversation.push(assistant);
         call.messages.push(assistant);
-        emit({ type: "message", message: assistant });
+        emit({ type: "message", message: assistant, usage });
         if (!assistant.toolCalls?.length) break;
         for (const tc of assistant.toolCalls) {
           checkCancelled(signal);
@@ -56,22 +56,23 @@ export class ProviderCallStep {
     return { conversation, call };
   }
 
-  private async callOnce(provider: Awaited<ReturnType<ProviderRegistry["resolve"]>>, call: StepContext["call"], emit: Emit, partial: { text: string }, signal?: AbortSignal): Promise<Message> {
+  private async callOnce(provider: Awaited<ReturnType<ProviderRegistry["resolve"]>>, call: StepContext["call"], emit: Emit, partial: { text: string }, signal?: AbortSignal): Promise<{ message: Message; usage?: Record<string, number> }> {
     partial.text = "";
     const toolCalls: ToolCall[] = [];
     let failure: string | undefined;
+    let usage: Record<string, number> | undefined;
     checkCancelled(signal);
     await this.providers.call(provider, call, (e: ProviderEvent) => {
       if (e.type === "text") (partial.text += e.delta), emit({ type: "text", delta: e.delta });
       else if (e.type === "tool_call") toolCalls.push(e.call), emit({ type: "tool.call", call: e.call });
-      else if (e.type === "usage") emit({ type: "usage", usage: e.usage });
+      else if (e.type === "usage") (usage = e.usage), emit({ type: "usage", usage: e.usage });
       else if (e.type === "error") failure = e.message;
     }, signal);
     if (failure) throw new KernelError(`provider error: ${failure}`, "provider");
     const msg: Message = { role: "assistant", content: partial.text };
     partial.text = "";
     if (toolCalls.length) msg.toolCalls = toolCalls;
-    return msg;
+    return { message: msg, usage };
   }
 
   private async runTool(us: Userspace, ctx: StepContext, tools: ToolSpec[], tc: ToolCall, emit: Emit, signal?: AbortSignal): Promise<Message> {

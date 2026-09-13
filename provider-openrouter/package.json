@@ -4,6 +4,7 @@
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": { "build": "tsc -b" },
+  "dependencies": { "@thetis/prompt-cache": "^0.1.0" },
   "peerDependencies": { "@thetis/kernel": "^0.1.0" },
   "devDependencies": { "@thetis/kernel": "^0.1.0" },
   "thetis": { "type": "provider", "export": "createProvider" }

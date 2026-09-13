@@ -1,0 +1,15 @@
+{
+  "name": "@thetis/prompt-cache",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": { ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" } },
+  "scripts": { "build": "tsc -b", "test": "node --test dist/test/" },
+  "peerDependencies": { "@thetis/kernel": "^0.1.0" },
+  "devDependencies": { "@thetis/kernel": "^0.1.0" },
+  "thetis": {
+    "type": "loader",
+    "steps": [ { "id": "cache-hints", "phase": "call", "export": "cacheHints" } ]
+  }
+}

@@ -34,6 +34,8 @@ export interface ProviderCall {
   messages: Message[];
   tools: ToolSpec[];
   params: Record<string, unknown>;
+  /** Provider hints, keyed by concern (for example `cache`). Never sent to the API; a provider reads the keys it understands. */
+  hints?: Record<string, unknown>;
 }
 
 export type ProviderEvent =
@@ -133,7 +135,7 @@ export type TurnEvent =
   | { type: "text"; delta: string }
   | { type: "tool.call"; call: ToolCall }
   | { type: "tool.result"; id: string; name: string; result: string }
-  | { type: "message"; message: Message }
+  | { type: "message"; message: Message; usage?: Record<string, number> }
   | { type: "usage"; usage: Record<string, number> }
   | { type: "error"; message: string; code?: string }
   | { type: "turn.end"; turn: string; session: string };

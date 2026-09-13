@@ -6,7 +6,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { KernelClient, Message, SessionRecord, UserRole } from "@thetis/kernel";
-import type { ArchiveStore } from "./store.js";
+import type { GatewayStore, SessionUsage } from "./store.js";
 import { TurnHub, type RunningTurn } from "./turns.js";
 
 export interface GatewayOptions {
@@ -40,10 +40,10 @@ class HttpError extends Error {
 }
 
 /** Builds the gateway. Call `.listen()` on the result. */
-export function createGateway(kernel: KernelClient, store: ArchiveStore, opts: GatewayOptions = {}): Server {
+export function createGateway(kernel: KernelClient, store: GatewayStore, opts: GatewayOptions = {}): Server {
   const log = opts.log ?? ((line) => process.stderr.write(line + "\n"));
   const assets = opts.assets ?? resolve(dirname(fileURLToPath(import.meta.url)), "../../assets");
-  const hub = new TurnHub(kernel, log);
+  const hub = new TurnHub(kernel, log, recordUsage);
   const secure = opts.secure === true;
 
   const server = createServer((req, res) => {
@@ -161,9 +161,31 @@ export function createGateway(kernel: KernelClient, store: ArchiveStore, opts: G
     };
   }
 
-  async function showSession(user: string, id: string): Promise<SessionRecord & { status: string; archived: boolean; turn: RunningTurn | null }> {
+  async function showSession(user: string, id: string): Promise<SessionRecord & { status: string; archived: boolean; turn: RunningTurn | null; usage: SessionUsage }> {
     const rec = await kernel.sessions.inspect(id, user);
-    return { ...rec, archived: store.archived(user).has(id), turn: hub.runningOf(user, id) ?? null };
+    return { ...rec, archived: store.archived(user).has(id), turn: hub.runningOf(user, id) ?? null, usage: store.usage(user, id) };
+  }
+
+  /**
+   * Keeps the usage each reply reported, keyed by the reply's index in the conversation, so a reopened
+   * transcript shows it. A `message` event is one assistant message; the turn's replies are the last
+   * ones in the saved record. A turn that ended in an error is skipped: a cancel leaves a partial
+   * reply without an event, and the mapping would be off by one.
+   */
+  async function recordUsage(user: string, run: RunningTurn): Promise<void> {
+    const events = run.events.map((e) => e.event);
+    if (events.some((e) => e.type === "error")) return;
+    const usages = events.flatMap((e) => (e.type === "message" && e.message.role === "assistant" ? [e.usage] : []));
+    if (!usages.some(Boolean)) return;
+    const rec = await kernel.sessions.inspect(run.session, user);
+    const indices: number[] = [];
+    for (let i = rec.conversation.length - 1; i >= 0 && indices.length < usages.length; i--) if (rec.conversation[i].role === "assistant") indices.unshift(i);
+    if (indices.length !== usages.length) return;
+    const entries: Record<number, Record<string, number>> = {};
+    indices.forEach((index, n) => {
+      if (usages[n]) entries[index] = usages[n]!;
+    });
+    if (Object.keys(entries).length) store.setUsage(user, run.session, entries);
   }
 
   /** Server-Sent Events. First a `snapshot` of the turns in progress, then every event as `turn`. */

@@ -68,21 +68,23 @@ export function mountTranscript(root, { onNew }) {
   }
 
   /** Settles the live bubble: markdown replaces the raw stream. Drops it when nothing was said. */
-  function settleLive(finalText) {
+  function settleLive(finalText, usage) {
     if (!live) return;
     const bubble = live;
     live = null;
     const text = finalText ?? bubble.text;
     bubble.textEl.classList.remove("is-live");
     if (!text.trim()) return bubble.node.remove();
+    const meta = metaLine(usage);
+    if (meta) bubble.textEl.before(meta);
     clear(bubble.textEl).append(...renderMarkdown(text));
     if (follow) root.scrollTop = root.scrollHeight;
   }
 
-  function assistantRow(text) {
+  function assistantRow(text, usage) {
     if (!text.trim()) return;
     const textEl = el("div", { class: "msg-text" }, ...renderMarkdown(text));
-    row("assistant", textEl);
+    row("assistant", metaLine(usage), textEl);
   }
 
   function toolCard(call, running) {
@@ -138,11 +140,11 @@ export function mountTranscript(root, { onNew }) {
     pendingRow = null;
   }
 
-  /** A saved message from the session record. */
-  function drawMessage(message) {
+  /** A saved message from the session record. `usage` is what the gateway recorded for it, if anything. */
+  function drawMessage(message, usage) {
     if (message.role === "user") return userRow(message.content);
     if (message.role === "assistant") {
-      assistantRow(message.content || "");
+      assistantRow(message.content || "", usage);
       for (const call of message.toolCalls ?? []) toolCard(call, false);
       return;
     }
@@ -173,8 +175,8 @@ export function mountTranscript(root, { onNew }) {
         break;
       case "message":
         if (event.message?.role !== "assistant") break;
-        if (live) settleLive(event.message.content || live.text);
-        else assistantRow(event.message.content || "");
+        if (live) settleLive(event.message.content || live.text, event.usage);
+        else assistantRow(event.message.content || "", event.usage);
         break;
       case "error":
         settleLive();
@@ -193,7 +195,7 @@ export function mountTranscript(root, { onNew }) {
   /** Rebuilds from a session record, including the turn in progress if there is one. */
   function restore(record) {
     reset();
-    for (const message of record.conversation ?? []) drawMessage(message);
+    (record.conversation ?? []).forEach((message, index) => drawMessage(message, record.usage?.[index]));
     if (record.turn) {
       userRow(record.turn.input);
       for (const { event } of record.turn.events ?? []) applyEvent(event);
@@ -205,6 +207,24 @@ export function mountTranscript(root, { onNew }) {
 
   showEmpty("none");
   return { reset, showEmpty, restore, applyEvent, addLocal, settleLocal, failLocal };
+}
+
+/* The accounting header over a reply. Reads the usage by field name; nothing reported means no header. */
+function metaLine(usage) {
+  if (!usage || typeof usage !== "object") return null;
+  const parts = [];
+  const prompt = usage.prompt_tokens;
+  if (typeof usage.cache_read_tokens === "number" && prompt) parts.push(`cached ${Math.round((usage.cache_read_tokens / prompt) * 100)}%`);
+  if (typeof prompt === "number") parts.push(`${compact(prompt)} in`);
+  if (typeof usage.completion_tokens === "number") parts.push(`${compact(usage.completion_tokens)} out`);
+  if (typeof usage.cost === "number") parts.push(`$${usage.cost.toFixed(4)}`);
+  if (!parts.length) return null;
+  const title = typeof usage.cache_write_tokens === "number" ? `cache read ${usage.cache_read_tokens ?? 0}, cache write ${usage.cache_write_tokens}, prompt ${prompt ?? 0}` : undefined;
+  return el("div", { class: "msg-meta", title }, parts.join(" · "));
+}
+
+function compact(n) {
+  return n >= 10000 ? `${(n / 1000).toFixed(0)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
 function clip(text, max) {

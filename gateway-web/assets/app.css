@@ -329,6 +329,7 @@ body { display: flex; flex-direction: column; }
 .msg:last-child { margin-bottom: var(--gap-2); }
 .msg-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg.is-assistant .msg-text { white-space: normal; }
+.msg-meta { font-size: .72rem; color: var(--text-dim); margin-bottom: 4px; letter-spacing: .01em; }
 .msg.is-assistant .msg-text.is-live { white-space: pre-wrap; }
 .msg.is-user { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .msg.is-user .msg-text {

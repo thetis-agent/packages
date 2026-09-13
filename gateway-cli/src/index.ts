@@ -233,6 +233,9 @@ async function render(call: Call, user: string, session: string, input: string, 
       case "tool.result":
         process.stdout.write(dim(`[${e.name} -> ${e.result.replace(/\s+/g, " ").slice(0, 300)}]`) + "\n");
         break;
+      case "message":
+        if (e.usage) process.stdout.write(`\n${dim(usageLine(e.usage))}\n`);
+        break;
       case "error":
         process.stdout.write(`\n\x1b[31merror: ${e.message}\x1b[0m\n`);
         break;
@@ -246,6 +249,17 @@ async function render(call: Call, user: string, session: string, input: string, 
     }
   });
   process.stdout.write("\n");
+}
+
+/** One line of accounting for a reply. Reads the usage by field name; a provider that reports nothing prints nothing. */
+function usageLine(u: Record<string, number>): string {
+  const parts: string[] = [];
+  if (u.prompt_tokens !== undefined) parts.push(`in ${u.prompt_tokens}`);
+  if (u.cache_read_tokens !== undefined && u.prompt_tokens) parts.push(`cached ${Math.round((u.cache_read_tokens / u.prompt_tokens) * 100)}%`);
+  if (u.cache_write_tokens) parts.push(`wrote ${u.cache_write_tokens}`);
+  if (u.completion_tokens !== undefined) parts.push(`out ${u.completion_tokens}`);
+  if (u.cost !== undefined) parts.push(`$${u.cost.toFixed(4)}`);
+  return `[${parts.join(" · ")}]`;
 }
 
 // ---- the control socket client ----

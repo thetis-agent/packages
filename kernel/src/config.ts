@@ -31,7 +31,7 @@ export function defaultConfig(home: string, projectRoot: string): KernelConfig {
     phases: ["history", "prompt", "tools", "call", "after"],
     callPhase: "call",
     systemPackages: {
-      "*": ["@thetis/harness-core", "@thetis/tool-exec"],
+      "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache"],
       _system: ["@thetis/provider-openrouter"],
     },
     packages: {

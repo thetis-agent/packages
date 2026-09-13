@@ -1,15 +1,20 @@
 // OpenRouter provider: OpenAI-compatible chat completions with SSE streaming and tool calls.
+// Prompt caching is applied at the wire. The policy comes from this package's own `cache` config; a
+// `cache` hint on the call may tune it within the configured `hints` mode.
 import type { Message, ModelDescriptor, Provider, ProviderCall, ProviderEvent, ToolCall } from "@thetis/kernel";
+import { applyHint, applyOpenAiCompatible, normalizeUsage, readHint, resolvePolicy, type CacheConfig, type OpenAiWireMessage } from "@thetis/prompt-cache";
 
 export interface OpenRouterConfig {
   apiKey?: string;
   baseUrl?: string;
   headers?: Record<string, string>;
+  /** Request fields sent with every call, under `call.params`. For example `provider: { order: ["anthropic"] }`. */
+  defaults?: Record<string, unknown>;
+  /** Prompt caching policy. See docs/16-prompt-cache.md. */
+  cache?: CacheConfig;
 }
 
-interface WireMessage {
-  role: string;
-  content: string | null;
+interface WireMessage extends OpenAiWireMessage {
   tool_calls?: { id: string; type: "function"; function: { name: string; arguments: string } }[];
   tool_call_id?: string;
   name?: string;
@@ -18,6 +23,7 @@ interface WireMessage {
 export function createProvider(config: OpenRouterConfig = {}): Provider {
   const baseUrl = (config.baseUrl ?? "https://openrouter.ai/api/v1").replace(/\/$/, "");
   const apiKey = config.apiKey ?? process.env.OPENROUTER_API_KEY ?? "";
+  const cacheConfig: CacheConfig = config.cache ?? {};
   const headers = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${apiKey}`,
@@ -42,8 +48,12 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
         tools: call.tools.length ? call.tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } })) : undefined,
         stream: true,
         usage: { include: true },
+        ...(config.defaults ?? {}),
         ...call.params,
-      };
+      } as Record<string, unknown> & { messages: WireMessage[] };
+      const policy = applyHint(resolvePolicy(cacheConfig, call.model), readHint(call.hints?.cache), cacheConfig.hints);
+      applyOpenAiCompatible(body, policy);
+      if (policy.affinity && cacheConfig.affinity !== false && body.user === undefined) body.user = policy.affinity;
       const res = await fetch(`${baseUrl}/chat/completions`, { method: "POST", headers, body: JSON.stringify(body) });
       if (!res.ok || !res.body) return yield { type: "error", message: `openrouter ${res.status}: ${(await res.text()).slice(0, 2000)}` };
       const pending = new Map<number, { id: string; name: string; args: string }>();
@@ -65,7 +75,7 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
           if (tc.function?.arguments) slot.args += tc.function.arguments;
           pending.set(tc.index ?? 0, slot);
         }
-        if (chunk.usage) yield { type: "usage", usage: pickNumbers(chunk.usage) };
+        if (chunk.usage) yield { type: "usage", usage: normalizeUsage(chunk.usage) };
       }
       for (const [i, slot] of [...pending.entries()].sort((a, b) => a[0] - b[0])) {
         yield { type: "tool_call", call: { id: slot.id || `call_${i}`, name: slot.name, args: parseArgs(slot.args) } };
@@ -101,12 +111,6 @@ function parseArgs(raw: string): Record<string, unknown> {
   } catch {
     return { _raw: raw };
   }
-}
-
-function pickNumbers(o: Record<string, unknown>): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const [k, v] of Object.entries(o)) if (typeof v === "number") out[k] = v;
-  return out;
 }
 
 async function* sse(body: ReadableStream<Uint8Array>): AsyncIterable<string> {

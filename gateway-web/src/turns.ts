@@ -32,6 +32,8 @@ export class TurnHub {
   constructor(
     private readonly kernel: KernelClient,
     private readonly log: (line: string) => void = () => {},
+    /** Called after `turn.end` with the complete event list of the turn. */
+    private readonly onEnd: (user: string, run: RunningTurn) => void | Promise<void> = () => {},
   ) {}
 
   /**
@@ -93,6 +95,9 @@ export class TurnHub {
     begin();
     if (run.events.at(-1)?.event.type !== "turn.end") this.push(user, run, { type: "turn.end", turn: run.turn ?? "", session: run.session });
     this.running.delete(key(user, run.session));
+    Promise.resolve()
+      .then(() => this.onEnd(user, run))
+      .catch((err: Error) => this.log(`[gateway-web] turn bookkeeping failed for ${user}/${run.session}: ${err.message}`));
   }
 
   private push(user: string, run: RunningTurn, event: TurnEvent): void {
