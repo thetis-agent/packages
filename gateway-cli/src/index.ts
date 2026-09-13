@@ -13,12 +13,16 @@ const HELP = `thetis - recursive language model service
 usage: thetis <command> [options]
 
   init                                 create the data dir and default config
+  serve                                run the kernel and every installed service (gateways) until stopped
   chat --user <id> [--session <id>]    interactive conversation (streams output)
   send --user <id> [--session <id>] <text>   one-shot turn
   sessions list --user <id>
   sessions show --user <id> --session <id>
   users list | add <id> [--admin] | remove <id> | suspend <id> | unsuspend <id> | role <id> <admin|user>
-  packages list [--user <id>] | install <source> --user <id> | uninstall <name> --user <id>
+  users passwd <id> [--password <text>]  set the sign-in password (reads one line from stdin without --password)
+  install <source> [--user <id>]       install a package (system userspace without --user)
+  uninstall <name> [--user <id>]
+  packages list [--user <id>] | install <source> [--user <id>] | uninstall <name> [--user <id>]
   models [--user <id>]                 models advertised by installed providers
   config                               print effective config
 
@@ -60,10 +64,15 @@ async function dispatch(k: Kernel, cmd: string, args: Args): Promise<void> {
     return user;
   };
   switch (cmd) {
+    case "serve":
+      return serve(k);
     case "users":
       return usersCmd(k, args);
     case "packages":
       return packagesCmd(k, args, user);
+    case "install":
+    case "uninstall":
+      return packagesCmd(k, { ...args, _: ["packages", ...args._] }, user);
     case "models": {
       const us = k.sessions.userspaceFor(k.users.authorize(user ?? "_system"));
       for (const m of await k.providers.listModels(us)) print(`${m.id}\t${m.provider}`);
@@ -90,9 +99,14 @@ async function dispatch(k: Kernel, cmd: string, args: Args): Promise<void> {
   }
 }
 
-function usersCmd(k: Kernel, args: Args): void {
+async function usersCmd(k: Kernel, args: Args): Promise<void> {
   const [, sub, id, extra] = args._;
   switch (sub) {
+    case "passwd": {
+      const password = typeof args.password === "string" ? args.password : (await readLine()).trim();
+      await k.auth.setPassword(String(id), password);
+      return print(`password set for ${id}`);
+    }
     case "list":
     case undefined:
       for (const u of k.users.list()) print(`${u.id}\t${u.role}\t${u.status}\t${u.createdAt}`);
@@ -126,11 +140,31 @@ async function packagesCmd(k: Kernel, args: Args, user?: string): Promise<void> 
       return print(`installed ${info.name}@${info.version} (${info.type}) in ${us.id}`);
     }
     case "uninstall":
-      k.packages.uninstall(us, String(source));
+      await k.packages.uninstall(us, String(source));
       return print(`uninstalled ${source} from ${us.id}`);
     default:
       throw new Error(`unknown packages subcommand: ${sub}`);
   }
+}
+
+/** Keeps the kernel alive and its services running until SIGINT or SIGTERM. */
+async function serve(k: Kernel): Promise<void> {
+  await k.services.boot();
+  print("thetis is serving; press Ctrl+C to stop");
+  await new Promise<void>((done) => {
+    process.once("SIGINT", () => done());
+    process.once("SIGTERM", () => done());
+  });
+  print("stopping");
+}
+
+function readLine(): Promise<string> {
+  return new Promise((done) => {
+    let data = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => (data += chunk));
+    process.stdin.on("end", () => done(data.split("\n")[0] ?? ""));
+  });
 }
 
 async function chat(k: Kernel, user: string, sessionId: string | undefined, verbose: boolean): Promise<void> {

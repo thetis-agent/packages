@@ -1,3 +1,4 @@
+import { AuthService } from "./auth.js";
 import { Container, token } from "./container.js";
 import type { KernelConfig } from "./config.js";
 import type { Fence } from "./fence/fence.js";
@@ -10,6 +11,7 @@ import { ProviderCallStep } from "./pipeline/provider-call.js";
 import { PipelineRunner } from "./pipeline/runner.js";
 import { ProviderRegistry } from "./providers.js";
 import { createRpcHandler } from "./rpc.js";
+import { ServiceSupervisor } from "./services.js";
 import { SessionApi } from "./sessions/api.js";
 import { SessionStore } from "./sessions/store.js";
 import { SYSTEM_USER } from "./types.js";
@@ -21,6 +23,8 @@ export const T = {
   config: token<KernelConfig>("config"),
   log: token<(line: string) => void>("log"),
   users: token<UserStore>("users"),
+  auth: token<AuthService>("auth"),
+  services: token<ServiceSupervisor>("services"),
   userspaces: token<UserspaceManager>("userspaces"),
   fence: token<Fence>("fence"),
   fences: token<FencePool>("fences"),
@@ -37,6 +41,8 @@ export const T = {
 export interface Kernel {
   config: KernelConfig;
   users: UserStore;
+  auth: AuthService;
+  services: ServiceSupervisor;
   userspaces: UserspaceManager;
   packages: PackageManager;
   providers: ProviderRegistry;
@@ -53,12 +59,14 @@ export function createKernel(config: KernelConfig, configure?: (c: Container) =>
   c.bind(T.config, () => config);
   c.bind(T.log, () => (line: string) => process.stderr.write(line + "\n"));
   c.bind(T.users, (c) => new UserStore(c.get(T.config).home));
+  c.bind(T.auth, (c) => new AuthService(c.get(T.config).home, c.get(T.users)));
   c.bind(T.userspaces, (c) => new UserspaceManager(c.get(T.config).home));
   c.bind(T.fence, (c) => {
     const cfg = c.get(T.config);
     return new ProcessFence({ agentPath: cfg.agentPath, sandbox: cfg.fence.sandbox, readOnly: cfg.fence.readOnly, hidden: cfg.fence.hidden, requestTimeoutMs: cfg.requestTimeoutMs, log: c.get(T.log) });
   });
-  c.bind(T.fences, (c) => new FencePool(c.get(T.fence), (us) => createRpcHandler(us, c.get(T.users), c.get(T.packages), c.get(T.sessions))));
+  c.bind(T.fences, (c) => new FencePool(c.get(T.fence), (us) => createRpcHandler(us, c.get(T.users), c.get(T.packages), c.get(T.sessions), c.get(T.auth)), (us, h) => c.get(T.services).opened(us, h)));
+  c.bind(T.services, (c) => new ServiceSupervisor(c.get(T.config), c.get(T.users), c.get(T.userspaces), c.get(T.packages), c.get(T.fences), c.get(T.log)));
   c.bind(T.registry, (c) => new PackageRegistry(c.get(T.config).home));
   c.bind(T.packages, (c) => new PackageManager(c.get(T.config), c.get(T.registry), c.get(T.fences)));
   c.bind(T.providers, (c) => new ProviderRegistry(c.get(T.config), c.get(T.packages), c.get(T.userspaces), c.get(T.fences)));
@@ -71,11 +79,14 @@ export function createKernel(config: KernelConfig, configure?: (c: Container) =>
 
   const users = c.get(T.users);
   const sessions = c.get(T.sessions);
+  c.get(T.packages).observe(c.get(T.services));
   sessions.userspaceFor(users.authorize(SYSTEM_USER));
 
   return {
     config,
     users,
+    auth: c.get(T.auth),
+    services: c.get(T.services),
     userspaces: c.get(T.userspaces),
     packages: c.get(T.packages),
     providers: c.get(T.providers),

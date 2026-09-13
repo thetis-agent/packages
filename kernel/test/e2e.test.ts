@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createKernel, T, type Kernel, type TurnEvent } from "../src/index.js";
+import { createKernel, createRpcHandler, T, type Kernel, type TurnEvent } from "../src/index.js";
 import { defaultConfig } from "../src/config.js";
 import { ProcessFence } from "../src/fence/process-fence.js";
 
@@ -156,6 +156,25 @@ test("cancel: a running exec tool is killed and the turn ends", async () => {
   assert.equal((r.all.find((e) => e.type === "error") as { code?: string })?.code, "cancelled");
   const again = await collect(kernel.sessions.send("alice", s.id, "run: echo alive"));
   assert.match(again.text, /alive/);
+});
+
+test("rpc: a user fence acts as itself only; the system fence may act for a user and use auth", async () => {
+  const forAlice = createRpcHandler(kernel.userspaces.pathFor("alice"), kernel.users, kernel.packages, kernel.sessions, kernel.auth);
+  const forSystem = createRpcHandler(kernel.userspaces.pathFor("_system"), kernel.users, kernel.packages, kernel.sessions, kernel.auth);
+  await assert.rejects(forAlice("sessions.list", { as: "bob" }), /only the system userspace/);
+  await assert.rejects(forAlice("auth.authenticate", { token: "x" }), /only the system userspace/);
+  await assert.rejects(forAlice("auth.login", { id: "alice", password: "x" }), /only the system userspace/);
+  const own = (await forAlice("sessions.list", {})) as { user: string }[];
+  assert.ok(own.every((s) => s.user === "alice"));
+  const bobs = (await forSystem("sessions.list", { as: "bob" })) as { user: string }[];
+  assert.ok(bobs.every((s) => s.user === "bob"));
+  const events: TurnEvent[] = [];
+  const created = (await forSystem("sessions.create", { as: "alice" })) as { id: string };
+  await forSystem("sessions.send", { as: "alice", session: created.id, input: "streamed" }, (e) => events.push(e as TurnEvent));
+  assert.equal(events.filter((e) => e.type === "text").map((e) => (e as { delta: string }).delta).join(""), "echo: streamed (t1)");
+  assert.equal(events.at(-1)?.type, "turn.end");
+  assert.equal(kernel.sessions.inspect("alice", created.id).conversation.length, 2);
+  assert.equal(await forSystem("auth.authenticate", { token: "nope" }), null);
 });
 
 test("suspended users cannot start turns", async () => {

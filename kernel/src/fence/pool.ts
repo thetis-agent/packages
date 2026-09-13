@@ -8,15 +8,23 @@ export class FencePool {
   constructor(
     private readonly fence: Fence,
     private readonly rpcFor: (us: Userspace) => KernelRpc,
+    private readonly onOpen?: (us: Userspace, handle: FenceHandle) => Promise<void>,
   ) {}
 
+  /** The handle for a userspace, opening the fence on first use. `onOpen` runs on the new handle before anyone else uses it. */
   handle(us: Userspace): Promise<FenceHandle> {
     let h = this.handles.get(us.id);
     if (!h) {
-      h = this.fence.open(us, this.rpcFor(us)).catch((err) => {
-        this.handles.delete(us.id);
-        throw err;
-      });
+      h = this.fence
+        .open(us, this.rpcFor(us))
+        .then(async (handle) => {
+          await this.onOpen?.(us, handle);
+          return handle;
+        })
+        .catch((err) => {
+          this.handles.delete(us.id);
+          throw err;
+        });
       this.handles.set(us.id, h);
     }
     return h;

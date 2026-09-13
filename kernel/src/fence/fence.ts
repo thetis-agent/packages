@@ -1,7 +1,7 @@
 import type { Userspace } from "../types.js";
 
-/** A request from inside the fence back to the kernel (package install, subagent spawn...). */
-export type KernelRpc = (method: string, args: unknown) => Promise<unknown>;
+/** A request from inside the fence back to the kernel (package install, subagent spawn, a gateway's session calls). `emit` streams events back before the result. */
+export type KernelRpc = (method: string, args: unknown, emit?: EventSink) => Promise<unknown>;
 
 export type EventSink = (event: unknown) => void;
 

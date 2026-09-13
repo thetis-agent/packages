@@ -1,15 +1,18 @@
-// The web gateway end to end: a real kernel with the echo provider fixture behind the HTTP server.
+// The web gateway end to end: a real kernel with the echo provider fixture. Most cases drive the server
+// in-process through the same RPC handler a fence gets; the last case installs the package into the system
+// userspace and talks to the service the agent started inside the fence.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AddressInfo } from "node:net";
+import { createServer as createTcpServer, type AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { createKernel, defaultConfig, T, type Kernel, type TurnEvent } from "@thetis/kernel";
+import { createKernel, createRpcHandler, defaultConfig, T, type Kernel, type TurnEvent } from "@thetis/kernel";
+import { clientFromRpc } from "../src/client.js";
 import { createGateway } from "../src/server.js";
-import { GatewayStore } from "../src/store.js";
+import { ArchiveStore } from "../src/store.js";
 import type { SessionSummary } from "../src/server.js";
 import type { TurnMessage } from "../src/turns.js";
 
@@ -20,6 +23,7 @@ let home: string;
 let kernel: Kernel;
 let base: string;
 let server: Server;
+let servicePort: number;
 let alice: string; // cookie header
 let bob: string;
 
@@ -29,8 +33,8 @@ interface Frame {
 }
 
 /** Opens the event stream and yields parsed frames. */
-async function* frames(cookie: string, signal: AbortSignal): AsyncGenerator<Frame> {
-  const res = await fetch(`${base}/api/events`, { headers: { cookie }, signal });
+async function* frames(cookie: string, signal: AbortSignal, origin = base): AsyncGenerator<Frame> {
+  const res = await fetch(`${origin}/api/events`, { headers: { cookie }, signal });
   assert.equal(res.status, 200);
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
@@ -51,9 +55,9 @@ async function* frames(cookie: string, signal: AbortSignal): AsyncGenerator<Fram
 }
 
 /** Collects one turn's events from the stream for a session, ending at `turn.end`. */
-async function turn(cookie: string, session: string, trigger: () => Promise<unknown>): Promise<{ events: TurnEvent[]; text: string; input?: string }> {
+async function turn(cookie: string, session: string, trigger: () => Promise<unknown>, origin = base): Promise<{ events: TurnEvent[]; text: string; input?: string }> {
   const control = new AbortController();
-  const gen = frames(cookie, control.signal);
+  const gen = frames(cookie, control.signal, origin);
   const first = await gen.next();
   assert.equal(first.value?.event, "snapshot");
   await trigger();
@@ -73,39 +77,53 @@ async function turn(cookie: string, session: string, trigger: () => Promise<unkn
   return { events, text, input };
 }
 
-async function api(cookie: string, path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(`${base}${path}`, { ...init, headers: { cookie, "content-type": "application/json", ...(init.headers ?? {}) }, redirect: "manual" });
+async function api(cookie: string, path: string, init: RequestInit = {}, origin = base): Promise<Response> {
+  return fetch(`${origin}${path}`, { ...init, headers: { cookie, "content-type": "application/json", ...(init.headers ?? {}) }, redirect: "manual" });
 }
 
-async function login(id: string, password: string): Promise<Response> {
-  return fetch(`${base}/login`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ id, password, next: "/" }), redirect: "manual" });
+async function login(id: string, password: string, origin = base): Promise<Response> {
+  return fetch(`${origin}/login`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ id, password, next: "/" }), redirect: "manual" });
+}
+
+function freePort(): Promise<number> {
+  return new Promise((done) => {
+    const probe = createTcpServer().listen(0, "127.0.0.1", () => {
+      const port = (probe.address() as AddressInfo).port;
+      probe.close(() => done(port));
+    });
+  });
 }
 
 before(async () => {
   home = mkdtempSync(join(tmpdir(), "thetis-web-"));
   const sys = join(home, "system-packages");
   mkdirSync(sys);
-  for (const name of ["harness-core", "tool-exec"]) symlinkSync(resolve(PROJECT, "packages", name), join(sys, name));
+  for (const name of ["harness-core", "tool-exec", "gateway-web"]) symlinkSync(resolve(PROJECT, "packages", name), join(sys, name));
   symlinkSync(join(FIXTURES, "provider-echo"), join(sys, "provider-echo"));
+  servicePort = await freePort();
   const config = defaultConfig(join(home, "data"), PROJECT);
   config.systemPackagesDir = sys;
   config.model = "echo";
   config.fence.sandbox = (process.env.THETIS_TEST_SANDBOX as "auto" | "none") ?? "auto";
   config.fence.readOnly.push(sys, FIXTURES);
   config.systemPackages = { "*": ["@thetis/harness-core", "@thetis/tool-exec"], _system: ["@thetis/provider-echo"] };
-  config.packages = { "@thetis/provider-echo": { tag: "t1" } };
+  config.packages = { "@thetis/provider-echo": { tag: "t1" }, "@thetis/gateway-web": { port: servicePort } };
   config.requestTimeoutMs = 60_000;
-  kernel = createKernel(config, (c) => c.bind(T.log, () => (line: string) => process.env.THETIS_TEST_VERBOSE && console.error(line)));
+  const log = (line: string) => process.env.THETIS_TEST_VERBOSE && console.error(line);
+  kernel = createKernel(config, (c) => c.bind(T.log, () => log));
   kernel.users.create("alice");
   kernel.users.create("bob");
-  const store = new GatewayStore(join(home, "data", "gateway-web"));
-  await store.setPassword("alice", "wonderland");
-  await store.setPassword("bob", "builder");
+  await kernel.auth.setPassword("alice", "wonderland");
+  await kernel.auth.setPassword("bob", "builder");
+
+  // The in-process server: the same RPC handler the system fence gets, without the fence.
+  const systemUs = kernel.userspaces.pathFor("_system");
+  const rpc = createRpcHandler(systemUs, kernel.users, kernel.packages, kernel.sessions, kernel.auth);
   const assets = join(home, "assets");
   mkdirSync(assets);
   writeFileSync(join(assets, "index.html"), "<title>app</title>");
   writeFileSync(join(assets, "login.html"), "<title>login</title>");
-  server = createGateway(kernel, store, { assets, log: (line) => process.env.THETIS_TEST_VERBOSE && console.error(line) });
+  server = createGateway(clientFromRpc(rpc), new ArchiveStore(join(home, "archive")), { assets, log });
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -121,6 +139,7 @@ test("unauthenticated requests are redirected or refused", async () => {
   assert.equal(page.status, 303);
   assert.equal(page.headers.get("location"), "/login");
   assert.equal((await fetch(`${base}/api/sessions`)).status, 401);
+  assert.equal((await fetch(`${base}/api/sessions`, { headers: { cookie: "thetis_web=nonsense" } })).status, 401);
   assert.equal((await fetch(`${base}/login`)).status, 200);
   assert.equal((await fetch(`${base}/assets/../package.json`)).status, 404);
 });
@@ -143,10 +162,14 @@ test("login refuses a wrong password and a wrong user, and accepts the right pai
   assert.deepEqual(await me.json(), { user: "alice", role: "user" });
 });
 
-test("a suspended user's cookie stops working", async () => {
+test("a suspended user's cookie stops working, and a new password revokes old logins", async () => {
   kernel.users.setStatus("bob", "suspended");
   assert.equal((await api(bob, "/api/me")).status, 401);
   kernel.users.setStatus("bob", "active");
+  assert.equal((await api(bob, "/api/me")).status, 200);
+  await kernel.auth.setPassword("bob", "builder");
+  assert.equal((await api(bob, "/api/me")).status, 401);
+  bob = ((await login("bob", "builder")).headers.get("set-cookie") ?? "").split(";")[0];
   assert.equal((await api(bob, "/api/me")).status, 200);
 });
 
@@ -259,4 +282,27 @@ test("logout revokes the cookie", async () => {
   assert.equal(res.status, 303);
   assert.match(res.headers.get("set-cookie") ?? "", /Max-Age=0/);
   assert.equal((await api(bob, "/api/me")).status, 401);
+});
+
+test("installed into the system userspace, the gateway runs inside the fence and stops on uninstall", async () => {
+  const origin = `http://127.0.0.1:${servicePort}`;
+  const systemUs = kernel.userspaces.pathFor("_system");
+  await kernel.packages.install(systemUs, kernel.users.authorize("_system"), "@thetis/gateway-web");
+  await assert.rejects(fetch(`${origin}/login`), "nothing listens before the supervisor boots");
+  await kernel.services.boot();
+  assert.equal((await fetch(`${origin}/login`)).status, 200, "the service inside the fence answers");
+  assert.equal((await fetch(`${origin}/`, { redirect: "manual" })).headers.get("location"), "/login");
+
+  const cookie = ((await login("alice", "wonderland", origin)).headers.get("set-cookie") ?? "").split(";")[0];
+  assert.match(cookie, /^thetis_web=[a-f0-9]{64}$/);
+  assert.deepEqual(await (await api(cookie, "/api/me", {}, origin)).json(), { user: "alice", role: "user" });
+  const { id } = (await (await api(cookie, "/api/sessions", { method: "POST" }, origin)).json()) as { id: string };
+  const r = await turn(cookie, id, async () => {
+    assert.equal((await api(cookie, `/api/sessions/${id}/send`, { method: "POST", body: JSON.stringify({ text: "through the fence" }) }, origin)).status, 202);
+  }, origin);
+  assert.equal(r.text, "echo: through the fence (t1)");
+  assert.equal(kernel.sessions.inspect("alice", id).conversation.length, 2);
+
+  await kernel.packages.uninstall(systemUs, "@thetis/gateway-web");
+  await assert.rejects(fetch(`${origin}/login`), "the server is closed after uninstall");
 });

@@ -8,7 +8,7 @@ import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import type {
   EnumeratorContext, ExecOptions, KernelClient, PackageInfo, PackageQuery, PackageStepContext,
-  Provider, ProviderCall, ProviderEvent, SessionInfo, StepContext, StepEnv, StepResult, ToolEnv,
+  Provider, ProviderCall, ProviderEvent, ServiceEnv, ServiceHandle, SessionInfo, StepContext, StepEnv, StepResult, ToolEnv, TurnEvent,
 } from "@thetis/kernel";
 
 const ROOT = process.env.THETIS_USERSPACE ?? process.cwd();
@@ -21,12 +21,13 @@ for (const k of ["log", "info", "debug"] as const) console[k] = (...a: unknown[]
 const send = (m: unknown) => void writeOut(JSON.stringify(m) + "\n");
 
 // ---- kernel RPC (fence -> kernel) ----
-const rpcPending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+// `{ rpcEvent }` lines stream to `onEvent` before the `{ rpcResult }` line settles the call.
+const rpcPending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; onEvent?: (e: unknown) => void }>();
 let rpcSeq = 0;
-function rpc<T = unknown>(method: string, args?: unknown): Promise<T> {
+function rpc<T = unknown>(method: string, args?: unknown, onEvent?: (e: unknown) => void): Promise<T> {
   return new Promise<T>((res, rej) => {
     const id = `k${++rpcSeq}`;
-    rpcPending.set(id, { resolve: res as (v: unknown) => void, reject: rej });
+    rpcPending.set(id, { resolve: res as (v: unknown) => void, reject: rej, onEvent });
     send({ rpc: id, method, args });
   });
 }
@@ -38,9 +39,17 @@ const kernel: KernelClient = {
     list: () => rpc("packages.list"),
   },
   sessions: {
-    create: (parent) => rpc("sessions.create", { parent }),
-    ask: (session, input) => rpc("sessions.ask", { session, input }),
-    list: () => rpc("sessions.list"),
+    create: (parent, as) => rpc("sessions.create", { parent, as }),
+    ask: (session, input, as) => rpc("sessions.ask", { session, input, as }),
+    send: (session, input, onEvent, as) => rpc("sessions.send", { session, input, as }, (e) => onEvent(e as TurnEvent)),
+    cancel: (session, as) => rpc("sessions.cancel", { session, as }),
+    list: (as) => rpc("sessions.list", { as }),
+    inspect: (session, as) => rpc("sessions.inspect", { session, as }),
+  },
+  auth: {
+    login: (id, password) => rpc("auth.login", { id, password }),
+    authenticate: (token) => rpc("auth.authenticate", { token }),
+    logout: (token) => rpc("auth.logout", { token }),
   },
 };
 
@@ -132,6 +141,19 @@ const ops: Record<string, (p: Payload, emit: Emit, signal: AbortSignal) => Promi
     const ctx: EnumeratorContext = { session: p.ctx.session, packages: packageQuery(p.ctx.packages), phases: p.ctx.phases };
     return fn(ctx);
   },
+  "service.start": async (p) => {
+    if (services.has(p.package)) return "running";
+    const fn = await loadExport(p.package, p.export);
+    const serviceEnv: ServiceEnv = { ...env, config: p.config ?? {}, log: (line) => console.error(`[${p.package}] ${line}`) };
+    services.set(p.package, (await fn(serviceEnv)) as ServiceHandle | void);
+    return "started";
+  },
+  "service.stop": async (p) => {
+    const handle = services.get(p.package);
+    services.delete(p.package);
+    await handle?.stop?.();
+    return "stopped";
+  },
   "provider.models": async (p) => (await provider(p.package, p.export, p.config)).models(),
   "provider.call": async (p, emit, signal) => {
     const prov = await provider(p.package, p.export, p.config);
@@ -144,6 +166,8 @@ const ops: Record<string, (p: Payload, emit: Emit, signal: AbortSignal) => Promi
 };
 
 const inflight = new Map<string, AbortController>();
+/** Running services by package name. They live as long as this process, which is as long as the fence. */
+const services = new Map<string, ServiceHandle | void>();
 
 async function dispatch(msg: Payload): Promise<void> {
   const { id, op, payload } = msg as { id: string; op: string; payload: Payload };
@@ -170,11 +194,12 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     return console.error(`agent: bad line ${line.slice(0, 80)}`);
   }
   if (typeof msg.cancel === "string") return void inflight.get(msg.cancel)?.abort();
+  if (typeof msg.rpcEvent === "string") return void rpcPending.get(msg.rpcEvent)?.onEvent?.(msg.event);
   if (typeof msg.rpcResult === "string") {
     const p = rpcPending.get(msg.rpcResult);
     rpcPending.delete(msg.rpcResult);
     if (!p) return;
-    if (msg.error) p.reject(new Error(String(msg.error)));
+    if (msg.error) p.reject(Object.assign(new Error(String(msg.error)), { code: msg.code }));
     else p.resolve(msg.result);
     return;
   }

@@ -1,6 +1,6 @@
 // Runs turns in the background and fans their events out to every connected browser of the user.
 // A turn's events are buffered while it runs, so a page that connects mid-turn receives what it missed.
-import type { SessionApi, TurnEvent } from "@thetis/kernel";
+import type { KernelClient, TurnEvent } from "@thetis/kernel";
 
 export interface NumberedEvent {
   seq: number;
@@ -30,25 +30,44 @@ export class TurnHub {
   private readonly listeners = new Map<string, Set<Listener>>();
 
   constructor(
-    private readonly sessions: SessionApi,
+    private readonly kernel: KernelClient,
     private readonly log: (line: string) => void = () => {},
   ) {}
 
-  /** Starts a turn. Throws the kernel's own error when the session is busy or unknown. */
-  start(user: string, session: string, input: string): RunningTurn {
-    const events = this.sessions.send(user, session, input);
-    const run: RunningTurn = { session, input, startedAt: new Date().toISOString(), events: [] };
-    this.running.set(key(user, session), run);
-    void this.pump(user, run, events);
-    return run;
+  /**
+   * Starts a turn. Resolves once the kernel has emitted its first event; rejects with the kernel's own
+   * error (code `busy`, `not-found`) when the turn cannot start, so nothing is recorded in that case.
+   */
+  start(user: string, session: string, input: string): Promise<RunningTurn> {
+    return new Promise((done, fail) => {
+      const run: RunningTurn = { session, input, startedAt: new Date().toISOString(), events: [] };
+      let started = false;
+      const begin = () => {
+        if (started) return;
+        started = true;
+        this.running.set(key(user, session), run);
+        done(run);
+      };
+      this.kernel.sessions
+        .send(session, input, (event) => {
+          begin();
+          if (event.type === "turn.start") run.turn = event.turn;
+          this.push(user, run, event);
+        }, user)
+        .then(
+          () => this.finish(user, run, begin),
+          (err: Error) => {
+            if (!started) return fail(err);
+            this.log(`[gateway-web] turn failed for ${user}/${session}: ${err.message}`);
+            this.push(user, run, { type: "error", message: err.message, code: "gateway" });
+            this.finish(user, run, begin);
+          },
+        );
+    });
   }
 
-  cancel(user: string, session: string): boolean {
-    return this.sessions.cancel(user, session);
-  }
-
-  isRunning(user: string, session: string): boolean {
-    return this.running.has(key(user, session));
+  cancel(user: string, session: string): Promise<boolean> {
+    return this.kernel.sessions.cancel(session, user);
   }
 
   runningOf(user: string, session: string): RunningTurn | undefined {
@@ -70,21 +89,10 @@ export class TurnHub {
     };
   }
 
-  private async pump(user: string, run: RunningTurn, events: AsyncIterable<TurnEvent>): Promise<void> {
-    let ended = false;
-    try {
-      for await (const event of events) {
-        if (event.type === "turn.start") run.turn = event.turn;
-        this.push(user, run, event);
-        ended = event.type === "turn.end";
-      }
-    } catch (err) {
-      this.log(`[gateway-web] turn failed for ${user}/${run.session}: ${err instanceof Error ? err.message : String(err)}`);
-      this.push(user, run, { type: "error", message: err instanceof Error ? err.message : String(err), code: "gateway" });
-    } finally {
-      if (!ended) this.push(user, run, { type: "turn.end", turn: run.turn ?? "", session: run.session });
-      this.running.delete(key(user, run.session));
-    }
+  private finish(user: string, run: RunningTurn, begin: () => void): void {
+    begin();
+    if (run.events.at(-1)?.event.type !== "turn.end") this.push(user, run, { type: "turn.end", turn: run.turn ?? "", session: run.session });
+    this.running.delete(key(user, run.session));
   }
 
   private push(user: string, run: RunningTurn, event: TurnEvent): void {

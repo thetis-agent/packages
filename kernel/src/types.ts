@@ -79,6 +79,8 @@ export interface ThetisField {
   steps?: StepDecl[];
   tools?: ToolDecl[];
   export?: string;
+  /** A long-running process the userspace agent starts when the fence opens and stops on uninstall. */
+  service?: { export: string };
   publish?: { port: number; to: string }[];
 }
 
@@ -202,6 +204,24 @@ export interface StepEnv {
   kernel: KernelClient;
 }
 
+export interface SessionSummaryRef {
+  id: string;
+  user: string;
+  parent?: string;
+  createdAt: string;
+  updatedAt: string;
+  turns: number;
+}
+
+export interface AuthUser {
+  id: string;
+  role: UserRole;
+}
+
+/**
+ * The kernel as seen from inside a fence. Every call acts as the fence's own user. `as` names another
+ * user and is accepted from the system userspace only; `auth` is for the system userspace only.
+ */
 export interface KernelClient {
   packages: {
     install(source: string): Promise<PackageInfo>;
@@ -209,9 +229,17 @@ export interface KernelClient {
     list(): Promise<PackageInfo[]>;
   };
   sessions: {
-    create(parent?: string): Promise<{ id: string }>;
-    ask(session: string, input: string): Promise<string>;
-    list(): Promise<{ id: string; parent?: string }[]>;
+    create(parent?: string, as?: string): Promise<SessionSummaryRef>;
+    ask(session: string, input: string, as?: string): Promise<string>;
+    send(session: string, input: string, onEvent: (event: TurnEvent) => void, as?: string): Promise<void>;
+    cancel(session: string, as?: string): Promise<boolean>;
+    list(as?: string): Promise<SessionSummaryRef[]>;
+    inspect(session: string, as?: string): Promise<SessionRecord & { status: "idle" | "running" }>;
+  };
+  auth: {
+    login(id: string, password: string): Promise<{ token: string; user: AuthUser } | null>;
+    authenticate(token: string): Promise<AuthUser | null>;
+    logout(token: string): Promise<void>;
   };
 }
 
@@ -228,6 +256,18 @@ export interface ToolEnv extends StepEnv {
 }
 
 export type Tool = (args: Record<string, unknown>, env: ToolEnv) => Promise<string | object>;
+
+export interface ServiceEnv extends StepEnv {
+  config: Record<string, unknown>;
+  log(line: string): void;
+}
+
+export interface ServiceHandle {
+  stop?(): Promise<void> | void;
+}
+
+/** The export a `service` declaration names. Runs inside the agent process of its userspace. */
+export type Service = (env: ServiceEnv) => Promise<ServiceHandle | void>;
 
 export interface Provider {
   models(): Promise<ModelDescriptor[]>;

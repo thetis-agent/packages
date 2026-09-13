@@ -14,12 +14,24 @@ const GIT_URL = /^(https?:\/\/|git@|git:\/\/|ssh:\/\/).+|\.git$/;
  * Installs packages into a userspace's store and records them in the registry.
  * Builds run inside the fence; linking and bookkeeping are done by the kernel.
  */
+export interface PackageListener {
+  installed(us: Userspace, pkg: PackageInfo): Promise<void>;
+  uninstalled(us: Userspace, pkg: PackageInfo): Promise<void>;
+}
+
 export class PackageManager {
+  private listener?: PackageListener;
+
   constructor(
     private readonly config: KernelConfig,
     private readonly registry: PackageRegistry,
     private readonly fences: FencePool,
   ) {}
+
+  /** One observer of installs and uninstalls, for the service supervisor. */
+  observe(listener: PackageListener): void {
+    this.listener = listener;
+  }
 
   /** Installed packages of a userspace, with their live manifests, in install order. */
   installed(us: Userspace): PackageInfo[] {
@@ -61,7 +73,9 @@ export class PackageManager {
   async install(us: Userspace, actor: UserRecord, source: string): Promise<PackageInfo> {
     if (scopeOf(source) === SYSTEM_SCOPE && !source.includes("/", SYSTEM_SCOPE.length + 1)) {
       assert(actor.role !== "user", "only admins can install system packages", "unauthorized");
-      return this.installSystem(us, source);
+      const info = this.installSystem(us, source);
+      await this.listener?.installed(us, info);
+      return info;
     }
     const kind = GIT_URL.test(source) ? "git" : "local";
     const dir = kind === "git" ? await this.clone(us, source) : this.localDir(us, source);
@@ -71,10 +85,14 @@ export class PackageManager {
     await this.build(us, dir, manifest);
     this.link(us, manifest.name, dir);
     this.registry.record({ name: manifest.name, version: manifest.version, type: manifest.thetis.type, owner: us.id, source: { kind, ref: source } }, us.id);
-    return toInfo(manifest, this.linkPath(us, manifest.name));
+    const info = toInfo(manifest, this.linkPath(us, manifest.name));
+    await this.listener?.installed(us, info);
+    return info;
   }
 
-  uninstall(us: Userspace, name: string): void {
+  async uninstall(us: Userspace, name: string): Promise<void> {
+    const pkg = this.installed(us).find((p) => p.name === name);
+    if (pkg) await this.listener?.uninstalled(us, pkg);
     const link = this.linkPath(us, name);
     if (existsSync(link) || isLink(link)) rmSync(link, { recursive: true, force: true });
     this.registry.unlink(name, us.id);

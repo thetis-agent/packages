@@ -19,6 +19,7 @@ export function validateManifest(m: Manifest): Manifest {
   for (const s of t.steps ?? []) {
     assert(s && typeof s.id === "string" && typeof s.phase === "string" && typeof s.export === "string", `${m.name}: each step needs id, phase, export`);
   }
+  if (t.service !== undefined) assert(t.service && typeof t.service.export === "string", `${m.name}: service needs an export`);
   for (const tool of t.tools ?? []) {
     assert(tool && typeof tool.name === "string" && typeof tool.export === "string", `${m.name}: each tool needs name and export`);
     assert(typeof tool.description === "string", `${m.name}: tool ${tool.name} needs a description`);

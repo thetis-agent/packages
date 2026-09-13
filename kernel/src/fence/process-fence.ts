@@ -139,9 +139,9 @@ class ProcessHandle implements FenceHandle {
 
   private async serveRpc(rid: string, method: string, args: unknown): Promise<void> {
     try {
-      this.send({ rpcResult: rid, result: await this.rpc(method, args) });
+      this.send({ rpcResult: rid, result: await this.rpc(method, args, (event) => this.send({ rpcEvent: rid, event })) });
     } catch (err) {
-      this.send({ rpcResult: rid, error: err instanceof Error ? err.message : String(err) });
+      this.send({ rpcResult: rid, error: err instanceof Error ? err.message : String(err), code: (err as { code?: string }).code });
     }
   }
 

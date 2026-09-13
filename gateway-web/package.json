@@ -4,6 +4,11 @@
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": { "build": "tsc -b" },
-  "dependencies": { "@thetis/kernel": "^0.1.0" },
-  "thetis": { "type": "gateway", "publish": [{ "port": 8777, "to": "host" }] }
+  "peerDependencies": { "@thetis/kernel": "^0.1.0" },
+  "devDependencies": { "@thetis/kernel": "^0.1.0" },
+  "thetis": {
+    "type": "gateway",
+    "service": { "export": "startService" },
+    "publish": [{ "port": 8777, "to": "host" }]
+  }
 }
