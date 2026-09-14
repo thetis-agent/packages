@@ -12,6 +12,8 @@ export interface RunningTurn {
   /** The turn id, known after `turn.start`. */
   turn?: string;
   input: string;
+  /** The model the turn was asked for, when the person chose one. */
+  model?: string;
   startedAt: string;
   events: NumberedEvent[];
 }
@@ -40,9 +42,9 @@ export class TurnHub {
    * Starts a turn. Resolves once the kernel has emitted its first event; rejects with the kernel's own
    * error (code `busy`, `not-found`) when the turn cannot start, so nothing is recorded in that case.
    */
-  start(user: string, session: string, input: string): Promise<RunningTurn> {
+  start(user: string, session: string, input: string, model?: string): Promise<RunningTurn> {
     return new Promise((done, fail) => {
-      const run: RunningTurn = { session, input, startedAt: new Date().toISOString(), events: [] };
+      const run: RunningTurn = { session, input, model, startedAt: new Date().toISOString(), events: [] };
       let started = false;
       const begin = () => {
         if (started) return;
@@ -55,7 +57,7 @@ export class TurnHub {
           begin();
           if (event.type === "turn.start") run.turn = event.turn;
           this.push(user, run, event);
-        })
+        }, model ? { model } : undefined)
         .then(
           () => this.finish(user, run, begin),
           (err: Error) => {

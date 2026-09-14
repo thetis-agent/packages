@@ -113,7 +113,7 @@ export function createControlHandler(k: Kernel): KernelRpc {
       case "sessions.cancel":
         return k.sessions.cancel(user(), String(a.session));
       case "sessions.send": {
-        for await (const event of k.sessions.send(user(), String(a.session), String(a.input))) emit?.(event);
+        for await (const event of k.sessions.send(user(), String(a.session), String(a.input), { model: a.model || undefined })) emit?.(event);
         return null;
       }
       default:

@@ -66,9 +66,16 @@
           <path d="M4 6h12M4 10h12M4 14h12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
         </svg>
       </button>
-      <span id="chat-title" class="chat-sub"></span>
-      <span class="chat-bar-gap"></span>
+      <button type="button" id="chat-title" class="chat-title" title="Rename this conversation"></button>
       <span id="chat-state" class="chat-state" hidden></span>
+      <span class="chat-bar-gap"></span>
+      <button type="button" id="chip-model" class="chip-quiet mono" hidden></button>
+      <span id="chip-spend" class="chip-quiet mono" hidden></span>
+      <button type="button" id="archive-chat" class="icon-btn sm" title="Archive this conversation" aria-label="Archive this conversation" hidden>
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <path d="M3.5 5.5h13v2.5h-13zM4.5 8v7.5h11V8M8 11h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
     </div>
 
     <div id="transcript" class="transcript" tabindex="0"></div>
@@ -79,6 +86,7 @@
           <textarea id="input" class="composer-input" rows="1" placeholder="Message Thetis…" aria-label="Message"></textarea>
         </div>
         <div class="composer-bar">
+          <div class="composer-tools" id="composer-tools"></div>
           <span id="composer-note" class="composer-note"></span>
           <div class="composer-run">
             <button type="button" id="stop" class="stop-btn" title="Stop the running turn" hidden>

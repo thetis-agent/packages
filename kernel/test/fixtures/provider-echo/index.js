@@ -21,6 +21,7 @@ export function createProvider(config) {
       }
       if (text === "system?") { yield { type: "text", delta: call.system ?? "" }; return; }
       if (text === "tools?") { yield { type: "text", delta: call.tools.map((t) => t.name).join(",") }; return; }
+      if (text === "model?") { yield { type: "text", delta: call.model }; return; }
       if (text === "hints?") { yield { type: "text", delta: JSON.stringify(call.hints ?? null) }; return; }
       yield { type: "text", delta: `echo: ${text} (${config.tag ?? "untagged"})` };
     },

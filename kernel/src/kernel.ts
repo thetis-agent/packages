@@ -79,7 +79,7 @@ export function createKernel(config: KernelConfig, configure?: (c: Container) =>
   });
   // The operator table is the control handler's; the RPC handler admits it to the system fence for admins only.
   const operator: KernelRpc = (method, args, emit) => createControlHandler(kernel)(method, args, emit);
-  c.bind(T.fences, (c) => new FencePool(c.get(T.fence), (us) => createRpcHandler(us, c.get(T.users), c.get(T.packages), c.get(T.sessions), c.get(T.auth), operator), (us, h) => c.get(T.services).opened(us, h)));
+  c.bind(T.fences, (c) => new FencePool(c.get(T.fence), (us) => createRpcHandler(us, c.get(T.users), c.get(T.packages), c.get(T.sessions), c.get(T.auth), operator, async (us) => ({ model: config.model, models: await c.get(T.providers).listModels(us) })), (us, h) => c.get(T.services).opened(us, h)));
   c.bind(T.services, (c) => new ServiceSupervisor(c.get(T.config), c.get(T.users), c.get(T.userspaces), c.get(T.packages), c.get(T.fences), c.get(T.log), c.get(T.journal)));
   c.bind(T.registry, (c) => new PackageRegistry(c.get(T.config).home));
   c.bind(T.packages, (c) => new PackageManager(c.get(T.config), c.get(T.registry), c.get(T.fences)));

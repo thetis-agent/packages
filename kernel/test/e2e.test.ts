@@ -252,6 +252,23 @@ test("rpc: identity is the fence; only the system fence logs people in; a token 
   assert.throws(() => kernel.sessions.inspect("bob", created.id), /unknown session/);
 });
 
+test("rpc: a fence lists the models its providers serve, and a turn may name one", async () => {
+  const forAlice = createRpcHandler(kernel.userspaces.pathFor("alice"), kernel.users, kernel.packages, kernel.sessions, kernel.auth, undefined, async (us) => ({ model: kernel.config.model, models: await kernel.providers.listModels(us) }));
+  const choices = (await forAlice("models", {})) as { model: string; models: { id: string; provider?: string }[] };
+  assert.equal(choices.model, "echo");
+  assert.ok(choices.models.some((m) => m.id === "echo" && m.provider === "@thetis/provider-echo"));
+  const s = (await forAlice("sessions.create", {})) as { id: string };
+  const said = (turn: TurnEvent[]) => turn.filter((e) => e.type === "text").map((e) => (e as { delta: string }).delta).join("");
+  const byDefault: TurnEvent[] = [];
+  await forAlice("sessions.send", { session: s.id, input: "model?" }, (e) => byDefault.push(e as TurnEvent));
+  assert.equal(said(byDefault), "echo");
+  const named: TurnEvent[] = [];
+  await forAlice("sessions.send", { session: s.id, input: "model?", model: "echo-2" }, (e) => named.push(e as TurnEvent));
+  assert.ok(named.some((e) => e.type === "error" && /echo-2/.test(e.message)), "a model no provider serves is refused by name");
+  const r = await collect(kernel.sessions.send("alice", s.id, "model?", { model: "echo" }));
+  assert.equal(r.text, "echo");
+});
+
 test("control socket: an operator client lists users, installs into the system userspace, and streams a turn", async () => {
   const path = join(home, "thetis.sock");
   const control = new ControlServer(path, createControlHandler(kernel));

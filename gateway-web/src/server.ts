@@ -35,9 +35,15 @@ export interface SessionSummary {
   updatedAt: string;
   turns: number;
   title: string;
+  /** True when the person named the conversation; false when the title is the first message. */
+  named: boolean;
   preview: string;
   archived: boolean;
   status: "idle" | "running";
+  /** The model the person chose for this conversation. Absent means the default. */
+  model?: string;
+  /** The cost the replies reported so far, summed. Absent when nothing was reported. */
+  cost?: number;
 }
 
 /** Builds the gateway. Call `.listen()` on the result with a unix socket path or a port. */
@@ -83,6 +89,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     const seg = path.split("/").filter(Boolean); // ["api", ...]
     if (seg[1] === "me" && method === "GET") return json(res, 200, { user, role: who!.role });
     if (seg[1] === "events" && method === "GET") return stream(req, res, user);
+    if (seg[1] === "models" && seg.length === 2 && method === "GET") return json(res, 200, await kernel.models());
     if (await handlePanel({ kernel, env: opts.env }, req, res, who!, seg, method, url)) return;
     if (seg[1] === "sessions") {
       if (seg.length === 2 && method === "GET") return json(res, 200, await listSessions(user));
@@ -94,8 +101,23 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
         const body = await readJson(req);
         const text = typeof body.text === "string" ? body.text.trim() : "";
         if (!text) throw new HttpError(400, "text is required");
-        const run = await hub.start(user, id, text);
-        return json(res, 202, { session: id, startedAt: run.startedAt });
+        const run = await hub.start(user, id, text, store.model(user, id));
+        return json(res, 202, { session: id, startedAt: run.startedAt, model: run.model ?? null });
+      }
+      if (seg[3] === "model" && method === "POST") {
+        await kernel.sessions.inspect(id);
+        const body = await readJson(req);
+        const model = typeof body.model === "string" ? body.model.trim() : "";
+        if (model.length > 200) throw new HttpError(400, "model id too long");
+        store.setModel(user, id, model);
+        return json(res, 200, { id, model: model || null });
+      }
+      if (seg[3] === "title" && method === "POST") {
+        await kernel.sessions.inspect(id);
+        const body = await readJson(req);
+        const title = typeof body.title === "string" ? body.title.replace(/\s+/g, " ").trim().slice(0, 120) : "";
+        store.setTitle(user, id, title);
+        return json(res, 200, { id, title: title || null });
       }
       if (seg[3] === "cancel" && method === "POST") {
         await kernel.sessions.inspect(id);
@@ -131,21 +153,27 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     const said = rec.conversation.filter((m) => m.role === "user" || (m.role === "assistant" && m.content.trim()));
     const first = rec.conversation.find((m) => m.role === "user")?.content ?? running?.input ?? "";
     const last = said.at(-1)?.content ?? running?.input ?? "";
+    const named = store.title(user, rec.id);
+    const cost = totalCost(store.usage(user, rec.id));
+    const model = store.model(user, rec.id);
     return {
       id: rec.id,
       createdAt: rec.createdAt,
       updatedAt: running ? running.startedAt : rec.updatedAt,
       turns: rec.turns,
-      title: clip(first, 60),
+      title: named ?? clip(first, 60),
+      named: named !== undefined,
       preview: clip(last, 120),
       archived: archived.has(rec.id),
       status: running ? "running" : "idle",
+      ...(model ? { model } : {}),
+      ...(cost !== undefined ? { cost } : {}),
     };
   }
 
-  async function showSession(user: string, id: string): Promise<SessionRecord & { status: string; archived: boolean; turn: RunningTurn | null; usage: SessionUsage }> {
+  async function showSession(user: string, id: string): Promise<SessionRecord & { status: string; archived: boolean; turn: RunningTurn | null; usage: SessionUsage; model: string | null; title: string | null }> {
     const rec = await kernel.sessions.inspect(id);
-    return { ...rec, archived: store.archived(user).has(id), turn: hub.runningOf(user, id) ?? null, usage: store.usage(user, id) };
+    return { ...rec, archived: store.archived(user).has(id), turn: hub.runningOf(user, id) ?? null, usage: store.usage(user, id), model: store.model(user, id) ?? null, title: store.title(user, id) ?? null };
   }
 
   /**
@@ -163,9 +191,9 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     const indices: number[] = [];
     for (let i = rec.conversation.length - 1; i >= 0 && indices.length < usages.length; i--) if (rec.conversation[i].role === "assistant") indices.unshift(i);
     if (indices.length !== usages.length) return;
-    const entries: Record<number, Record<string, number>> = {};
+    const entries: Record<number, Record<string, number | string>> = {};
     indices.forEach((index, n) => {
-      if (usages[n]) entries[index] = usages[n]!;
+      if (usages[n]) entries[index] = run.model ? { ...usages[n]!, model: run.model } : usages[n]!;
     });
     if (Object.keys(entries).length) store.setUsage(user, run.session, entries);
   }
@@ -188,9 +216,21 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
 
 // ---- helpers ----
 
+/** The `cost` fields of the recorded usage, summed; undefined when none was reported. */
+function totalCost(usage: SessionUsage): number | undefined {
+  let total: number | undefined;
+  for (const u of Object.values(usage)) if (typeof u.cost === "number") total = (total ?? 0) + u.cost;
+  return total;
+}
+
 /** One line of plain text for a sidebar row: markdown markers dropped, whitespace collapsed. */
 function clip(text: string, max: number): string {
-  const line = text.replace(/^\s*(?:[#>*-]+|\d+[.)])\s+/gm, "").replace(/[`*]/g, "").replace(/\s+/g, " ").trim();
+  const line = text
+    .replace(/^\s*\|?\s*:?-{2,}[\s:|-]*$/gm, "") // a table's delimiter row
+    .replace(/^\s*(?:[#>*-]+|\d+[.)])\s+/gm, "")
+    .replace(/[`*|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   return line.length > max ? line.slice(0, max - 1) + "…" : line;
 }
 

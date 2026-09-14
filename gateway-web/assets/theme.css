@@ -54,6 +54,7 @@
   --ease: cubic-bezier(.2, .7, .3, 1);
   --fast: 110ms;
   --med: 180ms;
+  --sheen: 2600ms;   /* must equal SHEEN_MS in lib/activity.js */
 
   --sidebar-w: 272px;
   --measure: 48rem;
@@ -63,6 +64,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   :root { --fast: 0ms; --med: 0ms; }
+  /* The looping animations are not shortened but switched off, in app.css. */
 }
 
 @media (prefers-color-scheme: light) {

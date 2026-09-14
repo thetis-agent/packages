@@ -45,11 +45,12 @@ const kernel: KernelClient = {
   sessions: {
     create: (parent) => rpc("sessions.create", { parent }),
     ask: (session, input) => rpc("sessions.ask", { session, input }),
-    send: (session, input, onEvent) => rpc("sessions.send", { session, input }, (e) => onEvent(e as TurnEvent)),
+    send: (session, input, onEvent, opts) => rpc("sessions.send", { session, input, model: opts?.model }, (e) => onEvent(e as TurnEvent)),
     cancel: (session) => rpc("sessions.cancel", { session }),
     list: () => rpc("sessions.list"),
     inspect: (session) => rpc("sessions.inspect", { session }),
   },
+  models: () => rpc("models"),
   auth: {
     login: (id, password) => rpc("auth.login", { id, password }),
     authenticate: (token) => rpc("auth.authenticate", { token }),

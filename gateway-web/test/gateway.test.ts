@@ -149,7 +149,7 @@ before(async () => {
 
   // In-process: one gateway per person over that person's own RPC handler, the login target over the
   // system one, and the door in front. The same handlers the fences would get, without the fences.
-  const rpcFor = (us: Userspace) => createRpcHandler(us, kernel.users, kernel.packages, kernel.sessions, kernel.auth, createControlHandler(kernel));
+  const rpcFor = (us: Userspace) => createRpcHandler(us, kernel.users, kernel.packages, kernel.sessions, kernel.auth, createControlHandler(kernel), async (u) => ({ model: kernel.config.model, models: await kernel.providers.listModels(u) }));
   const assets = join(home, "assets");
   mkdirSync(assets);
   writeFileSync(join(assets, "index.html"), "<title>app</title><base href=\"{{base}}/\">");
@@ -282,6 +282,42 @@ test("archive and restore", async () => {
   assert.equal((await api(cookie, `/alice/api/sessions/${id}/archive`, { method: "POST", body: JSON.stringify({ archived: false }) })).status, 200);
   list = (await (await api(cookie, "/alice/api/sessions")).json()) as { id: string; archived: boolean }[];
   assert.equal(list.find((s) => s.id === id)?.archived, false);
+});
+
+test("model and name: the models list, a chosen model rides with the turn and its usage, and a name replaces the derived title", async () => {
+  const cookie = await cookieFor("alice", "wonderland");
+  const choices = (await (await api(cookie, "/alice/api/models")).json()) as { model: string; models: { id: string; provider?: string }[] };
+  assert.equal(choices.model, "echo");
+  assert.ok(choices.models.some((m) => m.id === "echo" && m.provider === "@thetis/provider-echo"));
+  const { id } = (await (await api(cookie, "/alice/api/sessions", { method: "POST" })).json()) as { id: string };
+  const byDefault = await turn(cookie, "alice", id, async () => {
+    assert.equal((await api(cookie, `/alice/api/sessions/${id}/send`, { method: "POST", body: JSON.stringify({ text: "model?" }) })).status, 202);
+  });
+  assert.equal(byDefault.text, "echo");
+  assert.equal((await api(cookie, `/alice/api/sessions/${id}/model`, { method: "POST", body: JSON.stringify({ model: "nothing-serves-this" }) })).status, 200);
+  const refused = await turn(cookie, "alice", id, async () => {
+    assert.equal((await api(cookie, `/alice/api/sessions/${id}/send`, { method: "POST", body: JSON.stringify({ text: "model?" }) })).status, 202);
+  });
+  assert.ok(refused.events.some((e) => e.type === "error" && /nothing-serves-this/.test(e.message)), "the chosen model reaches the kernel");
+  assert.equal((await api(cookie, `/alice/api/sessions/${id}/model`, { method: "POST", body: JSON.stringify({ model: "echo" }) })).status, 200);
+  const chosen = await turn(cookie, "alice", id, async () => {
+    assert.equal((await api(cookie, `/alice/api/sessions/${id}/send`, { method: "POST", body: JSON.stringify({ text: "model?" }) })).status, 202);
+  });
+  assert.equal(chosen.text, "echo");
+  let row = ((await (await api(cookie, "/alice/api/sessions")).json()) as { id: string; model?: string; title: string; named: boolean }[]).find((s) => s.id === id)!;
+  assert.equal(row.model, "echo");
+  assert.equal(row.title, "model?");
+  assert.equal(row.named, false);
+  assert.equal((await api(cookie, `/alice/api/sessions/${id}/title`, { method: "POST", body: JSON.stringify({ title: "  Which   model  " }) })).status, 200);
+  row = ((await (await api(cookie, "/alice/api/sessions")).json()) as { id: string; model?: string; title: string; named: boolean }[]).find((s) => s.id === id)!;
+  assert.equal(row.title, "Which model");
+  assert.equal(row.named, true);
+  const shown = (await (await api(cookie, `/alice/api/sessions/${id}`)).json()) as { model: string | null; title: string | null };
+  assert.equal(shown.model, "echo");
+  assert.equal(shown.title, "Which model");
+  assert.equal((await api(cookie, `/alice/api/sessions/${id}/title`, { method: "POST", body: JSON.stringify({ title: "" }) })).status, 200);
+  row = ((await (await api(cookie, "/alice/api/sessions")).json()) as { id: string; title: string; named: boolean }[]).find((s) => s.id === id)!;
+  assert.equal(row.named, false);
 });
 
 test("isolation: bob's cookie is refused at alice's gateway, and alice's session is unknown at bob's", async () => {

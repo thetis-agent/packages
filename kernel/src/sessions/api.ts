@@ -1,6 +1,6 @@
 import type { PackageManager } from "../packages/manager.js";
 import type { PipelineRunner } from "../pipeline/runner.js";
-import type { Message, SessionRecord, TurnEvent, UserRecord, Userspace } from "../types.js";
+import type { Message, SessionRecord, TurnEvent, TurnOptions, UserRecord, Userspace } from "../types.js";
 import type { UserStore } from "../users.js";
 import type { UserspaceManager } from "../userspaces.js";
 import { AsyncQueue, assert } from "../util.js";
@@ -44,7 +44,8 @@ export class SessionApi {
     return ref(this.store.create(us, opts.parent));
   }
 
-  send(userId: string, sessionId: string, input: TurnInput): AsyncIterable<TurnEvent> {
+  /** `opts.model` names the model for this turn; steps may still change `call.model`. Empty means the configured default. */
+  send(userId: string, sessionId: string, input: TurnInput, opts: TurnOptions = {}): AsyncIterable<TurnEvent> {
     const user = this.users.authorize(userId);
     const us = this.userspaceFor(user);
     const session = this.store.load(us, sessionId);
@@ -55,7 +56,7 @@ export class SessionApi {
     const messages: Message[] = typeof input === "string" ? [{ role: "user", content: input }] : input;
     const queue = new AsyncQueue<TurnEvent>();
     this.runner
-      .runTurn(us, session, messages, (e) => queue.push(e), control.signal)
+      .runTurn(us, session, messages, (e) => queue.push(e), control.signal, opts)
       .then(() => queue.close(), (err) => queue.close(err))
       .finally(() => this.running.delete(key));
     return queue;

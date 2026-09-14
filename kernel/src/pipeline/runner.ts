@@ -3,7 +3,7 @@ import type { FencePool } from "../fence/pool.js";
 import type { Journal } from "../journal.js";
 import type { PackageManager } from "../packages/manager.js";
 import type { SessionStore } from "../sessions/store.js";
-import type { Message, SessionRecord, StepContext, StepResult, Userspace } from "../types.js";
+import type { Message, SessionRecord, StepContext, StepResult, TurnOptions, Userspace } from "../types.js";
 import { KernelError, newId } from "../util.js";
 import { Enumerator, isBuiltin } from "./enumerator.js";
 import { checkCancelled, type Emit, type ProviderCallStep } from "./provider-call.js";
@@ -23,7 +23,7 @@ export class PipelineRunner {
   ) {}
 
   /** An aborted `signal` ends the turn with an `error` event of code `cancelled`; whatever was applied before is still saved. */
-  async runTurn(us: Userspace, session: SessionRecord, input: Message[], emitOut: Emit, signal?: AbortSignal): Promise<SessionRecord> {
+  async runTurn(us: Userspace, session: SessionRecord, input: Message[], emitOut: Emit, signal?: AbortSignal, opts: TurnOptions = {}): Promise<SessionRecord> {
     const turn = { id: newId("t"), input };
     const started = Date.now();
     // What the providers reported this turn, summed; it is package-reported, so it is journaled under that name.
@@ -40,7 +40,7 @@ export class PipelineRunner {
       session: info,
       turn,
       conversation: [...session.conversation, ...input],
-      call: { model: this.config.model, messages: [], tools: [], params: {} },
+      call: { model: opts.model || this.config.model, messages: [], tools: [], params: {} },
       harness: session.harness,
       packages,
       config: {},

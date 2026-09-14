@@ -16,12 +16,13 @@ export function clientFromRpc(rpc: KernelRpc): KernelClient {
     sessions: {
       create: (parent) => call("sessions.create", { parent }),
       ask: (session, input) => call("sessions.ask", { session, input }),
-      send: (session, input, onEvent) => call("sessions.send", { session, input }, (e) => onEvent(e as TurnEvent)),
+      send: (session, input, onEvent, opts) => call("sessions.send", { session, input, model: opts?.model }, (e) => onEvent(e as TurnEvent)),
       cancel: (session) => call("sessions.cancel", { session }),
       list: () => call("sessions.list", {}),
       inspect: (session) => call("sessions.inspect", { session }),
     },
-    auth: {
+    models: () => call("models", {}),
+  auth: {
       login: (id, password) => call("auth.login", { id, password }),
       authenticate: (token) => call("auth.authenticate", { token }),
       logout: (token) => call("auth.logout", { token }),

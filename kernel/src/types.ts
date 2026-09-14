@@ -133,6 +133,17 @@ export interface StepContext {
 
 export type StepResult = Partial<Pick<StepContext, "conversation" | "call" | "harness">>;
 
+/** What a caller may set for one turn. */
+export interface TurnOptions {
+  model?: string;
+}
+
+/** The models a userspace can call, and the configured default. */
+export interface ModelChoices {
+  model: string;
+  models: ModelDescriptor[];
+}
+
 export type TurnEvent =
   | { type: "turn.start"; turn: string; session: string }
   | { type: "step.start"; step: StepRef }
@@ -249,11 +260,13 @@ export interface KernelClient {
   sessions: {
     create(parent?: string): Promise<SessionSummaryRef>;
     ask(session: string, input: string): Promise<string>;
-    send(session: string, input: string, onEvent: (event: TurnEvent) => void): Promise<void>;
+    send(session: string, input: string, onEvent: (event: TurnEvent) => void, opts?: TurnOptions): Promise<void>;
     cancel(session: string): Promise<boolean>;
     list(): Promise<SessionSummaryRef[]>;
     inspect(session: string): Promise<SessionRecord & { status: "idle" | "running" }>;
   };
+  /** The models the fence's own providers serve, and the default. */
+  models(): Promise<ModelChoices>;
   auth: {
     login(id: string, password: string): Promise<{ token: string; user: AuthUser } | null>;
     authenticate(token: string): Promise<AuthUser | null>;

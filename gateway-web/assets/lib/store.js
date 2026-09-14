@@ -6,6 +6,8 @@ const state = {
   current: null,       // open session id
   running: new Set(),  // session ids with a turn in progress
   pending: new Set(),  // session ids with a send awaiting the server's 202
+  activity: new Map(), // session id -> { state, step, tool, since, steps, cost, outcome }
+  choices: null,       // { model, models } from /api/models, once loaded
   creating: false,
   connection: "connecting", // connecting | online | offline
   panel: null,         // the open control panel section, or null
@@ -38,7 +40,19 @@ export const store = {
     if (next.size === state[key].size && [...next].every((x) => state[key].has(x))) return;
     this.set({ [key]: next });
   },
+  /** Replaces one session's activity record, replacing the map so watchers fire. */
+  activityOf: (id) => state.activity.get(id) ?? null,
+  setActivity(id, record) {
+    const next = new Map(state.activity);
+    if (record) next.set(id, record);
+    else next.delete(id);
+    this.set({ activity: next });
+  },
   isRunning: (id) => state.running.has(id),
   isPending: (id) => state.pending.has(id),
   session: (id) => state.sessions.find((s) => s.id === id) || null,
+  /** The model in force for a session: the chosen one, else the configured default. */
+  modelFor(id) {
+    return store.session(id)?.model || state.choices?.model || "";
+  },
 };
