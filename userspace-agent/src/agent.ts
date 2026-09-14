@@ -121,22 +121,39 @@ function provider(pkg: string, exp: string, config: unknown): Promise<Provider> 
 // Each request carries an AbortSignal. The kernel sends `{ cancel: <id> }` to abort it; `exec` kills its
 // process and `provider.call` stops reading the stream, which closes the provider's iterator.
 type Emit = (event: unknown) => void;
-type Payload = Record<string, any>;
 
-const ops: Record<string, (p: Payload, emit: Emit, signal: AbortSignal) => Promise<unknown>> = {
+/** What each operation carries. The kernel is the only sender; the shapes are the contracts' own types. */
+interface ExportRef {
+  package: string;
+  export: string;
+}
+interface Payloads {
+  ping: Record<string, never>;
+  exec: { cmd: string; cwd?: string; timeoutMs?: number };
+  step: ExportRef & { ctx: StepContext };
+  tool: ExportRef & { args?: Record<string, unknown>; session: SessionInfo; config?: Record<string, unknown> };
+  enumerate: ExportRef & { ctx: { session: SessionInfo; packages: PackageInfo[]; phases: string[] } };
+  "service.start": ExportRef & { config?: Record<string, unknown> };
+  "service.stop": { package: string };
+  "provider.models": ExportRef & { config: unknown };
+  "provider.call": ExportRef & { config: unknown; call: ProviderCall };
+}
+type Op = keyof Payloads;
+type Handler<K extends Op> = (p: Payloads[K], emit: Emit, signal: AbortSignal) => Promise<unknown>;
+
+const ops: { [K in Op]: Handler<K> } = {
   ping: async () => "pong",
-  exec: (p, _emit, signal) => exec(String(p.cmd), { cwd: p.cwd, timeoutMs: p.timeoutMs }, signal),
+  exec: (p, _emit, signal) => exec(p.cmd, { cwd: p.cwd, timeoutMs: p.timeoutMs }, signal),
   step: async (p) => {
     const fn = await loadExport(p.package, p.export);
-    const wire = p.ctx as StepContext;
-    const ctx: PackageStepContext = { ...wire, packages: packageQuery(wire.packages), env };
+    const ctx: PackageStepContext = { ...p.ctx, packages: packageQuery(p.ctx.packages), env };
     const result = (await fn(ctx)) as StepResult | undefined;
     if (!result) return null;
     return { conversation: result.conversation, call: result.call, harness: result.harness };
   },
   tool: async (p) => {
     const fn = await loadExport(p.package, p.export);
-    const toolEnv: ToolEnv = { ...env, session: p.session as SessionInfo, config: p.config ?? {} };
+    const toolEnv: ToolEnv = { ...env, session: p.session, config: p.config ?? {} };
     return fn(p.args ?? {}, toolEnv);
   },
   enumerate: async (p) => {
@@ -160,7 +177,7 @@ const ops: Record<string, (p: Payload, emit: Emit, signal: AbortSignal) => Promi
   "provider.models": async (p) => (await provider(p.package, p.export, p.config)).models(),
   "provider.call": async (p, emit, signal) => {
     const prov = await provider(p.package, p.export, p.config);
-    for await (const e of prov.call(p.call as ProviderCall)) {
+    for await (const e of prov.call(p.call)) {
       if (signal.aborted) break;
       emit(e as ProviderEvent);
     }
@@ -168,18 +185,24 @@ const ops: Record<string, (p: Payload, emit: Emit, signal: AbortSignal) => Promi
   },
 };
 
+function isOp(op: string): op is Op {
+  return Object.hasOwn(ops, op);
+}
+
 const inflight = new Map<string, AbortController>();
 /** Running services by package name. They live as long as this process, which is as long as the fence. */
 const services = new Map<string, ServiceHandle | void>();
 
 async function dispatch(msg: Frame): Promise<void> {
-  const { id, op, payload } = msg as { id: string; op: string; payload: Payload };
+  const { id, op, payload } = msg as { id: string; op: string; payload?: unknown };
   const control = new AbortController();
   inflight.set(id, control);
   try {
-    const handler = ops[op];
-    if (!handler) throw new Error(`unknown op: ${op}`);
-    const result = await handler(payload ?? {}, (event) => send({ id, event }), control.signal);
+    if (!isOp(op)) throw new Error(`unknown op: ${op}`);
+    // The frame was read once at the boundary; the kernel built it from the contracts' types, so the
+    // payload is trusted to be the shape the operation declares.
+    const handler = ops[op] as Handler<Op>;
+    const result = await handler((payload ?? {}) as Payloads[Op], (event) => send({ id, event }), control.signal);
     send({ id, result: result === undefined ? null : result });
   } catch (err) {
     // The stack goes back whole: package code failed, and its author needs the trace.
