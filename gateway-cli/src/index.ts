@@ -7,6 +7,7 @@ import { dirname, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { createInterface as createPrompt } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
+import { createDoor } from "@thetis/door";
 import {
   ControlServer, controlSocketPath, createControlHandler, createKernel, defaultConfig, loadConfig, saveConfig, configPath,
   type KernelRpc, type PackageInfo, type ModelDescriptor, type SessionRef, type SessionRecord, type TurnEvent, type UserRecord,
@@ -84,20 +85,28 @@ export async function run(argv: string[]): Promise<void> {
   }
 }
 
-/** Runs the kernel until SIGINT or SIGTERM: control socket for the CLI, services for everyone else. */
+/** Runs the kernel until SIGINT or SIGTERM: control socket for the CLI, the door for browsers, services for everyone else. */
 async function serve(config: ReturnType<typeof loadConfig>, socket: string): Promise<void> {
   const kernel = createKernel(config);
-  const control = new ControlServer(socket, createControlHandler(kernel), (line) => process.stderr.write(line + "\n"));
+  const log = (line: string) => process.stderr.write(line + "\n");
+  const control = new ControlServer(socket, createControlHandler(kernel), log);
+  const door = createDoor({
+    loginSocket: resolve(kernel.userspaces.pathFor("_system").run, "login.sock"),
+    socketFor: (user) => (kernel.users.get(user)?.role !== "system" && kernel.users.get(user) && kernel.userspaces.exists(user) ? resolve(kernel.userspaces.pathFor(user).run, "web.sock") : undefined),
+    log,
+  });
   try {
     await control.listen();
     await kernel.services.boot();
-    print(`thetis is serving; control socket ${socket}; press Ctrl+C to stop`);
+    await new Promise<void>((done, fail) => door.once("error", fail).listen(config.door.port, config.door.host, done));
+    print(`thetis is serving; control socket ${socket}; door on http://${config.door.host}:${config.door.port}; press Ctrl+C to stop`);
     await new Promise<void>((done) => {
       process.once("SIGINT", () => done());
       process.once("SIGTERM", () => done());
     });
     print("stopping");
   } finally {
+    await new Promise<void>((done) => door.close(() => done()));
     await control.close();
     await kernel.shutdown();
   }

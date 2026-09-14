@@ -6,6 +6,7 @@ import { api } from "../lib/api.js";
 import { $, clear, el, icon } from "../lib/dom.js";
 import { store } from "../lib/store.js";
 import { toast } from "../lib/toast.js";
+import { mountActivity } from "./panel-activity.js";
 import { mountMarketplace } from "./panel-marketplace.js";
 import { mountModels } from "./panel-models.js";
 import { mountOverview } from "./panel-overview.js";
@@ -20,6 +21,7 @@ const SECTIONS = {
   marketplace: { label: "Marketplace", note: "Packages the registries offer, ready to install.", mount: mountMarketplace },
   people: { label: "People", note: "Who can sign in, and what they may do.", mount: mountPeople },
   models: { label: "Models", note: "Which model answers by default, and what the providers serve.", mount: mountModels },
+  activity: { label: "Activity", note: "What happened: who did what, and when.", mount: mountActivity },
   overview: { label: "Overview", note: "How this installation is set up.", mount: mountOverview },
 };
 

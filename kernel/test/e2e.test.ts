@@ -154,7 +154,8 @@ test("promote: an admin makes a user package the default for everyone", async ()
   assert.ok(!alice.includes("@alice/hello"), "the owner's copy is gone");
   assert.ok(alice.includes("@thetis/hello"), "the owner runs the promoted one");
   assert.ok(existsSync(join(kernel.config.promotedPackagesDir, "hello", "package.json")));
-  assert.ok(kernel.config.systemPackages["*"].includes("@thetis/hello"), "new userspaces get it too");
+  assert.ok(kernel.packages.promoted().includes("@thetis/hello"), "new userspaces get it too");
+  assert.ok(!kernel.config.systemPackages["*"].includes("@thetis/hello"), "the configuration file is not written by the kernel");
   // Bob's steps and tools run inside bob's fence, which proves the promoted directory is readable there.
   const s = kernel.sessions.create("bob");
   const tools = await collect(kernel.sessions.send("bob", s.id, "tools?"));
@@ -180,20 +181,20 @@ test("git install: a package directory inside a repository, as url#dir", async (
   await kernel.packages.uninstall(us, "@alice/wave");
 });
 
-test("operator methods: the system fence only, for admins only", async () => {
+test("operator methods: an admin's fence may use them; a user's may not", async () => {
   const handler = (id: string) => createRpcHandler(kernel.userspaces.pathFor(id), kernel.users, kernel.packages, kernel.sessions, kernel.auth, createControlHandler(kernel));
-  const alice = handler("alice");
-  const system = handler("_system");
-  await assert.rejects(alice("operator.users.list", { as: "alice" }), /system userspace/);
-  await assert.rejects(system("operator.users.list", { as: "alice" }), /only an admin/);
+  await assert.rejects(handler("alice")("operator.users.list", {}), /only an admin/);
   kernel.users.create("root", "admin");
-  const users = (await system("operator.users.list", { as: "root" })) as { id: string }[];
+  const root = handler("root");
+  const users = (await root("operator.users.list", {})) as { id: string }[];
   assert.ok(users.some((u) => u.id === "alice"));
-  assert.equal(await system("operator.ping", { as: "root" }), "pong");
-  // Package calls from the system fence act for the named user; from another fence `as` is refused.
-  const list = (await system("packages.list", { as: "alice" })) as { name: string }[];
-  assert.ok(list.some((p) => p.name === "@thetis/harness-core"));
-  await assert.rejects(alice("packages.list", { as: "bob" }), /system userspace/);
+  assert.equal(await root("operator.ping", {}), "pong");
+  const list = (await root("operator.packages.list", { user: "alice" })) as { name: string }[];
+  assert.ok(list.some((p) => p.name === "@thetis/harness-core"), "an admin sees another person's packages");
+  await assert.rejects(root("operator.nope", {}), /unknown control method/);
+  const rows = (await root("operator.journal.tail", { limit: 50 })) as { kind: string; actor?: string }[];
+  assert.ok(rows.some((r) => r.kind === "turn.end"), "turns are journaled");
+  assert.ok(rows.some((r) => r.kind === "package.promote" && r.actor === "operator"), "the promotion was journaled");
 });
 
 test("cancel: a running turn stops mid-stream, keeps the partial text, and the session is idle again", async () => {
@@ -227,23 +228,28 @@ test("cancel: a running exec tool is killed and the turn ends", async () => {
   assert.match(again.text, /alive/);
 });
 
-test("rpc: a user fence acts as itself only; the system fence may act for a user and use auth", async () => {
-  const forAlice = createRpcHandler(kernel.userspaces.pathFor("alice"), kernel.users, kernel.packages, kernel.sessions, kernel.auth);
-  const forSystem = createRpcHandler(kernel.userspaces.pathFor("_system"), kernel.users, kernel.packages, kernel.sessions, kernel.auth);
-  await assert.rejects(forAlice("sessions.list", { as: "bob" }), /only the system userspace/);
-  await assert.rejects(forAlice("auth.authenticate", { token: "x" }), /only the system userspace/);
+test("rpc: identity is the fence; only the system fence logs people in; a token resolves only for its own user", async () => {
+  const handler = (id: string) => createRpcHandler(kernel.userspaces.pathFor(id), kernel.users, kernel.packages, kernel.sessions, kernel.auth);
+  const forAlice = handler("alice");
+  const forBob = handler("bob");
+  const forSystem = handler("_system");
   await assert.rejects(forAlice("auth.login", { id: "alice", password: "x" }), /only the system userspace/);
+  await kernel.auth.setPassword("alice", "wonderland1");
+  const login = (await forSystem("auth.login", { id: "alice", password: "wonderland1" })) as { token: string };
+  assert.deepEqual(await forAlice("auth.authenticate", { token: login.token }), { id: "alice", role: "user" });
+  assert.equal(await forBob("auth.authenticate", { token: login.token }), null, "bob's fence cannot resolve alice's token");
+  assert.deepEqual(await forSystem("auth.authenticate", { token: login.token }), { id: "alice", role: "user" });
+  await forBob("auth.logout", { token: login.token });
+  assert.ok(await forAlice("auth.authenticate", { token: login.token }), "bob's fence cannot revoke alice's token");
+  await forAlice("auth.logout", { token: login.token });
+  assert.equal(await forAlice("auth.authenticate", { token: login.token }), null);
   const own = (await forAlice("sessions.list", {})) as { user: string }[];
-  assert.ok(own.every((s) => s.user === "alice"));
-  const bobs = (await forSystem("sessions.list", { as: "bob" })) as { user: string }[];
-  assert.ok(bobs.every((s) => s.user === "bob"));
+  assert.ok(own.length > 0 && own.every((s) => s.user === "alice"));
   const events: TurnEvent[] = [];
-  const created = (await forSystem("sessions.create", { as: "alice" })) as { id: string };
-  await forSystem("sessions.send", { as: "alice", session: created.id, input: "streamed" }, (e) => events.push(e as TurnEvent));
-  assert.equal(events.filter((e) => e.type === "text").map((e) => (e as { delta: string }).delta).join(""), "echo: streamed (t1)");
-  assert.equal(events.at(-1)?.type, "turn.end");
-  assert.equal(kernel.sessions.inspect("alice", created.id).conversation.length, 2);
-  assert.equal(await forSystem("auth.authenticate", { token: "nope" }), null);
+  const created = (await forAlice("sessions.create", {})) as { id: string };
+  await forAlice("sessions.send", { session: created.id, input: "streamed" }, (e) => events.push(e as TurnEvent));
+  assert.ok(events.some((e) => e.type === "turn.end"));
+  assert.throws(() => kernel.sessions.inspect("bob", created.id), /unknown session/);
 });
 
 test("control socket: an operator client lists users, installs into the system userspace, and streams a turn", async () => {
@@ -302,7 +308,8 @@ test("fence isolation: a userspace cannot read the service plane or another user
   const probe = [
     `cat ${join(data, "users.json")} && echo LEAK-USERS`,
     `ls ${bob} && echo LEAK-BOB`,
-    `ls -A ${data} | grep -v '^userspaces$' | grep -v '^packages$' | grep . && echo LEAK-DATA`,
+    `ls -A ${data} | grep -v '^userspaces$' | grep -v '^packages$' | grep -v '^shared$' | grep . && echo LEAK-DATA`,
+    `touch ${join(data, "shared", "x")} 2>/dev/null && echo LEAK-SHARED-WRITE`,
     `ls ${join(data, "packages", "hello", "package.json")} >/dev/null || echo NO-PROMOTED`,
     `ls -A ${join(data, "userspaces")} | grep -v '^alice$' | grep . && echo LEAK-USERSPACES`,
     `echo probe-done`,

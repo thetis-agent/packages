@@ -1,9 +1,9 @@
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
-import { saveConfig, type KernelConfig } from "../config.js";
+import type { KernelConfig } from "../config.js";
 import type { FencePool } from "../fence/pool.js";
 import type { ExecResult } from "../fence/fence.js";
-import { SYSTEM_SCOPE, type Manifest, type PackageInfo, type PackageRecord, type UserRecord, type Userspace } from "../types.js";
+import { SYSTEM_SCOPE, SYSTEM_USER, type Manifest, type PackageInfo, type PackageRecord, type UserRecord, type Userspace } from "../types.js";
 import { assert, KernelError } from "../util.js";
 import { readManifest, scopeOf, toInfo } from "./manifest.js";
 import type { PackageRegistry } from "./registry.js";
@@ -65,10 +65,29 @@ export class PackageManager {
     return out;
   }
 
-  /** Links the configured @thetis/* packages into a fresh userspace. Idempotent. */
+  /**
+   * Links the system packages into a fresh userspace: the `"*"` list and every promoted package for a
+   * person, the userspace's own list always. The system userspace is not a person. Idempotent.
+   */
   seedSystem(us: Userspace): void {
-    const names = [...(this.config.systemPackages["*"] ?? []), ...(this.config.systemPackages[us.id] ?? [])];
-    for (const name of names) if (!this.registry.get(name)?.userspaces.includes(us.id)) this.installSystem(us, name);
+    const everyone = us.id === SYSTEM_USER ? [] : [...(this.config.systemPackages["*"] ?? []), ...this.promoted()];
+    const names = [...everyone, ...(this.config.systemPackages[us.id] ?? [])];
+    for (const name of new Set(names)) if (!this.registry.get(name)?.userspaces.includes(us.id)) this.installSystem(us, name);
+  }
+
+  /** The names of the promoted packages: everything in the promoted directory with a valid manifest. */
+  promoted(): string[] {
+    const base = this.config.promotedPackagesDir;
+    if (!existsSync(base)) return [];
+    const out: string[] = [];
+    for (const entry of readdirSync(base)) {
+      try {
+        out.push(readManifest(resolve(base, entry)).name);
+      } catch {
+        continue;
+      }
+    }
+    return out;
   }
 
   installSystem(us: Userspace, name: string): PackageInfo {
@@ -129,8 +148,9 @@ export class PackageManager {
 
   /**
    * Makes a user's package the default for everyone: copies it into the promoted directory under the
-   * @thetis scope and adds it to `systemPackages["*"]`. Returns the new name. The caller links it into
-   * the existing userspaces and removes the owner's original.
+   * @thetis scope, from where every new userspace is seeded with it. Returns the new name. The caller
+   * links it into the existing userspaces and removes the owner's original. The configuration file is
+   * never written by the kernel.
    */
   promote(us: Userspace, name: string): string {
     const rec = this.registry.get(name);
@@ -145,9 +165,6 @@ export class PackageManager {
     manifest.name = promoted;
     writeFileSync(file, JSON.stringify(manifest, null, 2) + "\n");
     readManifest(target);
-    const all = (this.config.systemPackages["*"] ??= []);
-    if (!all.includes(promoted)) all.push(promoted);
-    saveConfig(this.config);
     return promoted;
   }
 

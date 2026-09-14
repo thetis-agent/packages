@@ -41,13 +41,12 @@ export function mountMarketplace(root, { role, user }) {
   function drawList() {
     clear(listEl);
     if (missing) {
-      put(listEl, card("No marketplace yet", el("p", {}, missing), el("p", { class: "text-faint" }, "The registries are configured under packages[\"@thetis/marketplace\"].registries. Each one is a git repository of package directories.")));
+      put(listEl, card("No marketplace yet", el("p", {}, missing), el("p", { class: "text-faint" }, "The registries are configured under packages[\"@thetis/marketplace\"].registries. Each one is a git repository of package directories. The marketplace service refreshes them on a timer.")));
       return;
     }
     const failed = (meta?.registries ?? []).filter((r) => r.error);
-    const refreshBtn = admin ? button("Refresh", { onClick: () => void refresh(refreshBtn) }) : null;
     put(listEl, 
-      el("div", { class: "toolbar" }, heading("Available", meta ? `${meta.total} package${meta.total === 1 ? "" : "s"} · updated ${when(meta.updatedAt)}` : ""), el("div", { class: "toolbar-gap" }), refreshBtn, search),
+      el("div", { class: "toolbar" }, heading("Available", meta ? `${meta.total} package${meta.total === 1 ? "" : "s"} · updated ${when(meta.updatedAt)}` : ""), el("div", { class: "toolbar-gap" }), search),
       failed.length ? el("p", { class: "notice is-warn" }, `Could not refresh ${failed.map((r) => r.name).join(", ")}: ${failed[0].error}`) : null,
       table(
         [
@@ -128,20 +127,7 @@ export function mountMarketplace(root, { role, user }) {
     }
   }
 
-  async function refresh(anchor) {
-    const stop = busy(listEl, "Refreshing the registries…");
-    anchor.disabled = true;
-    try {
-      await api("/api/marketplace/refresh", { method: "POST" });
-      toast("The marketplace is up to date.", { tone: "good" });
-      await load();
-    } catch (err) {
-      toast(err.message, { tone: "error" });
-    } finally {
-      stop();
-      anchor.disabled = false;
-    }
-  }
+
 
   void load();
   return () => clearTimeout(timer);

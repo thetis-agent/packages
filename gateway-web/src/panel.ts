@@ -1,9 +1,10 @@
-// The control panel's API: packages of the signed-in person, the marketplace, and for admins the
-// operator methods (people, packages of anyone, promotion, models, configuration). The gateway checks
-// the role first so a refusal is a plain sentence; the kernel checks it again on every operator call.
+// The control panel's API: packages of the person this gateway serves, the marketplace, and for admins
+// the operator methods (people, packages of anyone, promotion, models, configuration, the journal). The
+// gateway checks the role first so a refusal is a plain sentence; the kernel checks it again on every
+// operator call, against the fence's own user.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { KernelClient, PackageInfo, UserRole } from "@thetis/kernel";
-import { readIndex, refresh, search, type MirrorEnv } from "@thetis/marketplace";
+import { readIndex, search, type MirrorEnv } from "@thetis/marketplace";
 import { field, HttpError, json, readJson } from "./http.js";
 
 export interface Who {
@@ -52,27 +53,27 @@ export async function handlePanel(deps: PanelDeps, req: IncomingMessage, res: Se
   };
   const op = <T>(name: string, args: Record<string, unknown> = {}) => {
     requireAdmin();
-    return kernel.operator.call<T>(name, { ...args, as: who.id });
+    return kernel.operator.call<T>(name, args);
   };
 
   if (seg[1] === "panel" && method === "GET") {
     const sections = ["packages"];
     if (env) sections.push("marketplace");
-    if (admin) sections.push("people", "models", "overview");
+    if (admin) sections.push("people", "models", "activity", "overview");
     return json(res, 200, { user: who.id, role: who.role, sections }), true;
   }
 
   if (seg[1] === "packages") {
-    if (seg.length === 2 && method === "GET") return json(res, 200, (await kernel.packages.list(who.id)).map(toRow)), true;
+    if (seg.length === 2 && method === "GET") return json(res, 200, (await kernel.packages.list()).map(toRow)), true;
     if (seg.length === 2 && method === "POST") {
       const source = field(await readJson(req), "source");
-      const installed = await kernel.packages.list(who.id);
-      const info = await kernel.packages.install(source, who.id);
+      const installed = await kernel.packages.list();
+      const info = await kernel.packages.install(source);
       if (installed.some((p) => p.name === info.name)) return json(res, 200, { ...toRow(info), replaced: true }), true;
       return json(res, 201, toRow(info)), true;
     }
     if (seg.length === 3 && method === "DELETE") {
-      await kernel.packages.uninstall(packageName(seg[2]), who.id);
+      await kernel.packages.uninstall(packageName(seg[2]));
       return json(res, 200, { name: packageName(seg[2]) }), true;
     }
     return false;
@@ -87,13 +88,6 @@ export async function handlePanel(deps: PanelDeps, req: IncomingMessage, res: Se
       const type = url.searchParams.get("type") ?? undefined;
       const results = search(index, q, { type, limit: 200 });
       return json(res, 200, { updatedAt: index.updatedAt, registries: index.registries, total: index.packages.length, results }), true;
-    }
-    if (seg[2] === "refresh" && method === "POST") {
-      requireAdmin();
-      const index = await readIndex(env);
-      if (!index) throw new HttpError(409, "The marketplace service has not written an index yet; it knows the registries.");
-      const next = await refresh(env, index.registries.map((r) => ({ name: r.name, url: r.url })));
-      return json(res, 200, { updatedAt: next.updatedAt, registries: next.registries, total: next.packages.length }), true;
     }
     return false;
   }
@@ -169,6 +163,12 @@ export async function handlePanel(deps: PanelDeps, req: IncomingMessage, res: Se
   }
 
   if (seg[2] === "config" && seg.length === 3 && method === "GET") return json(res, 200, await op("config.get")), true;
+
+  if (seg[2] === "journal" && seg.length === 3 && method === "GET") {
+    const limit = Math.min(1000, Number(url.searchParams.get("limit") ?? 200) || 200);
+    const kind = url.searchParams.get("kind") ?? undefined;
+    return json(res, 200, await op("journal.tail", { limit, kind })), true;
+  }
 
   return false;
 }

@@ -167,6 +167,8 @@ export interface Userspace {
   home: string;
   store: string;
   sessions: string;
+  /** Sockets a service of this userspace listens on. The door reaches them from the host. */
+  run: string;
 }
 
 export interface PackageRecord {
@@ -200,6 +202,8 @@ export interface StepEnv {
   cwd: string;
   root: string;
   store: string;
+  /** The shared directory: written by the system userspace, read by every fence. */
+  shared: string;
   exec(cmd: string, opts?: ExecOptions): Promise<{ code: number; stdout: string; stderr: string }>;
   readFile(path: string): Promise<string>;
   writeFile(path: string, content: string): Promise<void>;
@@ -221,27 +225,27 @@ export interface AuthUser {
 }
 
 /**
- * The kernel as seen from inside a fence. Every call acts as the fence's own user. `as` names another
- * user and is accepted from the system userspace only; `auth` is for the system userspace only.
- * `operator.call` runs a control method (the table the command line uses) for the admin named by
- * `args.as`; the system userspace only, and the kernel checks the role.
+ * The kernel as seen from inside a fence. Identity is the fence: every call acts as the userspace's
+ * own user. `operator.call` runs a control method (the table the command line uses) and is allowed
+ * when that user is an admin. `auth.login` is for the system userspace; `auth.authenticate` answers a
+ * fence only about its own user.
  */
 export interface KernelClient {
   packages: {
-    install(source: string, as?: string): Promise<PackageInfo>;
-    uninstall(name: string, as?: string): Promise<void>;
-    list(as?: string): Promise<PackageInfo[]>;
+    install(source: string): Promise<PackageInfo>;
+    uninstall(name: string): Promise<void>;
+    list(): Promise<PackageInfo[]>;
   };
   operator: {
-    call<T = unknown>(method: string, args: Record<string, unknown> & { as: string }, onEvent?: (event: unknown) => void): Promise<T>;
+    call<T = unknown>(method: string, args?: Record<string, unknown>, onEvent?: (event: unknown) => void): Promise<T>;
   };
   sessions: {
-    create(parent?: string, as?: string): Promise<SessionSummaryRef>;
-    ask(session: string, input: string, as?: string): Promise<string>;
-    send(session: string, input: string, onEvent: (event: TurnEvent) => void, as?: string): Promise<void>;
-    cancel(session: string, as?: string): Promise<boolean>;
-    list(as?: string): Promise<SessionSummaryRef[]>;
-    inspect(session: string, as?: string): Promise<SessionRecord & { status: "idle" | "running" }>;
+    create(parent?: string): Promise<SessionSummaryRef>;
+    ask(session: string, input: string): Promise<string>;
+    send(session: string, input: string, onEvent: (event: TurnEvent) => void): Promise<void>;
+    cancel(session: string): Promise<boolean>;
+    list(): Promise<SessionSummaryRef[]>;
+    inspect(session: string): Promise<SessionRecord & { status: "idle" | "running" }>;
   };
   auth: {
     login(id: string, password: string): Promise<{ token: string; user: AuthUser } | null>;

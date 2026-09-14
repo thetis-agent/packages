@@ -55,7 +55,7 @@ export class TurnHub {
           begin();
           if (event.type === "turn.start") run.turn = event.turn;
           this.push(user, run, event);
-        }, user)
+        })
         .then(
           () => this.finish(user, run, begin),
           (err: Error) => {
@@ -69,7 +69,7 @@ export class TurnHub {
   }
 
   cancel(user: string, session: string): Promise<boolean> {
-    return this.kernel.sessions.cancel(session, user);
+    return this.kernel.sessions.cancel(session);
   }
 
   runningOf(user: string, session: string): RunningTurn | undefined {

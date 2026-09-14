@@ -1,5 +1,6 @@
 import type { KernelConfig } from "../config.js";
 import type { FencePool } from "../fence/pool.js";
+import type { Journal } from "../journal.js";
 import type { PackageManager } from "../packages/manager.js";
 import type { SessionStore } from "../sessions/store.js";
 import type { Message, SessionRecord, StepContext, StepResult, Userspace } from "../types.js";
@@ -18,11 +19,21 @@ export class PipelineRunner {
     private readonly packages: PackageManager,
     private readonly fences: FencePool,
     private readonly store: SessionStore,
+    private readonly journal: Journal,
   ) {}
 
   /** An aborted `signal` ends the turn with an `error` event of code `cancelled`; whatever was applied before is still saved. */
-  async runTurn(us: Userspace, session: SessionRecord, input: Message[], emit: Emit, signal?: AbortSignal): Promise<SessionRecord> {
+  async runTurn(us: Userspace, session: SessionRecord, input: Message[], emitOut: Emit, signal?: AbortSignal): Promise<SessionRecord> {
     const turn = { id: newId("t"), input };
+    const started = Date.now();
+    // What the providers reported this turn, summed; it is package-reported, so it is journaled under that name.
+    const reported: Record<string, number> = {};
+    let failure: { message: string; code?: string } | undefined;
+    const emit: Emit = (event) => {
+      if (event.type === "usage") for (const [k, v] of Object.entries(event.usage)) reported[k] = (reported[k] ?? 0) + v;
+      if (event.type === "error") failure = { message: event.message, code: event.code };
+      emitOut(event);
+    };
     const info = { id: session.id, user: session.user, parent: session.parent };
     const packages = this.packages.installed(us);
     const ctx: StepContext = {
@@ -35,6 +46,7 @@ export class PipelineRunner {
       config: {},
     };
     emit({ type: "turn.start", turn: turn.id, session: session.id });
+    this.journal.append({ kind: "turn.start", actor: session.user, target: session.id, data: { turn: turn.id } });
     try {
       const plan = await this.enumerator.enumerate(us, info, packages);
       for (const step of plan) {
@@ -56,6 +68,7 @@ export class PipelineRunner {
       session.turns += 1;
       this.store.save(us, session);
       emit({ type: "turn.end", turn: turn.id, session: session.id });
+      this.journal.append({ kind: "turn.end", actor: session.user, target: session.id, data: { turn: turn.id, ms: Date.now() - started, ...(failure ? { error: failure } : {}), reported } });
     }
     return session;
   }

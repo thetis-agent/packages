@@ -1,6 +1,6 @@
 // The index file: the contract between the mirror and whoever searches. It lives at
-// `marketplace/index.json` under the home of the userspace that runs the service (the system userspace).
-// Any package or gateway in that userspace can read it by path; none has to import this module.
+// `<shared>/marketplace/index.json`: the shared directory is written by the system userspace, where the
+// service runs, and read by every fence, where the gateways run. Nothing has to import this module.
 
 export interface Registry {
   name: string;
@@ -38,18 +38,23 @@ export interface MarketplaceIndex {
   packages: IndexedPackage[];
 }
 
-export const INDEX_PATH = "marketplace/index.json";
+export const INDEX_FILE = "marketplace/index.json";
 
 /** The file operations the mirror and the readers need. `StepEnv` from the kernel satisfies it. */
 export interface FileEnv {
+  shared: string;
   readFile(path: string): Promise<string>;
   writeFile(path: string, content: string): Promise<void>;
+}
+
+export function indexPath(env: FileEnv): string {
+  return `${env.shared.replace(/\/$/, "")}/${INDEX_FILE}`;
 }
 
 export async function readIndex(env: FileEnv): Promise<MarketplaceIndex | undefined> {
   let text: string;
   try {
-    text = await env.readFile(INDEX_PATH);
+    text = await env.readFile(indexPath(env));
   } catch {
     return undefined;
   }
@@ -62,5 +67,5 @@ export async function readIndex(env: FileEnv): Promise<MarketplaceIndex | undefi
 }
 
 export function writeIndex(env: FileEnv, index: MarketplaceIndex): Promise<void> {
-  return env.writeFile(INDEX_PATH, JSON.stringify(index, null, 2) + "\n");
+  return env.writeFile(indexPath(env), JSON.stringify(index, null, 2) + "\n");
 }

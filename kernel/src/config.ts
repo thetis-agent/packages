@@ -9,6 +9,8 @@ export interface KernelConfig {
   systemPackagesDir: string;
   /** Where promoted packages live: user packages made the default for everyone. Derived: `<home>/packages`. */
   promotedPackagesDir: string;
+  /** Writable by the system userspace, read-only in every other fence. Derived: `<home>/shared`. */
+  sharedDir: string;
   /** Path of the userspace agent entry the fence boots. */
   agentPath: string;
   model: string;
@@ -19,7 +21,9 @@ export interface KernelConfig {
   systemPackages: Record<string, string[]>;
   /** Per-package configuration handed to that package's steps, tools and providers. */
   packages: Record<string, Record<string, unknown>>;
-  fence: { sandbox: "auto" | "bwrap" | "none"; readOnly: string[]; hidden: string[] };
+  fence: { sandbox: "auto" | "bwrap" | "none"; network: "auto" | "egress" | "none" | "host"; limits: { memoryMb: number; pids: number; cpuPercent: number }; readOnly: string[]; hidden: string[] };
+  /** The door: the one host port, which routes to the login target and to each person's gateway socket. */
+  door: { host: string; port: number };
   maxToolRounds: number;
   requestTimeoutMs: number;
 }
@@ -29,18 +33,20 @@ export function defaultConfig(home: string, projectRoot: string): KernelConfig {
     home,
     systemPackagesDir: resolve(projectRoot, "packages"),
     promotedPackagesDir: resolve(home, "packages"),
+    sharedDir: resolve(home, "shared"),
     agentPath: resolve(projectRoot, "packages/userspace-agent/dist/src/agent.js"),
     model: "anthropic/claude-sonnet-5",
     phases: ["history", "prompt", "tools", "call", "after"],
     callPhase: "call",
     systemPackages: {
-      "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache"],
-      _system: ["@thetis/provider-openrouter"],
+      "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache", "@thetis/gateway-web"],
+      _system: ["@thetis/provider-openrouter", "@thetis/gateway-login", "@thetis/marketplace"],
     },
     packages: {
       "@thetis/provider-openrouter": { apiKey: "${OPENROUTER_API_KEY}", baseUrl: "https://openrouter.ai/api/v1" },
     },
-    fence: { sandbox: "auto", readOnly: [resolve(projectRoot, "packages"), resolve(projectRoot, "node_modules"), resolve(home, "packages")], hidden: [home] },
+    fence: { sandbox: "auto", network: "auto", limits: { memoryMb: 1024, pids: 512, cpuPercent: 200 }, readOnly: [resolve(projectRoot, "packages"), resolve(projectRoot, "node_modules"), resolve(home, "packages")], hidden: [home] },
+    door: { host: "127.0.0.1", port: 8777 },
     maxToolRounds: 40,
     requestTimeoutMs: 600_000,
   };
@@ -54,14 +60,14 @@ export function configPath(home: string): string {
 export function loadConfig(home: string, projectRoot: string, env: NodeJS.ProcessEnv = process.env): KernelConfig {
   const defaults = defaultConfig(home, projectRoot);
   const stored = readJson<Partial<KernelConfig>>(configPath(home), {});
-  const merged = { ...defaults, ...stored, home, fence: { ...defaults.fence, ...(stored.fence ?? {}) } };
+  const merged = { ...defaults, ...stored, home, fence: { ...defaults.fence, ...(stored.fence ?? {}), limits: { ...defaults.fence.limits, ...(stored.fence?.limits ?? {}) } }, door: { ...defaults.door, ...(stored.door ?? {}) } };
   return interpolate(merged, env) as KernelConfig;
 }
 
 /** Writes the config without derived paths, so the file stays valid when the checkout moves. */
 export function saveConfig(config: KernelConfig): void {
-  const { home, systemPackagesDir, promotedPackagesDir, agentPath, fence, ...portable } = config;
-  writeJson(configPath(home), { ...portable, fence: { sandbox: fence.sandbox } });
+  const { home, systemPackagesDir, promotedPackagesDir, sharedDir, agentPath, fence, ...portable } = config;
+  writeJson(configPath(home), { ...portable, fence: { sandbox: fence.sandbox, network: fence.network, limits: fence.limits } });
 }
 
 function interpolate<T>(value: T, env: NodeJS.ProcessEnv): T {

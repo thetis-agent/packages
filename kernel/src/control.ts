@@ -22,27 +22,38 @@ export function createControlHandler(k: Kernel): KernelRpc {
     const us = () => k.sessions.userspaceFor(k.users.authorize(user()));
     /** Who performs the operation: the named actor (an admin over the operator channel, the operator from the CLI), else the target user. */
     const actor = () => k.users.authorize(String(a.actor ?? user()));
+    /** Every operator act leaves one row, with who did it and to whom. */
+    const journal = (kind: string, target: string, data?: Record<string, unknown>) => k.journal.append({ kind, actor: String(a.actor ?? "operator"), target, data });
     switch (method) {
       case "ping":
         return "pong";
       case "users.list":
         return k.users.list();
-      case "users.create":
-        return k.users.create(String(a.id), a.role as "admin" | "user" | undefined);
+      case "users.create": {
+        const rec = k.users.create(String(a.id), a.role as "admin" | "user" | undefined);
+        journal("user.create", rec.id, { role: rec.role });
+        await k.services.ensure(rec.id);
+        return rec;
+      }
       case "users.remove":
-        return k.removeUser(String(a.id));
+        await k.removeUser(String(a.id));
+        return journal("user.remove", String(a.id)), null;
       case "users.setStatus":
-        return k.users.setStatus(String(a.id), a.status as "active" | "suspended");
+        return journal("user.status", String(a.id), { status: a.status }), k.users.setStatus(String(a.id), a.status as "active" | "suspended");
       case "users.setRole":
-        return k.users.setRole(String(a.id), a.role as "admin" | "user");
+        return journal("user.role", String(a.id), { role: a.role }), k.users.setRole(String(a.id), a.role as "admin" | "user");
       case "users.passwd":
-        return k.auth.setPassword(String(a.id), String(a.password));
+        await k.auth.setPassword(String(a.id), String(a.password));
+        return journal("user.password", String(a.id)), null;
       case "packages.list":
         return k.packages.installed(us());
-      case "packages.install":
-        return k.packages.install(us(), actor(), String(a.source));
+      case "packages.install": {
+        const info = await k.packages.install(us(), actor(), String(a.source));
+        return journal("package.install", user(), { name: info.name, version: info.version, source: String(a.source) }), info;
+      }
       case "packages.uninstall":
-        return k.packages.uninstall(us(), String(a.name));
+        await k.packages.uninstall(us(), String(a.name));
+        return journal("package.uninstall", user(), { name: String(a.name) }), null;
       case "packages.promote": {
         const owner = us();
         const promoted = k.packages.promote(owner, String(a.name));
@@ -54,8 +65,11 @@ export function createControlHandler(k: Kernel): KernelRpc {
           await k.packages.install(k.userspaces.pathFor(u.id), system, promoted);
           userspaces.push(u.id);
         }
+        journal("package.promote", user(), { name: String(a.name), promoted, userspaces });
         return { name: promoted, userspaces };
       }
+      case "journal.tail":
+        return k.journal.tail(Math.min(1000, Number(a.limit ?? 200) || 200), { actor: a.actor_filter, target: a.target, kind: a.kind });
       case "config.get":
         return redact(k.config);
       case "models":

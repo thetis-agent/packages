@@ -1,13 +1,15 @@
-// The HTTP surface: cookie login, static assets, a JSON API over the kernel's session calls, and one
-// Server-Sent Events stream per browser that carries every turn event of the signed-in user.
-// Identity is the kernel's: the gateway exchanges a password for a token and a token for a user.
+// The HTTP surface of one person's gateway: static assets, a JSON API over the kernel's session calls,
+// and one Server-Sent Events stream per browser that carries every turn event of that person. The
+// gateway runs inside the person's own fence, so it holds that person's authority and nobody else's.
+// Sign-in lives in @thetis/gateway-login; this server only resolves the cookie it set, and the kernel
+// answers only when the token names this fence's user.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { KernelClient, Message, SessionRecord, UserRole } from "@thetis/kernel";
 import type { MirrorEnv } from "@thetis/marketplace";
-import { HttpError, json, readBody, readJson } from "./http.js";
+import { HttpError, json, readJson } from "./http.js";
 import { handlePanel } from "./panel.js";
 import type { GatewayStore, SessionUsage } from "./store.js";
 import { TurnHub, type RunningTurn } from "./turns.js";
@@ -15,15 +17,16 @@ import { TurnHub, type RunningTurn } from "./turns.js";
 export interface GatewayOptions {
   /** Directory of the static assets. Defaults to the package's `assets/`. */
   assets?: string;
-  /** Adds `Secure` to the cookie. Set it when TLS terminates in front of the gateway. Config key `secure`. */
-  secure?: boolean;
   log?: (line: string) => void;
   /** The userspace environment: where the marketplace index lives. Without it the marketplace section is absent. */
   env?: MirrorEnv;
+  /** The person this gateway serves. A cookie naming anyone else is refused. */
+  user: string;
+  /** The URL prefix the door routes here, for example `/alice`. Everything is served under it. Empty for the root. */
+  base?: string;
 }
 
 const COOKIE = "thetis_web";
-const COOKIE_MAX_AGE = 30 * 24 * 60 * 60;
 const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json" };
 
 export interface SessionSummary {
@@ -37,12 +40,12 @@ export interface SessionSummary {
   status: "idle" | "running";
 }
 
-/** Builds the gateway. Call `.listen()` on the result. */
-export function createGateway(kernel: KernelClient, store: GatewayStore, opts: GatewayOptions = {}): Server {
+/** Builds the gateway. Call `.listen()` on the result with a unix socket path or a port. */
+export function createGateway(kernel: KernelClient, store: GatewayStore, opts: GatewayOptions): Server {
   const log = opts.log ?? ((line) => process.stderr.write(line + "\n"));
   const assets = opts.assets ?? resolve(dirname(fileURLToPath(import.meta.url)), "../../assets");
+  const base = (opts.base ?? "").replace(/\/$/, "");
   const hub = new TurnHub(kernel, log, recordUsage);
-  const secure = opts.secure === true;
 
   const server = createServer((req, res) => {
     handle(req, res).catch((err) => {
@@ -58,21 +61,20 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://localhost");
-    const path = url.pathname;
     const method = req.method ?? "GET";
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "same-origin");
+    if (base && url.pathname === base) return redirect(res, `${base}/`);
+    if (base && !url.pathname.startsWith(`${base}/`)) throw new HttpError(404, "not found");
+    const path = url.pathname.slice(base.length);
 
     if (path.startsWith("/assets/")) return serveAsset(res, assets, path.slice("/assets/".length));
-    if (path === "/login" && method === "GET") return serveAsset(res, assets, "login.html");
-    if (path === "/login" && method === "POST") return login(req, res, url);
-    if (path === "/logout" && method === "POST") return logout(req, res);
 
     const who = await authenticate(req);
     const user = who?.id;
     if (path === "/") {
-      if (!user) return redirect(res, "/login");
-      return serveAsset(res, assets, "index.html", { "Cache-Control": "no-store" });
+      if (!user) return redirect(res, `/login?next=${encodeURIComponent(`${base}/`)}`);
+      return serveAsset(res, assets, "index.html", { "Cache-Control": "no-store" }, { "{{base}}": base });
     }
     if (!path.startsWith("/api/")) throw new HttpError(404, "not found");
     if (!user) throw new HttpError(401, "sign in first");
@@ -84,7 +86,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     if (await handlePanel({ kernel, env: opts.env }, req, res, who!, seg, method, url)) return;
     if (seg[1] === "sessions") {
       if (seg.length === 2 && method === "GET") return json(res, 200, await listSessions(user));
-      if (seg.length === 2 && method === "POST") return json(res, 201, { id: (await kernel.sessions.create(undefined, user)).id });
+      if (seg.length === 2 && method === "POST") return json(res, 201, { id: (await kernel.sessions.create()).id });
       const id = seg[2];
       if (!/^s_[a-f0-9]+$/.test(id ?? "")) throw new HttpError(404, "unknown session");
       if (seg.length === 3 && method === "GET") return json(res, 200, await showSession(user, id));
@@ -96,11 +98,11 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
         return json(res, 202, { session: id, startedAt: run.startedAt });
       }
       if (seg[3] === "cancel" && method === "POST") {
-        await kernel.sessions.inspect(id, user);
+        await kernel.sessions.inspect(id);
         return json(res, 200, { cancelled: await hub.cancel(user, id) });
       }
       if (seg[3] === "archive" && method === "POST") {
-        await kernel.sessions.inspect(id, user);
+        await kernel.sessions.inspect(id);
         const body = await readJson(req);
         store.setArchived(user, id, body.archived !== false);
         return json(res, 200, { id, archived: body.archived !== false });
@@ -109,40 +111,18 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     throw new HttpError(404, "not found");
   }
 
+  /** The kernel answers a fence only about its own user; the gateway still checks the name it serves. */
   async function authenticate(req: IncomingMessage): Promise<{ id: string; role: UserRole } | undefined> {
     const token = cookies(req)[COOKIE];
     if (!token || !/^[a-f0-9]{64}$/.test(token)) return undefined;
-    return (await kernel.auth.authenticate(token)) ?? undefined;
-  }
-
-  async function login(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
-    const body = await readForm(req);
-    const id = String(body.id ?? "").trim();
-    const password = String(body.password ?? "");
-    const next = safeNext(String(body.next ?? url.searchParams.get("next") ?? "/"));
-    const result = /^[a-z][a-z0-9-]{0,31}$/.test(id) && password ? await kernel.auth.login(id, password) : null;
-    if (!result) {
-      log(`[gateway-web] refused login for ${JSON.stringify(id)} from ${req.socket.remoteAddress}`);
-      if (wantsJson(req)) throw new HttpError(401, "the id or password was refused");
-      return redirect(res, `/login?error=refused&next=${encodeURIComponent(next)}`);
-    }
-    res.setHeader("Set-Cookie", cookie(result.token, COOKIE_MAX_AGE, secure));
-    if (wantsJson(req)) return json(res, 200, { user: id });
-    return redirect(res, next);
-  }
-
-  async function logout(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const token = cookies(req)[COOKIE];
-    if (token) await kernel.auth.logout(token);
-    res.setHeader("Set-Cookie", cookie("", 0, secure));
-    if (wantsJson(req)) return json(res, 200, { ok: true });
-    return redirect(res, "/login");
+    const who = await kernel.auth.authenticate(token);
+    return who && who.id === opts.user ? who : undefined;
   }
 
   async function listSessions(user: string): Promise<SessionSummary[]> {
     const archived = store.archived(user);
-    const refs = (await kernel.sessions.list(user)).filter((s) => !s.parent);
-    const records = await Promise.all(refs.map((s) => kernel.sessions.inspect(s.id, user)));
+    const refs = (await kernel.sessions.list()).filter((s) => !s.parent);
+    const records = await Promise.all(refs.map((s) => kernel.sessions.inspect(s.id)));
     return records.map((rec) => summarize(user, rec, archived)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
@@ -164,7 +144,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
   }
 
   async function showSession(user: string, id: string): Promise<SessionRecord & { status: string; archived: boolean; turn: RunningTurn | null; usage: SessionUsage }> {
-    const rec = await kernel.sessions.inspect(id, user);
+    const rec = await kernel.sessions.inspect(id);
     return { ...rec, archived: store.archived(user).has(id), turn: hub.runningOf(user, id) ?? null, usage: store.usage(user, id) };
   }
 
@@ -179,7 +159,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     if (events.some((e) => e.type === "error")) return;
     const usages = events.flatMap((e) => (e.type === "message" && e.message.role === "assistant" ? [e.usage] : []));
     if (!usages.some(Boolean)) return;
-    const rec = await kernel.sessions.inspect(run.session, user);
+    const rec = await kernel.sessions.inspect(run.session);
     const indices: number[] = [];
     for (let i = rec.conversation.length - 1; i >= 0 && indices.length < usages.length; i--) if (rec.conversation[i].role === "assistant") indices.unshift(i);
     if (indices.length !== usages.length) return;
@@ -234,12 +214,6 @@ function redirect(res: ServerResponse, to: string): void {
   res.end();
 }
 
-function cookie(value: string, maxAge: number, secure: boolean): string {
-  const parts = [`${COOKIE}=${value}`, "Path=/", "HttpOnly", "SameSite=Strict", `Max-Age=${maxAge}`];
-  if (secure) parts.push("Secure");
-  return parts.join("; ");
-}
-
 function cookies(req: IncomingMessage): Record<string, string> {
   const out: Record<string, string> = {};
   for (const part of (req.headers.cookie ?? "").split(";")) {
@@ -249,33 +223,26 @@ function cookies(req: IncomingMessage): Record<string, string> {
   return out;
 }
 
-function wantsJson(req: IncomingMessage): boolean {
-  return (req.headers["content-type"] ?? "").startsWith("application/json") || (req.headers.accept ?? "").includes("application/json");
-}
-
 /** A cross-site POST cannot carry the SameSite=Strict cookie, and a browser that says so is refused too. */
 function checkSameSite(req: IncomingMessage): void {
   const site = req.headers["sec-fetch-site"];
   if (site && site !== "same-origin" && site !== "none") throw new HttpError(403, "cross-site request refused");
 }
 
-function safeNext(next: string): string {
-  return next.startsWith("/") && !next.startsWith("//") ? next : "/";
-}
-
-async function readForm(req: IncomingMessage): Promise<Record<string, unknown>> {
-  if (wantsJson(req)) return readJson(req);
-  return Object.fromEntries(new URLSearchParams(await readBody(req)));
-}
-
-function serveAsset(res: ServerResponse, root: string, name: string, extra: Record<string, string> = {}): void {
+/** Serves one static file. `fill` substitutes placeholders in an HTML page, which is how the page learns its base path. */
+function serveAsset(res: ServerResponse, root: string, name: string, extra: Record<string, string> = {}, fill: Record<string, string> = {}): void {
   const file = resolve(root, name);
   if (!file.startsWith(root + sep) || !existsSync(file) || !statSync(file).isFile()) throw new HttpError(404, "not found");
   const type = TYPES[extname(file)];
   if (!type) throw new HttpError(404, "not found");
   if (type.startsWith("text/html")) res.setHeader("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'");
   res.writeHead(200, { "Content-Type": type, "Cache-Control": "no-cache", ...extra });
-  res.end(readFileSync(file));
+  let body: Buffer | string = readFileSync(file);
+  if (Object.keys(fill).length) {
+    body = body.toString("utf8");
+    for (const [k, v] of Object.entries(fill)) body = body.split(k).join(v);
+  }
+  res.end(body);
 }
 
 export type { Message };

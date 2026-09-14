@@ -14,6 +14,7 @@ import type {
 const ROOT = process.env.THETIS_USERSPACE ?? process.cwd();
 const HOME = process.env.THETIS_HOME_DIR ?? ROOT;
 const STORE = process.env.THETIS_STORE ?? resolve(ROOT, "store");
+const SHARED = process.env.THETIS_SHARED ?? resolve(ROOT, "shared");
 const MAX_OUTPUT = 30_000;
 
 const writeOut = process.stdout.write.bind(process.stdout);
@@ -34,20 +35,20 @@ function rpc<T = unknown>(method: string, args?: unknown, onEvent?: (e: unknown)
 
 const kernel: KernelClient = {
   packages: {
-    install: (source, as) => rpc("packages.install", { source, as }),
-    uninstall: (name, as) => rpc("packages.uninstall", { name, as }),
-    list: (as) => rpc("packages.list", { as }),
+    install: (source) => rpc("packages.install", { source }),
+    uninstall: (name) => rpc("packages.uninstall", { name }),
+    list: () => rpc("packages.list"),
   },
   operator: {
-    call: (method, args, onEvent) => rpc(`operator.${method}`, args, onEvent),
+    call: (method, args, onEvent) => rpc(`operator.${method}`, args ?? {}, onEvent),
   },
   sessions: {
-    create: (parent, as) => rpc("sessions.create", { parent, as }),
-    ask: (session, input, as) => rpc("sessions.ask", { session, input, as }),
-    send: (session, input, onEvent, as) => rpc("sessions.send", { session, input, as }, (e) => onEvent(e as TurnEvent)),
-    cancel: (session, as) => rpc("sessions.cancel", { session, as }),
-    list: (as) => rpc("sessions.list", { as }),
-    inspect: (session, as) => rpc("sessions.inspect", { session, as }),
+    create: (parent) => rpc("sessions.create", { parent }),
+    ask: (session, input) => rpc("sessions.ask", { session, input }),
+    send: (session, input, onEvent) => rpc("sessions.send", { session, input }, (e) => onEvent(e as TurnEvent)),
+    cancel: (session) => rpc("sessions.cancel", { session }),
+    list: () => rpc("sessions.list"),
+    inspect: (session) => rpc("sessions.inspect", { session }),
   },
   auth: {
     login: (id, password) => rpc("auth.login", { id, password }),
@@ -76,6 +77,7 @@ const env: StepEnv = {
   cwd: HOME,
   root: ROOT,
   store: STORE,
+  shared: SHARED,
   exec,
   readFile: (p) => readFile(resolve(HOME, p), "utf8"),
   writeFile: async (p, content) => {

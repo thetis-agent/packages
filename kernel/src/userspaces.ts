@@ -14,6 +14,7 @@ export class UserspaceManager {
       home: resolve(root, "home"),
       store: resolve(root, "store"),
       sessions: resolve(root, "sessions"),
+      run: resolve(root, "run"),
     };
   }
 
@@ -24,7 +25,7 @@ export class UserspaceManager {
   /** Creates the userspace directories if missing. Idempotent. */
   ensure(userId: string): Userspace {
     const us = this.pathFor(userId);
-    for (const dir of [us.home, resolve(us.store, "node_modules"), resolve(us.store, "src"), us.sessions]) {
+    for (const dir of [us.home, resolve(us.store, "node_modules"), resolve(us.store, "src"), us.sessions, us.run]) {
       mkdirSync(dir, { recursive: true });
     }
     return us;

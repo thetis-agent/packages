@@ -10,7 +10,7 @@ export class ApiError extends Error {
 export async function api(path, { method = "GET", body } = {}) {
   let res;
   try {
-    res = await fetch(path, {
+    res = await fetch(path.replace(/^\//, ""), {
       method,
       credentials: "same-origin",
       headers: { "content-type": "application/json", accept: "application/json" },
@@ -36,7 +36,7 @@ export async function api(path, { method = "GET", body } = {}) {
 
 /** Opens the event stream. The browser reconnects by itself; every connection starts with a snapshot. */
 export function connect({ onSnapshot, onTurn, onStatus }) {
-  const source = new EventSource("/api/events");
+  const source = new EventSource("api/events");
   source.addEventListener("open", () => onStatus("online"));
   source.addEventListener("error", () => onStatus(source.readyState === EventSource.CLOSED ? "offline" : "connecting"));
   source.addEventListener("snapshot", (event) => onSnapshot(JSON.parse(event.data)));

@@ -11,6 +11,7 @@ import { registriesOf } from "../src/service.js";
 /** A real environment rooted in a temporary home, like the agent's `StepEnv`. */
 function envAt(home: string): MirrorEnv {
   return {
+    shared: join(home, "shared"),
     exec: (cmd, opts = {}) =>
       new Promise((done) => {
         cpExec(cmd, { cwd: home, shell: "/bin/bash", timeout: opts.timeoutMs ?? 60_000 }, (err, stdout, stderr) => {
@@ -62,7 +63,7 @@ test("refresh mirrors a registry and indexes its packages", async () => {
     assert.equal(memo.dir, "nested/memo");
     assert.equal(memo.service, true);
     assert.deepEqual(memo.steps, [{ id: "load", phase: "prompt" }]);
-    const onDisk = JSON.parse(readFileSync(join(home, "marketplace/index.json"), "utf8"));
+    const onDisk = JSON.parse(readFileSync(join(home, "shared", "marketplace", "index.json"), "utf8"));
     assert.equal(onDisk.version, 1);
     assert.deepEqual(await readIndex(env), onDisk);
 

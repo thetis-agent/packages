@@ -3,13 +3,30 @@
   "version": "0.1.0",
   "type": "module",
   "main": "dist/src/index.js",
-  "scripts": { "build": "tsc -b" },
-  "dependencies": { "@thetis/marketplace": "^0.1.0" },
-  "peerDependencies": { "@thetis/kernel": "^0.1.0" },
-  "devDependencies": { "@thetis/kernel": "^0.1.0" },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@thetis/marketplace": "^0.1.0"
+  },
+  "peerDependencies": {
+    "@thetis/kernel": "^0.1.0"
+  },
+  "devDependencies": {
+    "@thetis/kernel": "^0.1.0",
+    "@thetis/door": "^0.1.0",
+    "@thetis/gateway-login": "^0.1.0"
+  },
   "thetis": {
     "type": "gateway",
-    "service": { "export": "startService" },
-    "publish": [{ "port": 8777, "to": "host" }]
+    "service": {
+      "export": "startService"
+    },
+    "publish": [
+      {
+        "port": 8777,
+        "to": "host"
+      }
+    ]
   }
 }

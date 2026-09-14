@@ -2,8 +2,10 @@ import { AuthService } from "./auth.js";
 import { Container, token } from "./container.js";
 import type { KernelConfig } from "./config.js";
 import { createControlHandler } from "./control.js";
+import { Cgroups } from "./fence/cgroup.js";
 import type { Fence, KernelRpc } from "./fence/fence.js";
 import { ProcessFence } from "./fence/process-fence.js";
+import { Journal } from "./journal.js";
 import { FencePool } from "./fence/pool.js";
 import { PackageManager } from "./packages/manager.js";
 import { PackageRegistry } from "./packages/registry.js";
@@ -16,7 +18,8 @@ import { ServiceSupervisor } from "./services.js";
 import { SessionApi } from "./sessions/api.js";
 import { SessionStore } from "./sessions/store.js";
 import { SYSTEM_USER } from "./types.js";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { UserStore } from "./users.js";
 import { UserspaceManager } from "./userspaces.js";
 
@@ -38,6 +41,8 @@ export const T = {
   providerCall: token<ProviderCallStep>("providerCall"),
   runner: token<PipelineRunner>("runner"),
   sessions: token<SessionApi>("sessions"),
+  journal: token<Journal>("journal"),
+  cgroups: token<Cgroups | undefined>("cgroups"),
 };
 
 export interface Kernel {
@@ -50,6 +55,7 @@ export interface Kernel {
   providers: ProviderRegistry;
   sessions: SessionApi;
   fences: FencePool;
+  journal: Journal;
   container: Container;
   removeUser(id: string): Promise<void>;
   shutdown(): Promise<void>;
@@ -63,21 +69,25 @@ export function createKernel(config: KernelConfig, configure?: (c: Container) =>
   c.bind(T.users, (c) => new UserStore(c.get(T.config).home));
   c.bind(T.auth, (c) => new AuthService(c.get(T.config).home, c.get(T.users)));
   c.bind(T.userspaces, (c) => new UserspaceManager(c.get(T.config).home));
+  c.bind(T.journal, (c) => new Journal(c.get(T.config).home));
+  c.bind(T.cgroups, (c) => (c.get(T.config).fence.sandbox === "none" ? undefined : Cgroups.detect(c.get(T.log))));
   c.bind(T.fence, (c) => {
     const cfg = c.get(T.config);
-    return new ProcessFence({ agentPath: cfg.agentPath, sandbox: cfg.fence.sandbox, readOnly: cfg.fence.readOnly, hidden: cfg.fence.hidden, requestTimeoutMs: cfg.requestTimeoutMs, log: c.get(T.log) });
+    const resolvConf = resolve(cfg.home, "fence-resolv.conf");
+    writeFileSync(resolvConf, "nameserver 10.0.2.3\noptions timeout:2 attempts:2\n");
+    return new ProcessFence({ agentPath: cfg.agentPath, sandbox: cfg.fence.sandbox, network: cfg.fence.network, limits: cfg.fence.limits, cgroups: () => c.get(T.cgroups), sharedDir: cfg.sharedDir, resolvConf, readOnly: cfg.fence.readOnly, hidden: cfg.fence.hidden, requestTimeoutMs: cfg.requestTimeoutMs, log: c.get(T.log) });
   });
   // The operator table is the control handler's; the RPC handler admits it to the system fence for admins only.
   const operator: KernelRpc = (method, args, emit) => createControlHandler(kernel)(method, args, emit);
   c.bind(T.fences, (c) => new FencePool(c.get(T.fence), (us) => createRpcHandler(us, c.get(T.users), c.get(T.packages), c.get(T.sessions), c.get(T.auth), operator), (us, h) => c.get(T.services).opened(us, h)));
-  c.bind(T.services, (c) => new ServiceSupervisor(c.get(T.config), c.get(T.users), c.get(T.userspaces), c.get(T.packages), c.get(T.fences), c.get(T.log)));
+  c.bind(T.services, (c) => new ServiceSupervisor(c.get(T.config), c.get(T.users), c.get(T.userspaces), c.get(T.packages), c.get(T.fences), c.get(T.log), c.get(T.journal)));
   c.bind(T.registry, (c) => new PackageRegistry(c.get(T.config).home));
   c.bind(T.packages, (c) => new PackageManager(c.get(T.config), c.get(T.registry), c.get(T.fences)));
   c.bind(T.providers, (c) => new ProviderRegistry(c.get(T.config), c.get(T.packages), c.get(T.userspaces), c.get(T.fences)));
   c.bind(T.sessionStore, () => new SessionStore());
   c.bind(T.enumerator, (c) => new Enumerator(c.get(T.config), c.get(T.fences)));
   c.bind(T.providerCall, (c) => new ProviderCallStep(c.get(T.config), c.get(T.providers), c.get(T.fences)));
-  c.bind(T.runner, (c) => new PipelineRunner(c.get(T.config), c.get(T.enumerator), c.get(T.providerCall), c.get(T.packages), c.get(T.fences), c.get(T.sessionStore)));
+  c.bind(T.runner, (c) => new PipelineRunner(c.get(T.config), c.get(T.enumerator), c.get(T.providerCall), c.get(T.packages), c.get(T.fences), c.get(T.sessionStore), c.get(T.journal)));
   c.bind(T.sessions, (c) => new SessionApi(c.get(T.users), c.get(T.userspaces), c.get(T.packages), c.get(T.sessionStore), c.get(T.runner)));
   configure?.(c);
 
@@ -85,6 +95,7 @@ export function createKernel(config: KernelConfig, configure?: (c: Container) =>
   const sessions = c.get(T.sessions);
   c.get(T.packages).observe(c.get(T.services));
   mkdirSync(config.promotedPackagesDir, { recursive: true });
+  mkdirSync(config.sharedDir, { recursive: true });
   sessions.userspaceFor(users.authorize(SYSTEM_USER));
 
   const kernel: Kernel = {
@@ -97,6 +108,7 @@ export function createKernel(config: KernelConfig, configure?: (c: Container) =>
     providers: c.get(T.providers),
     sessions,
     fences: c.get(T.fences),
+    journal: c.get(T.journal),
     container: c,
     async removeUser(id) {
       users.remove(id);

@@ -4,6 +4,6 @@
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": { "build": "tsc -b" },
-  "dependencies": { "@thetis/kernel": "^0.1.0" },
+  "dependencies": { "@thetis/kernel": "^0.1.0", "@thetis/door": "^0.1.0" },
   "thetis": { "type": "gateway" }
 }

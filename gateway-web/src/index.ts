@@ -1,7 +1,8 @@
-// Web gateway: a service package. The userspace agent of the system userspace calls `startService`
-// when the fence opens; the server then serves the browser UI and reaches the kernel over the fence's RPC.
+// Web gateway: a service package that runs inside each person's own fence. The userspace agent calls
+// `startService` when the fence opens; the server then serves that person's UI on a unix socket in the
+// userspace's `run/` directory, which the door on the host routes `/<person>/` to.
+import { chmodSync, mkdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
-import type { AddressInfo } from "node:net";
 import type { Service } from "@thetis/kernel";
 import { createGateway } from "./server.js";
 import { GatewayStore } from "./store.js";
@@ -11,11 +12,18 @@ export { GatewayStore, ArchiveStore } from "./store.js";
 export { TurnHub, type TurnMessage, type RunningTurn } from "./turns.js";
 export { clientFromRpc } from "./client.js";
 
+export const SOCKET = "web.sock";
+
 export const startService: Service = async (env) => {
-  const host = typeof env.config.host === "string" ? env.config.host : "127.0.0.1";
-  const port = typeof env.config.port === "number" ? env.config.port : 8777;
-  const server = createGateway(env.kernel, new GatewayStore(resolve(env.cwd, "gateway-web")), { log: env.log, secure: env.config.secure === true, env });
-  await new Promise<void>((done, fail) => server.once("error", fail).listen(port, host, done));
-  env.log(`listening on http://${host}:${(server.address() as AddressInfo).port}`);
+  const user = process.env.THETIS_USER ?? "";
+  if (!user) throw new Error("THETIS_USER is not set; the gateway does not know whom it serves");
+  const dir = resolve(env.root, "run");
+  mkdirSync(dir, { recursive: true });
+  const socket = resolve(dir, SOCKET);
+  rmSync(socket, { force: true });
+  const server = createGateway(env.kernel, new GatewayStore(resolve(env.cwd, "gateway-web")), { log: env.log, env, user, base: `/${user}` });
+  await new Promise<void>((done, fail) => server.once("error", fail).listen(socket, done));
+  chmodSync(socket, 0o660);
+  env.log(`serving /${user}/ on ${socket}`);
   return { stop: () => new Promise<void>((done) => server.close(() => done())) };
 };
