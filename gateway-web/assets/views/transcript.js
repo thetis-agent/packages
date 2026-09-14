@@ -8,16 +8,19 @@ import { avatarFor } from "../lib/avatar.js";
 import { clear, el, icon } from "../lib/dom.js";
 import { renderMarkdown } from "../lib/markdown.js";
 import { store } from "../lib/store.js";
+import { createAskTracker } from "./ask.js";
 
 const RESULT_PREVIEW = 4000;
 const RUN_FOLD = 4; // a restored run of more tool calls than this starts folded
 const DOWN = ["M5 8l5 5 5-5"];
+const ASK_TOOL = "ask_user";
 
-export function mountTranscript(root, { onNew }) {
+export function mountTranscript(root, { onNew, onAnswer }) {
   let live = null;        // { node, textEl, text }
   let settled = null;     // the last settled bubble: { node, text }, so the message event can add its usage
   let pendingRow = null;  // the reader's own message awaiting the server's echo
   let run = null;         // the open run of tool cards, or null
+  const asks = createAskTracker(); // ask_user forms drawn in place of a tool card
   let follow = true;
   const jump = el("button", { type: "button", class: "jump-latest", title: "Jump to the latest message", onClick: () => { follow = true; root.scrollTop = root.scrollHeight; draw(); } }, icon(DOWN, { size: 14, width: 2 }), "Latest");
   jump.hidden = true;
@@ -50,6 +53,7 @@ export function mountTranscript(root, { onNew }) {
     settled = null;
     pendingRow = null;
     run = null;
+    asks.reset();
     follow = true;
     draw();
   }
@@ -90,6 +94,8 @@ export function mountTranscript(root, { onNew }) {
   }
 
   function userRow(text) {
+    // Whatever was asked has now been replied to, one way or another — live or on replay.
+    asks.lockAll();
     return row("user", el("div", { class: "msg-text" }, text));
   }
 
@@ -205,6 +211,12 @@ export function mountTranscript(root, { onNew }) {
     return node;
   }
 
+  /** Draws an ask_user call as a form; false means the caller should fall back to a tool card. */
+  function askRow(call) {
+    run = null; // the ask card is a message-level row, like a chat bubble, not part of a tool run
+    return asks.draw(call, { place, onAnswer });
+  }
+
   function toolResult(id, name, result) {
     const failed = /^error:/i.test(result || "");
     const card = id ? root.querySelector(`details.tool[data-tool="${cssEscape(id)}"]`) : null;
@@ -261,10 +273,18 @@ export function mountTranscript(root, { onNew }) {
     if (message.role === "user") return userRow(message.content);
     if (message.role === "assistant") {
       assistantRow(message.content || "", usage);
-      for (const call of message.toolCalls ?? []) toolCard(call, false, true);
+      for (const call of message.toolCalls ?? []) {
+        if (call.name === ASK_TOOL && askRow(call)) continue;
+        toolCard(call, false, true);
+      }
       return;
     }
-    if (message.role === "tool") return toolResult(message.toolCallId, message.name, message.content);
+    if (message.role === "tool") {
+      // The ask form already says everything the result would; the result itself
+      // (the fixed "questions recorded" text) is not something a reader needs to see.
+      if (message.name === ASK_TOOL && !root.querySelector(`details.tool[data-tool="${cssEscape(message.toolCallId)}"]`)) return;
+      return toolResult(message.toolCallId, message.name, message.content);
+    }
     if (message.content) note(message.content);
   }
 
@@ -284,9 +304,16 @@ export function mountTranscript(root, { onNew }) {
       }
       case "tool.call":
         settleLive();
+        // The form stands in for the tool row entirely; showing both would put
+        // the same questions on screen twice, once as raw JSON.
+        if (event.call?.name === ASK_TOOL && askRow(event.call)) break;
         toolCard(event.call, true);
         break;
       case "tool.result":
+        // The card already said everything the result would; skip it unless the
+        // call somehow never got its own row (a malformed call fell through to
+        // the ordinary tool card, which does want its result shown).
+        if (event.name === ASK_TOOL && !root.querySelector(`details.tool[data-tool="${cssEscape(event.id)}"]`)) break;
         toolResult(event.id, event.name, event.result);
         break;
       case "message":

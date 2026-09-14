@@ -1,7 +1,7 @@
 {
   "name": "@thetis/tools-plan",
-  "version": "0.1.0",
-  "description": "Per-conversation todo list and a structured way to ask the user clarifying questions.",
+  "version": "0.2.0",
+  "description": "Per-conversation todo list and a structured way to ask the user clarifying questions, answered as a form on the gateway page.",
   "type": "module",
   "main": "index.js",
   "thetis": {
@@ -18,22 +18,40 @@
               "description": "New plan items, replacing the old ones.",
               "items": {
                 "anyOf": [
-                  { "type": "string" },
+                  {
+                    "type": "string"
+                  },
                   {
                     "type": "object",
                     "properties": {
-                      "text": { "type": "string" },
-                      "stage": { "type": "string", "enum": ["pending", "active", "done", "dropped"] },
-                      "note": { "type": "string" }
+                      "text": {
+                        "type": "string"
+                      },
+                      "stage": {
+                        "type": "string",
+                        "enum": [
+                          "pending",
+                          "active",
+                          "done",
+                          "dropped"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
                     },
-                    "required": ["text"]
+                    "required": [
+                      "text"
+                    ]
                   }
                 ]
               },
               "maxItems": 64
             }
           },
-          "required": ["items"]
+          "required": [
+            "items"
+          ]
         },
         "export": "todoWrite"
       },
@@ -48,34 +66,69 @@
               "description": "Items to append.",
               "items": {
                 "anyOf": [
-                  { "type": "string" },
+                  {
+                    "type": "string"
+                  },
                   {
                     "type": "object",
                     "properties": {
-                      "text": { "type": "string" },
-                      "stage": { "type": "string", "enum": ["pending", "active", "done", "dropped"] },
-                      "note": { "type": "string" }
+                      "text": {
+                        "type": "string"
+                      },
+                      "stage": {
+                        "type": "string",
+                        "enum": [
+                          "pending",
+                          "active",
+                          "done",
+                          "dropped"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
                     },
-                    "required": ["text"]
+                    "required": [
+                      "text"
+                    ]
                   }
                 ]
               }
             }
           },
-          "required": ["items"]
+          "required": [
+            "items"
+          ]
         },
         "export": "todoAdd"
       },
       {
         "name": "todo_mark",
-        "description": "Set the stage of one or more existing plan items by id. Use it to record progress: move an item to active when you start it, done when it finishes, or dropped when it's abandoned. Precondition: every id must already exist in the plan, and only one item may be active at a time — marking a second active one silently demotes the previous one to pending and the reply says so. Returns the whole rendered plan, one item per line with its stage mark, followed by a tally of done/active/pending items.",
+        "description": "Set the stage of one or more existing plan items by id. Use it to record progress: move an item to active when you start it, done when it finishes, or dropped when it's abandoned. Precondition: every id must already exist in the plan, and only one item may be active at a time \u2014 marking a second active one silently demotes the previous one to pending and the reply says so. Returns the whole rendered plan, one item per line with its stage mark, followed by a tally of done/active/pending items.",
         "parameters": {
           "type": "object",
           "properties": {
-            "ids": { "type": "array", "items": { "type": "string" }, "description": "Item ids to update." },
-            "stage": { "type": "string", "enum": ["pending", "active", "done", "dropped"] }
+            "ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Item ids to update."
+            },
+            "stage": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "active",
+                "done",
+                "dropped"
+              ]
+            }
           },
-          "required": ["ids", "stage"]
+          "required": [
+            "ids",
+            "stage"
+          ]
         },
         "export": "todoMark"
       },
@@ -85,21 +138,32 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "ids": { "type": "array", "items": { "type": "string" }, "description": "Full or partial new order of item ids." }
+            "ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Full or partial new order of item ids."
+            }
           },
-          "required": ["ids"]
+          "required": [
+            "ids"
+          ]
         },
         "export": "todoOrder"
       },
       {
         "name": "todo_read",
         "description": "Read the current plan for this conversation without changing it. Use it to check progress before deciding the next move, especially after a long gap or at the start of a turn. Precondition: none; an empty plan simply renders as an empty list with a zero tally. Returns the whole rendered plan, one item per line with its stage mark, followed by a tally of done/active/pending items.",
-        "parameters": { "type": "object", "properties": {} },
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
         "export": "todoRead"
       },
       {
         "name": "ask_user",
-        "description": "Record up to four clarifying questions for the user and get back fixed instruction text to relay them. Use it when a task is genuinely ambiguous and guessing would risk wasted work, rather than for things you could reasonably decide yourself. Precondition: 1 to 4 questions, each under 500 characters with at most 12 options of 120 characters; this is the only channel for structured questions right now, so the reply must literally repeat them to the user. Returns fixed text telling you to end your turn by asking the user these questions verbatim, numbered, with their options.",
+        "description": "Record up to four clarifying questions for the user; the gateway page draws them as a form. Use it when a task is genuinely ambiguous and guessing would risk wasted work, rather than for things you could reasonably decide yourself. Precondition: 1 to 4 questions, each under 500 characters with at most 12 options of 120 characters. Returns fixed text telling you to end your turn with one short line saying you are waiting, and stop; the answers arrive as the next user message.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -110,17 +174,35 @@
               "items": {
                 "type": "object",
                 "properties": {
-                  "id": { "type": "string" },
-                  "question": { "type": "string" },
-                  "options": { "type": "array", "items": { "type": "string" }, "maxItems": 12 },
-                  "allow_multiple": { "type": "boolean" }
+                  "id": {
+                    "type": "string"
+                  },
+                  "question": {
+                    "type": "string"
+                  },
+                  "options": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 12
+                  },
+                  "allow_multiple": {
+                    "type": "boolean"
+                  }
                 },
-                "required": ["question"]
+                "required": [
+                  "question"
+                ]
               }
             },
-            "intro": { "type": "string" }
+            "intro": {
+              "type": "string"
+            }
           },
-          "required": ["questions"]
+          "required": [
+            "questions"
+          ]
         },
         "export": "askUser"
       }

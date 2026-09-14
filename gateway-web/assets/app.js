@@ -12,7 +12,9 @@ import { mountSessions, titleOf } from "./views/sessions.js";
 import { mountTranscript } from "./views/transcript.js";
 
 const statusEl = $("status");
-const transcript = mountTranscript($("transcript"), { onNew: createConversation });
+// An ask form's Submit goes through the same `send` the composer uses: the answers
+// are an ordinary user message, so the pending row and failure handling apply for free.
+const transcript = mountTranscript($("transcript"), { onNew: createConversation, onAnswer: (text) => send(text) });
 
 /* Which turn the open transcript has drawn up to, so a live event that the session record already
  * carried is not drawn twice. `seq` numbers events within a turn; a new turn id starts over. */

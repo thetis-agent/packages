@@ -17,8 +17,8 @@ test("ask_user returns the fixed resumption text", async () => {
   const out = await askUser({ questions: [{ question: "Which color?", options: ["red", "blue"] }] }, env);
   assert.equal(
     out,
-    "Questions recorded. Now end your reply by asking the user these questions word for word, " +
-      "numbered, with their options, and stop. The answer arrives in the user's next message."
+    "Questions recorded; the page shows them as a form. End your reply with one short line " +
+      "saying you are waiting for the answers, and stop. They arrive as the next user message."
   );
   await rm(home, { recursive: true, force: true });
 });

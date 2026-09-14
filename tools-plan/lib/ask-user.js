@@ -1,5 +1,5 @@
-// ask_user: records questions for the (not-yet-built) form UI, and hands back fixed text
-// so the model asks them inline in this turn — the only mechanism that exists right now.
+// ask_user: records questions for the page's ask form, and hands back fixed text telling
+// the model to end its turn and wait — the form itself asks the user, so the model must not.
 import { loadQuestions, saveQuestions } from "./store.js";
 
 const MAX_QUESTIONS = 4;
@@ -31,7 +31,7 @@ export async function askUser(args, env) {
   await saveQuestions(home, sessionId, data);
 
   return (
-    "Questions recorded. Now end your reply by asking the user these questions word for word, " +
-    "numbered, with their options, and stop. The answer arrives in the user's next message."
+    "Questions recorded; the page shows them as a form. End your reply with one short line " +
+    "saying you are waiting for the answers, and stop. They arrive as the next user message."
   );
 }
