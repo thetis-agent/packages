@@ -5,6 +5,7 @@ export function createProvider(config) {
     async *call(call) {
       const last = call.messages[call.messages.length - 1];
       if (last?.role === "tool" && /FAIL_NEXT/.test(last.content)) { yield { type: "error", message: "the provider gave up" }; return; }
+      if (last?.role === "tool" && /LOOP/.test(last.content)) { yield { type: "tool_call", call: { id: `c${call.messages.length}`, name: "exec", args: { cmd: "echo LOOP" } } }; return; }
       if (last?.role === "tool") { yield { type: "text", delta: `tool said: ${last.content}` }; return; }
       const text = last?.content ?? "";
       if (text.startsWith("run: ") && call.tools.some((t) => t.name === "exec")) {

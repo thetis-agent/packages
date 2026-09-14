@@ -43,6 +43,7 @@ export function applyActivity(session, event, startedAt) {
     case "error": {
       const record = had ?? fresh(Date.now());
       if (event.code === "cancelled") return store.setActivity(session, { ...record, state: "stopped", outcome: "Stopped by you" });
+      if (event.code === "rounds") return store.setActivity(session, { ...record, state: "stopped", outcome: "Reached the tool-round limit" });
       return store.setActivity(session, { ...record, state: "failed", outcome: event.message || "the turn failed" });
     }
     case "turn.end": {

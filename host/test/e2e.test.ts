@@ -42,6 +42,7 @@ before(() => {
   const config = defaultConfig(join(home, "data"), PROJECT);
   config.systemPackagesDir = sys;
   config.model = "echo";
+  config.maxToolRounds = 3;
   config.fence.sandbox = SANDBOX;
   config.fence.readOnly.push(sys, FIXTURES);
   config.systemPackages = { "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache"], _system: ["@thetis/provider-echo"] };
@@ -180,6 +181,22 @@ test("git install: a package directory inside a repository, as url#dir", async (
   assert.ok(existsSync(join(us.store, "node_modules", "@alice", "wave", "index.js")));
   await assert.rejects(kernel.packages.install(us, actor, `file://${repo}#../escape`), /inside the repository/);
   await kernel.packages.uninstall(us, "@alice/wave");
+});
+
+test("a turn that keeps calling tools stops at the round limit with a named error and keeps its work", async () => {
+  const s = kernel.sessions.create("alice");
+  const r = await collect(kernel.sessions.send("alice", s.id, "run: echo LOOP"));
+  const stop = r.all.find((e) => e.type === "error") as { code?: string; message: string } | undefined;
+  assert.equal(stop?.code, "rounds");
+  assert.match(stop?.message ?? "", /limit of 3 tool rounds/);
+  const rec = kernel.sessions.inspect("alice", s.id);
+  const calls = rec.conversation.filter((m) => m.role === "assistant" && m.toolCalls?.length).length;
+  const results = rec.conversation.filter((m) => m.role === "tool").length;
+  assert.equal(calls, 4, "the first call and three more rounds are kept");
+  assert.equal(results, 4, "every tool call has a result, the last one saying the turn stopped");
+  assert.match(rec.conversation.at(-1)?.content ?? "", /failed before this tool ran/);
+  const again = await collect(kernel.sessions.send("alice", s.id, "hello"));
+  assert.equal(again.text, "echo: hello (t1)", "the next turn runs on the kept record");
 });
 
 test("a turn that fails after a tool ran keeps the tool call and its result in the record", async () => {

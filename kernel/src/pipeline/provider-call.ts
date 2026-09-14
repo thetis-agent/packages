@@ -44,12 +44,15 @@ export class ProviderCallStep {
     const provider = await this.providers.resolve(us, call.model);
     const partial = { text: "" };
     try {
-      for (let round = 0; round <= this.config.maxToolRounds; round++) {
+      let round = 0;
+      for (;;) {
         const { message: assistant, usage } = await this.callOnce(provider, call, emit, partial, signal);
         conversation.push(assistant);
         call.messages.push(assistant);
         emit({ type: "message", message: assistant, usage });
         if (!assistant.toolCalls?.length) break;
+        // The cap is a named stop, not a silent one: the model and the person both learn why the turn ended.
+        if (round++ >= this.config.maxToolRounds) throw new CodedError(`the turn reached its limit of ${this.config.maxToolRounds} tool rounds; send a message to continue`, "rounds");
         for (const tc of assistant.toolCalls) {
           checkCancelled(signal);
           const result = await this.runTool(us, ctx, call.tools, tc, emit, signal);
