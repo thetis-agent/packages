@@ -25,5 +25,12 @@ export const startService: Service = async (env) => {
   await new Promise<void>((done, fail) => server.once("error", fail).listen(socket, done));
   chmodSync(socket, 0o660);
   env.log(`serving /${user}/ on ${socket}`);
-  return { stop: () => new Promise<void>((done) => server.close(() => done())) };
+  return {
+    stop: () =>
+      new Promise<void>((done) => {
+        // close() alone waits for every open connection, and an event stream never ends on its own.
+        server.close(() => done());
+        server.closeAllConnections();
+      }),
+  };
 };
