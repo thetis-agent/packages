@@ -3,12 +3,14 @@
  * `message` settles the bubble into rendered markdown with a usage footnote, `error` becomes a note.
  * Consecutive tool cards sit in one run with a count, so a long stretch of calls reads as one thing. */
 
-import { fmtCost, fmtDuration, fmtTokens, shortModel } from "../lib/activity.js";
+import { fmtDuration } from "../lib/activity.js";
 import { avatarFor } from "../lib/avatar.js";
 import { clear, el, icon } from "../lib/dom.js";
+import { gist, usageLine } from "../lib/transcript-format.js";
 import { renderMarkdown } from "../lib/markdown.js";
 import { store } from "../lib/store.js";
 import { createAskTracker } from "./ask.js";
+import { isTodoTool, lastPlanText, parsePlan, planLine } from "./plan.js";
 
 const RESULT_PREVIEW = 4000;
 const RUN_FOLD = 4; // a restored run of more tool calls than this starts folded
@@ -21,6 +23,7 @@ export function mountTranscript(root, { onNew, onAnswer }) {
   let pendingRow = null;  // the reader's own message awaiting the server's echo
   let run = null;         // the open run of tool cards, or null
   const asks = createAskTracker(); // ask_user forms drawn in place of a tool card
+  const todoArgs = new Map(); // todo_* call id -> its args, held from tool.call to tool.result
   let follow = true;
   const jump = el("button", { type: "button", class: "jump-latest", title: "Jump to the latest message", onClick: () => { follow = true; root.scrollTop = root.scrollHeight; draw(); } }, icon(DOWN, { size: 14, width: 2 }), "Latest");
   jump.hidden = true;
@@ -54,6 +57,7 @@ export function mountTranscript(root, { onNew, onAnswer }) {
     pendingRow = null;
     run = null;
     asks.reset();
+    todoArgs.clear();
     follow = true;
     draw();
   }
@@ -103,6 +107,17 @@ export function mountTranscript(root, { onNew, onAnswer }) {
     const node = row("note", el("span", { class: "note-dot" }), el("span", {}, text));
     if (tone) node.classList.add(`is-${tone}`);
     return node;
+  }
+
+  // ---- the todo plan: one quiet line per todo_* call, the chip and its popover say the rest ----
+
+  /** A todo_* result updates the page's plan for the open session and draws its one-line note. */
+  function todoResultRow(id, name, result) {
+    const plan = parsePlan(result);
+    if (plan) store.setPlan(store.get("current"), plan);
+    const args = todoArgs.get(id) || {};
+    todoArgs.delete(id);
+    if (plan) note(planLine(name, args, plan), "quiet");
   }
 
   function openLive() {
@@ -275,6 +290,7 @@ export function mountTranscript(root, { onNew, onAnswer }) {
       assistantRow(message.content || "", usage);
       for (const call of message.toolCalls ?? []) {
         if (call.name === ASK_TOOL && askRow(call)) continue;
+        if (isTodoTool(call.name)) { todoArgs.set(call.id, call.args || {}); continue; }
         toolCard(call, false, true);
       }
       return;
@@ -283,6 +299,7 @@ export function mountTranscript(root, { onNew, onAnswer }) {
       // The ask form already says everything the result would; the result itself
       // (the fixed "questions recorded" text) is not something a reader needs to see.
       if (message.name === ASK_TOOL && !root.querySelector(`details.tool[data-tool="${cssEscape(message.toolCallId)}"]`)) return;
+      if (isTodoTool(message.name)) return todoResultRow(message.toolCallId, message.name, message.content);
       return toolResult(message.toolCallId, message.name, message.content);
     }
     if (message.content) note(message.content);
@@ -307,6 +324,8 @@ export function mountTranscript(root, { onNew, onAnswer }) {
         // The form stands in for the tool row entirely; showing both would put
         // the same questions on screen twice, once as raw JSON.
         if (event.call?.name === ASK_TOOL && askRow(event.call)) break;
+        // A todo_* call draws no card at all; its result draws the one quiet line.
+        if (isTodoTool(event.call?.name)) { run = null; todoArgs.set(event.call.id, event.call.args || {}); break; }
         toolCard(event.call, true);
         break;
       case "tool.result":
@@ -314,6 +333,7 @@ export function mountTranscript(root, { onNew, onAnswer }) {
         // call somehow never got its own row (a malformed call fell through to
         // the ordinary tool card, which does want its result shown).
         if (event.name === ASK_TOOL && !root.querySelector(`details.tool[data-tool="${cssEscape(event.id)}"]`)) break;
+        if (isTodoTool(event.name)) { todoResultRow(event.id, event.name, event.result); break; }
         toolResult(event.id, event.name, event.result);
         break;
       case "message":
@@ -337,9 +357,15 @@ export function mountTranscript(root, { onNew, onAnswer }) {
     }
   }
 
+  function seedPlan(record) {
+    const text = lastPlanText(record);
+    store.setPlan(store.get("current"), text ? parsePlan(text) : null);
+  }
+
   /** Rebuilds from a session record, including the turn in progress if there is one. */
   function restore(record) {
     reset();
+    seedPlan(record);
     (record.conversation ?? []).forEach((message, index) => drawMessage(message, record.usage?.[index]));
     settleTools("no result");
     run = null;
@@ -357,35 +383,7 @@ export function mountTranscript(root, { onNew, onAnswer }) {
   return { reset, showEmpty, restore, applyEvent, addLocal, settleLocal, failLocal };
 }
 
-/* The accounting footnote under a reply. Reads the usage by field name; nothing reported means no footnote.
- * `model` is the one the conversation was set to; a recorded usage carries its own. */
-function usageLine(usage, model) {
-  if (!usage || typeof usage !== "object") return null;
-  const parts = [];
-  const answered = typeof usage.model === "string" ? usage.model : model;
-  if (answered) parts.push(el("span", { class: "mono", title: answered }, shortModel(answered)));
-  const prompt = usage.prompt_tokens;
-  if (typeof usage.cache_read_tokens === "number" && prompt) parts.push(el("span", { title: `${usage.cache_read_tokens} of ${prompt} prompt tokens came from the cache` }, `cached ${Math.round((usage.cache_read_tokens / prompt) * 100)}%`));
-  if (typeof prompt === "number") parts.push(el("span", {}, `${fmtTokens(prompt)} in`));
-  if (typeof usage.completion_tokens === "number") parts.push(el("span", {}, `${fmtTokens(usage.completion_tokens)} out`));
-  if (typeof usage.cost === "number") parts.push(el("span", {}, fmtCost(usage.cost)));
-  if (!parts.length) return null;
-  return el("div", { class: "msg-usage" }, ...parts);
-}
 
-/** One line of the arguments: `key: value · key: value`, each value cut short. */
-function gist(args, max) {
-  if (!args || typeof args !== "object") return "";
-  const parts = [];
-  for (const [key, value] of Object.entries(args)) {
-    const text = typeof value === "string" ? value : JSON.stringify(value);
-    if (text === undefined) continue;
-    const one = text.replace(/\s+/g, " ").trim();
-    parts.push(`${key}: ${one.length > 60 ? one.slice(0, 59) + "…" : one}`);
-  }
-  const line = parts.join("  ·  ");
-  return line.length > max ? line.slice(0, max - 1) + "…" : line;
-}
 
 function cssEscape(value) {
   return String(value).replace(/["\\]/g, "\\$&");

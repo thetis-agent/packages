@@ -8,6 +8,7 @@ import { store } from "./lib/store.js";
 import { toast } from "./lib/toast.js";
 import { mountComposer } from "./views/composer.js";
 import { mountPanel } from "./views/panel.js";
+import { mountPlanChip } from "./views/plan.js";
 import { mountSessions, titleOf } from "./views/sessions.js";
 import { mountTranscript } from "./views/transcript.js";
 
@@ -144,6 +145,7 @@ async function chooseModel(id, model) {
 const composer = mountComposer({ onSend: (text) => { void send(text); }, onStop: stop, onModel: chooseModel });
 const sessions = mountSessions({ onOpen: openConversation, onNew: createConversation, onArchive: archive, onRename: rename });
 const panel = mountPanel();
+mountPlanChip($("chip-todo"), () => store.planOf(store.get("current")));
 
 // --- the header over the transcript ---
 
@@ -172,9 +174,16 @@ function drawHeader() {
   archiveBtn.title = session?.archived ? "Restore this conversation" : "Archive this conversation";
   archiveBtn.setAttribute("aria-label", archiveBtn.title);
   archiveBtn.classList.toggle("is-archived", Boolean(session?.archived));
+  const todo = $("chip-todo");
+  const plan = id ? store.planOf(id) : null;
+  setHidden(todo, !plan);
+  if (plan) {
+    todo.textContent = `todo ${plan.done}/${plan.total}`;
+    todo.classList.toggle("is-done", plan.allSettled);
+  }
   drawFavicon(countWorking());
 }
-for (const key of ["current", "sessions", "running", "activity", "choices"]) store.watch(key, drawHeader);
+for (const key of ["current", "sessions", "running", "activity", "choices", "plan"]) store.watch(key, drawHeader);
 $("archive-chat").addEventListener("click", () => {
   const id = store.get("current");
   const session = store.session(id);

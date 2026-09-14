@@ -1103,6 +1103,22 @@ select.input { padding-right: 24px; }
 .popover-head { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-2); font-weight: 600; }
 .popover-note { margin: 0; color: var(--text-dim); }
 .popover-actions { display: flex; justify-content: flex-end; gap: var(--gap-2); }
+
+/* --- the todo plan: the chip's popover card, ported from Thetis 1's rail panel --- */
+.plan-popover { max-height: min(420px, 70vh); overflow-y: auto; }
+.plan-list { display: flex; flex-direction: column; gap: 6px; }
+.todo-item { display: flex; gap: 8px; align-items: baseline; }
+.todo-status { flex: none; color: var(--text-faint); }
+.todo-item.is-active .todo-status { color: var(--warn); }
+.todo-item.is-done .todo-status { color: var(--ok); }
+.todo-item.is-done .todo-content, .todo-item.is-dropped .todo-content { color: var(--text-faint); text-decoration: line-through; }
+.todo-copy { min-width: 0; }
+.todo-content { color: var(--text); }
+.todo-note { color: var(--text-dim); font-size: var(--text-xs); margin-top: 1px; }
+.todo-id { color: var(--text-faint); font-size: var(--text-xs); }
+.plan-notes { color: var(--warn); font-size: var(--text-xs); }
+.plan-tally { color: var(--text-dim); font-size: var(--text-xs); padding-top: 6px; border-top: 1px solid var(--hairline); font-variant-numeric: tabular-nums; }
+.chip-quiet.is-done { color: var(--ok); }
 @media (max-width: 1100px) {
   .panel-cols { flex-direction: column; }
   .panel-col.is-side { flex: none; width: 100%; }
