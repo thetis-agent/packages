@@ -297,7 +297,6 @@ export function mountTranscript(root, { onNew }) {
         settleLive();
         settleTools(event.code === "cancelled" ? "stopped" : "no result");
         if (event.code === "cancelled") note("Stopped.", "quiet");
-        else if (event.code === "rounds") note(`Stopped at the tool-round limit. Send a message to continue.`, "quiet");
         else note(`The turn failed: ${event.message || "no reason given"}`, "error");
         break;
       case "turn.end":

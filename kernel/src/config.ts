@@ -34,7 +34,6 @@ export interface KernelConfig {
   fence: FenceConfig;
   /** The door: the one host port, which routes to the login target and to each person's gateway socket. */
   door: { host: string; port: number };
-  maxToolRounds: number;
   requestTimeoutMs: number;
 }
 
@@ -63,7 +62,6 @@ export function defaultConfig(home: string, projectRoot: string): KernelConfig {
       hidden: [home],
     },
     door: { host: "127.0.0.1", port: 8777 },
-    maxToolRounds: 40,
     requestTimeoutMs: 600_000,
   };
 }
