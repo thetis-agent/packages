@@ -48,16 +48,18 @@ export class PackageManager {
   /** Installed packages of a userspace, with their live manifests, in install order. */
   installed(us: Userspace): PackageInfo[] {
     const out: PackageInfo[] = [];
+    const everyone = new Set(this.forEveryone());
+    const mark = (info: PackageInfo) => (everyone.has(info.name) ? { ...info, everyone: true } : info);
     for (const rec of this.registry.installedIn(us.id)) {
       const root = this.linkPath(us, rec.name);
       if (!existsSync(resolve(root, "package.json"))) {
         const relinked = this.relink(us, rec);
-        if (relinked) out.push(relinked);
+        if (relinked) out.push(mark(relinked));
         else console.error(`[packages] ${rec.name} is recorded for ${us.id} but its files are missing`);
         continue;
       }
       try {
-        out.push(toInfo(readManifest(root), root));
+        out.push(mark(toInfo(readManifest(root), root)));
       } catch (err) {
         console.error(`[packages] skipping ${rec.name}: ${(err as Error).message}`);
       }
@@ -71,9 +73,14 @@ export class PackageManager {
    * system userspace is not a person. Idempotent.
    */
   seedSystem(us: Userspace): void {
-    const everyone = us.id === SYSTEM_USER ? [] : [...(this.config.systemPackages["*"] ?? []), ...this.promoted(), ...this.registry.everyone()];
+    const everyone = us.id === SYSTEM_USER ? [] : this.forEveryone();
     const names = [...everyone, ...(this.config.systemPackages[us.id] ?? [])];
     for (const name of new Set(names)) if (!this.registry.get(name)?.userspaces.includes(us.id)) this.installSystem(us, name);
+  }
+
+  /** The packages every person gets: the `"*"` list, every promoted package, and every package marked for everyone. */
+  forEveryone(): string[] {
+    return [...(this.config.systemPackages["*"] ?? []), ...this.promoted(), ...this.registry.everyone()];
   }
 
   /** Marks a shipped system package as the default for everyone. New people are seeded with it. */

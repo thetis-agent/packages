@@ -105,6 +105,8 @@ export interface PackageInfo {
   description: string;
   root: string;
   thetis: ThetisField;
+  /** True when every person gets this package: it is in `systemPackages["*"]`, promoted, or marked for everyone. */
+  everyone?: boolean;
 }
 
 export interface SessionInfo {

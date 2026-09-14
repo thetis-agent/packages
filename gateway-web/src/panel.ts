@@ -39,7 +39,7 @@ export function toRow(p: PackageInfo): PackageRow {
     version: p.version,
     type: p.type,
     description: p.description,
-    scope: p.name.startsWith("@thetis/") ? "everyone" : "me",
+    scope: p.everyone ? "everyone" : "me",
     steps: (p.thetis.steps ?? []).map((s) => ({ id: s.id, phase: s.phase })),
     tools: (p.thetis.tools ?? []).map((t) => t.name),
     service: !!p.thetis.service,

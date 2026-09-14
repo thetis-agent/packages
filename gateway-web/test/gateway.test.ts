@@ -375,7 +375,14 @@ test("packages: a person installs their own package, an admin promotes it, and e
   assert.equal((await api(alice, "/alice/api/packages/%40thetis%2Fhello", { method: "DELETE" })).status, 200, "a person can remove a package from their own space");
   assert.equal((await api(alice, "/alice/api/packages/not-a-name", { method: "DELETE" })).status, 404);
 
-  // Install for everyone: a shipped package nobody has yet reaches every person now and every new person later.
+  // A shipped package an admin installs for themselves is theirs only, until it is installed for everyone.
+  const own = await api(root, "/root/api/packages", { method: "POST", body: JSON.stringify({ source: "@thetis/gateway-cli" }) });
+  assert.equal(own.status, 201, await own.text());
+  const roots = (await (await api(root, "/root/api/packages")).json()) as { name: string; scope: string }[];
+  assert.ok(roots.some((p) => p.name === "@thetis/gateway-cli" && p.scope === "me"), "installed for one person: only me");
+  assert.ok(!((await (await api(bob, "/bob/api/packages")).json()) as { name: string }[]).some((p) => p.name === "@thetis/gateway-cli"));
+
+  // Install for everyone: a shipped package reaches every person now and every new person later.
   assert.equal((await api(alice, "/alice/api/admin/packages/everyone", { method: "POST", body: JSON.stringify({ source: "@thetis/gateway-cli" }) })).status, 403);
   const everyone = await api(root, "/root/api/admin/packages/everyone", { method: "POST", body: JSON.stringify({ source: "@thetis/gateway-cli" }) });
   const everyoneText = await everyone.text();
@@ -383,7 +390,8 @@ test("packages: a person installs their own package, an admin promotes it, and e
   const got = JSON.parse(everyoneText) as { name: string; userspaces: string[] };
   assert.equal(got.name, "@thetis/gateway-cli");
   assert.ok(got.userspaces.includes("bob") && !got.userspaces.includes("_system"));
-  assert.ok(((await (await api(bob, "/bob/api/packages")).json()) as { name: string }[]).some((p) => p.name === "@thetis/gateway-cli"));
+  assert.ok(((await (await api(bob, "/bob/api/packages")).json()) as { name: string; scope: string }[]).some((p) => p.name === "@thetis/gateway-cli" && p.scope === "everyone"));
+  assert.ok(((await (await api(root, "/root/api/packages")).json()) as { name: string; scope: string }[]).some((p) => p.name === "@thetis/gateway-cli" && p.scope === "everyone"), "the admin's own row now says everyone");
   assert.equal((await api(root, "/root/api/admin/users", { method: "POST", body: JSON.stringify({ id: "dave" }) })).status, 201);
   assert.ok(kernel.packages.installed(kernel.userspaces.pathFor("dave")).some((p) => p.name === "@thetis/gateway-cli"), "a new person is seeded with it");
   await api(root, "/root/api/admin/users/dave", { method: "DELETE" });

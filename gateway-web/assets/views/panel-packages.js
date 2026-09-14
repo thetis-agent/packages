@@ -1,5 +1,5 @@
 /* Packages: one table of everything known here, deduplicated by name. A package is installed for the
- * person ("Only me" in their scope, "Everyone" as a system package) or available from a registry. The
+ * person ("Only me", or "Everyone" when every person gets it) or available from a registry. The
  * card on the right shows what it brings and the actions the state and the role allow: install for me,
  * install for someone (admin), install for everyone (admin), remove, make it the default for everyone. */
 
