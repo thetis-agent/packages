@@ -34,6 +34,7 @@ const kernel: KernelClient = {
   packages: {
     install: (source) => rpc("packages.install", { source }),
     uninstall: (name) => rpc("packages.uninstall", { name }),
+    delete: (name) => rpc("packages.delete", { name }),
     list: () => rpc("packages.list"),
   },
   operator: {

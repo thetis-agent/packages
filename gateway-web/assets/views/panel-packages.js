@@ -1,7 +1,8 @@
 /* Packages: one table of everything known here, deduplicated by name. A package is installed for the
  * person ("Only me", or "Everyone" when every person gets it) or available from a registry. The
  * card on the right shows what it brings and the actions the state and the role allow: install for me,
- * install for someone (admin), install for everyone (admin), remove, make it the default for everyone. */
+ * install for someone (admin), install for everyone (admin), remove, delete a package of one's own with
+ * its files, make it the default for everyone. A fork says what it was copied from and what it replaced. */
 
 import { api } from "../lib/api.js";
 import { clear, el } from "../lib/dom.js";
@@ -73,6 +74,15 @@ export function mountPackages(root, { role, user }) {
     return badge(`Available · ${r.registry}`, "ok");
   }
 
+  function forkBadge(r) {
+    return r.forkedFrom ? badge(`fork of ${r.forkedFrom.name} ${r.forkedFrom.version}`, "warn") : null;
+  }
+
+  /** A package the person can delete with its files: one of their own, seen from their own setup. */
+  function ownRow(r) {
+    return r.installed && mine() && r.name.startsWith(`@${user}/`);
+  }
+
   function brings(r) {
     const parts = [];
     if (r.steps?.length) parts.push(`${r.steps.length} step${r.steps.length === 1 ? "" : "s"}`);
@@ -93,7 +103,7 @@ export function mountPackages(root, { role, user }) {
         [
           { key: "name", label: "Package", render: (r) => el("div", {}, el("code", {}, r.name), r.description && el("div", { class: "text-dim small" }, r.description)) },
           { key: "version", label: "Version", render: (r) => el("code", { class: "text-dim" }, r.version) },
-          { key: "state", label: "State", render: stateBadge },
+          { key: "state", label: "State", render: (r) => el("div", { class: "tags" }, stateBadge(r), forkBadge(r)) },
           { key: "brings", label: "Brings", render: brings },
         ],
         shown,
@@ -155,6 +165,11 @@ export function mountPackages(root, { role, user }) {
       const remove = button("Remove", { tone: "warn", onClick: () => void removeRow(row, remove) });
       actions.push(remove);
     }
+    if (ownRow(row)) {
+      const del = button("Delete", { tone: "warn", onClick: () => void deleteRow(row, del) });
+      actions.push(del);
+      hints.push(row.replaced ? `Remove or Delete puts ${row.replaced} back in place.` : "Delete removes the package and its files under packages/.");
+    }
     put(
       detailEl,
       card(
@@ -163,7 +178,9 @@ export function mountPackages(root, { role, user }) {
         kv([
           ["version", el("code", {}, row.version + (row.available && row.available !== row.version ? ` (registry has ${row.available})` : ""))],
           ["type", row.type],
-          ["state", stateBadge(row)],
+          ["state", el("div", { class: "tags" }, stateBadge(row), forkBadge(row))],
+          row.forkedFrom && ["forked from", el("code", {}, `${row.forkedFrom.name}@${row.forkedFrom.version}`)],
+          row.replaced && ["replaces", el("code", {}, row.replaced)],
           row.registry && ["registry", row.registry],
           row.source && ["source", el("code", { class: "wrap" }, row.source)],
         ].filter(Boolean)),
@@ -230,7 +247,7 @@ export function mountPackages(root, { role, user }) {
     const ok = await confirm(anchor, {
       title: "Remove this package?",
       lines: [["package", row.name], ["from", mine() ? "your own setup" : `${whose}'s setup`]],
-      note: row.state === "everyone" ? "This is a system package. Steps and tools it brings stop on the next turn; an admin can add it back." : "Its files stay in place; only the link is removed. Steps and tools it brings stop on the next turn.",
+      note: row.replaced ? `Its files stay in place; only the link is removed. ${row.replaced} comes back on the next turn.` : row.state === "everyone" ? "This is a system package. Steps and tools it brings stop on the next turn; an admin can add it back." : "Its files stay in place; only the link is removed. Steps and tools it brings stop on the next turn.",
       confirmLabel: "Remove",
       tone: "warn",
     });
@@ -239,6 +256,28 @@ export function mountPackages(root, { role, user }) {
     try {
       await api(mine() ? `/api/packages/${enc(row.name)}` : `/api/admin/packages/${enc(row.name)}?user=${enc(whose)}`, { method: "DELETE" });
       toast(`${row.name} was removed.`, { tone: "good" });
+      await load();
+    } catch (err) {
+      toast(err.message, { tone: "error" });
+    } finally {
+      stop();
+    }
+  }
+
+  async function deleteRow(row, anchor) {
+    const ok = await confirm(anchor, {
+      title: "Delete this package?",
+      lines: [["package", row.name], row.forkedFrom && ["forked from", `${row.forkedFrom.name}@${row.forkedFrom.version}`], ["comes back", row.replaced || "nothing"]].filter(Boolean),
+      note: "This deletes the files under packages/ too. Steps and tools it brings stop on the next turn.",
+      confirmLabel: "Delete",
+      tone: "warn",
+    });
+    if (!ok) return;
+    const stop = busy(detailEl, "Deleting…");
+    try {
+      const r = await api(`/api/packages/${enc(row.name)}?files=1`, { method: "DELETE" });
+      toast(r.restored ? `${r.name} was deleted. ${r.restored} is back in place.` : `${r.name} was deleted.`, { tone: "good" });
+      selected = r.restored || null;
       await load();
     } catch (err) {
       toast(err.message, { tone: "error" });

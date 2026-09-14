@@ -15,6 +15,15 @@ export function createProvider(config) {
         yield { type: "tool_call", call: { id: "c2", name: "install_package", args: { source: text.slice(9) } } };
         return;
       }
+      if (text.startsWith("fork: ")) {
+        const [name, as] = text.slice(6).split(" as ");
+        yield { type: "tool_call", call: { id: "c3", name: "fork_package", args: as ? { name, as } : { name } } };
+        return;
+      }
+      if (text.startsWith("delete: ")) {
+        yield { type: "tool_call", call: { id: "c4", name: "delete_package", args: { name: text.slice(8) } } };
+        return;
+      }
       if (text.startsWith("slow: ")) {
         // Streams one word every 50 ms, so a test can cancel mid-stream.
         for (const word of text.slice(6).split(" ")) { await new Promise((r) => setTimeout(r, 50)); yield { type: "text", delta: word + " " }; }

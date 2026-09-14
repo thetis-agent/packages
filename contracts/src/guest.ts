@@ -1,7 +1,7 @@
 // What package code sees inside the fence: the environment, the kernel client, and the shapes of a step, a tool,
 // a service, a provider, and an enumerator. The userspace agent builds these; package authors implement them.
 import type { ModelChoices, ModelDescriptor, ProviderCall, ProviderEvent } from "./messages.js";
-import type { PackageInfo } from "./packages.js";
+import type { DeletedPackage, PackageInfo } from "./packages.js";
 import type { AuthUser, SessionInfo, SessionRecord, SessionSummaryRef } from "./identity.js";
 import type { StepContext, StepResult, TurnEvent, TurnOptions } from "./pipeline.js";
 
@@ -40,6 +40,8 @@ export interface KernelClient {
   packages: {
     install(source: string): Promise<PackageInfo>;
     uninstall(name: string): Promise<void>;
+    /** Uninstalls a package of the fence's own scope and deletes its files under the home. Restores what it replaced. */
+    delete(name: string): Promise<DeletedPackage>;
     list(): Promise<PackageInfo[]>;
   };
   operator: {

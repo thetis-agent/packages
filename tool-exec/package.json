@@ -1,11 +1,14 @@
 {
   "name": "@thetis/tool-exec",
   "version": "0.1.0",
-  "description": "Tools for the model: run commands, install and remove packages, and spawn subagents in your own space.",
+  "description": "Tools for the model: run commands, install, fork, remove and delete packages, and spawn subagents in your own space.",
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc -b"
+  },
+  "dependencies": {
+    "@thetis/lib": "^0.1.0"
   },
   "peerDependencies": {
     "@thetis/contracts": "^0.1.0"
@@ -58,7 +61,7 @@
       },
       {
         "name": "uninstall_package",
-        "description": "Remove an installed package from your userspace by name.",
+        "description": "Remove an installed package from your userspace by name. Its files stay. When it was a fork that replaced another package, that package comes back.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -71,6 +74,43 @@
           ]
         },
         "export": "uninstallPackage"
+      },
+      {
+        "name": "fork_package",
+        "description": "Copy an installed package into packages/<as> under your home as @<you>/<as>, ready to edit and then install_package. Installing the fork replaces the original; uninstalling the fork puts the original back. Does not install.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "The installed package to copy, such as @thetis/tools-plan"
+            },
+            "as": {
+              "type": "string",
+              "description": "The directory name under packages/; default is the unscoped name"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        },
+        "export": "forkPackage"
+      },
+      {
+        "name": "delete_package",
+        "description": "Uninstall a package in your own scope and delete its directory under packages/ in your home. When it was a fork, the original comes back. Refuses @thetis/* packages.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        },
+        "export": "deletePackage"
       },
       {
         "name": "spawn_subagent",

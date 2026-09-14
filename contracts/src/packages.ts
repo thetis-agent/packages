@@ -16,6 +16,17 @@ export interface ToolDecl {
   export: string;
 }
 
+/** The package a fork was copied from, as it was at the time of the copy. */
+export interface ForkOrigin {
+  name: string;
+  version: string;
+}
+
+export interface PackageSource {
+  kind: "system" | "local" | "git";
+  ref: string;
+}
+
 export interface ThetisField {
   type: string;
   steps?: StepDecl[];
@@ -24,6 +35,8 @@ export interface ThetisField {
   /** A long-running process the userspace agent starts when the fence opens and stops on uninstall. */
   service?: { export: string };
   publish?: { port: number; to: string }[];
+  /** Set on a fork. Installing a fork replaces its origin in the userspace when the origin is installed there. */
+  forkedFrom?: ForkOrigin;
 }
 
 export interface Manifest {
@@ -47,6 +60,9 @@ export interface PackageInfo {
   thetis: ThetisField;
   /** True when every person gets this package: it is in `systemPackages["*"]`, promoted, or marked for everyone. */
   everyone?: boolean;
+  forkedFrom?: ForkOrigin;
+  /** The package this fork displaced in the userspace. An uninstall of the fork puts it back. */
+  replaced?: string;
 }
 
 export interface PackageRecord {
@@ -54,8 +70,19 @@ export interface PackageRecord {
   version: string;
   type: string;
   owner: string;
-  source: { kind: "system" | "local" | "git"; ref: string };
+  source: PackageSource;
   userspaces: string[];
   /** A shipped system package an admin made the default: every new person's userspace is seeded with it. */
   everyone?: boolean;
+  forkedFrom?: ForkOrigin;
+  /** What this fork displaced, and where that came from, so an uninstall of the fork restores it exactly. */
+  replaced?: string;
+  replacedSource?: PackageSource;
+}
+
+/** The result of deleting a package: what went, where its files were, and what came back in its place. */
+export interface DeletedPackage {
+  name: string;
+  path: string;
+  restored?: string;
 }

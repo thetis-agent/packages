@@ -20,6 +20,8 @@ export function validateManifest(m: Manifest): Manifest {
     assert(s && typeof s.id === "string" && typeof s.phase === "string" && typeof s.export === "string", `${m.name}: each step needs id, phase, export`);
   }
   if (t.service !== undefined) assert(t.service && typeof t.service.export === "string", `${m.name}: service needs an export`);
+  const f = t.forkedFrom;
+  if (f !== undefined) assert(f && SCOPED_NAME.test(f.name) && typeof f.version === "string", `${m.name}: forkedFrom needs a scoped name and a version`);
   for (const tool of t.tools ?? []) {
     assert(tool && typeof tool.name === "string" && typeof tool.export === "string", `${m.name}: each tool needs name and export`);
     assert(typeof tool.description === "string", `${m.name}: tool ${tool.name} needs a description`);
@@ -33,7 +35,8 @@ export function scopeOf(name: string): string {
 
 export function toInfo(m: Manifest, root: string): PackageInfo {
   const description = typeof m.description === "string" ? m.description.trim() : "";
-  return { name: m.name, version: m.version, type: m.thetis.type, description, root, thetis: m.thetis };
+  const info: PackageInfo = { name: m.name, version: m.version, type: m.thetis.type, description, root, thetis: m.thetis };
+  return m.thetis.forkedFrom ? { ...info, forkedFrom: m.thetis.forkedFrom } : info;
 }
 
 /** True when the package declares the export this step reference points at. */

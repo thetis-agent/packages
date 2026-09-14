@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
-import { SYSTEM_SCOPE, SYSTEM_USER, type ExecResult, type Fences, type Manifest, type PackageInfo, type PackageRecord, type UserRecord, type Userspace } from "@thetis/contracts";
+import { SYSTEM_SCOPE, SYSTEM_USER, type DeletedPackage, type ExecResult, type Fences, type Manifest, type PackageInfo, type PackageRecord, type PackageSource, type UserRecord, type Userspace } from "@thetis/contracts";
 import { assert, CodedError, errorMessage } from "@thetis/lib/error";
 import { buildCommand, cloneCommand, cloneSlug, copyPackageAs, hasPackageJson, isGitSource, isInside, linkDir, removeLink, splitSource } from "@thetis/lib/pkg-fs";
 import type { KernelConfig } from "../config.js";
@@ -38,17 +38,17 @@ export class PackageManager {
   installed(us: Userspace): PackageInfo[] {
     const out: PackageInfo[] = [];
     const everyone = new Set(this.forEveryone());
-    const mark = (info: PackageInfo) => (everyone.has(info.name) ? { ...info, everyone: true } : info);
+    const mark = (info: PackageInfo, rec: PackageRecord) => ({ ...info, ...(everyone.has(info.name) ? { everyone: true } : {}), ...(rec.replaced ? { replaced: rec.replaced } : {}) });
     for (const rec of this.registry.installedIn(us.id)) {
       const root = this.linkPath(us, rec.name);
       if (!hasPackageJson(root)) {
         const relinked = this.relink(us, rec);
-        if (relinked) out.push(mark(relinked));
+        if (relinked) out.push(mark(relinked, rec));
         else console.error(`[packages] ${rec.name} is recorded for ${us.id} but its files are missing`);
         continue;
       }
       try {
-        out.push(mark(toInfo(readManifest(root), root)));
+        out.push(mark(toInfo(readManifest(root), root), rec));
       } catch (err) {
         console.error(`[packages] skipping ${rec.name}: ${errorMessage(err)}`);
       }
@@ -95,42 +95,84 @@ export class PackageManager {
     return out;
   }
 
-  installSystem(us: Userspace, name: string): PackageInfo {
+  installSystem(us: Userspace, name: string, replaced?: { replaced: string; replacedSource: PackageSource }): PackageInfo {
     assert(scopeOf(name) === SYSTEM_SCOPE, `not a system package: ${name}`);
     const dir = this.systemPackageDir(name);
     assert(dir, `unknown system package: ${name}`);
     const manifest = readManifest(dir);
     this.link(us, name, dir);
-    this.registry.record({ name, version: manifest.version, type: manifest.thetis.type, owner: SYSTEM_USER, source: { kind: "system", ref: dir } }, us.id);
+    const rec = { name, version: manifest.version, type: manifest.thetis.type, owner: SYSTEM_USER, source: { kind: "system" as const, ref: dir }, forkedFrom: manifest.thetis.forkedFrom };
+    this.registry.record({ ...rec, ...replaced }, us.id);
     return toInfo(manifest, this.linkPath(us, name));
   }
 
-  /** Installs from a git URL, a path inside the userspace, or a @thetis/* name (admins only). */
+  /**
+   * Installs from a git URL, a path inside the userspace, or a @thetis/* name (admins only). A fork whose
+   * origin is installed here replaces it in one operation: the origin's service stops and its link goes
+   * before the fork's link and service come, so tool names and sockets never clash.
+   */
   async install(us: Userspace, actor: UserRecord, source: string): Promise<PackageInfo> {
     if (scopeOf(source) === SYSTEM_SCOPE && !source.includes("/", SYSTEM_SCOPE.length + 1)) {
       assert(actor.role !== "user", "only admins can install system packages", "unauthorized");
-      const info = this.installSystem(us, source);
+      const dir = this.systemPackageDir(source);
+      const replaced = dir ? await this.displace(us, readManifest(dir)) : undefined;
+      const info = this.installSystem(us, source, replaced);
       await this.listener?.installed(us, info);
       return info;
     }
-    const kind = isGitSource(source) ? "git" : "local";
+    const kind: PackageSource["kind"] = isGitSource(source) ? "git" : "local";
     const dir = kind === "git" ? await this.clone(us, source) : this.localDir(us, source);
     const manifest = readManifest(dir);
     this.checkOwnership(manifest, us, actor);
     this.checkPeers(manifest, us);
     await this.build(us, dir, manifest);
+    const replaced = await this.displace(us, manifest);
     this.link(us, manifest.name, dir);
-    this.registry.record({ name: manifest.name, version: manifest.version, type: manifest.thetis.type, owner: us.id, source: { kind, ref: source } }, us.id);
-    const info = toInfo(manifest, this.linkPath(us, manifest.name));
+    const rec = { name: manifest.name, version: manifest.version, type: manifest.thetis.type, owner: us.id, source: { kind, ref: source }, forkedFrom: manifest.thetis.forkedFrom };
+    this.registry.record({ ...rec, ...replaced }, us.id);
+    const info = { ...toInfo(manifest, this.linkPath(us, manifest.name)), ...(replaced ? { replaced: replaced.replaced } : {}) };
     await this.listener?.installed(us, info);
     return info;
   }
 
-  async uninstall(us: Userspace, name: string): Promise<void> {
+  /** Removes the link and the record. When the package had displaced its origin, the origin comes back, service and all. */
+  async uninstall(us: Userspace, name: string): Promise<PackageInfo | undefined> {
+    const rec = this.registry.get(name);
     const pkg = this.installed(us).find((p) => p.name === name);
     if (pkg) await this.listener?.uninstalled(us, pkg);
     removeLink(this.linkPath(us, name));
     this.registry.unlink(name, us.id);
+    return rec?.replaced ? this.restore(us, rec.replaced, rec.replacedSource) : undefined;
+  }
+
+  /** Uninstalls a package of the userspace's own scope and deletes its files. Only files under the home go. */
+  async delete(us: Userspace, name: string): Promise<DeletedPackage> {
+    const rec = this.registry.get(name);
+    assert(rec && scopeOf(name) === `@${us.id}` && rec.userspaces.includes(us.id), `${name} is not a package of ${us.id}`, "unauthorized");
+    const dir = rec.source.kind === "local" ? resolve(us.home, rec.source.ref) : undefined;
+    assert(dir && isInside(us.home, dir), `${name} does not live under the home directory; uninstall it instead`, "unauthorized");
+    const restored = await this.uninstall(us, name);
+    rmSync(dir, { recursive: true, force: true });
+    return { name, path: dir, ...(restored ? { restored: restored.name } : {}) };
+  }
+
+  /** The fork rule: when a manifest names an origin that is installed here, the origin is stopped and unlinked first. */
+  private async displace(us: Userspace, m: Manifest): Promise<{ replaced: string; replacedSource: PackageSource } | undefined> {
+    const origin = m.thetis.forkedFrom?.name;
+    const rec = origin && origin !== m.name ? this.registry.get(origin) : undefined;
+    if (!rec?.userspaces.includes(us.id)) return undefined;
+    await this.uninstall(us, rec.name);
+    return { replaced: rec.name, replacedSource: rec.source };
+  }
+
+  /** Puts a displaced origin back: a system package by name, anything else from where it was installed from. */
+  private async restore(us: Userspace, name: string, source?: PackageSource): Promise<PackageInfo | undefined> {
+    const own = source && source.kind !== "system" ? { name, version: "", type: "", owner: us.id, source, userspaces: [] } : undefined;
+    const info = own ? this.relink(us, own) : this.systemPackageDir(name) ? this.installSystem(us, name) : undefined;
+    if (!info) return undefined;
+    if (own) this.registry.record({ ...own, version: info.version, type: info.type }, us.id);
+    await this.listener?.installed(us, info);
+    return info;
   }
 
   /** Where a @thetis/* package lives: the shipped directory first, then the promoted one. */

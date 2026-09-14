@@ -39,6 +39,8 @@ export function createRpcHandler(
         return packages.install(us, actor, String(args.source));
       case "packages.uninstall":
         return packages.uninstall(us, String(args.name));
+      case "packages.delete":
+        return packages.delete(us, String(args.name));
       case "packages.list":
         return packages.installed(us);
       case "sessions.create":

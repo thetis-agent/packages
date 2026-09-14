@@ -29,7 +29,9 @@ export class PackageRegistry {
   record(rec: Omit<PackageRecord, "userspaces">, userspace: string): PackageRecord {
     const existing = this.records[rec.name];
     const userspaces = existing ? existing.userspaces.filter((u) => u !== userspace) : [];
-    const next = { ...rec, userspaces: [...userspaces, userspace], ...(existing?.everyone ? { everyone: true } : {}) };
+    // A promoted fork is installed into every userspace in turn; the first install that displaced something must not lose it.
+    const kept = { ...(existing?.everyone ? { everyone: true } : {}), ...(existing?.replaced && !rec.replaced ? { replaced: existing.replaced, replacedSource: existing.replacedSource } : {}) };
+    const next = { ...rec, userspaces: [...userspaces, userspace], ...kept };
     this.records[rec.name] = next;
     this.file.save();
     return next;

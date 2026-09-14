@@ -4,7 +4,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { exec as cpExec } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -433,6 +433,42 @@ test("packages: a person installs their own package, an admin promotes it, and e
   assert.equal((await api(root, "/root/api/admin/users", { method: "POST", body: JSON.stringify({ id: "dave" }) })).status, 201);
   assert.ok(kernel.packages.installed(kernel.userspaces.pathFor("dave")).some((p) => p.name === "@thetis/gateway-cli"), "a new person is seeded with it");
   await api(root, "/root/api/admin/users/dave", { method: "DELETE" });
+});
+
+test("packages: a fork's row says what it replaced; delete with files puts the origin back; a shipped package is refused", async () => {
+  const alice = await cookieFor("alice", "wonderland");
+  const root = await cookieFor("root", "rootpass1");
+  const us = kernel.userspaces.pathFor("alice");
+  const write = (dir: string, manifest: object) => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "package.json"), JSON.stringify(manifest));
+    writeFileSync(join(dir, "index.js"), "export async function t() { return 'base'; }");
+  };
+  const thetis = { type: "tool", tools: [{ name: "base_t", description: "t", export: "t" }] };
+  write(join(us.home, "packages", "base"), { name: "@alice/base", version: "0.1.0", type: "module", main: "index.js", thetis });
+  assert.equal((await api(alice, "/alice/api/packages", { method: "POST", body: JSON.stringify({ source: "packages/base" }) })).status, 201);
+  write(join(us.home, "packages", "base2"), { name: "@alice/base2", version: "0.1.0-fork.1", type: "module", main: "index.js", thetis: { ...thetis, forkedFrom: { name: "@alice/base", version: "0.1.0" } } });
+  const installed = await api(alice, "/alice/api/packages", { method: "POST", body: JSON.stringify({ source: "packages/base2" }) });
+  const row = JSON.parse(await installed.text()) as { name: string; forkedFrom?: unknown; replaced?: string };
+  assert.equal(installed.status, 201);
+  assert.deepEqual(row.forkedFrom, { name: "@alice/base", version: "0.1.0" });
+  assert.equal(row.replaced, "@alice/base");
+  const rows = (await (await api(alice, "/alice/api/packages")).json()) as { name: string; forkedFrom?: { name: string }; replaced?: string }[];
+  assert.ok(!rows.some((p) => p.name === "@alice/base"), "the origin is displaced");
+  assert.equal(rows.find((p) => p.name === "@alice/base2")?.forkedFrom?.name, "@alice/base");
+  const seen = (await (await api(root, "/root/api/admin/packages?user=alice")).json()) as { name: string; forkedFrom?: { name: string } }[];
+  assert.equal(seen.find((p) => p.name === "@alice/base2")?.forkedFrom?.name, "@alice/base", "the admin's view carries the badge too");
+  assert.equal((await api(alice, "/alice/api/packages/%40thetis%2Fharness-core?files=1", { method: "DELETE" })).status, 403, "a shipped package cannot be deleted");
+  assert.ok(existsSync(join(us.store, "node_modules", "@thetis", "harness-core", "package.json")));
+  const deleted = await api(alice, "/alice/api/packages/%40alice%2Fbase2?files=1", { method: "DELETE" });
+  const result = JSON.parse(await deleted.text()) as { name: string; path: string; restored?: string };
+  assert.equal(deleted.status, 200);
+  assert.equal(result.restored, "@alice/base");
+  assert.ok(!existsSync(join(us.home, "packages", "base2")), "the files are gone");
+  const after = (await (await api(alice, "/alice/api/packages")).json()) as { name: string }[];
+  assert.ok(after.some((p) => p.name === "@alice/base") && !after.some((p) => p.name === "@alice/base2"));
+  assert.deepEqual(JSON.parse(await (await api(alice, "/alice/api/packages/%40alice%2Fbase?files=1", { method: "DELETE" })).text()), { name: "@alice/base", path: join(us.home, "packages", "base") });
+  assert.ok(!existsSync(join(us.home, "packages", "base")));
 });
 
 test("marketplace: search reads the index in the shared directory; no index is a plain 404", async () => {

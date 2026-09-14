@@ -31,6 +31,9 @@ export interface PackageRow {
   steps: { id: string; phase: string }[];
   tools: string[];
   service: boolean;
+  /** Set on a fork: what it was copied from, and what it displaced in this person's setup. */
+  forkedFrom?: { name: string; version: string };
+  replaced?: string;
 }
 
 export function toRow(p: PackageInfo): PackageRow {
@@ -43,6 +46,8 @@ export function toRow(p: PackageInfo): PackageRow {
     steps: (p.thetis.steps ?? []).map((s) => ({ id: s.id, phase: s.phase })),
     tools: (p.thetis.tools ?? []).map((t) => t.name),
     service: !!p.thetis.service,
+    ...(p.forkedFrom ? { forkedFrom: { name: p.forkedFrom.name, version: p.forkedFrom.version } } : {}),
+    ...(p.replaced ? { replaced: p.replaced } : {}),
   };
 }
 
@@ -70,10 +75,12 @@ export async function handlePanel(deps: PanelDeps, req: IncomingMessage, res: Se
       const source = field(await readJson(req), "source");
       const installed = await kernel.packages.list();
       const info = await kernel.packages.install(source);
-      if (installed.some((p) => p.name === info.name)) return json(res, 200, { ...toRow(info), replaced: true }), true;
+      if (installed.some((p) => p.name === info.name)) return json(res, 200, { ...toRow(info), reinstalled: true }), true;
       return json(res, 201, toRow(info)), true;
     }
     if (seg.length === 3 && method === "DELETE") {
+      // `?files=1` deletes the directory too; the kernel allows that only for the person's own scope under their home.
+      if (url.searchParams.get("files") === "1") return json(res, 200, await kernel.packages.delete(packageName(seg[2]))), true;
       await kernel.packages.uninstall(packageName(seg[2]));
       return json(res, 200, { name: packageName(seg[2]) }), true;
     }

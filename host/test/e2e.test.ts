@@ -4,7 +4,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -347,4 +347,76 @@ test("fence isolation: a userspace cannot read the service plane or another user
   assert.match(r.text, /probe-done/);
   assert.doesNotMatch(r.text, /LEAK-/);
   assert.doesNotMatch(r.text, /NO-PROMOTED/, "the promoted packages directory is readable inside the fence");
+});
+
+test("fork: a fork of a promoted package replaces it on install, and uninstalling the fork puts it back", async () => {
+  const us = kernel.userspaces.pathFor("alice");
+  const s = kernel.sessions.create("alice");
+  const forked = await collect(kernel.sessions.send("alice", s.id, "fork: @thetis/hello as hello2"));
+  assert.match(forked.text, /forked @thetis\/hello@0\.1\.0 to packages\/hello2 as @alice\/hello2@0\.1\.0-fork\.1; steps: prompt:mark, after:count; tools: greet\./);
+  const manifest = JSON.parse(readFileSync(join(us.home, "packages", "hello2", "package.json"), "utf8")) as { name: string; version: string; thetis: { forkedFrom?: unknown } };
+  assert.equal(manifest.name, "@alice/hello2");
+  assert.deepEqual(manifest.thetis.forkedFrom, { name: "@thetis/hello", version: "0.1.0" });
+  assert.ok(!kernel.packages.installed(us).some((p) => p.name === "@alice/hello2"), "fork_package does not install");
+  const installed = await collect(kernel.sessions.send("alice", s.id, "install: packages/hello2"));
+  assert.match(installed.text, /installed @alice\/hello2@0\.1\.0-fork\.1 \(loader\).*; replaced @thetis\/hello\./);
+  const names = kernel.packages.installed(us).map((p) => p.name);
+  assert.ok(names.includes("@alice/hello2") && !names.includes("@thetis/hello"), `the fork replaced its origin: ${names.join(", ")}`);
+  const info = kernel.packages.installed(us).find((p) => p.name === "@alice/hello2");
+  assert.deepEqual(info?.forkedFrom, { name: "@thetis/hello", version: "0.1.0" });
+  assert.equal(info?.replaced, "@thetis/hello");
+  const rec = kernel.registry.get("@alice/hello2");
+  assert.equal(rec?.replaced, "@thetis/hello");
+  assert.equal(rec?.replacedSource?.kind, "system");
+  const tools = await collect(kernel.sessions.send("alice", s.id, "tools?"));
+  assert.equal(tools.text.split(",").filter((t) => t === "greet").length, 1, `the tool is offered once, by the fork: ${tools.text}`);
+  const sys = await collect(kernel.sessions.send("alice", s.id, "system?"));
+  assert.match(sys.text, /@alice\/hello2@0\.1\.0-fork\.1/);
+  assert.doesNotMatch(sys.text, /@thetis\/hello@/);
+  assert.match(sys.text, /MARKER-FROM-ALICE/, "the fork's step runs");
+  assert.match((await collect(kernel.sessions.send("alice", s.id, "fork: @thetis/hello as hello2"))).text, /not installed in your userspace/);
+  assert.match((await collect(kernel.sessions.send("alice", s.id, "fork: @alice/hello2 as hello2"))).text, /target exists/);
+  const rpc = createRpcHandler(us, kernel.users, kernel.packages, kernel.sessions, kernel.auth);
+  await rpc("packages.uninstall", { name: "@alice/hello2" });
+  const after = kernel.packages.installed(us).map((p) => p.name);
+  assert.ok(after.includes("@thetis/hello") && !after.includes("@alice/hello2"), `the origin is back: ${after.join(", ")}`);
+  assert.equal(kernel.registry.get("@alice/hello2"), undefined);
+  assert.ok(existsSync(join(us.home, "packages", "hello2", "package.json")), "uninstall keeps the files");
+  const again = await collect(kernel.sessions.send("alice", s.id, "tools?"));
+  assert.equal(again.text.split(",").filter((t) => t === "greet").length, 1);
+});
+
+test("fork with a service: replacing stops the origin and starts the fork; delete removes the files and restarts the origin", async () => {
+  const us = kernel.userspaces.pathFor("alice");
+  const dir = join(us.home, "packages", "svc");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "@alice/svc", version: "0.1.0", type: "module", main: "index.js", thetis: { type: "service", service: { export: "start" } } }));
+  writeFileSync(join(dir, "index.js"), `
+    export async function start(env) {
+      await env.exec("echo started-" + env.config.tag + " >> svc.log");
+      return { stop: () => env.exec("echo stopped-" + env.config.tag + " >> svc.log") };
+    }
+  `);
+  kernel.config.packages["@alice/svc"] = { tag: "origin" };
+  kernel.config.packages["@alice/svc2"] = { tag: "fork" };
+  await kernel.services.boot();
+  const log = () => readFileSync(join(us.home, "svc.log"), "utf8").trim().split("\n");
+  await kernel.packages.install(us, kernel.users.authorize("alice"), "packages/svc");
+  assert.deepEqual(log(), ["started-origin"]);
+  const s = kernel.sessions.create("alice");
+  assert.match((await collect(kernel.sessions.send("alice", s.id, "fork: @alice/svc as svc2"))).text, /forked @alice\/svc@0\.1\.0 to packages\/svc2 as @alice\/svc2@0\.1\.0-fork\.1; a service\./);
+  assert.match((await collect(kernel.sessions.send("alice", s.id, "install: packages/svc2"))).text, /installed @alice\/svc2@0\.1\.0-fork\.1 \(service\); a service; replaced @alice\/svc\./);
+  assert.deepEqual(log(), ["started-origin", "stopped-origin", "started-fork"], "the origin stops before the fork starts");
+  assert.equal(kernel.registry.get("@alice/svc2")?.replacedSource?.ref, "packages/svc");
+  assert.match((await collect(kernel.sessions.send("alice", s.id, "delete: @thetis/hello"))).text, /error: .*@thetis\/hello is not a package of alice/);
+  const deleted = await collect(kernel.sessions.send("alice", s.id, "delete: @alice/svc2"));
+  assert.match(deleted.text, /deleted @alice\/svc2 and its files at .*packages\/svc2; @alice\/svc is back in place\./);
+  assert.deepEqual(log(), ["started-origin", "stopped-origin", "started-fork", "stopped-fork", "started-origin"], "the origin's service runs again");
+  assert.ok(!existsSync(join(us.home, "packages", "svc2")), "delete removes the directory");
+  const names = kernel.packages.installed(us).map((p) => p.name);
+  assert.ok(names.includes("@alice/svc") && !names.includes("@alice/svc2"));
+  assert.deepEqual(kernel.registry.get("@alice/svc")?.source, { kind: "local", ref: "packages/svc" });
+  assert.match((await collect(kernel.sessions.send("alice", s.id, "delete: @alice/svc"))).text, /deleted @alice\/svc and its files at .*packages\/svc\. Live/);
+  assert.ok(!existsSync(dir));
+  assert.deepEqual(log().at(-1), "stopped-origin");
 });

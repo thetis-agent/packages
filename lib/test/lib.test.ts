@@ -1,12 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AsyncQueue } from "../src/async.js";
 import { Container, token } from "../src/container.js";
 import { JsonDirStore } from "../src/json-store.js";
-import { isGitSource, isInside, splitSource } from "../src/pkg-fs.js";
+import { findDependency, forkPackage, forkVersion, isGitSource, isInside, splitSource } from "../src/pkg-fs.js";
 import { PendingCalls, callHandler } from "../src/rpc-frames.js";
 
 test("container resolves lazily, caches singletons, and allows rebinding", () => {
@@ -86,4 +86,42 @@ test("rpc frames: events stream before the result, errors carry a code, and clea
   assert.deepEqual(ok, { result: null });
   const bad = await callHandler(async () => Promise.reject(Object.assign(new Error("no"), { code: "rpc" })), "m", {});
   assert.deepEqual(bad, { error: "no", code: "rpc" });
+});
+
+test("fork: the copy drops scripts and devDependencies, links what the origin resolves, and numbers its version", () => {
+  const dir = mkdtempSync(join(tmpdir(), "thetis-fork-"));
+  try {
+    const origin = join(dir, "origin");
+    mkdirSync(join(origin, "node_modules", "left-pad"), { recursive: true });
+    mkdirSync(join(origin, "dist"), { recursive: true });
+    writeFileSync(join(origin, "node_modules", "left-pad", "package.json"), JSON.stringify({ name: "left-pad", version: "1.0.0" }));
+    writeFileSync(join(origin, "dist", "index.js"), "export const x = 1;");
+    writeFileSync(join(origin, "package.json"), JSON.stringify({
+      name: "@thetis/thing", version: "0.2.0", description: "a thing", main: "dist/index.js",
+      scripts: { build: "tsc -b" }, dependencies: { "left-pad": "^1", "not-there": "^2" }, devDependencies: { typescript: "^5" },
+      peerDependencies: { "@thetis/contracts": "^0.1.0" }, thetis: { type: "tool", tools: [{ name: "t", description: "d", export: "x" }] },
+    }));
+    const to = join(dir, "home", "packages", "thing");
+    const r = forkPackage({ from: origin, to, name: "@alice/thing", version: forkVersion("0.2.0"), origin: { name: "@thetis/thing", version: "0.2.0" }, root: dir });
+    assert.deepEqual(r.linked, ["left-pad"]);
+    const m = JSON.parse(readFileSync(join(to, "package.json"), "utf8")) as Record<string, unknown>;
+    assert.equal(m.name, "@alice/thing");
+    assert.equal(m.version, "0.2.0-fork.1");
+    assert.equal(m.description, "a thing", "other fields are kept");
+    assert.equal(m.scripts, undefined);
+    assert.equal(m.devDependencies, undefined);
+    assert.deepEqual(m.dependencies, { "not-there": "^2" }, "an unresolved dependency stays for npm");
+    assert.deepEqual(m.peerDependencies, { "@thetis/contracts": "^0.1.0" });
+    assert.deepEqual(m.thetis, { type: "tool", tools: [{ name: "t", description: "d", export: "x" }], forkedFrom: { name: "@thetis/thing", version: "0.2.0" } });
+    assert.ok(existsSync(join(to, "dist", "index.js")), "the built files came along");
+    assert.ok(!existsSync(join(to, "node_modules", "not-there")));
+    assert.equal(realpathSync(join(to, "node_modules", "left-pad")), realpathSync(join(origin, "node_modules", "left-pad")), "a resolvable dependency is a link");
+    assert.throws(() => forkPackage({ from: origin, to, name: "@alice/thing", version: "x", origin: { name: "@thetis/thing", version: "0.2.0" }, root: dir }), /target exists/);
+    assert.equal(forkVersion("0.2.0", "0.2.0-fork.1"), "0.2.0-fork.2");
+    assert.equal(forkVersion("0.3.0", "0.2.0-fork.4"), "0.3.0-fork.1", "a new origin version starts over");
+    assert.equal(forkVersion("0.2.0", "1.0.0"), "0.2.0-fork.1");
+    assert.equal(findDependency(origin, "nope"), undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
