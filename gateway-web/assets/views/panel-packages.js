@@ -146,7 +146,7 @@ export function mountPackages(root, { role, user }) {
       actions.push(everyone);
       hints.push("Everyone gets it now, and every new person from then on.");
     }
-    if (row.installed && row.state === "me" && admin) {
+    if (row.installed && row.state === "me" && admin && !row.name.startsWith("@thetis/")) {
       const promote = button("Make it the default for everyone", { tone: "primary", onClick: () => void promoteRow(row, promote) });
       actions.push(promote);
       hints.push(`Making it the default copies the package under @thetis, adds it for every person, and removes ${mine() ? "your" : `${whose}'s`} own copy.`);
