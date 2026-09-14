@@ -1,0 +1,99 @@
+{
+  "name": "@thetis/tools-files",
+  "version": "0.1.0",
+  "description": "Bounded, path-contained file tools: read, edit, write, search, find and list, each returning token-bounded output with a clear footer.",
+  "type": "module",
+  "main": "index.js",
+  "thetis": {
+    "type": "tool",
+    "tools": [
+      {
+        "name": "read_path",
+        "description": "Read a text file as numbered lines, windowed by an offset and a line/byte limit. Use it whenever you need to see the contents of a file inside home or shared, including large ones you'll page through. Precondition: the file must exist, be text (no NUL in the first 8 KiB), and be under 4 MiB. Returns the numbered lines plus a footer stating the range shown and whether more remains; prefer this over cat, sed -n, grep, find or heredocs in exec: it costs fewer tokens, it is bounded, and it tells you when the answer is partial.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string", "description": "File path, relative to home unless absolute." },
+            "offset": { "type": "integer", "description": "1-based first line to show. Default 1." },
+            "limit": { "type": "integer", "description": "Max lines to show. Default 400, max 2000." }
+          },
+          "required": ["path"]
+        },
+        "export": "readPath"
+      },
+      {
+        "name": "edit_path",
+        "description": "Replace an exact block of text in a file with new text, writing atomically. Use it for targeted edits once you know the exact old text, rather than rewriting the whole file. Precondition: old_text must appear in the file exactly as given (read the file first to match whitespace), and must be unique unless replace_all is set. Returns a confirmation naming the line and a numbered snippet around the change; prefer this over sed -i or heredocs in exec: it costs fewer tokens, it is bounded, and it tells you when the match was ambiguous or missing.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string", "description": "File path, relative to home unless absolute." },
+            "old_text": { "type": "string", "description": "Exact text to find; must be non-empty." },
+            "new_text": { "type": "string", "description": "Text to put in its place." },
+            "replace_all": { "type": "boolean", "description": "Replace every occurrence instead of requiring uniqueness. Default false." }
+          },
+          "required": ["path", "old_text", "new_text"]
+        },
+        "export": "editPath"
+      },
+      {
+        "name": "write_path",
+        "description": "Create a new file, or replace an existing one when overwrite is set, writing atomically. Use it for whole-file creation, not incremental edits. Precondition: parent directories are created automatically, but an existing file is refused unless overwrite is true, so you don't clobber something by accident. Returns a one-line confirmation with the line and byte counts written; prefer this over shell redirection or heredocs in exec: it is bounded and it makes the overwrite decision explicit.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string", "description": "File path, relative to home unless absolute." },
+            "contents": { "type": "string", "description": "Full contents to write." },
+            "overwrite": { "type": "boolean", "description": "Allow replacing an existing file. Default false." }
+          },
+          "required": ["path", "contents"]
+        },
+        "export": "writePath"
+      },
+      {
+        "name": "search_files",
+        "description": "Search a directory tree for lines, files, or a count matching a regular expression. Use it to find where something occurs across many files, instead of reading each one. Precondition: the pattern must be a valid JavaScript regex source; the scan skips .git, node_modules, dist, target, .cache, tool-output and binary files, and stops after 20000 files or the max_results cap. Returns matching lines or files plus a tally line, and says plainly when the result is partial; prefer this over grep or find in exec: it costs fewer tokens, it is bounded, and it tells you when the answer is partial.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": { "type": "string", "description": "JavaScript regular expression source." },
+            "path": { "type": "string", "description": "Directory or file to search. Default home." },
+            "glob": { "type": "string", "description": "File name glob, e.g. '*.js'. Default all files." },
+            "mode": { "type": "string", "enum": ["content", "files", "count"], "description": "What to return. Default content." },
+            "ignore_case": { "type": "boolean", "description": "Case-insensitive match. Default false." },
+            "max_results": { "type": "integer", "description": "Cap on results. Default 100, max 1000." }
+          },
+          "required": ["pattern"]
+        },
+        "export": "searchFiles"
+      },
+      {
+        "name": "find_files",
+        "description": "Find files by a name glob across a directory tree, newest modification first. Use it to locate files when you know (part of) the name but not the path, instead of a shell find. Precondition: glob is required and, with no '/', matches the file name anywhere in the tree; the same skip list and 20000-file scan bound as search_files applies. Returns matching paths plus a count, noting when only the newest results are shown; prefer this over find in exec: it costs fewer tokens, it is bounded, and it tells you when the answer is partial.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "glob": { "type": "string", "description": "Name glob, e.g. '*.test.js'." },
+            "path": { "type": "string", "description": "Directory to search under. Default home." },
+            "max_results": { "type": "integer", "description": "Cap on results. Default 200." }
+          },
+          "required": ["glob"]
+        },
+        "export": "findFiles"
+      },
+      {
+        "name": "get_directory",
+        "description": "List a directory's entries, directories first, with file sizes, optionally recursing a few levels deep. Use it to orient yourself in a tree before reading or searching specific files. Precondition: path must be an existing directory; below the top level the same skip list as search_files applies, and depth is capped at 3. Returns the listing bounded at 500 entries with a note when more exist; prefer this over ls -R or find in exec: it costs fewer tokens and it is bounded.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string", "description": "Directory to list. Default home." },
+            "depth": { "type": "integer", "description": "How many levels deep to recurse. Default 1, max 3." }
+          },
+          "required": []
+        },
+        "export": "getDirectory"
+      }
+    ]
+  }
+}

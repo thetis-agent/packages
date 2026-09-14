@@ -88,7 +88,7 @@ test("harness steps build the system prompt and attach tools", async () => {
   assert.match(sys.text, /You are Thetis/);
   assert.match(sys.text, /@thetis\/tool-exec@0\.1\.0 \(tool\): Tools for the model/);
   const tools = await collect(kernel.sessions.send("alice", s.id, "tools?"));
-  for (const t of ["exec", "write_file", "install_package", "spawn_subagent"]) assert.ok(tools.text.split(",").includes(t), `missing tool ${t}`);
+  for (const t of ["exec", "install_package", "spawn_subagent"]) assert.ok(tools.text.split(",").includes(t), `missing tool ${t}`);
 });
 
 test("tool loop: the model runs a command inside the fence and sees the result", async () => {

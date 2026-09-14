@@ -1,5 +1,5 @@
-// "Run code in my userspace": the tool package that lets the model write, build, test and
-// install packages. Everything here executes inside the fence via the agent's env.
+// "Run code in my userspace": the tool package that lets the model build, test and install
+// packages. Reading, editing and searching files is @thetis/tools-files. Everything here executes inside the fence via the agent's env.
 import type { Tool } from "@thetis/contracts";
 
 export const exec: Tool = async (args, env) => {
@@ -8,13 +8,6 @@ export const exec: Tool = async (args, env) => {
   if (r.stdout) parts.push(`stdout:\n${r.stdout}`);
   if (r.stderr) parts.push(`stderr:\n${r.stderr}`);
   return parts.join("\n");
-};
-
-export const readFile: Tool = async (args, env) => env.readFile(String(args.path));
-
-export const writeFile: Tool = async (args, env) => {
-  await env.writeFile(String(args.path), String(args.content ?? ""));
-  return `wrote ${args.path}`;
 };
 
 export const installPackage: Tool = async (args, env) => {
