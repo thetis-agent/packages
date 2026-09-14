@@ -182,6 +182,17 @@ test("git install: a package directory inside a repository, as url#dir", async (
   await kernel.packages.uninstall(us, "@alice/wave");
 });
 
+test("a turn that fails after a tool ran keeps the tool call and its result in the record", async () => {
+  const s = kernel.sessions.create("alice");
+  const r = await collect(kernel.sessions.send("alice", s.id, "run: echo FAIL_NEXT"));
+  assert.ok(r.all.some((e) => e.type === "tool.result"), "the tool ran");
+  assert.ok(r.all.some((e) => e.type === "error" && /gave up/.test(e.message)), "then the provider failed");
+  const rec = kernel.sessions.inspect("alice", s.id);
+  const roles = rec.conversation.map((m) => m.role);
+  assert.deepEqual(roles, ["user", "assistant", "tool"], "the call and its result survive the failure");
+  assert.match(rec.conversation[2].content, /FAIL_NEXT/);
+});
+
 test("operator methods: an admin's fence may use them; a user's may not", async () => {
   const handler = (id: string) => createRpcHandler(kernel.userspaces.pathFor(id), kernel.users, kernel.packages, kernel.sessions, kernel.auth, createControlHandler(kernel));
   await assert.rejects(handler("alice")("operator.users.list", {}), /only an admin/);

@@ -12,6 +12,27 @@ export interface OpenRouterConfig {
   defaults?: Record<string, unknown>;
   /** Prompt caching policy. See docs/16-prompt-cache.md. */
   cache?: CacheConfig;
+  /** How many times a refused request is retried when the refusal is transient (rate limit, in-flight budget, server error). Default 3. */
+  retries?: number;
+}
+
+/** Statuses worth a second try: the request was sound, the moment was wrong. */
+const TRANSIENT = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
+const MAX_WAIT_MS = 120_000;
+
+/**
+ * The wait before retrying a refused request, or undefined when the refusal is final. OpenRouter answers
+ * 402 both for an empty account (final) and for an in-flight budget that the settling of other requests
+ * frees (transient); the body says which. A Retry-After header wins over the backoff.
+ */
+export function retryAfterMs(status: number, body: string, retryAfter: string | null, attempt: number): number | undefined {
+  const inFlight = status === 402 && /in_flight_budget/.test(body);
+  if (!inFlight && !TRANSIENT.has(status)) return undefined;
+  const header = Number(retryAfter);
+  if (retryAfter && Number.isFinite(header) && header > 0) return Math.min(header * 1000, MAX_WAIT_MS);
+  const hinted = /"Retry-After"\s*:\s*"?(\d+)/.exec(body);
+  if (hinted) return Math.min(Number(hinted[1]) * 1000, MAX_WAIT_MS);
+  return Math.min(1000 * 2 ** attempt, MAX_WAIT_MS);
 }
 
 interface WireMessage extends OpenAiWireMessage {
@@ -54,8 +75,8 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
       const policy = applyHint(resolvePolicy(cacheConfig, call.model), readHint(call.hints?.cache), cacheConfig.hints);
       applyOpenAiCompatible(body, policy);
       if (policy.affinity && cacheConfig.affinity !== false && body.user === undefined) body.user = policy.affinity;
-      const res = await fetch(`${baseUrl}/chat/completions`, { method: "POST", headers, body: JSON.stringify(body) });
-      if (!res.ok || !res.body) return yield { type: "error", message: `openrouter ${res.status}: ${(await res.text()).slice(0, 2000)}` };
+      const res = await post(`${baseUrl}/chat/completions`, headers, JSON.stringify(body), config.retries ?? 3);
+      if (!res.ok || !res.body) return yield { type: "error", message: refusal(res.status, await res.text()) };
       const pending = new Map<number, { id: string; name: string; args: string }>();
       for await (const data of sse(res.body)) {
         if (data === "[DONE]") break;
@@ -82,6 +103,31 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
       }
     },
   };
+}
+
+/** One sentence for a refused request: OpenRouter's own message and reason when the body is its JSON, else the raw text. */
+export function refusal(status: number, body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: string; metadata?: { reason?: string } } };
+    const message = parsed.error?.message;
+    if (message) return `openrouter ${status}: ${message}${parsed.error?.metadata?.reason ? ` (${parsed.error.metadata.reason})` : ""}`;
+  } catch {
+    // not JSON: fall through to the raw text
+  }
+  return `openrouter ${status}: ${body.slice(0, 500)}`;
+}
+
+/** Posts the request, waiting and trying again on a transient refusal. The last refusal is returned as is. */
+async function post(url: string, headers: Record<string, string>, body: string, retries: number): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, { method: "POST", headers, body });
+    if (res.ok || attempt >= retries) return res;
+    const text = await res.clone().text();
+    const wait = retryAfterMs(res.status, text, res.headers.get("retry-after"), attempt);
+    if (wait === undefined) return res;
+    process.stderr.write(`[provider-openrouter] ${res.status} on attempt ${attempt + 1}; retrying in ${Math.round(wait / 1000)}s\n`);
+    await new Promise((r) => setTimeout(r, wait));
+  }
 }
 
 function toWire(call: ProviderCall): WireMessage[] {

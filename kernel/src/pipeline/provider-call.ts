@@ -5,6 +5,14 @@ import type { ProviderRegistry, ResolvedProvider } from "../providers.js";
 
 export type Emit = (event: TurnEvent) => void;
 
+/** Gives every tool call of the last assistant message a result when the turn ended before the tool ran. */
+function closeDangling(conversation: Message[], reason: string): void {
+  const last = [...conversation].reverse().find((m) => m.role === "assistant");
+  if (!last?.toolCalls?.length) return;
+  const answered = new Set(conversation.filter((m) => m.role === "tool").map((m) => m.toolCallId));
+  for (const tc of last.toolCalls) if (!answered.has(tc.id)) conversation.push({ role: "tool", content: `error: ${reason}`, toolCallId: tc.id, name: tc.name });
+}
+
 export function isCancelled(err: unknown): boolean {
   return errorCode(err) === "cancelled";
 }
@@ -26,7 +34,9 @@ export class ProviderCallStep {
 
   /**
    * An aborted `signal` stops the loop at the next checkpoint: mid-stream, between tool calls, or between rounds.
-   * Text streamed before the cancel is kept as a partial assistant message so the conversation stays coherent.
+   * Whatever the turn did before it stopped, by cancel or by failure, is kept: text streamed so far becomes a
+   * partial assistant message, and a tool call that never ran gets a result saying so, so the record stays a
+   * conversation the provider will accept on the next turn. Sixteen tool calls are not worth losing to one refusal.
    */
   async run(us: Userspace, ctx: StepContext, emit: Emit, signal?: AbortSignal): Promise<StepResult> {
     const conversation = [...ctx.conversation];
@@ -48,8 +58,9 @@ export class ProviderCallStep {
         }
       }
     } catch (err) {
-      if (isCancelled(err) && partial.text) conversation.push({ role: "assistant", content: partial.text });
-      if (isCancelled(err)) ctx.conversation = conversation;
+      if (partial.text) conversation.push({ role: "assistant", content: partial.text });
+      closeDangling(conversation, isCancelled(err) ? "the turn was stopped before this tool ran" : "the turn failed before this tool ran");
+      ctx.conversation = conversation;
       throw err;
     }
     return { conversation, call };
