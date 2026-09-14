@@ -312,8 +312,8 @@ test("logout revokes the cookie", async () => {
 test("panel: sections follow the role, and admin routes are refused for a user", async () => {
   const alice = await cookieFor("alice", "wonderland");
   const root = await cookieFor("root", "rootpass1");
-  assert.deepEqual((await (await api(alice, "/alice/api/panel")).json()).sections, ["packages", "marketplace"]);
-  assert.deepEqual((await (await api(root, "/root/api/panel")).json()).sections, ["packages", "marketplace", "people", "models", "activity", "overview"]);
+  assert.deepEqual((await (await api(alice, "/alice/api/panel")).json()).sections, ["packages"]);
+  assert.deepEqual((await (await api(root, "/root/api/panel")).json()).sections, ["packages", "people", "models", "activity", "overview"]);
   assert.equal((await api(alice, "/alice/api/admin/users")).status, 403);
   assert.equal((await api(root, "/root/api/admin/users")).status, 200);
 });
@@ -374,6 +374,19 @@ test("packages: a person installs their own package, an admin promotes it, and e
   assert.ok(!alices.some((p) => p.name === "@alice/hello"));
   assert.equal((await api(alice, "/alice/api/packages/%40thetis%2Fhello", { method: "DELETE" })).status, 200, "a person can remove a package from their own space");
   assert.equal((await api(alice, "/alice/api/packages/not-a-name", { method: "DELETE" })).status, 404);
+
+  // Install for everyone: a shipped package reaches every person now and every new person later.
+  assert.equal((await api(alice, "/alice/api/admin/packages/everyone", { method: "POST", body: JSON.stringify({ source: "@thetis/prompt-cache" }) })).status, 403);
+  const everyone = await api(root, "/root/api/admin/packages/everyone", { method: "POST", body: JSON.stringify({ source: "@thetis/prompt-cache" }) });
+  const everyoneText = await everyone.text();
+  assert.equal(everyone.status, 200, everyoneText);
+  const got = JSON.parse(everyoneText) as { name: string; userspaces: string[] };
+  assert.equal(got.name, "@thetis/prompt-cache");
+  assert.ok(got.userspaces.includes("bob") && !got.userspaces.includes("_system"));
+  assert.ok(((await (await api(bob, "/bob/api/packages")).json()) as { name: string }[]).some((p) => p.name === "@thetis/prompt-cache"));
+  assert.equal((await api(root, "/root/api/admin/users", { method: "POST", body: JSON.stringify({ id: "dave" }) })).status, 201);
+  assert.ok(kernel.packages.installed(kernel.userspaces.pathFor("dave")).some((p) => p.name === "@thetis/prompt-cache"), "a new person is seeded with it");
+  await api(root, "/root/api/admin/users/dave", { method: "DELETE" });
 });
 
 test("marketplace: search reads the index in the shared directory; no index is a plain 404", async () => {

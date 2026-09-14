@@ -27,10 +27,24 @@ export class PackageRegistry {
   record(rec: Omit<PackageRecord, "userspaces">, userspace: string): PackageRecord {
     const existing = this.records[rec.name];
     const userspaces = existing ? existing.userspaces.filter((u) => u !== userspace) : [];
-    const next = { ...rec, userspaces: [...userspaces, userspace] };
+    const next = { ...rec, userspaces: [...userspaces, userspace], ...(existing?.everyone ? { everyone: true } : {}) };
     this.records[rec.name] = next;
     writeJson(this.file, this.records);
     return next;
+  }
+
+  /** Marks a package as the default for everyone, or unmarks it. */
+  setEveryone(name: string, on: boolean): void {
+    const rec = this.records[name];
+    if (!rec) return;
+    if (on) rec.everyone = true;
+    else delete rec.everyone;
+    writeJson(this.file, this.records);
+  }
+
+  /** The packages every new person is seeded with. */
+  everyone(): string[] {
+    return this.all().filter((r) => r.everyone).map((r) => r.name);
   }
 
   unlink(name: string, userspace: string): void {

@@ -58,7 +58,6 @@ export async function handlePanel(deps: PanelDeps, req: IncomingMessage, res: Se
 
   if (seg[1] === "panel" && method === "GET") {
     const sections = ["packages"];
-    if (env) sections.push("marketplace");
     if (admin) sections.push("people", "models", "activity", "overview");
     return json(res, 200, { user: who.id, role: who.role, sections }), true;
   }
@@ -143,6 +142,10 @@ export async function handlePanel(deps: PanelDeps, req: IncomingMessage, res: Se
       const body = await readJson(req);
       const info = await op<PackageInfo>("packages.install", { user: user(field(body, "user")), source: field(body, "source") });
       return json(res, 201, toRow(info)), true;
+    }
+    if (seg[3] === "everyone" && seg.length === 4 && method === "POST") {
+      const result = await op<{ name: string; userspaces: string[] }>("packages.installEveryone", { source: field(await readJson(req), "source") });
+      return json(res, 200, result), true;
     }
     const name = packageName(seg[3] ?? "");
     if (seg.length === 4 && method === "DELETE") {

@@ -7,7 +7,6 @@ import { $, clear, el, icon } from "../lib/dom.js";
 import { store } from "../lib/store.js";
 import { toast } from "../lib/toast.js";
 import { mountActivity } from "./panel-activity.js";
-import { mountMarketplace } from "./panel-marketplace.js";
 import { mountModels } from "./panel-models.js";
 import { mountOverview } from "./panel-overview.js";
 import { mountPackages } from "./panel-packages.js";
@@ -17,8 +16,7 @@ const GEAR = ["M10 6.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z", "M10 2v2M10 16v2M2
 const X = ["M5 5l10 10", "M15 5l-10 10"];
 
 const SECTIONS = {
-  packages: { label: "Packages", note: "What is installed for you, and what each one brings.", mount: mountPackages },
-  marketplace: { label: "Marketplace", note: "Packages the registries offer, ready to install.", mount: mountMarketplace },
+  packages: { label: "Packages", note: "What is installed, what the registries offer, and what each one brings.", mount: mountPackages },
   people: { label: "People", note: "Who can sign in, and what they may do.", mount: mountPeople },
   models: { label: "Models", note: "Which model answers by default, and what the providers serve.", mount: mountModels },
   activity: { label: "Activity", note: "What happened: who did what, and when.", mount: mountActivity },

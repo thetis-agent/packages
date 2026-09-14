@@ -66,13 +66,20 @@ export class PackageManager {
   }
 
   /**
-   * Links the system packages into a fresh userspace: the `"*"` list and every promoted package for a
-   * person, the userspace's own list always. The system userspace is not a person. Idempotent.
+   * Links the system packages into a fresh userspace: for a person, the `"*"` list, every promoted
+   * package, and every package an admin marked for everyone; the userspace's own list always. The
+   * system userspace is not a person. Idempotent.
    */
   seedSystem(us: Userspace): void {
-    const everyone = us.id === SYSTEM_USER ? [] : [...(this.config.systemPackages["*"] ?? []), ...this.promoted()];
+    const everyone = us.id === SYSTEM_USER ? [] : [...(this.config.systemPackages["*"] ?? []), ...this.promoted(), ...this.registry.everyone()];
     const names = [...everyone, ...(this.config.systemPackages[us.id] ?? [])];
     for (const name of new Set(names)) if (!this.registry.get(name)?.userspaces.includes(us.id)) this.installSystem(us, name);
+  }
+
+  /** Marks a shipped system package as the default for everyone. New people are seeded with it. */
+  markEveryone(name: string, on: boolean): void {
+    assert(scopeOf(name) === SYSTEM_SCOPE && this.systemPackageDir(name), `not a system package: ${name}`, "invalid");
+    this.registry.setEveryone(name, on);
   }
 
   /** The names of the promoted packages: everything in the promoted directory with a valid manifest. */

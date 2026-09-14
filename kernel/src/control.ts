@@ -22,6 +22,17 @@ export function createControlHandler(k: Kernel): KernelRpc {
     const us = () => k.sessions.userspaceFor(k.users.authorize(user()));
     /** Who performs the operation: the named actor (an admin over the operator channel, the operator from the CLI), else the target user. */
     const actor = () => k.users.authorize(String(a.actor ?? user()));
+    /** Installs a system package into every existing person's userspace. */
+    const everywhere = async (name: string): Promise<string[]> => {
+      const system = k.users.authorize("_system");
+      const done: string[] = [];
+      for (const u of k.users.list()) {
+        if (u.role === "system" || !k.userspaces.exists(u.id)) continue;
+        await k.packages.install(k.userspaces.pathFor(u.id), system, name);
+        done.push(u.id);
+      }
+      return done;
+    };
     /** Every operator act leaves one row, with who did it and to whom. */
     const journal = (kind: string, target: string, data?: Record<string, unknown>) => k.journal.append({ kind, actor: String(a.actor ?? "operator"), target, data });
     switch (method) {
@@ -58,14 +69,32 @@ export function createControlHandler(k: Kernel): KernelRpc {
         const owner = us();
         const promoted = k.packages.promote(owner, String(a.name));
         await k.packages.uninstall(owner, String(a.name));
-        const system = k.users.authorize("_system");
-        const userspaces: string[] = [];
-        for (const u of k.users.list()) {
-          if (!k.userspaces.exists(u.id)) continue;
-          await k.packages.install(k.userspaces.pathFor(u.id), system, promoted);
-          userspaces.push(u.id);
-        }
+        const userspaces = await everywhere(promoted);
         journal("package.promote", user(), { name: String(a.name), promoted, userspaces });
+        return { name: promoted, userspaces };
+      }
+      case "packages.installEveryone": {
+        // A shipped system package is marked for everyone and linked into every person. Anything else is
+        // installed for the actor first and then promoted, which copies it under @thetis for everyone.
+        const source = String(a.source);
+        if (k.packages.systemPackageDir(source)) {
+          k.packages.markEveryone(source, true);
+          const userspaces = await everywhere(source);
+          journal("package.everyone", source, { userspaces });
+          return { name: source, userspaces };
+        }
+        const who = actor();
+        const own = k.sessions.userspaceFor(who);
+        const info = await k.packages.install(own, who, source);
+        if (info.name.startsWith("@thetis/")) {
+          const userspaces = await everywhere(info.name);
+          journal("package.everyone", info.name, { source, userspaces });
+          return { name: info.name, userspaces };
+        }
+        const promoted = k.packages.promote(own, info.name);
+        await k.packages.uninstall(own, info.name);
+        const userspaces = await everywhere(promoted);
+        journal("package.promote", who.id, { name: info.name, promoted, source, userspaces });
         return { name: promoted, userspaces };
       }
       case "journal.tail":

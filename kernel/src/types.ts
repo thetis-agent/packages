@@ -178,6 +178,8 @@ export interface PackageRecord {
   owner: string;
   source: { kind: "system" | "local" | "git"; ref: string };
   userspaces: string[];
+  /** A shipped system package an admin made the default: every new person's userspace is seeded with it. */
+  everyone?: boolean;
 }
 
 export const SYSTEM_USER = "_system";
