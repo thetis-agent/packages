@@ -66,12 +66,14 @@ export class ProcessFence implements Fence {
    * network before its first instruction runs. A failure before the gate opens kills the process.
    */
   async open(us: Userspace, rpc: KernelRpc): Promise<FenceHandle> {
+    // The cgroup is adopted before the first child exists: enabling controllers needs the parent group empty.
+    const cgroups = this.sandbox === "bwrap" ? this.opts.cgroups?.() : undefined;
     const child = this.spawn(us);
     const cleanup: (() => void)[] = [];
     try {
       if (this.sandbox === "bwrap") {
         await ready(child);
-        const placement = this.opts.cgroups?.()?.place(us.id, this.opts.limits);
+        const placement = cgroups?.place(us.id, this.opts.limits);
         if (placement) {
           placement.attach(child.pid!);
           cleanup.push(placement.release);
