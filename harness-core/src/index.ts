@@ -1,38 +1,7 @@
-// The default harness: a bounded history window, a system prompt that teaches the model how
-// to extend Thetis by writing packages, and a step that attaches every installed tool.
-import type { Message, PackageStepContext, StepResult, ToolSpec } from "@thetis/contracts";
-
-const DEFAULT_WINDOW = 80;
-const DEFAULT_KEEP = 0.5;
-const HARNESS_KEY = "@thetis/harness-core";
-
-/**
- * history: a bounded window over the conversation whose start moves rarely.
- *
- * A prompt cache is a prefix match, so a window that slides by one message every turn re-writes
- * the whole conversation every turn. Instead the cut point is kept in the harness and only moves
- * when the window overflows `historyWindow`; it then jumps so that `historyWindow * historyKeep`
- * messages remain. The cut always lands on a user message so a tool call stays with its results.
- */
-export async function trimHistory(ctx: PackageStepContext): Promise<StepResult> {
-  const limit = Math.max(1, Number(ctx.config.historyWindow ?? DEFAULT_WINDOW));
-  const keep = Math.max(1, Math.min(limit, Math.floor(limit * Number(ctx.config.historyKeep ?? DEFAULT_KEEP))));
-  const conv = ctx.conversation;
-  const state = (ctx.harness[HARNESS_KEY] ?? {}) as { cut?: number };
-  const saved = typeof state.cut === "number" && state.cut >= 0 && state.cut <= conv.length ? state.cut : 0;
-  let cut = saved;
-  if (conv.length - cut > limit) cut = Math.max(cut, alignToUser(conv, conv.length - keep));
-  const call = { ...ctx.call, messages: conv.slice(cut) };
-  if (cut === saved) return { call };
-  return { call, harness: { ...ctx.harness, [HARNESS_KEY]: { ...state, cut } } };
-}
-
-/** The next user message at or after `index`; the last user message before it when none follows. */
-function alignToUser(conv: Message[], index: number): number {
-  for (let i = index; i < conv.length; i++) if (conv[i].role === "user") return i;
-  for (let i = Math.min(index, conv.length) - 1; i >= 0; i--) if (conv[i].role === "user") return i;
-  return index;
-}
+// The default harness: a system prompt that teaches the model how to extend Thetis by writing
+// packages, and a step that attaches every installed tool. The whole conversation goes to the
+// provider; the prompt cache markers make that cheap.
+import type { PackageStepContext, StepResult, ToolSpec } from "@thetis/contracts";
 
 /** prompt: describe the harness, the userspace, and how to change Thetis from inside a conversation. */
 export async function systemPrompt(ctx: PackageStepContext): Promise<StepResult> {

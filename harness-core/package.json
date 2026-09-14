@@ -1,7 +1,7 @@
 {
   "name": "@thetis/harness-core",
   "version": "0.1.0",
-  "description": "The default harness: a bounded history window, the system prompt that teaches self-extension, and every installed tool attached.",
+  "description": "The default harness: the system prompt that teaches self-extension, and every installed tool attached to the call.",
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": {
@@ -16,11 +16,6 @@
   "thetis": {
     "type": "loader",
     "steps": [
-      {
-        "id": "trim-history",
-        "phase": "history",
-        "export": "trimHistory"
-      },
       {
         "id": "system-prompt",
         "phase": "prompt",
