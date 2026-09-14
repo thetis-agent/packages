@@ -8,12 +8,16 @@ import { assert, KernelError } from "./util.js";
 
 type Args = Record<string, string | undefined>;
 
+const OPERATOR = "operator.";
+
 /**
  * What code inside a fence may ask the kernel to do. Every method acts as the fence's own user, so a
  * package can only ever install into its own scope or drive its own sessions. The system userspace is
- * the one exception: a gateway there authenticates a person and then names them with `as`.
+ * the one exception: a gateway there authenticates a person and then names them with `as`. When that
+ * person is an admin, the gateway may also call operator methods (`operator.<method>`), the same
+ * table the command line uses; the kernel checks the role, so a gateway hiding a button is a courtesy.
  */
-export function createRpcHandler(us: Userspace, users: UserStore, packages: PackageManager, sessions: SessionApi, auth: AuthService): KernelRpc {
+export function createRpcHandler(us: Userspace, users: UserStore, packages: PackageManager, sessions: SessionApi, auth: AuthService, operator?: KernelRpc): KernelRpc {
   const system = () => assert(us.id === SYSTEM_USER, "only the system userspace may do this", "unauthorized");
   return async (method, raw, emit) => {
     const args = (raw ?? {}) as Args;
@@ -23,13 +27,24 @@ export function createRpcHandler(us: Userspace, users: UserStore, packages: Pack
       system();
       return String(args.as);
     };
+    /** The userspace a package call targets: the fence's own, or the named user's when a system gateway acts for them. */
+    const target = () => (args.as === undefined ? { us, actor } : { us: sessions.userspaceFor(users.authorize(as())), actor: users.authorize(as()) });
+    if (method.startsWith(OPERATOR)) {
+      system();
+      assert(operator, "no operator channel is configured", "rpc");
+      assert(users.authorize(String(args.as)).role !== "user", "only an admin may use operator methods", "unauthorized");
+      const { as: actor, ...rest } = args;
+      return operator(method.slice(OPERATOR.length), { ...rest, actor }, emit);
+    }
     switch (method) {
-      case "packages.install":
-        return packages.install(us, actor, String(args.source));
+      case "packages.install": {
+        const t = target();
+        return packages.install(t.us, t.actor, String(args.source));
+      }
       case "packages.uninstall":
-        return packages.uninstall(us, String(args.name));
+        return packages.uninstall(target().us, String(args.name));
       case "packages.list":
-        return packages.installed(us);
+        return packages.installed(target().us);
       case "sessions.create":
         return sessions.create(as(), { parent: args.parent });
       case "sessions.ask":

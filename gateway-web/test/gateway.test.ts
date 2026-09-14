@@ -9,7 +9,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer as createTcpServer, type AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { createKernel, createRpcHandler, defaultConfig, T, type Kernel, type TurnEvent } from "@thetis/kernel";
+import { createControlHandler, createKernel, createRpcHandler, defaultConfig, T, type Kernel, type TurnEvent } from "@thetis/kernel";
+import { exec as cpExec } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { clientFromRpc } from "../src/client.js";
 import { createGateway } from "../src/server.js";
 import { ArchiveStore } from "../src/store.js";
@@ -20,7 +22,30 @@ const PROJECT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const FIXTURES = resolve(PROJECT, "packages/kernel/test/fixtures");
 
 let home: string;
+let sysenv: string;
 let kernel: Kernel;
+
+/** A userspace-like environment rooted in a directory, for the marketplace index. */
+function envAt(root: string) {
+  return {
+    exec: (cmd: string, opts: { timeoutMs?: number } = {}) =>
+      new Promise<{ code: number; stdout: string; stderr: string }>((done) => {
+        cpExec(cmd, { cwd: root, shell: "/bin/bash", timeout: opts.timeoutMs ?? 60_000 }, (err, stdout, stderr) => {
+          const code = err && typeof (err as { code?: unknown }).code === "number" ? (err as { code: number }).code : err ? 1 : 0;
+          done({ code, stdout: String(stdout), stderr: String(stderr) });
+        });
+      }),
+    readFile: (p: string) => readFile(resolve(root, p), "utf8"),
+    writeFile: async (p: string, content: string) => {
+      await mkdir(dirname(resolve(root, p)), { recursive: true });
+      await writeFile(resolve(root, p), content);
+    },
+  };
+}
+
+async function cookieFor(id: string, password: string): Promise<string> {
+  return ((await login(id, password)).headers.get("set-cookie") ?? "").split(";")[0];
+}
 let base: string;
 let server: Server;
 let servicePort: number;
@@ -98,7 +123,7 @@ before(async () => {
   home = mkdtempSync(join(tmpdir(), "thetis-web-"));
   const sys = join(home, "system-packages");
   mkdirSync(sys);
-  for (const name of ["harness-core", "tool-exec", "gateway-web"]) symlinkSync(resolve(PROJECT, "packages", name), join(sys, name));
+  for (const name of ["harness-core", "tool-exec", "gateway-web", "prompt-cache"]) symlinkSync(resolve(PROJECT, "packages", name), join(sys, name));
   symlinkSync(join(FIXTURES, "provider-echo"), join(sys, "provider-echo"));
   servicePort = await freePort();
   const config = defaultConfig(join(home, "data"), PROJECT);
@@ -113,17 +138,21 @@ before(async () => {
   kernel = createKernel(config, (c) => c.bind(T.log, () => log));
   kernel.users.create("alice");
   kernel.users.create("bob");
+  kernel.users.create("root", "admin");
   await kernel.auth.setPassword("alice", "wonderland");
   await kernel.auth.setPassword("bob", "builder");
+  await kernel.auth.setPassword("root", "rootpass1");
 
   // The in-process server: the same RPC handler the system fence gets, without the fence.
   const systemUs = kernel.userspaces.pathFor("_system");
-  const rpc = createRpcHandler(systemUs, kernel.users, kernel.packages, kernel.sessions, kernel.auth);
+  const rpc = createRpcHandler(systemUs, kernel.users, kernel.packages, kernel.sessions, kernel.auth, createControlHandler(kernel));
+  sysenv = join(home, "sysenv");
+  mkdirSync(sysenv);
   const assets = join(home, "assets");
   mkdirSync(assets);
   writeFileSync(join(assets, "index.html"), "<title>app</title>");
   writeFileSync(join(assets, "login.html"), "<title>login</title>");
-  server = createGateway(clientFromRpc(rpc), new ArchiveStore(join(home, "archive")), { assets, log });
+  server = createGateway(clientFromRpc(rpc), new ArchiveStore(join(home, "archive")), { assets, log, env: envAt(sysenv) });
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -282,6 +311,98 @@ test("logout revokes the cookie", async () => {
   assert.equal(res.status, 303);
   assert.match(res.headers.get("set-cookie") ?? "", /Max-Age=0/);
   assert.equal((await api(bob, "/api/me")).status, 401);
+});
+
+test("panel: sections follow the role, and admin routes are refused for a user", async () => {
+  const alice = await cookieFor("alice", "wonderland");
+  const root = await cookieFor("root", "rootpass1");
+  assert.deepEqual((await (await api(alice, "/api/panel")).json()).sections, ["packages", "marketplace"]);
+  assert.deepEqual((await (await api(root, "/api/panel")).json()).sections, ["packages", "marketplace", "people", "models", "overview"]);
+  assert.equal((await api(alice, "/api/admin/users")).status, 403);
+  assert.equal((await api(alice, "/api/marketplace/refresh", { method: "POST" })).status, 403);
+  assert.equal((await api(root, "/api/admin/users")).status, 200);
+});
+
+test("people: an admin adds a person, changes the role and status, and removes them", async () => {
+  const root = await cookieFor("root", "rootpass1");
+  const created = await api(root, "/api/admin/users", { method: "POST", body: JSON.stringify({ id: "carol", role: "user", password: "carolpass1" }) });
+  assert.equal(created.status, 201);
+  assert.ok(((await (await api(root, "/api/admin/users")).json()) as { id: string }[]).some((u) => u.id === "carol"));
+  assert.equal((await login("carol", "carolpass1")).status, 303, "the password was set");
+  assert.equal((await api(root, "/api/admin/users/carol/role", { method: "POST", body: JSON.stringify({ role: "admin" }) })).status, 200);
+  assert.equal(((await (await api(root, "/api/admin/users")).json()) as { id: string; role: string }[]).find((u) => u.id === "carol")?.role, "admin");
+  assert.equal((await api(root, "/api/admin/users/carol/status", { method: "POST", body: JSON.stringify({ status: "suspended" }) })).status, 200);
+  assert.equal((await api(root, "/api/admin/users/root/role", { method: "POST", body: JSON.stringify({ role: "user" }) })).status, 400, "not your own account");
+  assert.equal((await api(root, "/api/admin/users", { method: "POST", body: JSON.stringify({ id: "Bad Id" }) })).status, 400);
+  assert.equal((await api(root, "/api/admin/users/carol", { method: "DELETE" })).status, 200);
+  assert.ok(!((await (await api(root, "/api/admin/users")).json()) as { id: string }[]).some((u) => u.id === "carol"));
+});
+
+test("packages: a person installs their own package, an admin promotes it, and everyone gets it", async () => {
+  const alice = await cookieFor("alice", "wonderland");
+  const bob = await cookieFor("bob", "builder");
+  const root = await cookieFor("root", "rootpass1");
+  const us = kernel.sessions.userspaceFor(kernel.users.authorize("alice"));
+  kernel.sessions.userspaceFor(kernel.users.authorize("bob"));
+  const dir = join(us.home, "packages", "hello");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "@alice/hello", version: "0.1.0", type: "module", main: "index.js", thetis: { type: "tool", tools: [{ name: "greet", description: "greets", export: "greet" }] } }));
+  writeFileSync(join(dir, "index.js"), "export async function greet() { return 'hi'; }");
+
+  const installed = await api(alice, "/api/packages", { method: "POST", body: JSON.stringify({ source: "packages/hello" }) });
+  const installedText = await installed.text();
+  assert.equal(installed.status, 201, installedText);
+  const row = JSON.parse(installedText) as { name: string; scope: string; tools: string[] };
+  assert.equal(row.name, "@alice/hello");
+  assert.equal(row.scope, "me");
+  assert.deepEqual(row.tools, ["greet"]);
+  const mine = (await (await api(alice, "/api/packages")).json()) as { name: string; scope: string }[];
+  assert.ok(mine.some((p) => p.name === "@alice/hello" && p.scope === "me"));
+  assert.ok(mine.some((p) => p.name === "@thetis/harness-core" && p.scope === "everyone"));
+  assert.ok((await api(alice, "/api/packages", { method: "POST", body: JSON.stringify({ source: "packages/nope" }) })).status >= 400, "a bad path is refused");
+
+  const seen = (await (await api(root, "/api/admin/packages?user=alice")).json()) as { name: string }[];
+  assert.ok(seen.some((p) => p.name === "@alice/hello"));
+  const forAlice = await api(root, "/api/admin/packages", { method: "POST", body: JSON.stringify({ user: "alice", source: "@thetis/prompt-cache" }) });
+  assert.equal(forAlice.status, 201, "an admin installs a system package for a user");
+  assert.ok((await api(alice, "/api/packages", { method: "POST", body: JSON.stringify({ source: "@thetis/gateway-web" }) })).status >= 400, "a user cannot install a system package");
+  assert.equal((await api(alice, "/api/admin/packages/%40alice%2Fhello/promote", { method: "POST", body: JSON.stringify({ user: "alice" }) })).status, 403);
+  const promoted = await api(root, "/api/admin/packages/%40alice%2Fhello/promote", { method: "POST", body: JSON.stringify({ user: "alice" }) });
+  const promotedText = await promoted.text();
+  assert.equal(promoted.status, 200, promotedText);
+  assert.equal((JSON.parse(promotedText) as { name: string }).name, "@thetis/hello");
+  const bobs = (await (await api(bob, "/api/packages")).json()) as { name: string; scope: string }[];
+  assert.ok(bobs.some((p) => p.name === "@thetis/hello" && p.scope === "everyone"), "bob has the promoted package");
+  const alices = (await (await api(alice, "/api/packages")).json()) as { name: string }[];
+  assert.ok(!alices.some((p) => p.name === "@alice/hello"));
+  assert.equal((await api(alice, "/api/packages/%40thetis%2Fhello", { method: "DELETE" })).status, 200, "a person can remove a package from their own space");
+  assert.equal((await api(alice, "/api/packages/not-a-name", { method: "DELETE" })).status, 404);
+});
+
+test("marketplace: search reads the index the service wrote; no index is a plain 404", async () => {
+  const alice = await cookieFor("alice", "wonderland");
+  const root = await cookieFor("root", "rootpass1");
+  assert.equal((await api(alice, "/api/marketplace?q=x")).status, 404);
+  const index = {
+    version: 1, updatedAt: "2026-09-14T00:00:00.000Z", registries: [{ name: "local", url: "file:///r", commit: "abc" }],
+    packages: [
+      { name: "@thetis/greet", version: "1.0.0", type: "tool", description: "Say hello", keywords: ["hello"], registry: "local", url: "file:///r", dir: "greet", source: "file:///r#greet", steps: [], tools: ["greet"], service: false },
+      { name: "@thetis/memo", version: "0.2.0", type: "memory", description: "Remember", keywords: [], registry: "local", url: "file:///r", dir: "memo", source: "file:///r#memo", steps: [{ id: "load", phase: "prompt" }], tools: [], service: false },
+    ],
+  };
+  mkdirSync(join(sysenv, "marketplace"), { recursive: true });
+  writeFileSync(join(sysenv, "marketplace", "index.json"), JSON.stringify(index));
+  const found = (await (await api(alice, "/api/marketplace?q=hello")).json()) as { total: number; results: { name: string }[] };
+  assert.equal(found.total, 2);
+  assert.deepEqual(found.results.map((r) => r.name), ["@thetis/greet"]);
+  const all = (await (await api(root, "/api/marketplace")).json()) as { results: { name: string }[]; updatedAt: string };
+  assert.equal(all.results.length, 2);
+  assert.equal(all.updatedAt, index.updatedAt);
+  const models = await api(root, "/api/admin/models");
+  assert.equal(models.status, 200);
+  assert.equal(((await models.json()) as { model: string }).model, "echo");
+  const config = (await (await api(root, "/api/admin/config")).json()) as { model: string; home?: string };
+  assert.equal(config.model, "echo");
 });
 
 test("installed into the system userspace, the gateway runs inside the fence and stops on uninstall", async () => {

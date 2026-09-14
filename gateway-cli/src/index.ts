@@ -28,7 +28,7 @@ usage: thetis <command> [options]
   users passwd <id> [--password <text>]  set the sign-in password (reads one line from stdin without --password)
   install <source> [--user <id>]       install a package (system userspace without --user)
   uninstall <name> [--user <id>]
-  packages list [--user <id>] | install <source> [--user <id>] | uninstall <name> [--user <id>]
+  packages list [--user <id>] | install <source> [--user <id>] | uninstall <name> [--user <id>] | promote <name> --user <id>
   models [--user <id>]                 models advertised by installed providers
   config                               print effective config
 
@@ -179,12 +179,16 @@ async function packagesCmd(call: Call, args: Args, user?: string): Promise<void>
       for (const p of (await call("packages.list", { user: target })) as PackageInfo[]) print(`${p.name}@${p.version}\t${p.type}\t${p.root}`);
       return;
     case "install": {
-      const info = (await call("packages.install", { user: target, source })) as PackageInfo;
+      const info = (await call("packages.install", { user: target, source, actor: "_system" })) as PackageInfo;
       return print(`installed ${info.name}@${info.version} (${info.type}) in ${target}`);
     }
     case "uninstall":
       await call("packages.uninstall", { user: target, name: source });
       return print(`uninstalled ${source} from ${target}`);
+    case "promote": {
+      const r = (await call("packages.promote", { user: target, name: source })) as { name: string; userspaces: string[] };
+      return print(`promoted ${source} to ${r.name}; installed in ${r.userspaces.join(", ")}`);
+    }
     default:
       throw new Error(`unknown packages subcommand: ${sub}`);
   }

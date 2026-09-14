@@ -6,6 +6,7 @@ import { $, clear, setHidden } from "./lib/dom.js";
 import { store } from "./lib/store.js";
 import { toast } from "./lib/toast.js";
 import { mountComposer } from "./views/composer.js";
+import { mountPanel } from "./views/panel.js";
 import { mountSessions, titleOf } from "./views/sessions.js";
 import { mountTranscript } from "./views/transcript.js";
 
@@ -37,6 +38,7 @@ function scheduleList() {
 }
 
 async function openConversation(id) {
+  panel.close();
   if (!id) {
     store.set({ current: null });
     transcript.showEmpty("none");
@@ -117,6 +119,7 @@ async function archive(id, archived) {
 
 const composer = mountComposer({ onSend: (text) => { void send(text); }, onStop: stop });
 const sessions = mountSessions({ onOpen: openConversation, onNew: createConversation, onArchive: archive });
+const panel = mountPanel();
 
 // --- the header over the transcript ---
 

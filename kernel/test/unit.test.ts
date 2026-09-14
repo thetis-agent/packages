@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Container, token } from "../src/container.js";
@@ -9,7 +9,9 @@ import { AuthService } from "../src/auth.js";
 import { validateManifest } from "../src/packages/manifest.js";
 import { Enumerator, BUILTIN_CALL } from "../src/pipeline/enumerator.js";
 import { AsyncQueue } from "../src/util.js";
-import { defaultConfig } from "../src/config.js";
+import { defaultConfig, saveConfig, loadConfig } from "../src/config.js";
+import { isGitSource, splitSource } from "../src/packages/manager.js";
+import { redact } from "../src/control.js";
 import type { PackageInfo } from "../src/types.js";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "thetis-unit-"));
@@ -117,4 +119,33 @@ test("async queue delivers pushed items in order and ends on close", async () =>
   const got: number[] = [];
   for await (const n of q) got.push(n);
   assert.deepEqual(got, [1, 2, 3]);
+});
+
+test("package sources: git urls with an optional #directory, file urls, and local paths", () => {
+  assert.deepEqual(splitSource("https://x/y.git#pkgs/a"), { url: "https://x/y.git", sub: "pkgs/a" });
+  assert.deepEqual(splitSource("https://x/y.git#"), { url: "https://x/y.git" });
+  assert.deepEqual(splitSource("packages/hello"), { url: "packages/hello" });
+  for (const src of ["https://x/y.git", "https://x/y#dir", "git@github.com:a/b.git", "file:///tank/packages#prompt-cache", "/abs/repo.git"]) assert.ok(isGitSource(src), src);
+  for (const src of ["packages/hello", "@thetis/tool-exec", "./x"]) assert.ok(!isGitSource(src), src);
+});
+
+test("config: the promoted packages directory is derived and secrets are redacted for display", () => {
+  const home = tmp();
+  try {
+    const cfg = defaultConfig(home, "/proj");
+    assert.equal(cfg.promotedPackagesDir, join(home, "packages"));
+    assert.ok(cfg.fence.readOnly.includes(join(home, "packages")));
+    cfg.packages["@thetis/provider-openrouter"] = { apiKey: "sk-live", baseUrl: "https://x", headers: { Authorization: "Bearer t" } };
+    saveConfig(cfg);
+    const raw = JSON.parse(readFileSync(join(home, "thetis.config.json"), "utf8"));
+    assert.equal(raw.promotedPackagesDir, undefined);
+    assert.equal(loadConfig(home, "/other").promotedPackagesDir, join(home, "packages"));
+    const shown = redact(cfg);
+    assert.equal(shown.packages["@thetis/provider-openrouter"].apiKey, "•••");
+    assert.equal(shown.packages["@thetis/provider-openrouter"].baseUrl, "https://x");
+    assert.equal(shown.model, cfg.model);
+    assert.deepEqual(shown.phases, cfg.phases);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });

@@ -1,7 +1,8 @@
 import { AuthService } from "./auth.js";
 import { Container, token } from "./container.js";
 import type { KernelConfig } from "./config.js";
-import type { Fence } from "./fence/fence.js";
+import { createControlHandler } from "./control.js";
+import type { Fence, KernelRpc } from "./fence/fence.js";
 import { ProcessFence } from "./fence/process-fence.js";
 import { FencePool } from "./fence/pool.js";
 import { PackageManager } from "./packages/manager.js";
@@ -15,6 +16,7 @@ import { ServiceSupervisor } from "./services.js";
 import { SessionApi } from "./sessions/api.js";
 import { SessionStore } from "./sessions/store.js";
 import { SYSTEM_USER } from "./types.js";
+import { mkdirSync } from "node:fs";
 import { UserStore } from "./users.js";
 import { UserspaceManager } from "./userspaces.js";
 
@@ -65,7 +67,9 @@ export function createKernel(config: KernelConfig, configure?: (c: Container) =>
     const cfg = c.get(T.config);
     return new ProcessFence({ agentPath: cfg.agentPath, sandbox: cfg.fence.sandbox, readOnly: cfg.fence.readOnly, hidden: cfg.fence.hidden, requestTimeoutMs: cfg.requestTimeoutMs, log: c.get(T.log) });
   });
-  c.bind(T.fences, (c) => new FencePool(c.get(T.fence), (us) => createRpcHandler(us, c.get(T.users), c.get(T.packages), c.get(T.sessions), c.get(T.auth)), (us, h) => c.get(T.services).opened(us, h)));
+  // The operator table is the control handler's; the RPC handler admits it to the system fence for admins only.
+  const operator: KernelRpc = (method, args, emit) => createControlHandler(kernel)(method, args, emit);
+  c.bind(T.fences, (c) => new FencePool(c.get(T.fence), (us) => createRpcHandler(us, c.get(T.users), c.get(T.packages), c.get(T.sessions), c.get(T.auth), operator), (us, h) => c.get(T.services).opened(us, h)));
   c.bind(T.services, (c) => new ServiceSupervisor(c.get(T.config), c.get(T.users), c.get(T.userspaces), c.get(T.packages), c.get(T.fences), c.get(T.log)));
   c.bind(T.registry, (c) => new PackageRegistry(c.get(T.config).home));
   c.bind(T.packages, (c) => new PackageManager(c.get(T.config), c.get(T.registry), c.get(T.fences)));
@@ -80,9 +84,10 @@ export function createKernel(config: KernelConfig, configure?: (c: Container) =>
   const users = c.get(T.users);
   const sessions = c.get(T.sessions);
   c.get(T.packages).observe(c.get(T.services));
+  mkdirSync(config.promotedPackagesDir, { recursive: true });
   sessions.userspaceFor(users.authorize(SYSTEM_USER));
 
-  return {
+  const kernel: Kernel = {
     config,
     users,
     auth: c.get(T.auth),
@@ -101,4 +106,5 @@ export function createKernel(config: KernelConfig, configure?: (c: Container) =>
     },
     shutdown: () => c.get(T.fences).close(),
   };
+  return kernel;
 }

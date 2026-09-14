@@ -63,13 +63,14 @@ export class ProcessFence implements Fence {
       return spawn(node[0], node.slice(1), { cwd: us.home, env, stdio: ["pipe", "pipe", "pipe"] });
     }
     const args = ["--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp"];
+    // Hidden directories are masked first, so a read-only bind inside one (the promoted packages) still shows.
+    for (const dir of this.opts.hidden) args.push("--tmpfs", dir);
     for (const dir of ["/usr", "/etc", "/opt", "/bin", "/sbin", "/lib", "/lib32", "/lib64", nodePrefix(), ...this.opts.readOnly]) {
       if (!existsSync(dir)) continue;
       const link = linkTarget(dir);
       if (link) args.push("--symlink", link, dir);
       else args.push("--ro-bind", dir, dir);
     }
-    for (const dir of this.opts.hidden) args.push("--tmpfs", dir);
     args.push("--bind", us.root, us.root, "--chdir", us.home);
     args.push("--unshare-pid", "--unshare-ipc", "--unshare-uts", "--die-with-parent", "--new-session");
     for (const [k, v] of Object.entries(env)) args.push("--setenv", k, v);

@@ -3,6 +3,7 @@
 // loop, self-extension by installing a user package, RPC from inside the fence, and isolation.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -144,6 +145,57 @@ test("a user cannot install into another scope, and bob does not see alice's pac
   assert.throws(() => kernel.sessions.inspect("bob", kernel.sessions.list("alice")[0].id), /unknown session/);
 });
 
+test("promote: an admin makes a user package the default for everyone", async () => {
+  const control = createControlHandler(kernel);
+  const r = (await control("packages.promote", { user: "alice", name: "@alice/hello" })) as { name: string; userspaces: string[] };
+  assert.equal(r.name, "@thetis/hello");
+  assert.ok(r.userspaces.includes("alice") && r.userspaces.includes("bob"));
+  const alice = kernel.packages.installed(kernel.userspaces.pathFor("alice")).map((p) => p.name);
+  assert.ok(!alice.includes("@alice/hello"), "the owner's copy is gone");
+  assert.ok(alice.includes("@thetis/hello"), "the owner runs the promoted one");
+  assert.ok(existsSync(join(kernel.config.promotedPackagesDir, "hello", "package.json")));
+  assert.ok(kernel.config.systemPackages["*"].includes("@thetis/hello"), "new userspaces get it too");
+  // Bob's steps and tools run inside bob's fence, which proves the promoted directory is readable there.
+  const s = kernel.sessions.create("bob");
+  const tools = await collect(kernel.sessions.send("bob", s.id, "tools?"));
+  assert.deepEqual(tools.errors, []);
+  assert.ok(tools.text.split(",").includes("greet"), `bob has the promoted tool: ${tools.text}`);
+  const sys = await collect(kernel.sessions.send("bob", s.id, "system?"));
+  assert.match(sys.text, /MARKER-FROM-ALICE/);
+  await assert.rejects(control("packages.promote", { user: "alice", name: "@thetis/hello" }), /not a package of alice/);
+});
+
+test("git install: a package directory inside a repository, as url#dir", async () => {
+  const us = kernel.userspaces.pathFor("alice");
+  const repo = join(us.home, "registry");
+  mkdirSync(join(repo, "pkgs", "wave"), { recursive: true });
+  writeFileSync(join(repo, "pkgs", "wave", "package.json"), JSON.stringify({ name: "@alice/wave", version: "0.0.1", type: "module", main: "index.js", thetis: { type: "tool", tools: [{ name: "wave", description: "waves", export: "wave" }] } }));
+  writeFileSync(join(repo, "pkgs", "wave", "index.js"), "export async function wave() { return 'o/'; }");
+  execSync("git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -q -m init", { cwd: repo });
+  const actor = kernel.users.authorize("alice");
+  const info = await kernel.packages.install(us, actor, `file://${repo}#pkgs/wave`);
+  assert.equal(info.name, "@alice/wave");
+  assert.ok(existsSync(join(us.store, "node_modules", "@alice", "wave", "index.js")));
+  await assert.rejects(kernel.packages.install(us, actor, `file://${repo}#../escape`), /inside the repository/);
+  await kernel.packages.uninstall(us, "@alice/wave");
+});
+
+test("operator methods: the system fence only, for admins only", async () => {
+  const handler = (id: string) => createRpcHandler(kernel.userspaces.pathFor(id), kernel.users, kernel.packages, kernel.sessions, kernel.auth, createControlHandler(kernel));
+  const alice = handler("alice");
+  const system = handler("_system");
+  await assert.rejects(alice("operator.users.list", { as: "alice" }), /system userspace/);
+  await assert.rejects(system("operator.users.list", { as: "alice" }), /only an admin/);
+  kernel.users.create("root", "admin");
+  const users = (await system("operator.users.list", { as: "root" })) as { id: string }[];
+  assert.ok(users.some((u) => u.id === "alice"));
+  assert.equal(await system("operator.ping", { as: "root" }), "pong");
+  // Package calls from the system fence act for the named user; from another fence `as` is refused.
+  const list = (await system("packages.list", { as: "alice" })) as { name: string }[];
+  assert.ok(list.some((p) => p.name === "@thetis/harness-core"));
+  await assert.rejects(alice("packages.list", { as: "bob" }), /system userspace/);
+});
+
 test("cancel: a running turn stops mid-stream, keeps the partial text, and the session is idle again", async () => {
   const s = kernel.sessions.create("alice");
   const words = Array.from({ length: 40 }, (_, i) => `w${i}`).join(" ");
@@ -250,11 +302,13 @@ test("fence isolation: a userspace cannot read the service plane or another user
   const probe = [
     `cat ${join(data, "users.json")} && echo LEAK-USERS`,
     `ls ${bob} && echo LEAK-BOB`,
-    `ls -A ${data} | grep -v '^userspaces$' | grep . && echo LEAK-DATA`,
+    `ls -A ${data} | grep -v '^userspaces$' | grep -v '^packages$' | grep . && echo LEAK-DATA`,
+    `ls ${join(data, "packages", "hello", "package.json")} >/dev/null || echo NO-PROMOTED`,
     `ls -A ${join(data, "userspaces")} | grep -v '^alice$' | grep . && echo LEAK-USERSPACES`,
     `echo probe-done`,
   ].join("; ");
   const r = await collect(kernel.sessions.send("alice", s.id, `run: ${probe}`));
   assert.match(r.text, /probe-done/);
   assert.doesNotMatch(r.text, /LEAK-/);
+  assert.doesNotMatch(r.text, /NO-PROMOTED/, "the promoted packages directory is readable inside the fence");
 });

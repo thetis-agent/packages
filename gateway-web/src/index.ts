@@ -14,7 +14,7 @@ export { clientFromRpc } from "./client.js";
 export const startService: Service = async (env) => {
   const host = typeof env.config.host === "string" ? env.config.host : "127.0.0.1";
   const port = typeof env.config.port === "number" ? env.config.port : 8777;
-  const server = createGateway(env.kernel, new GatewayStore(resolve(env.cwd, "gateway-web")), { log: env.log, secure: env.config.secure === true });
+  const server = createGateway(env.kernel, new GatewayStore(resolve(env.cwd, "gateway-web")), { log: env.log, secure: env.config.secure === true, env });
   await new Promise<void>((done, fail) => server.once("error", fail).listen(port, host, done));
   env.log(`listening on http://${host}:${(server.address() as AddressInfo).port}`);
   return { stop: () => new Promise<void>((done) => server.close(() => done())) };

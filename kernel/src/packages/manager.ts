@@ -1,6 +1,6 @@
-import { existsSync, lstatSync, mkdirSync, readdirSync, rmSync, symlinkSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
-import type { KernelConfig } from "../config.js";
+import { saveConfig, type KernelConfig } from "../config.js";
 import type { FencePool } from "../fence/pool.js";
 import type { ExecResult } from "../fence/fence.js";
 import { SYSTEM_SCOPE, type Manifest, type PackageInfo, type PackageRecord, type UserRecord, type Userspace } from "../types.js";
@@ -8,7 +8,19 @@ import { assert, KernelError } from "../util.js";
 import { readManifest, scopeOf, toInfo } from "./manifest.js";
 import type { PackageRegistry } from "./registry.js";
 
-const GIT_URL = /^(https?:\/\/|git@|git:\/\/|ssh:\/\/).+|\.git$/;
+const GIT_URL = /^(https?:\/\/|git@|git:\/\/|ssh:\/\/|file:\/\/).+|\.git$/;
+
+/** A git source is `<url>` or `<url>#<directory inside the repository>`. */
+export function splitSource(source: string): { url: string; sub?: string } {
+  const hash = source.indexOf("#");
+  if (hash < 0) return { url: source };
+  const sub = source.slice(hash + 1);
+  return sub ? { url: source.slice(0, hash), sub } : { url: source.slice(0, hash) };
+}
+
+export function isGitSource(source: string): boolean {
+  return GIT_URL.test(splitSource(source).url);
+}
 
 /**
  * Installs packages into a userspace's store and records them in the registry.
@@ -77,7 +89,7 @@ export class PackageManager {
       await this.listener?.installed(us, info);
       return info;
     }
-    const kind = GIT_URL.test(source) ? "git" : "local";
+    const kind = isGitSource(source) ? "git" : "local";
     const dir = kind === "git" ? await this.clone(us, source) : this.localDir(us, source);
     const manifest = readManifest(dir);
     this.checkOwnership(manifest, us, actor);
@@ -98,19 +110,45 @@ export class PackageManager {
     this.registry.unlink(name, us.id);
   }
 
+  /** Where a @thetis/* package lives: the shipped directory first, then the promoted one. */
   systemPackageDir(name: string): string | undefined {
-    const base = this.config.systemPackagesDir;
-    for (const entry of readdirSync(base)) {
-      const dir = resolve(base, entry);
-      const file = resolve(dir, "package.json");
-      if (!existsSync(file)) continue;
-      try {
-        if (readManifest(dir).name === name) return dir;
-      } catch {
-        continue;
+    for (const base of [this.config.systemPackagesDir, this.config.promotedPackagesDir]) {
+      if (!existsSync(base)) continue;
+      for (const entry of readdirSync(base)) {
+        const dir = resolve(base, entry);
+        if (!existsSync(resolve(dir, "package.json"))) continue;
+        try {
+          if (readManifest(dir).name === name) return dir;
+        } catch {
+          continue;
+        }
       }
     }
     return undefined;
+  }
+
+  /**
+   * Makes a user's package the default for everyone: copies it into the promoted directory under the
+   * @thetis scope and adds it to `systemPackages["*"]`. Returns the new name. The caller links it into
+   * the existing userspaces and removes the owner's original.
+   */
+  promote(us: Userspace, name: string): string {
+    const rec = this.registry.get(name);
+    assert(rec && rec.owner === us.id && rec.source.kind !== "system" && rec.userspaces.includes(us.id), `${name} is not a package of ${us.id}`, "invalid");
+    const base = name.slice(name.indexOf("/") + 1);
+    const promoted = `${SYSTEM_SCOPE}/${base}`;
+    const target = resolve(this.config.promotedPackagesDir, base);
+    assert(!existsSync(target) && !this.systemPackageDir(promoted), `${promoted} already exists`, "invalid");
+    cpSync(realpathSync(this.linkPath(us, name)), target, { recursive: true, verbatimSymlinks: true });
+    const file = resolve(target, "package.json");
+    const manifest = JSON.parse(readFileSync(file, "utf8")) as Manifest;
+    manifest.name = promoted;
+    writeFileSync(file, JSON.stringify(manifest, null, 2) + "\n");
+    readManifest(target);
+    const all = (this.config.systemPackages["*"] ??= []);
+    if (!all.includes(promoted)) all.push(promoted);
+    saveConfig(this.config);
+    return promoted;
   }
 
   private checkOwnership(m: Manifest, us: Userspace, actor: UserRecord): void {
@@ -127,12 +165,25 @@ export class PackageManager {
     }
   }
 
-  private async clone(us: Userspace, url: string): Promise<string> {
-    const slug = basename(url).replace(/\.git$/, "").replace(/[^a-z0-9._-]/gi, "-");
-    const dir = resolve(us.store, "src", slug);
+  private async clone(us: Userspace, source: string): Promise<string> {
+    const { url, sub } = splitSource(source);
+    const dir = this.cloneDir(us, url);
     rmSync(dir, { recursive: true, force: true });
     await this.exec(us, `git clone --depth 1 ${shellQuote(url)} ${shellQuote(dir)}`, us.store);
-    return dir;
+    return this.subdir(dir, sub);
+  }
+
+  private cloneDir(us: Userspace, url: string): string {
+    return resolve(us.store, "src", basename(url).replace(/\.git$/, "").replace(/[^a-z0-9._-]/gi, "-"));
+  }
+
+  /** The package directory inside a clone. It must stay inside the clone. */
+  private subdir(dir: string, sub: string | undefined): string {
+    if (!sub) return dir;
+    const inner = resolve(dir, sub);
+    const rel = relative(dir, inner);
+    assert(rel && !rel.startsWith("..") && !isAbsolute(rel), `package directory must be inside the repository: ${sub}`, "unauthorized");
+    return inner;
   }
 
   private localDir(us: Userspace, source: string): string {
@@ -158,7 +209,8 @@ export class PackageManager {
   /** Repairs a dead store link after the checkout or the data directory moved. */
   private relink(us: Userspace, rec: PackageRecord): PackageInfo | undefined {
     if (rec.source.kind === "system") return this.systemPackageDir(rec.name) ? this.installSystem(us, rec.name) : undefined;
-    const dir = rec.source.kind === "local" ? resolve(us.home, rec.source.ref) : resolve(us.store, "src", basename(rec.source.ref).replace(/\.git$/, ""));
+    const git = splitSource(rec.source.ref);
+    const dir = rec.source.kind === "local" ? resolve(us.home, rec.source.ref) : this.subdir(this.cloneDir(us, git.url), git.sub);
     if (!existsSync(resolve(dir, "package.json"))) return undefined;
     this.link(us, rec.name, dir);
     return toInfo(readManifest(dir), this.linkPath(us, rec.name));

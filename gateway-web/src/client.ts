@@ -6,9 +6,12 @@ export function clientFromRpc(rpc: KernelRpc): KernelClient {
   const call = <T>(method: string, args: unknown, emit?: (e: unknown) => void) => rpc(method, args, emit) as Promise<T>;
   return {
     packages: {
-      install: (source) => call("packages.install", { source }),
-      uninstall: (name) => call("packages.uninstall", { name }),
-      list: () => call("packages.list", {}),
+      install: (source, as) => call("packages.install", { source, as }),
+      uninstall: (name, as) => call("packages.uninstall", { name, as }),
+      list: (as) => call("packages.list", { as }),
+    },
+    operator: {
+      call: (method, args, onEvent) => call(`operator.${method}`, args, onEvent),
     },
     sessions: {
       create: (parent, as) => call("sessions.create", { parent, as }),

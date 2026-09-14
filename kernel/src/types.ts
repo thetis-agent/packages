@@ -223,12 +223,17 @@ export interface AuthUser {
 /**
  * The kernel as seen from inside a fence. Every call acts as the fence's own user. `as` names another
  * user and is accepted from the system userspace only; `auth` is for the system userspace only.
+ * `operator.call` runs a control method (the table the command line uses) for the admin named by
+ * `args.as`; the system userspace only, and the kernel checks the role.
  */
 export interface KernelClient {
   packages: {
-    install(source: string): Promise<PackageInfo>;
-    uninstall(name: string): Promise<void>;
-    list(): Promise<PackageInfo[]>;
+    install(source: string, as?: string): Promise<PackageInfo>;
+    uninstall(name: string, as?: string): Promise<void>;
+    list(as?: string): Promise<PackageInfo[]>;
+  };
+  operator: {
+    call<T = unknown>(method: string, args: Record<string, unknown> & { as: string }, onEvent?: (event: unknown) => void): Promise<T>;
   };
   sessions: {
     create(parent?: string, as?: string): Promise<SessionSummaryRef>;

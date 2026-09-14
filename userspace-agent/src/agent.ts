@@ -34,9 +34,12 @@ function rpc<T = unknown>(method: string, args?: unknown, onEvent?: (e: unknown)
 
 const kernel: KernelClient = {
   packages: {
-    install: (source) => rpc("packages.install", { source }),
-    uninstall: (name) => rpc("packages.uninstall", { name }),
-    list: () => rpc("packages.list"),
+    install: (source, as) => rpc("packages.install", { source, as }),
+    uninstall: (name, as) => rpc("packages.uninstall", { name, as }),
+    list: (as) => rpc("packages.list", { as }),
+  },
+  operator: {
+    call: (method, args, onEvent) => rpc(`operator.${method}`, args, onEvent),
   },
   sessions: {
     create: (parent, as) => rpc("sessions.create", { parent, as }),

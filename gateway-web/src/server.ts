@@ -6,6 +6,9 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { KernelClient, Message, SessionRecord, UserRole } from "@thetis/kernel";
+import type { MirrorEnv } from "@thetis/marketplace";
+import { HttpError, json, readBody, readJson } from "./http.js";
+import { handlePanel } from "./panel.js";
 import type { GatewayStore, SessionUsage } from "./store.js";
 import { TurnHub, type RunningTurn } from "./turns.js";
 
@@ -15,11 +18,12 @@ export interface GatewayOptions {
   /** Adds `Secure` to the cookie. Set it when TLS terminates in front of the gateway. Config key `secure`. */
   secure?: boolean;
   log?: (line: string) => void;
+  /** The userspace environment: where the marketplace index lives. Without it the marketplace section is absent. */
+  env?: MirrorEnv;
 }
 
 const COOKIE = "thetis_web";
 const COOKIE_MAX_AGE = 30 * 24 * 60 * 60;
-const BODY_LIMIT = 1024 * 1024;
 const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json" };
 
 export interface SessionSummary {
@@ -31,12 +35,6 @@ export interface SessionSummary {
   preview: string;
   archived: boolean;
   status: "idle" | "running";
-}
-
-class HttpError extends Error {
-  constructor(readonly status: number, message: string) {
-    super(message);
-  }
 }
 
 /** Builds the gateway. Call `.listen()` on the result. */
@@ -54,6 +52,9 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       json(res, status, { error: err instanceof Error ? err.message : String(err) });
     });
   });
+  // An install builds inside a fence and can take minutes; the fence's own timeout bounds it.
+  server.requestTimeout = 0;
+  server.headersTimeout = 65_000;
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -80,6 +81,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     const seg = path.split("/").filter(Boolean); // ["api", ...]
     if (seg[1] === "me" && method === "GET") return json(res, 200, { user, role: who!.role });
     if (seg[1] === "events" && method === "GET") return stream(req, res, user);
+    if (await handlePanel({ kernel, env: opts.env }, req, res, who!, seg, method, url)) return;
     if (seg[1] === "sessions") {
       if (seg.length === 2 && method === "GET") return json(res, 200, await listSessions(user));
       if (seg.length === 2 && method === "POST") return json(res, 201, { id: (await kernel.sessions.create(undefined, user)).id });
@@ -227,11 +229,6 @@ function codeToStatus(code: string | undefined): number {
   }
 }
 
-function json(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
-  res.end(JSON.stringify(body));
-}
-
 function redirect(res: ServerResponse, to: string): void {
   res.writeHead(303, { Location: to });
   res.end();
@@ -264,28 +261,6 @@ function checkSameSite(req: IncomingMessage): void {
 
 function safeNext(next: string): string {
   return next.startsWith("/") && !next.startsWith("//") ? next : "/";
-}
-
-async function readBody(req: IncomingMessage): Promise<string> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of req) {
-    size += (chunk as Buffer).length;
-    if (size > BODY_LIMIT) throw new HttpError(413, "body too large");
-    chunks.push(chunk as Buffer);
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
-
-async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
-  const text = await readBody(req);
-  if (!text.trim()) return {};
-  try {
-    const value = JSON.parse(text);
-    return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-  } catch {
-    throw new HttpError(400, "invalid JSON body");
-  }
 }
 
 async function readForm(req: IncomingMessage): Promise<Record<string, unknown>> {

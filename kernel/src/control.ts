@@ -20,6 +20,8 @@ export function createControlHandler(k: Kernel): KernelRpc {
     const a = (raw ?? {}) as Record<string, string | undefined>;
     const user = () => String(a.user ?? "_system");
     const us = () => k.sessions.userspaceFor(k.users.authorize(user()));
+    /** Who performs the operation: the named actor (an admin over the operator channel, the operator from the CLI), else the target user. */
+    const actor = () => k.users.authorize(String(a.actor ?? user()));
     switch (method) {
       case "ping":
         return "pong";
@@ -38,9 +40,24 @@ export function createControlHandler(k: Kernel): KernelRpc {
       case "packages.list":
         return k.packages.installed(us());
       case "packages.install":
-        return k.packages.install(us(), k.users.authorize(user()), String(a.source));
+        return k.packages.install(us(), actor(), String(a.source));
       case "packages.uninstall":
         return k.packages.uninstall(us(), String(a.name));
+      case "packages.promote": {
+        const owner = us();
+        const promoted = k.packages.promote(owner, String(a.name));
+        await k.packages.uninstall(owner, String(a.name));
+        const system = k.users.authorize("_system");
+        const userspaces: string[] = [];
+        for (const u of k.users.list()) {
+          if (!k.userspaces.exists(u.id)) continue;
+          await k.packages.install(k.userspaces.pathFor(u.id), system, promoted);
+          userspaces.push(u.id);
+        }
+        return { name: promoted, userspaces };
+      }
+      case "config.get":
+        return redact(k.config);
       case "models":
         return k.providers.listModels(us());
       case "sessions.create":
@@ -59,6 +76,16 @@ export function createControlHandler(k: Kernel): KernelRpc {
         throw new KernelError(`unknown control method: ${method}`, "rpc");
     }
   };
+}
+
+const SECRET = /key|secret|token|password/i;
+
+/** A copy of a value with every string under a secret-looking key replaced, for display. */
+export function redact<T>(value: T, key = ""): T {
+  if (typeof value === "string") return (SECRET.test(key) && value ? "•••" : value) as T;
+  if (Array.isArray(value)) return value.map((v) => redact(v, key)) as T;
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, redact(v, k)])) as T;
+  return value;
 }
 
 /**

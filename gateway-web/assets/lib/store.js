@@ -8,6 +8,8 @@ const state = {
   pending: new Set(),  // session ids with a send awaiting the server's 202
   creating: false,
   connection: "connecting", // connecting | online | offline
+  panel: null,         // the open control panel section, or null
+  panelRole: null,     // the role the server reported for the panel
 };
 
 const watchers = new Map();

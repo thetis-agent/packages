@@ -7,6 +7,8 @@ export interface KernelConfig {
   home: string;
   /** Where the shipped @thetis/* packages live. */
   systemPackagesDir: string;
+  /** Where promoted packages live: user packages made the default for everyone. Derived: `<home>/packages`. */
+  promotedPackagesDir: string;
   /** Path of the userspace agent entry the fence boots. */
   agentPath: string;
   model: string;
@@ -26,6 +28,7 @@ export function defaultConfig(home: string, projectRoot: string): KernelConfig {
   return {
     home,
     systemPackagesDir: resolve(projectRoot, "packages"),
+    promotedPackagesDir: resolve(home, "packages"),
     agentPath: resolve(projectRoot, "packages/userspace-agent/dist/src/agent.js"),
     model: "anthropic/claude-sonnet-5",
     phases: ["history", "prompt", "tools", "call", "after"],
@@ -37,7 +40,7 @@ export function defaultConfig(home: string, projectRoot: string): KernelConfig {
     packages: {
       "@thetis/provider-openrouter": { apiKey: "${OPENROUTER_API_KEY}", baseUrl: "https://openrouter.ai/api/v1" },
     },
-    fence: { sandbox: "auto", readOnly: [resolve(projectRoot, "packages"), resolve(projectRoot, "node_modules")], hidden: [home] },
+    fence: { sandbox: "auto", readOnly: [resolve(projectRoot, "packages"), resolve(projectRoot, "node_modules"), resolve(home, "packages")], hidden: [home] },
     maxToolRounds: 40,
     requestTimeoutMs: 600_000,
   };
@@ -57,7 +60,7 @@ export function loadConfig(home: string, projectRoot: string, env: NodeJS.Proces
 
 /** Writes the config without derived paths, so the file stays valid when the checkout moves. */
 export function saveConfig(config: KernelConfig): void {
-  const { home, systemPackagesDir, agentPath, fence, ...portable } = config;
+  const { home, systemPackagesDir, promotedPackagesDir, agentPath, fence, ...portable } = config;
   writeJson(configPath(home), { ...portable, fence: { sandbox: fence.sandbox } });
 }
 

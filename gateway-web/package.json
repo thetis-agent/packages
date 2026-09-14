@@ -4,6 +4,7 @@
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": { "build": "tsc -b" },
+  "dependencies": { "@thetis/marketplace": "^0.1.0" },
   "peerDependencies": { "@thetis/kernel": "^0.1.0" },
   "devDependencies": { "@thetis/kernel": "^0.1.0" },
   "thetis": {
