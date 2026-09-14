@@ -1,0 +1,527 @@
+{
+  "name": "@thetis/exa",
+  "version": "0.1.0",
+  "description": "Web search, page contents, summaries, direct answers, and deep research through the Exa API, as tools for the model.",
+  "keywords": [
+    "exa",
+    "web",
+    "search",
+    "research",
+    "summarize",
+    "tool"
+  ],
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test dist/test/"
+  },
+  "peerDependencies": {
+    "@thetis/kernel": "^0.1.0"
+  },
+  "devDependencies": {
+    "@thetis/kernel": "^0.1.0"
+  },
+  "thetis": {
+    "type": "tool",
+    "tools": [
+      {
+        "name": "exa_search",
+        "description": "Search the web with Exa. Returns ranked results with title, URL, date, and by default the passages most relevant to the query. Use it to find current information, sources, papers, companies, or news. Ask for text when you need whole pages.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "What to search for. A natural-language description of the page you want works best, for example: 'blog post explaining how prompt caching works in Anthropic's API'"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "instant",
+                "fast",
+                "neural",
+                "deep",
+                "deep-lite",
+                "deep-reasoning"
+              ],
+              "description": "auto (default) picks the mode. instant and fast are cheaper and quicker. deep runs several searches and is slower and dearer."
+            },
+            "category": {
+              "type": "string",
+              "enum": [
+                "company",
+                "research paper",
+                "news",
+                "pdf",
+                "github",
+                "personal site",
+                "people",
+                "financial report",
+                "publication"
+              ],
+              "description": "Restrict to one kind of page"
+            },
+            "numResults": {
+              "type": "number",
+              "description": "How many results, 1 to 100. Default 8."
+            },
+            "includeDomains": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Only results from these domains, for example [\"arxiv.org\"]"
+            },
+            "excludeDomains": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Never results from these domains"
+            },
+            "startPublishedDate": {
+              "type": "string",
+              "description": "Only pages published on or after this ISO 8601 date, for example 2026-01-01"
+            },
+            "endPublishedDate": {
+              "type": "string",
+              "description": "Only pages published on or before this ISO 8601 date"
+            },
+            "includeText": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Only pages whose text contains this phrase (one entry, up to 5 words)"
+            },
+            "excludeText": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Only pages whose text does not contain this phrase"
+            },
+            "userLocation": {
+              "type": "string",
+              "description": "Two-letter country code that localizes the results, for example US"
+            },
+            "text": {
+              "type": [
+                "boolean",
+                "number"
+              ],
+              "description": "Return the page text of each result. A number caps the text at that many characters. Costs more than highlights."
+            },
+            "highlights": {
+              "type": "boolean",
+              "description": "Return the passages most relevant to the query. Cheap and usually enough. On by default when no other content is asked for."
+            },
+            "summary": {
+              "type": [
+                "boolean",
+                "string"
+              ],
+              "description": "Return a short generated summary of each page. A string focuses the summary on that question."
+            },
+            "maxCharacters": {
+              "type": "number",
+              "description": "Cap for text fields, in characters"
+            },
+            "maxAgeHours": {
+              "type": "number",
+              "description": "Re-crawl a page when the cached copy is older than this many hours. 0 always re-crawls."
+            }
+          },
+          "required": [
+            "query"
+          ]
+        },
+        "export": "search"
+      },
+      {
+        "name": "exa_contents",
+        "description": "Fetch the contents of one or more web pages by URL through Exa: clean page text, relevant highlights, a summary, or the links on the page. Use it to read a page you already know the address of.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "urls": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The pages to fetch, up to 100"
+            },
+            "text": {
+              "type": [
+                "boolean",
+                "number"
+              ],
+              "description": "Return the page text of each page. A number caps the text at that many characters. Costs more than highlights."
+            },
+            "highlights": {
+              "type": "boolean",
+              "description": "Return the passages most relevant to the query. Cheap and usually enough. On by default when no other content is asked for."
+            },
+            "summary": {
+              "type": [
+                "boolean",
+                "string"
+              ],
+              "description": "Return a short generated summary of each page. A string focuses the summary on that question."
+            },
+            "maxCharacters": {
+              "type": "number",
+              "description": "Cap for text fields, in characters"
+            },
+            "highlightsQuery": {
+              "type": "string",
+              "description": "Select highlights about this question instead of the whole page"
+            },
+            "summaryQuery": {
+              "type": "string",
+              "description": "What the summary should focus on"
+            },
+            "maxAgeHours": {
+              "type": "number",
+              "description": "Re-crawl when the cached copy is older than this many hours. 0 forces a fresh crawl."
+            },
+            "livecrawlTimeout": {
+              "type": "number",
+              "description": "Milliseconds to wait for a live crawl, up to 90000"
+            },
+            "subpages": {
+              "type": "number",
+              "description": "Also fetch up to this many linked pages of the same site"
+            },
+            "subpageTarget": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Words that pick the subpages to fetch, for example [\"pricing\", \"docs\"]"
+            },
+            "links": {
+              "type": "number",
+              "description": "Return up to this many links found on each page"
+            }
+          },
+          "required": [
+            "urls"
+          ]
+        },
+        "export": "contents"
+      },
+      {
+        "name": "exa_summarize",
+        "description": "Summarize one or more web pages with Exa. Returns a short summary per URL, optionally focused on a question or shaped by a JSON schema. Cheaper than reading whole pages.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "urls": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The pages to summarize"
+            },
+            "query": {
+              "type": "string",
+              "description": "What the summary should answer or focus on. Default: purpose, main points, key facts."
+            },
+            "schema": {
+              "type": "object",
+              "description": "A JSON schema. The summary then comes back as JSON in that shape."
+            },
+            "maxAgeHours": {
+              "type": "number",
+              "description": "Re-crawl when the cached copy is older than this many hours"
+            }
+          },
+          "required": [
+            "urls"
+          ]
+        },
+        "export": "summarize"
+      },
+      {
+        "name": "exa_find_similar",
+        "description": "Find web pages similar to a given URL through Exa. Use it to find competitors, related papers, or more of the same kind of page.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "The page to find neighbours of"
+            },
+            "numResults": {
+              "type": "number",
+              "description": "How many results. Default 8."
+            },
+            "excludeSourceDomain": {
+              "type": "boolean",
+              "description": "Leave out pages from the same domain as the URL"
+            },
+            "includeDomains": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Only results from these domains, for example [\"arxiv.org\"]"
+            },
+            "excludeDomains": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Never results from these domains"
+            },
+            "startPublishedDate": {
+              "type": "string",
+              "description": "Only pages published on or after this ISO 8601 date, for example 2026-01-01"
+            },
+            "endPublishedDate": {
+              "type": "string",
+              "description": "Only pages published on or before this ISO 8601 date"
+            },
+            "includeText": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "excludeText": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "text": {
+              "type": [
+                "boolean",
+                "number"
+              ],
+              "description": "Return the page text of each result. A number caps the text at that many characters. Costs more than highlights."
+            },
+            "highlights": {
+              "type": "boolean",
+              "description": "Return the passages most relevant to the query. Cheap and usually enough. On by default when no other content is asked for."
+            },
+            "summary": {
+              "type": [
+                "boolean",
+                "string"
+              ],
+              "description": "Return a short generated summary of each page. A string focuses the summary on that question."
+            },
+            "maxCharacters": {
+              "type": "number",
+              "description": "Cap for text fields, in characters"
+            }
+          },
+          "required": [
+            "url"
+          ]
+        },
+        "export": "findSimilar"
+      },
+      {
+        "name": "exa_answer",
+        "description": "Ask Exa a question and get a direct answer grounded in web search, with the sources it used. Good for factual questions and quick lookups. For a long report use exa_research.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "The question"
+            },
+            "text": {
+              "type": "boolean",
+              "description": "Include the full text of each source"
+            },
+            "model": {
+              "type": "string",
+              "enum": [
+                "exa",
+                "exa-pro",
+                "exa-fast",
+                "exa-research"
+              ],
+              "description": "exa (default) is fast; exa-pro does more searches; exa-fast is quickest."
+            },
+            "systemPrompt": {
+              "type": "string",
+              "description": "Instructions on the shape or tone of the answer"
+            },
+            "outputSchema": {
+              "type": "object",
+              "description": "A JSON schema. The answer then comes back as JSON in that shape."
+            },
+            "userLocation": {
+              "type": "string",
+              "description": "Two-letter country code"
+            },
+            "maxCharacters": {
+              "type": "number",
+              "description": "Cap for source text, in characters"
+            }
+          },
+          "required": [
+            "query"
+          ]
+        },
+        "export": "answer"
+      },
+      {
+        "name": "exa_research",
+        "description": "Start a multi-step research run on Exa: it searches, reads, and writes a cited report on an open question. Slow (often minutes) and the dearest Exa call. By default it waits for the result; set wait to false to get an id and poll with exa_research_get.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "The research question or instructions"
+            },
+            "systemPrompt": {
+              "type": "string",
+              "description": "Guidance on the output: format, length, audience"
+            },
+            "effort": {
+              "type": "string",
+              "enum": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "auto",
+                "max"
+              ],
+              "description": "How much work to do. Default auto."
+            },
+            "outputSchema": {
+              "type": "object",
+              "description": "A JSON schema for a structured result"
+            },
+            "previousRunId": {
+              "type": "string",
+              "description": "A completed run to continue from"
+            },
+            "maxCostDollars": {
+              "type": "number",
+              "description": "Stop the run when its cost reaches this many dollars. At least 1. Default 5."
+            },
+            "wait": {
+              "type": "boolean",
+              "description": "Wait for the run to finish. Default true."
+            },
+            "waitSeconds": {
+              "type": "number",
+              "description": "How long to wait at most. Default 240, at most 540."
+            }
+          },
+          "required": [
+            "query"
+          ]
+        },
+        "export": "research"
+      },
+      {
+        "name": "exa_research_get",
+        "description": "Get the status and result of an Exa research run by id.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The run id from exa_research"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        },
+        "export": "researchGet"
+      },
+      {
+        "name": "exa_research_cancel",
+        "description": "Cancel a running Exa research run by id.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The run id"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        },
+        "export": "researchCancel"
+      },
+      {
+        "name": "exa_research_list",
+        "description": "List recent Exa research runs, newest first.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "number",
+              "description": "Runs per page, up to 100. Default 20."
+            },
+            "cursor": {
+              "type": "string",
+              "description": "The cursor from a previous page"
+            }
+          }
+        },
+        "export": "researchList"
+      },
+      {
+        "name": "exa_request",
+        "description": "Call any Exa API endpoint directly with the configured key, for example the Websets API (/websets/v0/websets) or an endpoint these tools do not cover. Returns the JSON reply. Read https://exa.ai/docs/reference for the paths and bodies.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "The path under https://api.exa.ai, starting with /, for example /websets/v0/websets"
+            },
+            "method": {
+              "type": "string",
+              "enum": [
+                "GET",
+                "POST",
+                "PUT",
+                "PATCH",
+                "DELETE"
+              ],
+              "description": "Default GET, or POST when a body is given"
+            },
+            "body": {
+              "type": "object",
+              "description": "The JSON request body"
+            },
+            "query": {
+              "type": "object",
+              "description": "Query string parameters"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        },
+        "export": "request"
+      }
+    ]
+  }
+}
