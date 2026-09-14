@@ -26,6 +26,7 @@ export interface PackageRow {
   name: string;
   version: string;
   type: string;
+  description: string;
   scope: "me" | "everyone";
   steps: { id: string; phase: string }[];
   tools: string[];
@@ -37,6 +38,7 @@ export function toRow(p: PackageInfo): PackageRow {
     name: p.name,
     version: p.version,
     type: p.type,
+    description: p.description,
     scope: p.name.startsWith("@thetis/") ? "everyone" : "me",
     steps: (p.thetis.steps ?? []).map((s) => ({ id: s.id, phase: s.phase })),
     tools: (p.thetis.tools ?? []).map((t) => t.name),

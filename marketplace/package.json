@@ -1,15 +1,30 @@
 {
   "name": "@thetis/marketplace",
   "version": "0.1.0",
+  "description": "Mirrors package registries and writes the searchable index the control panel reads.",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
-  "exports": { ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" } },
-  "scripts": { "build": "tsc -b", "test": "node --test dist/test/" },
-  "peerDependencies": { "@thetis/kernel": "^0.1.0" },
-  "devDependencies": { "@thetis/kernel": "^0.1.0" },
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test dist/test/"
+  },
+  "peerDependencies": {
+    "@thetis/kernel": "^0.1.0"
+  },
+  "devDependencies": {
+    "@thetis/kernel": "^0.1.0"
+  },
   "thetis": {
     "type": "service",
-    "service": { "export": "startService" }
+    "service": {
+      "export": "startService"
+    }
   }
 }

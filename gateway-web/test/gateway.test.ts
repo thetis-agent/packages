@@ -353,9 +353,9 @@ test("packages: a person installs their own package, an admin promotes it, and e
   assert.equal(row.name, "@alice/hello");
   assert.equal(row.scope, "me");
   assert.deepEqual(row.tools, ["greet"]);
-  const mine = (await (await api(alice, "/alice/api/packages")).json()) as { name: string; scope: string }[];
-  assert.ok(mine.some((p) => p.name === "@alice/hello" && p.scope === "me"));
-  assert.ok(mine.some((p) => p.name === "@thetis/harness-core" && p.scope === "everyone"));
+  const mine = (await (await api(alice, "/alice/api/packages")).json()) as { name: string; scope: string; description: string }[];
+  assert.ok(mine.some((p) => p.name === "@alice/hello" && p.scope === "me" && p.description === ""));
+  assert.ok(mine.some((p) => p.name === "@thetis/harness-core" && p.scope === "everyone" && p.description.startsWith("The default harness")));
   assert.ok((await api(alice, "/alice/api/packages", { method: "POST", body: JSON.stringify({ source: "packages/nope" }) })).status >= 400, "a bad path is refused");
   assert.ok((await api(alice, "/alice/api/packages", { method: "POST", body: JSON.stringify({ source: "@thetis/gateway-web" }) })).status >= 400, "a user cannot install a system package");
 

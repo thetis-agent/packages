@@ -60,7 +60,7 @@ function packagesSection(ctx: PackageStepContext): string {
   const lines = ctx.packages.list().map((p) => {
     const steps = (p.thetis.steps ?? []).map((s) => `${s.phase}:${s.export}`).join(", ");
     const tools = (p.thetis.tools ?? []).map((t) => t.name).join(", ");
-    return `- ${p.name}@${p.version} (${p.type})${steps ? ` steps[${steps}]` : ""}${tools ? ` tools[${tools}]` : ""}`;
+    return `- ${p.name}@${p.version} (${p.type})${p.description ? `: ${p.description}` : ""}${steps ? ` steps[${steps}]` : ""}${tools ? ` tools[${tools}]` : ""}`;
   });
   return `## Installed packages in this userspace\n${lines.join("\n") || "(none)"}`;
 }
@@ -81,6 +81,7 @@ package.json:
 {
   "name": "@${ctx.session.user}/example",
   "version": "0.1.0",
+  "description": "One sentence on what this package does; people see it in the control panel.",
   "type": "module",
   "main": "index.js",
   "thetis": {

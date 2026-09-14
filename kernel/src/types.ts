@@ -89,6 +89,8 @@ export interface ThetisField {
 export interface Manifest {
   name: string;
   version: string;
+  /** One sentence on what the package does. Shown wherever the package is listed. */
+  description?: string;
   main?: string;
   dependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
@@ -100,6 +102,7 @@ export interface PackageInfo {
   name: string;
   version: string;
   type: string;
+  description: string;
   root: string;
   thetis: ThetisField;
 }

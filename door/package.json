@@ -1,9 +1,17 @@
 {
   "name": "@thetis/door",
   "version": "0.1.0",
+  "description": "The reverse proxy on the host port that routes /login to the login target and /<person>/ to that person's gateway. Not installable.",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
-  "exports": { ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" } },
-  "scripts": { "build": "tsc -b" }
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b"
+  }
 }

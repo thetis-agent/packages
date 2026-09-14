@@ -1,15 +1,34 @@
 {
   "name": "@thetis/prompt-cache",
   "version": "0.1.0",
+  "description": "Advises the provider on prompt caching and records where the cached prefix breaks.",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
-  "exports": { ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" } },
-  "scripts": { "build": "tsc -b", "test": "node --test dist/test/" },
-  "peerDependencies": { "@thetis/kernel": "^0.1.0" },
-  "devDependencies": { "@thetis/kernel": "^0.1.0" },
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test dist/test/"
+  },
+  "peerDependencies": {
+    "@thetis/kernel": "^0.1.0"
+  },
+  "devDependencies": {
+    "@thetis/kernel": "^0.1.0"
+  },
   "thetis": {
     "type": "loader",
-    "steps": [ { "id": "cache-hints", "phase": "call", "export": "cacheHints" } ]
+    "steps": [
+      {
+        "id": "cache-hints",
+        "phase": "call",
+        "export": "cacheHints"
+      }
+    ]
   }
 }

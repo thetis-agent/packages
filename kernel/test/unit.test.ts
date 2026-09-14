@@ -58,8 +58,8 @@ test("manifest validation rejects unscoped names and missing thetis field", () =
 });
 
 const pkgs: PackageInfo[] = [
-  { name: "@a/mem", version: "1", type: "memory", root: "/x", thetis: { type: "memory", steps: [{ id: "load", phase: "prompt", export: "load" }, { id: "save", phase: "after", export: "save" }] } },
-  { name: "@a/hist", version: "1", type: "loader", root: "/y", thetis: { type: "loader", steps: [{ id: "trim", phase: "history", export: "trim" }] } },
+  { name: "@a/mem", version: "1", type: "memory", description: "", root: "/x", thetis: { type: "memory", steps: [{ id: "load", phase: "prompt", export: "load" }, { id: "save", phase: "after", export: "save" }] } },
+  { name: "@a/hist", version: "1", type: "loader", description: "", root: "/y", thetis: { type: "loader", steps: [{ id: "trim", phase: "history", export: "trim" }] } },
 ];
 
 test("default enumerator orders steps by phase and places the built-in call last in its phase", () => {

@@ -1,6 +1,7 @@
 {
   "name": "@thetis/gateway-web",
   "version": "0.1.0",
+  "description": "Your browser interface: conversations, the transcript, and the control panel, served from your own space.",
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": {

@@ -1,8 +1,13 @@
 {
   "name": "@thetis/userspace-agent",
   "version": "0.1.0",
+  "description": "Runs inside each fence: loads package modules and executes steps, tools, providers, and services for the kernel. Not installable.",
   "type": "module",
   "main": "dist/src/agent.js",
-  "scripts": { "build": "tsc -b" },
-  "dependencies": { "@thetis/kernel": "^0.1.0" }
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@thetis/kernel": "^0.1.0"
+  }
 }

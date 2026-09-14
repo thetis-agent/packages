@@ -1,9 +1,18 @@
 {
   "name": "@thetis/kernel",
   "version": "0.1.0",
+  "description": "The trusted service plane: users, userspaces, sessions, the pipeline, packages, and the fence. Not installable.",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
-  "exports": { ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" } },
-  "scripts": { "build": "tsc -b", "test": "node --test dist/test/" }
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test dist/test/"
+  }
 }

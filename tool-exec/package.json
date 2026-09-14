@@ -1,48 +1,127 @@
 {
   "name": "@thetis/tool-exec",
   "version": "0.1.0",
+  "description": "Tools for the model: run commands, read and write files, install and remove packages, and spawn subagents in your own space.",
   "type": "module",
   "main": "dist/src/index.js",
-  "scripts": { "build": "tsc -b" },
-  "peerDependencies": { "@thetis/kernel": "^0.1.0" },
-  "devDependencies": { "@thetis/kernel": "^0.1.0" },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "peerDependencies": {
+    "@thetis/kernel": "^0.1.0"
+  },
+  "devDependencies": {
+    "@thetis/kernel": "^0.1.0"
+  },
   "thetis": {
     "type": "tool",
     "tools": [
       {
         "name": "exec",
         "description": "Run a shell command (bash) inside your userspace. Working directory defaults to your home. Returns exit code, stdout and stderr.",
-        "parameters": { "type": "object", "properties": { "cmd": { "type": "string", "description": "The command line to run" }, "cwd": { "type": "string", "description": "Working directory relative to home" }, "timeoutMs": { "type": "number" } }, "required": ["cmd"] },
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "cmd": {
+              "type": "string",
+              "description": "The command line to run"
+            },
+            "cwd": {
+              "type": "string",
+              "description": "Working directory relative to home"
+            },
+            "timeoutMs": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "cmd"
+          ]
+        },
         "export": "exec"
       },
       {
         "name": "read_file",
         "description": "Read a UTF-8 text file from your userspace (path relative to home).",
-        "parameters": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] },
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        },
         "export": "readFile"
       },
       {
         "name": "write_file",
         "description": "Write a UTF-8 text file in your userspace (path relative to home), creating directories as needed.",
-        "parameters": { "type": "object", "properties": { "path": { "type": "string" }, "content": { "type": "string" } }, "required": ["path", "content"] },
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ]
+        },
         "export": "writeFile"
       },
       {
         "name": "install_package",
         "description": "Install a package into your userspace from a directory path (relative to home) or a git URL. The package must have a package.json with a thetis field and be scoped @<you>/<name>. It becomes live on the next turn.",
-        "parameters": { "type": "object", "properties": { "source": { "type": "string" } }, "required": ["source"] },
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "source"
+          ]
+        },
         "export": "installPackage"
       },
       {
         "name": "uninstall_package",
         "description": "Remove an installed package from your userspace by name.",
-        "parameters": { "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"] },
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        },
         "export": "uninstallPackage"
       },
       {
         "name": "spawn_subagent",
         "description": "Start a subagent session in your userspace (same files and packages), send it a task, and return its final reply.",
-        "parameters": { "type": "object", "properties": { "task": { "type": "string" } }, "required": ["task"] },
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task"
+          ]
+        },
         "export": "spawnSubagent"
       }
     ]

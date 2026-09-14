@@ -32,7 +32,7 @@ export function scopeOf(name: string): string {
 }
 
 export function toInfo(m: Manifest, root: string): PackageInfo {
-  return { name: m.name, version: m.version, type: m.thetis.type, root, thetis: m.thetis };
+  return { name: m.name, version: m.version, type: m.thetis.type, description: typeof m.description === "string" ? m.description.trim() : "", root, thetis: m.thetis };
 }
 
 /** True when the package declares the export this step reference points at. */

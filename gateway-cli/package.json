@@ -1,9 +1,17 @@
 {
   "name": "@thetis/gateway-cli",
   "version": "0.1.0",
+  "description": "The thetis command line and the door: a client of the running kernel, and the host port browsers reach.",
   "type": "module",
   "main": "dist/src/index.js",
-  "scripts": { "build": "tsc -b" },
-  "dependencies": { "@thetis/kernel": "^0.1.0", "@thetis/door": "^0.1.0" },
-  "thetis": { "type": "gateway" }
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@thetis/kernel": "^0.1.0",
+    "@thetis/door": "^0.1.0"
+  },
+  "thetis": {
+    "type": "gateway"
+  }
 }

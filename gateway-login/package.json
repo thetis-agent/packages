@@ -1,13 +1,22 @@
 {
   "name": "@thetis/gateway-login",
   "version": "0.1.0",
+  "description": "The sign-in page: turns a password into the cookie every gateway checks.",
   "type": "module",
   "main": "dist/src/index.js",
-  "scripts": { "build": "tsc -b" },
-  "peerDependencies": { "@thetis/kernel": "^0.1.0" },
-  "devDependencies": { "@thetis/kernel": "^0.1.0" },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "peerDependencies": {
+    "@thetis/kernel": "^0.1.0"
+  },
+  "devDependencies": {
+    "@thetis/kernel": "^0.1.0"
+  },
   "thetis": {
     "type": "gateway",
-    "service": { "export": "startService" }
+    "service": {
+      "export": "startService"
+    }
   }
 }

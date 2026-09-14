@@ -57,7 +57,7 @@ export function mountPackages(root, { role, user }) {
     for (const r of installed) byName.set(r.name, { ...r, state: r.scope, installed: true });
     for (const r of index?.results ?? []) {
       const have = byName.get(r.name);
-      if (have) byName.set(r.name, { ...have, registry: r.registry, source: r.source, description: r.description, keywords: r.keywords, available: r.version });
+      if (have) byName.set(r.name, { ...have, registry: r.registry, source: r.source, description: have.description || r.description, keywords: r.keywords, available: r.version });
       else byName.set(r.name, { ...r, state: "available", installed: false });
     }
     return [...byName.values()];
