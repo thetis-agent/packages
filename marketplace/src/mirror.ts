@@ -2,7 +2,7 @@
 // A registry is a git repository with package directories at its first or second level. The clone runs
 // through the fence's `exec`, so the mirror never leaves the userspace.
 
-import type { ExecOptions } from "@thetis/kernel";
+import type { ExecOptions } from "@thetis/contracts";
 import { readIndex, writeIndex, type FileEnv, type IndexedPackage, type MarketplaceIndex, type Registry, type RegistryState } from "./index-file.js";
 
 export interface MirrorEnv extends FileEnv {

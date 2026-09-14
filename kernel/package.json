@@ -1,7 +1,7 @@
 {
   "name": "@thetis/kernel",
   "version": "0.1.0",
-  "description": "The trusted service plane: users, userspaces, sessions, the pipeline, packages, and the fence. Not installable.",
+  "description": "The trusted service plane: who may do what. Users, identity, sessions, the pipeline, package ownership, providers, and the operator table. Not installable.",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
@@ -14,5 +14,9 @@
   "scripts": {
     "build": "tsc -b",
     "test": "node --test dist/test/"
+  },
+  "dependencies": {
+    "@thetis/contracts": "^0.1.0",
+    "@thetis/lib": "^0.1.0"
   }
 }

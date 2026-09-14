@@ -1,6 +1,16 @@
 import { resolve } from "node:path";
-import { readJson, writeJson } from "./util.js";
-import type { StepRef } from "./types.js";
+import type { StepRef } from "@thetis/contracts";
+import { readJson, writeJson } from "@thetis/lib/json";
+
+export interface FenceConfig {
+  sandbox: "auto" | "bwrap" | "none";
+  network: "auto" | "egress" | "none" | "host";
+  limits: { memoryMb: number; pids: number; cpuPercent: number };
+  /** Host paths every fence may read besides the OS. */
+  readOnly: string[];
+  /** Host paths masked inside every fence. */
+  hidden: string[];
+}
 
 export interface KernelConfig {
   /** Service-plane data directory: users, registry, userspaces. */
@@ -21,7 +31,7 @@ export interface KernelConfig {
   systemPackages: Record<string, string[]>;
   /** Per-package configuration handed to that package's steps, tools and providers. */
   packages: Record<string, Record<string, unknown>>;
-  fence: { sandbox: "auto" | "bwrap" | "none"; network: "auto" | "egress" | "none" | "host"; limits: { memoryMb: number; pids: number; cpuPercent: number }; readOnly: string[]; hidden: string[] };
+  fence: FenceConfig;
   /** The door: the one host port, which routes to the login target and to each person's gateway socket. */
   door: { host: string; port: number };
   maxToolRounds: number;
@@ -45,7 +55,13 @@ export function defaultConfig(home: string, projectRoot: string): KernelConfig {
     packages: {
       "@thetis/provider-openrouter": { apiKey: "${OPENROUTER_API_KEY}", baseUrl: "https://openrouter.ai/api/v1" },
     },
-    fence: { sandbox: "auto", network: "auto", limits: { memoryMb: 1024, pids: 512, cpuPercent: 200 }, readOnly: [resolve(projectRoot, "packages"), resolve(projectRoot, "node_modules"), resolve(home, "packages")], hidden: [home] },
+    fence: {
+      sandbox: "auto",
+      network: "auto",
+      limits: { memoryMb: 1024, pids: 512, cpuPercent: 200 },
+      readOnly: [resolve(projectRoot, "packages"), resolve(projectRoot, "node_modules"), resolve(home, "packages")],
+      hidden: [home],
+    },
     door: { host: "127.0.0.1", port: 8777 },
     maxToolRounds: 40,
     requestTimeoutMs: 600_000,
@@ -60,8 +76,18 @@ export function configPath(home: string): string {
 export function loadConfig(home: string, projectRoot: string, env: NodeJS.ProcessEnv = process.env): KernelConfig {
   const defaults = defaultConfig(home, projectRoot);
   const stored = readJson<Partial<KernelConfig>>(configPath(home), {});
-  const merged = { ...defaults, ...stored, home, fence: { ...defaults.fence, ...(stored.fence ?? {}), limits: { ...defaults.fence.limits, ...(stored.fence?.limits ?? {}) } }, door: { ...defaults.door, ...(stored.door ?? {}) } };
-  return interpolate(merged, env) as KernelConfig;
+  const merged: KernelConfig = {
+    ...defaults,
+    ...stored,
+    home,
+    fence: {
+      ...defaults.fence,
+      ...(stored.fence ?? {}),
+      limits: { ...defaults.fence.limits, ...(stored.fence?.limits ?? {}) },
+    },
+    door: { ...defaults.door, ...(stored.door ?? {}) },
+  };
+  return interpolate(merged, env);
 }
 
 /** Writes the config without derived paths, so the file stays valid when the checkout moves. */

@@ -1,10 +1,15 @@
+import type { Message, SessionRecord, TurnEvent, TurnOptions, UserRecord, Userspace } from "@thetis/contracts";
+import { AsyncQueue } from "@thetis/lib/async";
+import { assert } from "@thetis/lib/error";
+import { newId, now } from "@thetis/lib/ids";
+import type { JsonDirStore } from "@thetis/lib/json-store";
+import type { UserspaceLayout } from "@thetis/lib/userspace-layout";
 import type { PackageManager } from "../packages/manager.js";
 import type { PipelineRunner } from "../pipeline/runner.js";
-import type { Message, SessionRecord, TurnEvent, TurnOptions, UserRecord, Userspace } from "../types.js";
 import type { UserStore } from "../users.js";
-import type { UserspaceManager } from "../userspaces.js";
-import { AsyncQueue, assert } from "../util.js";
-import type { SessionStore } from "./store.js";
+
+/** The shape of a session id. The store checks it before an id becomes a file name. */
+export const SESSION_ID = /^s_[a-f0-9]+$/;
 
 export interface SessionRef {
   id: string;
@@ -23,9 +28,9 @@ export class SessionApi {
 
   constructor(
     private readonly users: UserStore,
-    private readonly userspaces: UserspaceManager,
+    private readonly userspaces: UserspaceLayout,
     private readonly packages: PackageManager,
-    private readonly store: SessionStore,
+    private readonly store: JsonDirStore<SessionRecord>,
     private readonly runner: PipelineRunner,
   ) {}
 
@@ -40,15 +45,18 @@ export class SessionApi {
   create(userId: string, opts: { parent?: string } = {}): SessionRef {
     const user = this.users.authorize(userId);
     const us = this.userspaceFor(user);
-    if (opts.parent) this.store.load(us, opts.parent);
-    return ref(this.store.create(us, opts.parent));
+    if (opts.parent) this.load(us, opts.parent);
+    const stamp = now();
+    const rec: SessionRecord = { id: newId("s"), user: us.id, parent: opts.parent, createdAt: stamp, updatedAt: stamp, turns: 0, conversation: [], harness: {} };
+    this.store.save(us.sessions, rec);
+    return ref(rec);
   }
 
   /** `opts.model` names the model for this turn; steps may still change `call.model`. Empty means the configured default. */
   send(userId: string, sessionId: string, input: TurnInput, opts: TurnOptions = {}): AsyncIterable<TurnEvent> {
     const user = this.users.authorize(userId);
     const us = this.userspaceFor(user);
-    const session = this.store.load(us, sessionId);
+    const session = this.load(us, sessionId);
     const key = `${userId}/${sessionId}`;
     assert(!this.running.has(key), `session ${sessionId} already has a turn in progress`, "busy");
     const control = new AbortController();
@@ -57,7 +65,7 @@ export class SessionApi {
     const queue = new AsyncQueue<TurnEvent>();
     this.runner
       .runTurn(us, session, messages, (e) => queue.push(e), control.signal, opts)
-      .then(() => queue.close(), (err) => queue.close(err))
+      .then(() => queue.close(), (err: unknown) => queue.close(err))
       .finally(() => this.running.delete(key));
     return queue;
   }
@@ -83,13 +91,23 @@ export class SessionApi {
 
   inspect(userId: string, sessionId: string): SessionRecord & { status: "idle" | "running" } {
     const user = this.users.authorize(userId);
-    const rec = this.store.load(this.userspaceFor(user), sessionId);
+    const rec = this.load(this.userspaceFor(user), sessionId);
     return { ...rec, status: this.running.has(`${userId}/${sessionId}`) ? "running" : "idle" };
   }
 
   list(userId: string): SessionRef[] {
     const user = this.users.authorize(userId);
-    return this.store.list(this.userspaceFor(user)).map(ref);
+    return this.store
+      .list(this.userspaceFor(user).sessions)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map(ref);
+  }
+
+  /** A session of this userspace only: another user's id is unknown here, whatever it names elsewhere. */
+  private load(us: Userspace, id: string): SessionRecord {
+    const rec = this.store.load(us.sessions, id);
+    assert(rec, `unknown session ${id} for user ${us.id}`, "not-found");
+    return rec;
   }
 }
 

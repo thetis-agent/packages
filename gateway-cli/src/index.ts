@@ -2,16 +2,14 @@
 // socket, so installs, passwords and moderation reach the running services. Without a daemon, a command
 // boots a kernel in-process. Both paths speak to the same operator handler, so the commands are one code.
 import { existsSync, readFileSync } from "node:fs";
-import { createConnection } from "node:net";
 import { dirname, resolve } from "node:path";
-import { createInterface } from "node:readline";
 import { createInterface as createPrompt } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
+import type { KernelRpc, ModelDescriptor, PackageInfo, SessionRecord, TurnEvent, UserRecord } from "@thetis/contracts";
 import { createDoor } from "@thetis/door";
-import {
-  ControlServer, controlSocketPath, createControlHandler, createKernel, defaultConfig, loadConfig, saveConfig, configPath,
-  type KernelRpc, type PackageInfo, type ModelDescriptor, type SessionRef, type SessionRecord, type TurnEvent, type UserRecord,
-} from "@thetis/kernel";
+import { ControlServer, controlSocketPath, createKernel } from "@thetis/host";
+import { configPath, createControlHandler, defaultConfig, loadConfig, saveConfig, type SessionRef } from "@thetis/kernel";
+import { connectRpcSocket } from "@thetis/lib/ndjson-socket";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 
@@ -61,7 +59,7 @@ export async function run(argv: string[]): Promise<void> {
   if (cmd === "config") return void process.stdout.write(JSON.stringify(config, null, 2) + "\n");
 
   const socket = controlSocketPath(home);
-  const remote = await connectControl(socket);
+  const remote = await connectRpcSocket(socket);
   if (cmd === "serve") {
     if (remote) {
       remote.close();
@@ -273,53 +271,6 @@ function usageLine(u: Record<string, number>): string {
   if (u.completion_tokens !== undefined) parts.push(`out ${u.completion_tokens}`);
   if (u.cost !== undefined) parts.push(`$${u.cost.toFixed(4)}`);
   return `[${parts.join(" · ")}]`;
-}
-
-// ---- the control socket client ----
-
-interface Remote {
-  call: Call;
-  close(): void;
-}
-
-/** Connects to a running daemon. Resolves undefined when there is none (no socket, or a stale one). */
-function connectControl(path: string): Promise<Remote | undefined> {
-  if (!existsSync(path)) return Promise.resolve(undefined);
-  return new Promise((done) => {
-    const socket = createConnection(path);
-    const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; emit?: (e: unknown) => void }>();
-    let seq = 0;
-    socket.once("error", () => done(undefined));
-    socket.once("connect", () => {
-      createInterface({ input: socket }).on("line", (line) => {
-        let msg: { id: string; event?: unknown; result?: unknown; error?: string; code?: string };
-        try {
-          msg = JSON.parse(line);
-        } catch {
-          return;
-        }
-        const p = pending.get(msg.id);
-        if (!p) return;
-        if ("event" in msg) return p.emit?.(msg.event);
-        pending.delete(msg.id);
-        if (msg.error !== undefined) p.reject(Object.assign(new Error(msg.error), { code: msg.code }));
-        else p.resolve(msg.result);
-      });
-      socket.on("close", () => {
-        for (const p of pending.values()) p.reject(new Error("the daemon closed the connection"));
-        pending.clear();
-      });
-      done({
-        call: (method, args, emit) =>
-          new Promise((resolve, reject) => {
-            const id = `c${++seq}`;
-            pending.set(id, { resolve, reject, emit });
-            socket.write(JSON.stringify({ id, method, args }) + "\n");
-          }),
-        close: () => socket.end(),
-      });
-    });
-  });
 }
 
 function readLine(): Promise<string> {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { PackageStepContext, ProviderCall } from "@thetis/kernel";
+import type { PackageStepContext, ProviderCall } from "@thetis/contracts";
 import { diagnose, fingerprint } from "../src/fingerprint.js";
 import { HARNESS_KEY, affinityOf, cacheHints } from "../src/step.js";
 import type { CacheDiagnostics } from "../src/fingerprint.js";

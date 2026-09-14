@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { assert } from "../util.js";
-import type { Manifest, PackageInfo, StepRef, ThetisField } from "../types.js";
+import type { Manifest, PackageInfo, StepRef, ThetisField } from "@thetis/contracts";
+import { assert } from "@thetis/lib/error";
 
 const SCOPED_NAME = /^@[a-z0-9-]+\/[a-z0-9._-]+$/;
 
@@ -32,7 +32,8 @@ export function scopeOf(name: string): string {
 }
 
 export function toInfo(m: Manifest, root: string): PackageInfo {
-  return { name: m.name, version: m.version, type: m.thetis.type, description: typeof m.description === "string" ? m.description.trim() : "", root, thetis: m.thetis };
+  const description = typeof m.description === "string" ? m.description.trim() : "";
+  return { name: m.name, version: m.version, type: m.thetis.type, description, root, thetis: m.thetis };
 }
 
 /** True when the package declares the export this step reference points at. */

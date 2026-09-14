@@ -1,27 +1,3 @@
-import { randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from "node:fs";
-import { dirname } from "node:path";
-
-export function newId(prefix: string): string {
-  return `${prefix}_${randomBytes(6).toString("hex")}`;
-}
-
-export function now(): string {
-  return new Date().toISOString();
-}
-
-export function readJson<T>(file: string, fallback: T): T {
-  if (!existsSync(file)) return fallback;
-  return JSON.parse(readFileSync(file, "utf8")) as T;
-}
-
-export function writeJson(file: string, value: unknown, mode?: number): void {
-  mkdirSync(dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(value, null, 2), { mode });
-  renameSync(tmp, file);
-}
-
 /** An unbounded async queue bridging push-style producers to AsyncIterable consumers. */
 export class AsyncQueue<T> implements AsyncIterable<T> {
   private readonly items: T[] = [];
@@ -54,14 +30,4 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
       },
     };
   }
-}
-
-export class KernelError extends Error {
-  constructor(message: string, readonly code: string = "kernel") {
-    super(message);
-  }
-}
-
-export function assert(cond: unknown, message: string, code = "invalid"): asserts cond {
-  if (!cond) throw new KernelError(message, code);
 }

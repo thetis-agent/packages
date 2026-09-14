@@ -2,5 +2,5 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "rootDir": ".", "outDir": "dist" },
   "include": ["src/**/*.ts", "test/**/*.ts"],
-  "references": [{ "path": "../kernel" }, { "path": "../marketplace" }, { "path": "../door" }, { "path": "../gateway-login" }]
+  "references": [{ "path": "../contracts" }, { "path": "../marketplace" }, { "path": "../door" }, { "path": "../gateway-login" }, { "path": "../host" }, { "path": "../kernel" }]
 }

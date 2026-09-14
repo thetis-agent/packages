@@ -1,6 +1,6 @@
 // "Run code in my userspace": the tool package that lets the model write, build, test and
 // install packages. Everything here executes inside the fence via the agent's env.
-import type { Tool } from "@thetis/kernel";
+import type { Tool } from "@thetis/contracts";
 
 export const exec: Tool = async (args, env) => {
   const r = await env.exec(String(args.cmd), { cwd: args.cwd ? String(args.cwd) : undefined, timeoutMs: args.timeoutMs ? Number(args.timeoutMs) : undefined });

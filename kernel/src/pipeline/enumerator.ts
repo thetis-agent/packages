@@ -1,8 +1,7 @@
+import { KERNEL_PACKAGE, PROVIDER_CALL_STEP, type Fences, type PackageInfo, type SessionInfo, type StepRef, type Userspace } from "@thetis/contracts";
+import { CodedError } from "@thetis/lib/error";
 import type { KernelConfig } from "../config.js";
-import type { FencePool } from "../fence/pool.js";
 import { declaresStep } from "../packages/manifest.js";
-import { KERNEL_PACKAGE, PROVIDER_CALL_STEP, type PackageInfo, type SessionInfo, type StepRef, type Userspace } from "../types.js";
-import { KernelError } from "../util.js";
 
 export const BUILTIN_CALL: StepRef = { package: KERNEL_PACKAGE, export: PROVIDER_CALL_STEP, id: PROVIDER_CALL_STEP };
 
@@ -15,7 +14,7 @@ export const BUILTIN_CALL: StepRef = { package: KERNEL_PACKAGE, export: PROVIDER
 export class Enumerator {
   constructor(
     private readonly config: KernelConfig,
-    private readonly fences: FencePool,
+    private readonly fences: Fences,
   ) {}
 
   async enumerate(us: Userspace, session: SessionInfo, packages: PackageInfo[]): Promise<StepRef[]> {
@@ -39,11 +38,11 @@ export class Enumerator {
   }
 
   validate(raw: unknown, packages: PackageInfo[]): StepRef[] {
-    if (!Array.isArray(raw)) throw new KernelError("enumerator must return an array of steps", "enumerator");
+    if (!Array.isArray(raw)) throw new CodedError("enumerator must return an array of steps", "enumerator");
     return raw.map((r: StepRef) => {
       if (isBuiltin(r)) return { ...BUILTIN_CALL, phase: r.phase };
       const pkg = packages.find((p) => p.name === r.package);
-      if (!pkg || !declaresStep(pkg, r)) throw new KernelError(`enumerator scheduled undeclared step ${r.package}#${r.export}`, "enumerator");
+      if (!pkg || !declaresStep(pkg, r)) throw new CodedError(`enumerator scheduled undeclared step ${r.package}#${r.export}`, "enumerator");
       return { package: r.package, export: r.export, id: r.id ?? `${r.package}#${r.export}`, phase: r.phase };
     });
   }

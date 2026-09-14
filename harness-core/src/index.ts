@@ -1,6 +1,6 @@
 // The default harness: a bounded history window, a system prompt that teaches the model how
 // to extend Thetis by writing packages, and a step that attaches every installed tool.
-import type { Message, PackageStepContext, StepResult, ToolSpec } from "@thetis/kernel";
+import type { Message, PackageStepContext, StepResult, ToolSpec } from "@thetis/contracts";
 
 const DEFAULT_WINDOW = 80;
 const DEFAULT_KEEP = 0.5;

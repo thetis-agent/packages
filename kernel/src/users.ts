@@ -1,21 +1,25 @@
 import { resolve } from "node:path";
-import { assert, now, readJson, writeJson } from "./util.js";
-import { SYSTEM_USER, type UserRecord, type UserRole, type UserStatus } from "./types.js";
+import { SYSTEM_USER, type UserRecord, type UserRole, type UserStatus } from "@thetis/contracts";
+import { assert } from "@thetis/lib/error";
+import { now } from "@thetis/lib/ids";
+import { JsonFile } from "@thetis/lib/json";
 
 const USER_ID = /^[a-z][a-z0-9-]{0,31}$/;
 
 /** Identity store: one record per user, persisted in the service plane. */
 export class UserStore {
-  private readonly file: string;
-  private users: Record<string, UserRecord>;
+  private readonly file: JsonFile<Record<string, UserRecord>>;
 
   constructor(home: string) {
-    this.file = resolve(home, "users.json");
-    this.users = readJson<Record<string, UserRecord>>(this.file, {});
+    this.file = new JsonFile(resolve(home, "users.json"), {});
     if (!this.users[SYSTEM_USER]) {
       this.users[SYSTEM_USER] = { id: SYSTEM_USER, role: "system", status: "active", createdAt: now() };
-      this.flush();
+      this.file.save();
     }
+  }
+
+  private get users(): Record<string, UserRecord> {
+    return this.file.value;
   }
 
   list(): UserRecord[] {
@@ -39,7 +43,7 @@ export class UserStore {
     assert(!this.users[id], `user already exists: ${id}`);
     const user: UserRecord = { id, role, status: "active", createdAt: now() };
     this.users[id] = user;
-    this.flush();
+    this.file.save();
     return user;
   }
 
@@ -56,7 +60,7 @@ export class UserStore {
     assert(id !== SYSTEM_USER, "the system user cannot be removed");
     assert(this.users[id], `unknown user: ${id}`);
     delete this.users[id];
-    this.flush();
+    this.file.save();
   }
 
   private update(id: string, patch: Partial<UserRecord>): UserRecord {
@@ -64,11 +68,7 @@ export class UserStore {
     assert(user, `unknown user: ${id}`);
     assert(user.role !== "system", "the system user cannot be modified");
     Object.assign(user, patch);
-    this.flush();
+    this.file.save();
     return user;
-  }
-
-  private flush(): void {
-    writeJson(this.file, this.users);
   }
 }

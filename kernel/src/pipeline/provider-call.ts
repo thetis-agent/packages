@@ -1,17 +1,16 @@
+import type { Fences, Message, ProviderEvent, StepContext, StepResult, ToolCall, ToolSpec, TurnEvent, Userspace } from "@thetis/contracts";
+import { CodedError, errorCode, errorMessage } from "@thetis/lib/error";
 import type { KernelConfig } from "../config.js";
-import type { FencePool } from "../fence/pool.js";
-import type { ProviderRegistry } from "../providers.js";
-import type { Message, ProviderEvent, StepContext, StepResult, ToolCall, ToolSpec, TurnEvent, Userspace } from "../types.js";
-import { KernelError } from "../util.js";
+import type { ProviderRegistry, ResolvedProvider } from "../providers.js";
 
 export type Emit = (event: TurnEvent) => void;
 
 export function isCancelled(err: unknown): boolean {
-  return (err as { code?: string })?.code === "cancelled";
+  return errorCode(err) === "cancelled";
 }
 
 export function checkCancelled(signal?: AbortSignal): void {
-  if (signal?.aborted) throw new KernelError("turn cancelled", "cancelled");
+  if (signal?.aborted) throw new CodedError("turn cancelled", "cancelled");
 }
 
 /**
@@ -22,7 +21,7 @@ export class ProviderCallStep {
   constructor(
     private readonly config: KernelConfig,
     private readonly providers: ProviderRegistry,
-    private readonly fences: FencePool,
+    private readonly fences: Fences,
   ) {}
 
   /**
@@ -56,19 +55,32 @@ export class ProviderCallStep {
     return { conversation, call };
   }
 
-  private async callOnce(provider: Awaited<ReturnType<ProviderRegistry["resolve"]>>, call: StepContext["call"], emit: Emit, partial: { text: string }, signal?: AbortSignal): Promise<{ message: Message; usage?: Record<string, number> }> {
+  private async callOnce(
+    provider: ResolvedProvider,
+    call: StepContext["call"],
+    emit: Emit,
+    partial: { text: string },
+    signal?: AbortSignal,
+  ): Promise<{ message: Message; usage?: Record<string, number> }> {
     partial.text = "";
     const toolCalls: ToolCall[] = [];
     let failure: string | undefined;
     let usage: Record<string, number> | undefined;
     checkCancelled(signal);
-    await this.providers.call(provider, call, (e: ProviderEvent) => {
-      if (e.type === "text") (partial.text += e.delta), emit({ type: "text", delta: e.delta });
-      else if (e.type === "tool_call") toolCalls.push(e.call), emit({ type: "tool.call", call: e.call });
-      else if (e.type === "usage") (usage = e.usage), emit({ type: "usage", usage: e.usage });
-      else if (e.type === "error") failure = e.message;
-    }, signal);
-    if (failure) throw new KernelError(`provider error: ${failure}`, "provider");
+    const onEvent = (e: ProviderEvent) => {
+      if (e.type === "text") {
+        partial.text += e.delta;
+        emit({ type: "text", delta: e.delta });
+      } else if (e.type === "tool_call") {
+        toolCalls.push(e.call);
+        emit({ type: "tool.call", call: e.call });
+      } else if (e.type === "usage") {
+        usage = e.usage;
+        emit({ type: "usage", usage: e.usage });
+      } else if (e.type === "error") failure = e.message;
+    };
+    await this.providers.call(provider, call, onEvent, signal);
+    if (failure) throw new CodedError(`provider error: ${failure}`, "provider");
     const msg: Message = { role: "assistant", content: partial.text };
     partial.text = "";
     if (toolCalls.length) msg.toolCalls = toolCalls;
@@ -79,13 +91,14 @@ export class ProviderCallStep {
     const spec = tools.find((t) => t.name === tc.name);
     let result: string;
     try {
-      if (!spec) throw new KernelError(`unknown tool: ${tc.name}`, "tool");
-      const payload = { package: spec.package, export: spec.export, name: tc.name, args: tc.args, session: ctx.session, config: this.config.packages[spec.package] ?? {} };
+      if (!spec) throw new CodedError(`unknown tool: ${tc.name}`, "tool");
+      const config = this.config.packages[spec.package] ?? {};
+      const payload = { package: spec.package, export: spec.export, name: tc.name, args: tc.args, session: ctx.session, config };
       const raw = await this.fences.request(us, "tool", payload, undefined, signal);
       result = typeof raw === "string" ? raw : JSON.stringify(raw ?? null);
     } catch (err) {
       if (isCancelled(err)) throw err;
-      result = `error: ${err instanceof Error ? err.message : String(err)}`;
+      result = `error: ${errorMessage(err)}`;
     }
     emit({ type: "tool.result", id: tc.id, name: tc.name, result });
     return { role: "tool", content: result, toolCallId: tc.id, name: tc.name };

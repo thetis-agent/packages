@@ -24,10 +24,10 @@
     "test": "node --test dist/test/"
   },
   "peerDependencies": {
-    "@thetis/kernel": "^0.1.0"
+    "@thetis/contracts": "^0.1.0"
   },
   "devDependencies": {
-    "@thetis/kernel": "^0.1.0"
+    "@thetis/contracts": "^0.1.0"
   },
   "thetis": {
     "type": "tool",

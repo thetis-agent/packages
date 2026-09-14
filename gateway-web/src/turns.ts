@@ -1,6 +1,6 @@
 // Runs turns in the background and fans their events out to every connected browser of the user.
 // A turn's events are buffered while it runs, so a page that connects mid-turn receives what it missed.
-import type { KernelClient, TurnEvent } from "@thetis/kernel";
+import type { KernelClient, TurnEvent } from "@thetis/contracts";
 
 export interface NumberedEvent {
   seq: number;

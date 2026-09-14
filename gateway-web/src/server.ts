@@ -7,7 +7,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { KernelClient, Message, SessionRecord, UserRole } from "@thetis/kernel";
+import type { KernelClient, Message, SessionRecord, UserRole } from "@thetis/contracts";
 import type { MirrorEnv } from "@thetis/marketplace";
 import { HttpError, json, readJson } from "./http.js";
 import { handlePanel } from "./panel.js";

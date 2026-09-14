@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { Message, PackageStepContext } from "@thetis/kernel";
+import type { Message, PackageStepContext } from "@thetis/contracts";
 import { trimHistory } from "../src/index.js";
 
 const msg = (i: number): Message => (i % 3 === 0 ? { role: "user", content: `u${i}` } : i % 3 === 1 ? { role: "assistant", content: `a${i}` } : { role: "tool", content: `t${i}`, toolCallId: `c${i}`, name: "x" });

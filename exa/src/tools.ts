@@ -1,6 +1,6 @@
 // The tools. Each one maps the arguments the model sent onto one Exa request and formats the
 // reply for the model. `createTools` takes the HTTP and clock dependencies so tests can fake them.
-import type { Tool, ToolEnv } from "@thetis/kernel";
+import type { Tool, ToolEnv } from "@thetis/contracts";
 import { createClient, ExaError, type ExaClient, type FetchLike, type Query } from "./client.js";
 import { formatAnswer, formatCost, formatResults, formatRun, formatRunList, formatStatuses, join, type AgentRun, type ExaResult, type ExaStatus } from "./format.js";
 

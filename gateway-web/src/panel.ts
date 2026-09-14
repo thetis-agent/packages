@@ -3,7 +3,7 @@
 // gateway checks the role first so a refusal is a plain sentence; the kernel checks it again on every
 // operator call, against the fence's own user.
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { KernelClient, PackageInfo, UserRole } from "@thetis/kernel";
+import type { KernelClient, PackageInfo, UserRole } from "@thetis/contracts";
 import { readIndex, search, type MirrorEnv } from "@thetis/marketplace";
 import { field, HttpError, json, readJson } from "./http.js";
 

@@ -11,7 +11,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer as createTcpServer, type AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { createControlHandler, createKernel, createRpcHandler, defaultConfig, T, type Kernel, type TurnEvent, type Userspace } from "@thetis/kernel";
+import type { TurnEvent, Userspace } from "@thetis/contracts";
+import { createKernel, T, type Kernel } from "@thetis/host";
+import { createControlHandler, createRpcHandler, defaultConfig } from "@thetis/kernel";
 import { createDoor } from "@thetis/door";
 import { createLogin } from "@thetis/gateway-login";
 import { clientFromRpc } from "../src/client.js";
@@ -20,7 +22,7 @@ import { GatewayStore } from "../src/store.js";
 import type { TurnMessage } from "../src/turns.js";
 
 const PROJECT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
-const FIXTURES = resolve(PROJECT, "packages/kernel/test/fixtures");
+const FIXTURES = resolve(PROJECT, "packages/host/test/fixtures");
 const PEOPLE = ["alice", "bob", "root"] as const;
 
 let home: string;

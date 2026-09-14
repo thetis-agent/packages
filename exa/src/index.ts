@@ -1,6 +1,6 @@
 // @thetis/exa: web search, page contents, summaries, answers, and research runs through the
 // Exa API, as tools for the model. The key comes from packages["@thetis/exa"].apiKey.
-import type { Tool } from "@thetis/kernel";
+import type { Tool } from "@thetis/contracts";
 import { createTools } from "./tools.js";
 
 export { createClient, checkPath, ExaError, DEFAULT_BASE_URL, DEFAULT_TIMEOUT_MS } from "./client.js";

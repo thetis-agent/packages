@@ -1,8 +1,11 @@
-import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import { resolve } from "node:path";
-import { SYSTEM_USER, type UserRecord } from "./types.js";
+import { SYSTEM_USER, type UserRecord } from "@thetis/contracts";
+import { randomHex, scryptHex } from "@thetis/lib/crypto";
+import { assert } from "@thetis/lib/error";
+import { now } from "@thetis/lib/ids";
+import { JsonFile } from "@thetis/lib/json";
 import type { UserStore } from "./users.js";
-import { assert, now, readJson, writeJson } from "./util.js";
 
 interface Credential {
   salt: string;
@@ -19,20 +22,23 @@ interface AuthFile {
   tokens: Record<string, TokenRecord>;
 }
 
-const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
+/** Verified against when the user has no password, so a login attempt costs the same either way. */
 const EMPTY: Credential = { salt: "00".repeat(16), hash: "00".repeat(64) };
+const TOKEN_TTL_MS = 30 * 24 * 60 * 60_000;
 
 /**
  * Identity for network gateways: a password per user and the login tokens issued against it.
  * Lives in the service plane. A gateway verifies a token here and then acts for that user.
  */
 export class AuthService {
-  private readonly file: string;
-  private readonly data: AuthFile;
+  private readonly file: JsonFile<AuthFile>;
 
-  constructor(home: string, private readonly users: UserStore, private readonly tokenTtlMs = 30 * 24 * 60 * 60_000) {
-    this.file = resolve(home, "auth.json");
-    this.data = readJson<AuthFile>(this.file, { credentials: {}, tokens: {} });
+  constructor(home: string, private readonly users: UserStore, private readonly tokenTtlMs = TOKEN_TTL_MS) {
+    this.file = new JsonFile(resolve(home, "auth.json"), { credentials: {}, tokens: {} }, 0o600);
+  }
+
+  private get data(): AuthFile {
+    return this.file.value;
   }
 
   hasPassword(id: string): boolean {
@@ -44,16 +50,16 @@ export class AuthService {
     assert(this.users.get(id), `unknown user: ${id}`);
     assert(id !== SYSTEM_USER, "the system user cannot sign in");
     assert(password.length > 0, "password must not be empty");
-    const salt = randomBytes(16).toString("hex");
-    this.data.credentials[id] = { salt, hash: await derive(password, salt) };
+    const salt = randomHex(16);
+    this.data.credentials[id] = { salt, hash: await scryptHex(password, salt) };
     for (const [token, rec] of Object.entries(this.data.tokens)) if (rec.user === id) delete this.data.tokens[token];
-    this.flush();
+    this.file.save();
   }
 
   /** Verifies the pair and issues a token. The work is the same whether or not the user exists. */
   async login(id: string, password: string): Promise<{ token: string; user: UserRecord } | undefined> {
     const cred = this.data.credentials[id] ?? EMPTY;
-    const hash = Buffer.from(await derive(password, cred.salt), "hex");
+    const hash = Buffer.from(await scryptHex(password, cred.salt), "hex");
     const expected = Buffer.from(cred.hash, "hex");
     const ok = hash.length === expected.length && timingSafeEqual(hash, expected) && id in this.data.credentials;
     if (!ok) return undefined;
@@ -63,9 +69,9 @@ export class AuthService {
     } catch {
       return undefined;
     }
-    const token = randomBytes(32).toString("hex");
+    const token = randomHex(32);
     this.data.tokens[token] = { user: id, createdAt: now() };
-    this.flush();
+    this.file.save();
     return { token, user };
   }
 
@@ -87,16 +93,6 @@ export class AuthService {
   logout(token: string): void {
     if (!(token in this.data.tokens)) return;
     delete this.data.tokens[token];
-    this.flush();
+    this.file.save();
   }
-
-  private flush(): void {
-    writeJson(this.file, this.data, 0o600);
-  }
-}
-
-function derive(password: string, salt: string): Promise<string> {
-  return new Promise((done, fail) => {
-    scrypt(password, Buffer.from(salt, "hex"), 64, SCRYPT, (err, key) => (err ? fail(err) : done(key.toString("hex"))));
-  });
 }

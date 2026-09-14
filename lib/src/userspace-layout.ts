@@ -1,9 +1,9 @@
-import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
-import type { Userspace } from "./types.js";
+import type { Userspace } from "@thetis/contracts";
 
-/** Owns the on-disk layout of each user's fenced environment. */
-export class UserspaceManager {
+/** The on-disk layout of each user's fenced environment under `<home>/userspaces/<id>`. */
+export class UserspaceLayout {
   constructor(private readonly home: string) {}
 
   pathFor(userId: string): Userspace {

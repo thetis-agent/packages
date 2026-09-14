@@ -10,9 +10,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createConnection } from "node:net";
 import { createInterface } from "node:readline";
-import { ControlServer, createControlHandler, createKernel, createRpcHandler, T, type Kernel, type TurnEvent } from "../src/index.js";
-import { defaultConfig } from "../src/config.js";
-import { ProcessFence } from "../src/fence/process-fence.js";
+import type { TurnEvent } from "@thetis/contracts";
+import { createControlHandler, createRpcHandler, defaultConfig } from "@thetis/kernel";
+import type { ProcessFence } from "@thetis/sandbox";
+import { ControlServer, createKernel, T, type Kernel } from "../src/index.js";
 
 const PROJECT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), "../../test/fixtures");

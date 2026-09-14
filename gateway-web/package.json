@@ -11,9 +11,11 @@
     "@thetis/marketplace": "^0.1.0"
   },
   "peerDependencies": {
-    "@thetis/kernel": "^0.1.0"
+    "@thetis/contracts": "^0.1.0"
   },
   "devDependencies": {
+    "@thetis/contracts": "^0.1.0",
+    "@thetis/host": "^0.1.0",
     "@thetis/kernel": "^0.1.0",
     "@thetis/door": "^0.1.0",
     "@thetis/gateway-login": "^0.1.0"

@@ -1,25 +1,18 @@
-export * from "./types.js";
-export * from "./container.js";
-export { AsyncQueue, KernelError } from "./util.js";
+// The kernel's public surface. Authority only: who may do what. The vocabulary is in @thetis/contracts,
+// the mechanism in @thetis/lib and @thetis/sandbox, and the wiring in @thetis/host.
+export { CodedError as KernelError } from "@thetis/lib/error";
 export { defaultConfig, loadConfig, saveConfig, configPath, type KernelConfig } from "./config.js";
 export { UserStore } from "./users.js";
 export { AuthService } from "./auth.js";
 export { ServiceSupervisor } from "./services.js";
 export { createRpcHandler } from "./rpc.js";
-export { ControlServer, createControlHandler, controlSocketPath } from "./control.js";
-export { UserspaceManager } from "./userspaces.js";
-export type { Fence, FenceHandle, KernelRpc, ExecResult } from "./fence/fence.js";
-export { ProcessFence, type FenceNetwork } from "./fence/process-fence.js";
-export { Cgroups } from "./fence/cgroup.js";
-export { Journal, type JournalRow } from "./journal.js";
-export { FencePool } from "./fence/pool.js";
+export { createControlHandler, redact } from "./control.js";
 export { PackageRegistry } from "./packages/registry.js";
 export { PackageManager, type PackageListener } from "./packages/manager.js";
 export { readManifest, validateManifest } from "./packages/manifest.js";
-export { ProviderRegistry } from "./providers.js";
-export { SessionStore } from "./sessions/store.js";
-export { SessionApi, type SessionRef, type TurnInput } from "./sessions/api.js";
-export { Enumerator, BUILTIN_CALL } from "./pipeline/enumerator.js";
+export { ProviderRegistry, type ResolvedProvider } from "./providers.js";
+export { SessionApi, SESSION_ID, type SessionRef, type TurnInput } from "./sessions/api.js";
+export { Enumerator, BUILTIN_CALL, isBuiltin } from "./pipeline/enumerator.js";
 export { ProviderCallStep } from "./pipeline/provider-call.js";
 export { PipelineRunner } from "./pipeline/runner.js";
-export { createKernel, T, type Kernel } from "./kernel.js";
+export type { KernelServices } from "./kernel.js";

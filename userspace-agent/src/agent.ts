@@ -4,12 +4,12 @@
 import { exec as cpExec } from "node:child_process";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import type {
   EnumeratorContext, ExecOptions, KernelClient, PackageInfo, PackageQuery, PackageStepContext,
   Provider, ProviderCall, ProviderEvent, ServiceEnv, ServiceHandle, SessionInfo, StepContext, StepEnv, StepResult, ToolEnv, TurnEvent,
-} from "@thetis/kernel";
+} from "@thetis/contracts";
+import { encodeFrame, PendingCalls, readFrames, type Frame } from "@thetis/lib/rpc-frames";
 
 const ROOT = process.env.THETIS_USERSPACE ?? process.cwd();
 const HOME = process.env.THETIS_HOME_DIR ?? ROOT;
@@ -19,18 +19,15 @@ const MAX_OUTPUT = 30_000;
 
 const writeOut = process.stdout.write.bind(process.stdout);
 for (const k of ["log", "info", "debug"] as const) console[k] = (...a: unknown[]) => console.error(...a);
-const send = (m: unknown) => void writeOut(JSON.stringify(m) + "\n");
+const send = (m: unknown) => void writeOut(encodeFrame(m));
 
 // ---- kernel RPC (fence -> kernel) ----
 // `{ rpcEvent }` lines stream to `onEvent` before the `{ rpcResult }` line settles the call.
-const rpcPending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; onEvent?: (e: unknown) => void }>();
-let rpcSeq = 0;
+const rpcPending = new PendingCalls("k");
 function rpc<T = unknown>(method: string, args?: unknown, onEvent?: (e: unknown) => void): Promise<T> {
-  return new Promise<T>((res, rej) => {
-    const id = `k${++rpcSeq}`;
-    rpcPending.set(id, { resolve: res as (v: unknown) => void, reject: rej, onEvent });
-    send({ rpc: id, method, args });
-  });
+  const { id, result } = rpcPending.open({ onEvent });
+  send({ rpc: id, method, args });
+  return result as Promise<T>;
 }
 
 const kernel: KernelClient = {
@@ -175,40 +172,27 @@ const inflight = new Map<string, AbortController>();
 /** Running services by package name. They live as long as this process, which is as long as the fence. */
 const services = new Map<string, ServiceHandle | void>();
 
-async function dispatch(msg: Payload): Promise<void> {
+async function dispatch(msg: Frame): Promise<void> {
   const { id, op, payload } = msg as { id: string; op: string; payload: Payload };
-  const handler = ops[op];
   const control = new AbortController();
   inflight.set(id, control);
   try {
+    const handler = ops[op];
     if (!handler) throw new Error(`unknown op: ${op}`);
     const result = await handler(payload ?? {}, (event) => send({ id, event }), control.signal);
     send({ id, result: result === undefined ? null : result });
   } catch (err) {
+    // The stack goes back whole: package code failed, and its author needs the trace.
     send({ id, error: err instanceof Error ? (err.stack ?? err.message) : String(err) });
   } finally {
     inflight.delete(id);
   }
 }
 
-createInterface({ input: process.stdin }).on("line", (line) => {
-  if (!line.trim()) return;
-  let msg: Payload;
-  try {
-    msg = JSON.parse(line);
-  } catch {
-    return console.error(`agent: bad line ${line.slice(0, 80)}`);
-  }
+readFrames(process.stdin, (msg) => {
   if (typeof msg.cancel === "string") return void inflight.get(msg.cancel)?.abort();
-  if (typeof msg.rpcEvent === "string") return void rpcPending.get(msg.rpcEvent)?.onEvent?.(msg.event);
-  if (typeof msg.rpcResult === "string") {
-    const p = rpcPending.get(msg.rpcResult);
-    rpcPending.delete(msg.rpcResult);
-    if (!p) return;
-    if (msg.error) p.reject(Object.assign(new Error(String(msg.error)), { code: msg.code }));
-    else p.resolve(msg.result);
-    return;
-  }
+  if (typeof msg.rpcEvent === "string") return void rpcPending.receive({ id: msg.rpcEvent, event: msg.event });
+  if (typeof msg.rpcResult === "string") return void rpcPending.receive({ ...msg, id: msg.rpcResult });
   void dispatch(msg);
-});
+}, (line) => console.error(`agent: bad line ${line.slice(0, 80)}`));
 process.stdin.on("end", () => process.exit(0));

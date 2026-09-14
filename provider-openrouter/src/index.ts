@@ -1,7 +1,7 @@
 // OpenRouter provider: OpenAI-compatible chat completions with SSE streaming and tool calls.
 // Prompt caching is applied at the wire. The policy comes from this package's own `cache` config; a
 // `cache` hint on the call may tune it within the configured `hints` mode.
-import type { Message, ModelDescriptor, Provider, ProviderCall, ProviderEvent, ToolCall } from "@thetis/kernel";
+import type { Message, ModelDescriptor, Provider, ProviderCall, ProviderEvent, ToolCall } from "@thetis/contracts";
 import { applyHint, applyOpenAiCompatible, normalizeUsage, readHint, resolvePolicy, type CacheConfig, type OpenAiWireMessage } from "@thetis/prompt-cache";
 
 export interface OpenRouterConfig {

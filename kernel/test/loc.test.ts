@@ -1,5 +1,6 @@
-// The kernel must stay small: under 2,000 lines of code, not counting imports, re-exports,
-// blank lines, comment-only lines, or tests.
+// The kernel must stay small: under 1,200 lines of code, not counting imports, re-exports,
+// blank lines, comment-only lines, or tests. Mechanism belongs in @thetis/lib and @thetis/sandbox;
+// the limit leaves about 12% of headroom over the count after that split (1,064).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -7,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "../../src");
-const LIMIT = 2000;
+const LIMIT = 1200;
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((f) => {

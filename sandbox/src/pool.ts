@@ -1,8 +1,8 @@
-import type { Userspace } from "../types.js";
-import type { Fence, FenceHandle, KernelRpc } from "./fence.js";
+import type { EventSink, Fence, FenceHandle, Fences, KernelRpc, Userspace } from "@thetis/contracts";
+import { errorCode } from "@thetis/lib/error";
 
 /** Keeps at most one open fence per userspace, opening lazily and re-opening after a crash. */
-export class FencePool {
+export class FencePool implements Fences {
   private readonly handles = new Map<string, Promise<FenceHandle>>();
 
   constructor(
@@ -21,7 +21,7 @@ export class FencePool {
           await this.onOpen?.(us, handle);
           return handle;
         })
-        .catch((err) => {
+        .catch((err: unknown) => {
           this.handles.delete(us.id);
           throw err;
         });
@@ -31,12 +31,12 @@ export class FencePool {
   }
 
   /** Sends one request, dropping the handle if the agent died so the next call reopens it. */
-  async request(us: Userspace, op: string, payload: unknown, onEvent?: (e: unknown) => void, signal?: AbortSignal): Promise<unknown> {
+  async request(us: Userspace, op: string, payload: unknown, onEvent?: EventSink, signal?: AbortSignal): Promise<unknown> {
     const h = await this.handle(us);
     try {
       return await h.request(op, payload, onEvent, signal);
     } catch (err) {
-      if ((err as { code?: string }).code === "fence") this.handles.delete(us.id);
+      if (errorCode(err) === "fence") this.handles.delete(us.id);
       throw err;
     }
   }

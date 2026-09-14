@@ -2,5 +2,5 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "rootDir": ".", "outDir": "dist" },
   "include": ["src/**/*.ts", "test/**/*.ts"],
-  "references": [{ "path": "../kernel" }, { "path": "../door" }]
+  "references": [{ "path": "../contracts" }, { "path": "../lib" }, { "path": "../kernel" }, { "path": "../host" }, { "path": "../door" }]
 }

@@ -1,0 +1,21 @@
+{
+  "name": "@thetis/sandbox",
+  "version": "0.1.0",
+  "description": "The process fence: one userspace agent per person under bubblewrap, with cgroup limits and outbound-only networking. Not installable.",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@thetis/contracts": "^0.1.0",
+    "@thetis/lib": "^0.1.0"
+  }
+}

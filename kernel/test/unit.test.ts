@@ -3,31 +3,15 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Container, token } from "../src/container.js";
+import type { PackageInfo } from "@thetis/contracts";
 import { UserStore } from "../src/users.js";
 import { AuthService } from "../src/auth.js";
 import { validateManifest } from "../src/packages/manifest.js";
 import { Enumerator, BUILTIN_CALL } from "../src/pipeline/enumerator.js";
-import { AsyncQueue } from "../src/util.js";
 import { defaultConfig, saveConfig, loadConfig } from "../src/config.js";
-import { isGitSource, splitSource } from "../src/packages/manager.js";
 import { redact } from "../src/control.js";
-import type { PackageInfo } from "../src/types.js";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "thetis-unit-"));
-
-test("container resolves lazily, caches singletons, and allows rebinding", () => {
-  const A = token<{ n: number }>("A");
-  const B = token<{ a: { n: number } }>("B");
-  let built = 0;
-  const c = new Container().bind(A, () => ({ n: ++built })).bind(B, (c) => ({ a: c.get(A) }));
-  assert.equal(built, 0);
-  assert.equal(c.get(B).a, c.get(A));
-  assert.equal(built, 1);
-  c.bind(A, () => ({ n: 42 }));
-  assert.equal(c.get(A).n, 42);
-  assert.throws(() => c.get(token("missing")), /No binding/);
-});
 
 test("user store: create, moderate, authorize", () => {
   const home = tmp();
@@ -109,24 +93,6 @@ test("auth: passwords, tokens, expiry, and revocation", async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-});
-
-test("async queue delivers pushed items in order and ends on close", async () => {
-  const q = new AsyncQueue<number>();
-  q.push(1);
-  q.push(2);
-  setTimeout(() => (q.push(3), q.close()), 5);
-  const got: number[] = [];
-  for await (const n of q) got.push(n);
-  assert.deepEqual(got, [1, 2, 3]);
-});
-
-test("package sources: git urls with an optional #directory, file urls, and local paths", () => {
-  assert.deepEqual(splitSource("https://x/y.git#pkgs/a"), { url: "https://x/y.git", sub: "pkgs/a" });
-  assert.deepEqual(splitSource("https://x/y.git#"), { url: "https://x/y.git" });
-  assert.deepEqual(splitSource("packages/hello"), { url: "packages/hello" });
-  for (const src of ["https://x/y.git", "https://x/y#dir", "git@github.com:a/b.git", "file:///tank/packages#prompt-cache", "/abs/repo.git"]) assert.ok(isGitSource(src), src);
-  for (const src of ["packages/hello", "@thetis/tool-exec", "./x"]) assert.ok(!isGitSource(src), src);
 });
 
 test("config: the promoted packages directory is derived and secrets are redacted for display", () => {

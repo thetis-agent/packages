@@ -1,10 +1,9 @@
+import { SYSTEM_USER, type KernelRpc, type ModelChoices, type Userspace } from "@thetis/contracts";
+import { assert, CodedError } from "@thetis/lib/error";
 import type { AuthService } from "./auth.js";
-import type { KernelRpc } from "./fence/fence.js";
 import type { PackageManager } from "./packages/manager.js";
 import type { SessionApi } from "./sessions/api.js";
-import { SYSTEM_USER, type ModelChoices, type Userspace } from "./types.js";
 import type { UserStore } from "./users.js";
-import { assert, KernelError } from "./util.js";
 
 type Args = Record<string, string | undefined>;
 
@@ -17,7 +16,15 @@ const OPERATOR = "operator.";
  * (`operator.<method>`, the table the command line uses); the kernel checks the role, so a gateway
  * hiding a button is a courtesy. The system userspace alone may log people in.
  */
-export function createRpcHandler(us: Userspace, users: UserStore, packages: PackageManager, sessions: SessionApi, auth: AuthService, operator?: KernelRpc, models?: (us: Userspace) => Promise<ModelChoices>): KernelRpc {
+export function createRpcHandler(
+  us: Userspace,
+  users: UserStore,
+  packages: PackageManager,
+  sessions: SessionApi,
+  auth: AuthService,
+  operator?: KernelRpc,
+  models?: (us: Userspace) => Promise<ModelChoices>,
+): KernelRpc {
   const system = us.id === SYSTEM_USER;
   return async (method, raw, emit) => {
     const args = (raw ?? {}) as Args;
@@ -66,7 +73,7 @@ export function createRpcHandler(us: Userspace, users: UserStore, packages: Pack
         return null;
       }
       default:
-        throw new KernelError(`unknown kernel method: ${method}`, "rpc");
+        throw new CodedError(`unknown kernel method: ${method}`, "rpc");
     }
   };
 }

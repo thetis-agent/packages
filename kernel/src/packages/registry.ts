@@ -1,15 +1,17 @@
 import { resolve } from "node:path";
-import { readJson, writeJson } from "../util.js";
-import type { PackageRecord } from "../types.js";
+import type { PackageRecord } from "@thetis/contracts";
+import { JsonFile } from "@thetis/lib/json";
 
 /** Service-plane record of what packages exist, who owns them, and where they are installed. */
 export class PackageRegistry {
-  private readonly file: string;
-  private records: Record<string, PackageRecord>;
+  private readonly file: JsonFile<Record<string, PackageRecord>>;
 
   constructor(home: string) {
-    this.file = resolve(home, "registry.json");
-    this.records = readJson<Record<string, PackageRecord>>(this.file, {});
+    this.file = new JsonFile(resolve(home, "registry.json"), {});
+  }
+
+  private get records(): Record<string, PackageRecord> {
+    return this.file.value;
   }
 
   get(name: string): PackageRecord | undefined {
@@ -29,7 +31,7 @@ export class PackageRegistry {
     const userspaces = existing ? existing.userspaces.filter((u) => u !== userspace) : [];
     const next = { ...rec, userspaces: [...userspaces, userspace], ...(existing?.everyone ? { everyone: true } : {}) };
     this.records[rec.name] = next;
-    writeJson(this.file, this.records);
+    this.file.save();
     return next;
   }
 
@@ -39,7 +41,7 @@ export class PackageRegistry {
     if (!rec) return;
     if (on) rec.everyone = true;
     else delete rec.everyone;
-    writeJson(this.file, this.records);
+    this.file.save();
   }
 
   /** The packages every new person is seeded with. */
@@ -52,7 +54,7 @@ export class PackageRegistry {
     if (!rec) return;
     rec.userspaces = rec.userspaces.filter((u) => u !== userspace);
     if (rec.userspaces.length === 0) delete this.records[name];
-    writeJson(this.file, this.records);
+    this.file.save();
   }
 
   forgetUserspace(userspace: string): void {

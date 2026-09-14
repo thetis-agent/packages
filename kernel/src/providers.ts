@@ -1,9 +1,8 @@
+import { SYSTEM_USER, type Fences, type ModelDescriptor, type PackageInfo, type ProviderCall, type ProviderEvent, type Userspace } from "@thetis/contracts";
+import { CodedError } from "@thetis/lib/error";
+import type { UserspaceLayout } from "@thetis/lib/userspace-layout";
 import type { KernelConfig } from "./config.js";
-import type { FencePool } from "./fence/pool.js";
 import type { PackageManager } from "./packages/manager.js";
-import { SYSTEM_USER, type ModelDescriptor, type PackageInfo, type ProviderCall, type ProviderEvent, type Userspace } from "./types.js";
-import { KernelError } from "./util.js";
-import type { UserspaceManager } from "./userspaces.js";
 
 export interface ResolvedProvider {
   userspace: Userspace;
@@ -22,8 +21,8 @@ export class ProviderRegistry {
   constructor(
     private readonly config: KernelConfig,
     private readonly packages: PackageManager,
-    private readonly userspaces: UserspaceManager,
-    private readonly fences: FencePool,
+    private readonly userspaces: UserspaceLayout,
+    private readonly fences: Fences,
   ) {}
 
   /** Providers visible to a userspace: its own first, then the system userspace's. */
@@ -51,10 +50,10 @@ export class ProviderRegistry {
 
   async resolve(us: Userspace, model: string): Promise<ResolvedProvider> {
     const candidates = this.candidates(us);
-    if (candidates.length === 0) throw new KernelError("no provider package is installed", "provider");
+    if (candidates.length === 0) throw new CodedError("no provider package is installed", "provider");
     for (const p of candidates) if ((await this.modelsOf(p)).some((m) => m.id === model)) return p;
     for (const p of candidates) if ((await this.modelsOf(p)).some((m) => m.id === "*")) return p;
-    throw new KernelError(`no installed provider serves model "${model}"`, "provider");
+    throw new CodedError(`no installed provider serves model "${model}"`, "provider");
   }
 
   async call(p: ResolvedProvider, call: ProviderCall, onEvent: (e: ProviderEvent) => void, signal?: AbortSignal): Promise<void> {
@@ -65,9 +64,10 @@ export class ProviderRegistry {
     const key = `${p.userspace.id}:${p.pkg.name}`;
     const cached = this.models.get(key);
     if (cached && Date.now() - cached.at < MODELS_TTL_MS) return cached.list;
-    const list = (await this.fences.request(p.userspace, "provider.models", this.payload(p, {}))) as ModelDescriptor[];
-    this.models.set(key, { at: Date.now(), list: Array.isArray(list) ? list : [] });
-    return this.models.get(key)!.list;
+    const raw = await this.fences.request(p.userspace, "provider.models", this.payload(p, {}));
+    const entry = { at: Date.now(), list: Array.isArray(raw) ? (raw as ModelDescriptor[]) : [] };
+    this.models.set(key, entry);
+    return entry.list;
   }
 
   private payload(p: ResolvedProvider, extra: Record<string, unknown>): Record<string, unknown> {

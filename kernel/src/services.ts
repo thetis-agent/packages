@@ -1,11 +1,10 @@
+import type { FenceHandle, Fences, PackageInfo, Userspace } from "@thetis/contracts";
+import { errorMessage } from "@thetis/lib/error";
+import type { Journal } from "@thetis/lib/journal";
+import type { UserspaceLayout } from "@thetis/lib/userspace-layout";
 import type { KernelConfig } from "./config.js";
-import type { FenceHandle } from "./fence/fence.js";
-import type { FencePool } from "./fence/pool.js";
-import type { Journal } from "./journal.js";
 import type { PackageManager } from "./packages/manager.js";
-import type { PackageInfo, Userspace } from "./types.js";
 import type { UserStore } from "./users.js";
-import type { UserspaceManager } from "./userspaces.js";
 
 /**
  * Starts the services that installed packages declare, inside the fence of the userspace that holds them.
@@ -18,9 +17,9 @@ export class ServiceSupervisor {
   constructor(
     private readonly config: KernelConfig,
     private readonly users: UserStore,
-    private readonly userspaces: UserspaceManager,
+    private readonly userspaces: UserspaceLayout,
     private readonly packages: PackageManager,
-    private readonly fences: FencePool,
+    private readonly fences: Fences,
     private readonly log: (line: string) => void,
     private readonly journal: Journal,
   ) {}
@@ -64,19 +63,25 @@ export class ServiceSupervisor {
   /** Package hook: an uninstalled service stops before its link disappears. */
   async uninstalled(us: Userspace, pkg: PackageInfo): Promise<void> {
     if (!this.enabled || !pkg.thetis.service) return;
-    await this.fences.request(us, "service.stop", { package: pkg.name }).catch((err) => this.log(`[services] ${pkg.name} in ${us.id} did not stop: ${(err as Error).message}`));
+    await this.fences.request(us, "service.stop", { package: pkg.name }).catch((err: unknown) => {
+      this.log(`[services] ${pkg.name} in ${us.id} did not stop: ${errorMessage(err)}`);
+    });
     this.journal.append({ kind: "service.stop", target: us.id, data: { package: pkg.name } });
   }
 
   private async start(us: Userspace, pkg: PackageInfo, handle?: FenceHandle): Promise<void> {
-    const payload = { package: pkg.name, export: pkg.thetis.service!.export, config: this.config.packages[pkg.name] ?? {} };
+    const service = pkg.thetis.service;
+    if (!service) return;
+    const payload = { package: pkg.name, export: service.export, config: this.config.packages[pkg.name] ?? {} };
     try {
       const result = await (handle ? handle.request("service.start", payload) : this.fences.request(us, "service.start", payload));
-      if (result === "started") this.log(`[services] started ${pkg.name} in ${us.id}`);
-      if (result === "started") this.journal.append({ kind: "service.start", target: us.id, data: { package: pkg.name } });
+      if (result === "started") {
+        this.log(`[services] started ${pkg.name} in ${us.id}`);
+        this.journal.append({ kind: "service.start", target: us.id, data: { package: pkg.name } });
+      }
     } catch (err) {
-      this.log(`[services] ${pkg.name} in ${us.id} failed to start: ${(err as Error).message}`);
-      this.journal.append({ kind: "service.fail", target: us.id, data: { package: pkg.name, error: (err as Error).message } });
+      this.log(`[services] ${pkg.name} in ${us.id} failed to start: ${errorMessage(err)}`);
+      this.journal.append({ kind: "service.fail", target: us.id, data: { package: pkg.name, error: errorMessage(err) } });
     }
   }
 }
