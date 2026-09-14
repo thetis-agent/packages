@@ -78,6 +78,7 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
       const res = await post(`${baseUrl}/chat/completions`, headers, JSON.stringify(body), config.retries ?? 3);
       if (!res.ok || !res.body) return yield { type: "error", message: refusal(res.status, await res.text()) };
       const pending = new Map<number, { id: string; name: string; args: string }>();
+      let finish: string | undefined;
       for await (const data of sse(res.body)) {
         if (data === "[DONE]") break;
         let chunk: any;
@@ -87,6 +88,7 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
           continue;
         }
         if (chunk.error) return yield { type: "error", message: chunk.error.message ?? JSON.stringify(chunk.error) };
+        if (typeof chunk.choices?.[0]?.finish_reason === "string") finish = chunk.choices[0].finish_reason;
         const delta = chunk.choices?.[0]?.delta;
         if (delta?.content) yield { type: "text", delta: String(delta.content) };
         for (const tc of delta?.tool_calls ?? []) {
@@ -98,11 +100,22 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
         }
         if (chunk.usage) yield { type: "usage", usage: normalizeUsage(chunk.usage) };
       }
+      // A reply cut off at the output limit is not an answer: its tool call arguments are half a JSON document,
+      // and reasoning may have used the whole allowance with nothing said. Say so instead of ending quietly.
+      const cut = stopMessage(finish, body.max_tokens);
+      if (cut) return yield { type: "error", message: cut };
       for (const [i, slot] of [...pending.entries()].sort((a, b) => a[0] - b[0])) {
         yield { type: "tool_call", call: { id: slot.id || `call_${i}`, name: slot.name, args: parseArgs(slot.args) } };
       }
     },
   };
+}
+
+/** Why a reply ended early, when the reason is one the caller should act on; undefined for a normal stop. */
+export function stopMessage(finish: string | undefined, maxTokens: unknown): string | undefined {
+  if (finish === "length") return `the reply stopped at the output limit${typeof maxTokens === "number" ? ` of ${maxTokens} tokens (max_tokens)` : ""}; reasoning counts against it, so raise defaults.max_tokens or ask for less at once`;
+  if (finish === "content_filter") return "the provider's content filter stopped the reply";
+  return undefined;
 }
 
 /** One sentence for a refused request: OpenRouter's own message and reason when the body is its JSON, else the raw text. */

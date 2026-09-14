@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { refusal, retryAfterMs } from "../src/index.js";
+import { refusal, retryAfterMs, stopMessage } from "../src/index.js";
 
 test("a final refusal is not retried; a transient one waits for Retry-After, the body's hint, or a backoff", () => {
   assert.equal(retryAfterMs(401, "unauthorized", null, 0), undefined);
@@ -14,4 +14,11 @@ test("a final refusal is not retried; a transient one waits for Retry-After, the
 test("a refusal is reported as one sentence, with the reason when the body names one", () => {
   assert.equal(refusal(402, '{"error":{"message":"This request\'s maximum cost exceeds your available credits.","code":402,"metadata":{"reason":"weight_exceeds_budget"}}}'), "openrouter 402: This request's maximum cost exceeds your available credits. (weight_exceeds_budget)");
   assert.equal(refusal(502, "<html>bad gateway</html>"), "openrouter 502: <html>bad gateway</html>");
+});
+
+test("a reply cut at the output limit is reported; a normal stop is not", () => {
+  assert.match(stopMessage("length", 8192) ?? "", /output limit of 8192 tokens/);
+  assert.match(stopMessage("length", undefined) ?? "", /output limit;/);
+  assert.equal(stopMessage("stop", 8192), undefined);
+  assert.equal(stopMessage(undefined, 8192), undefined);
 });
