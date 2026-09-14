@@ -124,7 +124,7 @@ before(async () => {
   home = mkdtempSync(join(tmpdir(), "thetis-web-"));
   const sys = join(home, "system-packages");
   mkdirSync(sys);
-  for (const name of ["harness-core", "tool-exec", "prompt-cache", "gateway-web", "gateway-login"]) symlinkSync(resolve(PROJECT, "packages", name), join(sys, name));
+  for (const name of ["harness-core", "tool-exec", "prompt-cache", "gateway-web", "gateway-login", "gateway-cli"]) symlinkSync(resolve(PROJECT, "packages", name), join(sys, name));
   symlinkSync(join(FIXTURES, "provider-echo"), join(sys, "provider-echo"));
   servicePort = await freePort();
   const config = defaultConfig(join(home, "data"), PROJECT);
@@ -375,17 +375,17 @@ test("packages: a person installs their own package, an admin promotes it, and e
   assert.equal((await api(alice, "/alice/api/packages/%40thetis%2Fhello", { method: "DELETE" })).status, 200, "a person can remove a package from their own space");
   assert.equal((await api(alice, "/alice/api/packages/not-a-name", { method: "DELETE" })).status, 404);
 
-  // Install for everyone: a shipped package reaches every person now and every new person later.
-  assert.equal((await api(alice, "/alice/api/admin/packages/everyone", { method: "POST", body: JSON.stringify({ source: "@thetis/prompt-cache" }) })).status, 403);
-  const everyone = await api(root, "/root/api/admin/packages/everyone", { method: "POST", body: JSON.stringify({ source: "@thetis/prompt-cache" }) });
+  // Install for everyone: a shipped package nobody has yet reaches every person now and every new person later.
+  assert.equal((await api(alice, "/alice/api/admin/packages/everyone", { method: "POST", body: JSON.stringify({ source: "@thetis/gateway-cli" }) })).status, 403);
+  const everyone = await api(root, "/root/api/admin/packages/everyone", { method: "POST", body: JSON.stringify({ source: "@thetis/gateway-cli" }) });
   const everyoneText = await everyone.text();
   assert.equal(everyone.status, 200, everyoneText);
   const got = JSON.parse(everyoneText) as { name: string; userspaces: string[] };
-  assert.equal(got.name, "@thetis/prompt-cache");
+  assert.equal(got.name, "@thetis/gateway-cli");
   assert.ok(got.userspaces.includes("bob") && !got.userspaces.includes("_system"));
-  assert.ok(((await (await api(bob, "/bob/api/packages")).json()) as { name: string }[]).some((p) => p.name === "@thetis/prompt-cache"));
+  assert.ok(((await (await api(bob, "/bob/api/packages")).json()) as { name: string }[]).some((p) => p.name === "@thetis/gateway-cli"));
   assert.equal((await api(root, "/root/api/admin/users", { method: "POST", body: JSON.stringify({ id: "dave" }) })).status, 201);
-  assert.ok(kernel.packages.installed(kernel.userspaces.pathFor("dave")).some((p) => p.name === "@thetis/prompt-cache"), "a new person is seeded with it");
+  assert.ok(kernel.packages.installed(kernel.userspaces.pathFor("dave")).some((p) => p.name === "@thetis/gateway-cli"), "a new person is seeded with it");
   await api(root, "/root/api/admin/users/dave", { method: "DELETE" });
 });
 

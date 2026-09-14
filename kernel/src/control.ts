@@ -78,8 +78,9 @@ export function createControlHandler(k: Kernel): KernelRpc {
         // installed for the actor first and then promoted, which copies it under @thetis for everyone.
         const source = String(a.source);
         if (k.packages.systemPackageDir(source)) {
-          k.packages.markEveryone(source, true);
+          // Link first: the registry record the mark lives on exists only once someone has the package.
           const userspaces = await everywhere(source);
+          k.packages.markEveryone(source, true);
           journal("package.everyone", source, { userspaces });
           return { name: source, userspaces };
         }
