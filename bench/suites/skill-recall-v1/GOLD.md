@@ -42,6 +42,13 @@ The ten control tasks are authored, and are the one part of this suite that is. 
 capability in the corpus should help with, and they exist because an arm that bloats the prompt can only be
 caught where the right answer is to attach nothing.
 
+## Licences
+
+Every body is somebody's work. 248 of the 287 records are MIT and 39 are Apache-2.0; both ask for the notice
+to travel with the text. Each record keeps its `origin` — author, repository, source URL and licence — and
+`NOTICE.md` lists all 287 with their terms. One line is added to each body, the canary described below.
+Nothing else is changed.
+
 ## Canaries
 
 Every record carries an opaque token inside its body, derived from the record id and the corpus seed. A

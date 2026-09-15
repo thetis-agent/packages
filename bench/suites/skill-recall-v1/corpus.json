@@ -1,7 +1,7 @@
 {
   "id": "caps@1",
   "version": "1.0.0",
-  "sha256": "sha256:6ac7b87badf7c408f5862f09b86c9bafac0048e57c5a39a9abd9234943ff714d",
+  "sha256": "sha256:5b6e4a03d2c8d62c3165509446e8bb468c948df1cf41f10795e7ad6c2f840954",
   "records": 287,
   "file": "corpus.jsonl",
   "seed": "thetis/bench/caps/v1",

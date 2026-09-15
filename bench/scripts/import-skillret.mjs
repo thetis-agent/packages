@@ -152,6 +152,10 @@ function main() {
         tags: [s.major, s.sub, s.domain, s.primary_action].filter(Boolean),
         canary,
         body: withCanary(s.body, canary),
+        // Each body is somebody's work, published under a licence that asks for the notice to travel with
+        // it. Keeping these fields is not bookkeeping: without them the corpus would be a redistribution
+        // that strips the terms it was given under.
+        origin: { author: s.author, repo: s.repo, url: s.source_url, license: s.license },
       };
     })
     .sort((a, b) => a.id.localeCompare(b.id));
@@ -229,6 +233,44 @@ function main() {
   );
   const visible = [...tune, ...holdout, ...controls].sort((a, b) => a.id.localeCompare(b.id));
   writeFileSync(join(outDir, "tasks.jsonl"), `${visible.map((t) => JSON.stringify(t)).join("\n")}\n`);
+
+  // The notice every licence in the corpus asks for, in one file a person can read.
+  const byLicense = new Map();
+  for (const r of records) {
+    const key = r.origin.license ?? "unstated";
+    byLicense.set(key, [...(byLicense.get(key) ?? []), r]);
+  }
+  const notice = [
+    "# Third-party notices for the capability corpus",
+    "",
+    `The bodies in \`corpus.jsonl\` are ${records.length} real agent skills written by other people. They were`,
+    `collected by ${DATASET.name} (${DATASET.id}, ${DATASET.license}) at revision ${DATASET.revision}`,
+    `from ${DATASET.url}, and are reproduced here under the licence each author chose.`,
+    "",
+    "Each record carries its origin in its `origin` field: the author, the repository, the source URL and the",
+    "licence. One line has been added to each body — an opaque token the benchmark uses to verify what",
+    "reached the model. Nothing else was changed.",
+    "",
+    "This corpus exists to measure retrieval mechanisms against one another. It is not a distribution of",
+    "these skills for use.",
+    "",
+    "## By licence",
+    "",
+    ...[...byLicense.entries()]
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([license, rs]) => `- **${license}** — ${rs.length} records`),
+    "",
+    "## Every record",
+    "",
+    "| Capability | Author | Source | Licence |",
+    "|---|---|---|---|",
+    ...records.map(
+      (r) =>
+        `| \`${r.id}\` | ${r.origin.author ?? "—"} | ${r.origin.url ? `[${r.origin.repo ?? "source"}](${r.origin.url})` : (r.origin.repo ?? "—")} | ${r.origin.license ?? "unstated"} |`,
+    ),
+    "",
+  ].join("\n");
+  writeFileSync(join(outDir, "NOTICE.md"), notice);
 
   if (holdbackDir) {
     mkdirSync(holdbackDir, { recursive: true });
