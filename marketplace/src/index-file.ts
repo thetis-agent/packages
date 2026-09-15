@@ -24,7 +24,9 @@ export interface IndexedPackage {
   url: string;
   /** Directory of the package inside the registry repository. */
   dir: string;
-  /** The install source: `<url>#<dir>`. */
+  /** The commit this entry was read from. The index always shows the latest; this is what an install pins. */
+  commit: string;
+  /** The install source, pinned: `<url>#<dir>@<commit>`. */
   source: string;
   steps: { id: string; phase: string }[];
   tools: string[];

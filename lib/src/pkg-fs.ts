@@ -5,12 +5,28 @@ import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 
 const GIT_URL = /^(https?:\/\/|git@|git:\/\/|ssh:\/\/|file:\/\/).+|\.git$/;
 
-/** A git source is `<url>` or `<url>#<directory inside the repository>`. */
-export function splitSource(source: string): { url: string; sub?: string } {
-  const hash = source.indexOf("#");
-  if (hash < 0) return { url: source };
-  const sub = source.slice(hash + 1);
-  return sub ? { url: source.slice(0, hash), sub } : { url: source.slice(0, hash) };
+/** A commit pin: exactly a full object name, so nothing shorter can be mistaken for one. */
+const PIN = /@([0-9a-f]{40})$/;
+
+/**
+ * A git source is `<url>`, `<url>#<directory inside the repository>`, and either of those with `@<commit>`
+ * on the end. The pin is what a marketplace install records: the index says what the latest version is, and
+ * the install fixes the commit it actually took, so the package cannot change underneath it later.
+ */
+export function splitSource(source: string): { url: string; sub?: string; ref?: string } {
+  const pin = PIN.exec(source);
+  const rest = pin ? source.slice(0, -pin[0].length) : source;
+  const ref = pin?.[1];
+  const hash = rest.indexOf("#");
+  if (hash < 0) return ref ? { url: rest, ref } : { url: rest };
+  const sub = rest.slice(hash + 1);
+  const url = rest.slice(0, hash);
+  return { url, ...(sub ? { sub } : {}), ...(ref ? { ref } : {}) };
+}
+
+/** `<url>#<dir>@<commit>`, the form the marketplace hands to install. */
+export function pinnedSource(url: string, sub: string | undefined, ref: string): string {
+  return `${url}${sub ? `#${sub}` : ""}@${ref}`;
 }
 
 export function isGitSource(source: string): boolean {
@@ -21,13 +37,29 @@ export function shellQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
-/** The directory name a clone of `url` gets: the repository name, made safe for a path. */
-export function cloneSlug(url: string): string {
-  return basename(url).replace(/\.git$/, "").replace(/[^a-z0-9._-]/gi, "-");
+/**
+ * The directory name a clone gets: the repository name, made safe for a path, and the commit when the source
+ * is pinned. One registry repository holds many packages, so two installs of different commits must not share
+ * a directory — the second would replace the first's code underneath the link that is already using it.
+ */
+export function cloneSlug(url: string, ref?: string): string {
+  const name = basename(url).replace(/\.git$/, "").replace(/[^a-z0-9._-]/gi, "-");
+  return ref ? `${name}-${ref.slice(0, 12)}` : name;
 }
 
-export function cloneCommand(url: string, dir: string): string {
-  return `git clone --depth 1 ${shellQuote(url)} ${shellQuote(dir)}`;
+/**
+ * Without a pin, the tip of the default branch. With one, that exact commit and nothing else: fetching the
+ * object directly keeps it to one shallow round trip, which a full clone followed by a checkout would not.
+ */
+export function cloneCommand(url: string, dir: string, ref?: string): string {
+  if (!ref) return `git clone --depth 1 ${shellQuote(url)} ${shellQuote(dir)}`;
+  const at = `git -C ${shellQuote(dir)}`;
+  return [
+    `git init --quiet ${shellQuote(dir)}`,
+    `${at} remote add origin ${shellQuote(url)}`,
+    `${at} fetch --quiet --depth 1 origin ${shellQuote(ref)}`,
+    `${at} checkout --quiet --detach FETCH_HEAD`,
+  ].join(" && ");
 }
 
 /** The command that makes a package runnable, or undefined when nothing needs to run. */

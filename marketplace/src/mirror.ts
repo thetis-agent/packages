@@ -3,6 +3,7 @@
 // through the fence's `exec`, so the mirror never leaves the userspace.
 
 import type { ExecOptions } from "@thetis/contracts";
+import { pinnedSource } from "@thetis/lib/pkg-fs";
 import { readIndex, writeIndex, type FileEnv, type IndexedPackage, type MarketplaceIndex, type Registry, type RegistryState } from "./index-file.js";
 
 export interface MirrorEnv extends FileEnv {
@@ -19,7 +20,7 @@ export async function refresh(env: MirrorEnv, registries: Registry[]): Promise<M
   for (const registry of registries) {
     try {
       const commit = await mirror(env, registry);
-      packages.push(...(await scan(env, registry)));
+      packages.push(...(await scan(env, registry, commit)));
       states.push({ ...registry, commit });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -43,7 +44,7 @@ async function mirror(env: MirrorEnv, registry: Registry): Promise<string> {
 }
 
 /** Every package.json with a `thetis` field at the first or second level of the clone. */
-async function scan(env: MirrorEnv, registry: Registry): Promise<IndexedPackage[]> {
+async function scan(env: MirrorEnv, registry: Registry, commit: string): Promise<IndexedPackage[]> {
   const dir = `${REPOS_DIR}/${slugOf(registry.url)}`;
   const listing = await run(env, `find ${q(dir)} -mindepth 2 -maxdepth 3 -name package.json -not -path '*/node_modules/*' | sort`);
   const out: IndexedPackage[] = [];
@@ -54,14 +55,14 @@ async function scan(env: MirrorEnv, registry: Registry): Promise<IndexedPackage[
     } catch {
       continue;
     }
-    const entry = describe(manifest, registry, file.slice(dir.length + 1, -"/package.json".length));
+    const entry = describe(manifest, registry, file.slice(dir.length + 1, -"/package.json".length), commit);
     if (entry) out.push(entry);
   }
   return out;
 }
 
 /** One index entry from a manifest, or undefined when it is not a Thetis package. */
-export function describe(m: Record<string, unknown>, registry: Registry, dir: string): IndexedPackage | undefined {
+export function describe(m: Record<string, unknown>, registry: Registry, dir: string, commit: string): IndexedPackage | undefined {
   const thetis = m.thetis as
     | {
         type?: unknown;
@@ -81,7 +82,9 @@ export function describe(m: Record<string, unknown>, registry: Registry, dir: st
     registry: registry.name,
     url: registry.url,
     dir,
-    source: `${registry.url}#${dir}`,
+    commit,
+    // Pinned, not floating: the index is the latest, and what you installed stays what you installed.
+    source: pinnedSource(registry.url, dir, commit),
     steps: (thetis.steps ?? []).map((s) => ({ id: s.id, phase: s.phase })),
     tools: (thetis.tools ?? []).map((t) => t.name),
     service: !!thetis.service,

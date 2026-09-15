@@ -37,6 +37,9 @@ export interface KernelConfig {
   requestTimeoutMs: number;
 }
 
+/** The approved extensions, indexed at their latest. An install takes a copy and pins the commit it took. */
+export const MARKETPLACE_URL = "https://github.com/thetis-agent/packages.git";
+
 export function defaultConfig(home: string, projectRoot: string): KernelConfig {
   return {
     home,
@@ -53,6 +56,7 @@ export function defaultConfig(home: string, projectRoot: string): KernelConfig {
     },
     packages: {
       "@thetis/provider-openrouter": { apiKey: "${OPENROUTER_API_KEY}", baseUrl: "https://openrouter.ai/api/v1" },
+      "@thetis/marketplace": { registries: [{ name: "thetis", url: MARKETPLACE_URL }] },
     },
     fence: {
       sandbox: "auto",

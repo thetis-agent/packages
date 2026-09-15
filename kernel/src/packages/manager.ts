@@ -225,15 +225,15 @@ export class PackageManager {
   }
 
   private async clone(us: Userspace, source: string): Promise<string> {
-    const { url, sub } = splitSource(source);
-    const dir = this.cloneDir(us, url);
+    const { url, sub, ref } = splitSource(source);
+    const dir = this.cloneDir(us, url, ref);
     rmSync(dir, { recursive: true, force: true });
-    await this.exec(us, cloneCommand(url, dir), us.store);
+    await this.exec(us, cloneCommand(url, dir, ref), us.store);
     return this.subdir(dir, sub);
   }
 
-  private cloneDir(us: Userspace, url: string): string {
-    return resolve(us.store, "src", cloneSlug(url));
+  private cloneDir(us: Userspace, url: string, ref?: string): string {
+    return resolve(us.store, "src", cloneSlug(url, ref));
   }
 
   /** The package directory inside a clone. It must stay inside the clone. */

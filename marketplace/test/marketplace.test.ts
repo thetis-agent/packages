@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { describe, readIndex, refresh, search, slugOf, type MirrorEnv } from "../src/index.js";
 import { registriesOf } from "../src/service.js";
+import { cloneCommand, cloneSlug, splitSource } from "@thetis/lib/pkg-fs";
 
 /** A real environment rooted in a temporary home, like the agent's `StepEnv`. */
 function envAt(home: string): MirrorEnv {
@@ -56,8 +57,13 @@ test("refresh mirrors a registry and indexes its packages", async () => {
     assert.equal(index.registries[0].error, undefined);
     assert.deepEqual(index.packages.map((p) => p.name).sort(), ["@thetis/greet", "@thetis/memo"], "the plain directory is not a package");
     const greet = index.packages.find((p) => p.name === "@thetis/greet")!;
+    const commit = index.registries[0].commit!;
     assert.equal(greet.dir, "greet");
-    assert.equal(greet.source, `file://${registry}#greet`);
+    // The index shows the latest; every entry carries the commit it was read from, and the install source
+    // pins it, so what a person installs stays what they installed however the registry moves on.
+    assert.equal(greet.commit, commit);
+    assert.equal(greet.source, `file://${registry}#greet@${commit}`);
+    assert.deepEqual(splitSource(greet.source), { url: `file://${registry}`, sub: "greet", ref: commit });
     assert.deepEqual(greet.tools, ["greet"]);
     const memo = index.packages.find((p) => p.name === "@thetis/memo")!;
     assert.equal(memo.dir, "nested/memo");
@@ -79,18 +85,19 @@ test("refresh mirrors a registry and indexes its packages", async () => {
 
 test("search ranks name over keywords over description and filters by type", () => {
   const registry = { name: "r", url: "file:///r" };
+  const at = "0".repeat(40);
   const pkgs = [
-    describe({ name: "@thetis/memory-notes", version: "1", description: "x", thetis: { type: "memory" } }, registry, "a")!,
-    describe({ name: "@thetis/other", version: "1", keywords: ["memory"], description: "x", thetis: { type: "tool" } }, registry, "b")!,
-    describe({ name: "@thetis/third", version: "1", description: "keeps memory of things", thetis: { type: "tool" } }, registry, "c")!,
-    describe({ name: "@thetis/unrelated", version: "1", description: "nothing", thetis: { type: "tool" } }, registry, "d")!,
+    describe({ name: "@thetis/memory-notes", version: "1", description: "x", thetis: { type: "memory" } }, registry, "a", at)!,
+    describe({ name: "@thetis/other", version: "1", keywords: ["memory"], description: "x", thetis: { type: "tool" } }, registry, "b", at)!,
+    describe({ name: "@thetis/third", version: "1", description: "keeps memory of things", thetis: { type: "tool" } }, registry, "c", at)!,
+    describe({ name: "@thetis/unrelated", version: "1", description: "nothing", thetis: { type: "tool" } }, registry, "d", at)!,
   ];
   const index = { version: 1 as const, updatedAt: "", registries: [registry], packages: pkgs };
   assert.deepEqual(search(index, "memory").map((p) => p.name), ["@thetis/memory-notes", "@thetis/other", "@thetis/third"]);
   assert.deepEqual(search(index, "MEMORY", { type: "tool" }).map((p) => p.name), ["@thetis/other", "@thetis/third"]);
   assert.equal(search(index, "").length, 4, "an empty query lists everything");
   assert.deepEqual(search(index, "memory nothing"), [], "every term must match");
-  assert.equal(describe({ name: "plain", version: "1" }, registry, "x"), undefined);
+  assert.equal(describe({ name: "plain", version: "1" }, registry, "x", at), undefined);
 });
 
 test("registries come from the configuration, with a default name", () => {
@@ -101,4 +108,31 @@ test("registries come from the configuration, with a default name", () => {
   ]);
   assert.equal(slugOf("https://example.com/a/b.git"), "b");
   assert.equal(slugOf("file:///tank/packages/"), "packages");
+});
+
+test("an indexed package is installed at the commit it was indexed from, not at whatever is latest", () => {
+  const registry = { name: "thetis", url: "https://github.com/thetis-agent/packages.git" };
+  const at = "a".repeat(40);
+  const entry = describe({ name: "@thetis/tools-files", version: "0.1.0", thetis: { type: "tool" } }, registry, "tools-files", at)!;
+  assert.equal(entry.commit, at);
+  assert.equal(entry.source, `https://github.com/thetis-agent/packages.git#tools-files@${at}`);
+  // The whole point: what install receives says which commit, so the package cannot move underneath it.
+  assert.deepEqual(splitSource(entry.source), { url: registry.url, sub: "tools-files", ref: at });
+});
+
+test("two packages from one registry get their own clone, so the second cannot replace the first", () => {
+  const url = "https://github.com/thetis-agent/packages.git";
+  const one = "a".repeat(40);
+  const two = "b".repeat(40);
+  assert.notEqual(cloneSlug(url, one), cloneSlug(url, two));
+  assert.equal(cloneSlug(url, one), cloneSlug(url, one));
+  assert.equal(cloneSlug(url), "packages", "an unpinned source still clones to the plain repository name");
+});
+
+test("a pinned source fetches the one commit rather than cloning a branch", () => {
+  const cmd = cloneCommand("https://example.com/r.git", "/tmp/d", "c".repeat(40));
+  assert.match(cmd, /git init --quiet/);
+  assert.match(cmd, /fetch --quiet --depth 1 origin 'c{40}'/);
+  assert.match(cmd, /checkout --quiet --detach FETCH_HEAD/);
+  assert.doesNotMatch(cloneCommand("https://example.com/r.git", "/tmp/d"), /FETCH_HEAD/);
 });

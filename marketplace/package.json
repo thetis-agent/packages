@@ -27,5 +27,8 @@
     "service": {
       "export": "startService"
     }
+  },
+  "dependencies": {
+    "@thetis/lib": "^0.1.0"
   }
 }

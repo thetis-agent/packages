@@ -8,7 +8,7 @@ import { UserStore } from "../src/users.js";
 import { AuthService } from "../src/auth.js";
 import { validateManifest } from "../src/packages/manifest.js";
 import { Enumerator, BUILTIN_CALL } from "../src/pipeline/enumerator.js";
-import { defaultConfig, saveConfig, loadConfig } from "../src/config.js";
+import { defaultConfig, saveConfig, loadConfig, MARKETPLACE_URL } from "../src/config.js";
 import { redact } from "../src/control.js";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "thetis-unit-"));
@@ -111,6 +111,27 @@ test("config: the promoted packages directory is derived and secrets are redacte
     assert.equal(shown.packages["@thetis/provider-openrouter"].baseUrl, "https://x");
     assert.equal(shown.model, cfg.model);
     assert.deepEqual(shown.phases, cfg.phases);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("config: the approved extensions are a registry a fresh install already has", () => {
+  const cfg = defaultConfig("/tmp/h", "/tmp/p");
+  assert.ok(cfg.systemPackages._system?.includes("@thetis/marketplace"), "the service runs in the system userspace");
+  const registries = (cfg.packages["@thetis/marketplace"] as { registries: { name: string; url: string }[] }).registries;
+  assert.deepEqual(registries, [{ name: "thetis", url: MARKETPLACE_URL }]);
+  assert.match(MARKETPLACE_URL, /^https:\/\/github\.com\/thetis-agent\/packages\.git$/);
+});
+
+test("config: a registry url survives being saved and read back, so an operator can replace it", () => {
+  const home = tmp();
+  try {
+    const cfg = defaultConfig(home, "/proj");
+    cfg.packages["@thetis/marketplace"] = { registries: [{ name: "mine", url: "https://git.example.com/pkgs.git" }] };
+    saveConfig(cfg);
+    const back = loadConfig(home, "/proj");
+    assert.deepEqual(back.packages["@thetis/marketplace"], { registries: [{ name: "mine", url: "https://git.example.com/pkgs.git" }] });
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
