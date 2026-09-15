@@ -1,9 +1,17 @@
 // The one command of @thetis/ui-tools: `tools` answers the tools the person's installed packages
-// declare, reduced to what the dock draws. It reads `env.kernel.packages.list()`, which is the same
-// list the control panel shows, so the dock never disagrees with it. No package configuration is
-// available here: the gateway hands a UI command the fence environment, the person, and the session,
-// and the kernel sends `config.packages[<name>]` only into that package's own steps and tools
-// (docs/15-web-gateway.md section 11.4). This command needs none.
+// declare, reduced to what the dock draws, plus what the conversation's last call actually received.
+// It reads `env.kernel.packages.list()`, which is the same list the control panel shows, so the dock
+// never disagrees with it; and, when a conversation is open, `env.kernel.sessions.inspect(env.session)`
+// for the record `@thetis/harness-core` keeps under its own key in `harness` after every completed
+// turn (docs/04-pipeline.md section 10). Only the time and the tool names of that record travel: the
+// dock subtracts them from the declarations to name what a project or a mode package withheld in the
+// call phase, without this package knowing which one did. No package configuration is available here:
+// the gateway hands a UI command the fence environment, the person, and the session, and the kernel
+// sends `config.packages[<name>]` only into that package's own steps and tools (docs/15-web-gateway.md
+// section 11.4). This command needs none.
+
+/** The key `@thetis/harness-core` keeps its per-session state under. */
+const HARNESS = "@thetis/harness-core";
 
 /** Tool names that read and never write, by their first word. `todo_read` is the one exception to the word rule. */
 const READING_WORDS = new Set(["read", "search", "find", "get", "list"]);
@@ -46,8 +54,23 @@ function reducePackage(info) {
   };
 }
 
-/** The `tools` command. `args` is unused; `env.session` is the conversation on screen, and today every conversation sees the same tools. */
+const isRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+
+/** `{ at, tools }` of the last completed call in `harness`, or null when nothing has been recorded there. */
+function lastCallOf(harness) {
+  const own = isRecord(harness) ? harness[HARNESS] : null;
+  const lastCall = isRecord(own) ? own.lastCall : null;
+  if (!isRecord(lastCall)) return null;
+  const tools = Array.isArray(lastCall.tools) ? lastCall.tools.filter((name) => typeof name === "string") : [];
+  return { at: typeof lastCall.at === "string" ? lastCall.at : null, tools };
+}
+
+/**
+ * The `tools` command: `{ data: { packages, lastCall } }`. `args` is unused. `env.session` is the
+ * conversation on screen; without one, `lastCall` is null, as it is before the conversation's first call.
+ */
 export async function uiTools(_args, env) {
   const packages = await env.kernel.packages.list();
-  return { data: { packages: packages.map(reducePackage) } };
+  const record = env.session ? await env.kernel.sessions.inspect(env.session) : null;
+  return { data: { packages: packages.map(reducePackage), lastCall: lastCallOf(record?.harness) } };
 }
