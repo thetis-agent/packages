@@ -1,0 +1,28 @@
+{
+  "name": "@thetis/ui-tools",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "The Tools dock of the web gateway: every tool the open conversation can call, one section per package.",
+  "type": "module",
+  "main": "index.js",
+  "thetis": {
+    "type": "ui",
+    "ui": {
+      "dir": "ui",
+      "entry": "index.js",
+      "style": "index.css",
+      "dock": [
+        {
+          "id": "tools",
+          "label": "Tools",
+          "icon": "M12 5.3a3.6 3.6 0 0 0-4.9 4.6l-3.7 3.7a1.7 1.7 0 0 0 2.4 2.4l3.7-3.7a3.6 3.6 0 0 0 4.6-4.9l-2.3 2.3-2-2 2.2-2.4Z",
+          "hint": "Every tool this conversation can call",
+          "wide": true
+        }
+      ],
+      "commands": [
+        { "verb": "tools", "export": "uiTools", "label": "List the tools" }
+      ]
+    }
+  }
+}

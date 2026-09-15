@@ -1,0 +1,24 @@
+/* The Tools dock: a filter, one section per package, a two-column grid of tool cards. Everything is
+ * scoped under .ui-tools; the tokens, .section-head, .card and .badge come from the shell. */
+
+.ui-tools { display: flex; flex-direction: column; gap: var(--gap-4); }
+.ui-tools-filter { width: 100%; }
+.ui-tools-section { display: flex; flex-direction: column; gap: var(--gap-3); }
+.ui-tools-section .section-head { flex-direction: row; align-items: baseline; flex-wrap: wrap; gap: var(--gap-2); }
+.ui-tools-section .section-note { flex-basis: 100%; }
+.ui-tools-name { font-family: var(--mono); text-transform: none; letter-spacing: 0; font-size: var(--text-sm); color: var(--text); }
+.ui-tools-version { font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); }
+.ui-tools-count { margin-left: auto; font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.ui-tools-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-3); }
+.ui-tools-card { display: flex; flex-direction: column; gap: var(--gap-2); padding: 10px 12px; }
+.ui-tools-card-head { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-2); }
+.ui-tools-card-title { font-family: var(--mono); font-size: var(--text-sm); font-weight: 600; overflow-wrap: anywhere; }
+.ui-tools-card-desc { margin: 0; font-size: var(--text-xs); color: var(--text-dim); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.ui-tools-card-params { font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); overflow-wrap: anywhere; }
+.ui-tools-card-params code { color: var(--text-dim); }
+.ui-tools-empty { font-size: var(--text-sm); color: var(--text-faint); padding: var(--gap-2) 0; }
+.ui-tools-error { font-size: var(--text-sm); color: var(--err); padding: var(--gap-2) 0; }
+
+@media (max-width: 760px) {
+  .ui-tools-grid { grid-template-columns: minmax(0, 1fr); }
+}
