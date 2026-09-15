@@ -6,7 +6,8 @@
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "test": "node --test dist/test/"
   },
   "peerDependencies": {
     "@thetis/contracts": "^0.1.0"
@@ -26,6 +27,11 @@
         "id": "attach-tools",
         "phase": "tools",
         "export": "attachTools"
+      },
+      {
+        "id": "record-call",
+        "phase": "after",
+        "export": "recordCall"
       }
     ]
   }

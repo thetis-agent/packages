@@ -33,6 +33,8 @@ export interface IndexedPackage {
   service: boolean;
   /** Benchmark suites the package runs. This is how a comparison finds its peers without cloning a registry. */
   bench?: { suites: string[]; corpus?: string; peerGroup?: string };
+  /** The package directory holds a `README.md`; a copy sits at `readmePath`. False or absent when it does not. */
+  readme?: boolean;
 }
 
 export interface MarketplaceIndex {
@@ -72,4 +74,33 @@ export async function readIndex(env: FileEnv): Promise<MarketplaceIndex | undefi
 
 export function writeIndex(env: FileEnv, index: MarketplaceIndex): Promise<void> {
   return env.writeFile(indexPath(env), JSON.stringify(index, null, 2) + "\n");
+}
+
+// README copies: `<shared>/marketplace/readme/<registry>/<dir>.md`. The mirror clone lives in the system
+// userspace, which no other fence can read, so a README crosses through the shared directory as the index does.
+
+export const README_DIR = "marketplace/readme";
+/** A copy holds at most this many bytes; a longer README is cut there and its last line says so. */
+export const README_CAP = 262144;
+export const README_TRUNCATED = "\n\n[README truncated at 256 KiB]";
+
+/** The file name of one package's copy. A `dir` may be two levels deep; `__` keeps the copy one file. */
+export const readmeFile = (dir: string): string => `${dir.replace(/\//g, "__")}.md`;
+
+export function readmeDir(env: FileEnv, registry: string): string {
+  return `${env.shared.replace(/\/$/, "")}/${README_DIR}/${registry}`;
+}
+
+export function readmePath(env: FileEnv, entry: Pick<IndexedPackage, "registry" | "dir">): string {
+  return `${readmeDir(env, entry.registry)}/${readmeFile(entry.dir)}`;
+}
+
+/** The README copy of an index entry, or undefined when the entry has none or the copy cannot be read. */
+export async function readReadme(env: FileEnv, entry: Pick<IndexedPackage, "registry" | "dir" | "readme">): Promise<string | undefined> {
+  if (!entry.readme) return undefined;
+  try {
+    return await env.readFile(readmePath(env, entry));
+  } catch {
+    return undefined;
+  }
 }

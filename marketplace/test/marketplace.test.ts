@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { exec as cpExec } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { describe, readIndex, refresh, search, slugOf, type MirrorEnv } from "../src/index.js";
+import { capReadme, describe, readIndex, readReadme, refresh, README_CAP, README_TRUNCATED, search, slugOf, type MirrorEnv } from "../src/index.js";
 import { registriesOf } from "../src/service.js";
 import { cloneCommand, cloneSlug, splitSource } from "@thetis/lib/pkg-fs";
 import { behind, shortCommit } from "../src/updates.js";
@@ -34,11 +34,13 @@ function sh(cmd: string, cwd: string): Promise<void> {
   return new Promise((done, fail) => cpExec(cmd, { cwd, shell: "/bin/bash" }, (err, _o, stderr) => (err ? fail(new Error(stderr || err.message)) : done())));
 }
 
-/** A git registry with two packages and one directory that is not a package. */
+/** A git registry with two packages, each with a README, and one directory that is not a package. */
 async function registryAt(dir: string): Promise<void> {
   mkdirSync(join(dir, "greet"), { recursive: true });
   mkdirSync(join(dir, "nested", "memo"), { recursive: true });
   mkdirSync(join(dir, "notes"), { recursive: true });
+  writeFileSync(join(dir, "greet", "README.md"), "# Greet\n\nSays hello.\n");
+  writeFileSync(join(dir, "nested", "memo", "README.md"), "# Memo\n");
   writeFileSync(join(dir, "greet", "package.json"), JSON.stringify({ name: "@thetis/greet", version: "1.2.0", description: "Say hello to people", keywords: ["hello", "tool"], thetis: { type: "tool", tools: [{ name: "greet", description: "hi", export: "greet" }] } }));
   writeFileSync(join(dir, "nested", "memo", "package.json"), JSON.stringify({ name: "@thetis/memo", version: "0.3.1", description: "Remember things between turns", keywords: ["memory"], thetis: { type: "memory", steps: [{ id: "load", phase: "prompt", export: "load" }], service: { export: "start" } } }));
   writeFileSync(join(dir, "notes", "package.json"), JSON.stringify({ name: "plain", version: "1.0.0" }));
@@ -74,6 +76,14 @@ test("refresh mirrors a registry and indexes its packages", async () => {
     const onDisk = JSON.parse(readFileSync(join(home, "shared", "marketplace", "index.json"), "utf8"));
     assert.equal(onDisk.version, 1);
     assert.deepEqual(await readIndex(env), onDisk);
+    // The README crosses into the shared directory, where a package page in any fence can read it; a nested
+    // dir becomes one file name. The helper reads it back through the same env the index is read with.
+    assert.equal(greet.readme, true);
+    assert.equal(readFileSync(join(home, "shared", "marketplace", "readme", "local", "greet.md"), "utf8"), "# Greet\n\nSays hello.\n");
+    assert.equal(await readReadme(env, greet), "# Greet\n\nSays hello.\n");
+    assert.equal(memo.readme, true);
+    assert.equal(await readReadme(env, memo), "# Memo\n");
+    assert.ok(existsSync(join(home, "shared", "marketplace", "readme", "local", "nested__memo.md")));
 
     // A registry that cannot be cloned records its error and does not hide the others; its old packages stay.
     const again = await refresh(env, [{ name: "local", url: `file://${registry}` }, { name: "gone", url: `file://${tmp}/missing` }]);
@@ -83,6 +93,56 @@ test("refresh mirrors a registry and indexes its packages", async () => {
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+});
+
+test("a README is copied capped, only under its exact name, and leaves with its package", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "thetis-market-"));
+  try {
+    const registry = join(tmp, "registry");
+    await registryAt(registry);
+    mkdirSync(join(registry, "big"));
+    writeFileSync(join(registry, "big", "package.json"), JSON.stringify({ name: "@thetis/big", version: "1.0.0", thetis: { type: "tool" } }));
+    writeFileSync(join(registry, "big", "README.md"), "x".repeat(300_000));
+    mkdirSync(join(registry, "lower"));
+    writeFileSync(join(registry, "lower", "package.json"), JSON.stringify({ name: "@thetis/lower", version: "1.0.0", thetis: { type: "tool" } }));
+    writeFileSync(join(registry, "lower", "readme.md"), "not the name the rule asks for");
+    await sh("git add -A && git -c user.email=t@t -c user.name=t commit -q -m more", registry);
+    const home = join(tmp, "home");
+    mkdirSync(home);
+    const env = envAt(home);
+    const registries = [{ name: "local", url: `file://${registry}` }];
+    let index = await refresh(env, registries);
+
+    const big = index.packages.find((p) => p.name === "@thetis/big")!;
+    assert.equal(big.readme, true);
+    const copy = readFileSync(join(home, "shared", "marketplace", "readme", "local", "big.md"), "utf8");
+    assert.ok(copy.endsWith(README_TRUNCATED), "the copy says it was cut");
+    assert.equal(Buffer.byteLength(copy), README_CAP + Buffer.byteLength(README_TRUNCATED));
+    assert.equal(await readReadme(env, big), copy);
+
+    const lower = index.packages.find((p) => p.name === "@thetis/lower")!;
+    assert.equal(lower.readme, false, "README.md is the name; readme.md is not it");
+    assert.equal(await readReadme(env, lower), undefined);
+    assert.equal(existsSync(join(home, "shared", "marketplace", "readme", "local", "lower.md")), false);
+
+    // The package leaves the registry: its copy goes with it, and the others stay.
+    await sh("git rm -r -q big && git -c user.email=t@t -c user.name=t commit -q -m drop", registry);
+    index = await refresh(env, registries);
+    assert.equal(index.packages.find((p) => p.name === "@thetis/big"), undefined);
+    assert.equal(existsSync(join(home, "shared", "marketplace", "readme", "local", "big.md")), false);
+    assert.ok(existsSync(join(home, "shared", "marketplace", "readme", "local", "greet.md")));
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("the README cap is in bytes, and a README at the cap is left whole", () => {
+  assert.equal(capReadme("short"), "short");
+  const exact = "\u00e9".repeat(README_CAP / 2);
+  assert.equal(capReadme(exact), exact, "two bytes per character, exactly at the cap");
+  const over = capReadme(exact + "!");
+  assert.ok(over.endsWith(README_TRUNCATED));
+  assert.equal(Buffer.byteLength(over), README_CAP + Buffer.byteLength(README_TRUNCATED));
 });
 
 test("search ranks name over keywords over description and filters by type", () => {

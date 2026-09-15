@@ -1,7 +1,23 @@
 // The default harness: a system prompt that teaches the model how to extend Thetis by writing
 // packages, and a step that attaches every installed tool. The whole conversation goes to the
 // provider; the prompt cache markers make that cheap.
-import type { PackageStepContext, StepResult, ToolSpec } from "@thetis/contracts";
+import type { HarnessState, PackageStepContext, StepResult, ToolSpec } from "@thetis/contracts";
+
+/** The key this package keeps its per-session state under; other packages read it by name. */
+const NAME = "@thetis/harness-core";
+
+/** What the provider received on the last turn, as a Context inspector shows it. */
+export interface LastCall {
+  model: string;
+  /** The whole system prompt: it is per-session state on disk, and an inspector shows it. */
+  system: string;
+  systemChars: number;
+  /** The names of the tools that were attached. */
+  tools: string[];
+  /** How many messages `call.messages` holds after the turn: the request plus the reply and any tool rounds. */
+  messages: number;
+  at: string;
+}
 
 /** prompt: describe the harness, the userspace, and how to change Thetis from inside a conversation. */
 export async function systemPrompt(ctx: PackageStepContext): Promise<StepResult> {
@@ -23,6 +39,31 @@ export async function attachTools(ctx: PackageStepContext): Promise<StepResult> 
     }
   }
   return { call: { ...ctx.call, tools } };
+}
+
+/**
+ * after: what the provider received this turn, kept in `harness` for a Context inspector, since nothing on the
+ * event stream carries it. The built-in call returns `ctx.call` with the reply and the tool rounds appended to
+ * `messages`, so `model`, `system` and `tools` here are the ones that were sent. Only `harness` comes back:
+ * `call` is the prefix the provider cache saw, and a record of it must not touch it.
+ */
+export async function recordCall(ctx: PackageStepContext): Promise<StepResult> {
+  const system = ctx.call.system ?? "";
+  const lastCall: LastCall = {
+    model: ctx.call.model,
+    system,
+    systemChars: system.length,
+    tools: ctx.call.tools.map((t) => t.name),
+    messages: ctx.call.messages.length,
+    at: new Date().toISOString(),
+  };
+  return { harness: { ...ctx.harness, [NAME]: { ...ownState(ctx.harness), lastCall } } };
+}
+
+/** This package's own record in `harness`, or an empty one; whatever else it holds is kept. */
+function ownState(harness: HarnessState): Record<string, unknown> {
+  const own = harness[NAME];
+  return own && typeof own === "object" && !Array.isArray(own) ? (own as Record<string, unknown>) : {};
 }
 
 /** A phase no production configuration lists. Its steps cannot run here, so naming them would mislead. */
