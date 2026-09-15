@@ -82,6 +82,11 @@ export function mountPackages(root, { role, user }) {
    * What the benchmarks say. A package that opts in but has never been run says so, because "not measured"
    * and "measured and fine" are different things and a blank badge would hide which one this is.
    */
+  /** A newer commit exists in the registry this came from. Nothing has been changed; this is an offer. */
+  function updateBadge(r) {
+    return r.update ? badge(`update to ${r.update.version}`, "warn") : null;
+  }
+
   function benchBadge(r) {
     const bench = r.bench;
     if (!bench?.suites?.length) return null;
@@ -135,7 +140,7 @@ export function mountPackages(root, { role, user }) {
         [
           { key: "name", label: "Package", render: (r) => el("div", {}, el("code", {}, r.name), r.description && el("div", { class: "text-dim small" }, r.description)) },
           { key: "version", label: "Version", render: (r) => el("code", { class: "text-dim" }, r.version) },
-          { key: "state", label: "State", render: (r) => el("div", { class: "tags" }, stateBadge(r), forkBadge(r), benchBadge(r)) },
+          { key: "state", label: "State", render: (r) => el("div", { class: "tags" }, stateBadge(r), forkBadge(r), updateBadge(r), benchBadge(r)) },
           { key: "brings", label: "Brings", render: brings },
         ],
         shown,
@@ -193,6 +198,14 @@ export function mountPackages(root, { role, user }) {
       actions.push(promote);
       hints.push(`Making it the default copies the package under @thetis, adds it for every person, and removes ${mine() ? "your" : `${whose}'s`} own copy.`);
     }
+    if (row.update) {
+      const update = button(`Update to ${row.update.version}`, {
+        tone: "primary",
+        onClick: () => void install({ ...row, version: row.update.version, registry: row.update.registry }, whose, update, row.update.source, "Update"),
+      });
+      actions.push(update);
+      hints.push(`The registry holds a newer commit (${row.update.from} \u2192 ${row.update.to}). Nothing changes until you take it, and the copy you have keeps working if the new one fails to build.`);
+    }
     if (row.installed) {
       const remove = button("Remove", { tone: "warn", onClick: () => void removeRow(row, remove) });
       actions.push(remove);
@@ -210,7 +223,7 @@ export function mountPackages(root, { role, user }) {
         kv([
           ["version", el("code", {}, row.version + (row.available && row.available !== row.version ? ` (registry has ${row.available})` : ""))],
           ["type", row.type],
-          ["state", el("div", { class: "tags" }, stateBadge(row), forkBadge(row), benchBadge(row))],
+          ["state", el("div", { class: "tags" }, stateBadge(row), forkBadge(row), updateBadge(row), benchBadge(row))],
           row.forkedFrom && ["forked from", el("code", {}, `${row.forkedFrom.name}@${row.forkedFrom.version}`)],
           row.replaced && ["replaces", el("code", {}, row.replaced)],
           row.registry && ["registry", row.registry],
@@ -222,6 +235,10 @@ export function mountPackages(root, { role, user }) {
           ["tools", tags(row.tools || [], "ok", "no tools")],
           ["service", row.service ? badge("runs a service", "warn") : el("span", { class: "text-faint" }, "none")],
           row.keywords?.length && ["keywords", tags(row.keywords, "dim")],
+          row.update && [
+            "update",
+            el("span", {}, `${row.update.version} is in ${row.update.registry} (${row.update.from} \u2192 ${row.update.to})`),
+          ],
           ...benchRows(row),
         ].filter(Boolean)),
         el("div", { class: "card-actions" }, ...actions)
@@ -235,17 +252,22 @@ export function mountPackages(root, { role, user }) {
     return row.name.startsWith("@thetis/") ? row.name : row.source;
   }
 
-  async function install(row, who, anchor) {
+  /**
+   * `source` is given explicitly when it must not be re-derived: `sourceOf` sends a @thetis name to the copy
+   * shipped with the service, which is right for a first install and wrong for taking a newer commit from a
+   * registry.
+   */
+  async function install(row, who, anchor, source = sourceOf(row), verb = "Install") {
     const ok = await confirm(anchor, {
-      title: who === user ? "Install for you?" : `Install for ${who}?`,
+      title: who === user ? `${verb} for you?` : `${verb} for ${who}?`,
       lines: [["package", `${row.name}@${row.version}`], ["from", row.registry || "a source"], ["for", who === user ? "you only" : who]],
       note: "It is live on the next turn.",
-      confirmLabel: "Install",
+      confirmLabel: verb,
     });
     if (!ok) return;
-    const stop = busy(detailEl, "Installing… this can take a minute.");
+    const stop = busy(detailEl, `${verb === "Update" ? "Updating" : "Installing"}… this can take a minute.`);
     try {
-      const r = who === user ? await api("/api/packages", { method: "POST", body: { source: sourceOf(row) } }) : await api("/api/admin/packages", { method: "POST", body: { user: who, source: sourceOf(row) } });
+      const r = who === user ? await api("/api/packages", { method: "POST", body: { source } }) : await api("/api/admin/packages", { method: "POST", body: { user: who, source } });
       toast(`${r.name}@${r.version} is in place for ${who === user ? "you" : who}.`, { tone: "good" });
       await load();
     } catch (err) {

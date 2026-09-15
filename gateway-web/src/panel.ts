@@ -6,7 +6,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolve } from "node:path";
 import type { KernelClient, PackageInfo, UserRole } from "@thetis/contracts";
-import { readIndex, search, type MirrorEnv } from "@thetis/marketplace";
+import { behind, readIndex, search, shortCommit, type Behind, type MirrorEnv } from "@thetis/marketplace";
 import { field, HttpError, json, readJson } from "./http.js";
 
 export interface Who {
@@ -38,6 +38,17 @@ export interface PackageRow {
   replaced?: string;
   /** Benchmark suites the package opts into, and what its last run found. */
   bench?: { suites: string[]; peerGroup?: string; reports?: BenchSummary[] };
+  /** Set when the registry this was installed from now holds a newer commit. */
+  update?: { version: string; from: string; to: string; source: string; registry: string };
+}
+
+/** Folds "there is a newer one" onto a row, in the short form a person reads rather than a full object name. */
+export function withUpdate(row: PackageRow, found: Behind | undefined): PackageRow {
+  if (!found) return row;
+  return {
+    ...row,
+    update: { version: found.version, from: shortCommit(found.installed), to: shortCommit(found.available), source: found.source, registry: found.registry },
+  };
 }
 
 export interface BenchSummary {
@@ -126,7 +137,14 @@ export async function handlePanel(deps: PanelDeps, req: IncomingMessage, res: Se
   }
 
   if (seg[1] === "packages") {
-    if (seg.length === 2 && method === "GET") return json(res, 200, (await kernel.packages.list()).map(toRow)), true;
+    if (seg.length === 2 && method === "GET") {
+      // Nothing updates on its own. The row says a newer commit exists and what to install to take it; a
+      // person decides whether to.
+      const installed = await kernel.packages.list();
+      const available = env ? behind(installed, await readIndex(env)) : [];
+      const byName = new Map(available.map((b) => [b.name, b]));
+      return json(res, 200, installed.map((p) => withUpdate(toRow(p), byName.get(p.name)))), true;
+    }
     if (seg.length === 2 && method === "POST") {
       const source = field(await readJson(req), "source");
       const installed = await kernel.packages.list();

@@ -3,7 +3,7 @@
 // through the fence's `exec`, so the mirror never leaves the userspace.
 
 import type { ExecOptions } from "@thetis/contracts";
-import { pinnedSource } from "@thetis/lib/pkg-fs";
+import { mirrorCommand, pinnedSource } from "@thetis/lib/pkg-fs";
 import { readIndex, writeIndex, type FileEnv, type IndexedPackage, type MarketplaceIndex, type Registry, type RegistryState } from "./index-file.js";
 
 export interface MirrorEnv extends FileEnv {
@@ -39,7 +39,7 @@ export function slugOf(url: string): string {
 
 async function mirror(env: MirrorEnv, registry: Registry): Promise<string> {
   const dir = `${REPOS_DIR}/${slugOf(registry.url)}`;
-  await run(env, `rm -rf ${q(dir)} && mkdir -p ${q(REPOS_DIR)} && git clone --quiet --depth 1 ${q(registry.url)} ${q(dir)}`);
+  await run(env, `mkdir -p ${q(REPOS_DIR)} && ${mirrorCommand(registry.url, dir)}`);
   return (await run(env, `git -C ${q(dir)} rev-parse HEAD`)).trim();
 }
 

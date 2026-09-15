@@ -7,6 +7,7 @@ import { createInterface as createPrompt } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import type { KernelRpc, ModelDescriptor, PackageInfo, SessionRecord, TurnEvent, UserRecord } from "@thetis/contracts";
 import { createDoor } from "@thetis/door";
+import { behind, readIndex, shortCommit, type Behind } from "@thetis/marketplace";
 import { ControlServer, controlSocketPath, createKernel } from "@thetis/host";
 import { configPath, createControlHandler, defaultConfig, loadConfig, saveConfig, type SessionRef } from "@thetis/kernel";
 import { connectRpcSocket } from "@thetis/lib/ndjson-socket";
@@ -28,6 +29,8 @@ usage: thetis <command> [options]
   install <source> [--user <id>]       install a package (system userspace without --user)
   uninstall <name> [--user <id>]
   packages list [--user <id>] | install <source> [--user <id>] | uninstall <name> [--user <id>] | promote <name> --user <id>
+  packages outdated [--user <id>]      what is behind the registry it was installed from
+  packages update [<name>] [--user <id>]  reinstall those packages at the registry's current commit
   models [--user <id>]                 models advertised by installed providers
   config                               print effective config
   bench run <suite> [--write] [--force] [--sandbox auto|bwrap|none] [--package <dir>]
@@ -80,7 +83,7 @@ export async function run(argv: string[]): Promise<void> {
   }
   if (remote) {
     try {
-      await dispatch(remote.call, cmd, args);
+      await dispatch(remote.call, cmd, args, config.sharedDir);
     } finally {
       remote.close();
     }
@@ -88,7 +91,7 @@ export async function run(argv: string[]): Promise<void> {
   }
   const kernel = createKernel(config);
   try {
-    await dispatch(createControlHandler(kernel), cmd, args);
+    await dispatch(createControlHandler(kernel), cmd, args, config.sharedDir);
   } finally {
     await kernel.shutdown();
   }
@@ -121,7 +124,7 @@ async function serve(config: ReturnType<typeof loadConfig>, socket: string): Pro
   }
 }
 
-async function dispatch(call: Call, cmd: string, args: Args): Promise<void> {
+async function dispatch(call: Call, cmd: string, args: Args, shared: string): Promise<void> {
   const user = typeof args.user === "string" ? args.user : undefined;
   const need = (): string => {
     if (!user) throw new Error("--user <id> is required");
@@ -131,10 +134,10 @@ async function dispatch(call: Call, cmd: string, args: Args): Promise<void> {
     case "users":
       return usersCmd(call, args);
     case "packages":
-      return packagesCmd(call, args, user);
+      return packagesCmd(call, args, user, shared);
     case "install":
     case "uninstall":
-      return packagesCmd(call, { ...args, _: ["packages", ...args._] }, user);
+      return packagesCmd(call, { ...args, _: ["packages", ...args._] }, user, shared);
     case "models": {
       for (const m of (await call("models", { user })) as ModelDescriptor[]) print(`${m.id}\t${m.provider}`);
       return;
@@ -188,7 +191,20 @@ async function usersCmd(call: Call, args: Args): Promise<void> {
   }
 }
 
-async function packagesCmd(call: Call, args: Args, user?: string): Promise<void> {
+/**
+ * What an installation is behind on. Nothing updates on its own: the index says what is latest, the record
+ * says what is installed, and this compares them so a person can decide.
+ */
+async function outdatedIn(call: Call, target: string, shared: string): Promise<Behind[]> {
+  const installed = (await call("packages.list", { user: target })) as PackageInfo[];
+  // The index is a file the marketplace service writes into the shared directory. The command line is a host
+  // process and reads it there; asking the kernel would mean teaching the kernel where the marketplace keeps
+  // its things, which is exactly the sort of opinion it does not hold.
+  const index = await readIndex({ shared, readFile: async (at: string) => readFileSync(at, "utf8"), writeFile: async () => {} });
+  return behind(installed, index);
+}
+
+async function packagesCmd(call: Call, args: Args, user: string | undefined, shared: string): Promise<void> {
   const [, sub, source] = args._;
   const target = user ?? "_system";
   switch (sub) {
@@ -206,6 +222,26 @@ async function packagesCmd(call: Call, args: Args, user?: string): Promise<void>
     case "promote": {
       const r = (await call("packages.promote", { user: target, name: source })) as { name: string; userspaces: string[] };
       return print(`promoted ${source} to ${r.name}; installed in ${r.userspaces.join(", ")}`);
+    }
+    case "outdated": {
+      const out = await outdatedIn(call, target, shared);
+      if (!out.length) return print(`nothing in ${target} is behind its registry`);
+      for (const b of out) print(`${b.name}\t${b.version}\t${shortCommit(b.installed)} -> ${shortCommit(b.available)}\t${b.registry}`);
+      return print(`\nrun: thetis packages update${user ? ` --user ${user}` : ""} [<name>]`);
+    }
+    case "update": {
+      const out = await outdatedIn(call, target, shared);
+      const wanted = source ? out.filter((b) => b.name === source) : out;
+      if (source && !wanted.length) {
+        const known = out.length ? `; behind: ${out.map((b) => b.name).join(", ")}` : "; nothing is behind";
+        throw new Error(`${source} is not behind its registry in ${target}${known}`);
+      }
+      if (!wanted.length) return print(`nothing in ${target} is behind its registry`);
+      for (const b of wanted) {
+        const info = (await call("packages.install", { user: target, source: b.source, actor: "_system" })) as PackageInfo;
+        print(`updated ${info.name} to ${info.version} (${shortCommit(b.installed)} -> ${shortCommit(b.available)})`);
+      }
+      return;
     }
     default:
       throw new Error(`unknown packages subcommand: ${sub}`);

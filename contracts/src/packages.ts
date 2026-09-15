@@ -66,6 +66,8 @@ export interface PackageInfo {
   forkedFrom?: ForkOrigin;
   /** The package this fork displaced in the userspace. An uninstall of the fork puts it back. */
   replaced?: string;
+  /** Where this copy came from. A git source carries its pin, which is what tells you it is behind. */
+  source?: PackageSource;
 }
 
 export interface PackageRecord {

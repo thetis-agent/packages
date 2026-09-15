@@ -20,6 +20,7 @@ import { clientFromRpc } from "../src/client.js";
 import { createGateway } from "../src/server.js";
 import { GatewayStore } from "../src/store.js";
 import type { TurnMessage } from "../src/turns.js";
+import { withUpdate } from "../src/panel.js";
 
 const PROJECT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const FIXTURES = resolve(PROJECT, "packages/host/test/fixtures");
@@ -531,4 +532,26 @@ test("inside the fences: the login target in the system userspace and alice's ga
   } finally {
     await new Promise<void>((done) => realDoor.close(() => done()));
   }
+});
+
+test("a row offers an update only when the registry it came from has moved on", () => {
+  const row = { name: "@thetis/tools-files", version: "0.1.0", type: "tool", description: "", scope: "me" as const, steps: [], tools: [], service: false };
+  assert.equal(withUpdate(row, undefined).update, undefined, "a package nothing is newer than says nothing");
+  const offered = withUpdate(row, {
+    name: "@thetis/tools-files",
+    installed: "1".repeat(40),
+    available: "2".repeat(40),
+    version: "0.2.0",
+    registry: "thetis",
+    source: "https://github.com/thetis-agent/packages.git#tools-files@" + "2".repeat(40),
+  });
+  // Short forms, because a row is read by a person and a full object name tells them nothing.
+  assert.deepEqual(offered.update, {
+    version: "0.2.0",
+    from: "1111111",
+    to: "2222222",
+    registry: "thetis",
+    source: "https://github.com/thetis-agent/packages.git#tools-files@" + "2".repeat(40),
+  });
+  assert.equal(offered.name, row.name, "nothing else about the row changes");
 });

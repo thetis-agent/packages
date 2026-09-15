@@ -62,6 +62,37 @@ export function cloneCommand(url: string, dir: string, ref?: string): string {
   ].join(" && ");
 }
 
+/**
+ * A mirror for indexing, not for installing: the index is built from manifests alone, so only those are
+ * fetched. A blobless fetch with a sparse checkout brings down about 280 KB of this registry instead of
+ * 4.5 MB, and the difference is entirely files no index ever reads.
+ */
+export function mirrorCommand(url: string, dir: string): string {
+  const at = `git -C ${shellQuote(dir)}`;
+  return [
+    `rm -rf ${shellQuote(dir)}`,
+    `git init --quiet ${shellQuote(dir)}`,
+    `${at} remote add origin ${shellQuote(url)}`,
+    `${at} config core.sparseCheckout true`,
+    `${at} sparse-checkout set --no-cone '/*/package.json' '/*/*/package.json'`,
+    `${at} fetch --quiet --depth 1 --filter=blob:none origin HEAD`,
+    `${at} checkout --quiet --detach FETCH_HEAD`,
+  ].join(" && ");
+}
+
+/**
+ * The commit a clone is sitting on, or undefined when there is no clone. A detached checkout writes the
+ * object name straight into HEAD, so this costs a file read rather than a subprocess.
+ */
+export function headOf(dir: string): string | undefined {
+  try {
+    const head = readFileSync(resolve(dir, ".git", "HEAD"), "utf8").trim();
+    return /^[0-9a-f]{40}$/.test(head) ? head : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The command that makes a package runnable, or undefined when nothing needs to run. */
 export function buildCommand(m: { scripts?: Record<string, string>; dependencies?: Record<string, string> }): string | undefined {
   if (m.scripts?.build) return "npm install --no-audit --no-fund && npm run build";

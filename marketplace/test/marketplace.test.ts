@@ -8,6 +8,8 @@ import { dirname, join, resolve } from "node:path";
 import { describe, readIndex, refresh, search, slugOf, type MirrorEnv } from "../src/index.js";
 import { registriesOf } from "../src/service.js";
 import { cloneCommand, cloneSlug, splitSource } from "@thetis/lib/pkg-fs";
+import { behind, shortCommit } from "../src/updates.js";
+import type { IndexedPackage, MarketplaceIndex } from "../src/index-file.js";
 
 /** A real environment rooted in a temporary home, like the agent's `StepEnv`. */
 function envAt(home: string): MirrorEnv {
@@ -135,4 +137,70 @@ test("a pinned source fetches the one commit rather than cloning a branch", () =
   assert.match(cmd, /fetch --quiet --depth 1 origin 'c{40}'/);
   assert.match(cmd, /checkout --quiet --detach FETCH_HEAD/);
   assert.doesNotMatch(cloneCommand("https://example.com/r.git", "/tmp/d"), /FETCH_HEAD/);
+});
+
+const indexOf = (entries: Partial<IndexedPackage>[]): MarketplaceIndex => ({
+  version: 1,
+  updatedAt: "",
+  registries: [],
+  packages: entries.map((e) => ({ keywords: [], dir: "", steps: [], tools: [], service: false, type: "tool", description: "", registry: "thetis", ...e }) as IndexedPackage),
+});
+
+const URL_A = "https://github.com/thetis-agent/packages.git";
+const OLD = "1".repeat(40);
+const NEW = "2".repeat(40);
+
+test("a package pinned behind the index is listed, with what to install to catch it up", () => {
+  const index = indexOf([{ name: "@thetis/tools-files", version: "0.2.0", commit: NEW, source: `${URL_A}#tools-files@${NEW}` }]);
+  const out = behind([{ name: "@thetis/tools-files", source: { kind: "git", ref: `${URL_A}#tools-files@${OLD}` } }], index);
+  assert.equal(out.length, 1);
+  assert.deepEqual(out[0], {
+    name: "@thetis/tools-files",
+    installed: OLD,
+    available: NEW,
+    version: "0.2.0",
+    registry: "thetis",
+    source: `${URL_A}#tools-files@${NEW}`,
+  });
+});
+
+test("a package already on the indexed commit is not listed", () => {
+  const index = indexOf([{ name: "@thetis/tools-files", commit: NEW, source: `${URL_A}#tools-files@${NEW}` }]);
+  assert.deepEqual(behind([{ name: "@thetis/tools-files", source: { kind: "git", ref: `${URL_A}#tools-files@${NEW}` } }], index), []);
+});
+
+test("a package with no pin to follow is never listed", () => {
+  const index = indexOf([{ name: "@thetis/tools-files", commit: NEW, source: `${URL_A}#tools-files@${NEW}` }]);
+  // Shipped with the service, written locally, or installed from an unpinned URL: none of these track a registry.
+  assert.deepEqual(behind([{ name: "@thetis/tools-files", source: { kind: "system", ref: "/srv/thetis/runtime/packages/tools-files" } }], index), []);
+  assert.deepEqual(behind([{ name: "@thetis/tools-files", source: { kind: "local", ref: "packages/tools-files" } }], index), []);
+  assert.deepEqual(behind([{ name: "@thetis/tools-files", source: { kind: "git", ref: `${URL_A}#tools-files` } }], index), []);
+  assert.deepEqual(behind([{ name: "@thetis/tools-files" }], index), []);
+});
+
+test("the same name from a different repository is a different package, not an update", () => {
+  const index = indexOf([{ name: "@thetis/tools-files", commit: NEW, source: `${URL_A}#tools-files@${NEW}` }]);
+  const elsewhere = { name: "@thetis/tools-files", source: { kind: "git", ref: `https://git.example.com/fork.git#tools-files@${OLD}` } };
+  assert.deepEqual(behind([elsewhere], index), [], "a fork of the name from another registry is left alone");
+});
+
+test("a package the index no longer carries is left alone, not reported as behind", () => {
+  assert.deepEqual(behind([{ name: "@thetis/gone", source: { kind: "git", ref: `${URL_A}#gone@${OLD}` } }], indexOf([])), []);
+  assert.deepEqual(behind([{ name: "@thetis/gone", source: { kind: "git", ref: `${URL_A}#gone@${OLD}` } }], undefined), []);
+});
+
+test("nothing here installs anything: it reports, and a person decides", () => {
+  const index = indexOf([
+    { name: "@thetis/a", commit: NEW, source: `${URL_A}#a@${NEW}` },
+    { name: "@thetis/b", commit: NEW, source: `${URL_A}#b@${NEW}` },
+  ]);
+  const out = behind(
+    [
+      { name: "@thetis/a", source: { kind: "git", ref: `${URL_A}#a@${OLD}` } },
+      { name: "@thetis/b", source: { kind: "git", ref: `${URL_A}#b@${OLD}` } },
+    ],
+    index,
+  );
+  assert.deepEqual(out.map((b) => b.name), ["@thetis/a", "@thetis/b"], "sorted, so the report reads the same every time");
+  assert.equal(shortCommit(NEW), "2222222");
 });

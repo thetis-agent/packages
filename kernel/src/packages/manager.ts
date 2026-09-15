@@ -2,7 +2,7 @@ import { existsSync, readdirSync, rmSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { SYSTEM_SCOPE, SYSTEM_USER, type DeletedPackage, type ExecResult, type Fences, type Manifest, type PackageInfo, type PackageRecord, type PackageSource, type UserRecord, type Userspace } from "@thetis/contracts";
 import { assert, CodedError, errorMessage } from "@thetis/lib/error";
-import { buildCommand, cloneCommand, cloneSlug, copyPackageAs, hasPackageJson, isGitSource, isInside, linkDir, removeLink, splitSource } from "@thetis/lib/pkg-fs";
+import { buildCommand, cloneCommand, cloneSlug, copyPackageAs, hasPackageJson, headOf, isGitSource, isInside, linkDir, removeLink, splitSource } from "@thetis/lib/pkg-fs";
 import type { KernelConfig } from "../config.js";
 import { readManifest, scopeOf, toInfo } from "./manifest.js";
 import type { PackageRegistry } from "./registry.js";
@@ -38,7 +38,14 @@ export class PackageManager {
   installed(us: Userspace): PackageInfo[] {
     const out: PackageInfo[] = [];
     const everyone = new Set(this.forEveryone());
-    const mark = (info: PackageInfo, rec: PackageRecord) => ({ ...info, ...(everyone.has(info.name) ? { everyone: true } : {}), ...(rec.replaced ? { replaced: rec.replaced } : {}) });
+    // The record knows where the copy came from; the manifest does not. Carrying it lets a reader see the
+    // pin an installation is following without asking the registry a second question.
+    const mark = (info: PackageInfo, rec: PackageRecord) => ({
+      ...info,
+      ...(everyone.has(info.name) ? { everyone: true } : {}),
+      ...(rec.replaced ? { replaced: rec.replaced } : {}),
+      ...(rec.source ? { source: rec.source } : {}),
+    });
     for (const rec of this.registry.installedIn(us.id)) {
       const root = this.linkPath(us, rec.name);
       if (!hasPackageJson(root)) {
@@ -131,6 +138,7 @@ export class PackageManager {
     const rec = { name: manifest.name, version: manifest.version, type: manifest.thetis.type, owner: us.id, source: { kind, ref: source }, forkedFrom: manifest.thetis.forkedFrom };
     this.registry.record({ ...rec, ...replaced }, us.id);
     const info = { ...toInfo(manifest, this.linkPath(us, manifest.name)), ...(replaced ? { replaced: replaced.replaced } : {}) };
+    if (kind === "git") this.pruneClones(us);
     await this.listener?.installed(us, info);
     return info;
   }
@@ -227,13 +235,37 @@ export class PackageManager {
   private async clone(us: Userspace, source: string): Promise<string> {
     const { url, sub, ref } = splitSource(source);
     const dir = this.cloneDir(us, url, ref);
-    rmSync(dir, { recursive: true, force: true });
-    await this.exec(us, cloneCommand(url, dir, ref), us.store);
+    // A pinned clone is the same bytes whenever it is taken, and one registry holds many packages, so a
+    // clone already sitting on that commit is reused rather than fetched again. Without a pin there is
+    // nothing to compare and the tip may have moved, so it is always fetched.
+    if (!ref || headOf(dir) !== ref) {
+      rmSync(dir, { recursive: true, force: true });
+      await this.exec(us, cloneCommand(url, dir, ref), us.store);
+    }
     return this.subdir(dir, sub);
   }
 
   private cloneDir(us: Userspace, url: string, ref?: string): string {
     return resolve(us.store, "src", cloneSlug(url, ref));
+  }
+
+  /**
+   * Removes clones nothing is installed from. Updating pins a new commit and leaves the old clone behind,
+   * and a clone is the whole repository, so without this an installation grows by one copy every update.
+   */
+  private pruneClones(us: Userspace): void {
+    const src = resolve(us.store, "src");
+    if (!existsSync(src)) return;
+    const live = new Set(
+      this.registry
+        .installedIn(us.id)
+        .filter((r) => r.source.kind === "git")
+        .map((r) => {
+          const { url, ref } = splitSource(r.source.ref);
+          return cloneSlug(url, ref);
+        }),
+    );
+    for (const entry of readdirSync(src)) if (!live.has(entry)) rmSync(resolve(src, entry), { recursive: true, force: true });
   }
 
   /** The package directory inside a clone. It must stay inside the clone. */
@@ -266,7 +298,9 @@ export class PackageManager {
   private relink(us: Userspace, rec: PackageRecord): PackageInfo | undefined {
     if (rec.source.kind === "system") return this.systemPackageDir(rec.name) ? this.installSystem(us, rec.name) : undefined;
     const git = splitSource(rec.source.ref);
-    const dir = rec.source.kind === "local" ? resolve(us.home, rec.source.ref) : this.subdir(this.cloneDir(us, git.url), git.sub);
+    // The pin is part of the clone's directory name, so repairing a link has to carry it or it looks for a
+    // clone that was never made.
+    const dir = rec.source.kind === "local" ? resolve(us.home, rec.source.ref) : this.subdir(this.cloneDir(us, git.url, git.ref), git.sub);
     if (!hasPackageJson(dir)) return undefined;
     this.link(us, rec.name, dir);
     return toInfo(readManifest(dir), this.linkPath(us, rec.name));
