@@ -21,6 +21,14 @@ export function createDoor(opts: DoorOptions): Server {
   const server = createServer((req, res) => route(req, res));
   server.requestTimeout = 0;
   server.headersTimeout = 65_000;
+  // close() alone waits for every open connection, and an event stream through the door never ends on its
+  // own. The door closes them itself; each response then fires `close`, which tears down its upstream request.
+  const close = server.close.bind(server);
+  server.close = (cb) => {
+    close(cb);
+    server.closeAllConnections();
+    return server;
+  };
 
   function route(req: IncomingMessage, res: ServerResponse): void {
     const path = (req.url ?? "/").split("?")[0];

@@ -41,12 +41,15 @@ export class FencePool implements Fences {
     }
   }
 
+  /** Closes one fence, or every fence at once: each waits for its agent, so they are not waited for in turn. */
   async close(id?: string): Promise<void> {
     const ids = id ? [id] : [...this.handles.keys()];
-    for (const key of ids) {
-      const h = this.handles.get(key);
-      this.handles.delete(key);
-      if (h) await h.then((x) => x.close()).catch(() => {});
-    }
+    await Promise.all(
+      ids.map((key) => {
+        const h = this.handles.get(key);
+        this.handles.delete(key);
+        return h?.then((x) => x.close()).catch(() => {});
+      }),
+    );
   }
 }

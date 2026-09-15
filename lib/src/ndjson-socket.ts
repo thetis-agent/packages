@@ -6,6 +6,8 @@ import { callHandler, encodeFrame, PendingCalls, readFrames, type ReplyFrame, ty
 /** Serves one handler to every client of a Unix socket. Access is by file permission: the socket is mode 0600. */
 export class RpcSocketServer {
   private server?: Server;
+  /** Connected clients, so close() can end them: `Server.close` alone waits for an open `thetis chat`. */
+  private readonly sockets = new Set<Socket>();
 
   constructor(
     private readonly path: string,
@@ -24,11 +26,17 @@ export class RpcSocketServer {
   async close(): Promise<void> {
     const server = this.server;
     this.server = undefined;
-    if (server) await new Promise<void>((done) => server.close(() => done()));
+    if (server) {
+      const closed = new Promise<void>((done) => server.close(() => done()));
+      for (const socket of this.sockets) socket.destroy();
+      await closed;
+    }
     if (existsSync(this.path)) unlinkSync(this.path);
   }
 
   private serve(socket: Socket): void {
+    this.sockets.add(socket);
+    socket.once("close", () => this.sockets.delete(socket));
     const write = (msg: unknown) => socket.writable && socket.write(encodeFrame(msg));
     readFrames(socket, (msg) => {
       const id = String(msg.id);

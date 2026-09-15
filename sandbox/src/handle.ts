@@ -6,8 +6,12 @@ import { callHandler, encodeFrame, PendingCalls, readFrames, type Frame, type Op
 
 export interface HandleOptions {
   requestTimeoutMs: number;
+  /** How long `close` waits for the agent to exit after SIGTERM before it kills it. */
+  exitGraceMs?: number;
   log: (line: string) => void;
 }
+
+const EXIT_GRACE_MS = 2_000;
 
 /**
  * Kernel to agent: `{ id, op, payload }`, answered by `{ id, event }`* and `{ id, result | error }`;
@@ -16,6 +20,7 @@ export interface HandleOptions {
  */
 export class ProcessHandle implements FenceHandle {
   private readonly pending = new PendingCalls("r");
+  private readonly gone: Promise<void>;
   private closed = false;
 
   constructor(
@@ -28,6 +33,7 @@ export class ProcessHandle implements FenceHandle {
     if (child.stdout) readFrames(child.stdout, (msg) => this.onFrame(msg), (line) => opts.log(`[${us.id}] stray output: ${line}`));
     if (child.stderr) readFrames(child.stderr, () => {}, (line) => opts.log(`[${us.id}] ${line}`));
     child.on("exit", (code) => this.onExit(code));
+    this.gone = new Promise((done) => child.once("exit", () => done()).once("error", () => done()));
   }
 
   request(op: string, payload: unknown, onEvent?: EventSink, signal?: AbortSignal): Promise<unknown> {
@@ -49,10 +55,17 @@ export class ProcessHandle implements FenceHandle {
     return result;
   }
 
+  /** Asks the agent to exit and waits until it has; one that is still there after the grace period is killed. */
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    const killer = setTimeout(() => {
+      this.opts.log(`[fence] ${this.us.id}: agent did not exit on SIGTERM; killed`);
+      this.child.kill("SIGKILL");
+    }, this.opts.exitGraceMs ?? EXIT_GRACE_MS);
     this.child.kill("SIGTERM");
+    await this.gone;
+    clearTimeout(killer);
   }
 
   private send(msg: unknown): void {

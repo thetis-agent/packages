@@ -13,6 +13,8 @@ import { configPath, createControlHandler, defaultConfig, loadConfig, saveConfig
 import { connectRpcSocket } from "@thetis/lib/ndjson-socket";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
+/** How long `serve` gives the door, the control socket and the fences to close before it exits regardless. */
+const SHUTDOWN_DEADLINE_MS = 5_000;
 
 const HELP = `thetis - recursive language model service
 
@@ -121,9 +123,20 @@ async function serve(config: ReturnType<typeof loadConfig>, socket: string): Pro
     });
     print("stopping");
   } finally {
+    // The backstop. Each step closes what it owns and should be quick; if one is not, a daemon that needs
+    // SIGKILL is worse than an unclean stop, so say what was still open and leave. The timer holds nothing
+    // alive: it fires only if something else still does.
+    let waitingOn = "the door";
+    setTimeout(() => {
+      log(`stopping: still waiting on ${waitingOn} after ${SHUTDOWN_DEADLINE_MS} ms; exiting anyway`);
+      process.exit(0);
+    }, SHUTDOWN_DEADLINE_MS).unref();
     await new Promise<void>((done) => door.close(() => done()));
+    waitingOn = "the control socket";
     await control.close();
+    waitingOn = "the fences";
     await kernel.shutdown();
+    waitingOn = "an open handle after everything was closed";
   }
 }
 
