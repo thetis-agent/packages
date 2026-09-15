@@ -89,12 +89,15 @@ test("composeUi: the first package to claim a shared slot id keeps it; panel ids
   assert.deepEqual(asUser.extensions.map((e) => e.package), ["@t/first", "@t/third"]);
   assert.deepEqual(asUser.extensions[0].panel.map((e) => e.id), ["packages"], "an admin-only panel entry is absent for a user");
   assert.deepEqual(asUser.extensions[0].commands, ["list"], "an admin-only command is not listed for a user");
+  assert.deepEqual(asUser.extensions[0].hidden, ["panel:people"], "what was dropped is named, so the page accepts its registration quietly");
+  assert.deepEqual(asUser.extensions[1].hidden, ["places:market"]);
   assert.deepEqual(asUser.extensions[1].panel.map((e) => e.id), ["people"], "two packages may both declare a panel id");
   assert.deepEqual(asUser.extensions[1].chips.map((e) => e.id), ["todo"], "a chip id does not clash with a dock id");
   assert.deepEqual(asUser.extensions[1].places, []);
   const asAdmin = composeUi([first, second, third], "admin", scratch);
   assert.deepEqual(asAdmin.extensions[0].panel.map((e) => e.id), ["people", "packages"]);
   assert.deepEqual(asAdmin.extensions[0].commands, ["list", "remove"]);
+  assert.deepEqual(asAdmin.extensions[0].hidden, []);
   assert.deepEqual(asAdmin.extensions[1].places.map((e) => e.id), ["market"]);
   assert.equal(asAdmin.refused.length, 1, "a refusal does not depend on the role");
 });

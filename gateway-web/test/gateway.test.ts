@@ -127,7 +127,7 @@ before(async () => {
   home = mkdtempSync(join(tmpdir(), "thetis-web-"));
   const sys = join(home, "system-packages");
   mkdirSync(sys);
-  for (const name of ["harness-core", "tool-exec", "prompt-cache", "gateway-web", "gateway-login", "gateway-cli"]) symlinkSync(resolve(PROJECT, "packages", name), join(sys, name));
+  for (const name of ["harness-core", "tool-exec", "prompt-cache", "gateway-web", "gateway-login", "gateway-cli", "ui-admin"]) symlinkSync(resolve(PROJECT, "packages", name), join(sys, name));
   symlinkSync(join(FIXTURES, "provider-echo"), join(sys, "provider-echo"));
   servicePort = await freePort();
   const config = defaultConfig(join(home, "data"), PROJECT);
@@ -136,7 +136,7 @@ before(async () => {
   config.fence.sandbox = (process.env.THETIS_TEST_SANDBOX as "auto" | "none") ?? "auto";
   config.fence.network = "none";
   config.fence.readOnly.push(sys, FIXTURES);
-  config.systemPackages = { "*": ["@thetis/harness-core", "@thetis/tool-exec"], _system: ["@thetis/provider-echo"] };
+  config.systemPackages = { "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/ui-admin"], _system: ["@thetis/provider-echo"] };
   config.packages = { "@thetis/provider-echo": { tag: "t1" } };
   config.door = { host: "127.0.0.1", port: servicePort };
   config.requestTimeoutMs = 60_000;
@@ -351,31 +351,80 @@ test("logout revokes the cookie", async () => {
   assert.equal((await api(cookie, "/alice/api/me")).status, 401);
 });
 
-test("panel: sections follow the role, and admin routes are refused for a user", async () => {
+/** A command of `@thetis/ui-admin`, as the page sends it: `POST api/ext/<package>/<verb>` with `{ args }`. */
+const ADMIN = "/api/ext/@thetis/ui-admin";
+async function admin(cookie: string, user: string, verb: string, args: Record<string, unknown> = {}): Promise<{ status: number; data: unknown; error?: string }> {
+  const res = await api(cookie, `/${user}${ADMIN}/${verb}`, { method: "POST", body: JSON.stringify({ args }) });
+  const body = (await res.json()) as { data?: unknown; error?: string };
+  return { status: res.status, data: body.data, error: body.error };
+}
+
+test("panel: the built-in sections are the same for everyone; a package's admin sections and verbs follow the role", async () => {
   const alice = await cookieFor("alice", "wonderland");
   const root = await cookieFor("root", "rootpass1");
   assert.deepEqual((await (await api(alice, "/alice/api/panel")).json()).sections, ["packages"]);
-  assert.deepEqual((await (await api(root, "/root/api/panel")).json()).sections, ["packages", "people", "models", "activity", "overview"]);
-  assert.equal((await api(alice, "/alice/api/admin/users")).status, 403);
+  assert.deepEqual((await (await api(root, "/root/api/panel")).json()).sections, ["packages"], "the admin sections come from @thetis/ui-admin, not from api/panel");
+  const uiOf = async (cookie: string, user: string) => ((await (await api(cookie, `/${user}/api/ui`)).json()) as { extensions: { package: string; panel: { id: string; order: number }[]; commands: string[] }[] }).extensions.find((e) => e.package === "@thetis/ui-admin");
+  const forRoot = await uiOf(root, "root");
+  assert.deepEqual(forRoot?.panel.map((e) => [e.id, e.order]), [["people", 20], ["models", 30], ["mounts", 35], ["activity", 40], ["overview", 50]]);
+  assert.deepEqual(forRoot?.commands, ["users", "user-create", "user-role", "user-status", "user-password", "user-remove", "models", "config", "journal", "mounts-list", "mounts-set"]);
+  const forAlice = await uiOf(alice, "alice");
+  assert.deepEqual(forAlice?.panel, [], "installed for everyone, but a user sees no admin section");
+  assert.deepEqual(forAlice?.commands, [], "and no admin verb");
+  const refused = await admin(alice, "alice", "users");
+  assert.equal(refused.status, 403, "a user is refused a role-admin verb by the gateway");
+  assert.match(String(refused.error), /admin/);
+  assert.equal((await admin(root, "root", "users")).status, 200);
+  assert.equal((await api(alice, "/alice/api/admin/users")).status, 403, "the people list the Packages picker uses is admin-only too");
   assert.equal((await api(root, "/root/api/admin/users")).status, 200);
+  assert.equal((await api(root, "/root/api/admin/models")).status, 404, "the old admin routes are gone");
+  assert.equal((await api(root, "/root/api/admin/journal")).status, 404);
+  assert.equal((await api(root, "/root/api/admin/config")).status, 404);
 });
 
-test("people: an admin adds a person, changes the role and status, and removes them; the journal says so", async () => {
+test("people: an admin adds a person, changes the role and status, and removes them through @thetis/ui-admin; the journal says so", async () => {
   const root = await cookieFor("root", "rootpass1");
-  const created = await api(root, "/root/api/admin/users", { method: "POST", body: JSON.stringify({ id: "carol", role: "user", password: "carolpass1" }) });
-  assert.equal(created.status, 201);
-  assert.ok(((await (await api(root, "/root/api/admin/users")).json()) as { id: string }[]).some((u) => u.id === "carol"));
+  const people = async () => (await admin(root, "root", "users")).data as { id: string; role: string; status: string }[];
+  const created = await admin(root, "root", "user-create", { id: "carol", role: "user", password: "carolpass1" });
+  assert.equal(created.status, 200, created.error);
+  assert.equal((created.data as { id: string }).id, "carol");
+  assert.ok((await people()).some((u) => u.id === "carol"));
   assert.equal((await login("carol", "carolpass1")).status, 303, "the password was set");
-  assert.equal((await api(root, "/root/api/admin/users/carol/role", { method: "POST", body: JSON.stringify({ role: "admin" }) })).status, 200);
-  assert.equal(((await (await api(root, "/root/api/admin/users")).json()) as { id: string; role: string }[]).find((u) => u.id === "carol")?.role, "admin");
-  assert.equal((await api(root, "/root/api/admin/users/carol/status", { method: "POST", body: JSON.stringify({ status: "suspended" }) })).status, 200);
-  assert.equal((await api(root, "/root/api/admin/users/root/role", { method: "POST", body: JSON.stringify({ role: "user" }) })).status, 400, "not your own account");
-  assert.equal((await api(root, "/root/api/admin/users", { method: "POST", body: JSON.stringify({ id: "Bad Id" }) })).status, 400);
-  assert.equal((await api(root, "/root/api/admin/users/carol", { method: "DELETE" })).status, 200);
-  assert.ok(!((await (await api(root, "/root/api/admin/users")).json()) as { id: string }[]).some((u) => u.id === "carol"));
-  const rows = (await (await api(root, "/root/api/admin/journal?limit=50")).json()) as { kind: string; actor?: string; target?: string }[];
-  assert.ok(rows.some((r) => r.kind === "user.create" && r.target === "carol" && r.actor === "root"));
+  assert.equal((await admin(root, "root", "user-role", { id: "carol", role: "admin" })).status, 200);
+  assert.equal((await people()).find((u) => u.id === "carol")?.role, "admin");
+  assert.equal((await admin(root, "root", "user-status", { id: "carol", status: "suspended" })).status, 200);
+  assert.equal((await people()).find((u) => u.id === "carol")?.status, "suspended");
+  assert.equal((await admin(root, "root", "user-password", { id: "carol", password: "carolpass2" })).status, 200);
+  const own = await admin(root, "root", "user-role", { id: "root", role: "user" });
+  assert.equal(own.status, 400, "not your own account");
+  assert.match(String(own.error), /your own account/);
+  assert.equal((await admin(root, "root", "user-create", { id: "Bad Id" })).status, 400);
+  assert.equal((await admin(root, "root", "user-password", { id: "carol", password: "short" })).status, 400);
+  assert.equal((await admin(root, "root", "user-remove", { id: "carol" })).status, 200);
+  assert.ok(!(await people()).some((u) => u.id === "carol"));
+  const rows = (await admin(root, "root", "journal", { limit: 50 })).data as { kind: string; actor?: string; target?: string }[];
+  assert.ok(rows.some((r) => r.kind === "user.create" && r.target === "carol" && r.actor === "root"), "the actor is the admin, not the operator");
+  assert.ok(rows.some((r) => r.kind === "user.role" && r.target === "carol"));
+  assert.ok(rows.some((r) => r.kind === "user.password" && r.target === "carol"));
   assert.ok(rows.some((r) => r.kind === "user.remove" && r.target === "carol"));
+  assert.deepEqual(((await admin(root, "root", "journal", { limit: 50, kind: "user.remove" })).data as { kind: string }[]).map((r) => r.kind), ["user.remove"], "narrowed to one kind");
+});
+
+test("mounts: an admin binds a directory into bob's fence, sees it listed, and unbinds it", async () => {
+  const root = await cookieFor("root", "rootpass1");
+  const listed = async () => (await admin(root, "root", "mounts-list")).data as Record<string, { path: string; mode: string }[]>;
+  assert.deepEqual((await listed()).bob ?? [], []);
+  const set = await admin(root, "root", "mounts-set", { user: "bob", mounts: [{ path: "/srv/repos/x", mode: "ro" }] });
+  assert.equal(set.status, 200, set.error);
+  assert.deepEqual(set.data, [{ path: "/srv/repos/x", mode: "ro" }]);
+  assert.deepEqual((await listed()).bob, [{ path: "/srv/repos/x", mode: "ro" }]);
+  assert.deepEqual((await admin(root, "root", "mounts-list", { user: "bob" })).data, { bob: [{ path: "/srv/repos/x", mode: "ro" }] });
+  assert.equal((await admin(root, "root", "mounts-set", { user: "bob", mounts: [{ path: "repos/x", mode: "ro" }] })).status, 400, "a relative path");
+  assert.equal((await admin(root, "root", "mounts-set", { user: "bob", mounts: [{ path: "/srv/repos/x", mode: "rx" }] })).status, 400, "a mode that is not rw or ro");
+  assert.equal((await admin(root, "root", "mounts-set", { user: "bob", mounts: [] })).status, 200);
+  assert.deepEqual((await listed()).bob ?? [], []);
+  const rows = (await admin(root, "root", "journal", { limit: 20, kind: "mounts" })).data as { kind: string; target?: string; actor?: string }[];
+  assert.ok(rows.some((r) => r.target === "bob" && r.actor === "root"));
 });
 
 test("packages: a person installs their own package, an admin promotes it, and everyone gets it", async () => {
@@ -434,9 +483,9 @@ test("packages: a person installs their own package, an admin promotes it, and e
   assert.ok(got.userspaces.includes("bob") && !got.userspaces.includes("_system"));
   assert.ok(((await (await api(bob, "/bob/api/packages")).json()) as { name: string; scope: string }[]).some((p) => p.name === "@thetis/gateway-cli" && p.scope === "everyone"));
   assert.ok(((await (await api(root, "/root/api/packages")).json()) as { name: string; scope: string }[]).some((p) => p.name === "@thetis/gateway-cli" && p.scope === "everyone"), "the admin's own row now says everyone");
-  assert.equal((await api(root, "/root/api/admin/users", { method: "POST", body: JSON.stringify({ id: "dave" }) })).status, 201);
+  assert.equal((await admin(root, "root", "user-create", { id: "dave" })).status, 200);
   assert.ok(kernel.packages.installed(kernel.userspaces.pathFor("dave")).some((p) => p.name === "@thetis/gateway-cli"), "a new person is seeded with it");
-  await api(root, "/root/api/admin/users/dave", { method: "DELETE" });
+  await admin(root, "root", "user-remove", { id: "dave" });
 });
 
 test("packages: a fork's row says what it replaced; delete with files puts the origin back; a shipped package is refused", async () => {
@@ -494,11 +543,13 @@ test("marketplace: search reads the index in the shared directory; no index is a
   const all = (await (await api(root, "/root/api/marketplace")).json()) as { results: { name: string }[]; updatedAt: string };
   assert.equal(all.results.length, 2);
   assert.equal(all.updatedAt, index.updatedAt);
-  const models = await api(root, "/root/api/admin/models");
-  assert.equal(models.status, 200);
-  assert.equal(((await models.json()) as { model: string }).model, "echo");
-  const config = (await (await api(root, "/root/api/admin/config")).json()) as { model: string };
-  assert.equal(config.model, "echo");
+  const models = await admin(root, "root", "models");
+  assert.equal(models.status, 200, models.error);
+  assert.equal((models.data as { model: string }).model, "echo");
+  assert.ok(((models.data as { models: { id: string }[] }).models ?? []).some((m) => m.id === "echo"), "what the echo provider serves");
+  const config = await admin(root, "root", "config");
+  assert.equal((config.data as { model: string }).model, "echo");
+  assert.equal(((config.data as { packages: Record<string, { tag: string }> }).packages ?? {})["@thetis/provider-echo"]?.tag, "t1", "the configuration as the kernel reports it");
 });
 
 test("inside the fences: the login target in the system userspace and alice's gateway in hers serve through the door", async () => {

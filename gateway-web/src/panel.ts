@@ -1,7 +1,8 @@
 // The control panel's API: packages of the person this gateway serves, the marketplace, and for admins
-// the operator methods (people, packages of anyone, promotion, models, configuration, the journal). The
-// gateway checks the role first so a refusal is a plain sentence; the kernel checks it again on every
-// operator call, against the fence's own user.
+// what the built-in Packages section needs of the operator methods (the people to pick from, packages of
+// anyone, promotion, install for everyone). People, models, the journal, the configuration and mounts
+// are `@thetis/ui-admin`'s commands now. The gateway checks the role first so a refusal is a plain
+// sentence; the kernel checks it again on every operator call, against the fence's own user.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolve } from "node:path";
@@ -118,7 +119,7 @@ function benchReports(root: string, reportDir = "bench"): BenchSummary[] {
   return out.sort((a, b) => a.suite.localeCompare(b.suite));
 }
 
-/** Handles `/api/panel`, `/api/packages`, `/api/marketplace` and `/api/admin`. Returns false when the path is not one of them. */
+/** Handles `/api/panel`, `/api/packages`, `/api/marketplace` and what is left of `/api/admin`. Returns false when the path is not one of them. */
 export async function handlePanel(deps: PanelDeps, req: IncomingMessage, res: ServerResponse, who: Who, seg: string[], method: string, url: URL): Promise<boolean> {
   const { kernel, env } = deps;
   const admin = who.role !== "user";
@@ -130,11 +131,8 @@ export async function handlePanel(deps: PanelDeps, req: IncomingMessage, res: Se
     return kernel.operator.call<T>(name, args);
   };
 
-  if (seg[1] === "panel" && method === "GET") {
-    const sections = ["packages"];
-    if (admin) sections.push("people", "models", "activity", "overview");
-    return json(res, 200, { user: who.id, role: who.role, sections }), true;
-  }
+  // The built-in sections only. A package's sections come from `api/ui`, already filtered by role.
+  if (seg[1] === "panel" && method === "GET") return json(res, 200, { user: who.id, role: who.role, sections: ["packages"] }), true;
 
   if (seg[1] === "packages") {
     if (seg.length === 2 && method === "GET") {
@@ -177,40 +175,8 @@ export async function handlePanel(deps: PanelDeps, req: IncomingMessage, res: Se
   if (seg[1] !== "admin") return false;
   requireAdmin();
 
-  if (seg[2] === "users") {
-    if (seg.length === 3 && method === "GET") return json(res, 200, await op("users.list")), true;
-    if (seg.length === 3 && method === "POST") {
-      const body = await readJson(req);
-      const id = field(body, "id", { pattern: USER_ID });
-      const role = field(body, "role", { optional: true }) || "user";
-      if (role !== "user" && role !== "admin") throw new HttpError(400, "role must be user or admin");
-      const created = await op("users.create", { id, role });
-      const password = field(body, "password", { optional: true });
-      if (password) await op("users.passwd", { id, password });
-      return json(res, 201, created), true;
-    }
-    const id = seg[3] ?? "";
-    if (!USER_ID.test(id)) throw new HttpError(404, "unknown user");
-    if (id === who.id && method !== "GET") throw new HttpError(400, "you cannot change your own account here");
-    if (seg.length === 4 && method === "DELETE") return await op("users.remove", { id }), json(res, 200, { id }), true;
-    if (seg[4] === "role" && method === "POST") {
-      const role = field(await readJson(req), "role");
-      if (role !== "user" && role !== "admin") throw new HttpError(400, "role must be user or admin");
-      return json(res, 200, await op("users.setRole", { id, role })), true;
-    }
-    if (seg[4] === "status" && method === "POST") {
-      const status = field(await readJson(req), "status");
-      if (status !== "active" && status !== "suspended") throw new HttpError(400, "status must be active or suspended");
-      return json(res, 200, await op("users.setStatus", { id, status })), true;
-    }
-    if (seg[4] === "password" && method === "POST") {
-      const password = field(await readJson(req), "password");
-      if (password.length < 8) throw new HttpError(400, "a password needs at least 8 characters");
-      await op("users.passwd", { id, password });
-      return json(res, 200, { id }), true;
-    }
-    return false;
-  }
+  // The people, for the Packages section's picker of whose packages to see. Changing them is `@thetis/ui-admin`'s.
+  if (seg[2] === "users" && seg.length === 3 && method === "GET") return json(res, 200, await op("users.list")), true;
 
   if (seg[2] === "packages") {
     const user = (u: string | null) => {
@@ -241,19 +207,6 @@ export async function handlePanel(deps: PanelDeps, req: IncomingMessage, res: Se
       return json(res, 200, result), true;
     }
     return false;
-  }
-
-  if (seg[2] === "models" && seg.length === 3 && method === "GET") {
-    const [models, config] = await Promise.all([op<{ id: string; name?: string; provider?: string }[]>("models"), op<{ model: string }>("config.get")]);
-    return json(res, 200, { model: config.model, models }), true;
-  }
-
-  if (seg[2] === "config" && seg.length === 3 && method === "GET") return json(res, 200, await op("config.get")), true;
-
-  if (seg[2] === "journal" && seg.length === 3 && method === "GET") {
-    const limit = Math.min(1000, Number(url.searchParams.get("limit") ?? 200) || 200);
-    const kind = url.searchParams.get("kind") ?? undefined;
-    return json(res, 200, await op("journal.tail", { limit, kind })), true;
   }
 
   return false;

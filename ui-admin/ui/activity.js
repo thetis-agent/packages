@@ -1,17 +1,15 @@
-/* Activity: the kernel's journal, newest first. Operator acts, turns, and services, each with who did it
- * and to whom. Admin only. Read by field name; a row's data is shown as it was recorded. */
+/* Activity: the kernel's journal, newest first. Operator acts, mounts, turns, and services, each with who
+ * did it and to whom. Read by field name; a row's data is shown as it was recorded. */
 
-import { api } from "../lib/api.js";
-import { clear, el } from "../lib/dom.js";
-import { badge, busy, heading, put, table, when } from "../lib/panel-ui.js";
-import { toast } from "../lib/toast.js";
+const KINDS = ["", "user.create", "user.remove", "user.role", "user.status", "user.password", "mounts", "package.install", "package.uninstall", "package.promote", "package.everyone", "turn.start", "turn.end", "service.start", "service.stop", "service.fail"];
+const LIMIT = 300;
 
-const KINDS = ["", "user.create", "user.remove", "user.role", "user.status", "user.password", "package.install", "package.uninstall", "package.promote", "turn.start", "turn.end", "service.start", "service.stop", "service.fail"];
-
-export function mountActivity(root) {
+export function mountActivity(ext, root) {
+  const { el, clear } = ext.dom;
+  const { badge, busy, heading, put, table, when } = ext.ui;
   let rows = [];
   let kind = "";
-  const wrap = el("div", { class: "panel-col" });
+  const wrap = el("div", { class: "panel-col ua-activity" });
   root.append(el("div", { class: "panel-cols" }, wrap));
   const pick = el("select", { class: "input", "aria-label": "Kind", onChange: (e) => { kind = e.target.value; void load(); } }, ...KINDS.map((k) => el("option", { value: k }, k || "everything")));
   const reload = el("button", { type: "button", class: "btn is-quiet", onClick: () => void load() }, "Reload");
@@ -19,9 +17,10 @@ export function mountActivity(root) {
   async function load() {
     const stop = busy(wrap, "Reading the journal…");
     try {
-      rows = await api(`/api/admin/journal?limit=300${kind ? `&kind=${encodeURIComponent(kind)}` : ""}`);
+      const out = await ext.request("journal", { args: { limit: LIMIT, kind: kind || undefined } });
+      rows = Array.isArray(out.data) ? out.data : [];
     } catch (err) {
-      toast(err.message, { tone: "error" });
+      ext.toast(err.message, { tone: "error" });
       rows = [];
     } finally {
       stop();
@@ -31,7 +30,7 @@ export function mountActivity(root) {
 
   function tone(k) {
     if (k.endsWith(".fail") || k === "user.remove" || k === "package.uninstall") return "warn";
-    if (k === "package.promote" || k === "user.create" || k === "package.install") return "accent";
+    if (k === "package.promote" || k === "user.create" || k === "package.install" || k === "mounts") return "accent";
     return "dim";
   }
 
@@ -43,6 +42,7 @@ export function mountActivity(root) {
     if (d.package) parts.push(String(d.package));
     if (d.role) parts.push(`role ${d.role}`);
     if (d.status) parts.push(`status ${d.status}`);
+    if (Array.isArray(d.mounts)) parts.push(d.mounts.length ? d.mounts.map((m) => `${m.path} (${m.mode})`).join(", ") : "no mounts");
     if (d.turn) parts.push(String(d.turn));
     if (typeof d.ms === "number") parts.push(`${(d.ms / 1000).toFixed(1)} s`);
     if (d.error) parts.push(`error: ${d.error.message || d.error}`);

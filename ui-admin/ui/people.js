@@ -1,23 +1,24 @@
-/* People: who can sign in and what they may do. Admin only. Your own account is not offered here. */
+/* People: who can sign in and what they may do. Your own account is not offered here: another admin,
+ * or the host, changes that one. Every change goes through one command and reloads the list. */
 
-import { api } from "../lib/api.js";
-import { clear, el } from "../lib/dom.js";
-import { badge, busy, button, card, confirm, field, heading, kv, put, table, when } from "../lib/panel-ui.js";
-import { toast } from "../lib/toast.js";
+const ID = /^[a-z][a-z0-9-]{0,31}$/;
 
-export function mountPeople(root, { user }) {
+export function mountPeople(ext, root, { user }) {
+  const { el, clear } = ext.dom;
+  const { badge, busy, button, card, confirm, field, heading, kv, put, table, when } = ext.ui;
   let people = [];
   let selected = null;
-  const listEl = el("div", { class: "panel-col" });
+  const listEl = el("div", { class: "panel-col ua-people" });
   const detailEl = el("div", { class: "panel-col is-side" });
   root.append(el("div", { class: "panel-cols" }, listEl, detailEl));
 
   async function load() {
     const stop = busy(listEl, "Reading people…");
     try {
-      people = (await api("/api/admin/users")).filter((p) => p.role !== "system");
+      const out = await ext.request("users");
+      people = (Array.isArray(out.data) ? out.data : []).filter((p) => p.role !== "system");
     } catch (err) {
-      toast(err.message, { tone: "error" });
+      ext.toast(err.message, { tone: "error" });
     } finally {
       stop();
     }
@@ -28,7 +29,8 @@ export function mountPeople(root, { user }) {
 
   function drawList() {
     clear(listEl);
-    put(listEl, 
+    put(
+      listEl,
       el("div", { class: "toolbar" }, heading("People", `${people.length} ${people.length === 1 ? "person" : "people"}`)),
       table(
         [
@@ -49,21 +51,21 @@ export function mountPeople(root, { user }) {
     const role = el("select", { class: "input", "aria-label": "Role" }, el("option", { value: "user" }, "user"), el("option", { value: "admin" }, "admin"));
     const password = el("input", { class: "input", type: "password", placeholder: "password (8+ characters)", "aria-label": "Password", autocomplete: "new-password" });
     const go = button("Add person", { tone: "primary", onClick: () => void add() });
-    const block = el("div", { class: "card add-block" }, el("div", { class: "card-head" }, "Add a person"), el("div", { class: "card-body" }, el("div", { class: "row wrap" }, field("Id", id), field("Role", role), field("Password", password), go), el("p", { class: "text-faint" }, "Ids are lowercase letters, digits and dashes. Without a password the person cannot sign in here until one is set.")));
+    const block = el("div", { class: "card add-block ua-add" }, el("div", { class: "card-head" }, "Add a person"), el("div", { class: "card-body" }, el("div", { class: "row wrap" }, field("Id", id), field("Role", role), field("Password", password), go), el("p", { class: "text-faint" }, "Ids are lowercase letters, digits and dashes. Without a password the person cannot sign in here until one is set.")));
     async function add() {
       const value = id.value.trim();
-      if (!/^[a-z][a-z0-9-]{0,31}$/.test(value)) return toast("An id is lowercase letters, digits and dashes, up to 32 characters.", { tone: "error" }), id.focus();
-      if (password.value && password.value.length < 8) return toast("A password needs at least 8 characters.", { tone: "error" }), password.focus();
+      if (!ID.test(value)) return ext.toast("An id is lowercase letters, digits and dashes, up to 32 characters.", { tone: "error" }), id.focus();
+      if (password.value && password.value.length < 8) return ext.toast("A password needs at least 8 characters.", { tone: "error" }), password.focus();
       go.disabled = true;
       try {
-        await api("/api/admin/users", { method: "POST", body: { id: value, role: role.value, password: password.value || undefined } });
-        toast(`${value} was added.`, { tone: "good" });
+        await ext.request("user-create", { args: { id: value, role: role.value, password: password.value || undefined } });
+        ext.toast(`${value} was added.`, { tone: "good" });
         id.value = "";
         password.value = "";
         selected = value;
         await load();
       } catch (err) {
-        toast(err.message, { tone: "error" });
+        ext.toast(err.message, { tone: "error" });
       } finally {
         go.disabled = false;
       }
@@ -79,9 +81,10 @@ export function mountPeople(root, { user }) {
     const roleBtn = button(p.role === "admin" ? "Make a user" : "Make an admin", { onClick: () => void change(roleBtn, "role", { role: p.role === "admin" ? "user" : "admin" }, `${p.id} becomes ${p.role === "admin" ? "a user: no control panel beyond their own packages." : "an admin: people, promotion, everyone's packages."}`) });
     const statusBtn = button(p.status === "active" ? "Suspend" : "Activate", { tone: p.status === "active" ? "warn" : "quiet", onClick: () => void change(statusBtn, "status", { status: p.status === "active" ? "suspended" : "active" }, p.status === "active" ? `${p.id} cannot sign in or start turns until activated again.` : `${p.id} can sign in and start turns again.`) });
     const pw = el("input", { class: "input", type: "password", placeholder: "new password (8+ characters)", "aria-label": "New password", autocomplete: "new-password" });
-    const pwBtn = button("Set password", { onClick: () => void setPassword(pwBtn, pw) });
+    const pwBtn = button("Set password", { onClick: () => void setPassword(pw) });
     const removeBtn = button("Remove", { tone: "warn", onClick: () => void remove(removeBtn, p) });
-    put(detailEl, 
+    put(
+      detailEl,
       card(
         el("code", {}, p.id),
         kv([["role", badge(p.role, p.role === "admin" ? "accent" : "dim")], ["status", badge(p.status, p.status === "active" ? "ok" : "warn")], ["since", new Date(p.createdAt).toLocaleString()]]),
@@ -95,26 +98,26 @@ export function mountPeople(root, { user }) {
     );
   }
 
-  async function change(anchor, what, body, note) {
+  async function change(anchor, what, args, note) {
     const ok = await confirm(anchor, { title: `Change ${what}?`, lines: [["person", selected]], note, confirmLabel: "Change" });
     if (!ok) return;
     try {
-      await api(`/api/admin/users/${encodeURIComponent(selected)}/${what}`, { method: "POST", body });
-      toast(`${selected}'s ${what} was changed.`, { tone: "good" });
+      await ext.request(`user-${what}`, { args: { id: selected, ...args } });
+      ext.toast(`${selected}'s ${what} was changed.`, { tone: "good" });
       await load();
     } catch (err) {
-      toast(err.message, { tone: "error" });
+      ext.toast(err.message, { tone: "error" });
     }
   }
 
-  async function setPassword(anchor, input) {
-    if (input.value.length < 8) return toast("A password needs at least 8 characters.", { tone: "error" }), input.focus();
+  async function setPassword(input) {
+    if (input.value.length < 8) return ext.toast("A password needs at least 8 characters.", { tone: "error" }), input.focus();
     try {
-      await api(`/api/admin/users/${encodeURIComponent(selected)}/password`, { method: "POST", body: { password: input.value } });
+      await ext.request("user-password", { args: { id: selected, password: input.value } });
       input.value = "";
-      toast(`${selected}'s password was set.`, { tone: "good" });
+      ext.toast(`${selected}'s password was set.`, { tone: "good" });
     } catch (err) {
-      toast(err.message, { tone: "error" });
+      ext.toast(err.message, { tone: "error" });
     }
   }
 
@@ -122,12 +125,12 @@ export function mountPeople(root, { user }) {
     const ok = await confirm(anchor, { title: "Remove this person?", lines: [["person", p.id], ["deletes", "their conversations and packages"]], note: "This cannot be undone.", confirmLabel: "Remove", tone: "warn" });
     if (!ok) return;
     try {
-      await api(`/api/admin/users/${encodeURIComponent(p.id)}`, { method: "DELETE" });
-      toast(`${p.id} was removed.`, { tone: "good" });
+      await ext.request("user-remove", { args: { id: p.id } });
+      ext.toast(`${p.id} was removed.`, { tone: "good" });
       selected = null;
       await load();
     } catch (err) {
-      toast(err.message, { tone: "error" });
+      ext.toast(err.message, { tone: "error" });
     }
   }
 

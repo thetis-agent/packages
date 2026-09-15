@@ -1094,9 +1094,6 @@ select.input { padding-right: 24px; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; font-size: var(--text-sm); }
 .kv dt { color: var(--text-faint); }
 .kv dd { margin: 0; min-width: 0; }
-.kv-block { display: flex; flex-direction: column; gap: 4px; }
-.kv-title { font-size: var(--text-xs); color: var(--text-dim); }
-.pre { margin: 0; padding: 10px; border-radius: var(--r-md); background: var(--surface-2); font-family: var(--mono); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
 .wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
 .text-dim { color: var(--text-dim); }
 .text-faint { color: var(--text-faint); font-size: var(--text-sm); }

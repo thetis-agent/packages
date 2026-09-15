@@ -42,6 +42,8 @@ export interface UiExtension extends Record<Slot, UiEntryDecl[]> {
   entry?: string;
   style?: string;
   commands: string[];
+  /** Entries above the person's role, as `<slot>:<id>`, so the page can tell "hidden" from "never declared". */
+  hidden: string[];
 }
 
 export interface UiRefusal {
@@ -188,6 +190,7 @@ export function composeUi(packages: PackageInfo[], role: UserRole, store: string
     if (ui.entry !== undefined) ext.entry = ui.entry;
     if (ui.style !== undefined) ext.style = ui.style;
     for (const slot of SLOTS) ext[slot] = ui.slots[slot].filter((e) => clears(role, e.role));
+    ext.hidden = SLOTS.flatMap((slot) => ui.slots[slot].filter((e) => !clears(role, e.role)).map((e) => `${slot}:${e.id}`));
     extensions.push(ext);
   }
   return { extensions, refused };

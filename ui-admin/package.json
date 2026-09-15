@@ -1,0 +1,36 @@
+{
+  "name": "@thetis/ui-admin",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "The admin sections of the web gateway's control panel: people, models, activity, overview, and mounts.",
+  "type": "module",
+  "main": "index.js",
+  "thetis": {
+    "type": "ui",
+    "ui": {
+      "dir": "ui",
+      "entry": "index.js",
+      "style": "index.css",
+      "panel": [
+        { "id": "people", "label": "People", "note": "Who can sign in, and what they may do.", "role": "admin", "order": 20 },
+        { "id": "models", "label": "Models", "note": "Which model answers by default, and what the providers serve.", "role": "admin", "order": 30 },
+        { "id": "mounts", "label": "Mounts", "note": "Which host directories are bound into whose space.", "role": "admin", "order": 35 },
+        { "id": "activity", "label": "Activity", "note": "What happened: who did what, and when.", "role": "admin", "order": 40 },
+        { "id": "overview", "label": "Overview", "note": "How this installation is set up.", "role": "admin", "order": 50 }
+      ],
+      "commands": [
+        { "verb": "users", "export": "users", "label": "List the people", "role": "admin" },
+        { "verb": "user-create", "export": "userCreate", "label": "Add a person", "role": "admin" },
+        { "verb": "user-role", "export": "userRole", "label": "Change a role", "role": "admin" },
+        { "verb": "user-status", "export": "userStatus", "label": "Suspend or activate", "role": "admin" },
+        { "verb": "user-password", "export": "userPassword", "label": "Set a password", "role": "admin" },
+        { "verb": "user-remove", "export": "userRemove", "label": "Remove a person", "role": "admin" },
+        { "verb": "models", "export": "models", "label": "List the models", "role": "admin" },
+        { "verb": "config", "export": "config", "label": "Read the configuration", "role": "admin" },
+        { "verb": "journal", "export": "journal", "label": "Read the journal", "role": "admin" },
+        { "verb": "mounts-list", "export": "mountsList", "label": "List the mounts", "role": "admin" },
+        { "verb": "mounts-set", "export": "mountsSet", "label": "Set a person's mounts", "role": "admin" }
+      ]
+    }
+  }
+}

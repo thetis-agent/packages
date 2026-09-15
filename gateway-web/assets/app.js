@@ -27,7 +27,7 @@ registry.declare({
   package: registry.BUILTIN,
   version: "",
   dock: [],
-  panel: PANEL_SECTIONS.map(({ id, label, note }) => ({ id, label, note })),
+  panel: PANEL_SECTIONS.map(({ id, label, note, order }) => ({ id, label, note, order })),
   places: [PANEL_PLACE],
   sidebar: [],
   chips: [],

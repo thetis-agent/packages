@@ -1,31 +1,22 @@
 /* The control panel: somewhere you go and read rather than a dialog you dismiss. It is the first place:
  * registered through the built-in `ext` under `@thetis/gateway-web`, so its launcher in the sidebar
  * footer and its frame come from the same slots a package would use. Inside, a navigation of sections
- * and one section mounted at a time. The built-in sections (Packages, and for admins People, Models,
- * Activity, Overview) are `panel` entries too; the server's `api/panel` still says which of them this
- * person may see. A section a package registers is listed as it was declared. */
+ * and one section mounted at a time. The one built-in section, Packages, is a `panel` entry too, with
+ * a low order so it sorts first; the server's `api/panel` still says which built-in sections this person
+ * may see. Every other section (People, Models, Mounts, Activity, Overview from `@thetis/ui-admin`) is
+ * listed as its package declared it, and only when `api/ui` listed it for the person's role. */
 
 import { api } from "../lib/api.js";
 import { clear, el } from "../lib/dom.js";
 import * as registry from "../lib/registry.js";
 import { store } from "../lib/store.js";
 import { toast } from "../lib/toast.js";
-import { mountActivity } from "./panel-activity.js";
-import { mountModels } from "./panel-models.js";
-import { mountOverview } from "./panel-overview.js";
 import { mountPackages } from "./panel-packages.js";
-import { mountPeople } from "./panel-people.js";
 
 export const GEAR = ["M10 6.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z", "M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M4.3 15.7l1.4-1.4M14.3 5.7l1.4-1.4"];
 
-/** The built-in sections, in the order the panel lists them. The notes are the sentence under each title. */
-export const PANEL_SECTIONS = [
-  { id: "packages", label: "Packages", note: "What is installed, what the registries offer, and what each one brings.", mount: mountPackages },
-  { id: "people", label: "People", note: "Who can sign in, and what they may do.", mount: mountPeople },
-  { id: "models", label: "Models", note: "Which model answers by default, and what the providers serve.", mount: mountModels },
-  { id: "activity", label: "Activity", note: "What happened: who did what, and when.", mount: mountActivity },
-  { id: "overview", label: "Overview", note: "How this installation is set up.", mount: mountOverview },
-];
+/** The built-in sections. The note is the sentence under the title; the order sorts them before a package's (default 100). */
+export const PANEL_SECTIONS = [{ id: "packages", label: "Packages", note: "What is installed, what the registries offer, and what each one brings.", order: 10, mount: mountPackages }];
 
 export const PANEL_PLACE = { id: "panel", label: "Control panel", hint: "How this place is set up", icon: GEAR };
 

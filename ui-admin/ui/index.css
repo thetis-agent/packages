@@ -1,0 +1,9 @@
+/* The admin sections of the control panel. Layout (.panel-cols, .card, .table, .badge, .kv) comes from the
+ * shell; only what the sections add is here, under .ua-. */
+
+.ua-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.ua-kv-block { display: flex; flex-direction: column; gap: 4px; }
+.ua-kv-title { font-size: var(--text-xs); color: var(--text-dim); }
+.ua-pre { margin: 0; padding: 10px; border-radius: var(--r-md); background: var(--surface-2); font-family: var(--mono); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ua-mounts .ua-path { min-width: 260px; font-family: var(--mono); }
+.ua-mounts td:last-child { text-align: right; white-space: nowrap; }

@@ -64,8 +64,9 @@ press does not): open a new tab on the same URL and close the old one before the
    button's title "Restore this conversation". Click it again: the row returns to its bucket.
 9. **Control panel as a place**: click `#sidebar-places [data-place]`. Expect `#app.is-place`, `#place`
    without `hidden` and `main.main` not displayed, `.place-title` "Control panel", `.place-sub`, and in
-   `.place-body` a `.panel-shell` with `.panel-nav-item`s (Packages first, `.is-active`; People, Models,
-   Activity, Overview for an admin) and `.panel-main` holding `.panel-note` and the Packages `.table`.
+   `.place-body` a `.panel-shell` with `.panel-nav-item`s (Packages first, `.is-active`; then, for an admin,
+   the sections `@thetis/ui-admin` declares, see the phase 3 section below) and `.panel-main` holding
+   `.panel-note` and the Packages `.table`.
 10. **Close the place** with `.place-close`. Expect `#app` without `is-place`, `#place[hidden]`, and the
     same `.tab.is-active` and `.pane.is-active` as before. Open it again and press Escape: same result.
 11. **Close tabs**: click `.tab.is-active .tab-close`. Expect the neighbour tab `.is-active` and its pane
@@ -167,3 +168,58 @@ to ask me one question with two options; then stop and wait."
 20. **Reload** the page. Expect the same conversation restored with the `.tp-line`s, the chip `todo n/3`
     (rebuilt from the last `todo_*` result in the record), and the form drawn `.tp-ask.is-answered`
     because a user message follows it.
+
+## The admin sections (`@thetis/ui-admin`, phase 3)
+
+Since phase 3 the People, Models, Mounts, Activity and Overview sections come from `@thetis/ui-admin`, which
+`init` now puts in `systemPackages["*"]`; the gateway keeps Packages only. Set up a second home on another
+port so this run does not touch `.devhome`: `THETIS_HOME=.devhome3 node bin/thetis.js init`, `door.port`
+8803, `packages["@thetis/gateway-login"].secure` false, `users add dev --admin` with the password
+`devpass123`, and a plain person `users add bob` with `bobpass123`. Source `.env` for the OpenRouter key
+before `serve` (the Models section asks the provider), but export `THETIS_HOME` after sourcing: `.env`
+carries its own. Keep the daemon's pid: `echo $! > .devhome3/serve.pid` is the wrapper; the daemon is the
+pid on `.devhome3/thetis.sock` (`ss -lxp`). Run 2026-09-15: every step below passed; screenshots
+`.playwright-mcp/phase3-01` to `-10`.
+
+21. **The nav, as dev**: sign in at `http://127.0.0.1:8803/login` and click `#sidebar-places [data-place]`.
+    Expect `.panel-nav-item`s in this order: Packages (`.is-active`), People, Models, Mounts, Activity,
+    Overview; `head` holding a `link[href$="ext/@thetis/ui-admin/index.css"]`; no console errors. `api/ui`
+    for dev lists the five `panel` entries (orders 20, 30, 35, 40, 50), eleven `commands`, and `hidden: []`.
+22. **People**: click the second nav item. Expect `.panel-note` "Who can sign in, and what they may do.",
+    a `.ua-people .table` with one row per person (`dev (me)`, `bob`), and the `.ua-add` card. Type `carol`
+    and `carolpass1`, click **Add person**: one `POST api/ext/@thetis/ui-admin/user-create`, the row
+    `carol | user | active | just now` selected, and the side card with **Make an admin**, **Suspend**, **Set
+    password**, **Remove**. **Make an admin** opens a `.popover` "Change role?" naming carol; **Change** sends
+    `user-role` and the row reads `admin`, the button **Make a user**. **Suspend** the same way (`user-status`):
+    the row reads `suspended`, the button **Activate**. Type a new password and **Set password**
+    (`user-password`): the input empties. **Remove** opens "Remove this person?" with the two facts; the warn
+    button sends `user-remove` and the row is gone, the side column back to "Select a person…". Selecting
+    your own row shows the "This is you" card and no buttons.
+23. **Models**: the third nav item. Expect `.busy-note` "Asking the providers…", then the **Default model**
+    card with the config's model in `code`, the toolbar note `n listed`, and the `.ua-models .table` (at most
+    300 rows) with a `.badge.is-accent` "default" on the default model's row. The filter narrows without a
+    second request.
+24. **Mounts**: the fourth nav item. Expect "No host directory is bound into anyone's fence.", `0 mounts`,
+    the `.ua-add` card with a Person select (`dev`, `bob`), a Host path input and a Mode select, and the
+    `.panel-hint` on the fence reopening. Pick `bob`, type an existing absolute directory (`mkdir -p
+    /tmp/thetis-phase3-mount`), click **Bind directory**: a `.popover` "Bind this directory?" with person,
+    path and mode; **Bind** sends `mounts-set` with bob's whole list. Expect the row `bob |
+    /tmp/thetis-phase3-mount | read-write | Unbind`, `1 mount`, the path input empty,
+    `.devhome3/mounts.json` holding it, and the daemon log showing bob's fence restarted. **Unbind** opens
+    "Unbind this directory?"; the warn button sends the list without it: `0 mounts` and `{}` on disk.
+25. **Activity**: the fifth nav item. Expect "Reading the journal…" then `n newest rows` and the
+    `.ua-activity .table`, newest first, with `.badge`s for the kinds and `dev` in the **Who** column for
+    `user.create`, `user.role`, `user.status`, `user.password`, `user.remove` (target `carol`) and two
+    `mounts` rows for `bob` (details `/tmp/thetis-phase3-mount (rw)` then `no mounts`). Pick `mounts` in the
+    Kind select: only those two rows.
+26. **Overview**: the sixth nav item. Expect the cards **Kernel** (`home`, `model`, `door`, …), **System
+    packages** (`everyone` listing `@thetis/ui-admin` last), **Fence**, and **Package configuration** with one
+    `.ua-kv-block` per configured package and `•••` where the key was; nothing that looks like a key.
+27. **As bob**: sign in as `bob` / `bobpass123` in the same tab. Expect no console errors (the five admin
+    entries arrive in `api/ui`'s `hidden`, so the module's registrations are ignored quietly), and the panel
+    place showing **Packages** only. From a shell with bob's cookie, `POST /bob/api/ext/@thetis/ui-admin/users`
+    with `{"args":{}}` and `sec-fetch-site: same-origin` answers `403 {"error":"only an admin can send \"users\""}`;
+    `GET /bob/api/panel` answers `{"sections":["packages"]}`.
+
+Stop the daemon by the pid on `.devhome3/thetis.sock` (SIGINT; SIGKILL after 20 s), release
+`/tmp/thetis-browser.lock`, and delete `.devhome3` and the temporary directory.

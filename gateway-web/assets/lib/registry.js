@@ -2,7 +2,9 @@
  * UI slot. A slot entry exists from the moment a package's declaration arrives (so the rail button, the
  * panel nav item, the place link are drawn before the module loads) and gains its implementation when the
  * module registers it. Ids are `<package>#<id>`. A registration for an id the package never declared is
- * refused with a console message. A draw, mount, open or render that throws is caught and reported once
+ * refused with a console message; one for an id the server hid from this person (above their role, listed
+ * in the declaration's `hidden`) is refused quietly, because the module cannot know the role and the
+ * entry is declared. A draw, mount, open or render that throws is caught and reported once
  * per package per slot, and the slot shows "<package> could not draw this". Transcript renderers are a
  * list: each may decline (return nothing), a broken one is skipped, and the transcript's own row is the
  * fall-through. Views watch the registry and redraw their slot when it changes. */
@@ -15,7 +17,7 @@ export const BUILTIN = "@thetis/gateway-web";
 
 export const SLOTS = ["dock", "panel", "places", "sidebar", "chips", "composer", "shelf", "statusbar"];
 
-const packages = new Map(); // package name -> { decl, failed: string | null, at: number }
+const packages = new Map(); // package name -> { decl, failed: string | null, at: number, hidden: Set<"<slot>:<id>"> }
 const slots = new Map(SLOTS.map((slot) => [slot, new Map()])); // slot -> key -> entry
 const renderers = []; // [{ package, render }]
 const reported = new Set(); // "<package>/<slot>" already reported
@@ -31,7 +33,7 @@ function notify(change) {
 export function declare(extension) {
   const pkg = extension.package;
   if (packages.has(pkg)) return;
-  packages.set(pkg, { decl: extension, failed: null, at: packages.size });
+  packages.set(pkg, { decl: extension, failed: null, at: packages.size, hidden: new Set(Array.isArray(extension.hidden) ? extension.hidden : []) });
   for (const slot of SLOTS) {
     for (const decl of extension[slot] ?? []) {
       const id = slot === "sidebar" ? decl.slot ?? decl.id : decl.id;
@@ -54,11 +56,11 @@ export function fail(pkg, message) {
 
 export const failureOf = (pkg) => packages.get(pkg)?.failed ?? null;
 
-/** Registers the implementation of a declared entry. Refused, with a console message, for an undeclared id. */
+/** Registers the implementation of a declared entry. Refused, with a console message, for an undeclared id; quietly for one hidden by role. */
 export function register(slot, pkg, id, impl) {
   const entry = slots.get(slot)?.get(keyOf(pkg, id));
   if (!entry) {
-    console.error(`${pkg} registered ${slot} "${id}", which its declaration does not list; ignored.`);
+    if (!packages.get(pkg)?.hidden.has(`${slot}:${id}`)) console.error(`${pkg} registered ${slot} "${id}", which its declaration does not list; ignored.`);
     return false;
   }
   entry.impl = impl;
