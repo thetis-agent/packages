@@ -4,7 +4,9 @@
  * Consecutive tool cards sit in one run with a count, so a long stretch of calls reads as one thing.
  * One instance per pane: `mountTranscript(root, { session })` knows which conversation it draws, so a
  * background tab keeps drawing its own events. Tool rows are offered to the registered transcript
- * renderers first (the ask form and the plan lines live there); the tool card is the fall-through. */
+ * renderers first (a package draws its own tools' rows there, as @thetis/tools-plan does for todo_* and
+ * ask_user); the tool card is the fall-through, and `ctx.whenAnswered` lets a renderer's row lock itself
+ * when the next user message arrives, live or on replay. */
 
 import { fmtDuration } from "../lib/activity.js";
 import { avatarFor } from "../lib/avatar.js";

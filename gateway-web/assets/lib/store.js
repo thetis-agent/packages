@@ -9,7 +9,6 @@ const state = {
   running: new Set(),  // session ids with a turn in progress
   pending: new Set(),  // session ids with a send awaiting the server's 202
   activity: new Map(), // session id -> { state, step, tool, since, steps, cost, outcome }
-  plan: new Map(),     // session id -> parsed todo plan (see views/plan.js), or absent if never used
   choices: null,       // { model, models } from /api/models, once loaded
   creating: false,
   connection: "connecting", // connecting | online | offline
@@ -48,14 +47,6 @@ export const store = {
     if (record) next.set(id, record);
     else next.delete(id);
     this.set({ activity: next });
-  },
-  /** Replaces one session's parsed plan, replacing the map so watchers fire. */
-  planOf: (id) => state.plan.get(id) ?? null,
-  setPlan(id, plan) {
-    const next = new Map(state.plan);
-    if (plan) next.set(id, plan);
-    else next.delete(id);
-    this.set({ plan: next });
   },
   isRunning: (id) => state.running.has(id),
   isPending: (id) => state.pending.has(id),

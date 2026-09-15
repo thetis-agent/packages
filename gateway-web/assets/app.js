@@ -11,12 +11,10 @@ import { loadExtensions } from "./lib/loader.js";
 import * as registry from "./lib/registry.js";
 import { store } from "./lib/store.js";
 import { toast } from "./lib/toast.js";
-import { installAsk } from "./views/ask.js";
 import { mountComposer } from "./views/composer.js";
 import { mountDock } from "./views/dock.js";
 import { installPanel, PANEL_PLACE, PANEL_SECTIONS } from "./views/panel.js";
 import { mountPlaces } from "./views/places.js";
-import { installPlan } from "./views/plan.js";
 import { mountSessions } from "./views/sessions.js";
 import { mountShelf } from "./views/shelf.js";
 import { mountStatusbar } from "./views/statusbar.js";
@@ -31,7 +29,7 @@ registry.declare({
   panel: PANEL_SECTIONS.map(({ id, label, note }) => ({ id, label, note })),
   places: [PANEL_PLACE],
   sidebar: [],
-  chips: [{ id: "todo", label: "todo" }],
+  chips: [],
   composer: [{ id: "model", label: "Model" }],
   shelf: [],
   statusbar: [],
@@ -177,8 +175,6 @@ bindShell({
 const builtin = createExt(registry.declared(registry.BUILTIN));
 builtin.composer("model", { mount: composer.mountModelPicker });
 installPanel(builtin);
-installPlan(builtin);
-installAsk(builtin);
 
 // --- the favicon says when something is working ---
 

@@ -1,7 +1,7 @@
 // The five todo_* tools: each loads the plan, mutates it, saves it, and renders it back,
 // so the model always sees the whole current plan and never has to ask for it separately.
 import { loadPlan, savePlan } from "./store.js";
-import { mintItems, enforceSingleActive, checkCap, renderPlan, CAP } from "./plan.js";
+import { mintItems, enforceSingleActive, checkCap, markStage, renderPlan, CAP } from "./plan.js";
 
 function homeAndSession(env) {
   return { home: env.cwd, sessionId: env.session?.id ?? "default" };
@@ -43,20 +43,8 @@ export async function todoAdd(args, env) {
 export async function todoMark(args, env) {
   const { home, sessionId } = homeAndSession(env);
   const ids = Array.isArray(args.ids) ? args.ids.map(String) : [];
-  const stage = String(args.stage ?? "");
-  if (!["pending", "active", "done", "dropped"].includes(stage)) {
-    throw new Error(`stage must be one of pending, active, done, dropped; got "${stage}".`);
-  }
-
   const plan = await loadPlan(home, sessionId);
-  const idSet = new Set(ids);
-  const missing = ids.filter((id) => !plan.items.some((it) => it.id === id));
-  if (missing.length) throw new Error(`unknown id(s): ${missing.join(", ")}.`);
-
-  for (const it of plan.items) if (idSet.has(it.id)) it.stage = stage;
-
-  const notes = [];
-  enforceSingleActive(plan.items, notes);
+  const notes = markStage(plan, ids, String(args.stage ?? ""));
   await savePlan(home, sessionId, plan);
   return withNotes(renderPlan(plan), notes);
 }

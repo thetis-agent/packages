@@ -1,6 +1,6 @@
 {
   "name": "@thetis/tools-plan",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "MIT",
   "description": "Per-conversation todo list and a structured way to ask the user clarifying questions, answered as a form on the gateway page.",
   "type": "module",
@@ -208,6 +208,36 @@
         "export": "askUser"
       }
     ],
+    "ui": {
+      "dir": "ui",
+      "entry": "index.js",
+      "style": "index.css",
+      "dock": [
+        {
+          "id": "todo",
+          "label": "Todo",
+          "icon": "M5.5 3.5h9v13h-9z M8 8h4.5 M7.6 12.2l1.3 1.3 2.6-2.8",
+          "hint": "The plan the agent is working to"
+        }
+      ],
+      "chips": [
+        {
+          "id": "todo"
+        }
+      ],
+      "commands": [
+        {
+          "verb": "plan",
+          "export": "uiPlan",
+          "label": "Read the plan"
+        },
+        {
+          "verb": "mark",
+          "export": "uiMark",
+          "label": "Tick an item off the plan yourself"
+        }
+      ]
+    },
     "bench": {
       "suites": [
         "assembly-cost@1",
