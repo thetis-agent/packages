@@ -16,13 +16,13 @@ import { mountPackages } from "./panel-packages.js";
 export const GEAR = ["M10 6.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z", "M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M4.3 15.7l1.4-1.4M14.3 5.7l1.4-1.4"];
 
 /** The built-in sections. The note is the sentence under the title; the order sorts them before a package's (default 100). */
-export const PANEL_SECTIONS = [{ id: "packages", label: "Packages", note: "What is installed, what the registries offer, and what each one brings.", order: 10, mount: mountPackages }];
+export const PANEL_SECTIONS = [{ id: "packages", label: "Packages", note: "What is installed here, and what each package brings.", order: 10, mount: mountPackages }];
 
 export const PANEL_PLACE = { id: "panel", label: "Control panel", hint: "How this place is set up", icon: GEAR };
 
-/** Registers the sections and the place with the shell. */
-export function installPanel(ext) {
-  for (const section of PANEL_SECTIONS) ext.panel(section.id, { mount: section.mount });
+/** Registers the sections and the place with the shell. `shell.openPlace(key, params)` lets a built-in section link to another package's place. */
+export function installPanel(ext, shell) {
+  for (const section of PANEL_SECTIONS) ext.panel(section.id, { mount: (root, who) => section.mount(root, who, shell) });
   ext.place(PANEL_PLACE.id, { open: openPanel });
 }
 

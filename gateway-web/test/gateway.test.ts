@@ -20,7 +20,6 @@ import { clientFromRpc } from "../src/client.js";
 import { createGateway } from "../src/server.js";
 import { GatewayStore } from "../src/store.js";
 import type { TurnMessage } from "../src/turns.js";
-import { withUpdate } from "../src/panel.js";
 
 const PROJECT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const FIXTURES = resolve(PROJECT, "packages/host/test/fixtures");
@@ -127,7 +126,7 @@ before(async () => {
   home = mkdtempSync(join(tmpdir(), "thetis-web-"));
   const sys = join(home, "system-packages");
   mkdirSync(sys);
-  for (const name of ["harness-core", "tool-exec", "prompt-cache", "gateway-web", "gateway-login", "gateway-cli", "ui-admin"]) symlinkSync(resolve(PROJECT, "packages", name), join(sys, name));
+  for (const name of ["harness-core", "tool-exec", "prompt-cache", "gateway-web", "gateway-login", "gateway-cli", "ui-admin", "ui-marketplace"]) symlinkSync(resolve(PROJECT, "packages", name), join(sys, name));
   symlinkSync(join(FIXTURES, "provider-echo"), join(sys, "provider-echo"));
   servicePort = await freePort();
   const config = defaultConfig(join(home, "data"), PROJECT);
@@ -136,7 +135,7 @@ before(async () => {
   config.fence.sandbox = (process.env.THETIS_TEST_SANDBOX as "auto" | "none") ?? "auto";
   config.fence.network = "none";
   config.fence.readOnly.push(sys, FIXTURES);
-  config.systemPackages = { "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/ui-admin"], _system: ["@thetis/provider-echo"] };
+  config.systemPackages = { "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/ui-admin", "@thetis/ui-marketplace"], _system: ["@thetis/provider-echo"] };
   config.packages = { "@thetis/provider-echo": { tag: "t1" } };
   config.door = { host: "127.0.0.1", port: servicePort };
   config.requestTimeoutMs = 60_000;
@@ -359,6 +358,14 @@ async function admin(cookie: string, user: string, verb: string, args: Record<st
   return { status: res.status, data: body.data, error: body.error };
 }
 
+/** A command of `@thetis/ui-marketplace`, the same way. */
+const MARKET = "/api/ext/@thetis/ui-marketplace";
+async function market(cookie: string, user: string, verb: string, args: Record<string, unknown> = {}): Promise<{ status: number; data: unknown; error?: string }> {
+  const res = await api(cookie, `/${user}${MARKET}/${verb}`, { method: "POST", body: JSON.stringify({ args }) });
+  const body = (await res.json()) as { data?: unknown; error?: string };
+  return { status: res.status, data: body.data, error: body.error };
+}
+
 test("panel: the built-in sections are the same for everyone; a package's admin sections and verbs follow the role", async () => {
   const alice = await cookieFor("alice", "wonderland");
   const root = await cookieFor("root", "rootpass1");
@@ -375,11 +382,13 @@ test("panel: the built-in sections are the same for everyone; a package's admin 
   assert.equal(refused.status, 403, "a user is refused a role-admin verb by the gateway");
   assert.match(String(refused.error), /admin/);
   assert.equal((await admin(root, "root", "users")).status, 200);
-  assert.equal((await api(alice, "/alice/api/admin/users")).status, 403, "the people list the Packages picker uses is admin-only too");
-  assert.equal((await api(root, "/root/api/admin/users")).status, 200);
-  assert.equal((await api(root, "/root/api/admin/models")).status, 404, "the old admin routes are gone");
-  assert.equal((await api(root, "/root/api/admin/journal")).status, 404);
-  assert.equal((await api(root, "/root/api/admin/config")).status, 404);
+  for (const path of ["users", "models", "journal", "config", "packages"]) assert.equal((await api(root, `/root/api/admin/${path}`)).status, 404, `api/admin/${path} is gone`);
+  const marketplaceUi = ((await (await api(root, "/root/api/ui")).json()) as { extensions: { package: string; places: { id: string; order: number }[]; commands: string[] }[] }).extensions.find((e) => e.package === "@thetis/ui-marketplace");
+  assert.deepEqual(marketplaceUi?.places.map((e) => [e.id, e.order]), [["marketplace", 20]]);
+  assert.deepEqual(marketplaceUi?.commands, ["search", "show", "install", "remove", "delete", "update", "install-everyone", "install-for", "remove-for", "promote", "people"]);
+  const marketplaceForAlice = ((await (await api(alice, "/alice/api/ui")).json()) as { extensions: { package: string; places: { id: string }[]; commands: string[] }[] }).extensions.find((e) => e.package === "@thetis/ui-marketplace");
+  assert.deepEqual(marketplaceForAlice?.places.map((e) => e.id), ["marketplace"], "the place is everyone's");
+  assert.deepEqual(marketplaceForAlice?.commands, ["search", "show", "install", "remove", "delete", "update"], "the admin verbs are not");
 });
 
 test("people: an admin adds a person, changes the role and status, and removes them through @thetis/ui-admin; the journal says so", async () => {
@@ -450,15 +459,18 @@ test("packages: a person installs their own package, an admin promotes it, and e
   assert.ok((await api(alice, "/alice/api/packages", { method: "POST", body: JSON.stringify({ source: "packages/nope" }) })).status >= 400, "a bad path is refused");
   assert.ok((await api(alice, "/alice/api/packages", { method: "POST", body: JSON.stringify({ source: "@thetis/gateway-web" }) })).status >= 400, "a user cannot install a system package");
 
-  const seen = (await (await api(root, "/root/api/admin/packages?user=alice")).json()) as { name: string }[];
-  assert.ok(seen.some((p) => p.name === "@alice/hello"));
-  const forAlice = await api(root, "/root/api/admin/packages", { method: "POST", body: JSON.stringify({ user: "alice", source: "@thetis/prompt-cache" }) });
-  assert.equal(forAlice.status, 201, "an admin installs a system package for a user");
-  assert.equal((await api(alice, "/alice/api/admin/packages/%40alice%2Fhello/promote", { method: "POST", body: JSON.stringify({ user: "alice" }) })).status, 403);
-  const promoted = await api(root, "/root/api/admin/packages/%40alice%2Fhello/promote", { method: "POST", body: JSON.stringify({ user: "alice" }) });
-  const promotedText = await promoted.text();
-  assert.equal(promoted.status, 200, promotedText);
-  assert.equal((JSON.parse(promotedText) as { name: string }).name, "@thetis/hello");
+  // The admin verbs of @thetis/ui-marketplace replace the gateway's old /api/admin/packages routes.
+  assert.equal((await api(root, "/root/api/admin/packages?user=alice")).status, 404, "api/admin is gone");
+  const forAlice = await market(root, "root", "install-for", { user: "alice", source: "@thetis/prompt-cache" });
+  assert.equal(forAlice.status, 200, `an admin installs a system package for a user: ${forAlice.error}`);
+  assert.equal((forAlice.data as { name: string; scope: string }).scope, "me");
+  assert.ok(((await (await api(alice, "/alice/api/packages")).json()) as { name: string }[]).some((p) => p.name === "@thetis/prompt-cache"));
+  const refused = await market(alice, "alice", "promote", { user: "alice", name: "@alice/hello" });
+  assert.equal(refused.status, 403);
+  assert.match(String(refused.error), /only an admin/);
+  const promoted = await market(root, "root", "promote", { user: "alice", name: "@alice/hello" });
+  assert.equal(promoted.status, 200, promoted.error);
+  assert.equal((promoted.data as { name: string }).name, "@thetis/hello");
   const bobs = (await (await api(bob, "/bob/api/packages")).json()) as { name: string; scope: string }[];
   assert.ok(bobs.some((p) => p.name === "@thetis/hello" && p.scope === "everyone"), "bob has the promoted package");
   const alices = (await (await api(alice, "/alice/api/packages")).json()) as { name: string }[];
@@ -474,11 +486,10 @@ test("packages: a person installs their own package, an admin promotes it, and e
   assert.ok(!((await (await api(bob, "/bob/api/packages")).json()) as { name: string }[]).some((p) => p.name === "@thetis/gateway-cli"));
 
   // Install for everyone: a shipped package reaches every person now and every new person later.
-  assert.equal((await api(alice, "/alice/api/admin/packages/everyone", { method: "POST", body: JSON.stringify({ source: "@thetis/gateway-cli" }) })).status, 403);
-  const everyone = await api(root, "/root/api/admin/packages/everyone", { method: "POST", body: JSON.stringify({ source: "@thetis/gateway-cli" }) });
-  const everyoneText = await everyone.text();
-  assert.equal(everyone.status, 200, everyoneText);
-  const got = JSON.parse(everyoneText) as { name: string; userspaces: string[] };
+  assert.equal((await market(alice, "alice", "install-everyone", { source: "@thetis/gateway-cli" })).status, 403);
+  const everyone = await market(root, "root", "install-everyone", { source: "@thetis/gateway-cli" });
+  assert.equal(everyone.status, 200, everyone.error);
+  const got = everyone.data as { name: string; userspaces: string[] };
   assert.equal(got.name, "@thetis/gateway-cli");
   assert.ok(got.userspaces.includes("bob") && !got.userspaces.includes("_system"));
   assert.ok(((await (await api(bob, "/bob/api/packages")).json()) as { name: string; scope: string }[]).some((p) => p.name === "@thetis/gateway-cli" && p.scope === "everyone"));
@@ -509,8 +520,6 @@ test("packages: a fork's row says what it replaced; delete with files puts the o
   const rows = (await (await api(alice, "/alice/api/packages")).json()) as { name: string; forkedFrom?: { name: string }; replaced?: string }[];
   assert.ok(!rows.some((p) => p.name === "@alice/base"), "the origin is displaced");
   assert.equal(rows.find((p) => p.name === "@alice/base2")?.forkedFrom?.name, "@alice/base");
-  const seen = (await (await api(root, "/root/api/admin/packages?user=alice")).json()) as { name: string; forkedFrom?: { name: string } }[];
-  assert.equal(seen.find((p) => p.name === "@alice/base2")?.forkedFrom?.name, "@alice/base", "the admin's view carries the badge too");
   assert.equal((await api(alice, "/alice/api/packages/%40thetis%2Fharness-core?files=1", { method: "DELETE" })).status, 403, "a shipped package cannot be deleted");
   assert.ok(existsSync(join(us.store, "node_modules", "@thetis", "harness-core", "package.json")));
   const deleted = await api(alice, "/alice/api/packages/%40alice%2Fbase2?files=1", { method: "DELETE" });
@@ -524,25 +533,60 @@ test("packages: a fork's row says what it replaced; delete with files puts the o
   assert.ok(!existsSync(join(us.home, "packages", "base")));
 });
 
-test("marketplace: search reads the index in the shared directory; no index is a plain 404", async () => {
+test("marketplace: search and show read the index and the README copies in the shared directory through @thetis/ui-marketplace", async () => {
   const alice = await cookieFor("alice", "wonderland");
+  const bob = await cookieFor("bob", "builder");
   const root = await cookieFor("root", "rootpass1");
-  assert.equal((await api(alice, "/alice/api/marketplace?q=x")).status, 404);
+  // No index yet: the rows are what is installed, and the answer says so.
+  const bare = await market(alice, "alice", "search", { q: "" });
+  assert.equal(bare.status, 200, bare.error);
+  const bareData = bare.data as { indexed: boolean; updatedAt: string | null; total: number; rows: { name: string; installed: boolean }[]; role: string; user: string };
+  assert.equal(bareData.indexed, false);
+  assert.equal(bareData.updatedAt, null);
+  assert.ok(bareData.rows.length > 0 && bareData.rows.every((r) => r.installed));
+  assert.equal(bareData.user, "alice");
+  assert.equal(bareData.role, "user");
   const index = {
     version: 1, updatedAt: "2026-09-14T00:00:00.000Z", registries: [{ name: "local", url: "file:///r", commit: "abc" }],
     packages: [
-      { name: "@thetis/greet", version: "1.0.0", type: "tool", description: "Say hello", keywords: ["hello"], registry: "local", url: "file:///r", dir: "greet", source: "file:///r#greet", steps: [], tools: ["greet"], service: false },
-      { name: "@thetis/memo", version: "0.2.0", type: "memory", description: "Remember", keywords: [], registry: "local", url: "file:///r", dir: "memo", source: "file:///r#memo", steps: [{ id: "load", phase: "prompt" }], tools: [], service: false },
+      { name: "@thetis/greet", version: "1.0.0", type: "tool", description: "Say hello", keywords: ["hello"], registry: "local", url: "file:///r", dir: "greet", commit: "a".repeat(40), source: "file:///r#greet@" + "a".repeat(40), steps: [], tools: ["greet"], service: false, readme: true },
+      { name: "@thetis/memo", version: "0.2.0", type: "memory", description: "Remember", keywords: [], registry: "local", url: "file:///r", dir: "memo", commit: "b".repeat(40), source: "file:///r#memo@" + "b".repeat(40), steps: [{ id: "load", phase: "prompt" }], tools: [], service: false, readme: false },
     ],
   };
-  mkdirSync(join(sysenv, "shared", "marketplace"), { recursive: true });
+  mkdirSync(join(sysenv, "shared", "marketplace", "readme", "local"), { recursive: true });
   writeFileSync(join(sysenv, "shared", "marketplace", "index.json"), JSON.stringify(index));
-  const found = (await (await api(alice, "/alice/api/marketplace?q=hello")).json()) as { total: number; results: { name: string }[] };
-  assert.equal(found.total, 2);
-  assert.deepEqual(found.results.map((r) => r.name), ["@thetis/greet"]);
-  const all = (await (await api(root, "/root/api/marketplace")).json()) as { results: { name: string }[]; updatedAt: string };
-  assert.equal(all.results.length, 2);
+  writeFileSync(join(sysenv, "shared", "marketplace", "readme", "local", "greet.md"), "# greet\n\nSays hello.\n");
+  const found = await market(alice, "alice", "search", { q: "hello" });
+  assert.equal(found.status, 200, found.error);
+  const foundData = found.data as { indexed: boolean; total: number; rows: { name: string; installed: boolean; available: boolean; registry: string }[] };
+  assert.equal(foundData.total, 2);
+  assert.deepEqual(foundData.rows.map((r) => [r.name, r.installed, r.available, r.registry]), [["@thetis/greet", false, true, "local"]]);
+  const all = (await market(root, "root", "search", {})).data as { updatedAt: string; rows: { name: string; installed: boolean }[]; role: string };
   assert.equal(all.updatedAt, index.updatedAt);
+  assert.equal(all.role, "admin");
+  assert.ok(all.rows.some((r) => r.name === "@thetis/memo" && !r.installed) && all.rows.some((r) => r.name === "@thetis/harness-core" && r.installed));
+  assert.ok(all.rows.findIndex((r) => r.installed) < all.rows.findIndex((r) => !r.installed), "installed rows come first");
+  const typed = (await market(bob, "bob", "search", { type: "memory" })).data as { rows: { name: string }[] };
+  assert.deepEqual(typed.rows.map((r) => r.name), ["@thetis/memo"]);
+  // A page: the row, the README copy, and who is looking. No README is null, not an error.
+  const page = await market(bob, "bob", "show", { name: "@thetis/greet" });
+  assert.equal(page.status, 200, page.error);
+  const pageData = page.data as { row: { name: string; installed: boolean; tools: { name: string }[]; readme: boolean; scope: null }; readme: string; user: string };
+  assert.equal(pageData.readme, "# greet\n\nSays hello.\n");
+  assert.deepEqual(pageData.row.tools, [{ name: "greet", description: "" }]);
+  assert.equal(pageData.row.scope, null);
+  assert.equal(pageData.user, "bob");
+  assert.equal(((await market(bob, "bob", "show", { name: "@thetis/memo" })).data as { readme: unknown }).readme, null);
+  const own = (await market(bob, "bob", "show", { name: "@thetis/harness-core" })).data as { row: { installed: boolean; scope: string; license: string | null; tools: { name: string; description: string }[] } };
+  assert.equal(own.row.scope, "everyone");
+  assert.equal(own.row.license, "MIT", "an installed copy's license comes from its package.json");
+  const unknown = await market(bob, "bob", "show", { name: "@thetis/nope" });
+  assert.equal(unknown.status, 400);
+  assert.match(String(unknown.error), /not installed here and no registry offers it/);
+  assert.equal((await market(bob, "bob", "update", { name: "@thetis/harness-core" })).status, 400, "a shipped package is never behind");
+  assert.equal((await market(bob, "bob", "people")).status, 403, "the people picker is an admin's");
+  assert.deepEqual(((await market(root, "root", "people")).data as { id: string }[]).map((p) => p.id).sort(), ["alice", "bob", "root"]);
+  assert.equal((await api(alice, "/alice/api/marketplace?q=x")).status, 404, "the gateway's own marketplace route is gone");
   const models = await admin(root, "root", "models");
   assert.equal(models.status, 200, models.error);
   assert.equal((models.data as { model: string }).model, "echo");
@@ -586,26 +630,4 @@ test("inside the fences: the login target in the system userspace and alice's ga
   } finally {
     await new Promise<void>((done) => realDoor.close(() => done()));
   }
-});
-
-test("a row offers an update only when the registry it came from has moved on", () => {
-  const row = { name: "@thetis/tools-files", version: "0.1.0", type: "tool", description: "", scope: "me" as const, steps: [], tools: [], service: false };
-  assert.equal(withUpdate(row, undefined).update, undefined, "a package nothing is newer than says nothing");
-  const offered = withUpdate(row, {
-    name: "@thetis/tools-files",
-    installed: "1".repeat(40),
-    available: "2".repeat(40),
-    version: "0.2.0",
-    registry: "thetis",
-    source: "https://github.com/thetis-agent/packages.git#tools-files@" + "2".repeat(40),
-  });
-  // Short forms, because a row is read by a person and a full object name tells them nothing.
-  assert.deepEqual(offered.update, {
-    version: "0.2.0",
-    from: "1111111",
-    to: "2222222",
-    registry: "thetis",
-    source: "https://github.com/thetis-agent/packages.git#tools-files@" + "2".repeat(40),
-  });
-  assert.equal(offered.name, row.name, "nothing else about the row changes");
 });

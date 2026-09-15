@@ -1,0 +1,73 @@
+/* @thetis/ui-marketplace: the gallery and the package page. Everything is scoped under .mk-; the tokens,
+ * .input, .btn, .badge, .card, .kv, .tags, .panel-hint and the markdown classes come from the shell. */
+
+/* --- the gallery ------------------------------------------------------------- */
+
+.mk-gallery { display: flex; flex-direction: column; gap: var(--gap-3); }
+.mk-toolbar { display: flex; flex-direction: column; gap: var(--gap-2); align-items: stretch; }
+.mk-search { width: 100%; }
+.mk-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mk-chip {
+  padding: 4px 10px;
+  font: inherit;
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.mk-chip:hover { color: var(--text); border-color: var(--hairline-strong); }
+.mk-chip.is-active { color: var(--text); background: var(--surface-3); border-color: var(--accent-edge); }
+.mk-note { margin: 0; font-size: var(--text-xs); color: var(--text-faint); }
+
+.mk-cards { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--gap-3); align-items: stretch; }
+.mk-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-2);
+  min-height: 120px;
+  padding: var(--gap-3);
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.mk-card:hover, .mk-card:focus-visible { background: var(--surface-3); border-color: var(--hairline-strong); }
+.mk-card.is-installed { border-left: 3px solid var(--accent-edge); }
+.mk-card-head { display: flex; gap: var(--gap-2); align-items: baseline; justify-content: space-between; }
+.mk-card-name { font-size: var(--text-sm); font-weight: 600; overflow-wrap: anywhere; }
+.mk-card-version { flex: none; font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); }
+.mk-card-desc { flex: 1 1 auto; margin: 0; font-size: var(--text-sm); color: var(--text-dim); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.mk-card-foot { display: flex; flex-wrap: wrap; gap: var(--gap-2); align-items: center; justify-content: space-between; }
+.mk-card-meta { font-size: var(--text-xs); color: var(--text-faint); }
+.mk-empty { grid-column: 1 / -1; padding: var(--gap-4); text-align: center; color: var(--text-faint); }
+.mk-hint { grid-column: 1 / -1; }
+
+/* --- the package page -------------------------------------------------------- */
+
+.mk-place { display: flex; flex-direction: column; gap: var(--gap-3); }
+.mk-crumb { display: flex; align-items: center; gap: var(--gap-2); font-size: var(--text-sm); }
+.mk-crumb-sep { color: var(--text-faint); }
+.mk-crumb-name { font-weight: 600; }
+.mk-page { display: flex; gap: var(--gap-4); align-items: flex-start; }
+.mk-readme { flex: 1 1 auto; min-width: 0; padding: var(--gap-3) var(--gap-4); background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); }
+.mk-readme-body { max-width: 48rem; }
+.mk-none, .mk-error { margin: 0; color: var(--text-faint); }
+.mk-error { color: var(--warn); }
+.mk-side { flex: 0 0 360px; position: relative; display: flex; flex-direction: column; gap: var(--gap-3); }
+.mk-desc { margin: 0; color: var(--text-dim); }
+.mk-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.mk-pill { cursor: help; }
+.mk-picker { display: flex; gap: var(--gap-2); align-items: center; margin-top: var(--gap-2); }
+.mk-picker .mk-person { flex: 1 1 auto; min-width: 0; }
+
+@media (max-width: 900px) {
+  .mk-page { flex-direction: column; }
+  .mk-side { flex: none; width: 100%; }
+}

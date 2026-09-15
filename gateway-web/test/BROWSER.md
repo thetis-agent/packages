@@ -223,3 +223,151 @@ pid on `.devhome3/thetis.sock` (`ss -lxp`). Run 2026-09-15: every step below pas
 
 Stop the daemon by the pid on `.devhome3/thetis.sock` (SIGINT; SIGKILL after 20 s), release
 `/tmp/thetis-browser.lock`, and delete `.devhome3` and the temporary directory.
+
+## Projects (`@thetis/projects`, phase 5)
+
+The switcher in the sidebar head slot and the project place come from `@thetis/projects`, which `init`
+puts in `systemPackages["*"]`. Use a third home on its own port: `THETIS_HOME=.devhome5 node bin/thetis.js
+init`, `door.port` 8805, `packages["@thetis/gateway-login"].secure` false, the OpenRouter key in
+`packages["@thetis/provider-openrouter"].apiKey` (step 31 sends one message), `users add dev --admin` with
+`devpass123`, build, `serve`. Make a directory with a file (`mkdir -p /tmp/thetis-phase5-proj; echo hello >
+/tmp/thetis-phase5-proj/README.md`) and bind it: `THETIS_HOME=.devhome5 node bin/thetis.js mounts add dev
+/tmp/thetis-phase5-proj` (dev's fence closes and reopens with it). Run 2026-09-15: every step below passed
+after the one fix in `ui/state.js` (see the last paragraph); screenshots `.playwright-mcp/phase5-01` to `-14`.
+
+28. **The switcher**: sign in at `http://127.0.0.1:8805/login`. Expect `#sidebar-head .sidebar-slot-item
+    [data-item="@thetis/projects#head"]` holding `.pj-head > button.pj-head-btn[aria-haspopup="listbox"]`
+    with `.pj-head-label` "Project", `.pj-head-name` "All conversations", and `svg.pj-caret`; `head` holding a
+    `link[href$="ext/@thetis/projects/index.css"]`; `#sidebar-places` holding
+    `[data-place="@thetis/projects#project"]` "Project" after "Control panel"; one `POST
+    api/ext/@thetis/projects/list`; no console errors. Click the button: `.pj-head.is-open`,
+    `[aria-expanded="true"]`, and `.pj-menu[role="listbox"]` with two `.pj-item[role="option"]`: "All
+    conversations" (`.is-selected`, focused) and "New project…" after a `.pj-menu-rule`. Escape closes it and
+    returns focus to the button; so does a click elsewhere.
+29. **New project**: open the menu and click "New project…". Expect `#app.is-place`, `.place-title` "Project",
+    `.place-sub` "This project's directories, tools and instructions", and in `.place-body > .pj-place >
+    .pj-page` the sections: `input.pj-name` (empty), "Project directories" with `.section-note` "0 of 64",
+    `.pj-empty` "No project directories.", `.pj-dir-add` (`input.pj-dir-input` and the button "Add a
+    directory") and the `.pj-note`; "Instructions" with `textarea.pj-instructions`; "Conversations" with
+    `.pj-facts` "None yet. …"; "Tools" with the note "18 tools, every one on" and one `.pj-tool-group` per
+    package with tools (`@thetis/tool-exec`, `@thetis/tools-files`, `@thetis/tools-plan`), each tool a
+    `label.pj-tool` with `code.pj-tool-name` and `input.pj-switch[checked]`; "Skills" with its one sentence;
+    `.pj-actions` with the one button "Create project". Type `thetis-check` in the name; type
+    `/tmp/thetis-phase5-proj` in `.pj-dir-input` and press Enter, then `/tmp/does-not-exist` the same way.
+    Expect two `li.pj-dir` rows, each `code.pj-dir-path`, a badge and a `.pj-dir-remove`: the first
+    `.badge.is-ok` "mounted · read-write", the second `.badge.is-warn` "not mounted"; the note "2 of 64"; the
+    name kept across the redraw. Type "Answer in one short sentence." in the textarea; uncheck the
+    switches `exec on` and `install_package on`: their rows `.pj-tool.is-off`, the note "18 tools, 2 switched
+    off for this project". Click **Create project**: one `POST …/save`, a `.toast` `Project "thetis-check"
+    created.`, then `list` and `get` again; the buttons now "Save" and "Delete project"; `.pj-facts` "0
+    conversations are in this project."; the switcher `.pj-head.is-chosen` with `.pj-head-name`
+    "thetis-check" (a new project is chosen after its first save); `localStorage["thetis.project"]` its
+    id; on disk `<home>/projects/p_<8 hex>.json` with the two directories and `tools.disable` `["exec",
+    "install_package"]`, and `p_<id>.md` with the sentence.
+30. **Choosing and joining**: close the place. Open the menu: the option `thetis-check` with `.pj-item-note`
+    "0 conversations" `.is-selected`, then the rule, "Settings" (note "thetis-check"), "New project…". Pick
+    "All conversations": the label reads it, the storage key is gone. Pick `thetis-check` again, then click
+    `#new-chat`. Expect the new `.session` row in the list, one `POST …/assign` with `{ session, project }`,
+    and `<home>/projects/sessions.json` mapping the id to the project. Pick "All", click `#new-chat` once
+    more (no `assign`; the map keeps one entry), and the list shows both rows; pick `thetis-check`: only the
+    first row; the menu's note reads "1 conversation".
+31. **The prompt and the tools**: open the project's conversation and send "Read /tmp/thetis-phase5-proj/
+    README.md and tell me its first line." Expect a `details.tool` for `read_path` with the line in its
+    result (the mount is bound, so the file tools accept the path), and a `.msg.is-assistant` of one short
+    sentence. The session record under `<home>/../sessions/<id>.json` carries the system prompt's section
+    `## Project: thetis-check` with `Project directories:`, `- /tmp/thetis-phase5-proj (mounted rw)`, `-
+    /tmp/does-not-exist (not mounted — ask an admin: thetis mounts add dev /tmp/does-not-exist)`, `###
+    Instructions` and the sentence; the call's tool list has no `exec` and no `install_package`. The Tools
+    dock (`.rail-btn[data-dock="@thetis/ui-tools#tools"]`) still lists both cards and its "Turned off right
+    now" section still says "Nothing is withheld in this conversation.": `@thetis/ui-tools` does not yet
+    read the project's list (its `withheld()` is a placeholder; the integration was left for later).
+32. **Settings, save, delete**: open the menu and pick "Settings". Expect the place with the name, the two
+    rows with their badges, `.pj-facts` "1 conversation is in this project.", the two switches off and the
+    instructions. Change the name to `thetis-check-2`, click the `.pj-dir-remove` of `/tmp/does-not-exist`,
+    click **Save**: the toast `Project "thetis-check-2" saved.`, one row, the switcher `.pj-head-name`
+    "thetis-check-2", the record updated on disk with the same `createdAt` and a new `updatedAt`. Click
+    **Delete project**: a `.popover[role="dialog"]` "Delete this project?" with the facts Project /
+    Conversations and the note "The conversations stay; they leave the project. …"; its warn button
+    "Delete" sends `POST …/remove`; expect the toast `Project "thetis-check-2" deleted.`, the switcher back
+    to "All conversations" without `.is-chosen`, the storage key gone, the place redrawn as the new-project
+    form ("Create project"), both `.session` rows in the list, and `sessions.json` `{}` with the record and
+    the `.md` gone.
+33. **Reload with a project chosen**: create a project again, keep it chosen, reload. Expect `.pj-head-name`
+    with its name from `localStorage`, the list narrowed to its conversations, and no `assign` request: a
+    conversation that exists when the page loads is never adopted, however new it is (a `+` while the
+    project is chosen still is).
+
+Defect found and fixed in this run (`packages/projects/ui/state.js`): the page decided which conversations
+"existed at load" from `ext.sessions.list()` at `install`, but the shell's module loader and its event
+stream race, so on a fast load the list was still empty and a conversation created in the last two minutes
+could be adopted, or even moved from another project before the assignments had been read. The state now
+adopts nothing until its first `list` has answered, marks every conversation known by then as seen, skips
+archived ones, and clears the storage key when the remembered project no longer exists.
+
+Stop the daemon by the pid on `.devhome5/thetis.sock` (SIGINT), release `/tmp/thetis-browser.lock`, and
+delete `.devhome5` and `/tmp/thetis-phase5-proj`.
+
+## The marketplace place (`@thetis/ui-marketplace`, phase 4)
+
+Since phase 4 the registries, the package pages and the admin actions over packages come from
+`@thetis/ui-marketplace`, which `init` puts in `systemPackages["*"]`; the gateway's Packages section shows
+what is installed here only. Set up a third home on another port: `THETIS_HOME=.devhome4 node bin/thetis.js
+init`, `door.port` 8804, `packages["@thetis/gateway-login"].secure` false, and, so the index reflects this
+checkout, `packages["@thetis/marketplace"].registries` = `[{ "name": "local", "url":
+"file:///tank/data/Dev/thetis-agent/runtime/packages" }]` (the checkout is bound read-only into every fence;
+the mirror clones the committed tree, so an uncommitted package is not in the index). `users add dev --admin`
+with `devpass123`, `users add bob` with `bobpass123`, `serve` with the pid kept, and wait for the log line
+`indexed N packages from 1 registries`. No package in the checkout has a `README.md`, so every page shows
+*This package has no README.*; to see the rendering path, put a markdown file at
+`.devhome4/shared/marketplace/readme/local/exa.md` and set `"readme": true` on the `@thetis/exa` entry of
+`.devhome4/shared/marketplace/index.json`. Run 2026-09-15: every step below passed; screenshots
+`.playwright-mcp/phase4-01` to `-09`.
+
+28. **The link, as dev**: sign in at `http://127.0.0.1:8804/login`. Expect `#sidebar-places` holding
+    `.foot-action[data-place="@thetis/ui-marketplace#marketplace"]` labelled "Marketplace" (order 20) before
+    "Control panel", with the title "What the registries offer, and what is installed here", and `head`
+    holding a `link[href$="ext/@thetis/ui-marketplace/index.css"]`. `api/ui` for dev lists one `places` entry
+    and eleven `commands`; for bob six (`search`, `show`, `install`, `remove`, `delete`, `update`).
+29. **The gallery**: click the link. Expect `#place` without `hidden`, `.place-title` "Marketplace", a
+    `.mk-gallery` with `.mk-search`, `.mk-chips` holding `.mk-chip[data-type=""]` "All" `.is-active` and one
+    chip per type seen (`gateway`, `loader`, `provider`, `service`, `tool`, `ui`), `.mk-note` "registry local ·
+    refreshed n min ago · 16 packages", and `.mk-card[data-name]` per package, installed ones first with
+    `.is-installed` and the badge **Everyone**, then the available ones with **Available · local**; a package
+    with reports carries `bench: 2 suites`, one that opted in without a run `bench: not run`. Type `exa` in
+    the search: after 250 ms one `POST api/ext/@thetis/ui-marketplace/search` and one card. Clear it and click
+    the `ui` chip: the four `ui` packages (`@thetis/ui-marketplace` among them, matched on its installed name
+    because the index does not carry it), the chip `.is-active`. Click **All**.
+30. **A page**: click `.mk-card[data-name="@thetis/exa"]`. Expect `.mk-crumb` reading "Marketplace › @thetis/exa"
+    (the first part a `.btn`), `.mk-readme` with "This package has no README." (or, with the copy planted, a
+    `.mk-readme-body` holding `.md-h` "Exa", `.md-p`, `.md-list` and `.md-code` built by the shell's markdown),
+    and `.mk-side` with the badges in `.card-head`, the description, the `.kv` rows `registry` "0.1.0 in local",
+    `type`, `source`, then **BRINGS** with one `.badge.is-ok.mk-pill` per tool (ten for exa), `steps` "no
+    steps", `service` "none", `keywords`, `bench suites` "(not run)". The actions for an admin: **Install for
+    me**, **Install for everyone**, and the `.mk-picker` with a `select.mk-person` listing `bob` and the button
+    **Install for bob**; the `.panel-hint`s under the card.
+31. **Install for me**: click it. Expect a `.popover` "Install for you?" with `package @thetis/exa@0.1.0`,
+    `from local`, `for you only`, the note "It is live on the next turn.", **Cancel** and **Install**. Confirm:
+    `.busy-note` "Installing…", then the page re-opened with the badge **Only me**, the row `installed`
+    "0.1.0", `license` "MIT", `bench: 2 suites` (the reports next to the checkout's code), and **Remove** in
+    place of Install for me.
+32. **Remove**: click it. Expect "Remove this package?" with `package`, `from your own setup`, the note on
+    the link being removed and the tools stopping, a warn **Remove**. Confirm: the page re-opened as
+    **Available · local** with **Install for me** again.
+33. **Install for everyone**: click it. Expect "Install for everyone?" with `for everyone, now and later` and
+    the note "Every person gets it on their next turn, and every new person is set up with it." Confirm: the
+    badge **Everyone**, **Remove** only (no Install for everyone, no picker after a reload), and `thetis
+    packages list --user bob` shows `@thetis/exa`.
+34. **The Packages section**: click **Control panel**. Expect `.panel-note` "What is installed here, and what
+    each package brings.", the toolbar note "12 installed", the columns Package, Version, Type, Scope, Brings
+    and a last one holding `.quiet-link[data-marketplace="<name>"]` "Open in the marketplace" on every row, no
+    search of the registries, no "Whose" picker. Click the link on the exa row: the Marketplace place opens on
+    "Marketplace › @thetis/exa". No console errors.
+35. **As bob**: sign in as `bob` / `bobpass123` in the same tab and open the Marketplace. Expect the exa card
+    **Everyone**. Open `@thetis/bench-probe`: **Install for me** only, no picker, no admin action. The crumb
+    returns to the gallery; Escape closes the place and `#app` loses `is-place`. From a shell with bob's
+    cookie, `POST /bob/api/ext/@thetis/ui-marketplace/install-everyone` and `.../people` with
+    `sec-fetch-site: same-origin` answer `403 {"error":"only an admin can send \"…\""}`; `GET /bob/api/admin/users`
+    and `GET /bob/api/marketplace` answer `404`.
+
+Stop the daemon by the pid on `.devhome4/thetis.sock` (SIGINT; SIGKILL after 20 s), release
+`/tmp/thetis-browser.lock`, and delete `.devhome4`.

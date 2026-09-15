@@ -176,7 +176,7 @@ bindShell({
 
 const builtin = createExt(registry.declared(registry.BUILTIN));
 builtin.composer("model", { mount: composer.mountModelPicker });
-installPanel(builtin);
+installPanel(builtin, { openPlace: (key, params) => places.open(key, params) });
 
 // --- the favicon says when something is working ---
 

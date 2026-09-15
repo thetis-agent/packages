@@ -8,9 +8,6 @@
   "scripts": {
     "build": "tsc -b"
   },
-  "dependencies": {
-    "@thetis/marketplace": "^0.1.0"
-  },
   "peerDependencies": {
     "@thetis/contracts": "^0.1.0"
   },

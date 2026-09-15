@@ -19,11 +19,7 @@ export interface GatewayOptions {
   /** Directory of the static assets. Defaults to the package's `assets/`. */
   assets?: string;
   log?: (line: string) => void;
-  /**
-   * The fence environment the service was started with. The marketplace index lives in its `shared`
-   * directory, and a package's UI commands run with it. Without it the marketplace section and the
-   * commands are absent.
-   */
+  /** The fence environment the service was started with. A package's UI commands run with it; without it they are absent. */
   env?: StepEnv;
   /** The store the installed packages are linked in, for their browser files and `main`. Default `env.store`. */
   store?: string;
@@ -110,7 +106,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     if (seg[1] === "me" && method === "GET") return json(res, 200, { user, role: who!.role });
     if (seg[1] === "events" && method === "GET") return stream(req, res, user);
     if (seg[1] === "models" && seg.length === 2 && method === "GET") return json(res, 200, await kernel.models());
-    if (await handlePanel({ kernel, env: opts.env }, req, res, who!, seg, method, url)) return;
+    if (await handlePanel(kernel, req, res, who!, seg, method, url)) return;
     if (seg[1] === "sessions") {
       if (seg.length === 2 && method === "GET") return json(res, 200, await listSessions(user));
       if (seg.length === 2 && method === "POST") return json(res, 201, { id: (await kernel.sessions.create()).id });
