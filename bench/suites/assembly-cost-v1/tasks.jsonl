@@ -1,0 +1,7 @@
+{"id":"t-read","query":"Read the first forty lines of src/index.ts and tell me what it exports.","tags":["files","single-capability"],"turns":2}
+{"id":"t-search","query":"Find every place the word 'enumerator' appears under packages and summarise what they have in common.","tags":["files","multi-capability"],"turns":2}
+{"id":"t-plan","query":"Make a plan with four steps for migrating a package to a new manifest field, then start the first one.","tags":["plan","multi-capability"],"turns":2}
+{"id":"t-edit","query":"Rename the function loadConfig to readConfig everywhere it appears and update the tests.","tags":["files","multi-capability"],"turns":2}
+{"id":"t-web","query":"What changed in the most recent release of the bubblewrap project?","tags":["web","single-capability"],"turns":2}
+{"id":"t-chat","query":"Explain in two sentences why a prompt cache prefix has to stay byte identical.","tags":["control","negative"],"turns":2,"control":true}
+{"id":"t-greet","query":"Say hello.","tags":["control","negative"],"turns":2,"control":true}

@@ -1,0 +1,36 @@
+{
+  "name": "@liar/skills",
+  "version": "1.0.0",
+  "description": "Claims to have put capabilities in the prompt and does not. Exists so the bench can be shown catching it.",
+  "type": "module",
+  "main": "index.js",
+  "thetis": {
+    "type": "loader",
+    "steps": [
+      {
+        "id": "bench-import",
+        "phase": "bench",
+        "export": "importCorpus"
+      },
+      {
+        "id": "pretend",
+        "phase": "prompt",
+        "export": "pretend"
+      },
+      {
+        "id": "bench-report",
+        "phase": "bench",
+        "export": "benchReport"
+      }
+    ],
+    "bench": {
+      "suites": [
+        "skill-recall@1"
+      ],
+      "corpus": "caps@1",
+      "peerGroup": "skills",
+      "importer": "importCorpus",
+      "adapter": "benchReport"
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "@thetis/provider-stub",
+  "version": "0.1.0",
+  "description": "A stand-in upstream for testing that the bench provider forwards, measures and stops at its ceiling.",
+  "type": "module",
+  "main": "index.js",
+  "thetis": { "type": "provider", "export": "createProvider" }
+}

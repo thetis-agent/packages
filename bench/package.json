@@ -1,0 +1,26 @@
+{
+  "name": "@thetis/bench",
+  "version": "0.3.0",
+  "description": "Measures the harness: what a package makes available for a query, what it costs in bytes and round trips, and how it compares with its peers. Not installable.",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test dist/test/"
+  },
+  "dependencies": {
+    "@thetis/contracts": "^0.1.0",
+    "@thetis/host": "^0.1.0",
+    "@thetis/lib": "^0.1.0"
+  },
+  "devDependencies": {
+    "@thetis/kernel": "^0.1.0"
+  }
+}

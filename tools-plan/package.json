@@ -206,6 +206,13 @@
         },
         "export": "askUser"
       }
-    ]
+    ],
+    "bench": {
+      "suites": [
+        "assembly-cost@1",
+        "tool-recall@1"
+      ],
+      "peerGroup": "tools"
+    }
   }
 }

@@ -1,0 +1,57 @@
+{
+  "name": "@rank/skills",
+  "version": "1.0.0",
+  "description": "Ranks the corpus against the request and puts only the top few bodies in the prompt, with a search tool for the rest.",
+  "type": "module",
+  "main": "index.js",
+  "thetis": {
+    "type": "loader",
+    "steps": [
+      {
+        "id": "bench-import",
+        "phase": "bench",
+        "export": "importCorpus"
+      },
+      {
+        "id": "pin",
+        "phase": "prompt",
+        "export": "pin"
+      },
+      {
+        "id": "bench-report",
+        "phase": "bench",
+        "export": "benchReport"
+      }
+    ],
+    "tools": [
+      {
+        "name": "skill_search",
+        "description": "Search the capability corpus and return the best matches for a query.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "k": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "query"
+          ]
+        },
+        "export": "skillSearch"
+      }
+    ],
+    "bench": {
+      "suites": [
+        "skill-recall@1"
+      ],
+      "corpus": "caps@1",
+      "peerGroup": "skills",
+      "importer": "importCorpus",
+      "adapter": "benchReport"
+    }
+  }
+}

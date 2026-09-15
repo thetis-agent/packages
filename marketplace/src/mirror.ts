@@ -62,7 +62,15 @@ async function scan(env: MirrorEnv, registry: Registry): Promise<IndexedPackage[
 
 /** One index entry from a manifest, or undefined when it is not a Thetis package. */
 export function describe(m: Record<string, unknown>, registry: Registry, dir: string): IndexedPackage | undefined {
-  const thetis = m.thetis as { type?: unknown; steps?: { id: string; phase: string }[]; tools?: { name: string }[]; service?: unknown } | undefined;
+  const thetis = m.thetis as
+    | {
+        type?: unknown;
+        steps?: { id: string; phase: string }[];
+        tools?: { name: string }[];
+        service?: unknown;
+        bench?: { suites?: string[]; corpus?: string; peerGroup?: string };
+      }
+    | undefined;
   if (typeof m.name !== "string" || typeof m.version !== "string" || !thetis || typeof thetis.type !== "string") return undefined;
   return {
     name: m.name,
@@ -77,6 +85,15 @@ export function describe(m: Record<string, unknown>, registry: Registry, dir: st
     steps: (thetis.steps ?? []).map((s) => ({ id: s.id, phase: s.phase })),
     tools: (thetis.tools ?? []).map((t) => t.name),
     service: !!thetis.service,
+    ...(thetis.bench?.suites?.length
+      ? {
+          bench: {
+            suites: thetis.bench.suites,
+            ...(thetis.bench.corpus ? { corpus: thetis.bench.corpus } : {}),
+            ...(thetis.bench.peerGroup ? { peerGroup: thetis.bench.peerGroup } : {}),
+          },
+        }
+      : {}),
   };
 }
 

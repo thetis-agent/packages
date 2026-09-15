@@ -30,6 +30,9 @@ usage: thetis <command> [options]
   packages list [--user <id>] | install <source> [--user <id>] | uninstall <name> [--user <id>] | promote <name> --user <id>
   models [--user <id>]                 models advertised by installed providers
   config                               print effective config
+  bench run <suite> [--write] [--force] [--sandbox auto|bwrap|none] [--package <dir>]
+                                       measure the harness against a suite; --write updates each package's BENCH.md
+  bench verify [<package-dir>]         check a package's thetis.bench declaration without running anything
 
 When \`thetis serve\` runs, the other commands talk to it through $THETIS_HOME/thetis.sock.
 env: THETIS_HOME (data dir, default ~/.thetis; a relative path is resolved against the repository root),
@@ -57,6 +60,14 @@ export async function run(argv: string[]): Promise<void> {
     return;
   }
   if (cmd === "config") return void process.stdout.write(JSON.stringify(config, null, 2) + "\n");
+  if (cmd === "bench") {
+    // The bench boots its own kernel in a temporary home, so it must not touch this one or a running daemon:
+    // the arms, the phases and the installed set all have to be controlled for the numbers to mean anything.
+    const { main } = await import("@thetis/bench");
+    const code = await main(argv.slice(1));
+    if (code !== 0) process.exitCode = code;
+    return;
+  }
 
   const socket = controlSocketPath(home);
   const remote = await connectRpcSocket(socket);

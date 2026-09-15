@@ -1,0 +1,12 @@
+{
+  "default": {
+    "turns": [
+      {
+        "when": { "toolsInclude": "skill_search" },
+        "toolCall": { "name": "skill_search", "argsFromRequest": "query", "args": { "k": 10 } },
+        "else": { "text": "acknowledged" }
+      },
+      { "text": "acknowledged" }
+    ]
+  }
+}

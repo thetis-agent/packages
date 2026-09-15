@@ -1,0 +1,7 @@
+{
+  "id": "assembly-cost@1",
+  "version": "1.0.0",
+  "probe": "A",
+  "description": "What a package costs the prompt before anything is retrieved: bytes by segment, how much of the prefix survives a turn, and how long assembly takes. No gold, no corpus, no adapter — any package with a step or a tool can opt in.",
+  "runs": 1
+}

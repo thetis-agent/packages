@@ -1,0 +1,9 @@
+{
+  "id": "skill-recall@1",
+  "version": "1.0.0",
+  "probe": "A",
+  "corpus": "caps@1",
+  "description": "Given a request, which capabilities did the harness make reachable, how far away were they, and what did the rest cost? Every arm imports the same corpus into whatever shape it likes, and is scored only on what reached the assembled call.",
+  "fixtures": ["../../fixtures/arms/skills-flat", "../../fixtures/arms/skills-l1", "../../fixtures/arms/skills-rank"],
+  "runs": 1
+}

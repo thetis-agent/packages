@@ -12,7 +12,8 @@
     "@thetis/door": "^0.1.0",
     "@thetis/host": "^0.1.0",
     "@thetis/kernel": "^0.1.0",
-    "@thetis/lib": "^0.1.0"
+    "@thetis/lib": "^0.1.0",
+    "@thetis/bench": "^0.3.0"
   },
   "thetis": {
     "type": "gateway"

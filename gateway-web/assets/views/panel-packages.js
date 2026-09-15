@@ -78,6 +78,38 @@ export function mountPackages(root, { role, user }) {
     return r.forkedFrom ? badge(`fork of ${r.forkedFrom.name} ${r.forkedFrom.version}`, "warn") : null;
   }
 
+  /**
+   * What the benchmarks say. A package that opts in but has never been run says so, because "not measured"
+   * and "measured and fine" are different things and a blank badge would hide which one this is.
+   */
+  function benchBadge(r) {
+    const bench = r.bench;
+    if (!bench?.suites?.length) return null;
+    const reports = bench.reports || [];
+    if (!reports.length) return badge(`bench: not run`, "dim");
+    const failed = reports.filter((x) => !x.passed).length;
+    if (failed) return badge(`bench: ${failed} of ${reports.length} failed conformance`, "warn");
+    return badge(`bench: ${reports.length} suite${reports.length === 1 ? "" : "s"}`, "ok");
+  }
+
+  function benchRows(r) {
+    const bench = r.bench;
+    if (!bench?.suites?.length) return [];
+    const reports = bench.reports || [];
+    const ran = new Set(reports.map((x) => x.suite));
+    return [
+      ["bench suites", tags(bench.suites.map((s) => (ran.has(s) ? s : `${s} (not run)`)), "dim")],
+      reports.length && [
+        "last run",
+        el(
+          "div",
+          { class: "tags" },
+          ...reports.map((x) => badge(`${x.suite} · ${x.arms} arms · ${when(x.generatedAt)}${x.passed ? "" : " · failed"}`, x.passed ? "ok" : "warn"))
+        ),
+      ],
+    ].filter(Boolean);
+  }
+
   /** A package the person can delete with its files: one of their own, seen from their own setup. */
   function ownRow(r) {
     return r.installed && mine() && r.name.startsWith(`@${user}/`);
@@ -103,7 +135,7 @@ export function mountPackages(root, { role, user }) {
         [
           { key: "name", label: "Package", render: (r) => el("div", {}, el("code", {}, r.name), r.description && el("div", { class: "text-dim small" }, r.description)) },
           { key: "version", label: "Version", render: (r) => el("code", { class: "text-dim" }, r.version) },
-          { key: "state", label: "State", render: (r) => el("div", { class: "tags" }, stateBadge(r), forkBadge(r)) },
+          { key: "state", label: "State", render: (r) => el("div", { class: "tags" }, stateBadge(r), forkBadge(r), benchBadge(r)) },
           { key: "brings", label: "Brings", render: brings },
         ],
         shown,
@@ -178,7 +210,7 @@ export function mountPackages(root, { role, user }) {
         kv([
           ["version", el("code", {}, row.version + (row.available && row.available !== row.version ? ` (registry has ${row.available})` : ""))],
           ["type", row.type],
-          ["state", el("div", { class: "tags" }, stateBadge(row), forkBadge(row))],
+          ["state", el("div", { class: "tags" }, stateBadge(row), forkBadge(row), benchBadge(row))],
           row.forkedFrom && ["forked from", el("code", {}, `${row.forkedFrom.name}@${row.forkedFrom.version}`)],
           row.replaced && ["replaces", el("code", {}, row.replaced)],
           row.registry && ["registry", row.registry],
@@ -190,6 +222,7 @@ export function mountPackages(root, { role, user }) {
           ["tools", tags(row.tools || [], "ok", "no tools")],
           ["service", row.service ? badge("runs a service", "warn") : el("span", { class: "text-faint" }, "none")],
           row.keywords?.length && ["keywords", tags(row.keywords, "dim")],
+          ...benchRows(row),
         ].filter(Boolean)),
         el("div", { class: "card-actions" }, ...actions)
       ),

@@ -13,11 +13,22 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "path": { "type": "string", "description": "File path, relative to home unless absolute." },
-            "offset": { "type": "integer", "description": "1-based first line to show. Default 1." },
-            "limit": { "type": "integer", "description": "Max lines to show. Default 400, max 2000." }
+            "path": {
+              "type": "string",
+              "description": "File path, relative to home unless absolute."
+            },
+            "offset": {
+              "type": "integer",
+              "description": "1-based first line to show. Default 1."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Max lines to show. Default 400, max 2000."
+            }
           },
-          "required": ["path"]
+          "required": [
+            "path"
+          ]
         },
         "export": "readPath"
       },
@@ -27,12 +38,28 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "path": { "type": "string", "description": "File path, relative to home unless absolute." },
-            "old_text": { "type": "string", "description": "Exact text to find; must be non-empty." },
-            "new_text": { "type": "string", "description": "Text to put in its place." },
-            "replace_all": { "type": "boolean", "description": "Replace every occurrence instead of requiring uniqueness. Default false." }
+            "path": {
+              "type": "string",
+              "description": "File path, relative to home unless absolute."
+            },
+            "old_text": {
+              "type": "string",
+              "description": "Exact text to find; must be non-empty."
+            },
+            "new_text": {
+              "type": "string",
+              "description": "Text to put in its place."
+            },
+            "replace_all": {
+              "type": "boolean",
+              "description": "Replace every occurrence instead of requiring uniqueness. Default false."
+            }
           },
-          "required": ["path", "old_text", "new_text"]
+          "required": [
+            "path",
+            "old_text",
+            "new_text"
+          ]
         },
         "export": "editPath"
       },
@@ -42,11 +69,23 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "path": { "type": "string", "description": "File path, relative to home unless absolute." },
-            "contents": { "type": "string", "description": "Full contents to write." },
-            "overwrite": { "type": "boolean", "description": "Allow replacing an existing file. Default false." }
+            "path": {
+              "type": "string",
+              "description": "File path, relative to home unless absolute."
+            },
+            "contents": {
+              "type": "string",
+              "description": "Full contents to write."
+            },
+            "overwrite": {
+              "type": "boolean",
+              "description": "Allow replacing an existing file. Default false."
+            }
           },
-          "required": ["path", "contents"]
+          "required": [
+            "path",
+            "contents"
+          ]
         },
         "export": "writePath"
       },
@@ -56,14 +95,39 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "pattern": { "type": "string", "description": "JavaScript regular expression source." },
-            "path": { "type": "string", "description": "Directory or file to search. Default home." },
-            "glob": { "type": "string", "description": "File name glob, e.g. '*.js'. Default all files." },
-            "mode": { "type": "string", "enum": ["content", "files", "count"], "description": "What to return. Default content." },
-            "ignore_case": { "type": "boolean", "description": "Case-insensitive match. Default false." },
-            "max_results": { "type": "integer", "description": "Cap on results. Default 100, max 1000." }
+            "pattern": {
+              "type": "string",
+              "description": "JavaScript regular expression source."
+            },
+            "path": {
+              "type": "string",
+              "description": "Directory or file to search. Default home."
+            },
+            "glob": {
+              "type": "string",
+              "description": "File name glob, e.g. '*.js'. Default all files."
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "content",
+                "files",
+                "count"
+              ],
+              "description": "What to return. Default content."
+            },
+            "ignore_case": {
+              "type": "boolean",
+              "description": "Case-insensitive match. Default false."
+            },
+            "max_results": {
+              "type": "integer",
+              "description": "Cap on results. Default 100, max 1000."
+            }
           },
-          "required": ["pattern"]
+          "required": [
+            "pattern"
+          ]
         },
         "export": "searchFiles"
       },
@@ -73,11 +137,22 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "glob": { "type": "string", "description": "Name glob, e.g. '*.test.js'." },
-            "path": { "type": "string", "description": "Directory to search under. Default home." },
-            "max_results": { "type": "integer", "description": "Cap on results. Default 200." }
+            "glob": {
+              "type": "string",
+              "description": "Name glob, e.g. '*.test.js'."
+            },
+            "path": {
+              "type": "string",
+              "description": "Directory to search under. Default home."
+            },
+            "max_results": {
+              "type": "integer",
+              "description": "Cap on results. Default 200."
+            }
           },
-          "required": ["glob"]
+          "required": [
+            "glob"
+          ]
         },
         "export": "findFiles"
       },
@@ -87,13 +162,26 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "path": { "type": "string", "description": "Directory to list. Default home." },
-            "depth": { "type": "integer", "description": "How many levels deep to recurse. Default 1, max 3." }
+            "path": {
+              "type": "string",
+              "description": "Directory to list. Default home."
+            },
+            "depth": {
+              "type": "integer",
+              "description": "How many levels deep to recurse. Default 1, max 3."
+            }
           },
           "required": []
         },
         "export": "getDirectory"
       }
-    ]
+    ],
+    "bench": {
+      "suites": [
+        "assembly-cost@1",
+        "tool-recall@1"
+      ],
+      "peerGroup": "tools"
+    }
   }
 }

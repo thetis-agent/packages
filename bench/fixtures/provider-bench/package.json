@@ -1,0 +1,11 @@
+{
+  "name": "@thetis/provider-bench",
+  "version": "0.1.0",
+  "description": "A measuring provider: records the assembled call, replies from a script, and never reaches the network. Used only by the bench.",
+  "type": "module",
+  "main": "index.js",
+  "thetis": {
+    "type": "provider",
+    "export": "createProvider"
+  }
+}

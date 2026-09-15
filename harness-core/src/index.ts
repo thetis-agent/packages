@@ -25,11 +25,18 @@ export async function attachTools(ctx: PackageStepContext): Promise<StepResult> 
   return { call: { ...ctx.call, tools } };
 }
 
+/** A phase no production configuration lists. Its steps cannot run here, so naming them would mislead. */
+const BENCH_PHASE = "bench";
+
 function packagesSection(ctx: PackageStepContext): string {
   const lines = ctx.packages.list().map((p) => {
-    const steps = (p.thetis.steps ?? []).map((s) => `${s.phase}:${s.export}`).join(", ");
+    const steps = (p.thetis.steps ?? [])
+      .filter((s) => s.phase !== BENCH_PHASE)
+      .map((s) => `${s.phase}:${s.export}`)
+      .join(", ");
     const tools = (p.thetis.tools ?? []).map((t) => t.name).join(", ");
-    return `- ${p.name}@${p.version} (${p.type})${p.description ? `: ${p.description}` : ""}${steps ? ` steps[${steps}]` : ""}${tools ? ` tools[${tools}]` : ""}`;
+    const bench = (p.thetis.bench?.suites ?? []).join(", ");
+    return `- ${p.name}@${p.version} (${p.type})${p.description ? `: ${p.description}` : ""}${steps ? ` steps[${steps}]` : ""}${tools ? ` tools[${tools}]` : ""}${bench ? ` bench[${bench}]` : ""}`;
   });
   return `## Installed packages in this userspace\n${lines.join("\n") || "(none)"}`;
 }
@@ -72,6 +79,8 @@ export async function addContext(ctx) {
 export async function greet(args, env) { return "hi " + args.name; }
 
 Package types (open set): loader (steps), tool (tools), memory (steps that read/write harness), provider (export createProvider(config) -> { models(), call(call) }), enumerator (export enumerate(ctx) -> step refs), skill, service. A package may contribute steps and tools at once. A step returns a partial { conversation?, call?, harness? }; return nothing to leave everything unchanged. A tool receives (args, env) and returns a string or JSON-serializable object.
+
+Optional: "bench": { "suites": ["assembly-cost@1"] } opts the package into benchmark suites, which measure what it costs the prompt and what it makes reachable, and write a BENCH.md comparing it with similar packages. A suite that hands you a corpus also needs "corpus", an "importer" and an "adapter"; each names an export you must also declare in steps with phase "bench", a phase no ordinary turn runs. See docs/21-benchmarks.md. Run one with \`npm run bench -- run <suite>\`.
 
 Test packages before installing: run \`node -e\` or a small script via exec. After install_package succeeds the step or tool is active from the next turn on; you can also call the new tool immediately in a later turn.
 

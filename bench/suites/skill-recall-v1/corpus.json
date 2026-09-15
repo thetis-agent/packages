@@ -1,0 +1,30 @@
+{
+  "id": "caps@1",
+  "version": "1.0.0",
+  "sha256": "sha256:6ac7b87badf7c408f5862f09b86c9bafac0048e57c5a39a9abd9234943ff714d",
+  "records": 287,
+  "file": "corpus.jsonl",
+  "seed": "thetis/bench/caps/v1",
+  "dataset": {
+    "name": "SkillRet",
+    "id": "ThakiCloud/SKILLRET",
+    "revision": "a050ad233a504a43135bafe8cdf45574052b5729",
+    "url": "https://huggingface.co/datasets/ThakiCloud/SKILLRET",
+    "license": "Apache-2.0",
+    "split": "test"
+  },
+  "sampling": {
+    "strata": [
+      "AI Agents",
+      "Business & Planning",
+      "Content Creation",
+      "Data & ML",
+      "Information Retrieval",
+      "Software Engineering"
+    ],
+    "distractors": 90,
+    "maxDescriptionBytes": 1024,
+    "maxBodyBytes": 32768,
+    "rule": "queries sampled first from a seeded shuffle; the corpus is every skill they need plus distractors stratified by the dataset's major category"
+  }
+}

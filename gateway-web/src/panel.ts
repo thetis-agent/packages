@@ -2,7 +2,9 @@
 // the operator methods (people, packages of anyone, promotion, models, configuration, the journal). The
 // gateway checks the role first so a refusal is a plain sentence; the kernel checks it again on every
 // operator call, against the fence's own user.
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { resolve } from "node:path";
 import type { KernelClient, PackageInfo, UserRole } from "@thetis/contracts";
 import { readIndex, search, type MirrorEnv } from "@thetis/marketplace";
 import { field, HttpError, json, readJson } from "./http.js";
@@ -34,6 +36,17 @@ export interface PackageRow {
   /** Set on a fork: what it was copied from, and what it displaced in this person's setup. */
   forkedFrom?: { name: string; version: string };
   replaced?: string;
+  /** Benchmark suites the package opts into, and what its last run found. */
+  bench?: { suites: string[]; peerGroup?: string; reports?: BenchSummary[] };
+}
+
+export interface BenchSummary {
+  suite: string;
+  digest: string;
+  generatedAt: string;
+  arms: number;
+  /** False when the arm claimed reach the assembled prompt did not show. */
+  passed: boolean;
 }
 
 export function toRow(p: PackageInfo): PackageRow {
@@ -48,7 +61,50 @@ export function toRow(p: PackageInfo): PackageRow {
     service: !!p.thetis.service,
     ...(p.forkedFrom ? { forkedFrom: { name: p.forkedFrom.name, version: p.forkedFrom.version } } : {}),
     ...(p.replaced ? { replaced: p.replaced } : {}),
+    ...(p.thetis.bench
+      ? {
+          bench: {
+            suites: p.thetis.bench.suites ?? [],
+            ...(p.thetis.bench.peerGroup ? { peerGroup: p.thetis.bench.peerGroup } : {}),
+            reports: benchReports(p.root, p.thetis.bench.report),
+          },
+        }
+      : {}),
   };
+}
+
+/**
+ * What a package's own bench directory says about it. Read from disk rather than recomputed: the report is
+ * the artifact, and the panel shows what was actually written next to the code.
+ */
+function benchReports(root: string, reportDir = "bench"): BenchSummary[] {
+  const at = resolve(root, reportDir);
+  if (!existsSync(at)) return [];
+  const out: BenchSummary[] = [];
+  for (const entry of readdirSync(at)) {
+    const file = resolve(at, entry, "report.json");
+    if (!existsSync(file)) continue;
+    try {
+      const view = JSON.parse(readFileSync(file, "utf8")) as {
+        suite?: string;
+        suiteDigest?: string;
+        generatedAt?: string;
+        arms?: string[];
+        report?: { conformance?: Record<string, { passed?: boolean }> };
+      };
+      if (!view.suite || !view.suiteDigest) continue;
+      out.push({
+        suite: view.suite,
+        digest: view.suiteDigest,
+        generatedAt: view.generatedAt ?? "",
+        arms: view.arms?.length ?? 0,
+        passed: Object.values(view.report?.conformance ?? {}).every((c) => c.passed !== false),
+      });
+    } catch {
+      continue;
+    }
+  }
+  return out.sort((a, b) => a.suite.localeCompare(b.suite));
 }
 
 /** Handles `/api/panel`, `/api/packages`, `/api/marketplace` and `/api/admin`. Returns false when the path is not one of them. */

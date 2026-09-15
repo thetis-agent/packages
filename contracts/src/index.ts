@@ -6,3 +6,4 @@ export * from "./packages.js";
 export * from "./identity.js";
 export * from "./guest.js";
 export * from "./fence.js";
+export * from "./bench.js";

@@ -1,4 +1,5 @@
 // Packages: the manifest a package ships, what an installed package looks like, and the registry record.
+import type { BenchDecl } from "./bench.js";
 import type { JsonSchema } from "./messages.js";
 
 export const SYSTEM_SCOPE = "@thetis";
@@ -37,6 +38,8 @@ export interface ThetisField {
   publish?: { port: number; to: string }[];
   /** Set on a fork. Installing a fork replaces its origin in the userspace when the origin is installed there. */
   forkedFrom?: ForkOrigin;
+  /** Opts the package into bench suites. Read by @thetis/bench on the host; the kernel never reads it. */
+  bench?: BenchDecl;
 }
 
 export interface Manifest {

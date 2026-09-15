@@ -29,6 +29,8 @@ export interface IndexedPackage {
   steps: { id: string; phase: string }[];
   tools: string[];
   service: boolean;
+  /** Benchmark suites the package runs. This is how a comparison finds its peers without cloning a registry. */
+  bench?: { suites: string[]; corpus?: string; peerGroup?: string };
 }
 
 export interface MarketplaceIndex {

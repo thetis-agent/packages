@@ -1,0 +1,54 @@
+{
+  "name": "@l1/skills",
+  "version": "1.0.0",
+  "description": "Puts every capability's name and description in the prompt and offers a tool that fetches one body on request.",
+  "type": "module",
+  "main": "index.js",
+  "thetis": {
+    "type": "loader",
+    "steps": [
+      {
+        "id": "bench-import",
+        "phase": "bench",
+        "export": "importCorpus"
+      },
+      {
+        "id": "catalogue",
+        "phase": "prompt",
+        "export": "catalogue"
+      },
+      {
+        "id": "bench-report",
+        "phase": "bench",
+        "export": "benchReport"
+      }
+    ],
+    "tools": [
+      {
+        "name": "load_skill",
+        "description": "Load the full text of one capability from the catalogue by its id.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        },
+        "export": "loadSkill"
+      }
+    ],
+    "bench": {
+      "suites": [
+        "skill-recall@1"
+      ],
+      "corpus": "caps@1",
+      "peerGroup": "skills",
+      "importer": "importCorpus",
+      "adapter": "benchReport"
+    }
+  }
+}

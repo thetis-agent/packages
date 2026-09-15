@@ -1,0 +1,7 @@
+{
+  "id": "tool-recall@1",
+  "version": "1.0.0",
+  "probe": "A",
+  "description": "What share of the tools the model is offered a task actually needed, and what the rest cost. Today every installed tool is attached to every query, so recall is one by construction and the number worth reading is the waste.",
+  "runs": 1
+}
