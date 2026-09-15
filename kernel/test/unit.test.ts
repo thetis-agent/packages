@@ -3,13 +3,16 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PackageInfo } from "@thetis/contracts";
+import type { Mount, PackageInfo } from "@thetis/contracts";
+import { Journal } from "@thetis/lib/journal";
+import { MountStore } from "@thetis/lib/mounts";
 import { UserStore } from "../src/users.js";
 import { AuthService } from "../src/auth.js";
 import { validateManifest } from "../src/packages/manifest.js";
 import { Enumerator, BUILTIN_CALL } from "../src/pipeline/enumerator.js";
 import { defaultConfig, saveConfig, loadConfig, MARKETPLACE_URL } from "../src/config.js";
-import { redact } from "../src/control.js";
+import { createControlHandler, redact } from "../src/control.js";
+import type { KernelServices } from "../src/kernel.js";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "thetis-unit-"));
 
@@ -132,6 +135,50 @@ test("config: a registry url survives being saved and read back, so an operator 
     saveConfig(cfg);
     const back = loadConfig(home, "/proj");
     assert.deepEqual(back.packages["@thetis/marketplace"], { registries: [{ name: "mine", url: "https://git.example.com/pkgs.git" }] });
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("mounts.set: validates the list, writes the store, journals the change, and reopens the fence", async () => {
+  const home = tmp();
+  try {
+    const users = new UserStore(home);
+    users.create("alice");
+    const closed: string[] = [];
+    const ensured: string[] = [];
+    const k = {
+      users,
+      journal: new Journal(home),
+      mounts: new MountStore(home),
+      fences: { close: async (id: string) => void closed.push(id) },
+      services: { ensure: async (id: string) => void ensured.push(id) },
+    } as unknown as KernelServices;
+    const control = createControlHandler(k);
+    const set = (user: string, mounts: unknown) => control("mounts.set", { user, mounts });
+    await assert.rejects(set("nobody", []), (e: { code: string }) => e.code === "not-found");
+    await assert.rejects(set("_system", []), /takes no mounts/);
+    await assert.rejects(set("alice", "nope"), /list of at most 32/);
+    await assert.rejects(set("alice", Array.from({ length: 33 }, () => ({ path: "/x", mode: "ro" }))), /at most 32/);
+    for (const path of ["relative", "/a/../b", "/a/", "/a//b", "/", ""]) {
+      await assert.rejects(set("alice", [{ path, mode: "rw" }]), (e: { code: string; message: string }) => e.code === "invalid" && /invalid mount path/.test(e.message), path);
+    }
+    await assert.rejects(set("alice", [{ path: "/srv/x", mode: "rwx" }]), /invalid mount mode/);
+    await assert.rejects(set("alice", [null]), /invalid mount path/);
+    assert.deepEqual(closed, [], "nothing changed until the list is valid");
+    const mounts: Mount[] = [{ path: "/srv/x", mode: "ro" }, { path: "/srv/y", mode: "rw" }];
+    assert.deepEqual(await set("alice", mounts), mounts);
+    assert.deepEqual(new MountStore(home).get("alice"), mounts, "persisted");
+    assert.deepEqual(closed, ["alice"], "the fence is closed so it reopens with the binds");
+    assert.deepEqual(ensured, ["alice"], "the supervisor reopens it and restarts the services");
+    const row = k.journal.tail(1, { kind: "mounts" })[0];
+    assert.equal(row.target, "alice");
+    assert.equal(row.actor, "operator");
+    assert.deepEqual(row.data, { mounts });
+    assert.deepEqual(await control("mounts.list", { user: "alice" }), { alice: mounts });
+    assert.deepEqual(await control("mounts.list", {}), { alice: mounts });
+    await set("alice", []);
+    assert.deepEqual(await control("mounts.list", {}), {}, "an empty list removes the entry");
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

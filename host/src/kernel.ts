@@ -8,6 +8,7 @@ import {
 import { Container, token } from "@thetis/lib/container";
 import { Journal } from "@thetis/lib/journal";
 import { JsonDirStore } from "@thetis/lib/json-store";
+import { MountStore } from "@thetis/lib/mounts";
 import { UserspaceLayout } from "@thetis/lib/userspace-layout";
 import { Cgroups, FencePool, ProcessFence } from "@thetis/sandbox";
 
@@ -19,6 +20,7 @@ export const T = {
   auth: token<AuthService>("auth"),
   services: token<ServiceSupervisor>("services"),
   userspaces: token<UserspaceLayout>("userspaces"),
+  mounts: token<MountStore>("mounts"),
   fence: token<Fence>("fence"),
   fences: token<FencePool>("fences"),
   registry: token<PackageRegistry>("registry"),
@@ -56,7 +58,9 @@ function bindServices(c: Container, config: KernelConfig): void {
   c.bind(T.log, () => (line: string) => process.stderr.write(line + "\n"));
   c.bind(T.users, (c) => new UserStore(c.get(T.config).home));
   c.bind(T.auth, (c) => new AuthService(c.get(T.config).home, c.get(T.users)));
-  c.bind(T.userspaces, (c) => new UserspaceLayout(c.get(T.config).home));
+  c.bind(T.mounts, (c) => new MountStore(c.get(T.config).home));
+  // Every Userspace the layout hands out carries its mounts, so the fence binds them wherever it is opened from.
+  c.bind(T.userspaces, (c) => new UserspaceLayout(c.get(T.config).home, (id) => c.get(T.mounts).get(id)));
   c.bind(T.journal, (c) => new Journal(c.get(T.config).home));
   c.bind(T.cgroups, (c) => (c.get(T.config).fence.sandbox === "none" ? undefined : Cgroups.detect(c.get(T.log))));
   c.bind(T.fence, (c) => processFence(c));
@@ -113,6 +117,7 @@ function kernelOf(c: Container): KernelServices {
     auth: c.get(T.auth),
     services: c.get(T.services),
     userspaces: c.get(T.userspaces),
+    mounts: c.get(T.mounts),
     packages: c.get(T.packages),
     registry: c.get(T.registry),
     providers: c.get(T.providers),
@@ -123,6 +128,7 @@ function kernelOf(c: Container): KernelServices {
       c.get(T.users).remove(id);
       await c.get(T.fences).close(id);
       c.get(T.registry).forgetUserspace(id);
+      c.get(T.mounts).set(id, []);
       c.get(T.userspaces).remove(id);
     },
     shutdown: () => c.get(T.fences).close(),

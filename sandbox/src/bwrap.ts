@@ -3,7 +3,7 @@ import { spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, readlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Readable } from "node:stream";
-import { SYSTEM_USER, type Userspace } from "@thetis/contracts";
+import { SYSTEM_USER, type Mount, type Userspace } from "@thetis/contracts";
 
 /** The OS directories every fence may read. Missing ones are skipped. */
 const OS_DIRS = ["/usr", "/etc", "/opt", "/bin", "/sbin", "/lib", "/lib32", "/lib64"];
@@ -49,11 +49,22 @@ export function bwrapArgs(us: Userspace, layout: BwrapLayout, env: Record<string
     args.push("--ro-bind", layout.resolvConf, "/etc/resolv.conf");
   }
   args.push("--bind", us.root, us.root, "--chdir", us.home);
+  // Mounts come after the userspace and the OS, so a granted path wins over a read-only bind above it.
+  for (const m of us.mounts ?? []) args.push(m.mode === "rw" ? "--bind" : "--ro-bind", m.path, m.path);
   args.push("--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts");
   args.push("--cap-drop", "ALL", "--disable-userns", "--die-with-parent", "--new-session");
   if (layout.network === "none") args.push("--unshare-net");
   for (const [k, v] of Object.entries(env)) args.push("--setenv", k, v);
   return args;
+}
+
+/** The mounts of `us` whose host path exists. A missing one is logged and skipped, so the fence still opens. */
+export function presentMounts(us: Userspace, log: (line: string) => void): Mount[] {
+  return (us.mounts ?? []).filter((m) => {
+    if (existsSync(m.path)) return true;
+    log(`[fence] ${us.id}: mount ${m.path} does not exist on the host; skipped`);
+    return false;
+  });
 }
 
 /**

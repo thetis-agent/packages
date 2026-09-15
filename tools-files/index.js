@@ -1,6 +1,7 @@
 // Entry point: wraps each tool implementation with the shared spill bound. The kernel's
 // tool env already exposes cwd (home, read-write) and shared (read-only), which is exactly
 // what lib/paths.js expects, so no adaptation is needed beyond picking those two fields.
+// The mounts come from the fence's environment (THETIS_MOUNTS), which lib/paths.js reads once.
 import { readPath as readPathImpl } from "./lib/read-path.js";
 import { editPath as editPathImpl } from "./lib/edit-path.js";
 import { writePath as writePathImpl } from "./lib/write-path.js";

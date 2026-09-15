@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createInterface as createPrompt } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
-import type { KernelRpc, ModelDescriptor, PackageInfo, SessionRecord, TurnEvent, UserRecord } from "@thetis/contracts";
+import type { KernelRpc, ModelDescriptor, Mount, PackageInfo, SessionRecord, TurnEvent, UserRecord } from "@thetis/contracts";
 import { createDoor } from "@thetis/door";
 import { behind, readIndex, shortCommit, type Behind } from "@thetis/marketplace";
 import { ControlServer, controlSocketPath, createKernel } from "@thetis/host";
@@ -31,6 +31,9 @@ usage: thetis <command> [options]
   packages list [--user <id>] | install <source> [--user <id>] | uninstall <name> [--user <id>] | promote <name> --user <id>
   packages outdated [--user <id>]      what is behind the registry it was installed from
   packages update [<name>] [--user <id>]  reinstall those packages at the registry's current commit
+  mounts list [--user <id>]            host paths bound into each person's fence
+  mounts add <user> <path> [--ro]      bind a host directory into that person's fence at the same path (read-write unless --ro)
+  mounts remove <user> <path>
   models [--user <id>]                 models advertised by installed providers
   config                               print effective config
   bench run <suite> [--write] [--force] [--sandbox auto|bwrap|none] [--package <dir>]
@@ -135,6 +138,8 @@ async function dispatch(call: Call, cmd: string, args: Args, shared: string): Pr
       return usersCmd(call, args);
     case "packages":
       return packagesCmd(call, args, user, shared);
+    case "mounts":
+      return mountsCmd(call, args, user);
     case "install":
     case "uninstall":
       return packagesCmd(call, { ...args, _: ["packages", ...args._] }, user, shared);
@@ -188,6 +193,36 @@ async function usersCmd(call: Call, args: Args): Promise<void> {
     }
     default:
       throw new Error(`unknown users subcommand: ${sub}`);
+  }
+}
+
+/** The mount list is replaced whole by `mounts.set`; add and remove read the current list first and send the edited one. */
+async function mountsCmd(call: Call, args: Args, user: string | undefined): Promise<void> {
+  const [, sub, id, path] = args._;
+  const listOf = async (u: string) => ((await call("mounts.list", { user: u })) as Record<string, Mount[]>)[u] ?? [];
+  if (sub !== "list" && sub !== undefined && !(id && path)) throw new Error(`mounts ${sub} needs <user> <path>`);
+  switch (sub) {
+    case "list":
+    case undefined: {
+      const all = (await call("mounts.list", { user })) as Record<string, Mount[]>;
+      for (const [u, list] of Object.entries(all)) for (const m of list) print(`${u}\t${m.path}\t${m.mode}`);
+      return;
+    }
+    case "add": {
+      const mode = args.ro ? "ro" : "rw";
+      const mounts = [...(await listOf(id)).filter((m) => m.path !== path), { path, mode }];
+      await call("mounts.set", { user: id, mounts });
+      return print(`mounted ${path} (${mode}) for ${id}; the fence reopens with it`);
+    }
+    case "remove": {
+      const before = await listOf(id);
+      const mounts = before.filter((m) => m.path !== path);
+      if (mounts.length === before.length) throw new Error(`${path} is not mounted for ${id}`);
+      await call("mounts.set", { user: id, mounts });
+      return print(`unmounted ${path} for ${id}`);
+    }
+    default:
+      throw new Error(`unknown mounts subcommand: ${sub}`);
   }
 }
 

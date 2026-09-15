@@ -2,7 +2,7 @@
   "name": "@thetis/lib",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "Mechanism with no policy: ids, JSON files, queues, the IoC container, the journal, newline-JSON RPC framing, the userspace layout, and package file operations. Imports only @thetis/contracts.",
+  "description": "Mechanism with no policy: ids, JSON files, queues, the IoC container, the journal, newline-JSON RPC framing, the userspace layout, the mount store, and package file operations. Imports only @thetis/contracts.",
   "type": "module",
   "exports": {
     "./ids": {
@@ -44,6 +44,10 @@
     "./userspace-layout": {
       "types": "./dist/src/userspace-layout.d.ts",
       "default": "./dist/src/userspace-layout.js"
+    },
+    "./mounts": {
+      "types": "./dist/src/mounts.d.ts",
+      "default": "./dist/src/mounts.js"
     },
     "./pkg-fs": {
       "types": "./dist/src/pkg-fs.d.ts",

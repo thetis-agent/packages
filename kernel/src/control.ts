@@ -1,5 +1,6 @@
-import { SYSTEM_USER, type KernelRpc, type UserRecord, type UserRole, type UserStatus } from "@thetis/contracts";
-import { CodedError } from "@thetis/lib/error";
+import { resolve } from "node:path";
+import { SYSTEM_USER, type KernelRpc, type Mount, type UserRecord, type UserRole, type UserStatus } from "@thetis/contracts";
+import { assert, CodedError } from "@thetis/lib/error";
 import type { KernelServices } from "./kernel.js";
 
 type Args = Record<string, string | undefined>;
@@ -66,6 +67,20 @@ export function createControlHandler(k: KernelServices): KernelRpc {
       }
       case "packages.installEveryone":
         return installEveryone(k, actor(), String(a.source), journal);
+      case "mounts.list":
+        return a.user ? { [user()]: k.mounts.get(user()) } : k.mounts.all();
+      case "mounts.set": {
+        // The change reaches the fence by closing it: the pool reopens it on the next request, and the supervisor restarts its services.
+        const target = k.users.get(user());
+        assert(target, `unknown user: ${user()}`, "not-found");
+        assert(target.role !== "system", "the system userspace takes no mounts", "invalid");
+        const mounts = parseMounts(a.mounts);
+        k.mounts.set(target.id, mounts);
+        journal("mounts", target.id, { mounts });
+        await k.fences.close(target.id);
+        await k.services.ensure(target.id);
+        return mounts;
+      }
       case "journal.tail":
         return k.journal.tail(Math.min(1000, Number(a.limit ?? 200) || 200), { actor: a.actor_filter, target: a.target, kind: a.kind });
       case "config.get":
@@ -91,6 +106,17 @@ export function createControlHandler(k: KernelServices): KernelRpc {
 }
 
 type JournalFn = (kind: string, target: string, data?: Record<string, unknown>) => void;
+
+/** A mount list as it arrives from a socket: at most 32 entries, absolute normalized paths (so no `..`), mode `rw` or `ro`. */
+function parseMounts(raw: unknown): Mount[] {
+  assert(Array.isArray(raw) && raw.length <= 32, "mounts must be a list of at most 32 entries", "invalid");
+  return raw.map((m: { path?: unknown; mode?: unknown } | null) => {
+    const path = String(m?.path ?? "");
+    assert(path !== "/" && path === resolve(path), `invalid mount path: ${path} (absolute and normalized, not /)`, "invalid");
+    assert(m?.mode === "rw" || m?.mode === "ro", `invalid mount mode for ${path}: ${String(m?.mode)} (rw or ro)`, "invalid");
+    return { path, mode: m.mode };
+  });
+}
 
 /**
  * Makes a package the default for everyone. A shipped system package is marked and linked into every

@@ -420,3 +420,39 @@ test("fork with a service: replacing stops the origin and starts the fork; delet
   assert.ok(!existsSync(dir));
   assert.deepEqual(log().at(-1), "stopped-origin");
 });
+
+test("mounts: an admin grants a host directory into a person's fence; the agent reads it and learns it from THETIS_MOUNTS", async () => {
+  const fence = kernel.container.get(T.fence) as ProcessFence;
+  const dir = mkdtempSync(join(tmpdir(), "thetis-mount-"));
+  const control = createControlHandler(kernel);
+  try {
+    writeFileSync(join(dir, "note.txt"), "from-the-host\n");
+    await assert.rejects(control("mounts.set", { user: "alice", mounts: [{ path: "relative", mode: "rw" }] }), /invalid mount path/);
+    await assert.rejects(control("mounts.set", { user: "_system", mounts: [] }), /takes no mounts/);
+    // Before the grant the directory is out of reach under bubblewrap.
+    if (fence.mode === "bwrap") {
+      const before = await collect(kernel.sessions.send("alice", kernel.sessions.create("alice").id, `run: cat ${join(dir, "note.txt")} || echo NOT-YET`));
+      assert.match(before.text, /NOT-YET/);
+    }
+    await control("mounts.set", { user: "alice", mounts: [{ path: dir, mode: "ro" }, { path: "/does/not/exist", mode: "rw" }] });
+    assert.deepEqual(kernel.userspaces.pathFor("alice").mounts, [{ path: dir, mode: "ro" }, { path: "/does/not/exist", mode: "rw" }]);
+    const s = kernel.sessions.create("alice");
+    const probe = `cat ${join(dir, "note.txt")}; echo MOUNTS=$THETIS_MOUNTS; touch ${join(dir, "w")} 2>/dev/null && echo WROTE-RO; echo probe-done`;
+    const r = await collect(kernel.sessions.send("alice", s.id, `run: ${probe}`));
+    assert.deepEqual(r.errors, []);
+    assert.match(r.text, /probe-done/);
+    assert.match(r.text, /from-the-host/, "the mounted file is readable inside the fence");
+    assert.ok(r.text.includes(`MOUNTS=${JSON.stringify([{ path: dir, mode: "ro" }])}`), `the agent sees the mounts that were bound, not the missing one: ${r.text}`);
+    if (fence.mode === "bwrap") assert.doesNotMatch(r.text, /WROTE-RO/, "a ro mount refuses writes");
+    const rows = kernel.journal.tail(5, { kind: "mounts", target: "alice" });
+    assert.equal(rows.length, 1);
+    assert.deepEqual(rows[0].data, { mounts: [{ path: dir, mode: "ro" }, { path: "/does/not/exist", mode: "rw" }] });
+    if (fence.mode === "bwrap") assert.ok(!existsSync(join(dir, "w")), "nothing was written on the host through the ro mount");
+    await control("mounts.set", { user: "alice", mounts: [] });
+    assert.equal(kernel.userspaces.pathFor("alice").mounts, undefined);
+    const none = await collect(kernel.sessions.send("alice", s.id, "run: echo MOUNTS=$THETIS_MOUNTS"));
+    assert.match(none.text, /MOUNTS=\[\]/, "the variable is set even when nothing is mounted");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import type { Writable } from "node:stream";
 import type { Fence, FenceHandle, KernelRpc, Userspace } from "@thetis/contracts";
 import { CodedError, errorMessage } from "@thetis/lib/error";
-import { bwrapArgs, hasBwrap, launcherCommand, launcherReady } from "./bwrap.js";
+import { bwrapArgs, hasBwrap, launcherCommand, launcherReady, presentMounts } from "./bwrap.js";
 import type { Cgroups, FenceLimits } from "./cgroup.js";
 import { ProcessHandle } from "./handle.js";
 import { hasSlirp, startEgress, writeResolvConf } from "./network.js";
@@ -94,7 +94,9 @@ export class ProcessFence implements Fence {
     this.log(`[fence] ${us.id}: started (network ${this.network}${placement ? ", limited" : ""})`);
   }
 
-  private spawn(us: Userspace): ChildProcess {
+  private spawn(space: Userspace): ChildProcess {
+    // Package code learns the mounts from the environment in every mode; without a sandbox they are simply the host's paths.
+    const us = { ...space, mounts: presentMounts(space, this.log) };
     const env = {
       PATH: [dirname(process.execPath), process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin"].join(":"),
       HOME: us.home,
@@ -104,6 +106,7 @@ export class ProcessFence implements Fence {
       THETIS_STORE: us.store,
       THETIS_SHARED: this.opts.sharedDir,
       THETIS_USER: us.id,
+      THETIS_MOUNTS: JSON.stringify(us.mounts),
     };
     const node = [process.execPath, this.opts.agentPath];
     if (this.sandbox === "none") {

@@ -1,12 +1,30 @@
 // Path containment: every tool must resolve paths through here before touching disk.
-// Roots: env.cwd (home) is read-write, env.shared is read-only. We resolve symlinks with
-// realpath so a link that points outside the roots cannot be used to escape them, and we
-// walk up to the nearest existing ancestor so a path that names a file yet to be created
-// (e.g. a new file under an existing directory) can still be checked and located.
+// Roots: env.cwd (home) is read-write, env.shared is read-only, and each mount the fence
+// announces in THETIS_MOUNTS is rw or ro as granted. We resolve symlinks with realpath so a
+// link that points outside the roots cannot be used to escape them, and we walk up to the
+// nearest existing ancestor so a path that names a file yet to be created (e.g. a new file
+// under an existing directory) can still be checked and located.
 import { realpath, lstat } from "node:fs/promises";
 import { dirname, basename, resolve, isAbsolute, sep, relative } from "node:path";
 
-const OUTSIDE = (raw) => `${raw} is outside the spaces you can reach (home rw, shared ro).`;
+// The mounts, read once: a JSON list of { path, mode } set by the fence. Absent or malformed means none.
+export function mountsFromEnv(value) {
+  try {
+    const list = JSON.parse(value ?? "[]");
+    if (!Array.isArray(list)) return [];
+    return list.filter((m) => m && typeof m.path === "string" && isAbsolute(m.path) && (m.mode === "rw" || m.mode === "ro")).map((m) => ({ path: m.path, mode: m.mode }));
+  } catch {
+    return [];
+  }
+}
+
+const MOUNTS = mountsFromEnv(process.env.THETIS_MOUNTS);
+
+// The refusal names every space, so the model learns what it may reach without a second probe.
+const OUTSIDE = (raw) => {
+  const spaces = ["home rw", "shared ro", ...MOUNTS.map((m) => `${m.path} ${m.mode}`)];
+  return `${raw} is outside the spaces you can reach (${spaces.join(", ")}).`;
+};
 
 // True when `p` is root itself or a path underneath it.
 function isWithin(p, root) {
@@ -40,9 +58,9 @@ export function hasGitComponent(p) {
 }
 
 /**
- * Resolve `rawPath` against home, contain it to home (rw) or shared (ro), and detect
- * dangling symlinks. Throws Error with model-facing text on any violation.
- * Returns { absolute, display, root: "home"|"shared", writable }.
+ * Resolve `rawPath` against home, contain it to home (rw), shared (ro) or a mount (as granted),
+ * and detect dangling symlinks. Throws Error with model-facing text on any violation.
+ * Returns { absolute, display, root: "home"|"shared"|"mount", writable }.
  */
 export async function resolveContained(env, rawPath, { write = false } = {}) {
   if (rawPath === undefined || rawPath === null || rawPath === "") {
@@ -81,16 +99,28 @@ export async function resolveContained(env, rawPath, { write = false } = {}) {
 
   let root = null;
   let writable = false;
+  let label = "";
   if (isWithin(full, realHome)) {
     root = "home";
     writable = true;
   } else if (realShared && isWithin(full, realShared)) {
     root = "shared";
     writable = false;
+    label = "shared";
+  } else {
+    for (const m of MOUNTS) {
+      const realMount = await realpath(m.path).catch(() => null);
+      if (!realMount || !isWithin(full, realMount)) continue;
+      root = "mount";
+      writable = m.mode === "rw";
+      label = `mount ${m.path}`;
+      break;
+    }
   }
   if (!root) throw new Error(OUTSIDE(raw));
   if (write && !writable) {
-    throw new Error(`${raw} is read-only (shared); writes need a path under home.`);
+    const rw = MOUNTS.filter((m) => m.mode === "rw").map((m) => ` or ${m.path}`).join("");
+    throw new Error(`${raw} is read-only (${label}); writes need a path under home${rw}.`);
   }
   if (write && hasGitComponent(full)) {
     throw new Error(`${raw} names a .git path, which is protected from write and delete.`);

@@ -1,13 +1,20 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
-import type { Userspace } from "@thetis/contracts";
+import type { Mount, Userspace } from "@thetis/contracts";
 
-/** The on-disk layout of each user's fenced environment under `<home>/userspaces/<id>`. */
+/**
+ * The on-disk layout of each user's fenced environment under `<home>/userspaces/<id>`. `mountsFor`
+ * says which host paths the fence binds besides the userspace; the layout only carries them.
+ */
 export class UserspaceLayout {
-  constructor(private readonly home: string) {}
+  constructor(
+    private readonly home: string,
+    private readonly mountsFor: (userId: string) => Mount[] = () => [],
+  ) {}
 
   pathFor(userId: string): Userspace {
     const root = resolve(this.home, "userspaces", userId);
+    const mounts = this.mountsFor(userId);
     return {
       id: userId,
       root,
@@ -15,6 +22,7 @@ export class UserspaceLayout {
       store: resolve(root, "store"),
       sessions: resolve(root, "sessions"),
       run: resolve(root, "run"),
+      ...(mounts.length ? { mounts } : {}),
     };
   }
 

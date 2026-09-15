@@ -20,6 +20,12 @@ export interface AuthUser {
   role: UserRole;
 }
 
+/** A host path an admin has granted into one person's fence, bound at the same path. */
+export interface Mount {
+  path: string;
+  mode: "rw" | "ro";
+}
+
 export interface Userspace {
   id: string;
   root: string;
@@ -28,6 +34,8 @@ export interface Userspace {
   sessions: string;
   /** Sockets a service of this userspace listens on. The door reaches them from the host. */
   run: string;
+  /** Host paths bound into the fence besides the userspace. Absent or empty: none. */
+  mounts?: Mount[];
 }
 
 export interface SessionInfo {
