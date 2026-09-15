@@ -97,6 +97,8 @@ body { display: flex; flex-direction: column; }
 .sidebar-search kbd { font-family: var(--mono); font-size: var(--text-xs); padding: 0 5px; border: 1px solid var(--hairline); border-radius: 5px; color: var(--text-faint); }
 
 .sidebar-slot:empty { display: none; }
+.sidebar-slot { padding: 0 var(--gap-3) var(--gap-2); }
+.sidebar-slot-item + .sidebar-slot-item { margin-top: var(--gap-1); }
 
 .sidebar-foot {
   display: flex;

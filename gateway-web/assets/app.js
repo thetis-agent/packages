@@ -17,6 +17,7 @@ import { installPanel, PANEL_PLACE, PANEL_SECTIONS } from "./views/panel.js";
 import { mountPlaces } from "./views/places.js";
 import { mountSessions } from "./views/sessions.js";
 import { mountShelf } from "./views/shelf.js";
+import { mountSidebarSlot } from "./views/sidebar.js";
 import { mountStatusbar } from "./views/statusbar.js";
 import { mountTabs } from "./views/tabs.js";
 
@@ -160,6 +161,7 @@ const places = mountPlaces();
 const dock = mountDock();
 const shelf = mountShelf();
 mountStatusbar();
+mountSidebarSlot();
 
 bindShell({
   send,
