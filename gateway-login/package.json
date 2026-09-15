@@ -1,6 +1,7 @@
 {
   "name": "@thetis/gateway-login",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "The sign-in page: turns a password into the cookie every gateway checks.",
   "type": "module",
   "main": "dist/src/index.js",

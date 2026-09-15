@@ -1,6 +1,7 @@
 {
   "name": "@thetis/gateway-cli",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "The thetis command line and the door: a client of the running kernel, and the host port browsers reach.",
   "type": "module",
   "main": "dist/src/index.js",

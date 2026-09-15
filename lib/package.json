@@ -1,21 +1,58 @@
 {
   "name": "@thetis/lib",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Mechanism with no policy: ids, JSON files, queues, the IoC container, the journal, newline-JSON RPC framing, the userspace layout, and package file operations. Imports only @thetis/contracts.",
   "type": "module",
   "exports": {
-    "./ids": { "types": "./dist/src/ids.d.ts", "default": "./dist/src/ids.js" },
-    "./json": { "types": "./dist/src/json.d.ts", "default": "./dist/src/json.js" },
-    "./async": { "types": "./dist/src/async.d.ts", "default": "./dist/src/async.js" },
-    "./error": { "types": "./dist/src/error.d.ts", "default": "./dist/src/error.js" },
-    "./container": { "types": "./dist/src/container.d.ts", "default": "./dist/src/container.js" },
-    "./journal": { "types": "./dist/src/journal.d.ts", "default": "./dist/src/journal.js" },
-    "./json-store": { "types": "./dist/src/json-store.d.ts", "default": "./dist/src/json-store.js" },
-    "./rpc-frames": { "types": "./dist/src/rpc-frames.d.ts", "default": "./dist/src/rpc-frames.js" },
-    "./ndjson-socket": { "types": "./dist/src/ndjson-socket.d.ts", "default": "./dist/src/ndjson-socket.js" },
-    "./userspace-layout": { "types": "./dist/src/userspace-layout.d.ts", "default": "./dist/src/userspace-layout.js" },
-    "./pkg-fs": { "types": "./dist/src/pkg-fs.d.ts", "default": "./dist/src/pkg-fs.js" },
-    "./crypto": { "types": "./dist/src/crypto.d.ts", "default": "./dist/src/crypto.js" }
+    "./ids": {
+      "types": "./dist/src/ids.d.ts",
+      "default": "./dist/src/ids.js"
+    },
+    "./json": {
+      "types": "./dist/src/json.d.ts",
+      "default": "./dist/src/json.js"
+    },
+    "./async": {
+      "types": "./dist/src/async.d.ts",
+      "default": "./dist/src/async.js"
+    },
+    "./error": {
+      "types": "./dist/src/error.d.ts",
+      "default": "./dist/src/error.js"
+    },
+    "./container": {
+      "types": "./dist/src/container.d.ts",
+      "default": "./dist/src/container.js"
+    },
+    "./journal": {
+      "types": "./dist/src/journal.d.ts",
+      "default": "./dist/src/journal.js"
+    },
+    "./json-store": {
+      "types": "./dist/src/json-store.d.ts",
+      "default": "./dist/src/json-store.js"
+    },
+    "./rpc-frames": {
+      "types": "./dist/src/rpc-frames.d.ts",
+      "default": "./dist/src/rpc-frames.js"
+    },
+    "./ndjson-socket": {
+      "types": "./dist/src/ndjson-socket.d.ts",
+      "default": "./dist/src/ndjson-socket.js"
+    },
+    "./userspace-layout": {
+      "types": "./dist/src/userspace-layout.d.ts",
+      "default": "./dist/src/userspace-layout.js"
+    },
+    "./pkg-fs": {
+      "types": "./dist/src/pkg-fs.d.ts",
+      "default": "./dist/src/pkg-fs.js"
+    },
+    "./crypto": {
+      "types": "./dist/src/crypto.d.ts",
+      "default": "./dist/src/crypto.js"
+    }
   },
   "scripts": {
     "build": "tsc -b",

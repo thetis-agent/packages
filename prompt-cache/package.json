@@ -1,6 +1,7 @@
 {
   "name": "@thetis/prompt-cache",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Advises the provider on prompt caching and records where the cached prefix breaks.",
   "type": "module",
   "main": "dist/src/index.js",

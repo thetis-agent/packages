@@ -1,6 +1,7 @@
 {
   "name": "@thetis/harness-core",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "The default harness: the system prompt that teaches self-extension, and every installed tool attached to the call.",
   "type": "module",
   "main": "dist/src/index.js",

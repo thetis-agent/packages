@@ -1,11 +1,18 @@
 {
   "name": "@thetis/bench-probe",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Collects what each package claims it surfaced for a bench turn. Its step is declared in the bench phase, which no production configuration lists, so it cannot run outside a bench.",
   "type": "module",
   "main": "index.js",
   "thetis": {
     "type": "loader",
-    "steps": [{ "id": "collect", "phase": "bench", "export": "collect" }]
+    "steps": [
+      {
+        "id": "collect",
+        "phase": "bench",
+        "export": "collect"
+      }
+    ]
   }
 }

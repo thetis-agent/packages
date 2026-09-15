@@ -1,6 +1,7 @@
 {
   "name": "@thetis/exa",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Web search, page contents, summaries, direct answers, and deep research through the Exa API, as tools for the model.",
   "keywords": [
     "exa",

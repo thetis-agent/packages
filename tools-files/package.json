@@ -1,6 +1,7 @@
 {
   "name": "@thetis/tools-files",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Bounded, path-contained file tools: read, edit, write, search, find and list, each returning token-bounded output with a clear footer.",
   "type": "module",
   "main": "index.js",

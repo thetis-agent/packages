@@ -1,6 +1,7 @@
 {
   "name": "@thetis/tool-exec",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Tools for the model: run commands, install, fork, remove and delete packages, and spawn subagents in your own space.",
   "type": "module",
   "main": "dist/src/index.js",

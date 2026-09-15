@@ -1,6 +1,7 @@
 {
   "name": "@thetis/door",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "The reverse proxy on the host port that routes /login to the login target and /<person>/ to that person's gateway. Not installable.",
   "type": "module",
   "main": "dist/src/index.js",
