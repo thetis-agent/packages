@@ -38,12 +38,29 @@ button, input, textarea { font: inherit; color: inherit; }
 
 /* --- shell ---------------------------------------------------------------- */
 
+/* The zones: sidebar | main | rail | dock on one row, the status bar under them when something fills it.
+ * The rail and dock columns are `auto`: hidden, they take no room; shown, they are 44px and 360/620px.
+ * A place replaces main, rail and dock in the same columns, the sidebar kept. */
 body { display: flex; flex-direction: column; }
-#app { display: flex; flex: 1 1 auto; min-height: 0; }
+#app {
+  --sidebar-col: var(--sidebar-w);
+  --rail-w: 44px;
+  --dock-w: 360px;
+  display: grid;
+  grid-template-columns: var(--sidebar-col) minmax(0, 1fr) auto auto;
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+#app > .sidebar { grid-column: 1; }
+#app > .main { grid-column: 2; }
+#app > .rail { grid-column: 3; }
+#app > .dock { grid-column: 4; }
+#app > .place { grid-column: 2 / -1; }
+#app.is-place > .main, #app.is-place > .rail, #app.is-place > .dock { display: none; }
 
 .sidebar {
   width: var(--sidebar-w);
-  flex: 0 0 var(--sidebar-w);
   background: var(--surface-1);
   border-right: 1px solid var(--hairline);
   display: flex;
@@ -79,6 +96,8 @@ body { display: flex; flex-direction: column; }
 .sidebar-search input::placeholder { color: var(--text-faint); }
 .sidebar-search kbd { font-family: var(--mono); font-size: var(--text-xs); padding: 0 5px; border: 1px solid var(--hairline); border-radius: 5px; color: var(--text-faint); }
 
+.sidebar-slot:empty { display: none; }
+
 .sidebar-foot {
   display: flex;
   flex-direction: column;
@@ -92,7 +111,11 @@ body { display: flex; flex-direction: column; }
 .foot-identity .turn-initial { font-size: 10px; }
 .foot-identity .status { margin-left: auto; flex: none; }
 .foot-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); color: var(--text); }
+.foot-actions { flex-wrap: wrap; }
 .foot-actions form { display: inline-flex; margin: 0; }
+.sidebar-places { display: contents; }
+.foot-action.is-active { color: var(--text); }
+.foot-action.is-broken { color: var(--text-faint); text-decoration: line-through; }
 .foot-action {
   display: inline-flex;
   align-items: center;
@@ -393,7 +416,77 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 
 /* --- main ----------------------------------------------------------------- */
 
-.main { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; }
+.main { min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; }
+
+/* The tab strip: one tab per open conversation, then +. The active tab is underlined in the accent. */
+.tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  height: 36px;
+  padding: 0 var(--gap-2);
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface-1);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tabs > .icon-btn { align-self: center; flex: none; }
+.tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 1 200px;
+  min-width: 90px;
+  max-width: 200px;
+  color: var(--text-dim);
+  border-bottom: 2px solid transparent;
+  transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.tab:hover { color: var(--text); background: var(--surface-2); }
+.tab.is-active { color: var(--text); border-bottom-color: var(--accent); }
+.tab.is-archived .tab-title { opacity: .7; text-decoration: line-through; text-decoration-color: var(--hairline-strong); }
+.tab-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 0 4px 0 10px;
+  font-size: var(--text-sm);
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-dot { display: none; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); animation: pulse 1.4s var(--ease) infinite; }
+.tab.is-working .tab-dot { display: inline-block; }
+.tab-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px; height: 20px;
+  margin-right: 4px;
+  padding: 0;
+  color: var(--text-faint);
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  visibility: hidden;
+}
+.tab:hover .tab-close, .tab.is-active .tab-close, .tab:focus-within .tab-close { visibility: visible; }
+.tab-close:hover { color: var(--text); background: var(--surface-3); }
+
+/* Panes stack in one cell; only the active one is visible. Hidden panes keep their scroll position. */
+.panes { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); }
+.pane { grid-area: 1 / 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; position: relative; visibility: hidden; pointer-events: none; }
+.pane.is-active { visibility: visible; pointer-events: auto; }
+.chips { display: contents; }
 
 .chat-bar {
   display: flex;
@@ -425,6 +518,7 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .chat-title:hover { border-color: var(--hairline); background: var(--surface-2); }
 .chat-title:empty { display: none; }
 .chat-bar-gap { flex: 1 1 auto; }
+.chip.is-broken { color: var(--text-faint); text-decoration: line-through; }
 .chat-state { flex: none; font-size: var(--text-xs); color: var(--accent); display: inline-flex; align-items: center; gap: 6px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-state::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); animation: pulse 1.4s var(--ease) infinite; }
 
@@ -456,7 +550,7 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .jump-latest {
   position: absolute;
   left: 50%;
-  bottom: calc(var(--composer-h, 140px) + var(--gap-3));
+  bottom: var(--gap-3);
   transform: translateX(-50%);
   z-index: 5;
   display: inline-flex;
@@ -839,6 +933,7 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .composer-input::placeholder { color: var(--text-faint); }
 .composer-bar { display: flex; align-items: center; gap: var(--gap-2); margin-top: 2px; min-height: 32px; }
 .composer-tools { display: flex; align-items: center; gap: var(--gap-2); min-width: 0; }
+.composer-slot { display: contents; }
 .composer-note { flex: 1 1 auto; font-size: var(--text-xs); color: var(--text-faint); padding-left: 4px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-run { display: flex; align-items: center; gap: var(--gap-2); flex: 0 0 auto; margin-left: auto; }
 .composer-hint { max-width: var(--measure); margin: var(--gap-2) auto 0; font-size: var(--text-xs); color: var(--text-faint); text-align: center; }
@@ -1012,6 +1107,7 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
   .chip-quiet { display: none; }
 }
 @media (max-width: 760px) {
+  #app { --sidebar-col: 0px; }
   .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 50; transform: translateX(-100%); transition: transform var(--med) var(--ease); box-shadow: var(--shadow-lg); }
   .sidebar.is-open { transform: none; }
   .chat-menu { display: grid; }
@@ -1021,13 +1117,63 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
   .chat-title { max-width: 45%; }
 }
 
-/* ---- the control panel ---- */
-#app.is-panel .main > :not(.panel) { display: none; }
-.panel { display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--bg); }
-.panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--gap-3); padding: var(--gap-4) var(--gap-5) var(--gap-3); border-bottom: 1px solid var(--hairline); }
-.panel-title { margin: 0; font-size: var(--text-lg); font-weight: 600; letter-spacing: -.01em; }
-.panel-sub { display: block; margin-top: 2px; color: var(--text-dim); font-size: var(--text-sm); }
+/* --- the rail and the dock: panels about the open conversation, beside it ------ */
+
+.rail { width: var(--rail-w); display: flex; flex-direction: column; align-items: center; padding: var(--gap-2) 0; background: var(--surface-1); border-left: 1px solid var(--hairline); }
+.rail-tabs { display: flex; flex-direction: column; gap: 4px; }
+.rail-btn {
+  display: grid;
+  place-items: center;
+  width: 32px; height: 32px;
+  padding: 0;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.rail-btn:hover { color: var(--text); background: var(--surface-3); border-color: var(--hairline); }
+.rail-btn.is-active { color: var(--accent); background: var(--accent-wash); border-color: var(--accent-edge); }
+.rail-btn.is-broken { color: var(--text-faint); opacity: .6; }
+
+.dock { width: var(--dock-w); display: flex; flex-direction: column; min-height: 0; background: var(--surface-1); border-left: 1px solid var(--hairline); }
+.dock.is-wide { --dock-w: 620px; }
+.panel-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--gap-3) var(--gap-4); }
+.panel-actions { display: flex; align-items: center; gap: var(--gap-1); }
+.panel-actions:empty { display: none; }
+.dock .panel-head { padding: var(--gap-3) var(--gap-3) var(--gap-3) var(--gap-4); align-items: center; }
+.dock .panel-title { font-size: var(--text-md); }
+
+/* --- the shelf: the bottom dock under the conversation, resized by its grip ----- */
+
+.shelf { --shelf-h: 360px; position: relative; flex: 0 0 auto; height: var(--shelf-h); max-height: 70vh; display: flex; flex-direction: column; min-height: 0; background: var(--surface-1); border-top: 1px solid var(--hairline); }
+.shelf-grip { position: absolute; left: 0; right: 0; top: -3px; height: 6px; cursor: row-resize; z-index: 2; }
+.shelf-grip:hover { background: var(--accent-edge); }
+.shelf-head { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-2); height: 32px; padding: 0 var(--gap-2) 0 var(--gap-4); border-bottom: 1px solid var(--hairline); font-size: var(--text-sm); font-weight: 600; }
+.shelf-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+
+/* --- the status bar: 26px, empty until a package fills it ------------------------ */
+
+.statusbar { display: flex; align-items: center; gap: var(--gap-4); height: 26px; padding: 0 var(--gap-4); flex: none; background: var(--surface-1); border-top: 1px solid var(--hairline); font-size: var(--text-xs); color: var(--text-dim); }
+.statusbar-item { display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+.statusbar-item.is-broken { color: var(--text-faint); text-decoration: line-through; }
+
+/* What a slot shows when a package's piece threw. */
+.ext-broken { padding: var(--gap-2) 0; color: var(--err); font-size: var(--text-sm); }
+
+/* ---- a place: takes the main, rail and dock region; the sidebar stays ---- */
+.place { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--bg); }
+.place-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.panel-head, .place-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--gap-3); padding: var(--gap-4) var(--gap-5) var(--gap-3); border-bottom: 1px solid var(--hairline); }
+.panel-head-text, .place-head-text { flex: 1 1 auto; min-width: 0; }
+.panel-title, .place-title { margin: 0; font-size: var(--text-lg); font-weight: 600; letter-spacing: -.01em; }
+.panel-sub, .place-sub { display: block; margin-top: 2px; color: var(--text-dim); font-size: var(--text-sm); }
+.panel-sub:empty, .place-sub:empty { display: none; }
+
+/* ---- the control panel, inside its place ---- */
 .panel-shell { display: flex; flex: 1; min-height: 0; }
+.panel-note { margin: 0 0 var(--gap-3); color: var(--text-dim); font-size: var(--text-sm); }
 .panel-nav { display: flex; flex-direction: column; gap: 2px; width: 180px; flex: none; padding: var(--gap-3); border-right: 1px solid var(--hairline); }
 .panel-nav-item { appearance: none; border: 1px solid transparent; background: none; text-align: left; padding: 8px 10px; border-radius: var(--r-md); color: var(--text-dim); font: inherit; cursor: pointer; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
 .panel-nav-item:hover { color: var(--text); background: var(--surface-2); }
@@ -1124,7 +1270,8 @@ select.input { padding-right: 24px; }
   .panel-col.is-side { flex: none; width: 100%; }
 }
 @media (max-width: 760px) {
-  .panel-head { padding: var(--gap-3) var(--gap-3) var(--gap-2); }
+  .panel-head, .place-head { padding: var(--gap-3) var(--gap-3) var(--gap-2); }
+  .dock { --dock-w: 100vw; }
   .panel-shell { flex-direction: column; }
   .panel-nav { flex-direction: row; flex-wrap: wrap; width: auto; border-right: 0; border-bottom: 1px solid var(--hairline); }
   .panel-main { padding: var(--gap-3); }

@@ -1,7 +1,8 @@
 /* The conversation sidebar. Rows are grouped by recency, most recent first, with the archive folded into a
  * section at the foot. A working row carries a pulsing dot, the live step under a sheen, and a clock that
  * counts up; the clocks tick in place so a hover or a sheen is never dropped by a redraw. Search filters
- * as you type. The row menu renames, archives and restores. */
+ * as you type. The row menu renames, archives and restores. A package may narrow the list further
+ * with a filter (`store.sessionFilter`, set through `ext.sessions.filter`). */
 
 import { applyActivityPhase, fmtAgo, fmtCost, fmtDuration, shortModel, countWorking } from "../lib/activity.js";
 import { $, clear, el, icon, onClickOutside } from "../lib/dom.js";
@@ -172,6 +173,8 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename }) {
   // ---- the list ----
 
   function matches(session) {
+    const filter = store.get("sessionFilter");
+    if (filter && !filter(session)) return false;
     if (!query) return true;
     return `${session.title} ${session.preview}`.toLowerCase().includes(query);
   }
@@ -263,7 +266,7 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename }) {
   });
   $("new-chat").addEventListener("click", () => onNew());
 
-  for (const key of ["sessions", "current", "activity"]) store.watch(key, redraw);
+  for (const key of ["sessions", "current", "activity", "sessionFilter"]) store.watch(key, redraw);
   draw();
 
   return {

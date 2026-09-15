@@ -164,7 +164,10 @@ before(async () => {
   const socketsDir = join(home, "s");
   mkdirSync(socketsDir);
   for (const id of PEOPLE) {
-    const server = createGateway(clientFromRpc(rpcFor(kernel.userspaces.pathFor(id))), new GatewayStore(join(home, "store", id)), { assets, log, env: envAt(sysenv), user: id, base: `/${id}` });
+    const us = kernel.userspaces.pathFor(id);
+    const client = clientFromRpc(rpcFor(us));
+    const env = { ...envAt(sysenv), cwd: us.home, root: us.root, store: us.store, kernel: client };
+    const server = createGateway(client, new GatewayStore(join(home, "store", id)), { assets, log, env, user: id, base: `/${id}` });
     sockets[id] = join(socketsDir, `${id}.sock`);
     await listen(server, sockets[id]);
     servers.push(server);

@@ -2,24 +2,33 @@
 // and one Server-Sent Events stream per browser that carries every turn event of that person. The
 // gateway runs inside the person's own fence, so it holds that person's authority and nobody else's.
 // Sign-in lives in @thetis/gateway-login; this server only resolves the cookie it set, and the kernel
-// answers only when the token names this fence's user.
+// answers only when the token names this fence's user. What installed packages add to the page (their
+// browser files and commands) is composed and checked in ui.ts and mounted here under `ext/` and `api/`.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { dirname, extname, resolve, sep } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { KernelClient, Message, SessionRecord, UserRole } from "@thetis/contracts";
-import type { MirrorEnv } from "@thetis/marketplace";
+import type { KernelClient, Message, SessionRecord, StepEnv, UserRole } from "@thetis/contracts";
 import { HttpError, json, readJson } from "./http.js";
 import { handlePanel } from "./panel.js";
+import { serveFile } from "./static.js";
 import type { GatewayStore, SessionUsage } from "./store.js";
 import { TurnHub, type RunningTurn } from "./turns.js";
+import { composeUi, runCommand, serveExt } from "./ui.js";
 
 export interface GatewayOptions {
   /** Directory of the static assets. Defaults to the package's `assets/`. */
   assets?: string;
   log?: (line: string) => void;
-  /** The userspace environment: where the marketplace index lives. Without it the marketplace section is absent. */
-  env?: MirrorEnv;
+  /**
+   * The fence environment the service was started with. The marketplace index lives in its `shared`
+   * directory, and a package's UI commands run with it. Without it the marketplace section and the
+   * commands are absent.
+   */
+  env?: StepEnv;
+  /** The store the installed packages are linked in, for their browser files and `main`. Default `env.store`. */
+  store?: string;
+  /** How long a package's UI command may take before the gateway answers 504. Default 30 000 ms. */
+  commandTimeoutMs?: number;
   /** The person this gateway serves. A cookie naming anyone else is refused. */
   user: string;
   /** The URL prefix the door routes here, for example `/alice`. Everything is served under it. Empty for the root. */
@@ -27,7 +36,6 @@ export interface GatewayOptions {
 }
 
 const COOKIE = "thetis_web";
-const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json" };
 
 export interface SessionSummary {
   id: string;
@@ -51,6 +59,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
   const log = opts.log ?? ((line) => process.stderr.write(line + "\n"));
   const assets = opts.assets ?? resolve(dirname(fileURLToPath(import.meta.url)), "../../assets");
   const base = (opts.base ?? "").replace(/\/$/, "");
+  const storeDir = opts.store ?? opts.env?.store;
   const hub = new TurnHub(kernel, log, recordUsage);
 
   const server = createServer((req, res) => {
@@ -74,19 +83,30 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     if (base && !url.pathname.startsWith(`${base}/`)) throw new HttpError(404, "not found");
     const path = url.pathname.slice(base.length);
 
-    if (path.startsWith("/assets/")) return serveAsset(res, assets, path.slice("/assets/".length));
+    if (path.startsWith("/assets/")) return serveFile(res, assets, path.slice("/assets/".length));
 
     const who = await authenticate(req);
     const user = who?.id;
     if (path === "/") {
       if (!user) return redirect(res, `/login?next=${encodeURIComponent(`${base}/`)}`);
-      return serveAsset(res, assets, "index.html", { "Cache-Control": "no-store" }, { "{{base}}": base });
+      return serveFile(res, assets, "index.html", { "Cache-Control": "no-store" }, { "{{base}}": base });
     }
-    if (!path.startsWith("/api/")) throw new HttpError(404, "not found");
+    if (!path.startsWith("/api/") && !path.startsWith("/ext/")) throw new HttpError(404, "not found");
     if (!user) throw new HttpError(401, "sign in first");
     if (method !== "GET") checkSameSite(req);
 
-    const seg = path.split("/").filter(Boolean); // ["api", ...]
+    const seg = path.split("/").filter(Boolean); // ["api", ...] or ["ext", scope, name, ...path]
+    // A package's browser files and commands. The kernel never reads `thetis.ui`; the gateway validates it here.
+    if (seg[0] === "ext") {
+      if (method !== "GET" || seg.length < 4 || !storeDir) throw new HttpError(404, "not found");
+      return serveExt(res, storeDir, await kernel.packages.list(), seg[1], seg[2], seg.slice(3));
+    }
+    if (seg[1] === "ui" && seg.length === 2 && method === "GET") return json(res, 200, storeDir ? composeUi(await kernel.packages.list(), who!.role, storeDir) : { extensions: [], refused: [] });
+    if (seg[1] === "ext" && seg.length === 5 && method === "POST") {
+      if (!storeDir || !opts.env) throw new HttpError(404, "no extensions here");
+      const ctx = { kernel, env: opts.env, store: storeDir, timeoutMs: opts.commandTimeoutMs };
+      return json(res, 200, await runCommand(ctx, who!, seg[2], seg[3], seg[4], await readJson(req)));
+    }
     if (seg[1] === "me" && method === "GET") return json(res, 200, { user, role: who!.role });
     if (seg[1] === "events" && method === "GET") return stream(req, res, user);
     if (seg[1] === "models" && seg.length === 2 && method === "GET") return json(res, 200, await kernel.models());
@@ -267,22 +287,6 @@ function cookies(req: IncomingMessage): Record<string, string> {
 function checkSameSite(req: IncomingMessage): void {
   const site = req.headers["sec-fetch-site"];
   if (site && site !== "same-origin" && site !== "none") throw new HttpError(403, "cross-site request refused");
-}
-
-/** Serves one static file. `fill` substitutes placeholders in an HTML page, which is how the page learns its base path. */
-function serveAsset(res: ServerResponse, root: string, name: string, extra: Record<string, string> = {}, fill: Record<string, string> = {}): void {
-  const file = resolve(root, name);
-  if (!file.startsWith(root + sep) || !existsSync(file) || !statSync(file).isFile()) throw new HttpError(404, "not found");
-  const type = TYPES[extname(file)];
-  if (!type) throw new HttpError(404, "not found");
-  if (type.startsWith("text/html")) res.setHeader("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'");
-  res.writeHead(200, { "Content-Type": type, "Cache-Control": "no-cache", ...extra });
-  let body: Buffer | string = readFileSync(file);
-  if (Object.keys(fill).length) {
-    body = body.toString("utf8");
-    for (const [k, v] of Object.entries(fill)) body = body.split(k).join(v);
-  }
-  res.end(body);
 }
 
 export type { Message };

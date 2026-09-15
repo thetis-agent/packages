@@ -11,6 +11,7 @@ export { createGateway, type GatewayOptions, type SessionSummary } from "./serve
 export { GatewayStore, ArchiveStore } from "./store.js";
 export { TurnHub, type TurnMessage, type RunningTurn } from "./turns.js";
 export { clientFromRpc } from "./client.js";
+export { composeUi, validateUi, type UiExtension, type UiRefusal, type UiSpec } from "./ui.js";
 
 export const SOCKET = "web.sock";
 

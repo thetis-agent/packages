@@ -5,6 +5,9 @@
  * just validation, not JSON decoding. Answers go back through the same send
  * path as the composer — a plain user message — so the log stays replay-safe:
  * nothing about the form itself needs to be remembered, only the text it sent.
+ * Installed through the built-in `ext` as a transcript renderer: the form stands
+ * in for the tool card, and its result is not shown, because the form already
+ * says everything the result would.
  */
 
 import { el, clear } from "../lib/dom.js";
@@ -188,42 +191,35 @@ export function askCard(ask, { onAnswer, answered = false } = {}) {
   return card;
 }
 
+const ASK_TOOL = "ask_user";
+
+/** Locks a card: it becomes a record of what was asked, not a control. */
+function lockCard(card) {
+  if (card.classList.contains("is-answered")) return;
+  card.classList.add("is-answered");
+  card.querySelectorAll("input, textarea, button").forEach((n) => { n.disabled = true; });
+  const foot = card.querySelector(".ask-foot");
+  if (foot) clear(foot).append(el("div", { class: "ask-note" }, "Answered."));
+}
+
 /**
- * Tracks the ask cards still open in a transcript, so a later user message can
- * lock them all. Kept here rather than in transcript.js: everything that knows
- * the card's internal DOM shape (the `.ask-foot`, the disable-everything sweep)
- * belongs next to the code that built that shape.
+ * Registers the ask form as a transcript renderer. An `ask_user` call whose arguments read as questions
+ * is drawn as the form; a malformed call declines, so the ordinary tool card shows it rather than
+ * dropping it. The form's result event is swallowed when the form was drawn. A later user message in
+ * the same conversation, live or on replay, locks the form (`ctx.whenAnswered`).
  */
-export function createAskTracker() {
-  let open = [];
-
-  function lockAll() {
-    for (const card of open) {
-      if (card.classList.contains("is-answered")) continue;
-      card.classList.add("is-answered");
-      card.querySelectorAll("input, textarea, button").forEach((n) => { n.disabled = true; });
-      const foot = card.querySelector(".ask-foot");
-      if (foot) clear(foot).append(el("div", { class: "ask-note" }, "Answered."));
+export function installAsk(ext) {
+  const drawn = new Set(); // call ids drawn as a form, per page
+  ext.transcript((event, ctx) => {
+    if (event.type === "tool.call" && event.call?.name === ASK_TOOL) {
+      const ask = parseAsk(event.call.args);
+      if (!ask) return null;
+      const card = askCard(ask, { onAnswer: (text) => void ext.conversation.send(text) });
+      drawn.add(`${ctx.session}:${event.call.id}`);
+      ctx.whenAnswered(() => lockCard(card));
+      return card;
     }
-    open = [];
-  }
-
-  /* Draws an ask_user call as a form via `place`. Returns false when the arguments
-   * cannot be read, so the caller falls back to its ordinary tool row — a malformed
-   * call should still be visible, not silently dropped. */
-  function draw(call, { place, onAnswer }) {
-    const ask = parseAsk(call.args);
-    if (!ask) return false;
-    const card = askCard(ask, {
-      onAnswer: (text) => {
-        open = open.filter((c) => c !== card);
-        onAnswer?.(text);
-      },
-    });
-    place(card);
-    open.push(card);
-    return true;
-  }
-
-  return { draw, lockAll, reset: () => { open = []; } };
+    if (event.type === "tool.result" && event.name === ASK_TOOL) return drawn.has(`${ctx.session}:${event.id}`) ? true : null;
+    return null;
+  });
 }

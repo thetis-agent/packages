@@ -29,6 +29,8 @@
       </button>
     </header>
 
+    <div id="sidebar-head" class="sidebar-slot"></div>
+
     <div class="sidebar-search">
       <svg viewBox="0 0 20 20" aria-hidden="true">
         <circle cx="8.5" cy="8.5" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/>
@@ -47,6 +49,7 @@
         <span id="status" class="status is-offline">connecting</span>
       </div>
       <div class="foot-row foot-actions">
+        <div id="sidebar-places" class="sidebar-places"></div>
         <form id="logout" method="post" action="/logout">
           <button type="submit" class="quiet-link foot-action" title="Sign out of this account on this browser">
             <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -60,26 +63,31 @@
   </aside>
 
   <main class="main">
-    <div class="chat-bar">
+    <nav id="tabs" class="tabs" role="tablist" aria-label="Open conversations">
       <button id="toggle-sidebar" class="icon-btn sm chat-menu" title="Conversations" aria-label="Show conversations" aria-expanded="false">
         <svg viewBox="0 0 20 20" aria-hidden="true">
           <path d="M4 6h12M4 10h12M4 14h12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
         </svg>
       </button>
-      <button type="button" id="chat-title" class="chat-title" title="Rename this conversation"></button>
-      <span id="chat-state" class="chat-state" hidden></span>
-      <span class="chat-bar-gap"></span>
-      <button type="button" id="chip-model" class="chip-quiet mono" hidden></button>
-      <button type="button" id="chip-todo" class="chip-quiet mono" title="This conversation's todo plan" hidden></button>
-      <span id="chip-spend" class="chip-quiet mono" hidden></span>
-      <button type="button" id="archive-chat" class="icon-btn sm" title="Archive this conversation" aria-label="Archive this conversation" hidden>
+      <button id="new-tab" class="icon-btn sm" title="New conversation" aria-label="New conversation">
         <svg viewBox="0 0 20 20" aria-hidden="true">
-          <path d="M3.5 5.5h13v2.5h-13zM4.5 8v7.5h11V8M8 11h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
         </svg>
       </button>
-    </div>
+    </nav>
 
-    <div id="transcript" class="transcript" tabindex="0"></div>
+    <div id="panes" class="panes"></div>
+
+    <div id="shelf" class="shelf" hidden>
+      <div class="shelf-grip" role="separator" aria-orientation="horizontal" aria-label="Resize"></div>
+      <div class="shelf-head">
+        <span class="shelf-title"></span>
+        <button type="button" class="icon-btn sm shelf-close" title="Close" aria-label="Close the shelf">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5l-10 10" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="shelf-body"></div>
+    </div>
 
     <div class="composer-wrap">
       <form id="composer" class="composer" autocomplete="off">
@@ -108,7 +116,39 @@
     </div>
   </main>
 
+  <aside id="rail" class="rail" hidden>
+    <nav id="rail-tabs" class="rail-tabs" aria-label="Panels"></nav>
+  </aside>
+
+  <section id="dock" class="dock" aria-label="Panel" hidden>
+    <div class="panel-head">
+      <div class="panel-head-text">
+        <h2 class="panel-title"></h2>
+        <span class="panel-sub"></span>
+      </div>
+      <div class="panel-actions"></div>
+      <button type="button" class="icon-btn sm panel-close" title="Close (Esc)" aria-label="Close the panel">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5l-10 10" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="panel-body"></div>
+  </section>
+
+  <section id="place" class="place" aria-label="Place" hidden>
+    <div class="place-head">
+      <div class="place-head-text">
+        <h1 class="place-title"></h1>
+        <span class="place-sub"></span>
+      </div>
+      <button type="button" class="icon-btn place-close" title="Close (Esc)" aria-label="Close and return to the conversation">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5l-10 10" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="place-body"></div>
+  </section>
+
 </div>
+<footer id="statusbar" class="statusbar" hidden></footer>
 <div id="sidebar-veil" class="sidebar-veil" hidden></div>
 <script type="module" src="assets/app.js"></script>
 </body>

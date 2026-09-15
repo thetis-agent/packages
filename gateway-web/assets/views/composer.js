@@ -1,10 +1,14 @@
 /* The composer: the text box, the model pill, the send button, and the stop button that appears while a
- * turn runs. The pill lists what the person's providers serve; the choice is kept per conversation. */
+ * turn runs. The pill lists what the person's providers serve; the choice is kept per conversation.
+ * One composer for the page: it follows the active tab through `store.current`. The tools row holds one
+ * root per declared `composer` slot entry (the model picker is the built-in one, mounted through
+ * `mountModelPicker`), so a package's picker sits beside the model's. */
 
 import { shortModel } from "../lib/activity.js";
 import { api } from "../lib/api.js";
-import { $, setHidden } from "../lib/dom.js";
+import { $, el, setHidden } from "../lib/dom.js";
 import { Picker } from "../lib/picker.js";
+import * as registry from "../lib/registry.js";
 import { store } from "../lib/store.js";
 import { toast } from "../lib/toast.js";
 
@@ -52,7 +56,27 @@ export function mountComposer({ onSend, onStop, onModel }) {
     },
     onSelect: (model) => onModel(store.get("current"), model),
   });
-  tools.append(picker.node);
+
+  // ---- the composer slots: one root per declared entry, mounted once the package registers ----
+
+  const mounted = new Set();
+  function drawSlots() {
+    for (const entry of registry.entries("composer")) {
+      let root = tools.querySelector(`[data-slot="${CSS.escape(entry.key)}"]`);
+      if (!root) {
+        root = el("div", { class: "composer-slot", "data-slot": entry.key });
+        tools.append(root);
+      }
+      if (mounted.has(entry.key) || !entry.impl?.mount) continue;
+      mounted.add(entry.key);
+      const out = registry.guard(entry.package, "composer", entry.impl.mount, root);
+      if (!out.ok) root.append(registry.broken(entry.package));
+    }
+  }
+  registry.watch((change) => {
+    if (change.kind === "declare" || (change.kind === "register" && change.slot === "composer")) drawSlots();
+  });
+  drawSlots();
 
   let loading = null;
   function loadChoices() {
@@ -134,6 +158,10 @@ export function mountComposer({ onSend, onStop, onModel }) {
       draw();
     },
     loadChoices,
+    /** The built-in `composer` entry: the model picker goes into the root the slot gives it. */
+    mountModelPicker: (root) => { root.append(picker.node); },
+    /** Opens the pill's list, for the model chip in the chat bar. */
+    openModelPicker: () => { loadChoices(); picker.show(); },
   };
 }
 

@@ -2,7 +2,7 @@
 // a service, a provider, and an enumerator. The userspace agent builds these; package authors implement them.
 import type { ModelChoices, ModelDescriptor, ProviderCall, ProviderEvent } from "./messages.js";
 import type { DeletedPackage, PackageInfo } from "./packages.js";
-import type { AuthUser, SessionInfo, SessionRecord, SessionSummaryRef } from "./identity.js";
+import type { AuthUser, SessionInfo, SessionRecord, SessionSummaryRef, UserRole } from "./identity.js";
 import type { StepContext, StepResult, TurnEvent, TurnOptions } from "./pipeline.js";
 
 export interface PackageQuery {
@@ -77,6 +77,17 @@ export interface ToolEnv extends StepEnv {
 }
 
 export type Tool = (args: Record<string, unknown>, env: ToolEnv) => Promise<string | object>;
+
+/** What a UI command handler receives: the fence environment, who asked, and which conversation is on screen. */
+export interface UiCommandEnv extends StepEnv {
+  user: string;
+  role: UserRole;
+  /** The session the page named, already checked to be the person's own. */
+  session?: string;
+}
+export type UiCommandResult = { text?: string; data?: unknown } | string | void;
+/** The export a `ui.commands[]` entry names. The web gateway calls it when the package's own page asks. */
+export type UiCommand = (args: Record<string, unknown>, env: UiCommandEnv) => Promise<UiCommandResult>;
 
 export interface ServiceEnv extends StepEnv {
   config: Record<string, unknown>;

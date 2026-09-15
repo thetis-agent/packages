@@ -1,5 +1,6 @@
 // Packages: the manifest a package ships, what an installed package looks like, and the registry record.
 import type { BenchDecl } from "./bench.js";
+import type { UserRole } from "./identity.js";
 import type { JsonSchema } from "./messages.js";
 
 export const SYSTEM_SCOPE = "@thetis";
@@ -28,6 +29,53 @@ export interface PackageSource {
   ref: string;
 }
 
+/** One entry of a UI slot a package fills. `id` is unique per slot per package. */
+export interface UiEntryDecl {
+  id: string;
+  label?: string;
+  /** SVG path data for a 20×20 viewBox, stroke-drawn like the shell's own icons. Dock and place entries. */
+  icon?: string;
+  hint?: string;
+  /** Dock only: 620px instead of 360px. */
+  wide?: boolean;
+  /** Panel only: the sentence under the section title. */
+  note?: string;
+  /** The least role that may see it. Default: any signed-in person. */
+  role?: UserRole;
+  /** Sort key among every package's entries of the same slot. Default 100. Ties keep install order. */
+  order?: number;
+}
+
+export interface UiCommandDecl {
+  /** ^[a-z][a-z0-9_-]{0,31}$ */
+  verb: string;
+  /** The function export of the package's `main`. */
+  export: string;
+  label?: string;
+  /** The least role that may send it. Default: any signed-in person. */
+  role?: UserRole;
+}
+
+/** What a package contributes to the web gateway's page. Read by @thetis/gateway-web; the kernel never reads it. */
+export interface UiDecl {
+  /** Browser files, relative to the package root. Default "ui". Served at /<user>/ext/<package>/<path>. */
+  dir?: string;
+  /** ES module the shell imports after mounting, relative to `dir`. Its default export is `install(ext)`. */
+  entry?: string;
+  /** Stylesheet the shell links once, relative to `dir`. */
+  style?: string;
+  dock?: UiEntryDecl[];
+  panel?: UiEntryDecl[];
+  places?: UiEntryDecl[];
+  /** Today only { id: "head" }: a slot at the top of the sidebar, under the brand. */
+  sidebar?: UiEntryDecl[];
+  chips?: UiEntryDecl[];
+  composer?: UiEntryDecl[];
+  shelf?: UiEntryDecl[];
+  statusbar?: UiEntryDecl[];
+  commands?: UiCommandDecl[];
+}
+
 export interface ThetisField {
   type: string;
   steps?: StepDecl[];
@@ -40,6 +88,8 @@ export interface ThetisField {
   forkedFrom?: ForkOrigin;
   /** Opts the package into bench suites. Read by @thetis/bench on the host; the kernel never reads it. */
   bench?: BenchDecl;
+  /** What the package adds to the web gateway's page. Read by @thetis/gateway-web; the kernel never reads it. */
+  ui?: UiDecl;
 }
 
 export interface Manifest {

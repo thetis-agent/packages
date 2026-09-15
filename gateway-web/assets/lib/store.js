@@ -3,7 +3,9 @@
 const state = {
   user: null,          // { user, role }
   sessions: [],        // SessionSummary[] from the server
-  current: null,       // open session id
+  current: null,       // the active tab's session id
+  tabs: [],            // open session ids, in tab order
+  sessionFilter: null, // a package's narrowing of the sidebar list: (session) => boolean, or null
   running: new Set(),  // session ids with a turn in progress
   pending: new Set(),  // session ids with a send awaiting the server's 202
   activity: new Map(), // session id -> { state, step, tool, since, steps, cost, outcome }
@@ -11,8 +13,6 @@ const state = {
   choices: null,       // { model, models } from /api/models, once loaded
   creating: false,
   connection: "connecting", // connecting | online | offline
-  panel: null,         // the open control panel section, or null
-  panelRole: null,     // the role the server reported for the panel
 };
 
 const watchers = new Map();

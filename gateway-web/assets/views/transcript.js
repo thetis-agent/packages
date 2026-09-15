@@ -1,29 +1,53 @@
 /* One conversation's transcript. Draws saved messages and applies live turn events on top:
  * `text` grows a live bubble under a caret, `tool.call` opens a card that `tool.result` fills and settles,
  * `message` settles the bubble into rendered markdown with a usage footnote, `error` becomes a note.
- * Consecutive tool cards sit in one run with a count, so a long stretch of calls reads as one thing. */
+ * Consecutive tool cards sit in one run with a count, so a long stretch of calls reads as one thing.
+ * One instance per pane: `mountTranscript(root, { session })` knows which conversation it draws, so a
+ * background tab keeps drawing its own events. Tool rows are offered to the registered transcript
+ * renderers first (the ask form and the plan lines live there); the tool card is the fall-through. */
 
 import { fmtDuration } from "../lib/activity.js";
 import { avatarFor } from "../lib/avatar.js";
 import { clear, el, icon } from "../lib/dom.js";
 import { gist, usageLine } from "../lib/transcript-format.js";
 import { renderMarkdown } from "../lib/markdown.js";
+import { renderTranscript } from "../lib/registry.js";
 import { store } from "../lib/store.js";
-import { createAskTracker } from "./ask.js";
-import { isTodoTool, lastPlanText, parsePlan, planLine } from "./plan.js";
 
 const RESULT_PREVIEW = 4000;
 const RUN_FOLD = 4; // a restored run of more tool calls than this starts folded
 const DOWN = ["M5 8l5 5 5-5"];
-const ASK_TOOL = "ask_user";
 
-export function mountTranscript(root, { onNew, onAnswer }) {
+/** The brand mark, for empty states. */
+export function mark() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 32 32");
+  const ring = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  for (const [k, v] of Object.entries({ cx: 16, cy: 16, r: 9, fill: "none", stroke: "currentColor", "stroke-width": 2.5 })) ring.setAttribute(k, v);
+  const core = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  for (const [k, v] of Object.entries({ cx: 16, cy: 16, r: 3, fill: "currentColor" })) core.setAttribute(k, v);
+  svg.append(ring, core);
+  return svg;
+}
+
+/** The empty state: "none" when no conversation is open (with a way to start one), "empty" for a conversation with no messages. */
+export function emptyState(kind, onNew) {
+  return el(
+    "div",
+    { class: "transcript-empty" },
+    el("span", { class: "empty-mark", "aria-hidden": "true" }, mark()),
+    kind === "none"
+      ? [el("span", {}, "No conversation open."), el("button", { type: "button", class: "ghost-btn is-primary", onClick: () => onNew?.() }, "Start a conversation")]
+      : el("span", {}, "No messages yet — say something to start.")
+  );
+}
+
+export function mountTranscript(root, { session }) {
   let live = null;        // { node, textEl, text }
   let settled = null;     // the last settled bubble: { node, text }, so the message event can add its usage
   let pendingRow = null;  // the reader's own message awaiting the server's echo
   let run = null;         // the open run of tool cards, or null
-  const asks = createAskTracker(); // ask_user forms drawn in place of a tool card
-  const todoArgs = new Map(); // todo_* call id -> its args, held from tool.call to tool.result
+  let answered = [];      // renderer hooks waiting for the next user message (an ask form locks itself)
   let follow = true;
   const jump = el("button", { type: "button", class: "jump-latest", title: "Jump to the latest message", onClick: () => { follow = true; root.scrollTop = root.scrollHeight; draw(); } }, icon(DOWN, { size: 14, width: 2 }), "Latest");
   jump.hidden = true;
@@ -56,35 +80,14 @@ export function mountTranscript(root, { onNew, onAnswer }) {
     settled = null;
     pendingRow = null;
     run = null;
-    asks.reset();
-    todoArgs.clear();
+    answered = [];
     follow = true;
     draw();
   }
 
-  function showEmpty(kind) {
+  function showEmpty() {
     reset();
-    root.append(
-      el(
-        "div",
-        { class: "transcript-empty" },
-        el("span", { class: "empty-mark", "aria-hidden": "true" }, mark()),
-        kind === "none"
-          ? [el("span", {}, "No conversation open."), el("button", { type: "button", class: "ghost-btn is-primary", onClick: () => onNew() }, "Start a conversation")]
-          : el("span", {}, "No messages yet — say something to start.")
-      )
-    );
-  }
-
-  function mark() {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 32 32");
-    const ring = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    for (const [k, v] of Object.entries({ cx: 16, cy: 16, r: 9, fill: "none", stroke: "currentColor", "stroke-width": 2.5 })) ring.setAttribute(k, v);
-    const core = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    for (const [k, v] of Object.entries({ cx: 16, cy: 16, r: 3, fill: "currentColor" })) core.setAttribute(k, v);
-    svg.append(ring, core);
-    return svg;
+    root.append(emptyState("empty"));
   }
 
   function face(kind) {
@@ -99,7 +102,9 @@ export function mountTranscript(root, { onNew, onAnswer }) {
 
   function userRow(text) {
     // Whatever was asked has now been replied to, one way or another — live or on replay.
-    asks.lockAll();
+    const hooks = answered;
+    answered = [];
+    for (const fn of hooks) fn();
     return row("user", el("div", { class: "msg-text" }, text));
   }
 
@@ -109,15 +114,16 @@ export function mountTranscript(root, { onNew, onAnswer }) {
     return node;
   }
 
-  // ---- the todo plan: one quiet line per todo_* call, the chip and its popover say the rest ----
+  // ---- registered renderers: a tool row a package draws instead of the card ----
 
-  /** A todo_* result updates the page's plan for the open session and draws its one-line note. */
-  function todoResultRow(id, name, result) {
-    const plan = parsePlan(result);
-    if (plan) store.setPlan(store.get("current"), plan);
-    const args = todoArgs.get(id) || {};
-    todoArgs.delete(id);
-    if (plan) note(planLine(name, args, plan), "quiet");
+  /** Offers a tool event to the renderers. True when one took it (and drew, or chose not to). */
+  function rendered(event, restored) {
+    const ctx = { session, el, icon, markdown: renderMarkdown, restored, whenAnswered: (fn) => answered.push(fn) };
+    const out = renderTranscript(event, ctx);
+    if (!out) return false;
+    run = null; // a renderer's row is message-level, like a bubble, not part of a tool run
+    if (out instanceof Node) place(out);
+    return true;
   }
 
   function openLive() {
@@ -148,9 +154,9 @@ export function mountTranscript(root, { onNew, onAnswer }) {
     row("assistant", textEl, usageLine(usage, model));
   }
 
-  /** The model the open conversation answers with, for the footnote of a live reply. */
+  /** The model this conversation answers with, for the footnote of a live reply. */
   function liveModel() {
-    return store.modelFor(store.get("current"));
+    return store.modelFor(session);
   }
 
   /**
@@ -226,12 +232,6 @@ export function mountTranscript(root, { onNew, onAnswer }) {
     return node;
   }
 
-  /** Draws an ask_user call as a form; false means the caller should fall back to a tool card. */
-  function askRow(call) {
-    run = null; // the ask card is a message-level row, like a chat bubble, not part of a tool run
-    return asks.draw(call, { place, onAnswer });
-  }
-
   function toolResult(id, name, result) {
     const failed = /^error:/i.test(result || "");
     const card = id ? root.querySelector(`details.tool[data-tool="${cssEscape(id)}"]`) : null;
@@ -289,17 +289,13 @@ export function mountTranscript(root, { onNew, onAnswer }) {
     if (message.role === "assistant") {
       assistantRow(message.content || "", usage);
       for (const call of message.toolCalls ?? []) {
-        if (call.name === ASK_TOOL && askRow(call)) continue;
-        if (isTodoTool(call.name)) { todoArgs.set(call.id, call.args || {}); continue; }
+        if (rendered({ type: "tool.call", call }, true)) continue;
         toolCard(call, false, true);
       }
       return;
     }
     if (message.role === "tool") {
-      // The ask form already says everything the result would; the result itself
-      // (the fixed "questions recorded" text) is not something a reader needs to see.
-      if (message.name === ASK_TOOL && !root.querySelector(`details.tool[data-tool="${cssEscape(message.toolCallId)}"]`)) return;
-      if (isTodoTool(message.name)) return todoResultRow(message.toolCallId, message.name, message.content);
+      if (rendered({ type: "tool.result", id: message.toolCallId, name: message.name, result: message.content }, true)) return;
       return toolResult(message.toolCallId, message.name, message.content);
     }
     if (message.content) note(message.content);
@@ -321,19 +317,11 @@ export function mountTranscript(root, { onNew, onAnswer }) {
       }
       case "tool.call":
         settleLive();
-        // The form stands in for the tool row entirely; showing both would put
-        // the same questions on screen twice, once as raw JSON.
-        if (event.call?.name === ASK_TOOL && askRow(event.call)) break;
-        // A todo_* call draws no card at all; its result draws the one quiet line.
-        if (isTodoTool(event.call?.name)) { run = null; todoArgs.set(event.call.id, event.call.args || {}); break; }
+        if (rendered(event, false)) break;
         toolCard(event.call, true);
         break;
       case "tool.result":
-        // The card already said everything the result would; skip it unless the
-        // call somehow never got its own row (a malformed call fell through to
-        // the ordinary tool card, which does want its result shown).
-        if (event.name === ASK_TOOL && !root.querySelector(`details.tool[data-tool="${cssEscape(event.id)}"]`)) break;
-        if (isTodoTool(event.name)) { todoResultRow(event.id, event.name, event.result); break; }
+        if (rendered(event, false)) break;
         toolResult(event.id, event.name, event.result);
         break;
       case "message":
@@ -357,15 +345,9 @@ export function mountTranscript(root, { onNew, onAnswer }) {
     }
   }
 
-  function seedPlan(record) {
-    const text = lastPlanText(record);
-    store.setPlan(store.get("current"), text ? parsePlan(text) : null);
-  }
-
   /** Rebuilds from a session record, including the turn in progress if there is one. */
   function restore(record) {
     reset();
-    seedPlan(record);
     (record.conversation ?? []).forEach((message, index) => drawMessage(message, record.usage?.[index]));
     settleTools("no result");
     run = null;
@@ -373,17 +355,21 @@ export function mountTranscript(root, { onNew, onAnswer }) {
       userRow(record.turn.input);
       for (const { event } of record.turn.events ?? []) applyEvent(event);
     }
-    if (!root.childElementCount) showEmpty("empty");
+    if (!root.childElementCount) showEmpty();
     root.scrollTop = root.scrollHeight;
     follow = true;
     draw();
   }
 
-  showEmpty("none");
-  return { reset, showEmpty, restore, applyEvent, addLocal, settleLocal, failLocal };
+  /** After the pane comes back into view: keep following the newest message if we were. */
+  function shown() {
+    if (follow) root.scrollTop = root.scrollHeight;
+    draw();
+  }
+
+  showEmpty();
+  return { reset, showEmpty, restore, applyEvent, addLocal, settleLocal, failLocal, shown };
 }
-
-
 
 function cssEscape(value) {
   return String(value).replace(/["\\]/g, "\\$&");
