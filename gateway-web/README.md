@@ -1,0 +1,93 @@
+# @thetis/gateway-web
+
+The browser interface of one person: the conversation list, the transcript, the composer, the control panel, and the seam through which installed packages add to the page. It is a `service` package. `thetis serve` starts one copy inside each person's own fence. The copy listens on a unix socket, `run/web.sock` in that person's userspace, and the door on the host routes `/<person>/` to it. It holds that person's authority and nobody else's: it reaches the kernel through the fence's RPC as that person and checks the login cookie with the kernel on every request. Signing in is not here; `@thetis/gateway-login` in the system userspace exchanges a password for the cookie.
+
+## What it provides
+
+The manifest declares `type: "gateway"`, a `service` whose export is `startService`, and `publish: [{ port: 8777, to: "host" }]`. There is no configuration. The person served comes from `THETIS_USER`.
+
+### Routes
+
+All relative to `/<user>`. Every `/api/*` and `/ext/*` route needs the cookie; a non-GET request must be same-site.
+
+| Method and path | Effect |
+|---|---|
+| `GET /` | The app page. Redirects to `/login` without a valid cookie. |
+| `GET /assets/<file>` | The gateway's own browser files. |
+| `GET /api/me` | `{ user, role }`. |
+| `GET /api/sessions`, `POST /api/sessions` | The person's conversations, newest first; create one. |
+| `GET /api/sessions/<id>` | The record with `status`, `archived`, `turn`, `usage`, `model` and `title`. |
+| `POST /api/sessions/<id>/send`, `/cancel`, `/archive`, `/model`, `/title` | Start a turn, stop it, archive or restore, choose the model, name the conversation. |
+| `GET /api/models` | The default model and the models the person's providers serve. |
+| `GET /api/events` | The Server-Sent Events stream: every turn event of the person, opened with a snapshot of the turns in progress. |
+| `GET /api/panel`, `GET` and `POST /api/packages`, `DELETE /api/packages/<name>` | The built-in Packages section of the control panel. |
+| `GET /api/ui` | What installed packages add to the page, for the person's role. |
+| `GET /ext/<scope>/<name>/<path>` | A browser file of an installed package, from under its declared `dir`. |
+| `POST /api/ext/<scope>/<name>/<verb>` | A command an installed package declared. Body `{ session?, args? }`. |
+
+### The `thetis.ui` contract
+
+A package declares `ui` inside the `thetis` field of its manifest. The kernel never reads the field. The gateway reads it from `kernel.packages.list()` on each request and does four things:
+
+- serves the package's browser files at `ext/<package>/…`, only from under the declared `dir`, and only `.js`, `.css`, `.svg`, `.json` and `.md`;
+- composes `api/ui`: one entry per package with a valid declaration, in install order, with the entries and verbs above the person's role left out and the hidden entries named;
+- has the page import the declared `entry` and call its default export, `install(ext)`;
+- forwards a declared verb to the named export of the package's `main`, after checking that the package declares the verb, that the person's role clears the command's `role`, and that `session`, when named, is one of the person's own. The export runs inside the person's fence as `(args, env)`, where `env` is the fence environment plus `user`, `role` and `session`. A string answer becomes `{ text }`, an object `{ text?, data? }`, a thrown error `400 { error }`.
+
+A bad declaration refuses that package by name; the rest still composes. A `dock`, `places`, `sidebar`, `chips`, `composer`, `shelf` or `statusbar` id belongs to the first installed package that declares it. Panel ids are namespaced by package.
+
+A minimal manifest, from `@thetis/ui-context`:
+
+```json
+"thetis": {
+  "type": "ui",
+  "ui": {
+    "dir": "ui",
+    "entry": "index.js",
+    "style": "index.css",
+    "dock": [
+      { "id": "context", "label": "Context", "icon": "M7.5 4 3.5 10l4 6 M12.5 4l4 6-4 6", "hint": "What the model received on the last call", "wide": true }
+    ],
+    "commands": [ { "verb": "context", "export": "uiContext" } ]
+  }
+}
+```
+
+A minimal `ui/index.js`, from `@thetis/ui-marketplace`:
+
+```js
+import { openGallery } from "./gallery.js";
+import { openPage } from "./page.js";
+
+export default function install(ext) {
+  ext.place("marketplace", {
+    open: (root, params) => (typeof params?.name === "string" && params.name ? openPage(ext, root, params) : openGallery(ext, root)),
+  });
+}
+```
+
+`ext` is bound to the one package. It offers a registration function per slot (`dock`, `panel`, `place`, `sidebar`, `chip`, `composer`, `shelf`, `statusbar`), `transcript` for a renderer, `request(verb, { session, args })` for the package's own verbs, and the shell's `dom`, `ui`, `markdown`, `conversation`, `events`, `redraw` and `open`.
+
+## Use
+
+A person opens `/login`, signs in, and lands on `/<person>/`. The sidebar lists their conversations grouped by day, with a search box, a `+` button, and the footer links **Control panel**, **Marketplace** (when `@thetis/ui-marketplace` is installed) and **Log out**. The composer sends on Enter; the model pill chooses a model per conversation. The transcript streams the reply, folds tool calls into runs, and puts a footnote with the model, cache share, tokens and cost under each reply. The rail holds one button per registered dock. The control panel takes over the main pane; Escape or its close button returns to the conversation. Its Packages section is built in; every other section, dock, place and chip comes from an installed package.
+
+## Files
+
+| File | Content |
+|---|---|
+| `src/index.ts` | `startService(env)`: listens on `run/web.sock`, returns `{ stop }`. |
+| `src/server.ts` | `createGateway(kernel, store, options)`: the routes, the cookie check, the event stream. |
+| `src/ui.ts` | `validateUi`, `composeUi`, `serveExt`, `runCommand`: the extension seam. |
+| `src/panel.ts`, `src/http.ts` | The Packages routes and the HTTP helpers. |
+| `src/static.ts` | `serveFile` and the table of file types the page may load. |
+| `src/turns.ts` | `TurnHub`: runs turns in the background and feeds the event streams. |
+| `src/store.ts` | `GatewayStore`: archive flags, names, chosen models and per-reply usage, in `home/gateway-web/state.json`. |
+| `src/client.ts` | `clientFromRpc(rpc)`: a `KernelClient` over a raw RPC function. |
+| `assets/` | The browser code: plain ES modules, no build step. `lib/ext.js` is the browser side of the seam. |
+
+## Tests
+
+`npm test` from the runtime root builds the package and runs `test/gateway.test.ts` (a real kernel, one gateway per person behind the login target and the door) and `test/ui.test.ts` (the seam, with the fixtures `ui-good`, `ui-bad` and `ui-dup`). The browser code has no automated test; the checklist is `packages/gateway-web/test/BROWSER.md`.
+
+See docs/15-web-gateway.md in the runtime repository.
