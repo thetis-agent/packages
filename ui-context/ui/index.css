@@ -1,0 +1,17 @@
+/* The Context dock. Everything is scoped under .ui-context; tokens come from the shell's theme.css. */
+
+.ui-context { display: flex; flex-direction: column; gap: var(--gap-3); height: 100%; min-height: 0; }
+
+.ui-context-tabs { display: inline-flex; align-self: flex-start; gap: 2px; padding: 2px; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface-2); }
+.ui-context-tab { appearance: none; border: 0; background: transparent; color: var(--text-dim); font: inherit; font-size: var(--text-sm); font-weight: 500; padding: 4px 12px; border-radius: var(--r-sm); cursor: pointer; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
+.ui-context-tab:hover { color: var(--text); }
+.ui-context-tab.is-active { background: var(--surface-1); color: var(--text); box-shadow: var(--shadow-sm); }
+
+.ui-context-pane { display: flex; flex-direction: column; gap: var(--gap-3); min-height: 0; }
+.ui-context-pane.is-prompt { flex: 1 1 auto; }
+
+.ui-context-prompt { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--gap-3) var(--gap-4); border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface-2); font-size: var(--text-sm); line-height: var(--leading); overflow-wrap: anywhere; }
+.ui-context-prompt > :last-child { margin-bottom: 0; }
+
+.ui-context-note { margin: 0; padding: var(--gap-2) 0; color: var(--text-faint); font-size: var(--text-sm); }
+.ui-context-note.is-error { color: var(--err); }

@@ -1,0 +1,31 @@
+{
+  "name": "@thetis/ui-context",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "A Context dock for the web gateway: what the model received on the last call of the open conversation.",
+  "type": "module",
+  "main": "index.js",
+  "thetis": {
+    "type": "ui",
+    "ui": {
+      "dir": "ui",
+      "entry": "index.js",
+      "style": "index.css",
+      "dock": [
+        {
+          "id": "context",
+          "label": "Context",
+          "icon": "M7.5 4 3.5 10l4 6 M12.5 4l4 6-4 6",
+          "hint": "What the model received on the last call",
+          "wide": true
+        }
+      ],
+      "commands": [
+        {
+          "verb": "context",
+          "export": "uiContext"
+        }
+      ]
+    }
+  }
+}
