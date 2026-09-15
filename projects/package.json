@@ -1,0 +1,41 @@
+{
+  "name": "@thetis/projects",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Named workspaces: zero or more project directories, standing instructions, and a per-project set of tools, chosen from a switcher in the web gateway's sidebar.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "thetis": {
+    "type": "loader",
+    "steps": [
+      { "id": "project-prompt", "phase": "prompt", "export": "projectPrompt" },
+      { "id": "project-tools", "phase": "call", "export": "projectTools" }
+    ],
+    "ui": {
+      "dir": "ui",
+      "entry": "index.js",
+      "style": "index.css",
+      "sidebar": [{ "id": "head" }],
+      "places": [
+        {
+          "id": "project",
+          "label": "Project",
+          "hint": "This project's directories, tools and instructions",
+          "icon": "M2.5 5.5A1.5 1.5 0 0 1 4 4h3.6L9.4 6h6.6a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 16 16H4a1.5 1.5 0 0 1-1.5-1.5v-9Z"
+        }
+      ],
+      "commands": [
+        { "verb": "list", "export": "uiList", "label": "List the projects" },
+        { "verb": "get", "export": "uiGet", "label": "Read one project" },
+        { "verb": "save", "export": "uiSave", "label": "Create or update a project" },
+        { "verb": "remove", "export": "uiRemove", "label": "Delete a project" },
+        { "verb": "assign", "export": "uiAssign", "label": "Put a conversation in a project" },
+        { "verb": "sessions", "export": "uiSessions", "label": "List a project's conversations" },
+        { "verb": "mounts", "export": "uiMounts", "label": "List the mounts of this fence" }
+      ]
+    }
+  }
+}
