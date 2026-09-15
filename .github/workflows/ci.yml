@@ -1,0 +1,69 @@
+# These packages are a submodule of thetis-agent/runtime and cannot be built alone: the build, the tests and
+# the benchmarks all live in the parent. So a push here checks out the parent, drops this commit into it, and
+# runs the parent's suite against it. Without this a change here is untested until someone bumps the pointer.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: against thetis-agent/runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out the parent
+        uses: actions/checkout@v4
+        with:
+          repository: thetis-agent/runtime
+          ref: main
+          path: runtime
+
+      - name: Put this commit where the submodule goes
+        uses: actions/checkout@v4
+        with:
+          path: runtime/packages
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: runtime/package-lock.json
+
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends bubblewrap
+
+      # `npm install`, not `npm ci`: the parent's lockfile pins the submodule commit it knows about, and a
+      # version bumped here legitimately arrives before the parent has caught up. The parent's own CI runs
+      # `npm ci` and is the one that holds the pinned state to account.
+      - run: npm install --no-audit --no-fund
+        working-directory: runtime
+
+      - run: npm run build
+        working-directory: runtime
+
+      - run: npm test
+        working-directory: runtime
+
+      - name: The benchmark reports in this commit match its code
+        working-directory: runtime
+        run: |
+          for suite in assembly-cost@1 tool-recall@1 skill-recall@1; do
+            npm run bench -- run "$suite" --write
+          done
+          if ! git -C packages diff --exit-code --stat; then
+            echo "::error::the reports committed here are not what this code produces."
+            echo "Run 'npm run bench -- run <suite> --write' for each suite and commit the result."
+            echo "If scoring changed, bump bench/package.json too: the scorer version is part of a report's digest."
+            exit 1
+          fi
+          echo "every committed report is what this code produces"
