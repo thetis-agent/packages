@@ -98,9 +98,14 @@ A project (`@thetis/projects`) switches skills off with `skills.disable` in `pro
 | `lib/rank.js` | BM25, fusion, absorb, promote, closest. |
 | `lib/fetch.js` | The tool and the slice rule. |
 | `lib/bench.js` | `importCorpus`, `claim`, the id map, `STATE`. |
+| `scripts/convert-legacy.mjs` | The converter for legacy skill trees (last section). |
 
 ## Tests
 
-`npm test` from the runtime root runs `test/frontmatter.test.js`, `test/skill.test.js`, `test/rank.test.js`, `test/load.test.js` and `test/bench.test.js`, plain `node --test` files over temporary directories.
+`npm test` from the runtime root runs `test/frontmatter.test.js`, `test/skill.test.js`, `test/rank.test.js`, `test/load.test.js`, `test/bench.test.js` and `test/convert-legacy.test.js`, plain `node --test` files over temporary directories.
 
 See docs/23-skills.md in the runtime repository.
+
+## Converting a legacy tree
+
+`scripts/convert-legacy.mjs` brings a skill tree of the legacy Rust Thetis (TOML frontmatter with `name`, `brief`, `when_to_use`, `tags`, `related`, `children`, `status`, `version`; bodies linking other skills as `[text](skill:<id>)`) into this format. `node packages/skills/scripts/convert-legacy.mjs <legacy skill dir>... --out <skills dir> [--force]` copies each tree as `<out>/<id>` with its nested skills beneath it. In every `SKILL.md` the `name` becomes the directory name (refused when it is not a skill name), the `description` is `brief` and `when_to_use` joined and, when over 1024 bytes, cut at a sentence end with a warning, `metadata.title` is the legacy name, `metadata.tags` the first 32 tags lowercased with spaces and underscores as hyphens, `metadata.related` the related ids that exist in the converted set, `metadata.universal` `"true"` only when the legacy said so, and `metadata.version` the legacy version. A `status` other than active is noted with its `superseded_by` as the first body line. The body is otherwise verbatim: a link becomes `` `<id>` `` when its text is the id or its last segment, ``text (`<id>`)`` otherwise, and a link to a skill outside the converted set becomes its text with a warning. `children` is dropped (the subdirectories are the children) and `references/`, `scripts/` and `assets/` are copied as they are. The summary counts skills, resources, links rewritten and warnings; `--force` replaces an existing `<out>/<id>`. `test/convert-legacy.test.js` runs it over a fixture tree.
