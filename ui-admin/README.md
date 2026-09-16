@@ -36,7 +36,7 @@ The role is checked three times: the page draws only what `api/ui` listed for th
 
 ## Use
 
-An admin opens the **Control panel** link in the sidebar footer and finds the five sections after Packages.
+An admin opens **Control panel** from the sidebar's ≡ menu and finds the five sections after Packages.
 
 - **People**: a table of everyone with their role, status and since when. An **Add a person** form with id, role and password. Clicking a row opens a card with **Make an admin** or **Make a user**, **Suspend** or **Activate**, **Set password** and **Remove**, each behind a confirm popover. The admin's own row shows a note instead: another admin, or the host, changes that account.
 - **Models**: the default model and the models every provider serves, with a filter. Read-only.

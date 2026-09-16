@@ -15,13 +15,12 @@
 
   <aside id="sidebar" class="sidebar">
     <header class="sidebar-head">
-      <div class="brand">
-        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
-          <circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" stroke-width="2.5"/>
-          <circle cx="16" cy="16" r="3" fill="currentColor"/>
+      <button id="menu" class="menu-btn" title="Menu" aria-label="Menu" aria-haspopup="menu" aria-expanded="false">
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <path d="M4 6h12M4 10h12M4 14h12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
         </svg>
         <span class="brand-name">Thetis</span>
-      </div>
+      </button>
       <button id="new-chat" class="icon-btn" title="New conversation" aria-label="New conversation">
         <svg viewBox="0 0 20 20" aria-hidden="true">
           <path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -49,7 +48,6 @@
         <span id="status" class="status is-offline">connecting</span>
       </div>
       <div class="foot-row foot-actions">
-        <div id="sidebar-places" class="sidebar-places"></div>
         <form id="logout" method="post" action="/logout">
           <button type="submit" class="quiet-link foot-action" title="Sign out of this account on this browser">
             <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -136,6 +134,11 @@
 
   <section id="place" class="place" aria-label="Place" hidden>
     <div class="place-head">
+      <button type="button" class="icon-btn sm chat-menu" title="Conversations" aria-label="Show conversations" aria-expanded="false">
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <path d="M4 6h12M4 10h12M4 14h12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+        </svg>
+      </button>
       <div class="place-head-text">
         <h1 class="place-title"></h1>
         <span class="place-sub"></span>

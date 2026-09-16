@@ -2,18 +2,15 @@
  * with the sidebar kept, has a header (title and subtitle from its declaration, a ✕) and a body the
  * registering package draws. Escape closes it unless a popover is open, and closing returns to the
  * tabs exactly as they were, because the panes were only hidden. The control panel is the first place;
- * a package's page and the marketplace are places too. The links in the sidebar footer are drawn from
- * the registry's `places` slot, so they exist before the package's module has loaded. */
+ * a package's page and the marketplace are places too. A place is entered from the sidebar's menu
+ * (views/menu.js), which draws the registry's `places` slot, or from a package through `ext.open.place`. */
 
-import { $, clear, el, icon, setHidden } from "../lib/dom.js";
+import { $, clear, el, setHidden } from "../lib/dom.js";
 import * as registry from "../lib/registry.js";
-
-const X = ["M5 5l10 10", "M15 5l-10 10"];
 
 export function mountPlaces() {
   const app = $("app");
   const node = $("place");
-  const links = $("sidebar-places");
   const title = node.querySelector(".place-title");
   const sub = node.querySelector(".place-sub");
   const body = node.querySelector(".place-body");
@@ -22,23 +19,7 @@ export function mountPlaces() {
   node.querySelector(".place-close").addEventListener("click", () => close());
 
   function onKey(e) {
-    if (e.key === "Escape" && !document.querySelector(".popover")) close();
-  }
-
-  function drawLinks() {
-    clear(links);
-    for (const entry of registry.entries("places")) {
-      const failed = registry.failureOf(entry.package);
-      const label = entry.decl.label || entry.id;
-      links.append(
-        el(
-          "button",
-          { type: "button", class: `quiet-link foot-action${failed ? " is-broken" : ""}${open?.key === entry.key ? " is-active" : ""}`, "data-place": entry.key, title: failed ? `${entry.package} could not load` : entry.decl.hint || label, onClick: () => show(entry.key) },
-          entry.decl.icon ? icon(entry.decl.icon, { size: 14 }) : null,
-          label
-        )
-      );
-    }
+    if (e.key === "Escape" && !document.querySelector(".popover, .menu")) close();
   }
 
   function show(key, params = {}) {
@@ -60,7 +41,6 @@ export function mountPlaces() {
     app.classList.add("is-place");
     setHidden(node, false);
     document.addEventListener("keydown", onKey);
-    drawLinks();
   }
 
   function close() {
@@ -75,15 +55,12 @@ export function mountPlaces() {
     app.classList.remove("is-place");
     setHidden(node, true);
     document.removeEventListener("keydown", onKey);
-    drawLinks();
   }
 
   registry.watch((change) => {
-    if (change.kind === "declare" || change.kind === "fail") drawLinks();
     // The module registered after the place was opened on its static entry: draw it now.
     if (change.kind === "register" && change.slot === "places" && open?.key === registry.keyOf(change.package, change.id)) show(open.key);
   });
-  drawLinks();
 
   return { open: show, close, current: () => open?.key ?? null };
 }

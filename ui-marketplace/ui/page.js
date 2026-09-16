@@ -18,7 +18,7 @@ export function openPage(ext, root, params) {
   crumbBack.addEventListener("click", () => ext.open.place("marketplace", {}));
   const crumb = el("nav", { class: "mk-crumb", "aria-label": "Where you are" }, crumbBack, el("span", { class: "mk-crumb-sep", "aria-hidden": "true" }, "›"), el("code", { class: "mk-crumb-name" }, name));
   const body = el("div", { class: "mk-page" }, el("p", { class: "panel-empty" }, "Loading…"));
-  root.append(el("div", { class: "mk-place" }, crumb, body));
+  root.append(el("div", { class: "place-page mk-place" }, crumb, body));
 
   async function load() {
     let view;

@@ -1,10 +1,12 @@
-/* The gallery: a search box, one chip per package type, a note on the index, and a card per package.
+/* The gallery: one toolbar row (a search box, one chip per package type, a note on the index) and a card per
+ * package (its name, the state badge and an update on offer, two lines of description, then version · type · registry;
+ * the fork and bench badges wait for the page).
  * Installed packages come first, then what the registries offer. The search runs on the server through
  * the `search` command, because the index and its ranking live there; the page only keeps the last query
  * so coming back from a package page shows the same list. Clicking a card re-opens the place with the
  * package's name. */
 
-import { stateBadges } from "./badges.js";
+import { stateBadge, updateBadge } from "./badges.js";
 
 /** Kept across opens: the query a person came back to. */
 const last = { q: "", type: "" };
@@ -27,7 +29,7 @@ export function openGallery(ext, root) {
   const chips = el("div", { class: "mk-chips", role: "group", "aria-label": "Package type" });
   const note = el("p", { class: "mk-note" });
   const cards = el("div", { class: "mk-cards" });
-  const page = el("div", { class: "mk-gallery" }, el("div", { class: "mk-toolbar" }, input, chips), note, cards);
+  const page = el("div", { class: "place-page mk-gallery" }, el("div", { class: "mk-toolbar" }, input, chips, note), cards);
   root.append(page);
 
   async function load() {
@@ -60,27 +62,29 @@ export function openGallery(ext, root) {
     chips.append(chip("", "All"), ...[...types].sort().map((t) => chip(t, t)));
   }
 
-  function noteText() {
+  /** The facts under the toolbar: which registries, how fresh the index is, how many packages. */
+  function drawNote() {
+    clear(note);
     const installed = rows.filter((r) => r.installed).length;
-    if (!facts.indexed) return `${installed} installed · no marketplace index yet`;
+    if (!facts.indexed) return note.append(`${installed} installed · no marketplace index yet`);
     const names = facts.registries.map((r) => r.name).join(", ") || "none";
     const failed = facts.registries.filter((r) => r.error).length;
-    return `${facts.registries.length === 1 ? "registry" : "registries"} ${names} · refreshed ${when(facts.updatedAt) || "never"} · ${facts.total} ${facts.total === 1 ? "package" : "packages"}${failed ? ` · ${failed} failed to refresh` : ""}`;
+    note.append(facts.registries.length === 1 ? "registry " : "registries ", el("code", {}, names), ` · refreshed ${when(facts.updatedAt) || "never"} · ${facts.total} ${facts.total === 1 ? "package" : "packages"}${failed ? ` · ${failed} failed to refresh` : ""}`);
   }
 
   function card(r) {
     return el(
       "button",
       { type: "button", class: `mk-card${r.installed ? " is-installed" : ""}`, "data-name": r.name, onClick: () => ext.open.place("marketplace", { name: r.name }) },
-      el("div", { class: "mk-card-head" }, el("code", { class: "mk-card-name" }, r.name), el("span", { class: "mk-card-version" }, r.version)),
+      el("div", { class: "mk-card-head" }, el("code", { class: "mk-card-name" }, r.name), el("div", { class: "tags" }, stateBadge(badge, r), updateBadge(badge, r))),
       el("p", { class: "mk-card-desc" }, r.description || "No description."),
-      el("div", { class: "mk-card-foot" }, el("span", { class: "mk-card-meta" }, [r.type, r.registry].filter(Boolean).join(" · ")), el("div", { class: "tags" }, ...stateBadges(badge, r)))
+      el("span", { class: "mk-card-meta" }, [r.version, r.type, r.registry].filter(Boolean).join(" · "))
     );
   }
 
   function draw() {
     drawChips();
-    note.textContent = noteText();
+    drawNote();
     clear(cards);
     if (!rows.length) {
       put(cards, el("div", { class: "mk-empty" }, last.q || last.type ? "No package matches." : "Nothing is installed here, and no registry is configured."));

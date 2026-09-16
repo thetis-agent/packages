@@ -30,7 +30,7 @@ Each answers `{ data }`; a refusal is a thrown error, which the gateway answers 
 
 ## Use
 
-The **Marketplace** link in the sidebar footer, beside **Control panel**, opens the place in the main pane. Escape or the close button returns to the conversation.
+**Marketplace** in the sidebar's ≡ menu, after **Control panel**, opens the place in the main pane. Escape or the close button returns to the conversation.
 
 **The gallery** has a search box, one chip per package type, a note on the index (which registries, when refreshed, how many packages; or that there is no index yet), and a card per package: the name, description, version, type and registry, and the badges **Only me**, **Everyone** or **Available**, `fork of …`, `update to <version>`, and the benchmark badge. Installed packages come first. Clicking a card opens the package's page. The query is kept, so coming back from a page shows the same list.
 

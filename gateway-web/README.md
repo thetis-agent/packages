@@ -70,7 +70,7 @@ export default function install(ext) {
 
 ## Use
 
-A person opens `/login`, signs in, and lands on `/<person>/`. The sidebar lists their conversations grouped by day, with a search box, a `+` button, and the footer links **Control panel**, **Marketplace** (when `@thetis/ui-marketplace` is installed) and **Log out**. The composer sends on Enter; the model pill chooses a model per conversation. The transcript streams the reply, folds tool calls into runs, and puts a footnote with the model, cache share, tokens and cost under each reply. The rail holds one button per registered dock. The control panel takes over the main pane; Escape or its close button returns to the conversation. Its Packages section is built in; every other section, dock, place and chip comes from an installed package.
+A person opens `/login`, signs in, and lands on `/<person>/`. The sidebar lists their conversations grouped by day, with a search box and a `+` button. The ≡ menu in its head opens the places: **Control panel**, and whatever installed packages add (**Marketplace** from `@thetis/ui-marketplace`, **Project** from `@thetis/projects`). The footer shows who is signed in and **Log out**. The composer sends on Enter; the model pill chooses a model per conversation. The transcript streams the reply, folds tool calls into runs, and puts a footnote with the model, cache share, tokens and cost under each reply. The rail holds one button per registered dock. The control panel takes over the main pane; Escape or its close button returns to the conversation. Its Packages section is built in; every other section, dock, place and chip comes from an installed package.
 
 ## Files
 

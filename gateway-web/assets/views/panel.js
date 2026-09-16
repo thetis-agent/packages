@@ -1,6 +1,6 @@
 /* The control panel: somewhere you go and read rather than a dialog you dismiss. It is the first place:
- * registered through the built-in `ext` under `@thetis/gateway-web`, so its launcher in the sidebar
- * footer and its frame come from the same slots a package would use. Inside, a navigation of sections
+ * registered through the built-in `ext` under `@thetis/gateway-web`, so its item in the sidebar's menu
+ * and its frame come from the same slots a package would use. Inside, a navigation of sections
  * and one section mounted at a time. The one built-in section, Packages, is a `panel` entry too, with
  * a low order so it sorts first; the server's `api/panel` still says which built-in sections this person
  * may see. Every other section (People, Models, Mounts, Activity, Overview from `@thetis/ui-admin`) is
@@ -18,7 +18,7 @@ export const GEAR = ["M10 6.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z", "M10 2v2M10
 /** The built-in sections. The note is the sentence under the title; the order sorts them before a package's (default 100). */
 export const PANEL_SECTIONS = [{ id: "packages", label: "Packages", note: "What is installed here, and what each package brings.", order: 10, mount: mountPackages }];
 
-export const PANEL_PLACE = { id: "panel", label: "Control panel", hint: "How this place is set up", icon: GEAR };
+export const PANEL_PLACE = { id: "panel", label: "Control panel", hint: "How this place is set up", icon: GEAR, order: 10 };
 
 /** Registers the sections and the place with the shell. `shell.openPlace(key, params)` lets a built-in section link to another package's place. */
 export function installPanel(ext, shell) {

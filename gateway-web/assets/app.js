@@ -13,6 +13,7 @@ import { store } from "./lib/store.js";
 import { toast } from "./lib/toast.js";
 import { mountComposer } from "./views/composer.js";
 import { mountDock } from "./views/dock.js";
+import { mountMenu } from "./views/menu.js";
 import { installPanel, PANEL_PLACE, PANEL_SECTIONS } from "./views/panel.js";
 import { mountPlaces } from "./views/places.js";
 import { mountSessions } from "./views/sessions.js";
@@ -162,6 +163,7 @@ const dock = mountDock();
 const shelf = mountShelf();
 mountStatusbar();
 mountSidebarSlot();
+mountMenu({ openPlace: (key) => places.open(key), currentPlace: () => places.current() });
 
 bindShell({
   send,
@@ -204,17 +206,17 @@ store.watch("user", (user) => {
 
 // --- the narrow-screen sidebar ---
 
-function closeSidebar() {
-  $("sidebar").classList.remove("is-open");
-  setHidden($("sidebar-veil"), true);
-  $("toggle-sidebar").setAttribute("aria-expanded", "false");
-}
-$("toggle-sidebar").addEventListener("click", () => {
-  const open = !$("sidebar").classList.contains("is-open");
+// Two toggles share the drawer: the one in the tabs bar and the one in a place's head, since a place hides the tabs.
+const sidebarToggles = [...document.querySelectorAll(".chat-menu")];
+function setSidebar(open) {
   $("sidebar").classList.toggle("is-open", open);
   setHidden($("sidebar-veil"), !open);
-  $("toggle-sidebar").setAttribute("aria-expanded", String(open));
-});
+  for (const b of sidebarToggles) b.setAttribute("aria-expanded", String(open));
+}
+function closeSidebar() {
+  setSidebar(false);
+}
+for (const b of sidebarToggles) b.addEventListener("click", () => setSidebar(!$("sidebar").classList.contains("is-open")));
 $("sidebar-veil").addEventListener("click", closeSidebar);
 
 // --- the event stream ---

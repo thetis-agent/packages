@@ -31,8 +31,9 @@ press does not): open a new tab on the same URL and close the old one before the
 ## Steps
 
 1. **Sign in** as `dev` / `devpass123`. Expect the page at `/dev/`: `#sidebar` with `#session-list`
-   showing "No conversations yet", `#sidebar-places` holding one `.foot-action[data-place="@thetis/gateway-web#panel"]`
-   labelled "Control panel" before "Log out", `main.main` with `nav#tabs` holding only `#new-tab`, `#panes`
+   showing "No conversations yet", `#menu.menu-btn[aria-haspopup="menu"]` (the ≡ and "Thetis") in the head;
+   clicking it appends `.menu[role="menu"]` to `.sidebar-head` with one `.menu-item[data-place="@thetis/gateway-web#panel"]`
+   labelled "Control panel" (focused), and Escape closes it; the footer holds only the identity row and "Log out"; `main.main` with `nav#tabs` holding only `#new-tab`, `#panes`
    showing `.pane.is-empty.is-active` with `.transcript-empty` ("No conversation open."), the composer
    `#composer` with `#composer-tools .composer-slot[data-slot="@thetis/gateway-web#model"]`. `#dock`,
    `#shelf`, `#place` and `#statusbar` all carry `hidden`. `#rail` is shown, with one `.rail-btn` per installed
@@ -62,7 +63,7 @@ press does not): open a new tab on the same URL and close the old one before the
 8. **Archive**: click `.pane.is-active .archive-chat`. Expect a `.toast` "Conversation archived." with a
    `.toast-action` Undo, the row under `details.session-archived[open]`, `.tab.is-archived`, and the
    button's title "Restore this conversation". Click it again: the row returns to its bucket.
-9. **Control panel as a place**: click `#sidebar-places [data-place]`. Expect `#app.is-place`, `#place`
+9. **Control panel as a place**: click `#menu`, then `.menu-item[data-place]`. Expect the menu gone. Expect `#app.is-place`, `#place`
    without `hidden` and `main.main` not displayed, `.place-title` "Control panel", `.place-sub`, and in
    `.place-body` a `.panel-shell` with `.panel-nav-item`s (Packages first, `.is-active`; then, for an admin,
    the sections `@thetis/ui-admin` declares, see the phase 3 section below) and `.panel-main` holding
@@ -125,8 +126,8 @@ registry.declare(decl);
 const ext = createExt(decl);
 ```
 
-Expect after `declare`: `#rail` shown with `.rail-btn[data-dock="@test/probe#tools"]`, `#sidebar-places`
-gaining "Probe page", `#statusbar` shown with `.statusbar-item[data-item="@test/probe#load"]`, and every
+Expect after `declare`: `#rail` shown with `.rail-btn[data-dock="@test/probe#tools"]`, the menu (open `#menu`)
+gaining `.menu-item` "Probe page", `#statusbar` shown with `.statusbar-item[data-item="@test/probe#load"]`, and every
 open pane's `.chips` gaining a hidden `[data-chip="@test/probe#count"]`. After `ext.dock("tools", { draw })`
 and a click on the rail button: `#dock` without `hidden`, `.is-wide`, `.panel-title` from `draw()`, the
 body in `.panel-body`, the button `.is-active`; a second click, the `.panel-close`, or Escape hides it.
@@ -181,7 +182,7 @@ carries its own. Keep the daemon's pid: `echo $! > .devhome3/serve.pid` is the w
 pid on `.devhome3/thetis.sock` (`ss -lxp`). Run 2026-09-15: every step below passed; screenshots
 `.playwright-mcp/phase3-01` to `-10`.
 
-21. **The nav, as dev**: sign in at `http://127.0.0.1:8803/login` and click `#sidebar-places [data-place]`.
+21. **The nav, as dev**: sign in at `http://127.0.0.1:8803/login`, open `#menu` and click `.menu-item[data-place]`.
     Expect `.panel-nav-item`s in this order: Packages (`.is-active`), People, Models, Mounts, Activity,
     Overview; `head` holding a `link[href$="ext/@thetis/ui-admin/index.css"]`; no console errors. `api/ui`
     for dev lists the five `panel` entries (orders 20, 30, 35, 40, 50), eleven `commands`, and `hidden: []`.
@@ -238,8 +239,8 @@ after the one fix in `ui/state.js` (see the last paragraph); screenshots `.playw
 28. **The switcher**: sign in at `http://127.0.0.1:8805/login`. Expect `#sidebar-head .sidebar-slot-item
     [data-item="@thetis/projects#head"]` holding `.pj-head > button.pj-head-btn[aria-haspopup="listbox"]`
     with `.pj-head-label` "Project", `.pj-head-name` "All conversations", and `svg.pj-caret`; `head` holding a
-    `link[href$="ext/@thetis/projects/index.css"]`; `#sidebar-places` holding
-    `[data-place="@thetis/projects#project"]` "Project" after "Control panel"; one `POST
+    `link[href$="ext/@thetis/projects/index.css"]`; the menu (`#menu`) holding
+    `.menu-item[data-place="@thetis/projects#project"]` "Project" after "Control panel"; one `POST
     api/ext/@thetis/projects/list`; no console errors. Click the button: `.pj-head.is-open`,
     `[aria-expanded="true"]`, and `.pj-menu[role="listbox"]` with two `.pj-item[role="option"]`: "All
     conversations" (`.is-selected`, focused) and "New project…" after a `.pj-menu-rule`. Escape closes it and
@@ -323,13 +324,13 @@ with `devpass123`, `users add bob` with `bobpass123`, `serve` with the pid kept,
 `.devhome4/shared/marketplace/index.json`. Run 2026-09-15: every step below passed; screenshots
 `.playwright-mcp/phase4-01` to `-09`.
 
-28. **The link, as dev**: sign in at `http://127.0.0.1:8804/login`. Expect `#sidebar-places` holding
-    `.foot-action[data-place="@thetis/ui-marketplace#marketplace"]` labelled "Marketplace" (order 20) before
-    "Control panel", with the title "What the registries offer, and what is installed here", and `head`
+28. **The menu item, as dev**: sign in at `http://127.0.0.1:8804/login` and open `#menu`. Expect
+    `.menu-item[data-place="@thetis/ui-marketplace#marketplace"]` labelled "Marketplace" (order 20) after
+    "Control panel" (order 10), with the hint "What the registries offer, and what is installed here", and `head`
     holding a `link[href$="ext/@thetis/ui-marketplace/index.css"]`. `api/ui` for dev lists one `places` entry
     and eleven `commands`; for bob six (`search`, `show`, `install`, `remove`, `delete`, `update`).
-29. **The gallery**: click the link. Expect `#place` without `hidden`, `.place-title` "Marketplace", a
-    `.mk-gallery` with `.mk-search`, `.mk-chips` holding `.mk-chip[data-type=""]` "All" `.is-active` and one
+29. **The gallery**: click the item. Expect `#place` without `hidden`, `.place-title` "Marketplace", a
+    `.place-page.mk-gallery` with one `.mk-toolbar` row holding `.mk-search`, `.mk-chips` with `.mk-chip[data-type=""]` "All" `.is-active` and one
     chip per type seen (`gateway`, `loader`, `provider`, `service`, `tool`, `ui`), `.mk-note` "registry local ·
     refreshed n min ago · 16 packages", and `.mk-card[data-name]` per package, installed ones first with
     `.is-installed` and the badge **Everyone**, then the available ones with **Available · local**; a package
@@ -359,9 +360,9 @@ with `devpass123`, `users add bob` with `bobpass123`, `serve` with the pid kept,
     packages list --user bob` shows `@thetis/exa`.
 34. **The Packages section**: click **Control panel**. Expect `.panel-note` "What is installed here, and what
     each package brings.", the toolbar note "12 installed", the columns Package, Version, Type, Scope, Brings
-    and a last one holding `.quiet-link[data-marketplace="<name>"]` "Open in the marketplace" on every row, no
-    search of the registries, no "Whose" picker. Click the link on the exa row: the Marketplace place opens on
-    "Marketplace › @thetis/exa". No console errors.
+    (one line per row: the name carries the description as its title), no search of the registries, no
+    "Whose" picker. Click the exa row: the card on the right shows the description and the button **Open in
+    the marketplace**; click it: the Marketplace place opens on "Marketplace › @thetis/exa". No console errors.
 35. **As bob**: sign in as `bob` / `bobpass123` in the same tab and open the Marketplace. Expect the exa card
     **Everyone**. Open `@thetis/bench-probe`: **Install for me** only, no picker, no admin action. The crumb
     returns to the gallery; Escape closes the place and `#app` loses `is-place`. From a shell with bob's
@@ -371,3 +372,28 @@ with `devpass123`, `users add bob` with `bobpass123`, `serve` with the pid kept,
 
 Stop the daemon by the pid on `.devhome4/thetis.sock` (SIGINT; SIGKILL after 20 s), release
 `/tmp/thetis-browser.lock`, and delete `.devhome4`.
+
+## The menu and the polish pass (2026-09-15)
+
+The places moved from the sidebar footer to the ≡ menu in the sidebar head (`#menu`, `views/menu.js`), the
+marketplace gallery and package page took the canvas's spacing (`.place-page`, one toolbar row, cards on
+`--surface-1`, an unboxed README beside a 340px card), the Packages table lost the description under the
+name and the per-row link, and a place's head gained the drawer toggle for narrow screens. Run on
+`.devhome6` (port 8806, the `local` file registry) as dev; screenshots `.playwright-mcp/polish-01` to `-14`.
+
+36. **The menu**: click `#menu`. Expect `.menu[role="menu"]` inside `.sidebar-head`, `[aria-expanded="true"]`
+    on the button, `.menu-item`s Control panel (order 10, focused), Marketplace (20), Project (100), each with
+    `.menu-icon`, `.menu-label` and `.menu-hint`; the open place's item `.is-active`. Arrow keys move the
+    focus; Escape closes the menu (and not the place) and returns the focus to the button; a click elsewhere
+    closes it; choosing an item closes it and opens the place. `#sidebar-places` no longer exists; the footer
+    holds the identity row and **Log out** only.
+37. **The gallery's spacing**: `.place-page.mk-gallery` padded 16px 24px, `.mk-toolbar` one row with the search
+    (max 22rem), the chips and `.mk-note` at the right; `.mk-card` shows the name, the state badge (and an
+    update badge when one is on offer), two lines of description, then `version · type · registry`.
+38. **The package page**: `.mk-crumb` in the faint small style, `.mk-readme` unboxed with the README's `#`
+    heading at `--text-lg`, `.mk-side` 340px and sticky; long badges under "last run" wrap inside the card.
+39. **The Packages table**: five columns, one line per row, the name's `title` is the description; the table
+    never overflows `.table-wrap` at 1440px; the card on the right carries **Open in the marketplace**.
+40. **Narrow**: at 700px with a place open, `.place-head .chat-menu` is visible and opens the drawer; `#menu`
+    works inside the drawer; Escape closes the menu and leaves the place and the drawer; the veil closes the
+    drawer.

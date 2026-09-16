@@ -59,13 +59,6 @@ export function mountPackages(root, { user }, shell) {
     return el("span", { class: "text-dim" }, parts.join(", ") || "—");
   }
 
-  /** The link to the package's page, drawn only when the marketplace place is there to open. */
-  function openLink(r) {
-    const open = marketplace();
-    if (!open) return null;
-    return el("button", { type: "button", class: "quiet-link small", "data-marketplace": r.name, onClick: (e) => { e.stopPropagation(); open(r.name); } }, "Open in the marketplace");
-  }
-
   function drawList() {
     clear(listEl);
     const shown = visible();
@@ -74,12 +67,11 @@ export function mountPackages(root, { user }, shell) {
       el("div", { class: "toolbar" }, heading("Packages", `${installed.length} installed`), el("div", { class: "toolbar-gap" }), filter),
       table(
         [
-          { key: "name", label: "Package", render: (r) => el("div", {}, el("code", {}, r.name), r.description && el("div", { class: "text-dim small" }, r.description)) },
+          { key: "name", label: "Package", render: (r) => el("code", { class: "cell-name", title: r.description || null }, r.name) },
           { key: "version", label: "Version", render: (r) => el("code", { class: "text-dim" }, r.version) },
           { key: "type", label: "Type" },
           { key: "scope", label: "Scope", render: (r) => el("div", { class: "tags" }, scopeBadge(r), forkBadge(r)) },
-          { key: "brings", label: "Brings", render: brings },
-          { key: "open", label: "", render: openLink },
+          { key: "brings", label: "Brings", render: (r) => el("span", { class: "cell-name" }, brings(r)) },
         ],
         shown,
         { onRow: (r) => { selected = r.name; drawList(); drawDetail(); }, selectedKey: selected, empty: installed.length ? "No package matches the filter." : "Nothing is installed here." }

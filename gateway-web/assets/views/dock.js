@@ -23,7 +23,7 @@ export function mountDock() {
 
   dock.querySelector(".panel-close").addEventListener("click", () => close());
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && open && !$("app").classList.contains("is-place") && !document.querySelector(".popover")) close();
+    if (e.key === "Escape" && open && !$("app").classList.contains("is-place") && !document.querySelector(".popover, .menu")) close();
   });
 
   function drawRail() {
