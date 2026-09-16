@@ -211,8 +211,12 @@ async function usersCmd(call: Call, args: Args): Promise<void> {
   }
 }
 
-/** One word for what the host holds at a mount's path: what the fence will do with it. */
+/**
+ * One word for what the host holds at a mount's path: what the fence will do with it. A daemon older than
+ * this field says nothing about the path, and the line says nothing rather than guessing.
+ */
 function stateOf(m: MountState): string {
+  if (m.present === undefined) return "";
   return m.present ? "bound" : m.kind === "file" ? "skipped (a file, not a directory)" : "skipped (not on the host)";
 }
 
@@ -224,12 +228,12 @@ function stateOf(m: MountState): string {
 async function mountsCmd(call: Call, args: Args, user: string | undefined): Promise<void> {
   const [, sub, id, path] = args._;
   const listOf = async (u: string) => ((await call("mounts.list", { user: u })) as Record<string, MountState[]>)[u] ?? [];
-  if (sub !== "list" && sub !== undefined && !(id && path)) throw new Error(`mounts ${sub} needs <user> <path>`);
+  if (sub !== "list" && sub !== "browse" && sub !== undefined && !(id && path)) throw new Error(`mounts ${sub} needs <user> <path>`);
   switch (sub) {
     case "list":
     case undefined: {
       const all = (await call("mounts.list", { user })) as Record<string, MountState[]>;
-      for (const [u, list] of Object.entries(all)) for (const m of list) print(`${u}\t${m.path}\t${m.mode}\t${stateOf(m)}`);
+      for (const [u, list] of Object.entries(all)) for (const m of list) print([u, m.path, m.mode, stateOf(m)].filter(Boolean).join("\t"));
       return;
     }
     case "browse": {
@@ -243,7 +247,7 @@ async function mountsCmd(call: Call, args: Args, user: string | undefined): Prom
       const mounts = [...(await listOf(id)).map((m) => ({ path: m.path, mode: m.mode })).filter((m) => m.path !== path), { path, mode }];
       const after = (await call("mounts.set", { user: id, mounts })) as MountState[];
       const bound = after.find((m) => m.path === path);
-      if (bound && !bound.present) throw new Error(`${path} is written down for ${id}, but the host has ${bound.kind === "file" ? "a file" : "nothing"} there: the fence opens without it. Fix the path, or make the directory.`);
+      if (bound && bound.present === false) throw new Error(`${path} is written down for ${id}, but the host has ${bound.kind === "file" ? "a file" : "nothing"} there: the fence opens without it. Fix the path, or make the directory.`);
       return print(`mounted ${path} (${mode}) for ${id}; the fence reopens with it`);
     }
     case "remove": {

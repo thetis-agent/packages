@@ -36,7 +36,8 @@ function summaryOf(paths, states) {
   const bad = paths.filter((p) => !["ready", "ready-ro", "ready-home"].includes(keyOf(states[p])));
   if (!paths.length || !bad.length) return null;
   const n = bad.length;
-  return `${n} of ${paths.length} ${n === 1 ? "directory is" : "directories are"} not usable. An agent in this project cannot read ${n === 1 ? "it" : "them"}.`;
+  const of = paths.length === 1 ? `${n} of 1 directory` : `${n} of ${paths.length} directories`;
+  return `${of} ${n === 1 ? "is" : "are"} not usable. An agent in this project cannot read ${n === 1 ? "it" : "them"}.`;
 }
 
 function dirRow(ext, path, state, draft, redraw, mount, user) {

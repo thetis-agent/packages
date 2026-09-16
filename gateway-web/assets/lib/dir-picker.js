@@ -75,6 +75,7 @@ export function pickDirectory(anchor, { title = "Choose a directory", start = "/
         status.textContent = err?.message || "The path could not be read.";
         status.className = "dp-status is-warn";
         use.disabled = true;
+        place();
         return;
       }
       if (mine !== token) return;
@@ -85,6 +86,12 @@ export function pickDirectory(anchor, { title = "Choose a directory", start = "/
     function row(label, target, { up = false } = {}) {
       const b = el("button", { type: "button", class: `dp-row${up ? " is-up" : ""}`, onClick: () => void go(target) }, icon(up ? UP : FOLDER, { size: 13, width: 1.7 }), el("span", { class: "dp-row-name" }, label));
       return b;
+    }
+
+    function place() {
+      const top = anchor.getBoundingClientRect().bottom + 8;
+      const height = pop.offsetHeight;
+      pop.style.top = `${Math.max(12, top + height > window.innerHeight - 12 ? window.innerHeight - height - 12 : top)}px`;
     }
 
     function paint() {
@@ -98,6 +105,7 @@ export function pickDirectory(anchor, { title = "Choose a directory", start = "/
       for (const e of listing.entries) list.append(row(e.name, e.path));
       if (listing.truncated) list.append(el("p", { class: "dp-more" }, "More directories than the picker shows. Type a path to go straight there."));
       if (listing.readable && !listing.entries.length) list.append(el("p", { class: "dp-more" }, "Nothing inside. This directory can still be chosen."));
+      place();
     }
 
     path.addEventListener("keydown", (e) => {
@@ -131,8 +139,9 @@ export function pickDirectory(anchor, { title = "Choose a directory", start = "/
     const width = Math.min(440, window.innerWidth - 24);
     pop.style.width = `${width}px`;
     pop.style.left = `${Math.max(12, Math.min(r.left, window.innerWidth - width - 12))}px`;
-    const below = r.bottom + 8;
-    pop.style.top = `${below + 320 > window.innerHeight - 12 ? Math.max(12, window.innerHeight - 332) : below}px`;
+    // The height is not known until the listing is in, and the footer holds the button that ends this, so
+    // the popover is placed again after every listing and never allowed below the bottom of the window.
+    place();
     const stop = onClickOutside(pop, () => finish(null));
     document.addEventListener("keydown", onKey);
     void go(at);

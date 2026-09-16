@@ -118,7 +118,7 @@ export function openPlace(ext, state, root, params) {
       const out = await ext.request("mount", { args: { path, mode } });
       const m = out?.data?.mount ?? null;
       if (mode === null) ext.toast(`${path} is no longer bound.`, { tone: "ok" });
-      else if (m && !m.present) ext.toast(`${path} is written down, but the host has nothing there, so the workspace opened without it.`, { tone: "error" });
+      else if (m && m.present === false) ext.toast(`${path} is written down, but the host has nothing there, so the workspace opened without it.`, { tone: "error" });
       else ext.toast(`${path} is bound ${mode === "ro" ? "read-only" : "read-write"}.`, { tone: "ok" });
       said = true;
     } catch {

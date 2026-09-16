@@ -40,7 +40,7 @@ export function mountMounts(ext, root) {
   async function set(user, mounts, done) {
     try {
       const out = await ext.request("mounts-set", { args: { user, mounts } });
-      const written = (out?.data ?? []).filter((m) => !m.present).map((m) => m.path);
+      const written = (out?.data ?? []).filter((m) => m.present === false).map((m) => m.path);
       ext.toast(written.length ? `${done} The host has no directory at ${written.join(", ")}, so the fence opens without it.` : done, { tone: written.length ? "warn" : "good" });
     } catch {
       ext.toast(`${done} Waiting for the workspace to answer again…`, { tone: "good" });
@@ -121,7 +121,8 @@ export function mountMounts(ext, root) {
           { key: "user", label: "Person", render: (r) => el("code", {}, r.user) },
           { key: "path", label: "Host path", render: (r) => el("code", { class: "ua-wrap" }, r.path) },
           { key: "mode", label: "Mode", render: (r) => badge(r.mode === "rw" ? "read-write" : "read-only", r.mode === "rw" ? "warn" : "dim") },
-          { key: "state", label: "On the host", render: (r) => (r.present ? badge("bound", "ok") : badge(r.kind === "file" ? "skipped · a file" : "skipped · not there", "err")) },
+          // A kernel older than these fields says nothing about the path, and so does the row.
+          { key: "state", label: "On the host", render: (r) => (r.present === undefined ? badge("not known", "dim") : r.present ? badge("bound", "ok") : badge(r.kind === "file" ? "skipped · a file" : "skipped · not there", "err")) },
           { key: "actions", label: "", render: (r) => { const b = button("Unbind", { tone: "warn", onClick: () => void remove(b, r) }); return b; } },
         ],
         list,
