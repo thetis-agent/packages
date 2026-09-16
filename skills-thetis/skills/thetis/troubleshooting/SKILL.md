@@ -36,7 +36,8 @@ You changed a file and nothing behaves differently. Nothing is broken: what it t
 
 | What you changed | What it takes |
 |---|---|
-| A package's `tool`, `step`, `enumerator` or UI-command code, its browser files under `ui/`, or its `package.json` | Nothing. The next turn, or the next request from the page, has it. |
+| The **one file** a `tool`, `step`, `enumerator` or UI-command export is declared in, a package's browser files under `ui/`, or its `package.json` | Nothing. The next turn, or the next request from the page, has it. |
+| **A file that entry imports**, such as a shared client or helper it does `import` at the top | A reload of that workspace. The agent re-reads the entry with a modification-time query, but a static import inside it carries no query, so the module cache keeps serving the old copy until the agent process is new. This is the row people get wrong: tool code is not all one tier. |
 | A package's service code, a provider, or the userspace agent | That person's workspace reloaded. |
 | `@thetis/kernel`, `@thetis/host`, `@thetis/sandbox`, `@thetis/door`, `@thetis/lib`, `@thetis/contracts`, the `thetis` command (`@thetis/gateway-cli`), or `thetis.config.json` | A new daemon process. |
 
