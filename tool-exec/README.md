@@ -17,6 +17,8 @@ Six tools, declared in `thetis.tools`:
 
 Bench suites: `assembly-cost@1` and `tool-recall@1`, peer group `tools`. `BENCH.md` in this directory is the generated comparison.
 
+![tool-recall@1 comparison](bench/tool-recall-v1/chart.svg)
+
 No steps, no service, no UI.
 
 `fork_package` copies the package without `node_modules`, renames it `@<you>/<as>`, gives it the version `<origin>-fork.1` (or `fork.N+1` when a fork is already installed), removes `scripts` and `devDependencies`, links the dependencies the original resolves, and writes `thetis.forkedFrom`. Installing the fork replaces the original in one operation; uninstalling or deleting the fork puts the original back. `as` must be one plain directory name.

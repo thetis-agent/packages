@@ -66,7 +66,7 @@ export default function install(ext) {
 }
 ```
 
-`ext` is bound to the one package. It offers a registration function per slot (`dock`, `panel`, `place`, `sidebar`, `chip`, `composer`, `shelf`, `statusbar`), `transcript` for a renderer, `request(verb, { session, args })` for the package's own verbs, and the shell's `dom`, `ui`, `markdown`, `conversation`, `events`, `redraw` and `open`.
+`ext` is bound to the one package. It offers a registration function per slot (`dock`, `panel`, `place`, `sidebar`, `chip`, `composer`, `shelf`, `statusbar`), `transcript` for a renderer, `request(verb, { session, args })` for the package's own verbs, and the shell's `dom`, `ui`, `markdown`, `conversation`, `events`, `redraw` and `open`. `markdown(text, { image })` renders `![alt](src)` as an `<img>` for an `https:` source; a relative source is passed to `image(src)`, which answers a URL (a `data:` URL, as the marketplace page does) or `null`, in which case the alt text is shown.
 
 ## Use
 

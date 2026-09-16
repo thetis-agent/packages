@@ -4,7 +4,10 @@
 
 import type { ExecOptions } from "@thetis/contracts";
 import { mirrorCommand, pinnedSource } from "@thetis/lib/pkg-fs";
-import { readIndex, readmeDir, readmeFile, readmePath, README_CAP, README_TRUNCATED, writeIndex, type FileEnv, type IndexedPackage, type MarketplaceIndex, type Registry, type RegistryState } from "./index-file.js";
+import {
+  readIndex, readmeAssetFile, readmeAssetPath, readmeAssetsOf, readmeAssetType, readmeDir, readmeFile, readmePath, README_ASSET_CAP, README_CAP, README_TRUNCATED, writeIndex,
+  type FileEnv, type IndexedPackage, type MarketplaceIndex, type Registry, type RegistryState,
+} from "./index-file.js";
 
 export interface MirrorEnv extends FileEnv {
   exec(cmd: string, opts?: ExecOptions): Promise<{ code: number; stdout: string; stderr: string }>;
@@ -54,6 +57,7 @@ async function scan(env: MirrorEnv, registry: Registry, commit: string): Promise
   // `find -name` is exact, so a `readme.md` is not a README: the copy is what a package page renders, and one name is the rule.
   const readmes = new Set(files.filter((f) => f.endsWith("/README.md")));
   const out: IndexedPackage[] = [];
+  const assets: { entry: IndexedPackage; paths: string[] }[] = [];
   for (const file of files.filter((f) => f.endsWith("/package.json"))) {
     let manifest: Record<string, unknown>;
     try {
@@ -64,20 +68,67 @@ async function scan(env: MirrorEnv, registry: Registry, commit: string): Promise
     const entry = describe(manifest, registry, file.slice(dir.length + 1, -"/package.json".length), commit);
     if (!entry) continue;
     const readme = `${dir}/${entry.dir}/README.md`;
-    entry.readme = readmes.has(readme) ? await copyReadme(env, readme, entry) : false;
+    const wanted = readmes.has(readme) ? await copyReadme(env, readme, entry) : null;
+    entry.readme = Array.isArray(wanted);
+    if (Array.isArray(wanted) && wanted.length) assets.push({ entry, paths: wanted });
     out.push(entry);
   }
+  await copyAssets(env, dir, assets);
   await dropStaleReadmes(env, registry, out);
   return out;
 }
 
-/** Copies one README into the shared directory, capped. A README that cannot be read leaves its entry without one rather than failing the registry. */
-async function copyReadme(env: MirrorEnv, from: string, entry: IndexedPackage): Promise<boolean> {
+/**
+ * Copies one README into the shared directory, capped, and answers the local images it shows, which are
+ * copied after the checkout has been widened to them. A README that cannot be read leaves its entry without
+ * one rather than failing the registry.
+ */
+async function copyReadme(env: MirrorEnv, from: string, entry: IndexedPackage): Promise<string[] | false> {
   try {
-    await env.writeFile(readmePath(env, entry), capReadme(await env.readFile(from)));
-    return true;
+    const text = capReadme(await env.readFile(from));
+    await env.writeFile(readmePath(env, entry), text);
+    return readmeAssetsOf(text);
   } catch {
     return false;
+  }
+}
+
+/**
+ * The images the READMEs of one registry show, brought down in one widening of the sparse checkout (only
+ * those blobs are fetched) and copied beside the README copies. One that is missing, too large, or unreadable
+ * is skipped, and the entry lists only what was copied, so a page knows which paths it can draw.
+ */
+async function copyAssets(env: MirrorEnv, dir: string, wanted: { entry: IndexedPackage; paths: string[] }[]): Promise<void> {
+  if (!wanted.length) return;
+  const files = wanted.flatMap(({ entry, paths }) => paths.map((path) => `${entry.dir}/${path}`));
+  try {
+    await run(env, `git -C ${q(dir)} sparse-checkout add --no-cone ${files.map((f) => q(`/${f}`)).join(" ")}`);
+  } catch {
+    return;
+  }
+  // One stat for the lot: a line per file that exists, `<bytes> <path>`; a missing one prints nothing.
+  const sizes = new Map<string, number>();
+  const listing = await run(env, `cd ${q(dir)} && stat -c '%s %n' -- ${files.map(q).join(" ")} 2>/dev/null || true`);
+  for (const line of listing.split("\n")) {
+    const at = line.indexOf(" ");
+    if (at > 0) sizes.set(line.slice(at + 1), Number(line.slice(0, at)));
+  }
+  for (const { entry, paths } of wanted) {
+    const copied: string[] = [];
+    for (const path of paths) {
+      const size = sizes.get(`${entry.dir}/${path}`);
+      if (size === undefined || size > README_ASSET_CAP) continue;
+      const from = `${dir}/${entry.dir}/${path}`;
+      try {
+        // The env writes text. An SVG is text; a PNG crosses as base64 and is read back as it was written.
+        const body = readmeAssetType(path) === "image/png" ? (await run(env, `base64 -w0 -- ${q(from)}`)).trim() : await env.readFile(from);
+        await env.writeFile(readmeAssetPath(env, entry, path), body);
+        copied.push(path);
+      } catch {
+        continue;
+      }
+    }
+    if (copied.length) entry.readmeAssets = copied;
   }
 }
 
@@ -90,7 +141,7 @@ export function capReadme(text: string): string {
 /** Removes the copies of packages this registry no longer holds. The env has no directory operations, so the listing and the removal go through `exec`. */
 async function dropStaleReadmes(env: MirrorEnv, registry: Registry, entries: IndexedPackage[]): Promise<void> {
   const dir = readmeDir(env, registry.name);
-  const keep = new Set(entries.filter((e) => e.readme).map((e) => readmeFile(e.dir)));
+  const keep = new Set(entries.filter((e) => e.readme).flatMap((e) => [readmeFile(e.dir), ...(e.readmeAssets ?? []).map((p) => readmeAssetFile(e.dir, p))]));
   let listing: string;
   try {
     listing = await run(env, `[ -d ${q(dir)} ] && ls -1 ${q(dir)} || true`);

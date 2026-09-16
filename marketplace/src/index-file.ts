@@ -35,6 +35,8 @@ export interface IndexedPackage {
   bench?: { suites: string[]; corpus?: string; peerGroup?: string };
   /** The package directory holds a `README.md`; a copy sits at `readmePath`. False or absent when it does not. */
   readme?: boolean;
+  /** The local images the README shows, as written in it (`bench/x/chart.svg`); each has a copy at `readmeAssetPath`. */
+  readmeAssets?: string[];
 }
 
 export interface MarketplaceIndex {
@@ -100,6 +102,67 @@ export async function readReadme(env: FileEnv, entry: Pick<IndexedPackage, "regi
   if (!entry.readme) return undefined;
   try {
     return await env.readFile(readmePath(env, entry));
+  } catch {
+    return undefined;
+  }
+}
+
+// README assets: the `.svg` and `.png` files a README shows with `![alt](relative path)`, copied beside the
+// README copy so a package page can draw them. Same directory, the path folded into the name the way `dir` is.
+
+/** At most this many images per README are copied; the rest render as their alt text. */
+export const README_ASSET_LIMIT = 12;
+/** An image above this many bytes is not copied. */
+export const README_ASSET_CAP = 524288;
+
+const IMAGE_REF = /!\[[^\]\n]*\]\(([^)\s]+)\)/g;
+
+/**
+ * A path the mirror may copy: relative, inside the package, and a picture. No scheme, no leading `/`, no
+ * `..` or empty segment; the extension decides the type. Anything else is not an asset and is left alone.
+ */
+export function isReadmeAssetPath(path: string): boolean {
+  if (!path || /^[a-z][a-z0-9+.-]*:/i.test(path) || path.startsWith("/") || path.includes("\\")) return false;
+  if (path.split("/").some((seg) => seg === "" || seg === "." || seg === "..")) return false;
+  return /\.(svg|png)$/i.test(path);
+}
+
+/** The local images a README refers to, in order of first appearance, deduplicated, at most `README_ASSET_LIMIT`. */
+export function readmeAssetsOf(text: string): string[] {
+  const out: string[] = [];
+  for (const m of text.matchAll(IMAGE_REF)) {
+    const path = m[1] as string;
+    if (isReadmeAssetPath(path) && !out.includes(path)) out.push(path);
+    if (out.length >= README_ASSET_LIMIT) break;
+  }
+  return out;
+}
+
+/** The media type of an asset, by its extension. */
+export const readmeAssetType = (path: string): "image/svg+xml" | "image/png" => (/\.png$/i.test(path) ? "image/png" : "image/svg+xml");
+
+/** The file name of one asset copy: `nested/memo` with `img/a.png` is `nested__memo__img__a.png`. */
+export const readmeAssetFile = (dir: string, path: string): string => `${dir.replace(/\//g, "__")}__${path.replace(/\//g, "__")}`;
+
+export function readmeAssetPath(env: FileEnv, entry: Pick<IndexedPackage, "registry" | "dir">, path: string): string {
+  return `${readmeDir(env, entry.registry)}/${readmeAssetFile(entry.dir, path)}`;
+}
+
+export interface ReadmeAsset {
+  type: "image/svg+xml" | "image/png";
+  /** The SVG text, or the PNG as base64. */
+  data: string;
+}
+
+/**
+ * One asset copy of an index entry, or undefined when the entry does not list it or the copy cannot be read.
+ * An SVG copy is its text; a PNG copy is stored as base64 text, because the env writes text, and is handed
+ * back as it is stored.
+ */
+export async function readReadmeAsset(env: FileEnv, entry: Pick<IndexedPackage, "registry" | "dir" | "readmeAssets">, path: string): Promise<ReadmeAsset | undefined> {
+  if (!entry.readmeAssets?.includes(path)) return undefined;
+  try {
+    return { type: readmeAssetType(path), data: await env.readFile(readmeAssetPath(env, entry, path)) };
   } catch {
     return undefined;
   }

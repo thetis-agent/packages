@@ -51,7 +51,7 @@ node bin/thetis.js bench verify packages/tools-files
 
 | Option | Effect |
 |---|---|
-| `--write` | Write `<root>/bench/<suite>/report.json` and each participating package's `bench/<suite>/report.json` and `BENCH.md`. Without it nothing is written. |
+| `--write` | Write `<root>/bench/<suite>/report.json` and each participating package's `bench/<suite>/report.json`, `bench/<suite>/chart.svg` and `BENCH.md`. Without it nothing is written. |
 | `--force` | Write even when the digest is unchanged. |
 | `--out <dir>` | Also write the suite report to this directory. |
 | `--sandbox` | `auto`, `bwrap` or `none`. Recorded in the report; arms of one report must share it. |
@@ -72,11 +72,12 @@ Continuous integration regenerates every report and fails on any difference, the
 | `src/runner.ts`, `src/capture.ts` | Drives the tasks and captures what the provider saw. |
 | `src/score.ts`, `src/metrics/` | Recall, ranking, and the paired bootstrap. |
 | `src/report.ts`, `src/peers.ts` | The report, its digest, the package views, the peer rule. |
+| `src/chart.ts` | `chart.svg`: the compared columns of one view as bars, derived from the view alone so a rerun writes the same bytes. `BENCH.md` shows it with a relative image path, and a README can do the same. |
 | `src/suite.ts`, `src/corpus.ts`, `src/manifest.ts` | Suites, corpora, `validateBench`. |
 | `suites/`, `fixtures/`, `scripts/import-skillret.mjs` | The three suites, the provider and reference arms, the corpus importer. |
 
 ## Tests
 
-`npm test` from the runtime root. The files are `test/metrics.test.ts`, `test/report.test.ts`, `test/safety.test.ts`, `test/arena.e2e.test.ts`, `test/skills.e2e.test.ts`, `test/provider.test.js` and `test/upstream.test.js`.
+`npm test` from the runtime root. The files are `test/metrics.test.ts`, `test/report.test.ts`, `test/chart.test.ts`, `test/safety.test.ts`, `test/arena.e2e.test.ts`, `test/skills.e2e.test.ts`, `test/provider.test.js` and `test/upstream.test.js`.
 
 See docs/21-benchmarks.md in the runtime repository.

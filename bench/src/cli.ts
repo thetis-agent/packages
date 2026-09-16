@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { Arena, type Arm } from "./arena.js";
 import { comparable, participants, readParticipant, type Participant } from "./peers.js";
 import { buildReport, readViews, renderMarkdown, sha256, viewFor, writeMarkdown, writePackageView, writeSuiteReport, SCORER, type ReportInputs } from "./report.js";
+import { writeChart } from "./chart.js";
 import { runSuite, type Observation } from "./runner.js";
 import { latencyRatio, summarise } from "./score.js";
 import { loadSuite, visible, type SuiteDef, type Task } from "./suite.js";
@@ -140,10 +141,12 @@ export async function run(args: RunArgs): Promise<{ report: ReturnType<typeof bu
         const peerArms = check.peers.map((name) => armIdFor(all.find((x) => x.name === name) as Participant));
         const view = viewFor(report, p.name, armIdFor(p), p.peerGroup, complementary ? [...peerArms, ALL] : peerArms);
         const written = writePackageView(p.dir, view, p.bench.report, args.force);
+        // The chart sits beside the view and follows the same rule: rewritten when the view is, never otherwise.
+        const chart = writeChart(p.dir, view, p.bench.report, args.force);
         // The page shows every suite this package runs, not only the one just run, so a second suite does
         // not overwrite the first's section.
         const views = readViews(p.dir, p.bench.report);
-        for (const out of [written, writeMarkdown(p.dir, views.length ? views : [view], p.bench.report, args.force)]) {
+        for (const out of [written, chart, writeMarkdown(p.dir, views.length ? views : [view], p.bench.report, args.force)]) {
           log(`  ${p.name}: ${out.written ? "written" : "unchanged"} ${out.path}`);
           if (out.written) wrote.push(out.path);
         }

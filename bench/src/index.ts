@@ -3,6 +3,7 @@
 export * from "./metrics/index.js";
 export * from "./arena.js";
 export * from "./capture.js";
+export * from "./chart.js";
 export * from "./manifest.js";
 export * from "./peers.js";
 export * from "./report.js";

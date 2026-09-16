@@ -5,7 +5,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { capReadme, describe, readIndex, readReadme, refresh, README_CAP, README_TRUNCATED, search, slugOf, type MirrorEnv } from "../src/index.js";
+import {
+  capReadme, describe, isReadmeAssetPath, readIndex, readmeAssetsOf, readReadme, readReadmeAsset, refresh, README_ASSET_CAP, README_ASSET_LIMIT, README_CAP, README_TRUNCATED, search, slugOf,
+  type MirrorEnv,
+} from "../src/index.js";
 import { registriesOf } from "../src/service.js";
 import { cloneCommand, cloneSlug, splitSource } from "@thetis/lib/pkg-fs";
 import { behind, shortCommit } from "../src/updates.js";
@@ -134,6 +137,76 @@ test("a README is copied capped, only under its exact name, and leaves with its 
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+});
+
+test("a README's local images are copied beside it, within the rules, and leave with it", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "thetis-market-"));
+  try {
+    const registry = join(tmp, "registry");
+    await registryAt(registry);
+    const pic = join(registry, "nested", "pic");
+    mkdirSync(join(pic, "bench", "s-v1"), { recursive: true });
+    mkdirSync(join(pic, "img"));
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>\n';
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 1, 2, 3]);
+    writeFileSync(join(pic, "package.json"), JSON.stringify({ name: "@thetis/pic", version: "1.0.0", thetis: { type: "tool" } }));
+    writeFileSync(join(pic, "bench", "s-v1", "chart.svg"), svg);
+    writeFileSync(join(pic, "img", "logo.png"), png);
+    writeFileSync(join(pic, "big.png"), Buffer.alloc(README_ASSET_CAP + 1));
+    writeFileSync(
+      join(pic, "README.md"),
+      [
+        "# Pic",
+        "![chart](bench/s-v1/chart.svg) and again ![chart](bench/s-v1/chart.svg)",
+        "![logo](img/logo.png)",
+        "![remote](https://example.org/x.svg) ![up](../greet/README.md) ![root](/etc/x.svg) ![text](notes.md)",
+        "![big](big.png) ![missing](nowhere.svg)",
+        "",
+      ].join("\n"),
+    );
+    await sh("git add -A && git -c user.email=t@t -c user.name=t commit -q -m pics", registry);
+    const home = join(tmp, "home");
+    mkdirSync(home);
+    const env = envAt(home);
+    const registries = [{ name: "local", url: `file://${registry}` }];
+    let index = await refresh(env, registries);
+
+    // Only the pictures that are local, inside the package, present and under the cap; each once.
+    const entry = index.packages.find((p) => p.name === "@thetis/pic")!;
+    assert.equal(entry.readme, true);
+    assert.deepEqual(entry.readmeAssets, ["bench/s-v1/chart.svg", "img/logo.png"]);
+    const copies = join(home, "shared", "marketplace", "readme", "local");
+    assert.equal(readFileSync(join(copies, "nested__pic__bench__s-v1__chart.svg"), "utf8"), svg);
+    assert.equal(readFileSync(join(copies, "nested__pic__img__logo.png"), "utf8"), png.toString("base64"), "a PNG crosses as base64 text");
+    assert.equal(existsSync(join(copies, "nested__pic__big.png")), false, "over the cap, so not copied");
+    assert.deepEqual(await readReadmeAsset(env, entry, "bench/s-v1/chart.svg"), { type: "image/svg+xml", data: svg });
+    assert.deepEqual(await readReadmeAsset(env, entry, "img/logo.png"), { type: "image/png", data: png.toString("base64") });
+    assert.equal(await readReadmeAsset(env, entry, "big.png"), undefined, "not listed, so not read");
+    assert.equal(await readReadmeAsset(env, entry, "../greet/README.md"), undefined);
+    const greet = index.packages.find((p) => p.name === "@thetis/greet")!;
+    assert.equal(greet.readmeAssets, undefined, "a README with no pictures lists none");
+
+    // The README stops showing the logo: its copy goes on the next refresh, the chart's stays.
+    writeFileSync(join(pic, "README.md"), "# Pic\n\n![chart](bench/s-v1/chart.svg)\n");
+    await sh("git add -A && git -c user.email=t@t -c user.name=t commit -q -m fewer", registry);
+    index = await refresh(env, registries);
+    assert.deepEqual(index.packages.find((p) => p.name === "@thetis/pic")!.readmeAssets, ["bench/s-v1/chart.svg"]);
+    assert.equal(existsSync(join(copies, "nested__pic__img__logo.png")), false);
+    assert.ok(existsSync(join(copies, "nested__pic__bench__s-v1__chart.svg")));
+    assert.ok(existsSync(join(copies, "nested__pic.md")));
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("which image paths a README may ask for, and how many", () => {
+  for (const ok of ["a.svg", "bench/x/chart.svg", "img/Logo.PNG", "a b/c.png"]) assert.equal(isReadmeAssetPath(ok), true, ok);
+  for (const bad of ["", "/a.svg", "../a.svg", "a/../b.svg", "a//b.svg", "./a.svg", "https://x/a.svg", "data:image/svg+xml,x", "a.jpg", "a.svg.md", "C:\\a.svg"]) {
+    assert.equal(isReadmeAssetPath(bad), false, bad);
+  }
+  const many = Array.from({ length: README_ASSET_LIMIT + 3 }, (_, i) => `![p](p${i}.svg)`).join(" ");
+  assert.equal(readmeAssetsOf(many).length, README_ASSET_LIMIT);
+  assert.deepEqual(readmeAssetsOf("![a](x.svg) ![b](x.svg) [not an image](y.svg) ![c](y.png)"), ["x.svg", "y.png"]);
 });
 
 test("the README cap is in bytes, and a README at the cap is left whole", () => {

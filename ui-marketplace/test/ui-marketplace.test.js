@@ -101,14 +101,24 @@ test("search: no index answers the installed rows and says so; a query narrows t
 });
 
 test("show: the row with its README copy, null without one; an unknown name is refused", async () => {
-  const index = { version: 1, updatedAt: "2026-09-14T00:00:00.000Z", registries: [{ name: "thetis", url: REPO }], packages: [entry("@thetis/exa", "0.2.0", NEW, { readme: true }), entry("@thetis/memo", "0.1.0", OLD)] };
-  const t = fakeEnv({ index, readmes: { "exa.md": "# exa\n" }, role: "admin", user: "root" });
+  const svg = "<svg xmlns=\"http://www.w3.org/2000/svg\"/>";
+  const index = {
+    version: 1,
+    updatedAt: "2026-09-14T00:00:00.000Z",
+    registries: [{ name: "thetis", url: REPO }],
+    packages: [entry("@thetis/exa", "0.2.0", NEW, { readme: true, readmeAssets: ["bench/s-v1/chart.svg", "img/logo.png", "lost.svg"] }), entry("@thetis/memo", "0.1.0", OLD)],
+  };
+  const t = fakeEnv({ index, readmes: { "exa.md": "# exa\n\n![chart](bench/s-v1/chart.svg)\n", "exa__bench__s-v1__chart.svg": svg, "exa__img__logo.png": "AAEC" }, role: "admin", user: "root" });
   try {
     const page = (await commands.show({ name: "@thetis/exa" }, t.env)).data;
-    assert.equal(page.readme, "# exa\n");
+    assert.equal(page.readme, "# exa\n\n![chart](bench/s-v1/chart.svg)\n");
     assert.equal(page.row.readme, true);
+    // The pictures the README shows come with it, keyed as written; one whose copy is gone is left out.
+    assert.deepEqual(page.assets, { "bench/s-v1/chart.svg": { type: "image/svg+xml", data: svg }, "img/logo.png": { type: "image/png", data: "AAEC" } });
     assert.deepEqual([page.user, page.role], ["root", "admin"]);
-    assert.equal((await commands.show({ name: "@thetis/memo" }, t.env)).data.readme, null);
+    const memo = (await commands.show({ name: "@thetis/memo" }, t.env)).data;
+    assert.equal(memo.readme, null);
+    assert.deepEqual(memo.assets, {});
     await assert.rejects(commands.show({ name: "@thetis/nope" }, t.env), /not installed here and no registry offers it/);
     await assert.rejects(commands.show({ name: "nope" }, t.env), /looks like @scope\/name/);
   } finally {

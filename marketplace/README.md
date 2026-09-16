@@ -14,6 +14,7 @@ A refresh clones each registry shallowly and sparsely into `home/marketplace/rep
 
 - `<shared>/marketplace/index.json`: the index, the contract every reader uses.
 - `<shared>/marketplace/readme/<registry>/<dir>.md`: a copy of each package's `README.md`, capped at 256 KiB (a `/` in `dir` becomes `__`; a `readme.md` is not a README).
+- `<shared>/marketplace/readme/<registry>/<dir>__<path>.svg|.png`: a copy of each local `.svg` or `.png` the README shows with `![alt](path)`, at most 12 per README and 512 KiB each, resolved inside the package directory. A PNG copy is base64 text. The entry lists the copied paths in `readmeAssets`.
 
 A registry that fails keeps the packages and copies of its last successful refresh and records the error in the index. Each index entry carries the `commit` it was read from and a pinned `source` of the form `<url>#<dir>@<commit>`, so an install takes exactly that commit and a later refresh does not move it.
 
@@ -24,6 +25,7 @@ The library, for readers in any fence (`@thetis/ui-marketplace` is the one today
 | `readIndex(env)` | The index, or `undefined` when there is none. `env` needs `shared`, `readFile` and `writeFile`; the agent's `StepEnv` does. |
 | `search(index, query, { type?, limit? })` | Every word of the query must match. A match on the name scores 100, a keyword 10, the type 5, the description 1. |
 | `readReadme(env, entry)` | The README copy of an index entry, or `undefined`. |
+| `readReadmeAsset(env, entry, path)` | One image the README shows, as `{ type, data }` (SVG text or PNG base64), or `undefined` when the entry does not list it. |
 | `behind(installed, index)` | Installed packages whose pin is older than the index, each with the `source` to install to catch up. A package with no pin is never listed. |
 | `refresh(env, registries)`, `registriesOf(config)` | What the service runs. |
 
@@ -73,13 +75,13 @@ Nothing updates on its own: the index says what is latest, the registry record s
 |---|---|
 | `package.json` | The manifest: the service export. |
 | `src/service.ts` | `startService`, `registriesOf`. |
-| `src/mirror.ts` | `refresh`: the clone, the scan, the README copies. |
-| `src/index-file.ts` | The index and README paths, `readIndex`, `writeIndex`, `readReadme`, the `IndexedPackage` type. |
+| `src/mirror.ts` | `refresh`: the clone, the scan, the README copies and their images. |
+| `src/index-file.ts` | The index and README paths, `readIndex`, `writeIndex`, `readReadme`, `readReadmeAsset`, the `IndexedPackage` type. |
 | `src/search.ts` | `search`. |
 | `src/updates.ts` | `behind`, `shortCommit`. |
 
 ## Tests
 
-`npm test` from the runtime root. `test/marketplace.test.ts` builds a git registry in a temporary directory, refreshes it with a real `exec`, and checks the index, a failed registry, the README copies and their cap, the search ranking, the configuration parsing, the pinned sources, and what `behind` lists.
+`npm test` from the runtime root. `test/marketplace.test.ts` builds a git registry in a temporary directory, refreshes it with a real `exec`, and checks the index, a failed registry, the README copies and their cap, the image copies and their rules, the search ranking, the configuration parsing, the pinned sources, and what `behind` lists.
 
 See docs/18-marketplace.md in the runtime repository.

@@ -1016,6 +1016,8 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .md-table thead th { color: var(--text-dim); font-weight: 600; background: var(--surface-2); }
 .md-table tbody tr:hover td { background: var(--surface-1); }
 .md-table tbody tr:last-child td { border-bottom: 0; }
+.md-img { display: block; max-width: 100%; height: auto; margin: 0 0 var(--gap-2); border-radius: var(--r-md); background: var(--surface-1); }
+.md-img-missing { color: var(--text-faint); font-style: italic; border-bottom: 1px dashed var(--hairline-strong); }
 .msg a { color: var(--accent); }
 
 /* --- narrow screens ------------------------------------------------------- */

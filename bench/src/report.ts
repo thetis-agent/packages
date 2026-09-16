@@ -175,7 +175,7 @@ export function readViews(packageDir: string, reportDir = "bench"): PackageView[
 /** Is this view still talking about the run that produced it? */
 export const isStale = (view: PackageView, report: SuiteReport): boolean => view.suiteDigest !== report.digest;
 
-const fmt = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(Math.abs(n) >= 10 ? 1 : 3));
+export const fmt = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(Math.abs(n) >= 10 ? 1 : 3));
 const cell = (i: Interval | undefined): string => (i ? `${fmt(i.mean)} ±${fmt(i.mde)}` : "—");
 /** A list long enough to matter is summarised: the whole of it belongs in report.json, not on a page. */
 const some = (ids: readonly string[], show = 3): string =>
@@ -201,7 +201,7 @@ const NOT_IN_TABLES = new Set<MetricName>(["assemble_ms"]);
  */
 const MIN_TASKS_FOR_LATENCY = 30;
 
-function columnsOf(shared: SuiteReport["shared"], names: readonly MetricName[], arms: readonly string[]): MetricName[] {
+export function columnsOf(shared: SuiteReport["shared"], names: readonly MetricName[], arms: readonly string[]): MetricName[] {
   return names.filter((m) => {
     if (NOT_IN_TABLES.has(m)) return false;
     const means = arms.map((a) => shared[a]?.[m]?.mean).filter((v): v is number => v !== undefined);
@@ -214,7 +214,7 @@ function deltaColumnsOf(delta: SuiteReport["delta"], names: readonly MetricName[
   return names.filter((m) => !NOT_IN_TABLES.has(m) && arms.some((a) => Math.abs(delta[a]?.[m]?.interval.mean ?? 0) > 1e-9));
 }
 
-export function renderMarkdown(views: readonly PackageView[]): string {
+export function renderMarkdown(views: readonly PackageView[], reportDir = "bench"): string {
   const first = views[0];
   if (!first) return "# Bench\n\nNo suite has been run against this package yet.\n";
   const head = [
@@ -227,10 +227,10 @@ export function renderMarkdown(views: readonly PackageView[]): string {
     "---",
     "",
   ].filter((line, i, all) => !(line === "" && all[i - 1] === ""));
-  return `${head.join("\n")}${views.map((v) => renderSuite(v)).join("\n")}`;
+  return `${head.join("\n")}${views.map((v) => renderSuite(v, reportDir)).join("\n")}`;
 }
 
-function renderSuite(view: PackageView): string {
+function renderSuite(view: PackageView, reportDir: string): string {
   const r = view.report;
   const arms = view.arms;
   const sharedCols = columnsOf(r.shared, SHARED, arms);
@@ -250,6 +250,9 @@ function renderSuite(view: PackageView): string {
   );
   lines.push(table([], ["arm", ...sharedCols], arms.map((arm) => [arm === view.arms[1] ? `**${arm}**` : arm, ...sharedCols.map((m) => cell(r.shared[arm]?.[m]))])));
   lines.push("");
+  // The same columns as a picture, written beside report.json by `writeChart`. A plain relative path, so it
+  // renders on GitHub and on a marketplace page alike.
+  lines.push(`![${r.inputs.suite.id} comparison](${reportDir}/${slugOf(r.inputs.suite.id)}/chart.svg)`, "");
 
   const withDelta = arms.filter((a) => a !== r.inputs.floor && Object.keys(r.delta[a] ?? {}).length);
   if (withDelta.length) {
@@ -351,7 +354,7 @@ const withoutTimestamp = (body: string): string => body.replace(/^Generated .*$/
 export function writeMarkdown(packageDir: string, views: readonly PackageView[], reportDir = "bench", force = false): WriteResult {
   const path = join(packageDir, "BENCH.md");
   assertWritable(path);
-  const body = renderMarkdown(views);
+  const body = renderMarkdown(views, reportDir);
   if (!force && existsSync(path) && withoutTimestamp(readFileSync(path, "utf8")) === withoutTimestamp(body)) {
     return { path, written: false, reason: "unchanged" };
   }

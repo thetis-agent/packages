@@ -23,6 +23,8 @@ Argument values are coerced: a number for `text` means text cut at that many cha
 
 Bench suites: `assembly-cost@1` and `tool-recall@1`, peer group `tools`. `BENCH.md` in this directory is the generated comparison.
 
+![tool-recall@1 comparison](bench/tool-recall-v1/chart.svg)
+
 No steps, no service, no UI.
 
 ## Configuration

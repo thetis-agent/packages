@@ -1,10 +1,13 @@
 /* A small markdown renderer for assistant text. DOM-built, never innerHTML, so model output cannot inject markup.
- * Covers paragraphs, headings, fenced code with a copy button, inline code, bold, italic, links, flat lists,
- * blockquotes, rules and pipe tables. Anything else renders as plain text. */
+ * Covers paragraphs, headings, fenced code with a copy button, inline code, bold, italic, links, images, flat
+ * lists, blockquotes, rules and pipe tables. Anything else renders as plain text.
+ *
+ * `opts.image(src)` resolves a relative image path to a URL the page may load (a package page turns a README's
+ * `bench/x/chart.svg` into a data: URL). Without a resolver a relative image is shown as its alt text. */
 
 import { el } from "./dom.js";
 
-export function renderMarkdown(text) {
+export function renderMarkdown(text, opts = {}) {
   const lines = String(text ?? "").split("\n");
   const blocks = [];
   let paragraph = [];
@@ -12,12 +15,12 @@ export function renderMarkdown(text) {
 
   const flushParagraph = () => {
     if (!paragraph.length) return;
-    blocks.push(el("p", { class: "md-p" }, ...inline(paragraph.join("\n"))));
+    blocks.push(el("p", { class: "md-p" }, ...inline(paragraph.join("\n"), opts)));
     paragraph = [];
   };
   const flushList = () => {
     if (!list) return;
-    blocks.push(el(list.ordered ? "ol" : "ul", { class: "md-list" }, list.items.map((item) => el("li", {}, ...inline(item)))));
+    blocks.push(el(list.ordered ? "ol" : "ul", { class: "md-list" }, list.items.map((item) => el("li", {}, ...inline(item, opts)))));
     list = null;
   };
   const flush = () => {
@@ -35,7 +38,7 @@ export function renderMarkdown(text) {
       blocks.push(codeBlock(body.join("\n"), fence[1]));
       continue;
     }
-    const table = tableAt(lines, i);
+    const table = tableAt(lines, i, opts);
     if (table) {
       flush();
       blocks.push(table.node);
@@ -45,7 +48,7 @@ export function renderMarkdown(text) {
     const heading = line.match(/^(#{1,6})\s+(.*)$/);
     if (heading) {
       flush();
-      blocks.push(el(`h${Math.min(heading[1].length + 2, 6)}`, { class: "md-h" }, ...inline(heading[2])));
+      blocks.push(el(`h${Math.min(heading[1].length + 2, 6)}`, { class: "md-h" }, ...inline(heading[2], opts)));
       continue;
     }
     if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
@@ -58,7 +61,7 @@ export function renderMarkdown(text) {
       flush();
       const body = [quoted[1]];
       while (i + 1 < lines.length && /^>\s?/.test(lines[i + 1])) body.push(lines[++i].replace(/^>\s?/, ""));
-      blocks.push(el("blockquote", { class: "md-quote" }, ...inline(body.join("\n"))));
+      blocks.push(el("blockquote", { class: "md-quote" }, ...inline(body.join("\n"), opts)));
       continue;
     }
     const bullet = line.match(/^\s*[-*+]\s+(.*)$/);
@@ -106,7 +109,7 @@ function flash(button, text) {
 
 const DELIM_CELL = /^:?-+:?$/;
 
-function tableAt(lines, start) {
+function tableAt(lines, start, opts) {
   const first = lines[start];
   const next = lines[start + 1];
   if (!first || !first.includes("|") || !next || !next.includes("|")) return null;
@@ -116,7 +119,7 @@ function tableAt(lines, start) {
   const rows = [];
   let i = start + 2;
   while (i < lines.length && lines[i].trim() && lines[i].includes("|")) rows.push(splitCells(lines[i++]));
-  const cell = (tag, text) => el(tag, {}, ...inline(text.trim()));
+  const cell = (tag, text) => el(tag, {}, ...inline(text.trim(), opts));
   const node = el(
     "div",
     { class: "md-table-wrap" },
@@ -151,14 +154,28 @@ function fit(row, width) {
   return cells;
 }
 
+/* A relative path the page may ask a resolver about: no scheme, not from the root, and never up a directory.
+ * Anything else that is not https is shown as its alt text, so a README cannot make the page fetch elsewhere. */
+const RELATIVE = /^(?![a-z][a-z0-9+.-]*:)(?!\/)\S+$/i;
+const noParent = (src) => !src.split("/").includes("..");
+
+function image(alt, src, opts) {
+  if (/^https:\/\//.test(src)) return el("img", { class: "md-img", alt, src, loading: "lazy" });
+  if (!RELATIVE.test(src) || !noParent(src)) return alt;
+  const resolved = typeof opts.image === "function" ? opts.image(src) : null;
+  if (typeof resolved === "string" && resolved) return el("img", { class: "md-img", alt, src: resolved });
+  return el("span", { class: "md-img-missing", title: src }, alt);
+}
+
 const INLINE = [
   { re: /`([^`\n]+)`/, node: (m) => el("code", { class: "md-inline-code" }, m[1]) },
+  { re: /!\[([^\]\n]*)\]\(([^)\s]+)\)/, node: (m, opts) => image(m[1], m[2], opts) },
   { re: /\*\*([^*\n]+)\*\*/, node: (m) => el("strong", {}, m[1]) },
   { re: /\*([^*\n]+)\*/, node: (m) => el("em", {}, m[1]) },
   { re: /\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/, node: (m) => el("a", { href: m[2], target: "_blank", rel: "noopener noreferrer" }, m[1]) },
 ];
 
-function inline(text) {
+function inline(text, opts = {}) {
   const nodes = [];
   let rest = text;
   while (rest) {
@@ -172,7 +189,7 @@ function inline(text) {
       break;
     }
     if (best.match.index > 0) nodes.push(rest.slice(0, best.match.index));
-    nodes.push(best.spec.node(best.match));
+    nodes.push(best.spec.node(best.match, opts));
     rest = rest.slice(best.match.index + best.match[0].length);
   }
   return nodes;

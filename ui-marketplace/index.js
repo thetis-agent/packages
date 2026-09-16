@@ -4,7 +4,7 @@
 // person's own packages go through `env.kernel.packages`; the admin verbs go through
 // `env.kernel.operator.call`, which the gateway allows only past the declared role and the kernel only
 // for an admin's fence. Nothing here trusts the browser: `env.user` says who asked.
-import { readIndex, readReadme, search as searchIndex } from "@thetis/marketplace";
+import { readIndex, readReadme, readReadmeAsset, search as searchIndex } from "@thetis/marketplace";
 import { installedRow, matchesQuery, mergeRows } from "./lib/rows.js";
 
 const PACKAGE_NAME = /^@[a-z0-9-]+\/[a-z0-9._-]+$/;
@@ -45,7 +45,27 @@ export async function search(args, env) {
   return { data: { ...facts(index), rows: shown, user: env.user, role: env.role } };
 }
 
-/** One package: its row, the README copy when the registry holds one, and who is looking. */
+/**
+ * The gateway caps a command's answer at 256 KiB. The README may be that long on its own, so its pictures
+ * ride along only while the answer stays under this many bytes; one that does not fit shows as its alt text.
+ */
+const SHOW_BUDGET = 200 * 1024;
+
+/** The README's pictures, in README order, as `{ [path]: { type, data } }`, as many as fit beside the text. */
+async function assetsOf(env, entry, readme) {
+  const out = {};
+  let spent = Buffer.byteLength(readme ?? "");
+  for (const path of entry?.readmeAssets ?? []) {
+    const asset = await readReadmeAsset(env, entry, path);
+    if (!asset) continue;
+    spent += Buffer.byteLength(asset.data);
+    if (spent > SHOW_BUDGET) break;
+    out[path] = asset;
+  }
+  return out;
+}
+
+/** One package: its row, the README copy when the registry holds one with the pictures it shows, and who is looking. */
 export async function show(args, env) {
   const name = packageName(args.name);
   const { index, rows } = await rowsOf(env);
@@ -53,7 +73,8 @@ export async function show(args, env) {
   if (!row) fail(`${name} is not installed here and no registry offers it`);
   const entry = index?.packages.find((e) => e.name === name);
   const readme = entry ? ((await readReadme(env, entry)) ?? null) : null;
-  return { data: { ...facts(index), row, readme, user: env.user, role: env.role } };
+  const assets = readme ? await assetsOf(env, entry, readme) : {};
+  return { data: { ...facts(index), row, readme, assets, user: env.user, role: env.role } };
 }
 
 export async function install(args, env) {

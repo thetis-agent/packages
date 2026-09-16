@@ -1,0 +1,266 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1756" viewBox="0 0 720 1756" role="img" aria-labelledby="t d" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+<title id="t">@rank/skills on skill-recall@1</title>
+<desc id="d">Grouped bars, one group per compared metric (bytes_system, bytes_tools, bytes_messages, bytes_turn1, bytes_last, tools_n, steps_n, non_ascii_ratio, recall_reach, recall_direct, precision_direct, f1_direct, completeness, undershoot, overshoot_count, fetch_rounds, direct_n, bits_over_random) and one bar per arm (none, rank-skills, flat-skills, l1-skills), each metric scaled to the largest mean in its column. rank-skills is this package; none is the floor.</desc>
+<style>.t{fill:#3a3a48}.f{fill:#8b8b9e}@media (prefers-color-scheme:dark){.t{fill:#d2d2dc}.f{fill:#9a9aae}}</style>
+<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#6e6e82" fill-opacity="0.22"/><line x1="0" y1="0" x2="0" y2="6" stroke="#6e6e82" stroke-width="2"/></pattern></defs>
+<text class="t" x="16" y="20" font-size="14" font-weight="600">@rank/skills on skill-recall@1</text>
+<text class="f" x="16" y="38" font-size="11">skill-recall@1 · sha256:210a1922e275… · 90 tasks · each bar is a share of its metric's largest mean · mean ±half-width</text>
+<rect x="653" y="11" width="10" height="10" rx="2" fill="#6e6e82"/>
+<text class="f" x="667" y="20" font-size="11">peers</text>
+<rect x="552.4" y="11" width="10" height="10" rx="2" fill="#7c9cff"/>
+<text class="f" x="566.4" y="20" font-size="11">rank-skills</text>
+<rect x="498" y="11" width="10" height="10" rx="2" fill="url(#hatch)"/>
+<text class="f" x="512" y="20" font-size="11">none</text>
+<text class="t" x="16" y="66" font-size="12" font-weight="600">bytes_system</text>
+<line x1="192" y1="70" x2="566" y2="70" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="86" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="77" width="16.93" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="214.93" y="86" font-size="11">4324<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="102" font-size="11" text-anchor="end" font-weight="600">rank-skills</text>
+<rect x="192" y="93" width="111.15" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="309.15" y="102" font-size="11">28383.5<tspan class="f" font-size="9"> ±2309.5</tspan></text>
+<text class="t" x="184" y="118" font-size="11" text-anchor="end">flat-skills</text>
+<rect x="192" y="109" width="374" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="572" y="118" font-size="11">95502<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="134" font-size="11" text-anchor="end">l1-skills</text>
+<rect x="192" y="125" width="327.41" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="525.41" y="134" font-size="11">83604<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="16" y="160" font-size="12" font-weight="600">bytes_tools</text>
+<line x1="192" y1="164" x2="566" y2="164" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="180" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="171" width="3.31" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="201.31" y="180" font-size="11">2<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="196" font-size="11" text-anchor="end" font-weight="600">rank-skills</text>
+<rect x="192" y="187" width="374" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="572" y="196" font-size="11">226<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="212" font-size="11" text-anchor="end">flat-skills</text>
+<rect x="192" y="203" width="3.31" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="201.31" y="212" font-size="11">2<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="228" font-size="11" text-anchor="end">l1-skills</text>
+<rect x="192" y="219" width="319.39" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="517.39" y="228" font-size="11">193<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="16" y="254" font-size="12" font-weight="600">bytes_messages</text>
+<line x1="192" y1="258" x2="566" y2="258" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="274" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="265" width="80.56" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="278.56" y="274" font-size="11">1070.1<tspan class="f" font-size="9"> ±108.8</tspan></text>
+<text class="t" x="184" y="290" font-size="11" text-anchor="end" font-weight="600">rank-skills</text>
+<rect x="192" y="281" width="374" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="572" y="290" font-size="11">4967.6<tspan class="f" font-size="9"> ±287.1</tspan></text>
+<text class="t" x="184" y="306" font-size="11" text-anchor="end">flat-skills</text>
+<rect x="192" y="297" width="80.56" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="278.56" y="306" font-size="11">1070.1<tspan class="f" font-size="9"> ±109.0</tspan></text>
+<text class="t" x="184" y="322" font-size="11" text-anchor="end">l1-skills</text>
+<rect x="192" y="313" width="80.56" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="278.56" y="322" font-size="11">1070.1<tspan class="f" font-size="9"> ±110.0</tspan></text>
+<text class="t" x="16" y="348" font-size="12" font-weight="600">bytes_turn1</text>
+<line x1="192" y1="352" x2="566" y2="352" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="368" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="359" width="20.9" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="218.9" y="368" font-size="11">5396.1<tspan class="f" font-size="9"> ±112.8</tspan></text>
+<text class="t" x="184" y="384" font-size="11" text-anchor="end" font-weight="600">rank-skills</text>
+<rect x="192" y="375" width="114.94" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="312.94" y="384" font-size="11">29679.6<tspan class="f" font-size="9"> ±2362.5</tspan></text>
+<text class="t" x="184" y="400" font-size="11" text-anchor="end">flat-skills</text>
+<rect x="192" y="391" width="374" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="572" y="400" font-size="11">96574.1<tspan class="f" font-size="9"> ±106.6</tspan></text>
+<text class="t" x="184" y="416" font-size="11" text-anchor="end">l1-skills</text>
+<rect x="192" y="407" width="328.66" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="526.66" y="416" font-size="11">84867.1<tspan class="f" font-size="9"> ±105.7</tspan></text>
+<text class="t" x="16" y="442" font-size="12" font-weight="600">bytes_last</text>
+<line x1="192" y1="446" x2="566" y2="446" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="462" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="453" width="20.9" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="218.9" y="462" font-size="11">5396.1<tspan class="f" font-size="9"> ±108.8</tspan></text>
+<text class="t" x="184" y="478" font-size="11" text-anchor="end" font-weight="600">rank-skills</text>
+<rect x="192" y="469" width="130.03" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="328.03" y="478" font-size="11">33577.1<tspan class="f" font-size="9"> ±2426.1</tspan></text>
+<text class="t" x="184" y="494" font-size="11" text-anchor="end">flat-skills</text>
+<rect x="192" y="485" width="374" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="572" y="494" font-size="11">96574.1<tspan class="f" font-size="9"> ±109.9</tspan></text>
+<text class="t" x="184" y="510" font-size="11" text-anchor="end">l1-skills</text>
+<rect x="192" y="501" width="328.66" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="526.66" y="510" font-size="11">84867.1<tspan class="f" font-size="9"> ±109.8</tspan></text>
+<text class="t" x="16" y="536" font-size="12" font-weight="600">tools_n</text>
+<line x1="192" y1="540" x2="566" y2="540" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="556" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="547" width="0" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="198" y="556" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="572" font-size="11" text-anchor="end" font-weight="600">rank-skills</text>
+<rect x="192" y="563" width="374" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="572" y="572" font-size="11">1<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="588" font-size="11" text-anchor="end">flat-skills</text>
+<rect x="192" y="579" width="0" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="198" y="588" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="604" font-size="11" text-anchor="end">l1-skills</text>
+<rect x="192" y="595" width="374" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="572" y="604" font-size="11">1<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="16" y="630" font-size="12" font-weight="600">steps_n</text>
+<line x1="192" y1="634" x2="566" y2="634" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="650" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="641" width="233.75" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="431.75" y="650" font-size="11">5<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="666" font-size="11" text-anchor="end" font-weight="600">rank-skills</text>
+<rect x="192" y="657" width="374" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="572" y="666" font-size="11">8<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="682" font-size="11" text-anchor="end">flat-skills</text>
+<rect x="192" y="673" width="374" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="572" y="682" font-size="11">8<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="698" font-size="11" text-anchor="end">l1-skills</text>
+<rect x="192" y="689" width="374" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="572" y="698" font-size="11">8<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="16" y="724" font-size="12" font-weight="600">non_ascii_ratio</text>
+<line x1="192" y1="728" x2="566" y2="728" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="744" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="735" width="0" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="198" y="744" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="760" font-size="11" text-anchor="end" font-weight="600">rank-skills</text>
+<rect x="192" y="751" width="213.25" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="411.25" y="760" font-size="11">0.011<tspan class="f" font-size="9"> ±0.004</tspan></text>
+<text class="t" x="184" y="776" font-size="11" text-anchor="end">flat-skills</text>
+<rect x="192" y="767" width="374" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="572" y="776" font-size="11">0.019<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="792" font-size="11" text-anchor="end">l1-skills</text>
+<rect x="192" y="783" width="354.32" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="552.32" y="792" font-size="11">0.018<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="16" y="818" font-size="12" font-weight="600">recall_reach</text>
+<line x1="192" y1="822" x2="566" y2="822" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="838" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="829" width="0" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="198" y="838" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="854" font-size="11" text-anchor="end" font-weight="600">rank-skills</text>
+<rect x="192" y="845" width="353.74" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="551.74" y="854" font-size="11">0.946<tspan class="f" font-size="9"> ±0.036</tspan></text>
+<text class="t" x="184" y="870" font-size="11" text-anchor="end">flat-skills</text>
+<rect x="192" y="861" width="18.7" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="216.7" y="870" font-size="11">0.050<tspan class="f" font-size="9"> ±0.041</tspan></text>
+<text class="t" x="184" y="886" font-size="11" text-anchor="end">l1-skills</text>
+<rect x="192" y="877" width="374" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="572" y="886" font-size="11">1<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="16" y="912" font-size="12" font-weight="600">recall_direct</text>
+<line x1="192" y1="916" x2="566" y2="916" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="932" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="923" width="0" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="198" y="932" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="948" font-size="11" text-anchor="end" font-weight="600">rank-skills</text>
+<rect x="192" y="939" width="374" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="572" y="948" font-size="11">0.863<tspan class="f" font-size="9"> ±0.057</tspan></text>
+<text class="t" x="184" y="964" font-size="11" text-anchor="end">flat-skills</text>
+<rect x="192" y="955" width="21.68" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="219.68" y="964" font-size="11">0.050<tspan class="f" font-size="9"> ±0.044</tspan></text>
+<text class="t" x="184" y="980" font-size="11" text-anchor="end">l1-skills</text>
+<rect x="192" y="971" width="0" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="198" y="980" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="16" y="1006" font-size="12" font-weight="600">precision_direct</text>
+<line x1="192" y1="1010" x2="566" y2="1010" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="1026" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="1017" width="0" height="10" rx="2" fill="url(#hatch)"/>
+<text class="f" x="198" y="1026" font-size="11">—</text>
+<text class="t" x="184" y="1042" font-size="11" text-anchor="end" font-weight="600">rank-skills</text>
+<rect x="192" y="1033" width="374" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="572" y="1042" font-size="11">0.446<tspan class="f" font-size="9"> ±0.042</tspan></text>
+<text class="t" x="184" y="1058" font-size="11" text-anchor="end">flat-skills</text>
+<rect x="192" y="1049" width="5.83" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="203.83" y="1058" font-size="11">0.007<tspan class="f" font-size="9"> ±0.006</tspan></text>
+<text class="t" x="184" y="1074" font-size="11" text-anchor="end">l1-skills</text>
+<rect x="192" y="1065" width="0" height="10" rx="2" fill="#6e6e82"/>
+<text class="f" x="198" y="1074" font-size="11">—</text>
+<text class="t" x="16" y="1100" font-size="12" font-weight="600">f1_direct</text>
+<line x1="192" y1="1104" x2="566" y2="1104" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="1120" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="1111" width="0" height="10" rx="2" fill="url(#hatch)"/>
+<text class="f" x="198" y="1120" font-size="11">—</text>
+<text class="t" x="184" y="1136" font-size="11" text-anchor="end" font-weight="600">rank-skills</text>
+<rect x="192" y="1127" width="374" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="572" y="1136" font-size="11">0.597<tspan class="f" font-size="9"> ±0.034</tspan></text>
+<text class="t" x="184" y="1152" font-size="11" text-anchor="end">flat-skills</text>
+<rect x="192" y="1143" width="120.66" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="318.66" y="1152" font-size="11">0.193<tspan class="f" font-size="9"> ±0.007</tspan></text>
+<text class="t" x="184" y="1168" font-size="11" text-anchor="end">l1-skills</text>
+<rect x="192" y="1159" width="0" height="10" rx="2" fill="#6e6e82"/>
+<text class="f" x="198" y="1168" font-size="11">—</text>
+<text class="t" x="16" y="1194" font-size="12" font-weight="600">completeness</text>
+<line x1="192" y1="1198" x2="566" y2="1198" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="1214" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="1205" width="0" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="198" y="1214" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="1230" font-size="11" text-anchor="end" font-weight="600">rank-skills</text>
+<rect x="192" y="1221" width="331.93" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="529.92" y="1230" font-size="11">0.887<tspan class="f" font-size="9"> ±0.069</tspan></text>
+<text class="t" x="184" y="1246" font-size="11" text-anchor="end">flat-skills</text>
+<rect x="192" y="1237" width="14.03" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="212.03" y="1246" font-size="11">0.037<tspan class="f" font-size="9"> ±0.044</tspan></text>
+<text class="t" x="184" y="1262" font-size="11" text-anchor="end">l1-skills</text>
+<rect x="192" y="1253" width="374" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="572" y="1262" font-size="11">1<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="16" y="1288" font-size="12" font-weight="600">undershoot</text>
+<line x1="192" y1="1292" x2="566" y2="1292" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="1308" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="1299" width="374" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="572" y="1308" font-size="11">1<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="1324" font-size="11" text-anchor="end" font-weight="600">rank-skills</text>
+<rect x="192" y="1315" width="20.26" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="218.26" y="1324" font-size="11">0.054<tspan class="f" font-size="9"> ±0.036</tspan></text>
+<text class="t" x="184" y="1340" font-size="11" text-anchor="end">flat-skills</text>
+<rect x="192" y="1331" width="355.3" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="553.3" y="1340" font-size="11">0.950<tspan class="f" font-size="9"> ±0.044</tspan></text>
+<text class="t" x="184" y="1356" font-size="11" text-anchor="end">l1-skills</text>
+<rect x="192" y="1347" width="0" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="198" y="1356" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="16" y="1382" font-size="12" font-weight="600">overshoot_count</text>
+<line x1="192" y1="1386" x2="566" y2="1386" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="1402" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="1393" width="0" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="198" y="1402" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="1418" font-size="11" text-anchor="end" font-weight="600">rank-skills</text>
+<rect x="192" y="1409" width="76.37" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="274.37" y="1418" font-size="11">1.337<tspan class="f" font-size="9"> ±0.179</tspan></text>
+<text class="t" x="184" y="1434" font-size="11" text-anchor="end">flat-skills</text>
+<rect x="192" y="1425" width="374" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="572" y="1434" font-size="11">6.550<tspan class="f" font-size="9"> ±0.544</tspan></text>
+<text class="t" x="184" y="1450" font-size="11" text-anchor="end">l1-skills</text>
+<rect x="192" y="1441" width="0" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="198" y="1450" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="16" y="1476" font-size="12" font-weight="600">fetch_rounds</text>
+<line x1="192" y1="1480" x2="566" y2="1480" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="1496" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="1487" width="0" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="198" y="1496" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="1512" font-size="11" text-anchor="end" font-weight="600">rank-skills</text>
+<rect x="192" y="1503" width="51.43" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="249.43" y="1512" font-size="11">0.138<tspan class="f" font-size="9"> ±0.075</tspan></text>
+<text class="t" x="184" y="1528" font-size="11" text-anchor="end">flat-skills</text>
+<rect x="192" y="1519" width="0" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="198" y="1528" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="1544" font-size="11" text-anchor="end">l1-skills</text>
+<rect x="192" y="1535" width="374" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="572" y="1544" font-size="11">1<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="16" y="1570" font-size="12" font-weight="600">direct_n</text>
+<line x1="192" y1="1574" x2="566" y2="1574" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="1590" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="1581" width="0" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="198" y="1590" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="1606" font-size="11" text-anchor="end" font-weight="600">rank-skills</text>
+<rect x="192" y="1597" width="121.9" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="319.9" y="1606" font-size="11">2.933<tspan class="f" font-size="9"> ±0.083</tspan></text>
+<text class="t" x="184" y="1622" font-size="11" text-anchor="end">flat-skills</text>
+<rect x="192" y="1613" width="374" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="572" y="1622" font-size="11">9<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="1638" font-size="11" text-anchor="end">l1-skills</text>
+<rect x="192" y="1629" width="0" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="198" y="1638" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="16" y="1664" font-size="12" font-weight="600">bits_over_random</text>
+<line x1="192" y1="1668" x2="566" y2="1668" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="1684" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="1675" width="0" height="10" rx="2" fill="url(#hatch)"/>
+<text class="f" x="198" y="1684" font-size="11">—</text>
+<text class="t" x="184" y="1700" font-size="11" text-anchor="end" font-weight="600">rank-skills</text>
+<rect x="192" y="1691" width="374" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="572" y="1700" font-size="11">4.759<tspan class="f" font-size="9"> ±0.055</tspan></text>
+<text class="t" x="184" y="1716" font-size="11" text-anchor="end">flat-skills</text>
+<rect x="192" y="1707" width="361.09" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="559.09" y="1716" font-size="11">4.595<tspan class="f" font-size="9"> ±0.400</tspan></text>
+<text class="t" x="184" y="1732" font-size="11" text-anchor="end">l1-skills</text>
+<rect x="192" y="1723" width="0" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="198" y="1732" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
+</svg>

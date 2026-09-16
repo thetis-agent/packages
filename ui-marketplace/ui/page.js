@@ -1,5 +1,6 @@
 /* One package's page: the crumb back to the gallery, the README on the left (rendered by the shell's
- * markdown, which builds DOM and never sets innerHTML), and on the right a card with the facts (the pin
+ * markdown, which builds DOM and never sets innerHTML; its local pictures come with the answer and are
+ * drawn from data: URLs, so the page fetches nothing), and on the right a card with the facts (the pin
  * installed here against the registry's tip, the type, the service, the license), what it brings as
  * pills, and the actions the state and the role allow. Everything comes from one `show` answer; an
  * admin's people for the picker come from `people`. `open` returns an unmount that stops a late answer
@@ -46,9 +47,20 @@ export function openPage(ext, root, params) {
     }
   }
 
-  function readme(text) {
+  /** A README's `![alt](bench/x/chart.svg)` resolves to the copy `show` sent, or to its alt text. */
+  function imageOf(assets) {
+    return (src) => {
+      const asset = assets && Object.prototype.hasOwnProperty.call(assets, src) ? assets[src] : null;
+      if (!asset || typeof asset.data !== "string") return null;
+      if (asset.type === "image/svg+xml") return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(asset.data)}`;
+      if (asset.type === "image/png") return `data:image/png;base64,${asset.data}`;
+      return null;
+    };
+  }
+
+  function readme(text, assets) {
     if (typeof text !== "string" || !text.trim()) return el("p", { class: "mk-none" }, "This package has no README.");
-    return el("div", { class: "md mk-readme-body" }, ext.markdown(text));
+    return el("div", { class: "md mk-readme-body" }, ext.markdown(text, { image: imageOf(assets) }));
   }
 
   /** The version facts: what is installed here and at which commit, against what the registry holds. */
@@ -108,7 +120,7 @@ export function openPage(ext, root, params) {
       ),
       ...hints.map((h) => el("p", { class: "panel-hint" }, h))
     );
-    body.append(el("section", { class: "mk-readme", "aria-label": "README" }, readme(view.readme)), side);
+    body.append(el("section", { class: "mk-readme", "aria-label": "README" }, readme(view.readme, view.assets)), side);
   }
 
   void load();

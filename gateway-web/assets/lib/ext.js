@@ -96,7 +96,8 @@ export function createExt(extension) {
     dom: DOM,
     ui: UI,
     toast,
-    markdown: renderMarkdown,
+    /** The shell's renderer. `opts.image(src)` may turn a relative image path into a URL; one argument still works. */
+    markdown: (text, opts) => renderMarkdown(text, opts),
   };
   return Object.freeze(ext);
 }

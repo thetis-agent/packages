@@ -23,6 +23,8 @@ Only numbers every arm can produce appear here, and only those on which the arms
 | flat-skills | 95484 ±0 | 2 ±0 | 1070.1 ±109.0 | 96556.1 ±106.6 | 96556.1 ±109.9 | 0 ±0 | 7 ±0 | 0.019 ±0 | 0.050 ±0.041 | 0.050 ±0.044 | 0.007 ±0.006 | 0.193 ±0.007 | 0.037 ±0.044 | 0.950 ±0.044 | 6.550 ±0.544 | 0 ±0 | 9 ±0 | 4.595 ±0.400 |
 | l1-skills | 83586 ±0 | 193 ±0 | 1070.1 ±110.0 | 84849.1 ±105.7 | 84849.1 ±109.8 | 1 ±0 | 7 ±0 | 0.018 ±0 | 1 ±0 | 0 ±0 | — | — | 1 ±0 | 0 ±0 | 0 ±0 | 1 ±0 | 0 ±0 | 0 ±0 |
 
+![skill-recall@1 comparison](bench/skill-recall-v1/chart.svg)
+
 ### Against the floor (`none`)
 
 Paired per task, so the constant cost of the harness cancels. `w/t/l` counts the tasks each arm won, tied and lost, which a mean can hide.

@@ -28,6 +28,8 @@ Both commands refuse when no conversation is open. The transcript folds every `t
 
 Bench suites: `assembly-cost@1` and `tool-recall@1`, peer group `tools`. `BENCH.md` in this directory is the generated comparison.
 
+![tool-recall@1 comparison](bench/tool-recall-v1/chart.svg)
+
 No steps, no service.
 
 ## Configuration
