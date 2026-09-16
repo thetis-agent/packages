@@ -1,0 +1,30 @@
+{
+  "name": "@thetis/skills",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "The skill format and library: reads SKILL.md packs from packages and the home, lints them, ranks them, and offers skill_fetch so any loader shares one way to read a skill in full.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "thetis": {
+    "type": "skill-type",
+    "tools": [
+      {
+        "name": "skill_fetch",
+        "description": "Read the full text of a skill, or one of the files beside it, by id. A brief in the prompt is a pointer, not the content: fetch before relying on a skill. Returns up to 24000 characters per call; a footer says how to read on with offset.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "description": "The skill id as shown in the prompt, for example packages or packages/forks." },
+            "file": { "type": "string", "description": "A file beside SKILL.md, as listed at the end of the skill's text, for example references/install.md." },
+            "offset": { "type": "integer", "description": "Character offset to read on from, as the footer of a previous call gave it." }
+          },
+          "required": ["id"]
+        },
+        "export": "fetchSkill"
+      }
+    ]
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "@thetis/skills-all",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Puts every skill's whole body in the system prompt, universal ones first then by id, until a byte budget is spent; nothing is a tool call away.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "@thetis/skills": "^0.1.0"
+  },
+  "thetis": {
+    "type": "loader",
+    "steps": [
+      { "id": "bench-import", "phase": "bench", "export": "importCorpus" },
+      { "id": "inject", "phase": "prompt", "export": "inject" },
+      { "id": "bench-report", "phase": "bench", "export": "benchReport" }
+    ],
+    "bench": {
+      "suites": ["skill-recall@1", "assembly-cost@1"],
+      "corpus": "caps@1",
+      "peerGroup": "skills",
+      "importer": "importCorpus",
+      "adapter": "benchReport"
+    }
+  }
+}

@@ -90,6 +90,8 @@ export interface ThetisField {
   bench?: BenchDecl;
   /** What the package adds to the web gateway's page. Read by @thetis/gateway-web; the kernel never reads it. */
   ui?: UiDecl;
+  /** A directory of skills, relative to the package root, usually "skills". Read by @thetis/skills; the kernel never reads it. */
+  skills?: string;
 }
 
 export interface Manifest {

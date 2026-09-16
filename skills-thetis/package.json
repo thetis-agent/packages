@@ -1,0 +1,14 @@
+{
+  "name": "@thetis/skills-thetis",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "The skills that teach an agent inside Thetis what Thetis is, how to use it, and how to change it from the inside. One universal skill and eleven fetched ones, in Simplified Technical English.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "thetis": {
+    "type": "skill",
+    "skills": "skills"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "name": "@thetis/skills-l1",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Puts one brief per skill in the system prompt and offers load_skill, which returns a body once per conversation; universal skills are always in full.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "@thetis/skills": "^0.1.0"
+  },
+  "thetis": {
+    "type": "loader",
+    "steps": [
+      { "id": "bench-import", "phase": "bench", "export": "importCorpus" },
+      { "id": "catalogue", "phase": "prompt", "export": "catalogue" },
+      { "id": "bench-report", "phase": "bench", "export": "benchReport" }
+    ],
+    "tools": [
+      {
+        "name": "load_skill",
+        "description": "Load the full text of one skill from the catalogue in your prompt, by its name. A brief is a pointer, not the content: load a skill before relying on it. Each skill is returned once per conversation and then stays in your prompt; a name that is not in the catalogue is refused with the closest names.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string", "description": "The skill id exactly as the catalogue shows it, for example packages." }
+          },
+          "required": ["name"]
+        },
+        "export": "loadSkill"
+      }
+    ],
+    "bench": {
+      "suites": ["skill-recall@1", "assembly-cost@1"],
+      "corpus": "caps@1",
+      "peerGroup": "skills",
+      "importer": "importCorpus",
+      "adapter": "benchReport"
+    }
+  }
+}
