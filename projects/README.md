@@ -13,7 +13,7 @@ The manifest declares `type: "loader"`, two `steps`, and a `ui` block with `dir:
 
 | Slot | Id | Label | Notes |
 |---|---|---|---|
-| `sidebar` | `head` | | The switcher, under the brand. |
+| `sidebar` | `head` | | The switcher, under the ≡ menu button. |
 | `places` | `project` | Project | Hint: "This project's directories, tools and instructions". |
 
 Seven commands. Any signed-in person may send them; each answers `{ data }`, and a refusal is a thrown error the gateway answers as `400 { error }`.
