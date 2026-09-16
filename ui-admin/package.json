@@ -2,7 +2,7 @@
   "name": "@thetis/ui-admin",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "The admin sections of the web gateway's control panel: people, models, activity, overview, and mounts.",
+  "description": "The admin sections of the web gateway's control panel: people, models, activity, overview, mounts, and workspaces.",
   "type": "module",
   "main": "index.js",
   "thetis": {
@@ -16,6 +16,7 @@
         { "id": "models", "label": "Models", "note": "Which model answers by default, and what the providers serve.", "role": "admin", "order": 30 },
         { "id": "mounts", "label": "Mounts", "note": "Which host directories are bound into whose space.", "role": "admin", "order": 35 },
         { "id": "activity", "label": "Activity", "note": "What happened: who did what, and when.", "role": "admin", "order": 40 },
+        { "id": "workspaces", "label": "Workspaces", "note": "What code each workspace is running, and how to put new code into service.", "role": "admin", "order": 45 },
         { "id": "overview", "label": "Overview", "note": "How this installation is set up.", "role": "admin", "order": 50 }
       ],
       "commands": [
@@ -30,7 +31,10 @@
         { "verb": "journal", "export": "journal", "label": "Read the journal", "role": "admin" },
         { "verb": "mounts-list", "export": "mountsList", "label": "List the mounts", "role": "admin" },
         { "verb": "mounts-set", "export": "mountsSet", "label": "Set a person's mounts", "role": "admin" },
-        { "verb": "mounts-browse", "export": "mountsBrowse", "label": "List the directories under a host path", "role": "admin" }
+        { "verb": "mounts-browse", "export": "mountsBrowse", "label": "List the directories under a host path", "role": "admin" },
+        { "verb": "fence-reload", "export": "fenceReload", "label": "Reload a workspace", "role": "admin" },
+        { "verb": "status", "export": "status", "label": "What the daemon and every workspace are running", "role": "admin" },
+        { "verb": "restart-request", "export": "restartRequest", "label": "Ask the daemon to restart", "role": "admin" }
       ]
     }
   }

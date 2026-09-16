@@ -118,9 +118,40 @@ test("mounts-list asks for one person or everyone; mounts-set checks the list th
   assert.equal(calls.length, 3);
 });
 
+test("fence-reload targets one workspace, `_system` included, and status reads the whole installation", async () => {
+  const { env, calls } = fakeEnv({ "fence.reload": (a) => ({ user: a.user, services: a.user === "_system" ? [] : ["@thetis/gateway-web"] }), status: { daemon: { stale: false }, restart: null, workspaces: [{ user: "bob", stale: true }] } });
+  assert.deepEqual(await commands.fenceReload({ user: "bob" }, env), { data: { user: "bob", services: ["@thetis/gateway-web"] } });
+  assert.deepEqual(await commands.fenceReload({ user: "_system" }, env), { data: { user: "_system", services: [] } }, "_system is a legal target here, unlike a mount");
+  assert.deepEqual(await commands.status({}, env), { data: { daemon: { stale: false }, restart: null, workspaces: [{ user: "bob", stale: true }] } });
+  assert.deepEqual(calls, [
+    { method: "fence.reload", args: { user: "bob" } },
+    { method: "fence.reload", args: { user: "_system" } },
+    { method: "status", args: {} },
+  ]);
+  await refuses(commands.fenceReload, { user: "Bad Id" }, env, /user must be lowercase letters, digits and dashes/);
+  await refuses(commands.fenceReload, { user: "_other" }, env, /user must be lowercase/);
+  await refuses(commands.fenceReload, {}, env, /user must be lowercase/);
+  assert.equal(calls.length, 3, "a refused reload never reaches the kernel");
+});
+
+test("restart-request sends the trimmed reason and passes the latch's own sentence back", async () => {
+  const { env, calls } = fakeEnv({ "restart.request": (a) => ({ state: "refused", why: "policy", message: `Refused, and nothing was restarted: ... \`Restart=on-failure\` ... reason was ${a.reason}` }) });
+  const out = await commands.restartRequest({ reason: "  the kernel changed  " }, env);
+  assert.equal(out.data.state, "refused");
+  assert.match(out.data.message, /reason was the kernel changed$/, "the sentence comes back as the kernel wrote it");
+  assert.deepEqual(calls, [{ method: "restart.request", args: { reason: "the kernel changed" } }]);
+  const needsReason = /a restart needs a reason: it is shown to everyone waiting and recorded/;
+  await refuses(commands.restartRequest, {}, env, needsReason);
+  await refuses(commands.restartRequest, { reason: "   " }, env, needsReason);
+  await refuses(commands.restartRequest, { reason: 7 }, env, needsReason);
+  assert.equal(calls.length, 1, "a restart with no reason never reaches the kernel");
+});
+
 test("a kernel refusal comes back as the error it threw", async () => {
-  const { env } = fakeEnv({ "users.remove": new Error("unknown user: zed") });
+  const { env } = fakeEnv({ "users.remove": new Error("unknown user: zed"), "fence.reload": new Error("user zed is suspended"), "restart.request": new Error("only an admin may restart the daemon") });
   await refuses(commands.userRemove, { id: "zed" }, env, /unknown user: zed/);
+  await refuses(commands.fenceReload, { user: "zed" }, env, /user zed is suspended/);
+  await refuses(commands.restartRequest, { reason: "new kernel" }, env, /only an admin may restart the daemon/);
 });
 
 test("the browser modules parse, and the entry defines install and nothing else", async () => {
@@ -135,10 +166,10 @@ test("the browser modules parse, and the entry defines install and nothing else"
   assert.equal(mod.default.name, "install");
 });
 
-test("install registers exactly the five declared sections, each mounting through the seam", async () => {
+test("install registers exactly the six declared sections, each mounting through the seam", async () => {
   const { default: install } = await import("../ui/index.js");
   const panels = {};
   install({ panel: (id, impl) => (panels[id] = impl) });
-  assert.deepEqual(Object.keys(panels), ["people", "models", "mounts", "activity", "overview"]);
+  assert.deepEqual(Object.keys(panels), ["people", "models", "mounts", "activity", "workspaces", "overview"]);
   for (const impl of Object.values(panels)) assert.equal(typeof impl.mount, "function");
 });

@@ -16,6 +16,9 @@ const HOME = process.env.THETIS_HOME_DIR ?? ROOT;
 const STORE = process.env.THETIS_STORE ?? resolve(ROOT, "store");
 const SHARED = process.env.THETIS_SHARED ?? resolve(ROOT, "shared");
 const MAX_OUTPUT = 30_000;
+/** What the services get to stop on SIGTERM. The kernel kills the agent 2 s after it asks (the fence's
+ *  exit grace), and a service that has not finished by then is worse off for being waited on. */
+const STOP_DEADLINE_MS = 1_000;
 
 const writeOut = process.stdout.write.bind(process.stdout);
 for (const k of ["log", "info", "debug"] as const) console[k] = (...a: unknown[]) => console.error(...a);
@@ -136,6 +139,7 @@ interface Payloads {
   enumerate: ExportRef & { ctx: { session: SessionInfo; packages: PackageInfo[]; phases: string[] } };
   "service.start": ExportRef & { config?: Record<string, unknown> };
   "service.stop": { package: string };
+  shutdown: Record<string, never>;
   "provider.models": ExportRef & { config: unknown };
   "provider.call": ExportRef & { config: unknown; call: ProviderCall };
 }
@@ -175,6 +179,9 @@ const ops: { [K in Op]: Handler<K> } = {
     await handle?.stop?.();
     return "stopped";
   },
+  // The fence is closing. It asks rather than signals, because bwrap does not forward SIGTERM to the process
+  // inside it, and a service that is never told leaves its socket on disk for the door to trip over.
+  shutdown: async () => (await stopServices(), "stopped"),
   "provider.models": async (p) => (await provider(p.package, p.export, p.config)).models(),
   "provider.call": async (p, emit, signal) => {
     const prov = await provider(p.package, p.export, p.config);
@@ -193,6 +200,15 @@ function isOp(op: string): op is Op {
 const inflight = new Map<string, AbortController>();
 /** Running services by package name. They live as long as this process, which is as long as the fence. */
 const services = new Map<string, ServiceHandle | void>();
+
+/** Stops every service and forgets it. Settled rather than all: one service that throws on the way out must
+ *  not keep the others from being asked, and each of them has a socket to take with it. */
+async function stopServices(): Promise<void> {
+  const handles = [...services.values()];
+  services.clear();
+  const results = await Promise.allSettled(handles.map(async (h) => h?.stop?.()));
+  for (const r of results) if (r.status === "rejected") console.error(`agent: a service did not stop: ${String(r.reason)}`);
+}
 
 async function dispatch(msg: Frame): Promise<void> {
   const { id, op, payload } = msg as { id: string; op: string; payload?: unknown };
@@ -220,3 +236,18 @@ readFrames(process.stdin, (msg) => {
   void dispatch(msg);
 }, (line) => console.error(`agent: bad line ${line.slice(0, 80)}`));
 process.stdin.on("end", () => process.exit(0));
+
+/**
+ * The belt to the `shutdown` op's braces. A fence that closes asks for the stop over the protocol, which is
+ * the only way in when bwrap holds this process; a run without a sandbox gets the signal instead, and either
+ * way a service that is never told leaves its socket on disk for the door to trip over. The process leaves on
+ * the deadline whatever the services do.
+ */
+process.once("SIGTERM", () => {
+  const leave = () => process.exit(0);
+  const timer = setTimeout(leave, STOP_DEADLINE_MS);
+  void stopServices().then(() => {
+    clearTimeout(timer);
+    leave();
+  });
+});

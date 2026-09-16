@@ -295,11 +295,13 @@ export async function startHost(env = {}) {
     /** Closing the fence closes the host, and closing the host closes every session in it. */
     async stop() {
       clearInterval(reaper);
+      // The socket file goes first: the fence gives its services about a second to stop, and closing every
+      // shell can take longer than that. A socket left behind is a dead address other processes still find.
+      rmSync(socketPath, { force: true });
       await Promise.all([...sessions.values()].map((s) => s.close()));
       for (const c of conns) c.socket.destroy();
       conns.clear();
       await new Promise((done) => server.close(() => done()));
-      rmSync(socketPath, { force: true });
     },
   };
 }

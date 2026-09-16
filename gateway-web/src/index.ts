@@ -29,6 +29,10 @@ export const startService: Service = async (env) => {
   return {
     stop: () =>
       new Promise<void>((done) => {
+        // The socket file goes first, whatever happens next: the door decides whether this gateway is
+        // running by whether the file is there, so one left behind by a closing fence earns a 502 where
+        // the door would otherwise have opened the fence again.
+        rmSync(socket, { force: true });
         // close() alone waits for every open connection, and an event stream never ends on its own.
         server.close(() => done());
         server.closeAllConnections();

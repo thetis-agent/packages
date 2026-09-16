@@ -1,7 +1,9 @@
 import { resolve } from "node:path";
-import { SYSTEM_USER, type KernelRpc, type Mount, type UserRecord, type UserRole, type UserStatus } from "@thetis/contracts";
+import { SYSTEM_USER, type Fences, type KernelRpc, type Mount, type PackageInfo, type UserRecord, type UserRole, type UserStatus } from "@thetis/contracts";
 import { assert, CodedError } from "@thetis/lib/error";
+import { newestMtime } from "@thetis/lib/freshness";
 import { browseDirectories, withPresence } from "@thetis/lib/mounts";
+import { isSupervised } from "@thetis/lib/restart";
 import type { KernelServices } from "./kernel.js";
 
 type Args = Record<string, string | undefined>;
@@ -85,11 +87,45 @@ export function createControlHandler(k: KernelServices): KernelRpc {
         const mounts = parseMounts(a.mounts);
         k.mounts.set(target.id, mounts);
         journal("mounts", target.id, { mounts });
-        await k.fences.close(target.id);
-        await k.services.ensure(target.id);
+        await k.services.reload(target.id);
         // The answer carries presence: a caller learns at once that a path it named is not there to bind.
         return withPresence(mounts);
       }
+      case "fence.reload": {
+        // `_system` is a legal target, unlike mounts.set: the providers and the sign-in page live in it,
+        // and are otherwise out of reach without a new daemon. `authorize` refuses the unknown and the suspended.
+        const target = k.users.authorize(user());
+        journal("fence.reload", target.id);
+        k.providers.forget(target.id);
+        await k.services.reload(target.id);
+        return { user: target.id, services: serviceNames(installedIn(k, target.id)) };
+      }
+      case "restart.request": {
+        // Only an admin, asserted here rather than left to `rpc.ts`, which admits any non-user and so admits
+        // the system userspace: that fence has no business ending every turn on this host. A call with no
+        // named actor came over the control socket, whose 0600 holder is the operator, as with every command.
+        if (a.actor) assert(actor().role === "admin", "only an admin may restart the daemon", "unauthorized");
+        const reason = String(a.reason ?? "").trim();
+        assert(reason, "a restart needs a reason: it is shown to everyone waiting and recorded", "invalid");
+        // The latch wrote every sentence, refusals included; passing them through is what keeps the host, the
+        // page and the model reading the same words about the same latch.
+        const armed = k.restart.arm(reason, String(a.actor ?? "operator"));
+        journal(`restart.${armed.state}`, "daemon", { reason, ...(armed.why ? { why: armed.why } : {}) });
+        return armed;
+      }
+      case "restart.status":
+        return { ...k.restart.status(), policy: k.restartPolicy() };
+      case "restart.cancel": {
+        // The same assert as `restart.request`, for the same reason. Calling one off is the safer direction,
+        // but an armed restart is an admin's decision and the system userspace is not one.
+        if (a.actor) assert(actor().role === "admin", "only an admin may call off a restart", "unauthorized");
+        const { was } = k.restart.cancel();
+        // Nothing pending is not an event: only a restart actually called off leaves a row.
+        if (was) journal("restart.cancel", "daemon", { reason: was.reason, by: was.by });
+        return { cancelled: !!was, was: was ?? null };
+      }
+      case "status":
+        return status(k);
       case "journal.tail":
         return k.journal.tail(Math.min(1000, Number(a.limit ?? 200) || 200), { actor: a.actor_filter, target: a.target, kind: a.kind });
       case "config.get":
@@ -115,6 +151,51 @@ export function createControlHandler(k: KernelServices): KernelRpc {
 }
 
 type JournalFn = (kind: string, target: string, data?: Record<string, unknown>) => void;
+
+/** The daemon's own code. A change to any of it needs a new process; a reload would not pick it up. */
+const DAEMON_PACKAGES = ["kernel", "host", "sandbox", "door", "lib", "contracts", "gateway-cli"];
+
+/** What the pool reports beyond the fence contract: when each open fence opened. One that does not keep the
+ *  times (an in-process double) reports nothing open, and every row then says nothing rather than guessing. */
+type OpenFences = Fences & { openedAt?(): Record<string, number> };
+
+const installedIn = (k: KernelServices, id: string): PackageInfo[] => k.packages.installed(k.userspaces.pathFor(id));
+
+/** The installed packages that declare a service: what a reload takes down and brings back up. */
+const serviceNames = (list: PackageInfo[]): string[] => list.filter((p) => p.thetis.service).map((p) => p.name);
+
+/** A moment as the rest of the service plane writes them, and null for one nobody knows. */
+const moment = (ms: number): string | null => (ms > 0 ? new Date(ms).toISOString() : null);
+
+/**
+ * What is running, and whether it is the code on disk. `stale` is the whole point: someone who deployed and
+ * saw nothing change learns here which process is still holding the code it replaced, and what to do about
+ * it — a workspace reloads, the daemon needs a new process.
+ */
+function status(k: KernelServices): unknown {
+  const startedAt = Date.now() - Math.round(process.uptime() * 1000);
+  const codeAt = newestMtime(DAEMON_PACKAGES.map((name) => resolve(k.config.systemPackagesDir, name, "dist/src")));
+  const opened = (k.fences as OpenFences).openedAt?.() ?? {};
+  return {
+    // Supervision is read here and never inside a fence: the fence hands package code an env allowlist, so a
+    // tool would see no INVOCATION_ID and wrongly conclude that nothing would restart the daemon.
+    // `restartPolicy` is the deployed unit's `Restart=`, not this checkout's file: it decides whether a clean
+    // exit comes back, and an operator who cannot see it finds out when a restart is first attempted.
+    daemon: { startedAt: moment(startedAt), uptimeSecs: Math.round(process.uptime()), supervised: isSupervised(), restartPolicy: k.restartPolicy(), codeAt: moment(codeAt), stale: codeAt > startedAt },
+    // The armed restart, as the statusbar chip and `thetis restart status` show it, and null when there is none.
+    restart: k.restart.status().pending ?? null,
+    workspaces: k.users
+      .list()
+      .filter((u) => k.userspaces.exists(u.id))
+      .map((u) => {
+        const installed = installedIn(k, u.id);
+        const openedAt = opened[u.id] ?? 0;
+        const code = newestMtime(installed.map((p) => p.root));
+        // A workspace with no fence open is never stale: the next request opens it on the code that is there then.
+        return { user: u.id, openedAt: moment(openedAt), codeAt: moment(code), stale: openedAt > 0 && code > openedAt, services: serviceNames(installed) };
+      }),
+  };
+}
 
 /** A mount list as it arrives from a socket: at most 32 entries, absolute normalized paths (so no `..`), mode `rw` or `ro`. */
 function parseMounts(raw: unknown): Mount[] {

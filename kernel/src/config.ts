@@ -34,6 +34,8 @@ export interface KernelConfig {
   fence: FenceConfig;
   /** The door: the one host port, which routes to the login target and to each person's gateway socket. */
   door: { host: string; port: number };
+  /** The restart Thetis may ask for: whether this installation allows one at all, and the two clocks that make it safe. */
+  control: { allowRestart: boolean; minUptimeSecs: number; quietWaitMs: number };
   requestTimeoutMs: number;
 }
 
@@ -67,6 +69,7 @@ export function defaultConfig(home: string, projectRoot: string): KernelConfig {
       hidden: [home],
     },
     door: { host: "127.0.0.1", port: 8777 },
+    control: { allowRestart: true, minUptimeSecs: 60, quietWaitMs: 120_000 },
     requestTimeoutMs: 600_000,
   };
 }
@@ -89,6 +92,7 @@ export function loadConfig(home: string, projectRoot: string, env: NodeJS.Proces
       limits: { ...defaults.fence.limits, ...(stored.fence?.limits ?? {}) },
     },
     door: { ...defaults.door, ...(stored.door ?? {}) },
+    control: { ...defaults.control, ...(stored.control ?? {}) },
   };
   return interpolate(merged, env);
 }

@@ -60,6 +60,15 @@ export class ProviderRegistry {
     await this.fences.request(p.userspace, "provider.call", this.payload(p, { call }), (e) => onEvent(e as ProviderEvent), signal);
   }
 
+  /**
+   * Drops what a userspace's providers advertised. The cache lives in this process, so it outlives the
+   * fence it describes: without this, a reloaded provider keeps serving the model list of the code it
+   * replaced. A user id holds no colon, so the prefix is the key's first field.
+   */
+  forget(id: string): void {
+    for (const key of this.models.keys()) if (key.startsWith(`${id}:`)) this.models.delete(key);
+  }
+
   private async modelsOf(p: ResolvedProvider): Promise<ModelDescriptor[]> {
     const key = `${p.userspace.id}:${p.pkg.name}`;
     const cached = this.models.get(key);

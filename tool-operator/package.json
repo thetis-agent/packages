@@ -1,0 +1,42 @@
+{
+  "name": "@thetis/tool-operator",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "The operator's own tool: one tool that asks this daemon to restart itself, and the chip that shows a restart coming and calls it off. Installed per admin, never for everyone.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "thetis": {
+    "type": "tool",
+    "tools": [
+      {
+        "name": "restart_daemon",
+        "description": "Ask this Thetis daemon to restart itself. Try the cheaper thing first: reloading a workspace replaces that workspace's service code in about a second and takes nothing else down, so a restart is only for code the daemon read once when it started — the kernel, the host, the sandbox, the door, @thetis/lib, @thetis/contracts, the thetis command, or thetis.config.json. Nothing restarts while you are talking: this call only records the request, and this turn finishes first, so the person reads your reply before anything happens. Thetis then waits for every conversation everywhere to go quiet and counts down where everyone can see it; if a turn is still running two minutes later it restarts anyway and cuts that turn off. Conversations come back with their history; open terminal shell sessions do not, and whatever was running in one dies with them. Ask the person with ask_user before you call this, unless they have just asked for it. The reason must name what changed and why reloading a workspace cannot pick it up; it is shown to everyone waiting and recorded. A refusal means nothing happened: say what it says, and do not call this again.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "description": "What changed, and why reloading a workspace cannot pick it up. Shown to everyone waiting and recorded in the journal."
+            }
+          },
+          "required": ["reason"]
+        },
+        "export": "restartDaemon"
+      }
+    ],
+    "ui": {
+      "dir": "ui",
+      "entry": "index.js",
+      "style": "index.css",
+      "statusbar": [{ "id": "restart", "order": 90 }],
+      "commands": [
+        { "verb": "restart-status", "export": "uiStatus", "label": "Whether a restart is armed" },
+        { "verb": "restart-cancel", "export": "uiCancel", "label": "Call off an armed restart" },
+        { "verb": "restart-now", "export": "uiRestart", "label": "Ask the daemon to restart" }
+      ]
+    }
+  }
+}

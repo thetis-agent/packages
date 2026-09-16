@@ -8,6 +8,7 @@ import { isAbsolute, resolve } from "node:path";
 
 const USER_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const MOUNT_LIMIT = 32;
+const SYSTEM = "_system";
 
 function fail(message) {
   throw new Error(message);
@@ -125,4 +126,32 @@ export async function mountsSet(args, env) {
   const paths = new Set(mounts.map((m) => m.path));
   if (paths.size !== mounts.length) fail("a path is listed twice");
   return { data: await call(env, "mounts.set", { user, mounts }) };
+}
+
+/**
+ * Closes one person's fence and opens it again, so their services, their provider and the agent itself are
+ * the code on disk now. `_system` is a legal target here, unlike a mount: the providers and the sign-in page
+ * live in it. `userId`'s pattern has no underscore, so that one id is named rather than matched, and every
+ * other id is still checked before the kernel is asked.
+ */
+export async function fenceReload(args, env) {
+  const user = args.user === SYSTEM ? SYSTEM : userId(args.user, "user");
+  return { data: await call(env, "fence.reload", { user }) };
+}
+
+/** What the daemon and every workspace are running, and whether the code on disk is newer than that. */
+export async function status(_args, env) {
+  return { data: await call(env, "status") };
+}
+
+/**
+ * Asks the kernel to arm the restart latch, on behalf of the admin whose fence this is. Nothing restarts in
+ * this call: the latch waits for every turn to end, counts down, and only then exits. The answer is the
+ * latch's own sentence — armed, already armed, or refused — and the page shows it as it stands. The reason is
+ * required here, in the kernel's own words, because it is shown to everyone waiting and written to the journal.
+ */
+export async function restartRequest(args, env) {
+  const reason = typeof args.reason === "string" ? args.reason.trim() : "";
+  if (!reason) fail("a restart needs a reason: it is shown to everyone waiting and recorded");
+  return { data: await call(env, "restart.request", { reason }) };
 }

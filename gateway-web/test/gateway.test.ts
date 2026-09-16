@@ -386,8 +386,8 @@ test("panel: the built-in sections are the same for everyone; a package's admin 
   assert.deepEqual((await (await api(root, "/root/api/panel")).json()).sections, ["packages"], "the admin sections come from @thetis/ui-admin, not from api/panel");
   const uiOf = async (cookie: string, user: string) => ((await (await api(cookie, `/${user}/api/ui`)).json()) as { extensions: { package: string; panel: { id: string; order: number }[]; commands: string[] }[] }).extensions.find((e) => e.package === "@thetis/ui-admin");
   const forRoot = await uiOf(root, "root");
-  assert.deepEqual(forRoot?.panel.map((e) => [e.id, e.order]), [["people", 20], ["models", 30], ["mounts", 35], ["activity", 40], ["overview", 50]]);
-  assert.deepEqual(forRoot?.commands, ["users", "user-create", "user-role", "user-status", "user-password", "user-remove", "models", "config", "journal", "mounts-list", "mounts-set", "mounts-browse"]);
+  assert.deepEqual(forRoot?.panel.map((e) => [e.id, e.order]), [["people", 20], ["models", 30], ["mounts", 35], ["activity", 40], ["workspaces", 45], ["overview", 50]]);
+  assert.deepEqual(forRoot?.commands, ["users", "user-create", "user-role", "user-status", "user-password", "user-remove", "models", "config", "journal", "mounts-list", "mounts-set", "mounts-browse", "fence-reload", "status", "restart-request"]);
   const forAlice = await uiOf(alice, "alice");
   assert.deepEqual(forAlice?.panel, [], "installed for everyone, but a user sees no admin section");
   assert.deepEqual(forAlice?.commands, [], "and no admin verb");

@@ -79,6 +79,14 @@ export class SessionApi {
     return true;
   }
 
+  /**
+   * Every turn running anywhere, as `user/session`. Ids and not a count, because the one caller that waits
+   * on this — a restart, which ends them all — must be able to name whose turn it cut.
+   */
+  inFlight(): string[] {
+    return [...this.running.keys()];
+  }
+
   /** Runs a turn to completion and returns the assistant's final text. Convenient for subagents and one-shot calls. */
   async ask(userId: string, sessionId: string, input: TurnInput): Promise<string> {
     let last = "";

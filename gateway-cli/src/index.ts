@@ -10,8 +10,10 @@ import { createDoor } from "@thetis/door";
 import { behind, readIndex, shortCommit, type Behind } from "@thetis/marketplace";
 import { ControlServer, controlSocketPath, createKernel } from "@thetis/host";
 import { configPath, createControlHandler, defaultConfig, loadConfig, saveConfig, type SessionRef } from "@thetis/kernel";
+import { errorMessage } from "@thetis/lib/error";
 import { connectRpcSocket } from "@thetis/lib/ndjson-socket";
 import type { MountState } from "@thetis/lib/mounts";
+import { isSupervised, type Pending, type RestartState } from "@thetis/lib/restart";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 /** How long `serve` gives the door, the control socket and the fences to close before it exits regardless. */
@@ -23,6 +25,15 @@ usage: thetis <command> [options]
 
   init                                 create the data dir and default config
   serve                                run the kernel, its control socket, and every installed service until stopped
+  status                               what is running, and whether it is the code that is on disk now
+  reload --user <id> | --all           put the code on disk into service: that workspace's fence closes and opens again
+                                       their gateway, terminal and every service start over, and open shell sessions die;
+                                       --all does everyone, _system last, so the sign-in page blips once at the end
+  restart [--reason <text>] [--yes]    ask the running daemon to restart itself: it waits for every turn
+                                       everywhere to finish, then exits so that systemd starts it again;
+                                       this ends every turn in progress and every open terminal session
+  restart status                       whether one is armed, and whether one would be accepted at all
+  restart cancel                       call off an armed restart
   chat --user <id> [--session <id>]    interactive conversation (streams output)
   send --user <id> [--session <id>] <text>   one-shot turn
   sessions list --user <id>
@@ -104,7 +115,7 @@ export async function run(argv: string[]): Promise<void> {
   }
 }
 
-/** Runs the kernel until SIGINT or SIGTERM: control socket for the CLI, the door for browsers, services for everyone else. */
+/** Runs the kernel until SIGINT, SIGTERM or an armed restart: control socket for the CLI, the door for browsers, services for everyone else. */
 async function serve(config: ReturnType<typeof loadConfig>, socket: string): Promise<void> {
   const kernel = createKernel(config);
   const log = (line: string) => process.stderr.write(line + "\n");
@@ -112,19 +123,47 @@ async function serve(config: ReturnType<typeof loadConfig>, socket: string): Pro
   const door = createDoor({
     loginSocket: resolve(kernel.userspaces.pathFor("_system").run, "login.sock"),
     socketFor: (user) => (kernel.users.get(user)?.role !== "system" && kernel.users.get(user) && kernel.userspaces.exists(user) ? resolve(kernel.userspaces.pathFor(user).run, "web.sock") : undefined),
+    // The door is the only thing that sees a workspace whose fence is not there, so it is the only thing
+    // that can reopen one; `socketFor` has already decided that this is a person the kernel knows.
+    ensure: (user) => kernel.services.ensure(user),
+    loginUser: "_system",
     log,
+  });
+  // One promise for every way this daemon ends, resolved before anything can arm a restart: the signals an
+  // operator sends, and the latch firing. `serve()` is the only place that ever handles the latch, and the
+  // latch refuses to arm without a handler, so in `thetis send`, `thetis chat` and the bench a restart cannot
+  // mean "kill the command". Firing resolves the same promise SIGINT does, so the shutdown path below is the
+  // only shutdown path there is, and the clean exit is what `Restart=always` turns into a restart.
+  let why = "a signal";
+  const stopped = new Promise<void>((done) => {
+    process.once("SIGINT", () => done());
+    process.once("SIGTERM", () => done());
+    kernel.restart.onFire((r) => {
+      why = `a restart asked for by ${r.by}: ${r.reason}`;
+      // `cut` names the turns that were still running: on the deadline branch somebody else's turn ended here,
+      // and this row is the only place that says whose.
+      kernel.journal.append({ kind: "restart.fire", actor: r.by, target: "daemon", data: { reason: r.reason, quiet: r.quiet, waitedMs: r.waitedMs, cut: r.cut } });
+      print(r.quiet ? `restarting: ${r.reason}` : `restarting: ${r.reason}; ${r.cut.length} turn(s) were still running and end here: ${r.cut.join(" ")}`);
+      done();
+    });
   });
   try {
     await control.listen();
     await kernel.services.boot();
     await new Promise<void>((done, fail) => door.once("error", fail).listen(config.door.port, config.door.host, done));
     print(`thetis is serving; control socket ${socket}; door on http://${config.door.host}:${config.door.port}; press Ctrl+C to stop`);
-    await new Promise<void>((done) => {
-      process.once("SIGINT", () => done());
-      process.once("SIGTERM", () => done());
-    });
+    // Said at startup rather than when something first needs it: whether a stopped daemon comes back is the
+    // operator's fact to know, and it is decided by the deployed unit, not by anything thetis does.
+    print(supervision(kernel.restartPolicy()));
+    kernel.journal.append({ kind: "daemon.start", actor: "daemon", target: "daemon", data: { pid: process.pid, supervised: isSupervised(), restartPolicy: kernel.restartPolicy() } });
+    await stopped;
     print("stopping");
   } finally {
+    // Paired with `daemon.start`, so the record of a restart is three rows an operator can read in order:
+    // the fire, this stop, and the start of the process systemd put in its place.
+    kernel.journal.append({ kind: "daemon.stop", actor: "daemon", target: "daemon", data: { why } });
+    // The process is going, so a restart still pending is moot; leaving it armed would outlive its own latch.
+    kernel.restart.close();
     // The backstop. Each step closes what it owns and should be quick; if one is not, a daemon that needs
     // SIGKILL is worse than an unclean stop, so say what was still open and leave. The timer holds nothing
     // alive: it fires only if something else still does.
@@ -142,6 +181,18 @@ async function serve(config: ReturnType<typeof loadConfig>, socket: string): Pro
   }
 }
 
+/**
+ * Whether a stopped daemon comes back, in one line at startup. The deployed unit decides it and the file in
+ * this checkout does not: an installation whose `/etc/systemd/system` copy still says `on-failure` would exit
+ * cleanly on a restart and stay down, so an operator is told which one they have while everything still works.
+ */
+function supervision(policy: string | null): string {
+  if (!isSupervised()) return "not supervised: nothing will start thetis again if it stops, and `thetis restart` refuses";
+  if (policy === "always") return "supervised by systemd, deployed unit says Restart=always: an exit is a restart";
+  if (policy === null) return "supervised by systemd, but the deployed unit's Restart= could not be read: `thetis restart` refuses rather than risk an exit that stays down";
+  return `supervised by systemd, but the deployed unit says Restart=${policy}, not always: a clean exit would stay down, so \`thetis restart\` refuses. Put Restart=always in the unit (deploy/thetis-runtime.service), then systemctl daemon-reload.`;
+}
+
 async function dispatch(call: Call, cmd: string, args: Args, shared: string): Promise<void> {
   const user = typeof args.user === "string" ? args.user : undefined;
   const need = (): string => {
@@ -149,6 +200,12 @@ async function dispatch(call: Call, cmd: string, args: Args, shared: string): Pr
     return user;
   };
   switch (cmd) {
+    case "status":
+      return statusCmd(call);
+    case "reload":
+      return reloadCmd(call, args, user);
+    case "restart":
+      return restartCmd(call, args);
     case "users":
       return usersCmd(call, args);
     case "packages":
@@ -181,6 +238,126 @@ async function dispatch(call: Call, cmd: string, args: Args, shared: string): Pr
     default:
       throw new Error(`unknown command: ${cmd}\n${HELP}`);
   }
+}
+
+interface StatusReport {
+  daemon: { startedAt: string | null; uptimeSecs: number; supervised: boolean; restartPolicy: string | null; codeAt: string | null; stale: boolean };
+  restart: Pending | null;
+  workspaces: { user: string; openedAt: string | null; codeAt: string | null; stale: boolean; services: string[] }[];
+}
+
+/**
+ * What is running, and whether it is the code on disk. The last column is the whole point: someone who
+ * deployed and saw nothing change is told which process is still holding the code it replaced, and the
+ * remedy for it — a workspace reloads, the daemon needs a new process.
+ */
+async function statusCmd(call: Call): Promise<void> {
+  const { daemon, restart, workspaces } = (await call("status", {})) as StatusReport;
+  const supervised = `${daemon.supervised ? "supervised by systemd" : "not supervised"}; ${policyOf(daemon.restartPolicy)}`;
+  print(`daemon	up ${duration(daemon.uptimeSecs)} since ${daemon.startedAt ?? "unknown"}	${supervised}	${freshness(daemon.codeAt, daemon.stale)}`);
+  for (const w of workspaces) {
+    const fence = w.openedAt ? `open since ${w.openedAt}` : "no fence open";
+    print(`${w.user}	${fence}	${w.services.join(" ") || "no services"}	${freshness(w.codeAt, w.stale)}`);
+  }
+  // Said in the same words here, in `thetis restart status` and on the page: one armed restart, one sentence.
+  if (restart) print(`\n${pendingLine(restart)}`);
+  for (const w of workspaces) if (w.stale) print(`
+${w.user} is running older code than what is on disk. Put it into service: thetis reload --user ${w.user}`);
+  if (daemon.stale) print(`
+the daemon is running older code than what is on disk, and only a new process picks that up: thetis restart --reason "new daemon code", or sudo systemctl restart thetis-runtime.service`);
+}
+
+/** What the deployed unit says a clean exit means: the same words wherever it is shown, and honest when unread. */
+const policyOf = (policy: string | null): string => (policy ? `deployed unit says Restart=${policy}` : "the deployed unit's Restart= could not be read");
+
+/** Whether what is running is the code on disk, in words rather than two timestamps to compare by eye. */
+function freshness(codeAt: string | null, stale: boolean): string {
+  if (!codeAt) return "no code on disk";
+  return stale ? `older than the code on disk (newest ${codeAt})` : "the code on disk";
+}
+
+function duration(secs: number): string {
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
+  return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
+}
+
+/**
+ * Puts the code on disk into service. One reload replaces a whole fence, so it is that person's gateway,
+ * terminal and every other service that starts again, and their open shell sessions die with the old
+ * process. Sequentially, never at once: each reload spawns a sandbox and waits on its launch gate.
+ */
+async function reloadCmd(call: Call, args: Args, user: string | undefined): Promise<void> {
+  const all = args.all === true || args.all === "true";
+  if (all && user) throw new Error("reload takes --user <id> or --all, not both");
+  if (!all && !user) throw new Error("reload needs --user <id>, or --all for everyone");
+  const targets = all ? await reloadOrder(call) : [user!];
+  let failed = false;
+  for (const id of targets) {
+    try {
+      const done = (await call("fence.reload", { user: id })) as { services: string[] };
+      print(`reloaded ${id}	${done.services.join(" ") || "no services; the fence reopens on the next request"}`);
+    } catch (err) {
+      failed = true;
+      print(`${id} did not reload: ${errorMessage(err)}
+Try it again: thetis reload --user ${id}`);
+    }
+  }
+  if (failed) process.exitCode = 1;
+}
+
+type RestartReport = RestartState & { policy: string | null };
+
+/** What a restart ends. Said before anything is armed, because the cost falls on people who did not ask. */
+const RESTART_ENDS = `A restart of the daemon ends every turn in progress, for everyone, not only yours, and every shell
+session open in a terminal anywhere. It waits for turns to finish first and counts down where everyone can see it,
+so nobody is cut off without warning, and it can be called off until the moment it fires.`;
+
+/**
+ * Asks the running daemon to restart itself. Nothing restarts here and nothing restarts at once: the kernel
+ * arms a latch which waits for every turn to finish and then exits so that systemd starts a new process. The
+ * answer is the latch's own sentence, printed as it came, so the host, the page and the model read the same
+ * words about the same latch — including a refusal, which means nothing happened.
+ */
+async function restartCmd(call: Call, args: Args): Promise<void> {
+  const sub = args._[1];
+  if (sub === "status") {
+    const s = (await call("restart.status", {})) as RestartReport;
+    if (s.pending) print(pendingLine(s.pending));
+    else print(s.armable ? "nothing is armed, and a restart would be accepted" : `nothing is armed, and a restart would be refused (${s.why})`);
+    print(`daemon	up ${duration(s.uptimeSecs)}	${s.supervised ? "supervised by systemd" : "not supervised"}	${policyOf(s.policy)}`);
+    return;
+  }
+  if (sub === "cancel") {
+    const { was } = (await call("restart.cancel", {})) as { was: Pending | null };
+    return print(was ? `called off the restart ${was.by} asked for: ${was.reason}` : "nothing was armed, so nothing was called off and nothing changed");
+  }
+  if (sub !== undefined) throw new Error(`unknown restart subcommand: ${sub}`);
+  const reason = typeof args.reason === "string" && args.reason.trim() ? args.reason.trim() : "asked for at the host";
+  print(RESTART_ENDS);
+  if (args.yes !== true) {
+    // No terminal means nobody is there to be asked, and a script that meant it can say so: `--yes`.
+    if (!process.stdin.isTTY) throw new Error("thetis restart needs --yes when there is no terminal to confirm at");
+    const rl = createPrompt({ input: process.stdin, output: process.stdout });
+    const answer = (await rl.question(`restart thetis (${reason})? [y/N] `)).trim().toLowerCase();
+    rl.close();
+    if (answer !== "y" && answer !== "yes") return print("nothing was armed and nothing is going to happen");
+  }
+  const armed = (await call("restart.request", { reason })) as { state: string; message: string };
+  print(armed.message);
+  if (armed.state === "refused") process.exitCode = 1;
+}
+
+/** An armed restart in one line: what it is for, who asked, and how long there is to think better of it. */
+function pendingLine(p: Pending): string {
+  const when = p.firesAt === undefined ? `waiting for every turn to finish, and going anyway by ${new Date(p.deadlineAt).toISOString()}` : `counting down, fires at ${new Date(p.firesAt).toISOString()}`;
+  return `a restart is armed: ${p.reason} (asked by ${p.by} at ${new Date(p.at).toISOString()}), ${when}. Call it off: thetis restart cancel`;
+}
+
+/** Everyone active, with `_system` last: it serves the sign-in page, so it blips once, at the end. */
+async function reloadOrder(call: Call): Promise<string[]> {
+  const ids = ((await call("users.list", {})) as UserRecord[]).filter((u) => u.status === "active").map((u) => u.id);
+  return [...ids.filter((id) => id !== "_system"), ...ids.filter((id) => id === "_system")];
 }
 
 async function usersCmd(call: Call, args: Args): Promise<void> {

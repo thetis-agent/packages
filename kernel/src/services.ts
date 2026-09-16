@@ -49,6 +49,16 @@ export class ServiceSupervisor {
     if (this.enabled && this.packages.installed(us).some((p) => p.thetis.service)) await this.opened(us, await this.fences.handle(us));
   }
 
+  /**
+   * Puts the code on disk into service: the fence closes and `ensure` opens it again. A service needs a
+   * whole new process, because its module graph is read once when its agent starts, and the `?v=<mtime>`
+   * the agent imports with versions only a package's entry module.
+   */
+  async reload(id: string): Promise<void> {
+    await this.fences.close(id);
+    await this.ensure(id);
+  }
+
   /** Fence hook: starts every service of the userspace on the handle that just opened. */
   async opened(us: Userspace, handle: FenceHandle): Promise<void> {
     if (!this.enabled) return;

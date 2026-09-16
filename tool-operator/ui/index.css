@@ -1,0 +1,29 @@
+/* The chip and its Cancel button, in a 26px status bar. Everything here is a class, because the page's
+ * Content Security Policy allows no inline styles and nothing this package draws needs a computed one.
+ * Colours come from the shell's tokens, so the chip follows the theme it is sitting in. */
+
+.op-chip {
+  appearance: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text-dim);
+  background: none;
+  border: 0;
+  cursor: default;
+  transition: color var(--fast) var(--ease);
+}
+
+/* A restart coming, or a daemon not yet back: worth noticing, not an alarm. */
+.op-chip.is-warn { color: var(--warn); }
+
+/* It never came back. The chip is a button here, and the title says what to check. */
+.op-chip.is-err { color: var(--err); cursor: pointer; }
+.op-chip.is-err:hover { color: var(--text); }
+
+/* The standard button, cut down to fit the bar: the same affordance, not a second kind of button. */
+.op-cancel.btn {
+  padding: 0 7px;
+  height: 18px;
+  font-size: var(--text-xs);
+  border-radius: var(--r-sm);
+}

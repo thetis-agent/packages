@@ -1,10 +1,10 @@
 ---
 name: troubleshooting
-description: The failures a model meets inside Thetis and what to do. A step that throws or returns an invalid result, a tool that is refused or unknown, a package that will not install (scope, peer, build, path, manifest), a fork that is refused, a service that does not start, a provider error, a cancelled or timed out turn, a cold prompt cache, and where the logs, the session records, the journal, and the harness records are. Use when you ask "why did my turn end with an error", "why was install_package refused", "why did the tool return error:", "where are the logs", "why is my service not running", or "what does code fence mean".
+description: The failures a model meets inside Thetis and what to do. A change that is not live and whether it needs a workspace reload or a daemon restart, a restart that was refused and the five reasons off, unsupervised, no-listener, young and policy, a step that throws or returns an invalid result, a tool that is refused or unknown, a package that will not install (scope, peer, build, path, manifest), a fork that is refused, a service that does not start, a provider error, a cancelled or timed out turn, a cold prompt cache, and where the logs, the session records, the journal, and the harness records are. Use when you ask "why is my change not live", "do I need a reload or a restart", "why was restart_daemon refused", "why did my turn end with an error", "why was install_package refused", "why did the tool return error:", "where are the logs", "why is my service not running", or "what does code fence mean".
 metadata:
   title: Troubleshooting
-  tags: [troubleshooting, errors, codes, step, tool, install, build, peer, unauthorized, service, provider, timeout, cancelled, logs, journal, sessions]
-  related: [thetis/packages, thetis/pipeline, thetis/fence]
+  tags: [troubleshooting, errors, codes, stale, reload, restart, daemon, step, tool, install, build, peer, unauthorized, service, provider, timeout, cancelled, logs, journal, sessions]
+  related: [thetis/packages, thetis/pipeline, thetis/fence, thetis/using]
   version: 1
 ---
 # Troubleshooting
@@ -29,6 +29,43 @@ Every kernel error carries a code. A turn that fails emits one `error` event wit
 | `step` | A step returned invalid mutations. |
 | `tool` | The model called an unknown tool. |
 | `rpc` | The fence called an unknown kernel method. |
+
+## My change is not live
+
+You changed a file and nothing behaves differently. Nothing is broken: what it takes to put new code into service depends on where that code lives, and there are three answers. Find the row before you change anything else.
+
+| What you changed | What it takes |
+|---|---|
+| A package's `tool`, `step`, `enumerator` or UI-command code, its browser files under `ui/`, or its `package.json` | Nothing. The next turn, or the next request from the page, has it. |
+| A package's service code, a provider, or the userspace agent | That person's workspace reloaded. |
+| `@thetis/kernel`, `@thetis/host`, `@thetis/sandbox`, `@thetis/door`, `@thetis/lib`, `@thetis/contracts`, the `thetis` command (`@thetis/gateway-cli`), or `thetis.config.json` | A new daemon process. |
+
+Why: a `tool` or `step` export is imported with a modification-time query, so the agent re-reads it on every call. A service is imported once, when its agent starts, and the query versions only a package's entry module, so nothing short of a new agent process reads that module graph again. The kernel, the door and the configuration are read once by `thetis serve` and held for its life.
+
+A TypeScript package has to be built first. A reload and a restart both put `dist/` into service, never `src/`. Run the build, then do the row.
+
+**A reload** closes one person's fence and opens it again. No tool asks for one: say what it needs, `thetis reload --user <id>` on the host, or the **Workspaces** section of the control panel. It costs that person's open shell sessions and any turn of theirs in flight, and takes about a second. Conversations and files are untouched. `_system` is a legal target, and it is the one you want when the provider or the sign-in page changed.
+
+**A new daemon process** is `restart_daemon` when you have that tool (see `thetis/using`), and otherwise `sudo systemctl restart thetis-runtime.service` on the host. It ends every turn in progress everywhere and every open shell session anywhere, so it is the last resort, not the first try.
+
+On the host, `thetis status` compares what is on disk against what each part loaded and names anything running older code. A workspace with no fence open is never stale: the next request opens it on whatever is there then.
+
+## The restart was refused
+
+`restart_daemon` answered with a sentence that begins `Refused, and nothing was restarted`. **Nothing was armed and nothing is going to happen.** Say what the sentence says and do not call the tool again. There is no second attempt to make. You read the sentence; the code below is what the journal and `thetis restart status` record.
+
+| Code | The sentence says | What to do |
+|---|---|---|
+| `off` | Restarts are switched off in this installation's configuration, `control.allowRestart`. | Only the operator can change it, at the host. Ask for a workspace reload instead; it is the cheaper fix in any case. |
+| `unsupervised` | systemd did not start this daemon, so exiting would stop Thetis rather than restart it. | Ask the person to restart it themselves at the host, or ask for a workspace reload. |
+| `no-listener` | This process has no restart handler, so it is a short-lived command rather than the serving daemon. | You are inside `thetis send`, `thetis chat` or a bench run, and a restart would kill only that command. Ask for what you need in the running installation. |
+| `young` | The daemon has been up for fewer seconds than `control.minUptimeSecs`, which is 60 by default. | Wait past that. If the last restart did not fix this, another one will not find it either: something else is wrong. |
+| `policy` | The deployed systemd unit does not say `Restart=always`, or its `Restart=` could not be read at all. | Only the operator can put it right, at the host: `Restart=always` in the unit, then `systemctl daemon-reload`. Until then a restart would exit cleanly and stay down, taking the installation offline for good. |
+
+Two answers that are not refusals:
+
+- A restart is **already armed**. Asking again neither delayed it nor armed a second one. Nothing is broken. If the earlier reason no longer holds, say that it can be called off with `thetis restart cancel` or the Cancel button on the page.
+- The account is **not an admin**: `Restarting Thetis is an operator action, and this account is not an admin, so nothing happened`. An admin does it from the control panel, or with `thetis restart` on the host.
 
 ## A step throws or returns an invalid result
 
@@ -152,3 +189,6 @@ The provider retries `429`, `408`, `409`, `425`, `5xx`, and a `402` that names `
 - packages/kernel/src/pipeline/provider-call.ts
 - packages/kernel/src/providers.ts
 - packages/tool-exec/src/index.ts
+- packages/lib/src/restart.ts
+- packages/tool-operator/index.js
+- docs/25-restart.md

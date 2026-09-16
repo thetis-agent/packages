@@ -1,9 +1,9 @@
 ---
 name: using
-description: How to work inside Thetis day to day. Sessions and turns, subagents with spawn_subagent, the shell session tools shell, shell_read, shell_send, shell_interrupt and shell_sessions, the six file tools read_path, edit_path, write_path, search_files, find_files, and get_directory with their exact arguments and bounds, the plan tools todo_write, todo_add, todo_mark, todo_order, and todo_read, ask_user, the home directory layout, and the standing notes in THETIS.md. Use when you ask "how do I read or edit a file", "how do I run a command", "how do I answer a command that is asking me something", "how do I hand work to a subagent", "where do my files live", "how do I keep a plan", or "how do I ask the person a question".
+description: How to work inside Thetis day to day. Sessions and turns, subagents with spawn_subagent, the shell session tools shell, shell_read, shell_send, shell_interrupt and shell_sessions, the six file tools read_path, edit_path, write_path, search_files, find_files, and get_directory with their exact arguments and bounds, the plan tools todo_write, todo_add, todo_mark, todo_order, and todo_read, ask_user, restart_daemon and when to prefer a workspace reload, the home directory layout, and the standing notes in THETIS.md. Use when you ask "how do I read or edit a file", "how do I run a command", "how do I answer a command that is asking me something", "how do I hand work to a subagent", "where do my files live", "how do I keep a plan", "how do I ask the person a question", or "how do I restart Thetis".
 metadata:
   title: Using Thetis
-  tags: [sessions, turns, subagents, shell, terminal, files, read, edit, write, search, plan, todo, ask, home, notes, tools]
+  tags: [sessions, turns, subagents, shell, terminal, files, read, edit, write, search, plan, todo, ask, home, notes, tools, restart, reload, daemon]
   related: [thetis/packages, thetis/fence, thetis/troubleshooting]
   version: 1
 ---
@@ -122,6 +122,18 @@ Keep `THETIS.md` stable inside a session. A change to it changes the system prom
 
 `install_package`, `uninstall_package`, `fork_package`, and `delete_package` come from `@thetis/tool-exec`. See `thetis/packages`.
 
+## Restart the daemon
+
+`restart_daemon` comes from `@thetis/tool-operator`. You have it only when that package is installed for you, and it is installed per admin, never for everyone. It takes one argument, `reason`, which is required: it is shown to everyone waiting and written to the journal, so name what changed and why a workspace reload cannot pick it up.
+
+**It is pending, not immediate.** The call records the request and answers at once. Your turn finishes, your reply reaches the person, and only then does Thetis wait for every turn running anywhere to end, count down ten seconds where everyone can see it, and exit so that systemd starts it again. It waits two minutes at most, and then goes anyway and cuts whatever is still running. So say in that reply what is restarting, what it is for, and that it can still be called off. That reply is the only warning anyone gets.
+
+**Prefer the reload.** A workspace reload replaces one person's service code in about a second and takes nothing else down. A restart ends every turn in progress for everyone and every open shell session anywhere. A restart is only for the code the daemon read once when it started: the kernel, the host, the sandbox, the door, `@thetis/lib`, `@thetis/contracts`, the `thetis` command, or `thetis.config.json`. No tool asks for a reload: say what it needs, `thetis reload --user <id>` on the host or the Workspaces section of the control panel. See `thetis/troubleshooting` for which of the two a change needs.
+
+**Ask first.** Use `ask_user` before you call this, unless the person has just asked for a restart. It is their installation and their turns that end.
+
+**A refusal means nothing happened.** The answer says what happened, why, and what to do instead. Say what it says, and do not call the tool again. A second call while one is already armed is not a refusal either: the answer says one is armed, that asking again changed nothing, and that there is no second attempt to make. `thetis/troubleshooting` lists the five reasons a restart is refused.
+
 ## Sources
 
 - docs/03-fence.md
@@ -133,3 +145,5 @@ Keep `THETIS.md` stable inside a session. A change to it changes the system prom
 - packages/tools-plan/package.json
 - packages/tools-plan/lib/ask-user.js
 - packages/harness-core/src/index.ts
+- packages/tool-operator/package.json
+- docs/25-restart.md

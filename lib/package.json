@@ -2,7 +2,7 @@
   "name": "@thetis/lib",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "Mechanism with no policy: ids, JSON files, queues, the IoC container, the journal, newline-JSON RPC framing, the userspace layout, the mount store, and package file operations. Imports only @thetis/contracts.",
+  "description": "Mechanism with no policy: ids, JSON files, queues, the IoC container, the journal, newline-JSON RPC framing, the userspace layout, the mount store, package file operations, the on-disk freshness walk, and the restart latch. Imports only @thetis/contracts.",
   "type": "module",
   "exports": {
     "./ids": {
@@ -56,6 +56,14 @@
     "./crypto": {
       "types": "./dist/src/crypto.d.ts",
       "default": "./dist/src/crypto.js"
+    },
+    "./freshness": {
+      "types": "./dist/src/freshness.d.ts",
+      "default": "./dist/src/freshness.js"
+    },
+    "./restart": {
+      "types": "./dist/src/restart.d.ts",
+      "default": "./dist/src/restart.js"
     }
   },
   "scripts": {

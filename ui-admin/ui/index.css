@@ -6,4 +6,8 @@
 .ua-kv-title { font-size: var(--text-xs); color: var(--text-dim); }
 .ua-pre { margin: 0; padding: 10px; border-radius: var(--r-md); background: var(--surface-2); font-family: var(--mono); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
 .ua-mounts .ua-path { min-width: 260px; font-family: var(--mono); }
-.ua-mounts td:last-child { text-align: right; white-space: nowrap; }
+.ua-mounts td:last-child, .ua-workspaces td:last-child { text-align: right; white-space: nowrap; }
+.ua-line { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ua-code { display: flex; flex-direction: column; gap: 4px; }
+.ua-lost, .ua-refused { color: var(--err); }
+.ua-reason { width: 100%; box-sizing: border-box; }

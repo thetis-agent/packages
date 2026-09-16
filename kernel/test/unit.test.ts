@@ -3,11 +3,16 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { Mount, PackageInfo } from "@thetis/contracts";
+import type { Fences, Mount, PackageInfo, Userspace } from "@thetis/contracts";
 import { Journal } from "@thetis/lib/journal";
 import { MountStore } from "@thetis/lib/mounts";
+import { RestartLatch, type ArmResult, type FireReport, type RestartState } from "@thetis/lib/restart";
+import { UserspaceLayout } from "@thetis/lib/userspace-layout";
 import { UserStore } from "../src/users.js";
 import { AuthService } from "../src/auth.js";
+import { ProviderRegistry } from "../src/providers.js";
+import { ServiceSupervisor } from "../src/services.js";
+import type { PackageManager } from "../src/packages/manager.js";
 import { validateManifest } from "../src/packages/manifest.js";
 import { Enumerator, BUILTIN_CALL } from "../src/pipeline/enumerator.js";
 import { defaultConfig, saveConfig, loadConfig, MARKETPLACE_URL } from "../src/config.js";
@@ -140,6 +145,123 @@ test("config: a registry url survives being saved and read back, so an operator 
   }
 });
 
+test("services.reload closes the fence first, then opens a new one and starts the services on it", async () => {
+  const home = tmp();
+  try {
+    const order: string[] = [];
+    const pkg = { name: "@x/svc", version: "1", type: "service", description: "", root: "/x", thetis: { type: "service", service: { export: "startService" } } } as PackageInfo;
+    const packages = { installed: () => [pkg], seedSystem: () => order.push("seed") } as unknown as PackageManager;
+    const handle = { request: async (op: string) => (order.push(`${op}:${pkg.name}`), "started"), close: async () => {} };
+    const fences = {
+      close: async (id?: string) => void order.push(`close:${String(id)}`),
+      handle: async (us: Userspace) => (order.push(`open:${us.id}`), handle),
+      request: async () => "started",
+    } as unknown as Fences;
+    const userspaces = new UserspaceLayout(home);
+    userspaces.ensure("alice");
+    const sup = new ServiceSupervisor(defaultConfig(home, "/proj"), new UserStore(home), userspaces, packages, fences, () => {}, new Journal(home));
+    await sup.boot();
+    order.length = 0;
+    await sup.reload("alice");
+    assert.deepEqual(order, ["close:alice", "open:alice", "service.start:@x/svc"], "the old process is gone before the new one starts");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+/**
+ * The restart methods, against a real latch on an injected clock. The clock never moves on its own, the
+ * handler records instead of exiting, and something is always in flight, so no latch here can ever come due:
+ * a test that let one fire would end the test process, which is the one failure this feature cannot have.
+ */
+test("restart.request: an admin arms the latch, nobody else does, and every answer is a row", async () => {
+  const home = tmp();
+  try {
+    const users = new UserStore(home);
+    users.create("alice", "admin");
+    users.create("bob");
+    let clock = Date.now();
+    const fired: FireReport[] = [];
+    const latch = new RestartLatch({
+      // The kernel's own `control` block is what the host hands the latch, so the test uses it as the daemon does.
+      config: defaultConfig(home, "/proj").control,
+      inFlight: () => ["bob/s_1"],
+      policy: () => "always",
+      env: { INVOCATION_ID: "test" },
+      now: () => clock,
+    });
+    latch.onFire((r) => void fired.push(r));
+    const k = { users, journal: new Journal(home), restart: latch, restartPolicy: () => "always" } as unknown as KernelServices;
+    const control = createControlHandler(k);
+    const request = (actor: string | undefined, reason?: string) => control("restart.request", { actor, reason }) as Promise<ArmResult>;
+    const rows = (kind: string) => k.journal.tail(50, { kind });
+
+    await assert.rejects(request("alice"), /needs a reason/, "a restart with no stated reason cannot be asked for");
+    // Refused for being young: the refusal is the latch's own sentence, and the row says which guard spoke.
+    const young = await request("alice", "trying it out");
+    assert.equal(young.state, "refused");
+    assert.equal(young.why, "young");
+    assert.match(young.message, /Nothing was armed and nothing is going to happen/);
+    assert.equal(latch.status().pending, undefined);
+    assert.deepEqual(rows("restart.refused")[0].data, { reason: "trying it out", why: "young" });
+    assert.equal(rows("restart.refused")[0].actor, "alice");
+
+    clock += 61_000;
+    // A user and the system userspace are both refused here, not by `rpc.ts`, which admits any non-user.
+    await assert.rejects(request("bob", "new code"), (e: { code: string }) => e.code === "unauthorized");
+    await assert.rejects(request("_system", "new code"), (e: { code: string }) => e.code === "unauthorized");
+    assert.equal(latch.status().pending, undefined, "a refused caller arms nothing");
+    assert.equal(rows("restart.armed").length, 0, "and leaves no row saying it did");
+
+    const armed = await request("alice", "new kernel code");
+    assert.equal(armed.state, "armed");
+    assert.equal(armed.pending?.reason, "new kernel code");
+    assert.match(armed.message, /A restart is armed: new kernel code \(asked by alice\)/);
+    const row = rows("restart.armed")[0];
+    assert.equal(row.actor, "alice");
+    assert.equal(row.target, "daemon");
+    assert.deepEqual(row.data, { reason: "new kernel code" });
+
+    // Asking again is two requests meeting, not a fault: it arms nothing further and says so.
+    const again = await request("alice", "new kernel code");
+    assert.equal(again.state, "again");
+    assert.equal(rows("restart.again").length, 1);
+    assert.equal(latch.status().pending?.at, armed.pending?.at, "still the first one");
+
+    const shown = (await control("restart.status", {})) as RestartState & { policy: string | null };
+    assert.equal(shown.pending?.by, "alice");
+    assert.equal(shown.policy, "always", "and what the deployed unit says, which decides whether it would come back");
+
+    assert.deepEqual(await control("restart.cancel", { actor: "alice" }), { cancelled: true, was: armed.pending });
+    assert.equal(latch.status().pending, undefined);
+    assert.deepEqual(rows("restart.cancel")[0].data, { reason: "new kernel code", by: "alice" });
+    assert.deepEqual(await control("restart.cancel", {}), { cancelled: false, was: null }, "cancelling nothing is not an event");
+    assert.equal(rows("restart.cancel").length, 1);
+    assert.deepEqual(fired, [], "no latch fires in this process");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("providers.forget drops one userspace's cached model list, so a reloaded provider is asked again", async () => {
+  let asked = 0;
+  const pkg = { name: "@x/prov", version: "1", type: "provider", description: "", root: "/x", thetis: { type: "provider" } } as PackageInfo;
+  const packages = { installed: () => [pkg] } as unknown as PackageManager;
+  const userspaces = { exists: () => true, pathFor: (id: string) => ({ id }) } as unknown as UserspaceLayout;
+  const fences = { request: async () => (asked++, [{ id: "m1" }]) } as unknown as Fences;
+  const providers = new ProviderRegistry(defaultConfig("/tmp/h", "/tmp/p"), packages, userspaces, fences);
+  const alice = { id: "alice" } as Userspace;
+  assert.deepEqual(await providers.listModels(alice), [{ id: "m1", provider: "@x/prov" }]);
+  await providers.listModels(alice);
+  assert.equal(asked, 1, "the list is memoized in this process for five minutes");
+  providers.forget("bob");
+  await providers.listModels(alice);
+  assert.equal(asked, 1, "another workspace's reload leaves it alone");
+  providers.forget("alice");
+  await providers.listModels(alice);
+  assert.equal(asked, 2, "after a reload the provider is asked what it serves now");
+});
+
 test("mounts.set: validates the list, writes the store, journals the change, and reopens the fence", async () => {
   const home = tmp();
   try {
@@ -152,7 +274,9 @@ test("mounts.set: validates the list, writes the store, journals the change, and
       journal: new Journal(home),
       mounts: new MountStore(home),
       fences: { close: async (id: string) => void closed.push(id) },
-      services: { ensure: async (id: string) => void ensured.push(id) },
+      // `mounts.set` reaches the fence through `services.reload`, which is the pair below; the supervisor's
+      // own reload is tested for being that pair, so the double here keeps this test about mounts.
+      services: { ensure: async (id: string) => void ensured.push(id), reload: async (id: string) => { await k.fences.close(id); await k.services.ensure(id); } },
     } as unknown as KernelServices;
     const control = createControlHandler(k);
     const set = (user: string, mounts: unknown) => control("mounts.set", { user, mounts });

@@ -544,5 +544,36 @@ the OpenRouter key in the environment of `serve` (steps 43 and 47 send one messa
     subscription so the page owns the retry and can say what it knows. Start the daemon and click
     **Reconnect**: the rows come back.
 
+### Workspaces, and putting new code into service
+
+62. **What is running**: open **Control panel → Workspaces**. The daemon card says `running the code on
+    disk`, when it started and `up N h`, and an ok badge `systemd` (or a warn badge `not supervised` when
+    the daemon was started from a shell). The table lists every workspace including `_system`, your own row
+    marked ` (me)`, with the Code column reading `running the code on disk` and the services each one runs.
+    A workspace with no fence open reads `not running · opens on the next request` and offers **no** Reload
+    button — there is nothing to reload.
+63. **Staleness is visible**: on the host, `touch` a file under a package installed for the other person
+    (`packages/tools-files/index.js` will do). Reopen the section. That row now reads `running code from
+    HH:MM · newer on disk since HH:MM` with a warn badge `newer code on disk`. This is the signal whose
+    absence sent two features out with a hand-run restart.
+64. **Reload someone else**: click **Reload** on that row. The confirm names what restarts and says every
+    open shell session in it stops. Confirm: a toast names the services that started again, and the row
+    returns to `running the code on disk`.
+65. **Reload yourself** — the case that kills the gateway serving the page. Click **Reload** on your own
+    row; the confirm says the page will wait for it. Confirm: the request is lost rather than refused, the
+    toast says it is reloading, and the page waits and recovers by itself. It must never sit on a spinner:
+    if the workspace does not answer within thirty seconds the row says so and names
+    `thetis reload --user <id>`.
+66. **Reload `_system`**: the confirm says the sign-in page is briefly unavailable and anyone already
+    signed in is unaffected. Confirm, then reload the page: you are still signed in.
+67. **A dead workspace recovers by itself**: on the host, kill the agent process of the other person
+    (`pkill -f "userspace-agent.*<their id>"` — never a pattern matching your own tooling). Visit their
+    prefix in the browser. The door opens the fence again and the page loads; before this change it
+    answered 502 and stayed that way until someone intervened.
+68. **The daemon's own tier**: `touch packages/kernel/dist/src/control.js` on the host and reopen the
+    section. The daemon card reads `running code from HH:MM · newer on disk since HH:MM` and says a reload
+    cannot replace the kernel, the door or `thetis.config.json` — those need
+    `sudo systemctl restart thetis-runtime.service`.
+
 Stop the daemon by the pid on `.devhome7/thetis.sock` (SIGINT), release `/tmp/thetis-browser.lock`, and
 delete `.devhome7`.

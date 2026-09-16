@@ -1,8 +1,15 @@
 // One live agent process, and the frames that cross it in both directions.
 import type { ChildProcess } from "node:child_process";
 import type { EventSink, FenceHandle, KernelRpc, Userspace } from "@thetis/contracts";
-import { CodedError } from "@thetis/lib/error";
+import { CodedError, errorMessage } from "@thetis/lib/error";
 import { callHandler, encodeFrame, PendingCalls, readFrames, type Frame, type OpenCall } from "@thetis/lib/rpc-frames";
+
+/** What this package's handles carry beyond the fence contract: when the agent was spawned, and a promise
+ *  that resolves when it is gone. A `Fence` that returns a plainer handle simply offers neither. */
+export interface SandboxHandle extends FenceHandle {
+  openedAt: number;
+  gone: Promise<void>;
+}
 
 export interface HandleOptions {
   requestTimeoutMs: number;
@@ -12,6 +19,13 @@ export interface HandleOptions {
 }
 
 const EXIT_GRACE_MS = 2_000;
+/**
+ * How long the agent is given to answer `shutdown`. The ask exists because the signal does not arrive: with
+ * bubblewrap the child of this process is the sandbox, and `bwrap --unshare-pid` does not forward SIGTERM to
+ * the agent inside it, so a service's `stop()` — and the socket it unlinks — runs only when it is asked for
+ * over the protocol. Well inside the exit grace, because a fence that will not answer must still die on time.
+ */
+const SHUTDOWN_MS = 500;
 
 /**
  * Kernel to agent: `{ id, op, payload }`, answered by `{ id, event }`* and `{ id, result | error }`;
@@ -20,8 +34,11 @@ const EXIT_GRACE_MS = 2_000;
  */
 export class ProcessHandle implements FenceHandle {
   private readonly pending = new PendingCalls("r");
-  private readonly gone: Promise<void>;
+  /** Resolves when the agent process is gone, so the pool can forget a handle the moment it is a corpse. */
+  readonly gone: Promise<void>;
   private closed = false;
+  /** Set before the stop is asked for, because `closed` cannot be: the ask itself goes through `request`. */
+  private closing = false;
 
   constructor(
     private readonly child: ChildProcess,
@@ -55,9 +72,14 @@ export class ProcessHandle implements FenceHandle {
     return result;
   }
 
-  /** Asks the agent to exit and waits until it has; one that is still there after the grace period is killed. */
+  /**
+   * Stops the services, then asks the agent to exit and waits until it has; one that is still there after the
+   * grace period is killed. The stop is asked for rather than signalled, for the reason at `SHUTDOWN_MS`.
+   */
   async close(): Promise<void> {
-    if (this.closed) return;
+    if (this.closed || this.closing) return;
+    this.closing = true;
+    await this.shutdown();
     this.closed = true;
     const killer = setTimeout(() => {
       this.opts.log(`[fence] ${this.us.id}: agent did not exit on SIGTERM; killed`);
@@ -66,6 +88,22 @@ export class ProcessHandle implements FenceHandle {
     this.child.kill("SIGTERM");
     await this.gone;
     clearTimeout(killer);
+  }
+
+  /** Asks the agent to stop its services. A refusal, a silence or a deadline is logged and then ignored: the
+   *  close carries on regardless, because a fence that cannot be asked still has to go. */
+  private async shutdown(): Promise<void> {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const deadline = new Promise<never>((_, fail) => {
+        timer = setTimeout(() => fail(new CodedError(`it did not answer within ${SHUTDOWN_MS} ms`, "fence")), SHUTDOWN_MS).unref();
+      });
+      await Promise.race([this.request("shutdown", {}), deadline]);
+    } catch (err) {
+      this.opts.log(`[fence] ${this.us.id}: the services were not stopped before the close (${errorMessage(err)})`);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private send(msg: unknown): void {

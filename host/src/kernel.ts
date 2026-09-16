@@ -9,8 +9,10 @@ import { Container, token } from "@thetis/lib/container";
 import { Journal } from "@thetis/lib/journal";
 import { JsonDirStore } from "@thetis/lib/json-store";
 import { MountStore } from "@thetis/lib/mounts";
+import { RestartLatch } from "@thetis/lib/restart";
 import { UserspaceLayout } from "@thetis/lib/userspace-layout";
 import { Cgroups, FencePool, ProcessFence } from "@thetis/sandbox";
+import { deployedRestartPolicy } from "./policy.js";
 
 /** Tokens for every service. Bind a different factory to replace a component. */
 export const T = {
@@ -32,6 +34,7 @@ export const T = {
   runner: token<PipelineRunner>("runner"),
   sessions: token<SessionApi>("sessions"),
   journal: token<Journal>("journal"),
+  restart: token<RestartLatch>("restart"),
   cgroups: token<Cgroups | undefined>("cgroups"),
 };
 
@@ -78,6 +81,11 @@ function bindServices(c: Container, config: KernelConfig): void {
     return new PipelineRunner(c.get(T.config), c.get(T.enumerator), c.get(T.providerCall), c.get(T.packages), c.get(T.fences), c.get(T.sessionStore), c.get(T.journal));
   });
   c.bind(T.sessions, (c) => new SessionApi(c.get(T.users), c.get(T.userspaces), c.get(T.packages), c.get(T.sessionStore), c.get(T.runner)));
+  // Armed here, fired nowhere: only `serve()` registers a handler, and the latch refuses to arm without one,
+  // so a kernel built by `thetis send`, `thetis chat` or the bench cannot be talked into killing its command.
+  // The deployed policy is a host fact and is read here, in the daemon: a tool inside a fence sees neither the
+  // cgroup it is in nor systemd, and would have to take the unit file in the checkout on trust.
+  c.bind(T.restart, (c) => new RestartLatch({ config: c.get(T.config).control, inFlight: () => c.get(T.sessions).inFlight(), policy: deployedRestartPolicy }));
 }
 
 /** The process fence, configured from `config.fence`. The resolver file lives next to the rest of the data. */
@@ -124,6 +132,8 @@ function kernelOf(c: Container): KernelServices {
     sessions: c.get(T.sessions),
     fences: c.get(T.fences),
     journal: c.get(T.journal),
+    restart: c.get(T.restart),
+    restartPolicy: deployedRestartPolicy,
     async removeUser(id) {
       c.get(T.users).remove(id);
       await c.get(T.fences).close(id);

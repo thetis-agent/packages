@@ -474,3 +474,42 @@ test("mounts: an admin grants a host directory into a person's fence; the agent 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("fence.reload: a service's module graph is read again, which a modification-time import cannot do", async () => {
+  const us = kernel.userspaces.pathFor("alice");
+  const dir = join(us.home, "packages", "probe");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "@alice/probe", version: "0.1.0", type: "module", main: "index.js", thetis: { type: "service", service: { export: "start" } } }));
+  // The mark lives in a file the entry *imports*. That is the whole point: `loadExport` versions the entry
+  // with its modification time, so a change there would be picked up without any of this — a change behind
+  // it can only arrive with a new process.
+  writeFileSync(join(dir, "index.js"), `
+    import { mark } from "./impl.js";
+    export async function start(env) { await env.exec("echo " + mark + " >> probe.log"); }
+  `);
+  writeFileSync(join(dir, "impl.js"), `export const mark = "v1";`);
+  const log = () => readFileSync(join(us.home, "probe.log"), "utf8").trim().split("\n");
+  const control = createControlHandler(kernel);
+  try {
+    await kernel.services.boot();
+    await kernel.packages.install(us, kernel.users.authorize("alice"), "packages/probe");
+    assert.deepEqual(log(), ["v1"]);
+
+    const before = await kernel.fences.handle(us);
+    writeFileSync(join(dir, "impl.js"), `export const mark = "v2";`);
+    const out = (await control("fence.reload", { user: "alice" })) as { user: string; services: string[] };
+
+    assert.equal(out.user, "alice");
+    assert.ok(out.services.includes("@alice/probe"), `the answer names what it restarted: ${out.services.join(", ")}`);
+    assert.deepEqual(log(), ["v1", "v2"], "the imported module was read again, so the agent process is a new one");
+    await assert.rejects(before.request("ping", {}), /fence/, "a handle taken before the reload is dead");
+    assert.match((await collect(kernel.sessions.send("alice", kernel.sessions.create("alice").id, "run: echo after-reload"))).text, /after-reload/, "turns work in the new fence");
+
+    const rows = kernel.journal.tail(20, { kind: "fence.reload", target: "alice" });
+    assert.equal(rows.length, 1, "the reload is journaled against the person it reopened");
+  } finally {
+    await kernel.packages.uninstall(us, "@alice/probe");
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(join(us.home, "probe.log"), { force: true });
+  }
+});

@@ -5,7 +5,7 @@ import type { Fence, FenceHandle, KernelRpc, Userspace } from "@thetis/contracts
 import { CodedError, errorMessage } from "@thetis/lib/error";
 import { bwrapArgs, hasBwrap, launcherCommand, launcherReady, presentMounts } from "./bwrap.js";
 import type { Cgroups, FenceLimits } from "./cgroup.js";
-import { ProcessHandle } from "./handle.js";
+import { ProcessHandle, type SandboxHandle } from "./handle.js";
 import { hasSlirp, startEgress, writeResolvConf } from "./network.js";
 
 export type SandboxMode = "auto" | "bwrap" | "none";
@@ -60,7 +60,10 @@ export class ProcessFence implements Fence {
    * The agent starts behind a launch gate: it is placed in its cgroup and, in egress mode, given its
    * network before its first instruction runs. A failure before the gate opens kills the process.
    */
-  async open(us: Userspace, rpc: KernelRpc): Promise<FenceHandle> {
+  async open(us: Userspace, rpc: KernelRpc): Promise<SandboxHandle> {
+    // Stamped before the spawn: this is when the agent reads its modules, and `status` compares it against
+    // what is on disk now.
+    const openedAt = Date.now();
     // The cgroup is adopted before the first child exists: enabling controllers needs the parent group empty.
     const cgroups = this.sandbox === "bwrap" ? this.opts.cgroups?.() : undefined;
     const child = this.spawn(us);
@@ -74,7 +77,7 @@ export class ProcessFence implements Fence {
     }
     const handle = new ProcessHandle(child, us, rpc, { requestTimeoutMs: this.opts.requestTimeoutMs, log: this.log }, cleanup);
     await handle.request("ping", {});
-    return handle;
+    return Object.assign(handle, { openedAt });
   }
 
   private async openGate(us: Userspace, child: ChildProcess, cgroups: Cgroups | undefined, cleanup: (() => void)[]): Promise<void> {

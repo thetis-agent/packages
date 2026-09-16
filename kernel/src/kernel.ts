@@ -1,6 +1,7 @@
 import type { Fences } from "@thetis/contracts";
 import type { Journal } from "@thetis/lib/journal";
 import type { MountStore } from "@thetis/lib/mounts";
+import type { RestartLatch } from "@thetis/lib/restart";
 import type { UserspaceLayout } from "@thetis/lib/userspace-layout";
 import type { AuthService } from "./auth.js";
 import type { KernelConfig } from "./config.js";
@@ -29,6 +30,10 @@ export interface KernelServices {
   sessions: SessionApi;
   fences: Fences;
   journal: Journal;
+  /** The latch behind a restart Thetis can ask for. Arming is not restarting: only the serving daemon acts on it. */
+  restart: RestartLatch;
+  /** What the deployed systemd unit says a clean exit means, or null when that could not be read. A host fact, injected. */
+  restartPolicy(): string | null;
   /** Removes the user, closes its fence, forgets its packages, and deletes its userspace directory. */
   removeUser(id: string): Promise<void>;
   /** Closes every fence. */
