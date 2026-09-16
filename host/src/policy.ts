@@ -47,18 +47,25 @@ export function deployedUnit(cgroupFile = "/proc/self/cgroup"): DeployedUnit | n
   return null;
 }
 
-let cached: { policy: string | null } | undefined;
+/** How long a reading is trusted. Short, because the value changes underneath a running daemon: see below. */
+const CACHE_MS = 5_000;
+let cached: { policy: string | null; at: number } | undefined;
 
 /**
  * The deployed `Restart=` of the unit running this process — `always`, `on-failure`, `no`, … — or null when it
  * could not be read, which the latch treats exactly as it treats a policy that is not `always`: it refuses,
  * because "we could not tell whether the process would come back" is not a reason to exit.
  *
- * Read once and remembered: it is asked on every arm and by every `status`, and it cannot change without a
- * `systemctl daemon-reload`, which is an operator's act at the host and one they can restart the daemon after.
+ * Re-read, not remembered. An earlier version cached this for the life of the process, reasoning that the
+ * value cannot change without a `systemctl daemon-reload` and that an operator doing one would restart the
+ * daemon anyway. That is exactly backwards in the one case that matters: an operator runs `daemon-reload`
+ * *because* a restart was refused for the policy, and a daemon holding the old reading would then go on
+ * refusing — the only way out being the manual restart this exists to avoid, with `status` reporting a
+ * value that is no longer true. So it is read again, with a short cache to keep a polling page cheap.
  */
 export function deployedRestartPolicy(): string | null {
-  cached ??= { policy: readPolicy() };
+  const now = Date.now();
+  if (!cached || now - cached.at >= CACHE_MS) cached = { policy: readPolicy(), at: now };
   return cached.policy;
 }
 
