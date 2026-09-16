@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { AsyncQueue } from "../src/async.js";
 import { Container, token } from "../src/container.js";
 import { JsonDirStore } from "../src/json-store.js";
+import { browseDirectories, withPresence } from "../src/mounts.js";
 import { findDependency, forkPackage, forkVersion, isGitSource, isInside, splitSource } from "../src/pkg-fs.js";
 import { PendingCalls, callHandler } from "../src/rpc-frames.js";
 
@@ -121,6 +122,31 @@ test("fork: the copy drops scripts and devDependencies, links what the origin re
     assert.equal(forkVersion("0.3.0", "0.2.0-fork.4"), "0.3.0-fork.1", "a new origin version starts over");
     assert.equal(forkVersion("0.2.0", "1.0.0"), "0.2.0-fork.1");
     assert.equal(findDependency(origin, "nope"), undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("mounts: presence is what the fence will bind, and browse answers what a path is", () => {
+  const dir = mkdtempSync(join(tmpdir(), "mounts-"));
+  try {
+    mkdirSync(join(dir, "repos"));
+    mkdirSync(join(dir, ".git"));
+    writeFileSync(join(dir, "note.txt"), "x");
+    assert.deepEqual(withPresence([{ path: join(dir, "repos"), mode: "rw" }, { path: join(dir, "note.txt"), mode: "ro" }, { path: join(dir, "gone"), mode: "rw" }]), [
+      { path: join(dir, "repos"), mode: "rw", present: true, kind: "dir" },
+      { path: join(dir, "note.txt"), mode: "ro", present: false, kind: "file" },
+      { path: join(dir, "gone"), mode: "rw", present: false, kind: "none" },
+    ]);
+    // Directories only: a file is not a place to bind, and a hidden name is out of the way unless asked for.
+    assert.deepEqual(browseDirectories(dir).entries, [{ name: "repos", path: join(dir, "repos") }]);
+    assert.deepEqual(browseDirectories(dir, { all: true }).entries.map((e) => e.name), [".git", "repos"]);
+    assert.equal(browseDirectories(dir, { limit: 0 }).truncated, true);
+    assert.deepEqual(browseDirectories(join(dir, "note.txt")), { path: join(dir, "note.txt"), parent: dir, kind: "file", readable: false, truncated: false, entries: [] });
+    assert.equal(browseDirectories(join(dir, "gone")).kind, "none");
+    assert.equal(browseDirectories("/").parent, null);
+    assert.throws(() => browseDirectories("relative"), /absolute and normalized/);
+    assert.throws(() => browseDirectories("/a/../b"), /absolute and normalized/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -54,6 +54,9 @@ export function createExt(extension) {
     statusbar: slot("statusbar"),
     transcript: (render) => registry.addRenderer(pkg, render),
 
+    /** Whether this package declares `verb` and the person's role clears it: how a UI hides an admin's control. */
+    can: (verb) => verbs.has(verb),
+
     async request(verb, { session, args } = {}) {
       if (!verbs.has(verb)) throw new Error(`${pkg} declares no command "${verb}".`);
       const body = { args: args ?? {} };

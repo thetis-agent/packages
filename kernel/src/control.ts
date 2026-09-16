@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { SYSTEM_USER, type KernelRpc, type Mount, type UserRecord, type UserRole, type UserStatus } from "@thetis/contracts";
 import { assert, CodedError } from "@thetis/lib/error";
+import { browseDirectories, withPresence } from "@thetis/lib/mounts";
 import type { KernelServices } from "./kernel.js";
 
 type Args = Record<string, string | undefined>;
@@ -67,8 +68,15 @@ export function createControlHandler(k: KernelServices): KernelRpc {
       }
       case "packages.installEveryone":
         return installEveryone(k, actor(), String(a.source), journal);
-      case "mounts.list":
-        return a.user ? { [user()]: k.mounts.get(user()) } : k.mounts.all();
+      case "mounts.list": {
+        // Every mount comes back with what the host holds at its path, because a mount whose directory
+        // is gone is skipped when the fence opens: the list alone cannot say a mount works.
+        const all = a.user ? { [user()]: k.mounts.get(user()) } : k.mounts.all();
+        return Object.fromEntries(Object.entries(all).map(([u, list]) => [u, withPresence(list)]));
+      }
+      case "mounts.browse":
+        // The host filesystem is the operator's to see: a person's fence shows only what is bound into it.
+        return browseDirectories(String(a.path ?? "/"), { all: a.all === "true" });
       case "mounts.set": {
         // The change reaches the fence by closing it: the pool reopens it on the next request, and the supervisor restarts its services.
         const target = k.users.get(user());
@@ -79,7 +87,8 @@ export function createControlHandler(k: KernelServices): KernelRpc {
         journal("mounts", target.id, { mounts });
         await k.fences.close(target.id);
         await k.services.ensure(target.id);
-        return mounts;
+        // The answer carries presence: a caller learns at once that a path it named is not there to bind.
+        return withPresence(mounts);
       }
       case "journal.tail":
         return k.journal.tail(Math.min(1000, Number(a.limit ?? 200) || 200), { actor: a.actor_filter, target: a.target, kind: a.kind });

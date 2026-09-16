@@ -5,12 +5,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createInterface as createPrompt } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
-import type { KernelRpc, ModelDescriptor, Mount, PackageInfo, SessionRecord, TurnEvent, UserRecord } from "@thetis/contracts";
+import type { KernelRpc, ModelDescriptor, PackageInfo, SessionRecord, TurnEvent, UserRecord } from "@thetis/contracts";
 import { createDoor } from "@thetis/door";
 import { behind, readIndex, shortCommit, type Behind } from "@thetis/marketplace";
 import { ControlServer, controlSocketPath, createKernel } from "@thetis/host";
 import { configPath, createControlHandler, defaultConfig, loadConfig, saveConfig, type SessionRef } from "@thetis/kernel";
 import { connectRpcSocket } from "@thetis/lib/ndjson-socket";
+import type { MountState } from "@thetis/lib/mounts";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 /** How long `serve` gives the door, the control socket and the fences to close before it exits regardless. */
@@ -33,9 +34,10 @@ usage: thetis <command> [options]
   packages list [--user <id>] | install <source> [--user <id>] | uninstall <name> [--user <id>] | promote <name> --user <id>
   packages outdated [--user <id>]      what is behind the registry it was installed from
   packages update [<name>] [--user <id>]  reinstall those packages at the registry's current commit
-  mounts list [--user <id>]            host paths bound into each person's fence
+  mounts list [--user <id>]            host paths bound into each person's fence, and whether each is there
   mounts add <user> <path> [--ro]      bind a host directory into that person's fence at the same path (read-write unless --ro)
   mounts remove <user> <path>
+  mounts browse [path]                 the directories under a host path, to pick one to bind
   models [--user <id>]                 models advertised by installed providers
   config                               print effective config
   bench run <suite> [--write] [--force] [--sandbox auto|bwrap|none] [--package <dir>]
@@ -209,22 +211,39 @@ async function usersCmd(call: Call, args: Args): Promise<void> {
   }
 }
 
-/** The mount list is replaced whole by `mounts.set`; add and remove read the current list first and send the edited one. */
+/** One word for what the host holds at a mount's path: what the fence will do with it. */
+function stateOf(m: MountState): string {
+  return m.present ? "bound" : m.kind === "file" ? "skipped (a file, not a directory)" : "skipped (not on the host)";
+}
+
+/**
+ * The mount list is replaced whole by `mounts.set`; add and remove read the current list first and send
+ * the edited one. Every line says whether the host still holds the directory, because a mount whose path
+ * is gone is skipped when the fence opens, and a silent skip is how a person finds out too late.
+ */
 async function mountsCmd(call: Call, args: Args, user: string | undefined): Promise<void> {
   const [, sub, id, path] = args._;
-  const listOf = async (u: string) => ((await call("mounts.list", { user: u })) as Record<string, Mount[]>)[u] ?? [];
+  const listOf = async (u: string) => ((await call("mounts.list", { user: u })) as Record<string, MountState[]>)[u] ?? [];
   if (sub !== "list" && sub !== undefined && !(id && path)) throw new Error(`mounts ${sub} needs <user> <path>`);
   switch (sub) {
     case "list":
     case undefined: {
-      const all = (await call("mounts.list", { user })) as Record<string, Mount[]>;
-      for (const [u, list] of Object.entries(all)) for (const m of list) print(`${u}\t${m.path}\t${m.mode}`);
+      const all = (await call("mounts.list", { user })) as Record<string, MountState[]>;
+      for (const [u, list] of Object.entries(all)) for (const m of list) print(`${u}\t${m.path}\t${m.mode}\t${stateOf(m)}`);
+      return;
+    }
+    case "browse": {
+      const listing = (await call("mounts.browse", { path: id ?? "/" })) as { path: string; kind: string; readable: boolean; entries: { path: string }[] };
+      if (!listing.readable) throw new Error(`${listing.path} is ${listing.kind === "none" ? "not there" : listing.kind === "file" ? "not a directory" : "not readable"}`);
+      for (const e of listing.entries) print(e.path);
       return;
     }
     case "add": {
       const mode = args.ro ? "ro" : "rw";
-      const mounts = [...(await listOf(id)).filter((m) => m.path !== path), { path, mode }];
-      await call("mounts.set", { user: id, mounts });
+      const mounts = [...(await listOf(id)).map((m) => ({ path: m.path, mode: m.mode })).filter((m) => m.path !== path), { path, mode }];
+      const after = (await call("mounts.set", { user: id, mounts })) as MountState[];
+      const bound = after.find((m) => m.path === path);
+      if (bound && !bound.present) throw new Error(`${path} is written down for ${id}, but the host has ${bound.kind === "file" ? "a file" : "nothing"} there: the fence opens without it. Fix the path, or make the directory.`);
       return print(`mounted ${path} (${mode}) for ${id}; the fence reopens with it`);
     }
     case "remove": {

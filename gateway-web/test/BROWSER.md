@@ -467,5 +467,39 @@ the OpenRouter key in the environment of `serve` (steps 43 and 47 send one messa
     and the same note, and its system prompt has `# Skills you can load`, `# Skills always in force` and
     `## Project: skills-check`.
 
+48. **A project directory says whether it can be used**: open the project place for `skills-check`. In
+    **Project directories** type `/srv/nowhere` in `input.pj-dir-input` and press Enter. One `POST
+    …/projects/mounts` with `args.paths` naming it, then the row `li.pj-dir.is-unmounted[data-path]` with
+    `code.pj-dir-path`, `.badge.is-err` "not mounted", and `p.pj-dir-state` "Nothing is bound over this
+    path, so the file tools cannot reach it. An agent in this project will find it missing." Above the
+    rows, `p.pj-warn` "1 of 1 directory is not usable. An agent in this project cannot read it." Since
+    this person is an admin, the row also has `.pj-dir-actions` with a **Bind it** button and no
+    `.pj-dir-ask`.
+49. **The picker will not offer a path that is not there**: click **Choose a directory…**. A
+    `.popover.dp` opens with `input.dp-path` at `/`, `p.dp-status.is-ok` "A directory: *n* directories
+    inside.", and one `.dp-row` per directory. Type `/srv/nowhere` in the path box: `.dp-status.is-warn`
+    "Not on the host." and the **Use this directory** button `[disabled]`. Type the absolute path of a
+    real directory outside the home (`/tmp` will do): the status turns `.is-ok` and the button enables.
+    Click a `.dp-row` to descend, then the `.dp-row.is-up` to go back. Press Escape: the popover closes
+    and nothing is added.
+50. **Binding one from the page**: pick `/tmp` in the picker, leave the mode select at read-write, and
+    click **Use this directory**. The row is added, then a confirm popover "Bind it read-write?" with the
+    lines Directory and Mode and the note about the workspace reopening. Confirm: one `POST
+    …/projects/mount`, the fence closes (the request may not answer), then `mounts` polling until the new
+    workspace answers, a toast, and the row redrawn `li.pj-dir.is-ready` with `.badge.is-ok` "mounted ·
+    read-write" and the state line "The file tools can read and write here." `.pj-warn` is gone for that
+    row. `<home>/../../mounts.json` holds `{ "alice": [ { "path": "/tmp", "mode": "rw" } ] }`. The unsaved
+    name in `input.pj-name` survived the bind.
+51. **Unbind, and the prompt**: the row now offers **Make read-only** and **Unbind**. Click **Make
+    read-only**, confirm: the badge turns `.badge.is-accent` "mounted · read-only". Click **Save**, then
+    send a message in a conversation of this project: the session record's system prompt has the line
+    `- /tmp (mounted ro, read-only)` and the line `- /srv/nowhere (NOT USABLE: no mount covers it, …)`,
+    followed by "A directory marked NOT USABLE is outside this workspace". Click **Unbind**, confirm:
+    the badge returns to `.badge.is-err` "not mounted" and `mounts.json` no longer names `/tmp`.
+52. **The control panel agrees**: open **Control panel → Mounts**. The table has a column **On the host**;
+    bind `/srv/nowhere` for `bob` through the form. The toast says the host has no directory there, and
+    the row shows `.badge.is-err` "skipped · not there" beside `read-write`. The **Choose…** button opens
+    the same picker. Unbind it.
+
 Stop the daemon by the pid on `.devhome7/thetis.sock` (SIGINT), release `/tmp/thetis-browser.lock`, and
 delete `.devhome7`.

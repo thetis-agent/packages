@@ -5,15 +5,24 @@
 // THETIS_MOUNTS, the same source the file tools use), and the standing instructions. `projectTools` runs
 // in the `call` phase, after every `tools`-phase step whatever the install order, and drops the tools the
 // project switched off from `call.tools`. Both read through `ctx.env.readFile` and tolerate missing files.
-import { currentMounts, describeDirectory } from "./mounts.js";
+import { currentMounts, describeDirectory, isWithin, mountModeOf } from "./mounts.js";
 import { projectOfSession, readInstructions } from "./store.js";
 
-/** The text appended for a project: heading, directories, instructions. Exported for the tests. */
-export function projectSection(project, instructions, mounts, user) {
+/**
+ * The text appended for a project: heading, directories, instructions. Each directory says what the agent
+ * can do with it now, and a directory the file tools cannot reach says so in the same line, because the
+ * alternative is an agent that plans work in a directory it will find missing. The line is written from
+ * THETIS_MOUNTS alone: reading the operator's mount list would cost a round trip on every turn, and the
+ * project page is where a mount is repaired. Exported for the tests.
+ */
+export function projectSection(project, instructions, mounts, user, home = null) {
   const lines = [`## Project: ${project.name}`];
   if (project.directories.length) {
     lines.push("Project directories:");
-    for (const d of project.directories) lines.push(`- ${describeDirectory(d, mounts, user)}`);
+    for (const d of project.directories) lines.push(`- ${describeDirectory(d, mounts, user, null, home)}`);
+    if (project.directories.some((d) => !mountModeOf(d, mounts) && !isWithin(d, home))) {
+      lines.push("", 'A directory marked NOT USABLE is outside this workspace: the file tools answer "no such file" there. Say so instead of working around it.');
+    }
   } else {
     lines.push("This project has no project directories.");
   }
@@ -27,7 +36,7 @@ export async function projectPrompt(ctx) {
   const project = await projectOfSession(ctx.env, ctx.session.id);
   if (!project) return;
   const instructions = await readInstructions(ctx.env, project.id);
-  const section = projectSection(project, instructions, currentMounts(), ctx.session.user);
+  const section = projectSection(project, instructions, currentMounts(), ctx.session.user, ctx.env.cwd);
   return { call: { ...ctx.call, system: [ctx.call.system, section].filter(Boolean).join("\n\n") } };
 }
 

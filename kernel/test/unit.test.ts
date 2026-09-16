@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Mount, PackageInfo } from "@thetis/contracts";
 import { Journal } from "@thetis/lib/journal";
 import { MountStore } from "@thetis/lib/mounts";
@@ -166,8 +166,10 @@ test("mounts.set: validates the list, writes the store, journals the change, and
     await assert.rejects(set("alice", [{ path: "/srv/x", mode: "rwx" }]), /invalid mount mode/);
     await assert.rejects(set("alice", [null]), /invalid mount path/);
     assert.deepEqual(closed, [], "nothing changed until the list is valid");
-    const mounts: Mount[] = [{ path: "/srv/x", mode: "ro" }, { path: "/srv/y", mode: "rw" }];
-    assert.deepEqual(await set("alice", mounts), mounts);
+    const mounts: Mount[] = [{ path: "/srv/x", mode: "ro" }, { path: home, mode: "rw" }];
+    // The answer and the list say what the host holds now: the temporary home is there, /srv/x is not.
+    const state = [{ path: "/srv/x", mode: "ro", present: false, kind: "none" }, { path: home, mode: "rw", present: true, kind: "dir" }];
+    assert.deepEqual(await set("alice", mounts), state);
     assert.deepEqual(new MountStore(home).get("alice"), mounts, "persisted");
     assert.deepEqual(closed, ["alice"], "the fence is closed so it reopens with the binds");
     assert.deepEqual(ensured, ["alice"], "the supervisor reopens it and restarts the services");
@@ -175,10 +177,20 @@ test("mounts.set: validates the list, writes the store, journals the change, and
     assert.equal(row.target, "alice");
     assert.equal(row.actor, "operator");
     assert.deepEqual(row.data, { mounts });
-    assert.deepEqual(await control("mounts.list", { user: "alice" }), { alice: mounts });
-    assert.deepEqual(await control("mounts.list", {}), { alice: mounts });
+    assert.deepEqual(await control("mounts.list", { user: "alice" }), { alice: state });
+    assert.deepEqual(await control("mounts.list", {}), { alice: state });
     await set("alice", []);
     assert.deepEqual(await control("mounts.list", {}), {}, "an empty list removes the entry");
+    // browse: the operator sees the host filesystem, and learns what a path is when it is not a directory.
+    mkdirSync(join(home, "repos"));
+    mkdirSync(join(home, ".hidden"));
+    const listing = (await control("mounts.browse", { path: home })) as { entries: { name: string; path: string }[]; readable: boolean; parent: string | null };
+    assert.equal(listing.readable, true);
+    assert.deepEqual(listing.entries, [{ name: "repos", path: join(home, "repos") }], "directories only, and no hidden names");
+    assert.equal(listing.parent, dirname(home));
+    assert.equal((await control("mounts.browse", { path: "/srv/x" }) as { kind: string }).kind, "none");
+    assert.equal((await control("mounts.browse", { path: join(home, "users.json") }) as { kind: string }).kind, "file");
+    await assert.rejects(control("mounts.browse", { path: "relative" }), /absolute and normalized/);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

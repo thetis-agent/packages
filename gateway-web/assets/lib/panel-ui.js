@@ -1,7 +1,10 @@
-/* Shared pieces of the control panel: tables, badges, fields, buttons, a confirm popover, and key/value lists.
- * Everything is built with el(); nothing here knows what a package or a person is. */
+/* Shared pieces of the control panel: tables, badges, fields, buttons, a confirm popover, a directory
+ * picker, and key/value lists. Everything is built with el(); nothing here knows what a package or a
+ * person is. */
 
 import { el, icon, onClickOutside } from "./dom.js";
+
+export { pickDirectory } from "./dir-picker.js";
 
 const X = ["M5 5l10 10", "M15 5l-10 10"];
 

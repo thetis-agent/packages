@@ -98,6 +98,17 @@ export async function mountsList(args, env) {
   return { data: await call(env, "mounts.list", user ? { user } : {}) };
 }
 
+/**
+ * The directories under one host path, for the picker. A person's fence shows only what is bound into it,
+ * so the listing comes from the operator: an admin binds host paths, and must be able to see them to pick
+ * one that is really there.
+ */
+export async function mountsBrowse(args, env) {
+  const path = args.path === undefined || args.path === "" ? "/" : String(args.path);
+  if (!isAbsolute(path) || path !== resolve(path)) fail(`a path to browse must be absolute and normalized: ${path}`);
+  return { data: await call(env, "mounts.browse", { path }) };
+}
+
 /** A mount as the kernel accepts it: an absolute normalized path that is not the root, and mode rw or ro. */
 function mountOf(raw) {
   const path = typeof raw?.path === "string" ? raw.path : "";

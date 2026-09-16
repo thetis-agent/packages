@@ -4,7 +4,12 @@
 // person's own. Commands answer `{ data }`; a refusal is a thrown Error, which the gateway answers as
 // `400 { error }` with the sentence. The mounts a command reports are this fence's own, from
 // THETIS_MOUNTS: a person cannot call the operator's `mounts.list`, and does not need to.
-import { currentMounts, mountModeOf } from "./lib/mounts.js";
+//
+// Three commands are an admin's, because binding a host directory is the operator's authority and the
+// kernel refuses `operator.*` to anyone else: `browse` lists host directories so a path can be picked
+// instead of typed, `mount` binds or unbinds one, and `get` adds the mount list an admin may read. They
+// act on the person's own fence alone: the user id comes from `env.user`, never from the page.
+import { currentMounts, mountModeOf, stateOf } from "./lib/mounts.js";
 import { assignSession, isProjectId, listProjects, projectOfSession, readAssignments, readInstructions, readProject, removeProject, saveProject, validateProject } from "./lib/store.js";
 
 export { projectPrompt, projectTools } from "./lib/steps.js";
@@ -58,8 +63,25 @@ async function skillList(env, disabled) {
 }
 
 /**
+ * The mounts written down for this person, which only an admin may read. The list says what the operator
+ * asked for; `currentMounts` says what the fence took. The two differ when a host path is gone, and that
+ * difference is the one a person cannot otherwise see, so the page is told about it.
+ */
+async function boundMounts(env) {
+  if (env.role !== "admin") return null;
+  try {
+    const all = await env.kernel.operator.call("mounts.list", { user: env.user });
+    const list = all?.[env.user];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return null;
+  }
+}
+
+/**
  * get: one project with its instructions, the mounts, the tool groups and the skills; without an id, the
  * empty template a new project's page starts from (the tools, skills and mounts are the same either way).
+ * Every directory carries its state, so the page never has to guess whether the agent can reach it.
  */
 export async function uiGet(args, env) {
   const id = args.id ?? null;
@@ -67,10 +89,11 @@ export async function uiGet(args, env) {
   const project = id ? await readProject(env, id) : null;
   if (id && !project) fail(`No project ${id}.`);
   const mounts = currentMounts();
-  const [instructions, assignments, tools, skills] = await Promise.all([project ? readInstructions(env, id) : "", readAssignments(env), toolGroups(env, project?.tools.disable ?? []), skillList(env, project?.skills.disable ?? [])]);
-  const directories = (project?.directories ?? []).map((path) => ({ path, mounted: mountModeOf(path, mounts) }));
+  const [instructions, assignments, tools, skills, bound] = await Promise.all([project ? readInstructions(env, id) : "", readAssignments(env), toolGroups(env, project?.tools.disable ?? []), skillList(env, project?.skills.disable ?? []), boundMounts(env)]);
+  const directories = (project?.directories ?? []).map((path) => ({ path, mounted: mountModeOf(path, mounts), ...stateOf(path, mounts, bound, env.cwd) }));
   const conversations = project ? Object.values(assignments).filter((p) => p === id).length : 0;
-  return { data: { project, directories, instructions, conversations, mounts, tools, skills } };
+  const states = Object.fromEntries(directories.map((d) => [d.path, { state: d.state, mode: d.mode, kind: d.kind, ...(d.mount ? { mount: d.mount } : {}), ...(d.home ? { home: true } : {}) }]));
+  return { data: { project, directories, states, instructions, conversations, mounts, bound, tools, skills, user: env.user, admin: env.role === "admin" } };
 }
 
 /** save: create (no id) or update. `instructions` left out keeps the file as it is. */
@@ -110,9 +133,57 @@ export async function uiSessions(args, env) {
   return { data: { sessions: Object.entries(assignments).filter(([, p]) => p === args.project).map(([s]) => s) } };
 }
 
-/** mounts: what this fence has bound, as the file tools see it. */
-export async function uiMounts() {
-  return { data: { mounts: currentMounts() } };
+/**
+ * mounts: what this fence has bound, as the file tools see it, and the state of any `paths` the caller
+ * asks about. The page asks after every edit, so a directory it has not saved yet still says whether the
+ * agent could reach it; it is also the page's heartbeat, because binding a mount closes the fence and this
+ * command answers again as soon as the new one is open.
+ */
+export async function uiMounts(args, env) {
+  const mounts = currentMounts();
+  const paths = (Array.isArray(args?.paths) ? args.paths : []).filter((p) => typeof p === "string" && p.startsWith("/")).slice(0, 64);
+  const bound = paths.length ? await boundMounts(env) : null;
+  return { data: { mounts, bound, states: Object.fromEntries(paths.map((p) => [p, stateOf(p, mounts, bound, env.cwd)])) } };
+}
+
+/** An absolute, normalized path, the way the kernel wants one: the page's own check is not trusted. */
+function pathArg(value) {
+  if (typeof value !== "string" || !value.startsWith("/")) fail("a directory is an absolute path, starting with /.");
+  const path = value.replace(/\/+$/, "") || "/";
+  if (path === "/" || path.split("/").includes("..") || path.includes("//")) fail(`${value} is not a directory a mount can name.`);
+  return path;
+}
+
+/**
+ * browse (admin): the directories under one host path, for the picker. A person's fence shows only what is
+ * bound into it, so this reads through the operator, which the kernel allows an admin alone.
+ */
+export async function uiBrowse(args, env) {
+  const path = args.path === undefined || args.path === "" ? "/" : args.path === "/" ? "/" : pathArg(args.path);
+  return { data: await env.kernel.operator.call("mounts.browse", { path }) };
+}
+
+/**
+ * mount (admin): binds one host directory into this person's own fence, or unbinds it with `mode: null`.
+ * The whole list is sent, the way the command line sends it. The kernel closes the fence so it reopens
+ * with the new binds, which also restarts the gateway serving this page: the answer may never arrive, and
+ * the page treats a lost request as "ask again in a moment". The list that comes back says, per mount,
+ * whether the host has a directory there, so a path that cannot work is named at once.
+ */
+export async function uiMount(args, env) {
+  const path = pathArg(args.path);
+  const mode = args.mode ?? null;
+  if (mode !== null && mode !== "rw" && mode !== "ro") fail("a mount is read-write (rw) or read-only (ro).");
+  const before = (await env.kernel.operator.call("mounts.list", { user: env.user }))?.[env.user] ?? [];
+  const plain = before.map((m) => ({ path: m.path, mode: m.mode }));
+  if (mode === null && !plain.some((m) => m.path === path)) {
+    const covering = plain.find((m) => path.startsWith(`${m.path}/`));
+    fail(covering ? `${path} is reached through the mount ${covering.path}. Unbind that one in the control panel.` : `${path} is not bound.`);
+  }
+  const mounts = [...plain.filter((m) => m.path !== path), ...(mode ? [{ path, mode }] : [])];
+  const after = await env.kernel.operator.call("mounts.set", { user: env.user, mounts });
+  const list = Array.isArray(after) ? after : [];
+  return { data: { mounts: list, mount: list.find((m) => m.path === path) ?? null } };
 }
 
 /** The project of a session, for other packages that import this one. */

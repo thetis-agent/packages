@@ -37,7 +37,9 @@
         { "verb": "remove", "export": "uiRemove", "label": "Delete a project" },
         { "verb": "assign", "export": "uiAssign", "label": "Put a conversation in a project" },
         { "verb": "sessions", "export": "uiSessions", "label": "List a project's conversations" },
-        { "verb": "mounts", "export": "uiMounts", "label": "List the mounts of this fence" }
+        { "verb": "mounts", "export": "uiMounts", "label": "List the mounts of this fence" },
+        { "verb": "browse", "export": "uiBrowse", "label": "List the directories under a host path", "role": "admin" },
+        { "verb": "mount", "export": "uiMount", "label": "Bind or unbind a project directory", "role": "admin" }
       ]
     }
   }

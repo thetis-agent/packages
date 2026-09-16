@@ -20,7 +20,7 @@ The layering rule: `lib` imports only `@thetis/contracts`. `sandbox`, `kernel`, 
 | `rpc-frames` | `PendingCalls`, `callHandler`, `readFrames`, `encodeFrame`: the `{ id, method, args }` framing. |
 | `ndjson-socket` | `RpcSocketServer`, `connectRpcSocket`: the framing over a Unix socket. |
 | `userspace-layout` | `UserspaceLayout`: `pathFor`, `exists`, `ensure`, `remove`. |
-| `mounts` | `MountStore`: the per-user mount lists in `<home>/mounts.json`. |
+| `mounts` | `MountStore`: the per-user mount lists in `<home>/mounts.json`. `withPresence` adds what the host holds at each path (`present`, `kind`), which is what the fence will actually bind. `browseDirectories` lists the directories under one path, for a picker: directories only, hidden names left out unless asked, capped, and never throwing for a path that is missing or unreadable. |
 | `pkg-fs` | `splitSource`, `isGitSource`, `cloneCommand`, `buildCommand`, `isInside`, `linkDir`, `removeLink`, `copyPackageAs`, `findDependency`, `forkVersion`, `forkPackage`, and the other package file operations. |
 | `crypto` | `randomHex`, `scryptHex`. |
 
@@ -72,7 +72,7 @@ if (remote) {
 | `src/rpc-frames.ts` | Pending calls, frame encoding, line reading. |
 | `src/ndjson-socket.ts` | The Unix socket server (mode `0600`) and client. |
 | `src/userspace-layout.ts` | The directories of one userspace. |
-| `src/mounts.ts` | The mount lists. |
+| `src/mounts.ts` | The mount lists, their presence on the host, and the directory listing. |
 | `src/pkg-fs.ts` | Sources, clones, links, copies, forks. |
 | `src/crypto.ts` | Random hex and scrypt. |
 

@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
-import { uiAssign, uiGet, uiList, uiMounts, uiRemove, uiSave, uiSessions } from "../index.js";
+import { uiAssign, uiBrowse, uiGet, uiList, uiMount, uiMounts, uiRemove, uiSave, uiSessions } from "../index.js";
 import { makeEnv, PACKAGES } from "./helpers.js";
 
 async function withMounts(value, fn) {
@@ -42,7 +42,16 @@ test("save creates and updates; get shows the record, the mount state, the disab
   await withMounts(JSON.stringify([{ path: "/srv/repos", mode: "ro" }]), async () => {
     const { data } = await uiGet({ id: created.id }, env);
     assert.equal(data.project.name, "Thetis");
-    assert.deepEqual(data.directories, [{ path: "/srv/repos/thetis", mounted: "ro" }, { path: "/elsewhere", mounted: null }]);
+    // A mounted path whose directory the fence cannot find is not the same as an unmounted one, and the
+    // page is told which: the temporary home is there, /srv/repos/thetis is not.
+    assert.deepEqual(data.directories, [
+      { path: "/srv/repos/thetis", mounted: "ro", state: "empty-path", mode: "ro", kind: "none" },
+      { path: "/elsewhere", mounted: null, state: "unmounted", mode: null, kind: "none" },
+    ]);
+    assert.deepEqual(data.states["/elsewhere"], { state: "unmounted", mode: null, kind: "none" });
+    assert.equal(data.user, "alice");
+    assert.equal(data.admin, false);
+    assert.equal(data.bound, null, "only an admin reads the mount list");
     assert.equal(data.instructions, "Be brief.");
     assert.deepEqual(data.mounts, [{ path: "/srv/repos", mode: "ro" }]);
     const exec = data.tools.find((g) => g.package === "@thetis/tool-exec").tools[0];
@@ -98,11 +107,56 @@ test("remove deletes the record, the instructions and the assignments", async ()
   await done();
 });
 
-test("mounts reports the fence's variable", async () => {
-  const { env, done } = await makeEnv({});
-  assert.deepEqual(await withMounts('[{"path":"/srv/x","mode":"rw"}]', () => uiMounts({}, env)), { data: { mounts: [{ path: "/srv/x", mode: "rw" }] } });
-  assert.deepEqual(await withMounts("garbage", () => uiMounts({}, env)), { data: { mounts: [] } });
+test("mounts reports the fence's variable, and the state of the paths it is asked about", async () => {
+  const { env, home, done } = await makeEnv({});
+  assert.deepEqual(await withMounts('[{"path":"/srv/x","mode":"rw"}]', () => uiMounts({}, env)), { data: { mounts: [{ path: "/srv/x", mode: "rw" }], bound: null, states: {} } });
+  assert.deepEqual(await withMounts("garbage", () => uiMounts({}, env)), { data: { mounts: [], bound: null, states: {} } });
+  // The page asks about a directory it has not saved yet, so a row can say the truth before Save.
+  const asked = await withMounts(JSON.stringify([{ path: home, mode: "rw" }]), () => uiMounts({ paths: [home, "/srv/x", "relative"] }, env));
+  assert.deepEqual(asked.data.states, {
+    // The home needs no mount: the file tools treat it as read-write, so the page must not ask for one.
+    [home]: { state: "ready", mode: "rw", kind: "dir", home: true },
+    "/srv/x": { state: "unmounted", mode: null, kind: "none" },
+  }, "a relative path is not a path a mount can name");
   await done();
+});
+
+test("browse and mount are an admin's, act on the person's own fence, and report what the host has", async () => {
+  const { env, done } = await makeEnv({ role: "user" });
+  await assert.rejects(uiBrowse({ path: "/srv" }, env), /only an admin/);
+  await assert.rejects(uiMount({ path: "/srv", mode: "rw" }, env), /only an admin/);
+  await done();
+
+  const listing = { path: "/srv", parent: "/", kind: "dir", readable: true, truncated: false, entries: [{ name: "repos", path: "/srv/repos" }] };
+  let written = [{ path: "/srv/old", mode: "ro" }];
+  const admin = await makeEnv({
+    role: "admin",
+    operator: (method, args) => {
+      if (method === "mounts.browse") return listing;
+      if (method === "mounts.list") return { alice: written.map((m) => ({ ...m, present: false, kind: "none" })) };
+      if (method === "mounts.set") {
+        written = args.mounts;
+        return args.mounts.map((m) => ({ ...m, present: m.path === "/srv/repos", kind: m.path === "/srv/repos" ? "dir" : "none" }));
+      }
+      throw new Error(`unexpected ${method}`);
+    },
+  });
+  assert.deepEqual((await uiBrowse({}, admin.env)).data, listing, "no path means the root");
+  assert.equal(admin.calls.at(-1).args.path, "/");
+  await assert.rejects(uiBrowse({ path: "srv" }, admin.env), /absolute path/);
+  await assert.rejects(uiBrowse({ path: "/srv/../etc" }, admin.env), /not a directory a mount can name/);
+
+  const bound = await uiMount({ path: "/srv/repos/", mode: "rw" }, admin.env);
+  assert.deepEqual(written, [{ path: "/srv/old", mode: "ro" }, { path: "/srv/repos", mode: "rw" }], "the trailing slash goes, the list is sent whole");
+  assert.equal(admin.calls.at(-1).args.user, "alice", "a command never names another person");
+  assert.deepEqual(bound.data.mount, { path: "/srv/repos", mode: "rw", present: true, kind: "dir" });
+
+  await assert.rejects(uiMount({ path: "/srv/repos", mode: "rwx" }, admin.env), /read-write \(rw\) or read-only \(ro\)/);
+  await assert.rejects(uiMount({ path: "/nowhere", mode: null }, admin.env), /is not bound/);
+  await assert.rejects(uiMount({ path: "/srv/old/deep", mode: null }, admin.env), /reached through the mount \/srv\/old/);
+  await uiMount({ path: "/srv/repos", mode: null }, admin.env);
+  assert.deepEqual(written, [{ path: "/srv/old", mode: "ro" }], "unbinding sends the list without it");
+  await admin.done();
 });
 
 test("the browser modules parse", () => {

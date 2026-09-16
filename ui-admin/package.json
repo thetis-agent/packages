@@ -29,7 +29,8 @@
         { "verb": "config", "export": "config", "label": "Read the configuration", "role": "admin" },
         { "verb": "journal", "export": "journal", "label": "Read the journal", "role": "admin" },
         { "verb": "mounts-list", "export": "mountsList", "label": "List the mounts", "role": "admin" },
-        { "verb": "mounts-set", "export": "mountsSet", "label": "Set a person's mounts", "role": "admin" }
+        { "verb": "mounts-set", "export": "mountsSet", "label": "Set a person's mounts", "role": "admin" },
+        { "verb": "mounts-browse", "export": "mountsBrowse", "label": "List the directories under a host path", "role": "admin" }
       ]
     }
   }

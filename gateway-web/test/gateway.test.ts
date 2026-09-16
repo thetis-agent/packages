@@ -374,7 +374,7 @@ test("panel: the built-in sections are the same for everyone; a package's admin 
   const uiOf = async (cookie: string, user: string) => ((await (await api(cookie, `/${user}/api/ui`)).json()) as { extensions: { package: string; panel: { id: string; order: number }[]; commands: string[] }[] }).extensions.find((e) => e.package === "@thetis/ui-admin");
   const forRoot = await uiOf(root, "root");
   assert.deepEqual(forRoot?.panel.map((e) => [e.id, e.order]), [["people", 20], ["models", 30], ["mounts", 35], ["activity", 40], ["overview", 50]]);
-  assert.deepEqual(forRoot?.commands, ["users", "user-create", "user-role", "user-status", "user-password", "user-remove", "models", "config", "journal", "mounts-list", "mounts-set"]);
+  assert.deepEqual(forRoot?.commands, ["users", "user-create", "user-role", "user-status", "user-password", "user-remove", "models", "config", "journal", "mounts-list", "mounts-set", "mounts-browse"]);
   const forAlice = await uiOf(alice, "alice");
   assert.deepEqual(forAlice?.panel, [], "installed for everyone, but a user sees no admin section");
   assert.deepEqual(forAlice?.commands, [], "and no admin verb");
@@ -425,13 +425,22 @@ test("mounts: an admin binds a directory into bob's fence, sees it listed, and u
   assert.deepEqual((await listed()).bob ?? [], []);
   const set = await admin(root, "root", "mounts-set", { user: "bob", mounts: [{ path: "/srv/repos/x", mode: "ro" }] });
   assert.equal(set.status, 200, set.error);
-  assert.deepEqual(set.data, [{ path: "/srv/repos/x", mode: "ro" }]);
-  assert.deepEqual((await listed()).bob, [{ path: "/srv/repos/x", mode: "ro" }]);
-  assert.deepEqual((await admin(root, "root", "mounts-list", { user: "bob" })).data, { bob: [{ path: "/srv/repos/x", mode: "ro" }] });
+  // A bind says what the host holds at the path, so an admin learns at once that this one cannot work.
+  const skipped = [{ path: "/srv/repos/x", mode: "ro", present: false, kind: "none" }];
+  assert.deepEqual(set.data, skipped);
+  assert.deepEqual((await listed()).bob, skipped);
+  assert.deepEqual((await admin(root, "root", "mounts-list", { user: "bob" })).data, { bob: skipped });
+  // browse: the operator's view of the host, so a path can be picked instead of typed.
+  const home = (await admin(root, "root", "mounts-browse", { path: kernel.userspaces.pathFor("bob").home })).data as { kind: string; readable: boolean; entries: { name: string }[] };
+  assert.equal(home.kind, "dir");
+  assert.equal(home.readable, true);
+  assert.equal((await admin(root, "root", "mounts-browse", { path: "/srv/repos/x" })).status, 200);
+  assert.equal((await admin(root, "root", "mounts-browse", { path: "relative" })).status, 400);
   assert.equal((await admin(root, "root", "mounts-set", { user: "bob", mounts: [{ path: "repos/x", mode: "ro" }] })).status, 400, "a relative path");
   assert.equal((await admin(root, "root", "mounts-set", { user: "bob", mounts: [{ path: "/srv/repos/x", mode: "rx" }] })).status, 400, "a mode that is not rw or ro");
   assert.equal((await admin(root, "root", "mounts-set", { user: "bob", mounts: [] })).status, 200);
   assert.deepEqual((await listed()).bob ?? [], []);
+  assert.equal((await admin(await cookieFor("bob", "builder"), "bob", "mounts-browse", { path: "/" })).status, 403, "browsing the host is an admin's");
   const rows = (await admin(root, "root", "journal", { limit: 20, kind: "mounts" })).data as { kind: string; target?: string; actor?: string }[];
   assert.ok(rows.some((r) => r.target === "bob" && r.actor === "root"));
 });

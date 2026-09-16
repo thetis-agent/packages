@@ -13,7 +13,7 @@ The manifest declares `type: gateway` and nothing else: no steps, no tools, no s
 | `serve` | Runs the kernel, its control socket, the door, and every installed service until `SIGINT` or `SIGTERM`. |
 | `users` | `list`, `add <id> [--admin]`, `remove <id>`, `suspend <id>`, `unsuspend <id>`, `role <id> <admin\|user>`, `passwd <id> [--password <text>]`. |
 | `packages` | `list`, `install <source>`, `uninstall <name>`, `promote <name> --user <id>`, `outdated`, `update [<name>]`, each with `[--user <id>]`. `install` and `uninstall` also work at the top level. Without `--user` the target is the system userspace. |
-| `mounts` | `list [--user <id>]`, `add <user> <path> [--ro]`, `remove <user> <path>`. |
+| `mounts` | `list [--user <id>]` (each line says whether the host still has the directory), `add <user> <path> [--ro]` (refused with a sentence when it does not), `remove <user> <path>`, `browse [path]`. |
 | `sessions` | `list --user <id>`, `show --user <id> --session <id>`. |
 | `send`, `chat` | One turn, or an interactive loop, as `--user <id>`, streaming the events. |
 | `models` | Every model id and its provider package. |
