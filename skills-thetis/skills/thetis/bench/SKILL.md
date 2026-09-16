@@ -110,7 +110,7 @@ node bin/thetis.js bench verify packages/tools-files
 | `--max-cost <usd>` | Stop starting calls once this much is spent. Default 1. |
 | `--tasks <n>` | Take only the first n tasks. |
 
-A run boots its own kernel in a temporary `$THETIS_HOME` and deletes it afterwards. It never touches the data directory or a running daemon. The exit code is 1 when an arm claimed what the prompt does not show. The bench runs on the host, not in a fence. You cannot run it with `exec` inside your userspace. Ask an operator.
+A run boots its own kernel in a temporary `$THETIS_HOME` and deletes it afterwards. It never touches the data directory or a running daemon. The exit code is 1 when an arm claimed what the prompt does not show. The bench runs on the host, not in a fence. You cannot run it with `shell` inside your userspace. Ask an operator.
 
 ## The report
 

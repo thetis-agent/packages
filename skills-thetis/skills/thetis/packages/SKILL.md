@@ -157,7 +157,7 @@ The kernel keeps `$THETIS_HOME/registry.json` in the service plane. You cannot r
 ## The cycle from a conversation
 
 1. `write_path` writes `packages/<name>/package.json` and `packages/<name>/index.js` under home.
-2. `exec` runs `node` to test the module.
+2. `shell` runs `node` to test the module.
 3. `install_package` with `source: "packages/<name>"` installs it.
 4. On the next turn the steps run and the tools are attached.
 

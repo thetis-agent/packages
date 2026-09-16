@@ -1,10 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="720" height="820" viewBox="0 0 720 820" role="img" aria-labelledby="t d" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="916" viewBox="0 0 720 916" role="img" aria-labelledby="t d" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
 <title id="t">@thetis/exa on assembly-cost@1</title>
-<desc id="d">Grouped bars, one group per compared metric (bytes_system, bytes_tools, bytes_turn1, bytes_last, tools_n, steps_n) and one bar per arm (none, thetis-exa, thetis-tool-exec, thetis-tools-files, thetis-tools-plan, all), each metric scaled to the largest mean in its column. thetis-exa is this package; none is the floor.</desc>
+<desc id="d">Grouped bars, one group per compared metric (bytes_system, bytes_tools, bytes_turn1, bytes_last, tools_n, steps_n) and one bar per arm (none, thetis-exa, thetis-terminal, thetis-tool-exec, thetis-tools-files, thetis-tools-plan, all), each metric scaled to the largest mean in its column. thetis-exa is this package; none is the floor.</desc>
 <style>.t{fill:#3a3a48}.f{fill:#8b8b9e}@media (prefers-color-scheme:dark){.t{fill:#d2d2dc}.f{fill:#9a9aae}}</style>
 <defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#6e6e82" fill-opacity="0.22"/><line x1="0" y1="0" x2="0" y2="6" stroke="#6e6e82" stroke-width="2"/></pattern></defs>
 <text class="t" x="16" y="20" font-size="14" font-weight="600">@thetis/exa on assembly-cost@1</text>
-<text class="f" x="16" y="38" font-size="11">assembly-cost@1 · sha256:ba8a447a4ba6… · 7 tasks · each bar is a share of its metric's largest mean · mean ±half-width</text>
+<text class="f" x="16" y="38" font-size="11">assembly-cost@1 · sha256:bb1a81404b9e… · 7 tasks · each bar is a share of its metric's largest mean · mean ±half-width</text>
 <rect x="653" y="11" width="10" height="10" rx="2" fill="#6e6e82"/>
 <text class="f" x="667" y="20" font-size="11">peers</text>
 <rect x="559" y="11" width="10" height="10" rx="2" fill="#7c9cff"/>
@@ -14,121 +14,139 @@
 <text class="t" x="16" y="66" font-size="12" font-weight="600">bytes_system</text>
 <line x1="192" y1="70" x2="566" y2="70" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="86" font-size="11" text-anchor="end">none</text>
-<rect x="192" y="77" width="256.74" height="10" rx="2" fill="url(#hatch)"/>
-<text class="t" x="454.74" y="86" font-size="11">4324<tspan class="f" font-size="9"> ±0</tspan></text>
+<rect x="192" y="77" width="245.1" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="443.1" y="86" font-size="11">4324<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="102" font-size="11" text-anchor="end" font-weight="600">thetis-exa</text>
-<rect x="192" y="93" width="278.64" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="476.64" y="102" font-size="11">4693<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="184" y="118" font-size="11" text-anchor="end">thetis-tool-exec</text>
-<rect x="192" y="109" width="276.39" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="474.39" y="118" font-size="11">4655<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="184" y="134" font-size="11" text-anchor="end">thetis-tools-files</text>
-<rect x="192" y="125" width="277.28" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="475.28" y="134" font-size="11">4670<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="184" y="150" font-size="11" text-anchor="end">thetis-tools-plan</text>
-<rect x="192" y="141" width="275.91" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="473.91" y="150" font-size="11">4647<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="184" y="166" font-size="11" text-anchor="end">all</text>
-<rect x="192" y="157" width="374" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="572" y="166" font-size="11">6299<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="16" y="192" font-size="12" font-weight="600">bytes_tools</text>
-<line x1="192" y1="196" x2="566" y2="196" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
-<text class="t" x="184" y="212" font-size="11" text-anchor="end">none</text>
-<rect x="192" y="203" width="0.03" height="10" rx="2" fill="url(#hatch)"/>
-<text class="t" x="198.03" y="212" font-size="11">2<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="184" y="228" font-size="11" text-anchor="end" font-weight="600">thetis-exa</text>
-<rect x="192" y="219" width="161.82" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="359.82" y="228" font-size="11">10322<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="184" y="244" font-size="11" text-anchor="end">thetis-tool-exec</text>
-<rect x="192" y="235" width="33.08" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="231.08" y="244" font-size="11">2110<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="184" y="260" font-size="11" text-anchor="end">thetis-tools-files</text>
-<rect x="192" y="251" width="88.48" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="286.48" y="260" font-size="11">5644<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="184" y="276" font-size="11" text-anchor="end">thetis-tools-plan</text>
-<rect x="192" y="267" width="69.92" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="267.92" y="276" font-size="11">4460<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="184" y="292" font-size="11" text-anchor="end">all</text>
-<rect x="192" y="283" width="374" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="572" y="292" font-size="11">23856<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="16" y="318" font-size="12" font-weight="600">bytes_turn1</text>
-<line x1="192" y1="322" x2="566" y2="322" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
-<text class="t" x="184" y="338" font-size="11" text-anchor="end">none</text>
-<rect x="192" y="329" width="54.75" height="10" rx="2" fill="url(#hatch)"/>
-<text class="t" x="252.75" y="338" font-size="11">4429.7<tspan class="f" font-size="9"> ±21</tspan></text>
-<text class="t" x="184" y="354" font-size="11" text-anchor="end" font-weight="600">thetis-exa</text>
-<rect x="192" y="345" width="186.87" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="384.87" y="354" font-size="11">15118.7<tspan class="f" font-size="9"> ±22</tspan></text>
-<text class="t" x="184" y="370" font-size="11" text-anchor="end">thetis-tool-exec</text>
-<rect x="192" y="361" width="84.9" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="282.9" y="370" font-size="11">6868.7<tspan class="f" font-size="9"> ±21.4</tspan></text>
-<text class="t" x="184" y="386" font-size="11" text-anchor="end">thetis-tools-files</text>
-<rect x="192" y="377" width="128.76" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="326.76" y="386" font-size="11">10417.7<tspan class="f" font-size="9"> ±21.3</tspan></text>
-<text class="t" x="184" y="402" font-size="11" text-anchor="end">thetis-tools-plan</text>
-<rect x="192" y="393" width="113.85" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="311.85" y="402" font-size="11">9210.7<tspan class="f" font-size="9"> ±20.1</tspan></text>
-<text class="t" x="184" y="418" font-size="11" text-anchor="end">all</text>
-<rect x="192" y="409" width="374" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="572" y="418" font-size="11">30258.7<tspan class="f" font-size="9"> ±21.6</tspan></text>
-<text class="t" x="16" y="444" font-size="12" font-weight="600">bytes_last</text>
-<line x1="192" y1="448" x2="566" y2="448" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
-<text class="t" x="184" y="464" font-size="11" text-anchor="end">none</text>
-<rect x="192" y="455" width="56.31" height="10" rx="2" fill="url(#hatch)"/>
-<text class="t" x="254.31" y="464" font-size="11">4578.4<tspan class="f" font-size="9"> ±42.3</tspan></text>
-<text class="t" x="184" y="480" font-size="11" text-anchor="end" font-weight="600">thetis-exa</text>
-<rect x="192" y="471" width="187.78" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="385.78" y="480" font-size="11">15267.4<tspan class="f" font-size="9"> ±42.9</tspan></text>
-<text class="t" x="184" y="496" font-size="11" text-anchor="end">thetis-tool-exec</text>
-<rect x="192" y="487" width="86.31" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="284.31" y="496" font-size="11">7017.4<tspan class="f" font-size="9"> ±41.4</tspan></text>
-<text class="t" x="184" y="512" font-size="11" text-anchor="end">thetis-tools-files</text>
-<rect x="192" y="503" width="129.96" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="327.96" y="512" font-size="11">10566.4<tspan class="f" font-size="9"> ±41.6</tspan></text>
-<text class="t" x="184" y="528" font-size="11" text-anchor="end">thetis-tools-plan</text>
-<rect x="192" y="519" width="115.12" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="313.12" y="528" font-size="11">9359.4<tspan class="f" font-size="9"> ±41.6</tspan></text>
-<text class="t" x="184" y="544" font-size="11" text-anchor="end">all</text>
-<rect x="192" y="535" width="374" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="572" y="544" font-size="11">30407.4<tspan class="f" font-size="9"> ±41.7</tspan></text>
-<text class="t" x="16" y="570" font-size="12" font-weight="600">tools_n</text>
-<line x1="192" y1="574" x2="566" y2="574" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
-<text class="t" x="184" y="590" font-size="11" text-anchor="end">none</text>
-<rect x="192" y="581" width="0" height="10" rx="2" fill="url(#hatch)"/>
-<text class="t" x="198" y="590" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="184" y="606" font-size="11" text-anchor="end" font-weight="600">thetis-exa</text>
-<rect x="192" y="597" width="124.67" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="322.67" y="606" font-size="11">10<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="184" y="622" font-size="11" text-anchor="end">thetis-tool-exec</text>
-<rect x="192" y="613" width="74.8" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="272.8" y="622" font-size="11">6<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="184" y="638" font-size="11" text-anchor="end">thetis-tools-files</text>
-<rect x="192" y="629" width="74.8" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="272.8" y="638" font-size="11">6<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="184" y="654" font-size="11" text-anchor="end">thetis-tools-plan</text>
-<rect x="192" y="645" width="74.8" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="272.8" y="654" font-size="11">6<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="184" y="670" font-size="11" text-anchor="end">all</text>
-<rect x="192" y="661" width="374" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="572" y="670" font-size="11">30<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="16" y="696" font-size="12" font-weight="600">steps_n</text>
-<line x1="192" y1="700" x2="566" y2="700" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
-<text class="t" x="184" y="716" font-size="11" text-anchor="end">none</text>
-<rect x="192" y="707" width="133.57" height="10" rx="2" fill="url(#hatch)"/>
-<text class="t" x="331.57" y="716" font-size="11">10<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="184" y="732" font-size="11" text-anchor="end" font-weight="600">thetis-exa</text>
-<rect x="192" y="723" width="133.57" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="331.57" y="732" font-size="11">10<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="184" y="748" font-size="11" text-anchor="end">thetis-tool-exec</text>
-<rect x="192" y="739" width="133.57" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="331.57" y="748" font-size="11">10<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="184" y="764" font-size="11" text-anchor="end">thetis-tools-files</text>
-<rect x="192" y="755" width="133.57" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="331.57" y="764" font-size="11">10<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="184" y="780" font-size="11" text-anchor="end">thetis-tools-plan</text>
-<rect x="192" y="771" width="133.57" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="331.57" y="780" font-size="11">10<tspan class="f" font-size="9"> ±0</tspan></text>
-<text class="t" x="184" y="796" font-size="11" text-anchor="end">all</text>
-<rect x="192" y="787" width="374" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="572" y="796" font-size="11">28<tspan class="f" font-size="9"> ±0</tspan></text>
+<rect x="192" y="93" width="266.02" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="464.02" y="102" font-size="11">4693<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="118" font-size="11" text-anchor="end">thetis-terminal</text>
+<rect x="192" y="109" width="264.54" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="462.54" y="118" font-size="11">4667<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="134" font-size="11" text-anchor="end">thetis-tool-exec</text>
+<rect x="192" y="125" width="263.86" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="461.86" y="134" font-size="11">4655<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="150" font-size="11" text-anchor="end">thetis-tools-files</text>
+<rect x="192" y="141" width="264.71" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="462.71" y="150" font-size="11">4670<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="166" font-size="11" text-anchor="end">thetis-tools-plan</text>
+<rect x="192" y="157" width="263.41" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="461.41" y="166" font-size="11">4647<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="182" font-size="11" text-anchor="end">all</text>
+<rect x="192" y="173" width="374" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="572" y="182" font-size="11">6598<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="16" y="208" font-size="12" font-weight="600">bytes_tools</text>
+<line x1="192" y1="212" x2="566" y2="212" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="228" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="219" width="0.03" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="198.03" y="228" font-size="11">2<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="244" font-size="11" text-anchor="end" font-weight="600">thetis-exa</text>
+<rect x="192" y="235" width="141" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="339" y="244" font-size="11">10322<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="260" font-size="11" text-anchor="end">thetis-terminal</text>
+<rect x="192" y="251" width="48.13" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="246.13" y="260" font-size="11">3523<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="276" font-size="11" text-anchor="end">thetis-tool-exec</text>
+<rect x="192" y="267" width="28.82" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="226.82" y="276" font-size="11">2110<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="292" font-size="11" text-anchor="end">thetis-tools-files</text>
+<rect x="192" y="283" width="77.1" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="275.1" y="292" font-size="11">5644<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="308" font-size="11" text-anchor="end">thetis-tools-plan</text>
+<rect x="192" y="299" width="60.93" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="258.93" y="308" font-size="11">4460<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="324" font-size="11" text-anchor="end">all</text>
+<rect x="192" y="315" width="374" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="572" y="324" font-size="11">27378<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="16" y="350" font-size="12" font-weight="600">bytes_turn1</text>
+<line x1="192" y1="354" x2="566" y2="354" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="370" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="361" width="48.61" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="246.61" y="370" font-size="11">4429.7<tspan class="f" font-size="9"> ±21</tspan></text>
+<text class="t" x="184" y="386" font-size="11" text-anchor="end" font-weight="600">thetis-exa</text>
+<rect x="192" y="377" width="165.92" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="363.92" y="386" font-size="11">15118.7<tspan class="f" font-size="9"> ±22</tspan></text>
+<text class="t" x="184" y="402" font-size="11" text-anchor="end">thetis-terminal</text>
+<rect x="192" y="393" width="91.02" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="289.02" y="402" font-size="11">8293.7<tspan class="f" font-size="9"> ±21.4</tspan></text>
+<text class="t" x="184" y="418" font-size="11" text-anchor="end">thetis-tool-exec</text>
+<rect x="192" y="409" width="75.38" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="273.38" y="418" font-size="11">6868.7<tspan class="f" font-size="9"> ±21.4</tspan></text>
+<text class="t" x="184" y="434" font-size="11" text-anchor="end">thetis-tools-files</text>
+<rect x="192" y="425" width="114.33" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="312.33" y="434" font-size="11">10417.7<tspan class="f" font-size="9"> ±21.3</tspan></text>
+<text class="t" x="184" y="450" font-size="11" text-anchor="end">thetis-tools-plan</text>
+<rect x="192" y="441" width="101.08" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="299.08" y="450" font-size="11">9210.7<tspan class="f" font-size="9"> ±20.1</tspan></text>
+<text class="t" x="184" y="466" font-size="11" text-anchor="end">all</text>
+<rect x="192" y="457" width="374" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="572" y="466" font-size="11">34079.7<tspan class="f" font-size="9"> ±21.6</tspan></text>
+<text class="t" x="16" y="492" font-size="12" font-weight="600">bytes_last</text>
+<line x1="192" y1="496" x2="566" y2="496" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="512" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="503" width="50.03" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="248.03" y="512" font-size="11">4578.4<tspan class="f" font-size="9"> ±42.3</tspan></text>
+<text class="t" x="184" y="528" font-size="11" text-anchor="end" font-weight="600">thetis-exa</text>
+<rect x="192" y="519" width="166.82" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="364.82" y="528" font-size="11">15267.4<tspan class="f" font-size="9"> ±42.9</tspan></text>
+<text class="t" x="184" y="544" font-size="11" text-anchor="end">thetis-terminal</text>
+<rect x="192" y="535" width="92.25" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="290.25" y="544" font-size="11">8442.4<tspan class="f" font-size="9"> ±43.4</tspan></text>
+<text class="t" x="184" y="560" font-size="11" text-anchor="end">thetis-tool-exec</text>
+<rect x="192" y="551" width="76.68" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="274.68" y="560" font-size="11">7017.4<tspan class="f" font-size="9"> ±41.4</tspan></text>
+<text class="t" x="184" y="576" font-size="11" text-anchor="end">thetis-tools-files</text>
+<rect x="192" y="567" width="115.46" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="313.46" y="576" font-size="11">10566.4<tspan class="f" font-size="9"> ±41.6</tspan></text>
+<text class="t" x="184" y="592" font-size="11" text-anchor="end">thetis-tools-plan</text>
+<rect x="192" y="583" width="102.27" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="300.27" y="592" font-size="11">9359.4<tspan class="f" font-size="9"> ±41.6</tspan></text>
+<text class="t" x="184" y="608" font-size="11" text-anchor="end">all</text>
+<rect x="192" y="599" width="374" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="572" y="608" font-size="11">34228.4<tspan class="f" font-size="9"> ±41.7</tspan></text>
+<text class="t" x="16" y="634" font-size="12" font-weight="600">tools_n</text>
+<line x1="192" y1="638" x2="566" y2="638" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="654" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="645" width="0" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="198" y="654" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="670" font-size="11" text-anchor="end" font-weight="600">thetis-exa</text>
+<rect x="192" y="661" width="106.86" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="304.86" y="670" font-size="11">10<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="686" font-size="11" text-anchor="end">thetis-terminal</text>
+<rect x="192" y="677" width="53.43" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="251.43" y="686" font-size="11">5<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="702" font-size="11" text-anchor="end">thetis-tool-exec</text>
+<rect x="192" y="693" width="64.11" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="262.11" y="702" font-size="11">6<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="718" font-size="11" text-anchor="end">thetis-tools-files</text>
+<rect x="192" y="709" width="64.11" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="262.11" y="718" font-size="11">6<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="734" font-size="11" text-anchor="end">thetis-tools-plan</text>
+<rect x="192" y="725" width="64.11" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="262.11" y="734" font-size="11">6<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="750" font-size="11" text-anchor="end">all</text>
+<rect x="192" y="741" width="374" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="572" y="750" font-size="11">35<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="16" y="776" font-size="12" font-weight="600">steps_n</text>
+<line x1="192" y1="780" x2="566" y2="780" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
+<text class="t" x="184" y="796" font-size="11" text-anchor="end">none</text>
+<rect x="192" y="787" width="133.57" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="331.57" y="796" font-size="11">10<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="812" font-size="11" text-anchor="end" font-weight="600">thetis-exa</text>
+<rect x="192" y="803" width="133.57" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="331.57" y="812" font-size="11">10<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="828" font-size="11" text-anchor="end">thetis-terminal</text>
+<rect x="192" y="819" width="133.57" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="331.57" y="828" font-size="11">10<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="844" font-size="11" text-anchor="end">thetis-tool-exec</text>
+<rect x="192" y="835" width="133.57" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="331.57" y="844" font-size="11">10<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="860" font-size="11" text-anchor="end">thetis-tools-files</text>
+<rect x="192" y="851" width="133.57" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="331.57" y="860" font-size="11">10<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="876" font-size="11" text-anchor="end">thetis-tools-plan</text>
+<rect x="192" y="867" width="133.57" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="331.57" y="876" font-size="11">10<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="184" y="892" font-size="11" text-anchor="end">all</text>
+<rect x="192" y="883" width="374" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="572" y="892" font-size="11">28<tspan class="f" font-size="9"> ±0</tspan></text>
 </svg>

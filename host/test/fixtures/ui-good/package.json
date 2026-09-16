@@ -19,7 +19,11 @@
         { "verb": "slow", "export": "uiSlow" },
         { "verb": "boom", "export": "uiBoom" },
         { "verb": "admin-only", "export": "uiAdmin", "role": "admin" },
-        { "verb": "nofn", "export": "NOT_A_FUNCTION" }
+        { "verb": "nofn", "export": "NOT_A_FUNCTION" },
+        { "verb": "ticks", "export": "uiTicks", "stream": true },
+        { "verb": "forever", "export": "uiForever", "stream": true },
+        { "verb": "erupt", "export": "uiErupt", "stream": true },
+        { "verb": "admin-ticks", "export": "uiAdminTicks", "stream": true, "role": "admin" }
       ]
     }
   }

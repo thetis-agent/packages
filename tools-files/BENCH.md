@@ -12,7 +12,7 @@ Suites: [`assembly-cost@1`](#suite-assembly-cost-v1), [`tool-recall@1`](#suite-t
 What a package costs the prompt before anything is retrieved: bytes by segment, how much of the prefix survives a turn, and how long assembly takes. No gold, no corpus, no adapter — any package with a step or a tool can opt in.
 
 7 tasks (2 of them controls), probe A.
-Generated 2026-09-16T03:09:39.212Z. Digest `sha256:ba8a447a4ba6…`.
+Generated 2026-09-16T13:27:55.874Z. Digest `sha256:bb1a81404b9e…`.
 
 ### Compared
 
@@ -23,9 +23,10 @@ Only numbers every arm can produce appear here, and only those on which the arms
 | none | 4324 ±0 | 2 ±0 | 4429.7 ±21 | 4578.4 ±42.3 | 0 ±0 | 10 ±0 |
 | **thetis-tools-files** | 4670 ±0 | 5644 ±0 | 10417.7 ±21.3 | 10566.4 ±41.6 | 6 ±0 | 10 ±0 |
 | thetis-exa | 4693 ±0 | 10322 ±0 | 15118.7 ±22 | 15267.4 ±42.9 | 10 ±0 | 10 ±0 |
+| thetis-terminal | 4667 ±0 | 3523 ±0 | 8293.7 ±21.4 | 8442.4 ±43.4 | 5 ±0 | 10 ±0 |
 | thetis-tool-exec | 4655 ±0 | 2110 ±0 | 6868.7 ±21.4 | 7017.4 ±41.4 | 6 ±0 | 10 ±0 |
 | thetis-tools-plan | 4647 ±0 | 4460 ±0 | 9210.7 ±20.1 | 9359.4 ±41.6 | 6 ±0 | 10 ±0 |
-| all | 6299 ±0 | 23856 ±0 | 30258.7 ±21.6 | 30407.4 ±41.7 | 30 ±0 | 28 ±0 |
+| all | 6598 ±0 | 27378 ±0 | 34079.7 ±21.6 | 34228.4 ±41.7 | 35 ±0 | 28 ±0 |
 
 ![assembly-cost@1 comparison](bench/assembly-cost-v1/chart.svg)
 
@@ -37,9 +38,10 @@ Paired per task, so the constant cost of the harness cancels. `w/t/l` counts the
 |---|---|---|---|---|---|---|
 | thetis-tools-files | 346 [346, 346] 7/0/0 | 5642 [5642, 5642] 7/0/0 | 5988 [5988, 5988] 7/0/0 | 5988 [5988, 5988] 7/0/0 | 6 [6, 6] 7/0/0 | 0 [0, 0] 0/7/0 |
 | thetis-exa | 369 [369, 369] 7/0/0 | 10320 [10320, 10320] 7/0/0 | 10689 [10689, 10689] 7/0/0 | 10689 [10689, 10689] 7/0/0 | 10 [10, 10] 7/0/0 | 0 [0, 0] 0/7/0 |
+| thetis-terminal | 343 [343, 343] 7/0/0 | 3521 [3521, 3521] 7/0/0 | 3864 [3864, 3864] 7/0/0 | 3864 [3864, 3864] 7/0/0 | 5 [5, 5] 7/0/0 | 0 [0, 0] 0/7/0 |
 | thetis-tool-exec | 331 [331, 331] 7/0/0 | 2108 [2108, 2108] 7/0/0 | 2439 [2439, 2439] 7/0/0 | 2439 [2439, 2439] 7/0/0 | 6 [6, 6] 7/0/0 | 0 [0, 0] 0/7/0 |
 | thetis-tools-plan | 323 [323, 323] 7/0/0 | 4458 [4458, 4458] 7/0/0 | 4781 [4781, 4781] 7/0/0 | 4781 [4781, 4781] 7/0/0 | 6 [6, 6] 7/0/0 | 0 [0, 0] 0/7/0 |
-| all | 1975 [1975, 1975] 7/0/0 | 23854 [23854, 23854] 7/0/0 | 25829 [25829, 25829] 7/0/0 | 25829 [25829, 25829] 7/0/0 | 30 [30, 30] 7/0/0 | 18 [18, 18] 7/0/0 |
+| all | 2274 [2274, 2274] 7/0/0 | 27376 [27376, 27376] 7/0/0 | 29650 [29650, 29650] 7/0/0 | 29650 [29650, 29650] 7/0/0 | 35 [35, 35] 7/0/0 | 18 [18, 18] 7/0/0 |
 
 ### Assembly latency
 
@@ -50,6 +52,7 @@ Absolute milliseconds are not committed: the fence opens lazily, the sandbox mod
 | none | 10 | floor |
 | thetis-tools-files | 10 | not measured at 7 tasks |
 | thetis-exa | 10 | not measured at 7 tasks |
+| thetis-terminal | 10 | not measured at 7 tasks |
 | thetis-tool-exec | 10 | not measured at 7 tasks |
 | thetis-tools-plan | 10 | not measured at 7 tasks |
 | all | 28 | not measured at 7 tasks |
@@ -61,6 +64,7 @@ What each arm claimed it surfaced, against what the assembled prompt actually sh
 - **none** — passed
 - **thetis-tools-files** — passed
 - **thetis-exa** — passed
+- **thetis-terminal** — passed
 - **thetis-tool-exec** — passed
 - **thetis-tools-plan** — passed
 - **all** — passed
@@ -73,9 +77,9 @@ Two reports are comparable only when these match.
 |---|---|
 | suite | assembly-cost@1 (sha256:9efc984d505f…) |
 | corpus | none |
-| arms | none; thetis-exa (@thetis/exa@0.1.0); thetis-tool-exec (@thetis/tool-exec@0.1.0); thetis-tools-files (@thetis/tools-files@0.1.0); thetis-tools-plan (@thetis/tools-plan@0.3.0); all (@thetis/exa@0.1.0, @thetis/skills-all@0.1.0, @thetis/skills-hybrid@0.1.0, @thetis/skills-l1@0.1.0, @thetis/tool-exec@0.1.0, @thetis/tools-files@0.1.0, @thetis/tools-plan@0.3.0) |
+| arms | none; thetis-exa (@thetis/exa@0.1.0); thetis-terminal (@thetis/terminal@0.1.0); thetis-tool-exec (@thetis/tool-exec@0.1.0); thetis-tools-files (@thetis/tools-files@0.1.0); thetis-tools-plan (@thetis/tools-plan@0.3.0); all (@thetis/exa@0.1.0, @thetis/skills-all@0.1.0, @thetis/skills-hybrid@0.1.0, @thetis/skills-l1@0.1.0, @thetis/terminal@0.1.0, @thetis/tool-exec@0.1.0, @thetis/tools-files@0.1.0, @thetis/tools-plan@0.3.0) |
 | model | none — this probe needs no model |
-| sandbox | auto |
+| sandbox | none |
 | scorer | @thetis/bench@0.3.0 |
 
 ### Notes
@@ -96,7 +100,7 @@ Regenerate with `npm run bench -- run assembly-cost@1`. This section is rewritte
 What share of the tools the model is offered a task actually needed, and what the rest cost. Today every installed tool is attached to every query, so recall is one by construction and the number worth reading is the waste.
 
 20 tasks (4 of them controls), probe A.
-Generated 2026-09-16T02:33:35.745Z. Digest `sha256:c4110b9ca05d…`.
+Generated 2026-09-16T13:29:09.588Z. Digest `sha256:f985d7f621c4…`.
 
 ### Compared
 
@@ -107,9 +111,10 @@ Only numbers every arm can produce appear here, and only those on which the arms
 | none | 4324 ±0 | 2 ±0 | 4413.3 ±8.300 | 4413.3 ±8.450 | 0 ±0 | 0 ±0 | 0 ±0 | — | 0 ±0 | 0 ±0 | 0 ±0 |
 | **thetis-tools-files** | 4670 ±0 | 5644 ±0 | 10401.3 ±8.650 | 10401.3 ±8.175 | 6 ±0 | 0.417 ±0.229 | 0.125 ±0.078 | 3.440 ±1.515 | 4921.1 ±483.8 | 715.9 ±467.9 | 0 ±0 |
 | thetis-exa | 4693 ±0 | 10322 ±0 | 15102.3 ±8.725 | 15102.3 ±8.200 | 10 ±0 | 0.146 ±0.167 | 0.025 ±0.028 | 4.048 ±3.274 | 9798.9 ±584.8 | 512.1 ±576.8 | 0 ±0 |
-| thetis-tool-exec | 4655 ±0 | 2110 ±0 | 6852.3 ±8.375 | 6852.3 ±8.225 | 6 ±0 | 0.250 ±0.188 | 0.042 ±0.036 | 4.962 ±1.723 | 2007.9 ±82.8 | 95.1 ±86.1 | 1 ±0 |
+| thetis-terminal | 4667 ±0 | 3523 ±0 | 8277.3 ±8.125 | 8277.3 ±8.225 | 5 ±0 | 0.063 ±0.094 | 0.013 ±0.019 | 1.519 ±0 | 3429.8 ±130.9 | 87.3 ±130.9 | 0 ±0 |
+| thetis-tool-exec | 4673 ±0 | 1715 ±0 | 6475.3 ±8.375 | 6475.3 ±8.225 | 5 ±0 | 0.188 ±0.188 | 0.038 ±0.037 | 4.014 ±1.867 | 1638.5 ±76.2 | 70.5 ±76.2 | 1 ±0 |
 | thetis-tools-plan | 4647 ±0 | 4460 ±0 | 9194.3 ±8.175 | 9194.3 ±8.625 | 6 ±0 | 0.188 ±0.188 | 0.042 ±0.047 | 4.749 ±3.443 | 4264.2 ±213.2 | 188.8 ±223.1 | 0 ±0 |
-| all | 5509 ±0 | 22533 ±0 | 28129.3 ±8.425 | 28129.3 ±8.400 | 28 ±0 | 1 ±0 | 0.054 ±0.012 | 29.3 ±11.7 | 20992 ±654.6 | 1512 ±667.9 | 1 ±0 |
+| all | 5826 ±0 | 25660 ±0 | 31573.3 ±8.425 | 31573.3 ±8.400 | 32 ±0 | 1 ±0 | 0.047 ±0.011 | 30.5 ±12.8 | 24052.4 ±629.3 | 1574.6 ±651.6 | 1 ±0 |
 
 ![tool-recall@1 comparison](bench/tool-recall-v1/chart.svg)
 
@@ -121,9 +126,10 @@ Paired per task, so the constant cost of the harness cancels. `w/t/l` counts the
 |---|---|---|---|---|---|---|---|---|---|---|
 | thetis-tools-files | 346 [346, 346] 20/0/0 | 5642 [5642, 5642] 20/0/0 | 5988 [5988, 5988] 20/0/0 | 5988 [5988, 5988] 20/0/0 | 6 [6, 6] 20/0/0 | 0.417 [0.167, 0.667] 7/9/0 | 0.125 [0.052, 0.208] 7/9/0 | 4921.1 [4403.9, 5361.4] 16/0/0 | 715.9 [288.4, 1196.9] 7/9/0 | 0 [0, 0] 0/1/0 |
 | thetis-exa | 369 [369, 369] 20/0/0 | 10320 [10320, 10320] 20/0/0 | 10689 [10689, 10689] 20/0/0 | 10689 [10689, 10689] 20/0/0 | 10 [10, 10] 20/0/0 | 0.146 [0, 0.333] 3/13/0 | 0.025 [0, 0.056] 3/13/0 | 9798.9 [9141.3, 10311] 16/0/0 | 512.1 [0, 1169.7] 3/13/0 | 0 [0, 0] 0/1/0 |
-| thetis-tool-exec | 331 [331, 331] 20/0/0 | 2108 [2108, 2108] 20/0/0 | 2439 [2439, 2439] 20/0/0 | 2439 [2439, 2439] 20/0/0 | 6 [6, 6] 20/0/0 | 0.250 [0.063, 0.500] 4/12/0 | 0.042 [0.010, 0.073] 4/12/0 | 2007.9 [1914.6, 2081.1] 16/0/0 | 95.1 [15.4, 181] 4/12/0 | 1 [1, 1] 1/0/0 |
+| thetis-terminal | 343 [343, 343] 20/0/0 | 3521 [3521, 3521] 20/0/0 | 3864 [3864, 3864] 20/0/0 | 3864 [3864, 3864] 20/0/0 | 5 [5, 5] 20/0/0 | 0.063 [0, 0.188] 1/15/0 | 0.013 [0, 0.038] 1/15/0 | 3429.8 [3255.3, 3517] 16/0/0 | 87.3 [0, 261.8] 1/15/0 | 0 [0, 0] 0/1/0 |
+| thetis-tool-exec | 349 [349, 349] 20/0/0 | 1713 [1713, 1713] 20/0/0 | 2062 [2062, 2062] 20/0/0 | 2062 [2062, 2062] 20/0/0 | 5 [5, 5] 20/0/0 | 0.188 [0, 0.375] 3/13/0 | 0.038 [0, 0.075] 3/13/0 | 1638.5 [1550.1, 1709] 16/0/0 | 70.5 [0, 152.4] 3/13/0 | 1 [1, 1] 1/0/0 |
 | thetis-tools-plan | 323 [323, 323] 20/0/0 | 4458 [4458, 4458] 20/0/0 | 4781 [4781, 4781] 20/0/0 | 4781 [4781, 4781] 20/0/0 | 6 [6, 6] 20/0/0 | 0.188 [0, 0.375] 3/13/0 | 0.042 [0, 0.094] 3/13/0 | 4264.2 [4019.9, 4453] 16/0/0 | 188.8 [0, 426.4] 3/13/0 | 0 [0, 0] 0/1/0 |
-| all | 1185 [1185, 1185] 20/0/0 | 22531 [22531, 22531] 20/0/0 | 23716 [23716, 23716] 20/0/0 | 23716 [23716, 23716] 20/0/0 | 28 [28, 28] 20/0/0 | 1 [1, 1] 16/0/0 | 0.054 [0.042, 0.067] 16/0/0 | 20992 [20299.3, 21617.2] 16/0/0 | 1512 [900.4, 2253.8] 16/0/0 | 1 [1, 1] 1/0/0 |
+| all | 1502 [1502, 1502] 20/0/0 | 25658 [25658, 25658] 20/0/0 | 27160 [27160, 27160] 20/0/0 | 27160 [27160, 27160] 20/0/0 | 32 [32, 32] 20/0/0 | 1 [1, 1] 16/0/0 | 0.047 [0.037, 0.059] 16/0/0 | 24052.4 [23387.6, 24653.6] 16/0/0 | 1574.6 [976.6, 2283.3] 16/0/0 | 1 [1, 1] 1/0/0 |
 
 ### Assembly latency
 
@@ -134,6 +140,7 @@ Absolute milliseconds are not committed: the fence opens lazily, the sandbox mod
 | none | 5 | floor |
 | thetis-tools-files | 5 | not measured at 20 tasks |
 | thetis-exa | 5 | not measured at 20 tasks |
+| thetis-terminal | 5 | not measured at 20 tasks |
 | thetis-tool-exec | 5 | not measured at 20 tasks |
 | thetis-tools-plan | 5 | not measured at 20 tasks |
 | all | 5 | not measured at 20 tasks |
@@ -145,6 +152,7 @@ What each arm claimed it surfaced, against what the assembled prompt actually sh
 - **none** — passed
 - **thetis-tools-files** — passed
 - **thetis-exa** — passed
+- **thetis-terminal** — passed
 - **thetis-tool-exec** — passed
 - **thetis-tools-plan** — passed
 - **all** — passed
@@ -155,11 +163,11 @@ Two reports are comparable only when these match.
 
 | field | value |
 |---|---|
-| suite | tool-recall@1 (sha256:150d826a6dd5…) |
+| suite | tool-recall@1 (sha256:0556cbbda134…) |
 | corpus | none |
-| arms | none; thetis-exa (@thetis/exa@0.1.0); thetis-tool-exec (@thetis/tool-exec@0.1.0); thetis-tools-files (@thetis/tools-files@0.1.0); thetis-tools-plan (@thetis/tools-plan@0.3.0); all (@thetis/exa@0.1.0, @thetis/tool-exec@0.1.0, @thetis/tools-files@0.1.0, @thetis/tools-plan@0.3.0) |
+| arms | none; thetis-exa (@thetis/exa@0.1.0); thetis-terminal (@thetis/terminal@0.1.0); thetis-tool-exec (@thetis/tool-exec@0.1.0); thetis-tools-files (@thetis/tools-files@0.1.0); thetis-tools-plan (@thetis/tools-plan@0.3.0); all (@thetis/exa@0.1.0, @thetis/terminal@0.1.0, @thetis/tool-exec@0.1.0, @thetis/tools-files@0.1.0, @thetis/tools-plan@0.3.0) |
 | model | none — this probe needs no model |
-| sandbox | auto |
+| sandbox | none |
 | scorer | @thetis/bench@0.3.0 |
 
 ### Notes

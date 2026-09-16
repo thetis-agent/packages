@@ -1,20 +1,20 @@
-{"id":"tr-read","query":"Show me what src/index.ts exports.","tools":["tools-files/read_path"],"forbidden":["tool-exec/delete_package"],"tags":["files","single-capability"],"turns":1}
-{"id":"tr-grep","query":"Where is the word enumerator used, and what do those places have in common?","tools":["tools-files/search_files","tools-files/read_path"],"tags":["files","multi-capability"],"turns":1}
-{"id":"tr-rename","query":"Rename loadConfig to readConfig everywhere and update the tests.","tools":["tools-files/search_files","tools-files/read_path","tools-files/edit_path"],"tags":["files","multi-capability"],"turns":1}
-{"id":"tr-newfile","query":"Create docs/21-benchmarks.md with a heading and one paragraph.","tools":["tools-files/write_path"],"tags":["files","single-capability"],"turns":1}
-{"id":"tr-walk","query":"What is in the packages directory?","tools":["tools-files/get_directory"],"tags":["files","single-capability"],"turns":1}
-{"id":"tr-find","query":"Find every package.json under packages that has no description field.","tools":["tools-files/find_files","tools-files/read_path"],"tags":["files","multi-capability"],"turns":1}
-{"id":"tr-build","query":"Build the project and tell me whether it compiles.","tools":["tool-exec/exec"],"tags":["exec","single-capability"],"turns":1}
-{"id":"tr-install","query":"Install the package I just wrote in home/packages/hello.","tools":["tool-exec/install_package"],"tags":["exec","single-capability"],"turns":1}
-{"id":"tr-fork","query":"Make me my own copy of the web gateway so I can change it.","tools":["tool-exec/fork_package"],"tags":["exec","single-capability"],"turns":1}
-{"id":"tr-subagent","query":"Have a subagent summarise every doc under docs while I keep working.","tools":["tool-exec/spawn_subagent"],"tags":["exec","single-capability"],"turns":1}
-{"id":"tr-plan","query":"Make a four step plan for this migration and start the first step.","tools":["tools-plan/todo_write","tools-plan/todo_mark"],"tags":["plan","multi-capability"],"turns":1}
-{"id":"tr-planread","query":"What is left on my plan?","tools":["tools-plan/todo_read"],"tags":["plan","single-capability"],"turns":1}
-{"id":"tr-ask","query":"I want you to pick a database for this, but check with me before you commit to one.","tools":["tools-plan/ask_user"],"tags":["plan","single-capability"],"turns":1}
-{"id":"tr-web","query":"What changed in the most recent release of bubblewrap?","tools":["exa/exa_search","exa/exa_contents"],"tags":["web","multi-capability"],"turns":1}
-{"id":"tr-research","query":"Research how other agent harnesses measure tool selection and write it up.","tools":["exa/exa_research"],"tags":["web","single-capability"],"turns":1}
-{"id":"tr-mixed","query":"Look up the current bubblewrap flags online and update our fence code to match.","tools":["exa/exa_search","tools-files/read_path","tools-files/edit_path"],"tags":["mixed","multi-capability"],"turns":1}
-{"id":"tr-explain","query":"Explain in two sentences why a prompt cache prefix has to stay byte identical.","tools":[],"control":true,"tags":["control","negative"],"turns":1}
-{"id":"tr-greet","query":"Say hello.","tools":[],"control":true,"tags":["control","negative"],"turns":1}
-{"id":"tr-opinion","query":"Do you think a three level skill cache is worth the complexity?","tools":[],"control":true,"tags":["control","negative"],"turns":1}
-{"id":"tr-define","query":"What does the word fence mean in this system?","tools":[],"control":true,"tags":["control","negative"],"turns":1}
+{"id": "tr-read", "query": "Show me what src/index.ts exports.", "tools": ["tools-files/read_path"], "forbidden": ["tool-exec/delete_package"], "tags": ["files", "single-capability"], "turns": 1}
+{"id": "tr-grep", "query": "Where is the word enumerator used, and what do those places have in common?", "tools": ["tools-files/search_files", "tools-files/read_path"], "tags": ["files", "multi-capability"], "turns": 1}
+{"id": "tr-rename", "query": "Rename loadConfig to readConfig everywhere and update the tests.", "tools": ["tools-files/search_files", "tools-files/read_path", "tools-files/edit_path"], "tags": ["files", "multi-capability"], "turns": 1}
+{"id": "tr-newfile", "query": "Create docs/21-benchmarks.md with a heading and one paragraph.", "tools": ["tools-files/write_path"], "tags": ["files", "single-capability"], "turns": 1}
+{"id": "tr-walk", "query": "What is in the packages directory?", "tools": ["tools-files/get_directory"], "tags": ["files", "single-capability"], "turns": 1}
+{"id": "tr-find", "query": "Find every package.json under packages that has no description field.", "tools": ["tools-files/find_files", "tools-files/read_path"], "tags": ["files", "multi-capability"], "turns": 1}
+{"id": "tr-build", "query": "Build the project and tell me whether it compiles.", "tools": ["terminal/shell"], "tags": ["exec", "single-capability"], "turns": 1}
+{"id": "tr-install", "query": "Install the package I just wrote in home/packages/hello.", "tools": ["tool-exec/install_package"], "tags": ["exec", "single-capability"], "turns": 1}
+{"id": "tr-fork", "query": "Make me my own copy of the web gateway so I can change it.", "tools": ["tool-exec/fork_package"], "tags": ["exec", "single-capability"], "turns": 1}
+{"id": "tr-subagent", "query": "Have a subagent summarise every doc under docs while I keep working.", "tools": ["tool-exec/spawn_subagent"], "tags": ["exec", "single-capability"], "turns": 1}
+{"id": "tr-plan", "query": "Make a four step plan for this migration and start the first step.", "tools": ["tools-plan/todo_write", "tools-plan/todo_mark"], "tags": ["plan", "multi-capability"], "turns": 1}
+{"id": "tr-planread", "query": "What is left on my plan?", "tools": ["tools-plan/todo_read"], "tags": ["plan", "single-capability"], "turns": 1}
+{"id": "tr-ask", "query": "I want you to pick a database for this, but check with me before you commit to one.", "tools": ["tools-plan/ask_user"], "tags": ["plan", "single-capability"], "turns": 1}
+{"id": "tr-web", "query": "What changed in the most recent release of bubblewrap?", "tools": ["exa/exa_search", "exa/exa_contents"], "tags": ["web", "multi-capability"], "turns": 1}
+{"id": "tr-research", "query": "Research how other agent harnesses measure tool selection and write it up.", "tools": ["exa/exa_research"], "tags": ["web", "single-capability"], "turns": 1}
+{"id": "tr-mixed", "query": "Look up the current bubblewrap flags online and update our fence code to match.", "tools": ["exa/exa_search", "tools-files/read_path", "tools-files/edit_path"], "tags": ["mixed", "multi-capability"], "turns": 1}
+{"id": "tr-explain", "query": "Explain in two sentences why a prompt cache prefix has to stay byte identical.", "tools": [], "control": true, "tags": ["control", "negative"], "turns": 1}
+{"id": "tr-greet", "query": "Say hello.", "tools": [], "control": true, "tags": ["control", "negative"], "turns": 1}
+{"id": "tr-opinion", "query": "Do you think a three level skill cache is worth the complexity?", "tools": [], "control": true, "tags": ["control", "negative"], "turns": 1}
+{"id": "tr-define", "query": "What does the word fence mean in this system?", "tools": [], "control": true, "tags": ["control", "negative"], "turns": 1}

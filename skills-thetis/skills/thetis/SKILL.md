@@ -22,7 +22,7 @@ A brief is a pointer, not the content. Call `skill_fetch` with the id before you
 
 | Id | Fetch when |
 |---|---|
-| `thetis/using` | You need sessions, subagents, `exec`, the file tools, the plan tools, `ask_user`, the home layout, or `THETIS.md`. |
+| `thetis/using` | You need sessions, subagents, the shell session tools, the file tools, the plan tools, `ask_user`, the home layout, or `THETIS.md`. |
 | `thetis/packages` | You write, install, fork, promote, or remove a package, or you need the manifest shape. |
 | `thetis/pipeline` | You write a step, an enumerator, or state in `harness`, or you must keep the prompt cache warm. |
 | `thetis/skills` | You write a skill, lint one, or need to know where skills come from and how loaders show them. |

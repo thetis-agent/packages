@@ -250,20 +250,21 @@ after the one fix in `ui/state.js` (see the last paragraph); screenshots `.playw
     .pj-page` the sections: `input.pj-name` (empty), "Project directories" with `.section-note` "0 of 64",
     `.pj-empty` "No project directories.", `.pj-dir-add` (`input.pj-dir-input` and the button "Add a
     directory") and the `.pj-note`; "Instructions" with `textarea.pj-instructions`; "Conversations" with
-    `.pj-facts` "None yet. …"; "Tools" with the note "18 tools, every one on" and one `.pj-tool-group` per
-    package with tools (`@thetis/tool-exec`, `@thetis/tools-files`, `@thetis/tools-plan`), each tool a
+    `.pj-facts` "None yet. …"; "Tools" with the note "24 tools, every one on" and one `.pj-tool-group` per
+    package with tools (`@thetis/tool-exec`, `@thetis/tools-files`, `@thetis/tools-plan`, `@thetis/terminal`,
+    `@thetis/skills`, `@thetis/skills-hybrid`), each tool a
     `label.pj-tool` with `code.pj-tool-name` and `input.pj-switch[checked]`; "Skills" with its one sentence;
     `.pj-actions` with the one button "Create project". Type `thetis-check` in the name; type
     `/tmp/thetis-phase5-proj` in `.pj-dir-input` and press Enter, then `/tmp/does-not-exist` the same way.
     Expect two `li.pj-dir` rows, each `code.pj-dir-path`, a badge and a `.pj-dir-remove`: the first
     `.badge.is-ok` "mounted · read-write", the second `.badge.is-warn` "not mounted"; the note "2 of 64"; the
     name kept across the redraw. Type "Answer in one short sentence." in the textarea; uncheck the
-    switches `exec on` and `install_package on`: their rows `.pj-tool.is-off`, the note "18 tools, 2 switched
+    switches `shell on` and `install_package on`: their rows `.pj-tool.is-off`, the note "24 tools, 2 switched
     off for this project". Click **Create project**: one `POST …/save`, a `.toast` `Project "thetis-check"
     created.`, then `list` and `get` again; the buttons now "Save" and "Delete project"; `.pj-facts` "0
     conversations are in this project."; the switcher `.pj-head.is-chosen` with `.pj-head-name`
     "thetis-check" (a new project is chosen after its first save); `localStorage["thetis.project"]` its
-    id; on disk `<home>/projects/p_<8 hex>.json` with the two directories and `tools.disable` `["exec",
+    id; on disk `<home>/projects/p_<8 hex>.json` with the two directories and `tools.disable` `["shell",
     "install_package"]`, and `p_<id>.md` with the sentence.
 30. **Choosing and joining**: close the place. Open the menu: the option `thetis-check` with `.pj-item-note`
     "0 conversations" `.is-selected`, then the rule, "Settings" (note "thetis-check"), "New project…". Pick
@@ -278,7 +279,7 @@ after the one fix in `ui/state.js` (see the last paragraph); screenshots `.playw
     sentence. The session record under `<home>/../sessions/<id>.json` carries the system prompt's section
     `## Project: thetis-check` with `Project directories:`, `- /tmp/thetis-phase5-proj (mounted rw)`, `-
     /tmp/does-not-exist (not mounted — ask an admin: thetis mounts add dev /tmp/does-not-exist)`, `###
-    Instructions` and the sentence; the call's tool list has no `exec` and no `install_package`. The Tools
+    Instructions` and the sentence; the call's tool list has no `shell` and no `install_package`. The Tools
     dock (`.rail-btn[data-dock="@thetis/ui-tools#tools"]`) still lists both cards and its "Turned off right
     now" section still says "Nothing is withheld in this conversation.": `@thetis/ui-tools` does not yet
     read the project's list (its `withheld()` is a placeholder; the integration was left for later).
@@ -500,6 +501,48 @@ the OpenRouter key in the environment of `serve` (steps 43 and 47 send one messa
     bind `/srv/nowhere` for `bob` through the form. The toast says the host has no directory there, and
     the row shows `.badge.is-err` "skipped · not there" beside `read-write`. The **Choose…** button opens
     the same picker. Unbind it.
+
+### The terminal
+
+`@thetis/terminal` must be in `systemPackages["*"]` for these; it is there by default.
+
+53. **The chip, with nothing open**: the status bar shows `.tm-chip` reading **Terminal**. It is never
+    hidden, because the button that opens the first shell is inside the shelf and the chip is the only
+    way in. Click it: `#shelf` appears under the conversation with the title **Terminals**, the empty
+    list "No shells are open.", and the pane "No shell is open. The + above opens one in this
+    conversation."
+54. **Open one**: click **+**. A row `main` appears with **Close** and the working directory shortened to
+    `~`; the emulator loads (`ui/vendor/xterm.js`, once per page) and the pane shows a prompt. The chip
+    reads `1 shell`. The console must be clean: a blocked stylesheet here means the page was served
+    without its nonce (see `docs/12-security.md`).
+55. **Type in it**: click the screen and type `printf '\033[31mRED\033[0m \033[1;32mGREEN\033[0m\n'` and
+    Enter. `RED` renders red and `GREEN` bold green — `getComputedStyle` on those spans must not return
+    the default foreground. Keystrokes reach the shell through `write`, coalesced at 15 ms.
+56. **Your own command**: type `sleep 30` and Enter. The row says `you are running sleep 30` with
+    **Interrupt**; the chip reads `1 shell · 1 busy`; the shelf head says "1 of 1 shell is running
+    something." Click **Interrupt**: `^C` appears, the row returns to the working directory and the chip
+    to `1 shell`.
+57. **The agent's command, watched live**: with the shelf open, send `Run this with the shell tool,
+    exactly: sleep 25 && echo hello` in a conversation. A second row appears, `the agent is running sleep
+    25 && echo hello · 0s`, the clock ticking once a second. After five seconds of silence it becomes
+    `running … · no output for 6s` — `busy-quiet`, which is the observed fact and not a guess about what
+    the program is waiting for. The reply reports `exit 0`.
+58. **A full-screen program**: type `printf '\033[?1049h'; sleep 8; printf '\033[?1049l'`. The row reads
+    `a full-screen program has the terminal` for those eight seconds, then returns.
+59. **Resize while something runs**: type `sleep 20`, then make the window wider. The row carries "the
+    program now running keeps the old size; the next one starts at this one". When the command ends the
+    note goes and an `stty rows R cols C` is sent at the next prompt — visible in the transcript, because
+    it is a real command in a real shell.
+60. **Close keeps the transcript**: click **Close** on a row with output in it. The row becomes `closed ·
+    exit N` with **Reopen**; the screen keeps what it printed, and the pane says "This shell is closed, so
+    it takes no more keys. What it printed is still here; Reopen in the row starts a new one." The host
+    keeps the last four closed sessions, so the row disappears only after that.
+61. **Nothing is shown as live when it is not**: stop the daemon. Within a few seconds the shelf head
+    reads "Not live: the stream \"watch\" to this workspace ended. What the rows say may be out of date."
+    with a **Reconnect** button, and the chip turns `.tm-chip.is-stale` reading `shells · not connected`.
+    The browser's own silent retry is deliberately not relied on here: `ext.subscribe` ends the
+    subscription so the page owns the retry and can say what it knows. Start the daemon and click
+    **Reconnect**: the rows come back.
 
 Stop the daemon by the pid on `.devhome7/thetis.sock` (SIGINT), release `/tmp/thetis-browser.lock`, and
 delete `.devhome7`.

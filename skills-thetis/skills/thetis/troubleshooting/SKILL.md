@@ -128,7 +128,7 @@ The provider retries `429`, `408`, `409`, `425`, `5xx`, and a `402` that names `
 
 | Record | Where | How to read |
 |---|---|---|
-| The session: conversation, harness, turns | `<userspace>/sessions/<id>.json` | Inside the fence: `exec { cmd: "cat ../sessions/<id>.json" }`. The file tools do not reach it. On the host: `thetis sessions show --user <id> --session <id>`, or `/inspect` in `thetis chat`. |
+| The session: conversation, harness, turns | `<userspace>/sessions/<id>.json` | Inside the fence: `shell { cmd: "cat ../sessions/<id>.json" }`. The file tools do not reach it. On the host: `thetis sessions show --user <id> --session <id>`, or `/inspect` in `thetis chat`. |
 | What the model received on the last call | `harness["@thetis/harness-core"].lastCall` | The Context dock, or the session file. |
 | The prefix fingerprints | `harness["@thetis/prompt-cache"]` | The session file. |
 | The plan and the questions | `home/plans/<id>.json`, `home/questions/<id>.json` | `read_path`. |

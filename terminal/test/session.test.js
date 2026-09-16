@@ -1,0 +1,237 @@
+// A real shell, on a real pty, in every test here: the mechanism is a pty and util-linux `script`, and a
+// fake of either would be a test of the fake. Each test opens its own session and closes it, and none of
+// them runs for longer than a few seconds.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
+import { openSession } from "../lib/session.js";
+
+async function withSession(t, options = {}) {
+  const dir = await mkdtemp(resolve(tmpdir(), "thetis-term-"));
+  const session = openSession({ id: "t" + Math.random().toString(16).slice(2, 8), cwd: dir, runDir: dir, ...options });
+  t.after(async () => {
+    await session.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+  return { session, dir };
+}
+
+test("a command's exit status is the one the shell reported, not one we guessed", async (t) => {
+  const { session } = await withSession(t);
+  const ok = await session.run("echo hello", { consumer: "conv" });
+  assert.equal(ok.exit, 0);
+  assert.equal(ok.running, false);
+  assert.equal(ok.output, "hello\n");
+
+  const bad = await session.run("(exit 17)", { consumer: "conv" });
+  assert.equal(bad.exit, 17);
+
+  const missing = await session.run("ls /no/such/path/here", { consumer: "conv" });
+  assert.ok(missing.exit > 0);
+  assert.match(missing.output, /No such file or directory/);
+});
+
+test("a cd carries to the next command, and the move is reported", async (t) => {
+  const { session } = await withSession(t);
+  const moved = await session.run("cd /etc && pwd", { consumer: "conv" });
+  assert.equal(moved.output, "/etc\n");
+  assert.equal(moved.cwd, "/etc");
+  assert.equal(moved.moved, true);
+
+  const after = await session.run("pwd", { consumer: "conv" });
+  assert.equal(after.output, "/etc\n");
+  assert.equal(after.moved, false);
+});
+
+test("a cwd argument moves the session first, and a cwd that does not exist is the answer", async (t) => {
+  const { session } = await withSession(t);
+  const there = await session.run("pwd", { cwd: "/usr", consumer: "conv" });
+  assert.equal(there.output, "/usr\n");
+  assert.equal(there.moved, true);
+
+  const nowhere = await session.run("pwd", { cwd: "/no/such/directory", consumer: "conv" });
+  assert.notEqual(nowhere.exit, 0);
+  assert.equal(nowhere.cwd, "/usr"); // the command never ran, and the session did not move
+});
+
+test("a command that outruns its wait keeps running and is collected later", async (t) => {
+  const { session } = await withSession(t);
+  const first = await session.run("echo early; sleep 2; echo late", { timeoutMs: 400, consumer: "conv" });
+  assert.equal(first.running, true);
+  assert.equal(first.exit, null, "no status is reported for a command that has not finished");
+  assert.equal(first.output, "early\n");
+  assert.equal(session.state().state, "busy");
+
+  // A read answers as soon as something arrives, which may be one chunk before the finish mark, so the
+  // collection is a loop: the point of the test is that the work was not thrown away.
+  let rest = await session.read("conv", { waitMs: 4000 });
+  let collected = rest.output;
+  while (rest.running) {
+    rest = await session.read("conv", { waitMs: 4000 });
+    collected += rest.output;
+  }
+  assert.equal(rest.exit, 0);
+  assert.match(collected, /late/);
+  assert.doesNotMatch(collected, /early/, "what was already handed over is not handed over twice");
+});
+
+test("a second command while one is still running is refused, and says how to collect the first", async (t) => {
+  const { session } = await withSession(t);
+  await session.run("sleep 2", { timeoutMs: 300, consumer: "conv" });
+  await assert.rejects(() => session.run("echo no", { consumer: "conv" }), /busy.*shell_read/s);
+  await session.interrupt();
+});
+
+test("an interrupt ends the command and leaves the session alive", async (t) => {
+  const { session } = await withSession(t);
+  await session.run("sleep 30", { timeoutMs: 400, consumer: "conv" });
+  assert.equal(session.running, true);
+
+  const stopped = await session.interrupt({ consumer: "conv" });
+  assert.equal(stopped.running, false);
+  assert.equal(stopped.exit, 130, "the shell reported the status of a command killed by SIGINT");
+
+  const alive = await session.run("echo still-here", { consumer: "conv" });
+  assert.equal(alive.exit, 0);
+  assert.equal(alive.output, "still-here\n");
+  assert.equal(session.closed, false);
+});
+
+test("a ring buffer that drops says how much it dropped", async (t) => {
+  const { session } = await withSession(t, { bufferBytes: 4096 });
+  await session.run("echo warm", { consumer: "conv" });
+  const big = await session.run("seq 1 4000", { consumer: "conv" });
+  assert.ok(big.dropped > 0, "the command outran the ring, and the answer says by how much");
+  assert.ok(big.output.length <= 4096 + 200);
+  assert.match(big.output, /4000\n$/, "what survived is the end, which is the part that was not dropped");
+  assert.equal(session.state().dropped, session.dropped);
+  assert.ok(session.state().dropped > 0);
+});
+
+test("an unframed shell reports the host's own commands and claims nothing else", async (t) => {
+  // /bin/sh is dash here: no bash init file, so no marks, so the legacy printf marker instead.
+  const { session } = await withSession(t, { shell: "/bin/sh" });
+  assert.equal(session.state().state, "unframed");
+
+  const ok = await session.run("echo one", { timeoutMs: 5000, consumer: "conv" });
+  assert.equal(ok.exit, 0);
+  assert.equal(ok.output, "one\n", "the marker line is cut out of what the agent is handed");
+
+  const bad = await session.run("false", { timeoutMs: 5000, consumer: "conv" });
+  assert.equal(bad.exit, 1);
+
+  const moved = await session.run("cd /etc && pwd", { timeoutMs: 5000, consumer: "conv" });
+  assert.equal(moved.cwd, "/etc");
+  assert.equal(moved.moved, true);
+
+  assert.equal(session.state().framed, false);
+  assert.equal(session.state().state, "unframed", "an idle shell with no marks says so rather than saying idle");
+});
+
+test("the state word is computed from what was observed, and follows the command", async (t) => {
+  const { session } = await withSession(t);
+  await session.run("true", { consumer: "conv" });
+  assert.equal(session.state().state, "idle");
+  assert.equal(session.state().framed, true);
+
+  await session.run("sleep 2", { timeoutMs: 300, consumer: "conv" });
+  const busy = session.state();
+  assert.equal(busy.state, "busy");
+  assert.equal(busy.holder, "agent");
+  assert.equal(busy.command, "sleep 2");
+  assert.ok(busy.since <= Date.now());
+
+  await session.interrupt();
+  assert.equal(session.state().state, "idle");
+  assert.equal(session.state().holder, null);
+});
+
+test("a command the person typed makes the session theirs, not the agent's", async (t) => {
+  const { session } = await withSession(t);
+  await session.run("true", { consumer: "conv" });
+  await session.write("sleep 2", { submit: true, holder: "person", settleMs: 200 });
+  const s = session.state();
+  assert.equal(s.state, "person");
+  assert.equal(s.holder, "person");
+  assert.equal(s.command, "sleep 2");
+  await session.interrupt();
+});
+
+test("a full-screen program is seen taking the terminal, and giving it back", async (t) => {
+  const { session } = await withSession(t);
+  await session.run("true", { consumer: "conv" });
+  await session.write("printf '\\033[?1049h'", { submit: true, holder: "person", settleMs: 400 });
+  assert.equal(session.state().state, "fullscreen");
+  await session.write("printf '\\033[?1049l'", { submit: true, holder: "person", settleMs: 400 });
+  assert.notEqual(session.state().state, "fullscreen");
+});
+
+test("a resize while a command is running is deferred, and applied at the next idle", async (t) => {
+  const { session } = await withSession(t, { cols: 120 });
+  await session.run("sleep 1", { timeoutMs: 200, consumer: "conv" });
+  const deferred = await session.resize(40, 100);
+  assert.equal(deferred.applied, false);
+  assert.equal(deferred.deferred, true);
+
+  await session.read("conv", { waitMs: 3000 });
+  const cols = await session.run("tput cols", { consumer: "conv" });
+  assert.equal(cols.output.trim(), "100");
+});
+
+test("a resize at idle is applied straight away and is not shown to the agent as a command", async (t) => {
+  const { session } = await withSession(t);
+  await session.run("true", { consumer: "conv" });
+  const applied = await session.resize(30, 90);
+  assert.deepEqual({ applied: applied.applied, deferred: applied.deferred }, { applied: true, deferred: false });
+
+  const next = await session.run("tput lines; tput cols", { consumer: "conv" });
+  assert.equal(next.output, "30\n90\n");
+  assert.doesNotMatch(next.output, /stty/, "the stty this package sent for its own reasons is not the agent's business");
+});
+
+test("every consumer holds its own cursor, and nothing consumes", async (t) => {
+  const { session } = await withSession(t);
+  await session.run("echo alpha", { consumer: "agent" });
+  const browser = await session.read("ui:1", {});
+  assert.match(browser.output, /alpha/, "a reader that has never looked is given what the ring still holds");
+
+  await session.run("echo beta", { consumer: "agent" });
+  const again = await session.read("ui:1", {});
+  assert.match(again.output, /beta/);
+  assert.doesNotMatch(again.output, /alpha/);
+});
+
+test("the raw buffer keeps the marks the agent's text has had cut out of it", async (t) => {
+  const { session } = await withSession(t);
+  const answer = await session.run("echo clean", { consumer: "conv" });
+  assert.equal(answer.output, "clean\n");
+  const raw = session.buffer(0).text;
+  assert.ok(raw.includes("]133;A"), "the browser's emulator still gets the prompt marks");
+  assert.ok(raw.includes("]133;D;0"));
+  assert.ok(raw.includes("echo clean"), "and the echo of the command, which is what the person saw");
+});
+
+test("a closed session says it is closed and refuses to be written to", async (t) => {
+  const { session } = await withSession(t);
+  await session.run("true", { consumer: "conv" });
+  const closing = [];
+  session.onEvent((e) => e.type === "closed" && closing.push(e));
+  const state = await session.close();
+  assert.equal(state.state, "closed");
+  assert.ok(state.closedAt);
+  assert.equal(closing.length, 1);
+  await assert.rejects(() => session.run("echo no"), /closed/);
+});
+
+test("a subscriber sees the output as it arrives, with the offset it arrived at", async (t) => {
+  const { session } = await withSession(t);
+  const seen = [];
+  session.onEvent((e) => e.type === "output" && seen.push(e));
+  await session.run("echo streamed", { consumer: "conv" });
+  assert.ok(seen.length > 0);
+  assert.ok(seen.some((e) => e.text.includes("streamed")));
+  assert.equal(seen[0].from, 0);
+  for (const e of seen) assert.equal(typeof e.bytes, "number");
+});

@@ -40,6 +40,7 @@ const UI = Object.freeze({ ...ui, section: ui.heading });
 export function createExt(extension) {
   const pkg = extension.package;
   const verbs = new Set(extension.commands ?? []);
+  const streams = new Set(extension.streams ?? []);
   const slot = (name) => (id, impl) => registry.register(name, pkg, id, impl);
 
   const ext = {
@@ -55,13 +56,45 @@ export function createExt(extension) {
     transcript: (render) => registry.addRenderer(pkg, render),
 
     /** Whether this package declares `verb` and the person's role clears it: how a UI hides an admin's control. */
-    can: (verb) => verbs.has(verb),
+    can: (verb) => verbs.has(verb) || streams.has(verb),
 
     async request(verb, { session, args } = {}) {
       if (!verbs.has(verb)) throw new Error(`${pkg} declares no command "${verb}".`);
       const body = { args: args ?? {} };
       if (session) body.session = session;
       return (await api(`/api/ext/${pkg}/${verb}`, { method: "POST", body })) ?? {};
+    },
+
+    /**
+     * Subscribes to a verb the package declared with `stream: true`. `onEvent(value)` gets each value the
+     * export yields; `onClose(error)` is called once, with null when the stream ended and an Error when it
+     * failed. Returns the stop function; nothing else closes the stream, so a view must call it when it goes.
+     */
+    subscribe(verb, { args, session, onEvent, onClose } = {}) {
+      if (!streams.has(verb)) throw new Error(`${pkg} declares no stream "${verb}".`);
+      const query = new URLSearchParams({ args: JSON.stringify(args ?? {}) });
+      if (session) query.set("session", session);
+      const source = new EventSource(`api/ext/${pkg}/${verb}/stream?${query}`);
+      const stop = () => source.close();
+      source.addEventListener("item", (event) => onEvent && onEvent(JSON.parse(event.data)));
+      source.addEventListener("end", () => {
+        stop();
+        if (onClose) onClose(null);
+      });
+      // A named `error` frame and the EventSource's own failure arrive under the same name; only the frame
+      // carries data. Either way the subscription ends here, the browser's own silent retry included: a
+      // reconnect it performs by itself is invisible to the caller, so the page would go on showing what it
+      // last heard as though it were live. Ending it hands the retry, and saying so, to the one view that can.
+      source.addEventListener("error", (event) => {
+        stop();
+        if (!onClose) return;
+        if (typeof event.data === "string") onClose(new Error(JSON.parse(event.data).message));
+        // A refusal and a workspace that stopped answering are the same event here, and guessing between
+        // them from the ready state gets it wrong: say what is known, and leave the sentence for the view
+        // to end. The view retries, and the gateway answers the refusal again if that is what it was.
+        else onClose(new Error(`the stream "${verb}" to this workspace ended`));
+      });
+      return stop;
     },
 
     redraw: (id) => registry.redraw(pkg, id),

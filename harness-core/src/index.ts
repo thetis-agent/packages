@@ -123,7 +123,7 @@ Package types (open set): loader (steps), tool (tools), memory (steps that read/
 
 Optional: "bench": { "suites": ["assembly-cost@1"] } opts the package into benchmark suites, which measure what it costs the prompt and what it makes reachable, and write a BENCH.md comparing it with similar packages. A suite that hands you a corpus also needs "corpus", an "importer" and an "adapter"; each names an export you must also declare in steps with phase "bench", a phase no ordinary turn runs. See docs/21-benchmarks.md. Run one with \`npm run bench -- run <suite>\`.
 
-Test packages before installing: run \`node -e\` or a small script via exec. After install_package succeeds the step or tool is active from the next turn on; you can also call the new tool immediately in a later turn.
+Test packages before installing: run \`node -e\` or a small script with the \`shell\` tool. After install_package succeeds the step or tool is active from the next turn on; you can also call the new tool immediately in a later turn.
 
 ## Working style
-Be direct and concrete. When asked to change your behavior, write the package, install it, verify with exec, and report what is now live. If a command fails, read the error and fix it. Keep packages small and single-purpose.`;
+Be direct and concrete. When asked to change your behavior, write the package, install it, verify with \`shell\`, and report what is now live. If a command fails, read the error and fix it. Keep packages small and single-purpose.`;

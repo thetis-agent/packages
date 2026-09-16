@@ -154,7 +154,7 @@ before(async () => {
   const rpcFor = (us: Userspace) => createRpcHandler(us, kernel.users, kernel.packages, kernel.sessions, kernel.auth, createControlHandler(kernel), async (u) => ({ model: kernel.config.model, models: await kernel.providers.listModels(u) }));
   const assets = join(home, "assets");
   mkdirSync(assets);
-  writeFileSync(join(assets, "index.html"), "<title>app</title><base href=\"{{base}}/\">");
+  writeFileSync(join(assets, "index.html"), "<title>app</title><base href=\"{{base}}/\"><meta name=\"csp-nonce\" content=\"{{nonce}}\">");
   const loginAssets = join(home, "login-assets");
   mkdirSync(loginAssets);
   writeFileSync(join(loginAssets, "login.html"), "<title>login</title>");
@@ -216,6 +216,19 @@ test("login: a wrong password is refused; success sets the cookie and lands on t
   const home = await fetch(`${base}/`, { headers: { cookie }, redirect: "manual" });
   assert.equal(home.headers.get("location"), "/alice/", "the root sends a signed-in person home");
   assert.equal((await api(cookie, "/alice/")).status, 200);
+});
+
+test("the page carries a style nonce, the policy names that same nonce, and a second visit gets another", async () => {
+  const cookie = await cookieFor("alice", "wonderland");
+  const first = await api(cookie, "/alice/");
+  const policy = first.headers.get("content-security-policy") ?? "";
+  const nonce = /style-src 'self' 'nonce-([^']+)'/.exec(policy)?.[1];
+  assert.ok(nonce, `the policy must carry a style nonce: ${policy}`);
+  // The page and the policy have to agree, or the stylesheets an emulator writes at runtime are refused.
+  assert.match(await first.text(), new RegExp(`<meta name="csp-nonce" content="${nonce.replace(/[+/=]/g, (c) => `\\${c}`)}">`));
+  assert.match(policy, /script-src 'self'/, "nothing else in the policy moved");
+  const again = /nonce-([^']+)/.exec((await api(cookie, "/alice/")).headers.get("content-security-policy") ?? "")?.[1];
+  assert.notEqual(again, nonce, "a nonce that repeated would be worth no more than 'unsafe-inline'");
 });
 
 test("a suspended person cannot sign in, and a password change signs them out", async () => {

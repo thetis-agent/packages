@@ -9,7 +9,7 @@ import { readFile, stat } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { KernelClient, PackageInfo, StepEnv, UiCommandDecl, UiCommandEnv, UiCommandResult, UiEntryDecl, UserRole } from "@thetis/contracts";
+import type { KernelClient, PackageInfo, StepEnv, UiCommandDecl, UiCommandEnv, UiCommandResult, UiEntryDecl, UiStream, UserRole } from "@thetis/contracts";
 import { HttpError } from "./http.js";
 import { serveFile, within } from "./static.js";
 
@@ -23,6 +23,8 @@ const PACKAGE_NAME = /^@[a-z0-9-]+\/[a-z0-9._-]+$/;
 const SESSION_ID = /^s_[a-f0-9]+$/;
 const RANK: Record<UserRole, number> = { user: 0, admin: 1, system: 2 };
 const RESULT_LIMIT = 262_144;
+/** A subscription carries its arguments in the URL, so they are bounded by what a URL may hold. */
+const ARGS_LIMIT = 4096;
 export const COMMAND_TIMEOUT_MS = 30_000;
 
 /** A validated declaration: every field checked, defaults filled, nothing the manifest did not say. */
@@ -42,6 +44,8 @@ export interface UiExtension extends Record<Slot, UiEntryDecl[]> {
   entry?: string;
   style?: string;
   commands: string[];
+  /** The verbs declared with `stream: true`. The page subscribes to these; they are not in `commands`. */
+  streams: string[];
   /** Entries above the person's role, as `<slot>:<id>`, so the page can tell "hidden" from "never declared". */
   hidden: string[];
 }
@@ -121,11 +125,13 @@ function command(raw: unknown): UiCommandDecl {
   if (!isObject(raw) || typeof raw.verb !== "string" || !ID.test(raw.verb)) fail("a command has no valid verb");
   const what = `command "${raw.verb}"`;
   if (typeof raw.export !== "string" || !EXPORT.test(raw.export)) fail(`${what} needs an export name`);
+  if (raw.stream !== undefined && typeof raw.stream !== "boolean") fail(`${what} stream must be true or false`);
   const out: UiCommandDecl = { verb: raw.verb, export: raw.export };
   const label = text(raw.label, `${what} label`, 80);
   const need = role(raw.role, what);
   if (label !== undefined) out.label = label;
   if (need !== undefined) out.role = need;
+  if (raw.stream !== undefined) out.stream = raw.stream;
   return out;
 }
 
@@ -166,7 +172,8 @@ export function validateUi(info: PackageInfo, store: string): { ui: UiSpec } | {
 /**
  * Everything the page may draw, in install order. A shared slot id belongs to the first package that
  * declared it; a later claimant is refused by name. Entries and commands above the person's role are
- * left out, as the panel's sections are today.
+ * left out, as the panel's sections are today. A streaming verb is listed in `streams` and not in
+ * `commands`, because the two are different routes and the page must know which one it may use.
  */
 export function composeUi(packages: PackageInfo[], role: UserRole, store: string): { extensions: UiExtension[]; refused: UiRefusal[] } {
   const extensions: UiExtension[] = [];
@@ -186,7 +193,8 @@ export function composeUi(packages: PackageInfo[], role: UserRole, store: string
       continue;
     }
     for (const slot of SHARED) for (const e of ui.slots[slot]) claimed.set(`${slot}:${e.id}`, pkg.name);
-    const ext = { package: pkg.name, version: pkg.version, base: `ext/${pkg.name}/`, commands: ui.commands.filter((c) => clears(role, c.role)).map((c) => c.verb) } as UiExtension;
+    const mine = ui.commands.filter((c) => clears(role, c.role));
+    const ext = { package: pkg.name, version: pkg.version, base: `ext/${pkg.name}/`, commands: mine.filter((c) => !c.stream).map((c) => c.verb), streams: mine.filter((c) => c.stream).map((c) => c.verb) } as UiExtension;
     if (ui.entry !== undefined) ext.entry = ui.entry;
     if (ui.style !== undefined) ext.style = ui.style;
     for (const slot of SLOTS) ext[slot] = ui.slots[slot].filter((e) => clears(role, e.role));
@@ -246,25 +254,35 @@ function withTimeout<T>(run: () => Promise<T>, ms: number, message: string): Pro
   return Promise.race([Promise.resolve().then(run), clock]).finally(() => clearTimeout(timer));
 }
 
-/** `POST api/ext/<scope>/<name>/<verb>`: the checks of the plan in order, then the export, then a bounded answer. */
-export async function runCommand(ctx: CommandContext, who: { id: string; role: UserRole }, scope: string, name: string, verb: string, body: Record<string, unknown>): Promise<{ text?: string; data?: unknown }> {
+/**
+ * The checks both command routes run, in order: the package is installed here with a valid `ui` that
+ * declares this verb for this seam, the person's role clears it, a named session is one of their own,
+ * and `args` is an object. One copy, so a subscription can never skip a check a command makes.
+ */
+async function resolveCommand(ctx: CommandContext, who: { id: string; role: UserRole }, scope: string, name: string, verb: string, seam: "command" | "stream", session: unknown, args: unknown): Promise<{ pkg: PackageInfo; cmd: UiCommandDecl; args: Record<string, unknown>; env: UiCommandEnv }> {
   const { pkg, ui } = extensionOf(await ctx.kernel.packages.list(), ctx.store, scope, name);
   const cmd = ID.test(verb) ? ui.commands.find((c) => c.verb === verb) : undefined;
   if (!cmd) throw new HttpError(404, `${pkg.name} does not declare the command "${verb}"`);
+  if ((cmd.stream ? "stream" : "command") !== seam) throw new HttpError(400, cmd.stream ? `"${verb}" streams; subscribe to it` : `"${verb}" does not stream`);
   if (!clears(who.role, cmd.role)) throw new HttpError(403, `only an ${cmd.role} can send "${verb}"`);
-  const session = body.session;
   if (session !== undefined) {
     if (typeof session !== "string" || !SESSION_ID.test(session)) throw new HttpError(404, "unknown session");
     await ctx.kernel.sessions.inspect(session).catch(() => {
       throw new HttpError(404, "unknown session");
     });
   }
-  if (body.args !== undefined && !isObject(body.args)) throw new HttpError(400, "args must be an object");
+  if (args !== undefined && !isObject(args)) throw new HttpError(400, "args must be an object");
+  const env: UiCommandEnv = { ...ctx.env, user: who.id, role: who.role, ...(typeof session === "string" ? { session } : {}) };
+  return { pkg, cmd, args: (args as Record<string, unknown> | undefined) ?? {}, env };
+}
+
+/** `POST api/ext/<scope>/<name>/<verb>`: the shared checks, then the export, then a bounded answer. */
+export async function runCommand(ctx: CommandContext, who: { id: string; role: UserRole }, scope: string, name: string, verb: string, body: Record<string, unknown>): Promise<{ text?: string; data?: unknown }> {
+  const { pkg, cmd, args, env } = await resolveCommand(ctx, who, scope, name, verb, "command", body.session, body.args);
   const fn = await loadExport(ctx.store, pkg.name, cmd.export);
-  const env: UiCommandEnv = { ...ctx.env, user: who.id, role: who.role, ...(session !== undefined ? { session } : {}) };
   let result: UiCommandResult;
   try {
-    result = (await withTimeout(() => fn(body.args ?? {}, env) as Promise<UiCommandResult>, ctx.timeoutMs ?? COMMAND_TIMEOUT_MS, `${pkg.name} did not answer "${verb}" in time`)) as UiCommandResult;
+    result = (await withTimeout(() => fn(args, env) as Promise<UiCommandResult>, ctx.timeoutMs ?? COMMAND_TIMEOUT_MS, `${pkg.name} did not answer "${verb}" in time`)) as UiCommandResult;
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw new HttpError(400, err instanceof Error ? err.message : String(err));
@@ -277,4 +295,31 @@ export async function runCommand(ctx: CommandContext, who: { id: string; role: U
   }
   if (Buffer.byteLength(JSON.stringify(reply)) > RESULT_LIMIT) throw new HttpError(502, `${pkg.name} answered "${verb}" with more than 256 KiB`);
   return reply;
+}
+
+/**
+ * `GET api/ext/<scope>/<name>/<verb>/stream`: the same checks, with the arguments and the session in the
+ * query because an `EventSource` sends no body, then the iterable the export answers with. It is handed
+ * back unconsumed: neither the command timeout nor the answer cap applies, so what the subscription costs
+ * is the package's own business for as long as the browser holds it open.
+ */
+export async function openStream(ctx: CommandContext, who: { id: string; role: UserRole }, scope: string, name: string, verb: string, query: URLSearchParams, signal: AbortSignal): Promise<AsyncIterable<unknown>> {
+  const raw = query.get("args") ?? undefined;
+  if (raw !== undefined && raw.length > ARGS_LIMIT) throw new HttpError(400, `args must be at most ${ARGS_LIMIT} characters`);
+  let parsed: unknown;
+  try {
+    parsed = raw === undefined ? undefined : JSON.parse(raw);
+  } catch {
+    throw new HttpError(400, "args must be an object");
+  }
+  const { pkg, cmd, args, env } = await resolveCommand(ctx, who, scope, name, verb, "stream", query.get("session") ?? undefined, parsed);
+  const fn = (await loadExport(ctx.store, pkg.name, cmd.export)) as UiStream;
+  let items: AsyncIterable<unknown>;
+  try {
+    items = fn(args, { ...env, signal });
+  } catch (err) {
+    throw new HttpError(400, err instanceof Error ? err.message : String(err));
+  }
+  if (!items || typeof (items as AsyncIterable<unknown>)[Symbol.asyncIterator] !== "function") throw new HttpError(500, `${pkg.name} does not stream from "${verb}"`);
+  return items;
 }

@@ -1,0 +1,105 @@
+@import "./vendor/xterm.css";
+
+/* @thetis/terminal in the shelf: the session list, the state words, the screen, and the statusbar chip.
+   Everything is scoped under `tm-` and built from the shell's own tokens (theme.css), so the shelf looks
+   like the page it sits in and restyles nothing outside itself. The emulator's stylesheet is imported
+   above and left alone; its colours come from the theme this package hands the emulator in screen.js,
+   not from CSS, because the emulator paints its own cells. */
+
+.tm { display: flex; flex-direction: column; height: 100%; min-height: 0; font-size: var(--text-sm); }
+
+/* --- the head: what is not idle, said once, and the + that opens a shell ------------------ */
+
+.tm-head { display: flex; align-items: center; gap: var(--gap-2); flex: none; padding: var(--gap-2) var(--gap-3) var(--gap-2) var(--gap-4); border-bottom: 1px solid var(--hairline); }
+.tm-summary { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); font-size: var(--text-xs); }
+.tm-summary.is-warn { color: var(--warn); }
+.tm-gap { flex: 1 1 auto; }
+.tm-add { flex: none; }
+
+/* --- the two halves ---------------------------------------------------------------------- */
+
+.tm-body { display: flex; flex: 1 1 auto; min-height: 0; }
+.tm-side { flex: none; width: 268px; min-height: 0; overflow-y: auto; padding: var(--gap-2); border-right: 1px solid var(--hairline); }
+.tm-list { display: flex; flex-direction: column; gap: var(--gap-1); margin: 0; padding: 0; list-style: none; }
+.tm-empty { padding: var(--gap-2) var(--gap-2) 0; }
+
+/* --- one session: a name, one sentence about it, and the one thing to do about it ---------- */
+
+.tm-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.tm-row:hover { background: var(--surface-2); }
+.tm-row:focus-visible { outline: 2px solid var(--accent-edge); outline-offset: -2px; }
+.tm-row.is-chosen { background: var(--accent-wash); border-color: var(--accent-edge); }
+.tm-row.is-closed { opacity: .75; }
+.tm-row-top { display: flex; align-items: center; gap: var(--gap-2); min-height: 26px; }
+.tm-row-top .btn { padding: 3px 9px; font-size: var(--text-xs); }
+
+.tm-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 5px;
+  margin-left: -5px;
+  font: inherit;
+  font-family: var(--mono);
+  font-weight: 600;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  cursor: text;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.tm-name:hover { border-color: var(--hairline); background: var(--surface-2); }
+.tm-rename { flex: 1 1 auto; padding: 2px 5px; font-family: var(--mono); font-size: var(--text-sm); }
+
+/* The state sentence. The word is the server's; only the colour is this file's. */
+.tm-line { margin: 0; color: var(--text-dim); font-size: var(--text-xs); line-height: 1.45; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.tm-row.is-idle .tm-line { font-family: var(--mono); color: var(--text-faint); }
+.tm-row.is-busy .tm-line, .tm-row.is-busy-quiet .tm-line, .tm-row.is-person .tm-line { color: var(--accent); }
+.tm-row.is-fullscreen .tm-line { color: var(--accent); }
+.tm-row.is-unframed .tm-line { color: var(--warn); }
+.tm-row.is-closed .tm-line { color: var(--text-faint); }
+
+.tm-fact { margin: 0; color: var(--text-faint); font-size: var(--text-xs); line-height: 1.4; overflow-wrap: anywhere; }
+.tm-fact.is-warn { color: var(--warn); }
+
+/* --- the screen ---------------------------------------------------------------------------- */
+
+.tm-pane { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; padding: var(--gap-2) var(--gap-3); background: var(--surface-1); }
+/* The pane is the measure: screen.js divides this box by a cell to choose the rows and columns. */
+.tm-pane-body { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; border-radius: var(--r-md); }
+.tm-pane-body > .panel-empty { padding: var(--gap-3); }
+.tm-screen { position: absolute; inset: 0; overflow: hidden; }
+.tm-screen .xterm { height: 100%; padding: 0; }
+/* The library's own stylesheet paints the viewport black, and the rows never fill it exactly, so a strip
+   of black shows under the last line. The pane already has the right colour for either scheme. */
+.tm-screen .xterm-viewport { background-color: transparent !important; }
+.tm-pane-note { flex: none; margin: 6px 2px 0; color: var(--accent); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A closed shell keeps its picture: the note says so quietly, because nothing is happening any more. */
+.tm-pane-note.is-dim { color: var(--text-faint); }
+
+/* --- the statusbar chip: quiet when there are no shells ------------------------------------- */
+
+.tm-chip { appearance: none; padding: 0; font: inherit; color: var(--text-dim); background: none; border: 0; cursor: pointer; transition: color var(--fast) var(--ease); }
+.tm-chip:hover { color: var(--text); }
+.tm-chip.is-stale { color: var(--warn); }
+
+/* Measures a cell and resolves the page's colours for the emulator. It must never be seen or laid out. */
+.tm-probe { position: fixed; top: 0; left: -9999px; visibility: hidden; pointer-events: none; display: inline-block; white-space: pre; }
+
+@media (max-width: 760px) {
+  .tm-body { flex-direction: column; }
+  .tm-side { width: auto; max-height: 45%; border-right: 0; border-bottom: 1px solid var(--hairline); }
+}

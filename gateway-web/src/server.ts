@@ -4,6 +4,7 @@
 // Sign-in lives in @thetis/gateway-login; this server only resolves the cookie it set, and the kernel
 // answers only when the token names this fence's user. What installed packages add to the page (their
 // browser files and commands) is composed and checked in ui.ts and mounted here under `ext/` and `api/`.
+import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,7 +14,7 @@ import { handlePanel } from "./panel.js";
 import { serveFile } from "./static.js";
 import type { GatewayStore, SessionUsage } from "./store.js";
 import { TurnHub, type RunningTurn } from "./turns.js";
-import { composeUi, runCommand, serveExt } from "./ui.js";
+import { composeUi, openStream, runCommand, serveExt } from "./ui.js";
 
 export interface GatewayOptions {
   /** Directory of the static assets. Defaults to the package's `assets/`. */
@@ -85,7 +86,8 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     const user = who?.id;
     if (path === "/") {
       if (!user) return redirect(res, `/login?next=${encodeURIComponent(`${base}/`)}`);
-      return serveFile(res, assets, "index.html", { "Cache-Control": "no-store" }, { "{{base}}": base });
+      // A fresh nonce per page: the policy allows the stylesheets this response's own code writes, and nothing else.
+      return serveFile(res, assets, "index.html", { "Cache-Control": "no-store" }, { "{{base}}": base, "{{nonce}}": randomBytes(16).toString("base64") });
     }
     if (!path.startsWith("/api/") && !path.startsWith("/ext/")) throw new HttpError(404, "not found");
     if (!user) throw new HttpError(401, "sign in first");
@@ -102,6 +104,13 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       if (!storeDir || !opts.env) throw new HttpError(404, "no extensions here");
       const ctx = { kernel, env: opts.env, store: storeDir, timeoutMs: opts.commandTimeoutMs };
       return json(res, 200, await runCommand(ctx, who!, seg[2], seg[3], seg[4], await readJson(req)));
+    }
+    if (seg[1] === "ext" && seg.length === 6 && seg[5] === "stream" && method === "GET") {
+      if (!storeDir || !opts.env) throw new HttpError(404, "no extensions here");
+      const ctx = { kernel, env: opts.env, store: storeDir };
+      const abort = new AbortController();
+      req.on("close", () => abort.abort());
+      return pump(res, await openStream(ctx, who!, seg[2], seg[3], seg[4], url.searchParams, abort.signal), abort.signal);
     }
     if (seg[1] === "me" && method === "GET") return json(res, 200, { user, role: who!.role });
     if (seg[1] === "events" && method === "GET") return stream(req, res, user);
@@ -225,6 +234,39 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       clearInterval(keepAlive);
       unsubscribe();
     });
+  }
+
+  /**
+   * One extension's stream, in the shape of `/api/events`: every value the export yields as an `item`,
+   * then `end`, or `error` when it throws. There is no timeout and no size cap here, because the package
+   * decides how long its stream runs and how much it says; the gateway's part is to stop when the browser
+   * lets go, which aborts the signal the export was given and closes its iterator, whichever it watches.
+   */
+  async function pump(res: ServerResponse, items: AsyncIterable<unknown>, signal: AbortSignal): Promise<void> {
+    res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive", "X-Accel-Buffering": "no" });
+    const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    const keepAlive = setInterval(() => res.write(": keep-alive\n\n"), 20_000);
+    const iterator = items[Symbol.asyncIterator]();
+    const close = () => {
+      clearInterval(keepAlive); // the socket is already gone, and a write to it would throw where nobody catches
+      void iterator.return?.().catch(() => {});
+    };
+    signal.addEventListener("abort", close);
+    try {
+      for (;;) {
+        const next = await iterator.next();
+        if (signal.aborted) return;
+        if (next.done) break;
+        send("item", next.value);
+      }
+      send("end", {});
+    } catch (err) {
+      if (!signal.aborted) send("error", { message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      signal.removeEventListener("abort", close);
+      clearInterval(keepAlive);
+      res.end();
+    }
   }
 
   return server;

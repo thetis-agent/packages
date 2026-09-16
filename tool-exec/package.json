@@ -2,7 +2,7 @@
   "name": "@thetis/tool-exec",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "Tools for the model: run commands, install, fork, remove and delete packages, and spawn subagents in your own space.",
+  "description": "Tools for the model: install, fork, remove and delete packages, and spawn subagents in your own space. Running commands is @thetis/terminal.",
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": {
@@ -20,30 +20,6 @@
   "thetis": {
     "type": "tool",
     "tools": [
-      {
-        "name": "exec",
-        "description": "Run a shell command (bash) inside your userspace. Working directory defaults to your home. Returns exit code, stdout and stderr.",
-        "parameters": {
-          "type": "object",
-          "properties": {
-            "cmd": {
-              "type": "string",
-              "description": "The command line to run"
-            },
-            "cwd": {
-              "type": "string",
-              "description": "Working directory relative to home"
-            },
-            "timeoutMs": {
-              "type": "number"
-            }
-          },
-          "required": [
-            "cmd"
-          ]
-        },
-        "export": "exec"
-      },
       {
         "name": "install_package",
         "description": "Install a package into your userspace from a directory path (relative to home) or a git URL. The package must have a package.json with a thetis field and be scoped @<you>/<name>. It becomes live on the next turn.",

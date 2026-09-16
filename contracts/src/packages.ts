@@ -54,6 +54,8 @@ export interface UiCommandDecl {
   label?: string;
   /** The least role that may send it. Default: any signed-in person. */
   role?: UserRole;
+  /** True when the export is a `UiStream`: the page subscribes to the verb instead of sending it. */
+  stream?: boolean;
 }
 
 /** What a package contributes to the web gateway's page. Read by @thetis/gateway-web; the kernel never reads it. */

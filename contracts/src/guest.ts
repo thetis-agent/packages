@@ -89,6 +89,14 @@ export type UiCommandResult = { text?: string; data?: unknown } | string | void;
 /** The export a `ui.commands[]` entry names. The web gateway calls it when the package's own page asks. */
 export type UiCommand = (args: Record<string, unknown>, env: UiCommandEnv) => Promise<UiCommandResult>;
 
+/** What a streaming handler receives on top of a command's: the life of the subscription. */
+export interface UiStreamEnv extends UiCommandEnv {
+  /** Aborted when the browser closes the subscription. A handler that waits should stop when it fires. */
+  signal: AbortSignal;
+}
+/** The export a `ui.commands[]` entry with `stream: true` names. Each value it yields is one event on the page. */
+export type UiStream = (args: Record<string, unknown>, env: UiStreamEnv) => AsyncIterable<unknown>;
+
 export interface ServiceEnv extends StepEnv {
   config: Record<string, unknown>;
   log(line: string): void;

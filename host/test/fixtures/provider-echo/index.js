@@ -1,4 +1,4 @@
-// Deterministic provider for tests. "run: <cmd>" asks for the exec tool; a tool result is echoed back.
+// Deterministic provider for tests. "run: <cmd>" asks for the shell tool; a tool result is echoed back.
 export function createProvider(config) {
   return {
     async models() { return [{ id: "echo" }]; },
@@ -7,8 +7,12 @@ export function createProvider(config) {
       if (last?.role === "tool" && /FAIL_NEXT/.test(last.content)) { yield { type: "error", message: "the provider gave up" }; return; }
       if (last?.role === "tool") { yield { type: "text", delta: `tool said: ${last.content}` }; return; }
       const text = last?.content ?? "";
-      if (text.startsWith("run: ") && call.tools.some((t) => t.name === "exec")) {
-        yield { type: "tool_call", call: { id: "c1", name: "exec", args: { cmd: text.slice(5) } } };
+      if (text.startsWith("run: ") && call.tools.some((t) => t.name === "shell")) {
+        yield { type: "tool_call", call: { id: "c1", name: "shell", args: { cmd: text.slice(5) } } };
+        return;
+      }
+      if (text === "interrupt!") {
+        yield { type: "tool_call", call: { id: "c5", name: "shell_interrupt", args: {} } };
         return;
       }
       if (text.startsWith("install: ")) {

@@ -5,7 +5,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { exec as cpExec } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -29,6 +29,7 @@ const GOOD = "@alice/ui-good";
 
 let home: string;
 let scratch: string;
+let sysenv: string;
 let kernel: Kernel;
 let base: string;
 let door: Server;
@@ -67,6 +68,7 @@ test("composeUi: a package without ui is skipped; bad declarations are refused b
   assert.equal(ext.style, "index.css");
   assert.deepEqual(ext.dock, [{ id: "todo", label: "Todo", order: 100 }], "only validated fields cross, with the default order");
   assert.deepEqual(ext.commands, ["plan", "mark"], "commands are listed by verb");
+  assert.deepEqual(ext.streams, [], "nothing here streams");
   assert.deepEqual(ext.panel, []);
   const why = Object.fromEntries(refused.map((r) => [r.package, r.message]));
   assert.match(why["@t/bad-dir"], /dir "\.\.\/elsewhere" leaves the package/);
@@ -100,6 +102,19 @@ test("composeUi: the first package to claim a shared slot id keeps it; panel ids
   assert.deepEqual(asAdmin.extensions[0].hidden, []);
   assert.deepEqual(asAdmin.extensions[1].places.map((e) => e.id), ["market"]);
   assert.equal(asAdmin.refused.length, 1, "a refusal does not depend on the role");
+});
+
+test("composeUi: a streaming verb is listed in streams, never in commands, and follows the role like any other", () => {
+  const streamer = pkg("@t/streamer", { commands: [{ verb: "plain", export: "a" }, { verb: "tail", export: "b", stream: true }, { verb: "watch", export: "c", stream: true, role: "admin" }] });
+  const bad = pkg("@t/bad-stream", { commands: [{ verb: "tail", export: "b", stream: "yes" as never }] });
+  const asUser = composeUi([streamer, bad], "user", scratch);
+  assert.deepEqual(asUser.extensions.map((e) => e.package), ["@t/streamer"]);
+  assert.deepEqual(asUser.extensions[0].commands, ["plain"], "a streaming verb is not a command");
+  assert.deepEqual(asUser.extensions[0].streams, ["tail"], "and the admin-only one is not listed for a user");
+  assert.deepEqual(asUser.refused, [{ package: "@t/bad-stream", message: 'command "tail" stream must be true or false' }]);
+  const asAdmin = composeUi([streamer, bad], "admin", scratch);
+  assert.deepEqual(asAdmin.extensions[0].commands, ["plain"]);
+  assert.deepEqual(asAdmin.extensions[0].streams, ["tail", "watch"]);
 });
 
 // ---- through the door ----
@@ -136,6 +151,29 @@ async function post(cookie: string, path: string, body: unknown, headers: Record
   return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 }
 
+/** One Server-Sent Events stream, read as `{ event, data }` blocks the way the page's EventSource does. */
+async function* frames(cookie: string, path: string, signal?: AbortSignal): AsyncGenerator<{ event: string; data: unknown }> {
+  const res = await fetch(`${base}${path}`, { headers: { cookie }, signal });
+  assert.equal(res.status, 200, `stream ${path}: ${res.status}`);
+  assert.equal(res.headers.get("content-type"), "text/event-stream");
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buf += decoder.decode(value, { stream: true });
+    let at: number;
+    while ((at = buf.indexOf("\n\n")) >= 0) {
+      const block = buf.slice(0, at);
+      buf = buf.slice(at + 2);
+      const event = /^event: (.*)$/m.exec(block)?.[1];
+      const data = /^data: (.*)$/m.exec(block)?.[1];
+      if (event && data) yield { event, data: JSON.parse(data) };
+    }
+  }
+}
+
 async function ui(cookie: string, user = "alice"): Promise<{ extensions: UiExtension[]; refused: { package: string; message: string }[] }> {
   const res = await api(cookie, `/${user}/api/ui`);
   assert.equal(res.status, 200);
@@ -149,6 +187,7 @@ function listen(server: Server, where: string | number): Promise<void> {
 before(async () => {
   home = mkdtempSync(join(tmpdir(), "thetis-ui-"));
   scratch = join(home, "scratch");
+  sysenv = join(home, "sysenv");
   const sys = join(home, "system-packages");
   mkdirSync(sys);
   for (const name of ["harness-core", "tool-exec"]) symlinkSync(resolve(PROJECT, "packages", name), join(sys, name));
@@ -189,7 +228,7 @@ before(async () => {
   for (const id of PEOPLE) {
     const us = kernel.userspaces.pathFor(id);
     const client = clientFromRpc(rpcFor(us));
-    const env = { ...envAt(join(home, "sysenv")), cwd: us.home, root: us.root, store: us.store, kernel: client };
+  const env = { ...envAt(sysenv), cwd: us.home, root: us.root, store: us.store, kernel: client };
     const server = createGateway(client, new GatewayStore(join(home, "store", id)), { assets, log, env, user: id, base: `/${id}`, commandTimeoutMs: 300 });
     sockets[id] = join(socketsDir, `${id}.sock`);
     await listen(server, sockets[id]);
@@ -229,6 +268,7 @@ test("api/ui: empty before, lists ui-good after install; ui-bad and ui-dup are r
   assert.deepEqual(good.chips, [{ id: "good", order: 100 }]);
   assert.deepEqual(good.panel, [], "the admin-only panel entry is absent for alice");
   assert.deepEqual(good.commands, ["echo", "slow", "boom", "nofn"], "verbs only; the admin-only one is not listed for alice");
+  assert.deepEqual(good.streams, ["ticks", "forever", "erupt"], "the streaming verbs are their own list; the admin-only one is not in it");
   assert.deepEqual(refused.map((r) => r.package), ["@alice/ui-bad", "@alice/ui-dup"]);
   assert.match(refused[0].message, /entry "\.\.\/index\.js" is not a file inside "ui"/);
   assert.equal(refused[1].message, `dock entry "good" is already claimed by ${GOOD}`);
@@ -296,6 +336,66 @@ test("commands: the checks in order, then the export runs as the person with the
   const nofn = await post(alice, `${path}/nofn`, {});
   assert.equal(nofn.status, 500);
   assert.match(String(nofn.body.error), /does not export a function named "NOT_A_FUNCTION"/);
+});
+
+test("stream: a streaming verb yields its items and ends; a throw becomes an error event", async () => {
+  const alice = await cookieFor("alice", "wonderland");
+  const { id: session } = (await (await api(alice, "/alice/api/sessions", { method: "POST" })).json()) as { id: string };
+  const args = encodeURIComponent(JSON.stringify({ name: "x" }));
+  const ticks: { event: string; data: unknown }[] = [];
+  for await (const f of frames(alice, `/alice/api/ext/${GOOD}/ticks/stream?session=${session}&args=${args}`)) ticks.push(f);
+  assert.deepEqual(ticks.map((f) => f.event), ["item", "item", "item", "end"]);
+  assert.deepEqual(ticks.map((f) => f.data), [{ n: 1, name: "x", session }, { n: 2, name: "x", session }, { n: 3, name: "x", session }, {}]);
+  const bare: { event: string; data: unknown }[] = [];
+  for await (const f of frames(alice, `/alice/api/ext/${GOOD}/ticks/stream`)) bare.push(f);
+  assert.deepEqual(bare[0].data, { n: 1, name: null, session: null }, "no session named, none passed");
+  const burst: { event: string; data: unknown }[] = [];
+  for await (const f of frames(alice, `/alice/api/ext/${GOOD}/erupt/stream`)) burst.push(f);
+  assert.deepEqual(burst.map((f) => f.event), ["item", "error"]);
+  assert.deepEqual(burst[1].data, { message: "burst" });
+});
+
+test("stream: the browser letting go aborts the export's signal and closes its iterator", async () => {
+  const alice = await cookieFor("alice", "wonderland");
+  const marker = join(sysenv, "ui-good-abort.txt");
+  rmSync(marker, { force: true });
+  const control = new AbortController();
+  let seen = 0;
+  await assert.rejects(async () => {
+    for await (const f of frames(alice, `/alice/api/ext/${GOOD}/forever/stream`, control.signal)) if (f.event === "item" && ++seen === 2) control.abort();
+  });
+  assert.equal(seen, 2, "it kept yielding until the client stopped reading");
+  for (let i = 0; i < 200 && !existsSync(marker); i++) await new Promise((done) => setTimeout(done, 20));
+  assert.equal(readFileSync(marker, "utf8"), "true", "the export's finally ran and env.signal was aborted");
+});
+
+test("stream: the checks of a command, and the two that keep the two seams apart", async () => {
+  const alice = await cookieFor("alice", "wonderland");
+  const bob = await cookieFor("bob", "builder");
+  const { id: bobs } = (await (await api(bob, "/bob/api/sessions", { method: "POST" })).json()) as { id: string };
+  const path = `/alice/api/ext/${GOOD}`;
+  const get = async (p: string): Promise<{ status: number; error?: string }> => {
+    const res = await api(alice, p);
+    return { status: res.status, ...((await res.json()) as { error?: string }) };
+  };
+  assert.equal((await get(`${path}/nope/stream`)).status, 404, "an undeclared verb");
+  assert.equal((await get(`/alice/api/ext/@alice/plain/ticks/stream`)).status, 404, "a package without ui");
+  const forbidden = await get(`${path}/admin-ticks/stream`);
+  assert.equal(forbidden.status, 403);
+  assert.match(String(forbidden.error), /admin/);
+  const notAStream = await get(`${path}/echo/stream`);
+  assert.equal(notAStream.status, 400);
+  assert.match(String(notAStream.error), /"echo" does not stream/);
+  const notACommand = await post(alice, `${path}/ticks`, {});
+  assert.equal(notACommand.status, 400);
+  assert.match(String(notACommand.body.error), /"ticks" streams; subscribe to it/);
+  assert.equal((await get(`${path}/ticks/stream?session=${bobs}`)).status, 404, "another person's session");
+  assert.equal((await get(`${path}/ticks/stream?session=s_deadbeef`)).status, 404, "a session that does not exist");
+  assert.equal((await get(`${path}/ticks/stream?args=%5B1%5D`)).status, 400, "args that are not an object");
+  assert.equal((await get(`${path}/ticks/stream?args=not-json`)).status, 400, "args that are not JSON");
+  assert.equal((await get(`${path}/ticks/stream?args=${encodeURIComponent(JSON.stringify({ pad: "x".repeat(4096) }))}`)).status, 400, "args over 4 KiB");
+  assert.equal((await fetch(`${base}${path}/ticks/stream`)).status, 401, "the route needs the cookie");
+  assert.equal((await api(bob, `${path}/ticks/stream`)).status, 401, "bob's cookie at alice's gateway");
 });
 
 test("api/ui drops a package after it is removed", async () => {

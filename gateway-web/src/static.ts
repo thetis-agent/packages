@@ -15,7 +15,15 @@ export const TYPES: Record<string, string> = {
   ".md": "text/markdown; charset=utf-8",
 };
 
-const CSP = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'";
+/**
+ * The page's policy. `style-src` carries a nonce because a terminal emulator writes its own stylesheet at
+ * runtime: 55 KiB of palette, font metrics and cursor rules, generated per terminal from the theme, which
+ * cannot be shipped as a file. The nonce is minted for each response and travels in a meta tag, so only
+ * the code this response served can stamp it; CSS from anywhere else is still refused, which is what
+ * `'unsafe-inline'` would have given up. A response with no nonce keeps the old policy exactly.
+ */
+const csp = (nonce: string): string =>
+  `default-src 'self'; img-src 'self' data:; style-src 'self'${nonce ? ` 'nonce-${nonce}'` : ""}; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'`;
 
 /** True when `file` is strictly inside `root`, by path arithmetic; symlinks are not followed. */
 export function within(root: string, file: string): boolean {
@@ -28,7 +36,8 @@ export function serveFile(res: ServerResponse, root: string, name: string, extra
   if (!within(root, file) || !existsSync(file) || !statSync(file).isFile()) throw new HttpError(404, "not found");
   const type = TYPES[extname(file)];
   if (!type) throw new HttpError(404, "not found");
-  if (type.startsWith("text/html")) res.setHeader("Content-Security-Policy", CSP);
+  // The policy and the page read the nonce from one place, so they can never disagree about it.
+  if (type.startsWith("text/html")) res.setHeader("Content-Security-Policy", csp(fill["{{nonce}}"] ?? ""));
   res.writeHead(200, { "Content-Type": type, "Cache-Control": "no-cache", ...extra });
   let body: Buffer | string = readFileSync(file);
   if (Object.keys(fill).length) {

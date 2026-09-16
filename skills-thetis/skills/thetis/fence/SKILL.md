@@ -1,6 +1,6 @@
 ---
 name: fence
-description: The Thetis fence around your userspace. What bubblewrap binds read-only and read-write, the hidden paths, the environment variables the agent gets, the mounts an admin grants, the network modes egress, none, and host, the cgroup limits on memory, processes, and CPU, the request timeout, the exec output cap, and what fails inside the fence and why. Use when you ask "why is this path read-only", "why can I not see /home or $THETIS_HOME", "can I reach the network", "why did npm install fail", "why was my process killed", "what is THETIS_MOUNTS", or "what can package code reach".
+description: The Thetis fence around your userspace. What bubblewrap binds read-only and read-write, the hidden paths, the environment variables the agent gets, the mounts an admin grants, the network modes egress, none, and host, the cgroup limits on memory, processes, and CPU, the request timeout, the cap on what one shell answer carries, and what fails inside the fence and why. Use when you ask "why is this path read-only", "why can I not see /home or $THETIS_HOME", "can I reach the network", "why did npm install fail", "why was my process killed", "what is THETIS_MOUNTS", or "what can package code reach".
 metadata:
   title: The fence
   tags: [fence, sandbox, bwrap, bubblewrap, mounts, readonly, hidden, egress, network, limits, cgroup, timeout, environment, isolation, security]
@@ -80,7 +80,7 @@ A service binds a unix socket under `<userspace>/run`, never a port. The door on
 
 Each fence request has a timer of `requestTimeoutMs` milliseconds, default 600000. On timeout the request fails with the code `fence`, and the agent is closed. The next request opens a new agent. A tool or a subagent must end inside that time.
 
-`exec` has a default timeout of 120000 milliseconds. Its output is capped at 30,000 characters per stream.
+`shell` waits 120000 milliseconds by default, and does not kill the command when that runs out: the command keeps running in its session and `shell_read` collects the rest. What one answer carries is capped at 30,000 characters, head and tail kept.
 
 ## What fails and why
 

@@ -1,0 +1,146 @@
+{
+  "name": "@thetis/terminal",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Long-lived shell sessions in your own workspace: five tools for the model, and the shelf that shows them live, so you and the agent stand at the same prompt.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "thetis": {
+    "type": "tool",
+    "service": {
+      "export": "startTerminals"
+    },
+    "tools": [
+      {
+        "name": "shell",
+        "description": "Run a command in this conversation's shell session and wait for it to finish. The session keeps its working directory, environment and shell state between calls, so a cd, a virtualenv or an ssh-agent carries over; the first call opens it. Returns the exit status, what the command printed, and a note when the working directory moved. A command that outlives the wait is NOT killed: the answer says it is still running, and shell_read collects the rest. Use background for something long whose output you want later. This session is shared: the person can watch it and type in it in their browser. Reading and changing files is cheaper and safer with the file tools than with cat, sed or heredocs here.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "cmd": {
+              "type": "string",
+              "description": "The command line to run."
+            },
+            "session": {
+              "type": "string",
+              "description": "Which session, from shell_sessions. Default: this conversation's own."
+            },
+            "cwd": {
+              "type": "string",
+              "description": "Run it in this directory instead, relative to home unless absolute. The session stays where it was."
+            },
+            "timeoutMs": {
+              "type": "number",
+              "description": "How long to wait before answering. Default 120000. The command keeps running after it."
+            },
+            "background": {
+              "type": "boolean",
+              "description": "Start it and answer at once. For a build, a test suite or a server whose output you want later."
+            }
+          },
+          "required": ["cmd"]
+        },
+        "export": "shell"
+      },
+      {
+        "name": "shell_read",
+        "description": "Read what a shell session has printed since your last read, without running anything. Use it to collect the output of a command that outlived its wait or was backgrounded; it says whether that command has finished and with what status. It also tells you when the person typed in the session themselves.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "session": {
+              "type": "string",
+              "description": "Which session. Default: this conversation's own."
+            },
+            "waitMs": {
+              "type": "number",
+              "description": "Wait this long for something to arrive before answering. Default 0."
+            }
+          }
+        },
+        "export": "shellRead"
+      },
+      {
+        "name": "shell_send",
+        "description": "Write raw input to a shell session and return at once. This is how to answer what a running command asked for - a passphrase, a y, a commit message, a choice - and how to drive a REPL. shell cannot do it, because it waits for the command to end and a program at a prompt never ends. Returns whatever the session printed in the moment after.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "description": "The text to write. Empty with submit sends a bare newline."
+            },
+            "session": {
+              "type": "string",
+              "description": "Which session. Default: this conversation's own."
+            },
+            "submit": {
+              "type": "boolean",
+              "description": "Append a newline, as pressing Enter would. Default true."
+            }
+          },
+          "required": ["text"]
+        },
+        "export": "shellSend"
+      },
+      {
+        "name": "shell_interrupt",
+        "description": "Interrupt what a shell session is running and leave the session alive: the deliberate Ctrl-C. Use it to stop a tail -f, end a test run whose first failure already told you what you needed, or unstick a command waiting for input you cannot give.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "session": {
+              "type": "string",
+              "description": "Which session. Default: this conversation's own."
+            }
+          }
+        },
+        "export": "shellInterrupt"
+      },
+      {
+        "name": "shell_sessions",
+        "description": "List this conversation's shell sessions: the name, where each one is, what it is busy with and for how long, and whether the person has the terminal open in their browser. Close one with close.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "close": {
+              "type": "string",
+              "description": "Close this session instead of listing them."
+            }
+          }
+        },
+        "export": "shellSessions"
+      }
+    ],
+    "ui": {
+      "dir": "ui",
+      "entry": "index.js",
+      "style": "index.css",
+      "shelf": [
+        {
+          "id": "terminal",
+          "label": "Terminals",
+          "hint": "The shells this workspace has open"
+        }
+      ],
+      "statusbar": [{ "id": "terminal", "order": 100 }],
+      "commands": [
+        { "verb": "sessions", "export": "uiSessions", "label": "List the shell sessions" },
+        { "verb": "open", "export": "uiOpen", "label": "Open a shell session" },
+        { "verb": "write", "export": "uiWrite", "label": "Type into a session" },
+        { "verb": "interrupt", "export": "uiInterrupt", "label": "Interrupt what a session is running" },
+        { "verb": "resize", "export": "uiResize", "label": "Tell a session its size" },
+        { "verb": "close", "export": "uiClose", "label": "Close a session" },
+        { "verb": "rename", "export": "uiRename", "label": "Name a session" },
+        { "verb": "watch", "export": "uiWatch", "label": "Watch every session", "stream": true }
+      ]
+    },
+    "bench": {
+      "suites": ["assembly-cost@1", "tool-recall@1"],
+      "peerGroup": "tools"
+    }
+  }
+}

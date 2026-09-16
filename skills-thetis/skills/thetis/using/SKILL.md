@@ -1,9 +1,9 @@
 ---
 name: using
-description: How to work inside Thetis day to day. Sessions and turns, subagents with spawn_subagent, the exec tool, the six file tools read_path, edit_path, write_path, search_files, find_files, and get_directory with their exact arguments and bounds, the plan tools todo_write, todo_add, todo_mark, todo_order, and todo_read, ask_user, the home directory layout, and the standing notes in THETIS.md. Use when you ask "how do I read or edit a file", "how do I run a command", "how do I hand work to a subagent", "where do my files live", "how do I keep a plan", or "how do I ask the person a question".
+description: How to work inside Thetis day to day. Sessions and turns, subagents with spawn_subagent, the shell session tools shell, shell_read, shell_send, shell_interrupt and shell_sessions, the six file tools read_path, edit_path, write_path, search_files, find_files, and get_directory with their exact arguments and bounds, the plan tools todo_write, todo_add, todo_mark, todo_order, and todo_read, ask_user, the home directory layout, and the standing notes in THETIS.md. Use when you ask "how do I read or edit a file", "how do I run a command", "how do I answer a command that is asking me something", "how do I hand work to a subagent", "where do my files live", "how do I keep a plan", or "how do I ask the person a question".
 metadata:
   title: Using Thetis
-  tags: [sessions, turns, subagents, exec, files, read, edit, write, search, plan, todo, ask, home, notes, tools]
+  tags: [sessions, turns, subagents, shell, terminal, files, read, edit, write, search, plan, todo, ask, home, notes, tools]
   related: [thetis/packages, thetis/fence, thetis/troubleshooting]
   version: 1
 ---
@@ -49,11 +49,23 @@ The subagent turn runs inside your tool call. Your turn waits. The default reque
 
 Package code can do the same with `env.kernel.sessions.create(parentId)` and `env.kernel.sessions.ask(childId, text)`.
 
-## The exec tool
+## The shell tools
 
-`exec` runs a command with `/bin/bash` in your home. Arguments: `cmd` (required), `cwd` (relative to home), `timeoutMs` (default 120000). The reply is `exit <code>`, then `stdout:` and `stderr:` blocks when they are not empty. Output is capped at 30,000 characters per stream.
+`@thetis/terminal` gives you a shell session that stays open. The session keeps its working directory and its shell state between calls, so a `cd`, a virtualenv or an `ssh-agent` carries over. Your conversation gets its own session on the first command. The person can watch that session in their browser and type in it, and you are told when they do.
 
-Use `exec` to run programs and tests. Use the file tools to read, edit, search, and list files. The file tools cost fewer tokens, and they say when a result is partial.
+| Tool | What it does |
+|---|---|
+| `shell` | Runs a command and waits. Arguments: `cmd` (required), `session`, `cwd`, `timeoutMs` (default 120000), `background`. The reply is the exit status, the output, then any notes. |
+| `shell_read` | What the session printed since your last read, and whether the command has finished. |
+| `shell_send` | Raw input, for a command that is asking you something: a passphrase, a `y`, a commit message, a REPL. |
+| `shell_interrupt` | Ctrl-C. Ends the command, keeps the session. |
+| `shell_sessions` | This conversation's sessions, and `close` to end one. |
+
+A command that outlives its wait **is not killed**. The answer says it is still running; collect the rest with `shell_read`, or pass `background: true` when you mean to come back for it later. A command that asks a question never ends by itself: answer it with `shell_send`, or stop it with `shell_interrupt`.
+
+Use the shell to run programs and tests. Use the file tools to read, edit, search, and list files. The file tools cost fewer tokens, and they say when a result is partial.
+
+`exec` was the tool for this until 2026-09-16. It is gone: it started in the home with a fresh shell every call, it had no stdin, and it killed the command it was waiting for.
 
 ## The file tools
 
@@ -115,6 +127,7 @@ Keep `THETIS.md` stable inside a session. A change to it changes the system prom
 - docs/03-fence.md
 - docs/06-sessions-and-users.md
 - docs/20-tools.md
+- packages/terminal/index.js
 - packages/tool-exec/src/index.ts
 - packages/tools-files/package.json
 - packages/tools-plan/package.json

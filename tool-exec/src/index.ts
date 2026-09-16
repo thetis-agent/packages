@@ -1,19 +1,13 @@
-// "Run code in my userspace": the tool package that lets the model build, test, fork and install
-// packages. Reading, editing and searching files is @thetis/tools-files. Everything here executes inside the fence via the agent's env.
+// The tool package that lets the model install, fork, delete and replace its own packages, and spawn a
+// subagent in the same space. Running commands is @thetis/terminal, which holds a shell session the
+// person can see; reading, editing and searching files is @thetis/tools-files. Everything here acts
+// inside the fence through the agent's env.
 import { resolve } from "node:path";
 import type { Tool, ToolEnv } from "@thetis/contracts";
 import { forkPackage as copyFork, forkVersion } from "@thetis/lib/pkg-fs";
 
 /** One path segment, as the kernel accepts in a package name. Keeps `as` from leaving packages/. */
 const DIR_NAME = /^[a-z0-9._-]+$/;
-
-export const exec: Tool = async (args, env) => {
-  const r = await env.exec(String(args.cmd), { cwd: args.cwd ? String(args.cwd) : undefined, timeoutMs: args.timeoutMs ? Number(args.timeoutMs) : undefined });
-  const parts = [`exit ${r.code}`];
-  if (r.stdout) parts.push(`stdout:\n${r.stdout}`);
-  if (r.stderr) parts.push(`stderr:\n${r.stderr}`);
-  return parts.join("\n");
-};
 
 export const installPackage: Tool = async (args, env) => {
   const info = await env.kernel.packages.install(String(args.source));

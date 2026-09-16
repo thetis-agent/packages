@@ -33,23 +33,27 @@ async function collect(events: AsyncIterable<TurnEvent>) {
   return { all, text, errors };
 }
 
-before(() => {
+before(async () => {
   home = mkdtempSync(join(tmpdir(), "thetis-e2e-"));
   const sys = join(home, "system-packages");
   mkdirSync(sys);
-  for (const name of ["harness-core", "tool-exec", "prompt-cache"]) symlinkSync(resolve(PROJECT, "packages", name), join(sys, name));
+  for (const name of ["harness-core", "tool-exec", "prompt-cache", "terminal"]) symlinkSync(resolve(PROJECT, "packages", name), join(sys, name));
   symlinkSync(join(FIXTURES, "provider-echo"), join(sys, "provider-echo"));
   const config = defaultConfig(join(home, "data"), PROJECT);
   config.systemPackagesDir = sys;
   config.model = "echo";
   config.fence.sandbox = SANDBOX;
   config.fence.readOnly.push(sys, FIXTURES);
-  config.systemPackages = { "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache"], _system: ["@thetis/provider-echo"] };
+  config.systemPackages = { "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache", "@thetis/terminal"], _system: ["@thetis/provider-echo"] };
   config.packages = { "@thetis/provider-echo": { tag: "t1" }, "@thetis/prompt-cache": { explicitVendors: ["echo"], ttl: "1h" } };
   config.requestTimeoutMs = 60_000;
   kernel = createKernel(config, (c) => c.bind(T.log, () => (line: string) => process.env.THETIS_TEST_VERBOSE && console.error(line)));
   kernel.users.create("alice");
   kernel.users.create("bob");
+  // `shell` is a client of a service: the session host listens on a socket inside the userspace, and
+  // nothing answers it until the supervisor is armed. Arming it here starts that service in every fence
+  // this file opens, which is what the real system does at boot.
+  await kernel.services.boot();
 });
 
 after(async () => {
@@ -63,7 +67,7 @@ test("first turn seeds the userspace and round-trips through the provider", asyn
   assert.deepEqual(r.errors, []);
   assert.equal(r.text, "echo: hello (t1)");
   const names = kernel.packages.installed(kernel.userspaces.pathFor("alice")).map((p) => p.name);
-  assert.deepEqual(names, ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache"]);
+  assert.deepEqual(names, ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache", "@thetis/terminal"]);
   assert.equal(kernel.sessions.inspect("alice", s.id).conversation.length, 2);
 });
 
@@ -87,12 +91,14 @@ test("harness steps build the system prompt and attach tools", async () => {
   const sys = await collect(kernel.sessions.send("alice", s.id, "system?"));
   assert.match(sys.text, /You are Thetis/);
   assert.match(sys.text, /@thetis\/tool-exec@0\.1\.0 \(tool\): Tools for the model/);
+  assert.match(sys.text, /@thetis\/terminal@0\.1\.0 \(tool\): Long-lived shell sessions/);
   const tools = await collect(kernel.sessions.send("alice", s.id, "tools?"));
-  for (const t of ["exec", "install_package", "spawn_subagent"]) assert.ok(tools.text.split(",").includes(t), `missing tool ${t}`);
+  for (const t of ["shell", "install_package", "spawn_subagent"]) assert.ok(tools.text.split(",").includes(t), `missing tool ${t}`);
 });
 
 test("tool loop: the model runs a command inside the fence and sees the result", async () => {
   const s = kernel.sessions.create("alice");
+  // The first `shell` call opens this conversation's session, whose pty starts in the person's home.
   const r = await collect(kernel.sessions.send("alice", s.id, "run: echo hi-from-fence && pwd"));
   assert.deepEqual(r.errors, []);
   const call = r.all.find((e) => e.type === "tool.call");
@@ -228,16 +234,28 @@ test("cancel: a running turn stops mid-stream, keeps the partial text, and the s
   assert.deepEqual(again.errors, []);
 });
 
-test("cancel: a running exec tool is killed and the turn ends", async () => {
+test("cancel: the turn ends at once, and the command it started keeps running in the shell session", async () => {
   const s = kernel.sessions.create("alice");
+  // Open this conversation's session first, so the cancel below lands on a shell that is already at a
+  // prompt and the sleep is certain to have been submitted.
+  assert.match((await collect(kernel.sessions.send("alice", s.id, "run: echo ready"))).text, /ready/);
   const events = kernel.sessions.send("alice", s.id, "run: sleep 30; echo late");
   setTimeout(() => kernel.sessions.cancel("alice", s.id), 500);
   const started = Date.now();
   const r = await collect(events);
   assert.ok(Date.now() - started < 10_000, "the turn did not wait for the sleep");
   assert.equal((r.all.find((e) => e.type === "error") as { code?: string })?.code, "cancelled");
+  // `shell` is not `exec`. Cancelling a turn abandons the wait; it does not reach into the pty and kill
+  // what the shell is running, and the session is shared with the person, so killing it would be a
+  // surprise rather than a cleanup. The proof that the process survived is the next call meeting it.
+  const busy = await collect(kernel.sessions.send("alice", s.id, "run: echo alive"));
+  assert.match(busy.text, /the session is busy: you are running "sleep 30; echo late"/);
+  // The refusal names the repair, and it works: Ctrl-C ends the command and leaves the session alive.
+  const stopped = await collect(kernel.sessions.send("alice", s.id, "interrupt!"));
+  assert.match(stopped.text, /exit 130/);
   const again = await collect(kernel.sessions.send("alice", s.id, "run: echo alive"));
   assert.match(again.text, /alive/);
+  assert.doesNotMatch(again.text, /late/, "the interrupted list never reached its second command");
 });
 
 test("rpc: identity is the fence; only the system fence logs people in; a token resolves only for its own user", async () => {

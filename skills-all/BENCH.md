@@ -12,7 +12,7 @@ Suites: [`assembly-cost@1`](#suite-assembly-cost-v1), [`skill-recall@1`](#suite-
 What a package costs the prompt before anything is retrieved: bytes by segment, how much of the prefix survives a turn, and how long assembly takes. No gold, no corpus, no adapter — any package with a step or a tool can opt in.
 
 7 tasks (2 of them controls), probe A.
-Generated 2026-09-16T03:09:39.212Z. Digest `sha256:ba8a447a4ba6…`.
+Generated 2026-09-16T13:27:55.874Z. Digest `sha256:bb1a81404b9e…`.
 
 ### Compared
 
@@ -24,7 +24,7 @@ Only numbers every arm can produce appear here, and only those on which the arms
 | **thetis-skills-all** | 4617 ±0 | 2 ±0 | 4722.7 ±20.7 | 4871.4 ±40.7 | 0 ±0 | 16 ±0 |
 | thetis-skills-hybrid | 4670 ±0 | 808 ±0 | 5581.7 ±19.9 | 5730.4 ±42.4 | 1 ±0 | 16 ±0 |
 | thetis-skills-l1 | 4639 ±0 | 517 ±0 | 5259.7 ±20.9 | 5408.4 ±40 | 1 ±0 | 16 ±0 |
-| all | 6299 ±0 | 23856 ±0 | 30258.7 ±21.6 | 30407.4 ±41.7 | 30 ±0 | 28 ±0 |
+| all | 6598 ±0 | 27378 ±0 | 34079.7 ±21.6 | 34228.4 ±41.7 | 35 ±0 | 28 ±0 |
 
 ![assembly-cost@1 comparison](bench/assembly-cost-v1/chart.svg)
 
@@ -37,7 +37,7 @@ Paired per task, so the constant cost of the harness cancels. `w/t/l` counts the
 | thetis-skills-all | 293 [293, 293] 7/0/0 | 0 [0, 0] 0/7/0 | 293 [293, 293] 7/0/0 | 293 [293, 293] 7/0/0 | 0 [0, 0] 0/7/0 | 6 [6, 6] 7/0/0 |
 | thetis-skills-hybrid | 346 [346, 346] 7/0/0 | 806 [806, 806] 7/0/0 | 1152 [1152, 1152] 7/0/0 | 1152 [1152, 1152] 7/0/0 | 1 [1, 1] 7/0/0 | 6 [6, 6] 7/0/0 |
 | thetis-skills-l1 | 315 [315, 315] 7/0/0 | 515 [515, 515] 7/0/0 | 830 [830, 830] 7/0/0 | 830 [830, 830] 7/0/0 | 1 [1, 1] 7/0/0 | 6 [6, 6] 7/0/0 |
-| all | 1975 [1975, 1975] 7/0/0 | 23854 [23854, 23854] 7/0/0 | 25829 [25829, 25829] 7/0/0 | 25829 [25829, 25829] 7/0/0 | 30 [30, 30] 7/0/0 | 18 [18, 18] 7/0/0 |
+| all | 2274 [2274, 2274] 7/0/0 | 27376 [27376, 27376] 7/0/0 | 29650 [29650, 29650] 7/0/0 | 29650 [29650, 29650] 7/0/0 | 35 [35, 35] 7/0/0 | 18 [18, 18] 7/0/0 |
 
 ### Assembly latency
 
@@ -69,9 +69,9 @@ Two reports are comparable only when these match.
 |---|---|
 | suite | assembly-cost@1 (sha256:9efc984d505f…) |
 | corpus | none |
-| arms | none; thetis-skills-all (@thetis/skills-all@0.1.0); thetis-skills-hybrid (@thetis/skills-hybrid@0.1.0); thetis-skills-l1 (@thetis/skills-l1@0.1.0); all (@thetis/exa@0.1.0, @thetis/skills-all@0.1.0, @thetis/skills-hybrid@0.1.0, @thetis/skills-l1@0.1.0, @thetis/tool-exec@0.1.0, @thetis/tools-files@0.1.0, @thetis/tools-plan@0.3.0) |
+| arms | none; thetis-skills-all (@thetis/skills-all@0.1.0); thetis-skills-hybrid (@thetis/skills-hybrid@0.1.0); thetis-skills-l1 (@thetis/skills-l1@0.1.0); all (@thetis/exa@0.1.0, @thetis/skills-all@0.1.0, @thetis/skills-hybrid@0.1.0, @thetis/skills-l1@0.1.0, @thetis/terminal@0.1.0, @thetis/tool-exec@0.1.0, @thetis/tools-files@0.1.0, @thetis/tools-plan@0.3.0) |
 | model | none — this probe needs no model |
-| sandbox | auto |
+| sandbox | none |
 | scorer | @thetis/bench@0.3.0 |
 
 ### Notes
