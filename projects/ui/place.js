@@ -1,5 +1,5 @@
 /* The project page, opened from the switcher with `{ id }` for a project's settings or `{}` for a new
- * one. It asks `get` once, keeps a draft (name, directories, switched-off tools, instructions) and
+ * one. It asks `get` once, keeps a draft (name, directories, switched-off tools and skills, instructions) and
  * redraws the body from the draft after every edit; nothing is sent until Save. Save calls `save`,
  * toasts, and refreshes the switcher; for a new project it also chooses it, so the sidebar shows the
  * conversations that join it. Delete sits behind the shell's confirm popover; after it the page becomes
@@ -13,8 +13,8 @@ export function openPlace(ext, state, root, params) {
   const { button, field, section, confirm } = ext.ui;
   let alive = true;
   let id = typeof params.id === "string" ? params.id : null;
-  let draft = null; // { name, directories, disable: Set, instructions }
-  let facts = null; // { mounts, tools, conversations }
+  let draft = null; // { name, directories, disable: Set, disableSkills: Set, instructions }
+  let facts = null; // { mounts, tools, skills, conversations }
   let saving = false;
 
   root.append(el("div", { class: "pj-place" }, el("p", { class: "panel-empty" }, "Loading…")));
@@ -29,9 +29,10 @@ export function openPlace(ext, state, root, params) {
         name: project?.name ?? "",
         directories: [...(project?.directories ?? [])],
         disable: new Set(project?.tools?.disable ?? []),
+        disableSkills: new Set(project?.skills?.disable ?? []),
         instructions: typeof data.instructions === "string" ? data.instructions : "",
       };
-      facts = { mounts: Array.isArray(data.mounts) ? data.mounts : [], tools: Array.isArray(data.tools) ? data.tools : [], conversations: data.conversations ?? 0 };
+      facts = { mounts: Array.isArray(data.mounts) ? data.mounts : [], tools: Array.isArray(data.tools) ? data.tools : [], skills: Array.isArray(data.skills) ? data.skills : [], conversations: data.conversations ?? 0 };
       draw();
     } catch (err) {
       if (!alive) return;
@@ -70,7 +71,7 @@ export function openPlace(ext, state, root, params) {
     saving = true;
     anchor.disabled = true;
     try {
-      const out = await ext.request("save", { session: ext.conversation.current ?? undefined, args: { id: id ?? undefined, name, directories: draft.directories, disable: [...draft.disable], instructions: draft.instructions } });
+      const out = await ext.request("save", { session: ext.conversation.current ?? undefined, args: { id: id ?? undefined, name, directories: draft.directories, disable: [...draft.disable], disableSkills: [...draft.disableSkills], instructions: draft.instructions } });
       const saved = out?.data?.project;
       const created = !id;
       if (saved?.id) id = saved.id;
@@ -131,7 +132,7 @@ export function openPlace(ext, state, root, params) {
         instructionsField(),
         conversationsSection(),
         toolsSection(ext, draft, facts.tools, draw),
-        skillsSection(ext),
+        skillsSection(ext, draft, facts.skills, draw),
         actions()
       )
     );

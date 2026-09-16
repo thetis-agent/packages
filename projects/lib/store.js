@@ -10,7 +10,10 @@ import { readdir, rm } from "node:fs/promises";
 import { isAbsolute, normalize, resolve } from "node:path";
 
 export const DIR = "projects";
-export const LIMITS = Object.freeze({ projects: 32, name: 80, directories: 64, disable: 256, toolName: 64, instructions: 32 * 1024 });
+export const LIMITS = Object.freeze({ projects: 32, name: 80, directories: 64, disable: 256, toolName: 64, skillId: 200, instructions: 32 * 1024 });
+
+/** A skill id as `@thetis/skills` defines it: up to three lowercase segments joined by `/`. */
+const SKILL_ID = /^[a-z0-9][a-z0-9-]{0,63}(\/[a-z0-9][a-z0-9-]{0,63}){0,2}$/;
 
 export const recordPath = (id) => `${DIR}/${id}.json`;
 export const instructionsPath = (id) => `${DIR}/${id}.md`;
@@ -143,10 +146,11 @@ export function checkDirectory(value) {
 }
 
 /**
- * Checks what `save` was given and returns the fields to store. Sizes are the limits above; directories
- * and tool names are deduplicated in order. An empty name is refused because the switcher shows it.
+ * Checks what `save` was given and returns the fields to store. Sizes are the limits above; directories,
+ * tool names and skill ids are deduplicated in order. An empty name is refused because the switcher shows
+ * it. `disable` holds tool names (`tools.disable`); `disableSkills` holds skill ids (`skills.disable`).
  */
-export function validateProject({ name, directories, disable, instructions } = {}) {
+export function validateProject({ name, directories, disable, disableSkills, instructions } = {}) {
   const cleanName = typeof name === "string" ? name.trim() : "";
   if (!cleanName) fail("A project needs a name.");
   if (cleanName.length > LIMITS.name) fail(`The name is over ${LIMITS.name} characters.`);
@@ -157,10 +161,14 @@ export function validateProject({ name, directories, disable, instructions } = {
   const tools = [...new Set(disable ?? [])];
   for (const t of tools) if (typeof t !== "string" || !t || t.length > LIMITS.toolName) fail("A tool name is a string of at most 64 characters.");
   if (tools.length > LIMITS.disable) fail(`At most ${LIMITS.disable} tools can be switched off.`);
+  if (disableSkills !== undefined && !Array.isArray(disableSkills)) fail("disableSkills must be a list of skill ids.");
+  const skills = [...new Set(disableSkills ?? [])];
+  for (const s of skills) if (typeof s !== "string" || s.length > LIMITS.skillId || !SKILL_ID.test(s)) fail("A skill id is lowercase words and dashes, up to three levels joined by /.");
+  if (skills.length > LIMITS.disable) fail(`At most ${LIMITS.disable} skills can be switched off.`);
   if (instructions !== undefined && typeof instructions !== "string") fail("instructions must be text.");
   const text = instructions ?? "";
   if (text.length > LIMITS.instructions) fail(`The instructions are over ${LIMITS.instructions} characters.`);
-  return { name: cleanName, directories: dirs, disable: tools, instructions: text };
+  return { name: cleanName, directories: dirs, disable: tools, disableSkills: skills, instructions: text };
 }
 
 /**
@@ -173,11 +181,11 @@ export async function saveProject(env, id, fields, { instructionsGiven = true } 
   if (id) {
     const before = await readProject(env, id);
     if (!before) fail(`No project ${id}.`);
-    record = { ...before, name: fields.name, directories: fields.directories, tools: { disable: fields.disable }, updatedAt: now };
+    record = { ...before, name: fields.name, directories: fields.directories, tools: { disable: fields.disable }, skills: { disable: fields.disableSkills ?? [] }, updatedAt: now };
   } else {
     const count = (await listProjects(env)).length;
     if (count >= LIMITS.projects) fail(`At most ${LIMITS.projects} projects; delete one first.`);
-    record = { id: newId(), name: fields.name, directories: fields.directories, tools: { disable: fields.disable }, skills: { disable: [] }, createdAt: now, updatedAt: now };
+    record = { id: newId(), name: fields.name, directories: fields.directories, tools: { disable: fields.disable }, skills: { disable: fields.disableSkills ?? [] }, createdAt: now, updatedAt: now };
   }
   await writeProject(env, record);
   if (instructionsGiven) await writeInstructions(env, record.id, fields.instructions);

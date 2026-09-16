@@ -397,3 +397,75 @@ name and the per-row link, and a place's head gained the drawer toggle for narro
 40. **Narrow**: at 700px with a place open, `.place-head .chat-menu` is visible and opens the drawer; `#menu`
     works inside the drawer; Escape closes the menu and leaves the place and the drawer; the veil closes the
     drawer.
+
+## The Skills dock and project switches (2026-09-16)
+
+`@thetis/ui-skills` adds the **Skills** dock; `@thetis/projects` gained a switch per skill. Use a home on
+its own port: `THETIS_HOME=.devhome7 node bin/thetis.js init`, `door.port` 8807,
+`packages["@thetis/gateway-login"].secure` false, `systemPackages["*"]` the default list plus
+`@thetis/skills`, `@thetis/skills-l1`, `@thetis/skills-thetis` and `@thetis/ui-skills` (skills-l1 is the
+loader here; the hybrid loader works the same way and adds a **Retrieved for this conversation** section),
+the OpenRouter key in the environment of `serve` (steps 43 and 47 send one message each), `users add dev
+--admin` with `devpass123`, `serve`. Run 2026-09-16: every step below passed; screenshots
+`.playwright-mcp/skills-dock-01` to `-09`; no console errors or warnings at any step.
+
+41. **The rail and the dock without a conversation**: sign in at `http://127.0.0.1:8807/login` at 1440px.
+    Expect `#rail .rail-btn[data-dock="@thetis/ui-skills#skills"]` after the Tools and Context buttons
+    (order 110), title "The skills this conversation can reach, and which are in force", and `head` holding
+    `link[href$="ext/@thetis/ui-skills/index.css"]`. Click it: `#dock.is-wide` shown, `.panel-title`
+    "Skills", `.panel-sub` "12 skills · no loader in force", one `POST api/ext/@thetis/ui-skills/skills`
+    without a session. In `.panel-body > .sk-dock` the sections `section.sk-section` in order `.sk-loader`
+    (`.sk-empty` "Open a conversation to see which loader is in force and what it put in the prompt."),
+    `.sk-universal` (`.section-note` "Declared universal; a loader puts these in force.", one
+    `button.sk-row[data-skill="thetis"]` with `code.sk-row-id`, `.sk-row-title` "Thetis", `.badge.is-ok`
+    "always", `.sk-row-pkg` "@thetis/skills-thetis", `.sk-row-brief`), `.sk-off` (`.sk-empty` "Nothing is
+    switched off by a project."), `.sk-catalogue` (`.section-note` "12 skills from 1 source",
+    `input.sk-search`, and 12 `.sk-row`s by id, `thetis` first, the eleven `thetis/<name>` rows
+    `.is-nested`).
+42. **Before the first turn**: click `#new-chat`. The dock redraws and sends `skills` once more with the
+    session: `.sk-loader .sk-empty` "@thetis/skills-l1 is installed; it writes what it did after the first
+    turn of this conversation."; the rest as in 41.
+43. **The search**: type `packages` into `input.sk-search`. Expect the catalogue reduced to the rows BM25
+    ranks (`thetis/packages`, `thetis/marketplace`, `thetis`, `thetis/configuration`, `thetis/skills`), each
+    with `.sk-row-score` "score N.NNNNNN", and no new request (`performance.getEntriesByType("resource")`
+    still lists two `…/ui-skills/skills`). A query that matches nothing shows `.sk-empty` `No skill matches
+    "…".`.
+44. **A row**: click `.sk-catalogue .sk-row[data-skill="thetis/packages"]`. Expect one `POST
+    …/ui-skills/skill`, `.sk-dock.is-open`, `.panel-title` "thetis/packages", `.panel-sub` "How a Thetis
+    package is built and managed.", `button.sk-back` "← Skills", `.sk-body-head` with `code.sk-body-id`
+    and `.sk-row-pkg`, and `.sk-body` holding the rendered markdown (an `h3` "Packages", the text ending
+    with `Skill directory: …`). Click `.sk-back`: the list again, `.panel-title` "Skills", the query kept.
+    Opening the same row again sends nothing (the text is held by id and content hash).
+45. **After a turn**: send "Say hello in one word." and wait for the reply. On `turn.end` the dock asks
+    once more (a third `skills`): `.panel-sub` "12 skills · @thetis/skills-l1", `.sk-loader` with
+    `.section-note` "Wrote the prompt of the last turn." and `code.sk-loader-name` "@thetis/skills-l1",
+    `.sk-universal .section-note` "The bodies every prompt carries." with the `thetis` row. No
+    `.sk-pinned`, `.sk-loaded`, `.sk-dropped` or `.sk-notes` section: skills-l1 pinned nothing, the model
+    loaded nothing, nothing was dropped and there are no notes.
+46. **The project's switches**: open `#menu`, pick "Project". Expect in `.pj-page` the section
+    `.pj-section.pj-skills` after Tools: `.section-note` "12 skills, every one on", one
+    `.pj-tool-group.pj-skill-group` with `code.pj-tool-package` "@thetis/skills-thetis" and 12
+    `label.pj-tool.pj-skill[data-skill]` rows, the nested ones `.is-nested`, each with `code.pj-tool-name`,
+    `.pj-tool-desc` and `input.pj-switch[checked]` (`aria-label` "<id> on"), and the `.pj-note` ending
+    "a switched-off parent switches off its nested skills too." Type `skills-check` in `input.pj-name`.
+    Uncheck `thetis/packages on`: its row `.is-off`, the note "12 skills, 1 switched off for this project",
+    the name kept across the redraw. Uncheck `thetis on`: every row `.is-off`, the note "12 skills, 12
+    switched off for this project", and the eleven nested switches `[disabled]` with `title` "Switched off
+    with thetis" (the `thetis/packages` switch stays enabled: it is off by name). Check `thetis on` again:
+    only `thetis/packages` stays off, no switch disabled. Click **Create project**: one `POST
+    …/projects/save`, then `list` and `get`; the buttons "Save" and "Delete project"; the switcher
+    `.pj-head.is-chosen` "skills-check"; `<home>/projects/p_<8 hex>.json` with `skills.disable`
+    `["thetis/packages"]` and `tools.disable` `[]`.
+47. **Switched off, before and after a turn**: close the place (`.place-close`) and click `#new-chat`
+    while the project is chosen (one `assign`). The open dock redraws for the new conversation at once,
+    before any turn: `.sk-off` with `.section-note` "Left out of the prompt and of skill_fetch. A
+    switched-off parent takes its nested skills with it." and one `.sk-row.is-off[data-skill="thetis/packages"]`
+    with `.badge.is-warn` "switched off"; the catalogue row for the same id `.is-off` with the badge too.
+    Send "Say hello in one word." and wait: the dock gains `.sk-notes` with `ul.sk-notes-list > li`
+    "switched off by the project: thetis/packages", `.sk-off` unchanged; the session record under
+    `<home>/../sessions/<id>.json` carries `harness["@thetis/skills"].excluded` `["thetis/packages"]`
+    and the same note, and its system prompt has `# Skills you can load`, `# Skills always in force` and
+    `## Project: skills-check`.
+
+Stop the daemon by the pid on `.devhome7/thetis.sock` (SIGINT), release `/tmp/thetis-browser.lock`, and
+delete `.devhome7`.

@@ -51,12 +51,13 @@ export function defaultConfig(home: string, projectRoot: string): KernelConfig {
     phases: ["history", "prompt", "tools", "call", "after"],
     callPhase: "call",
     systemPackages: {
-      "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache", "@thetis/tools-files", "@thetis/tools-plan", "@thetis/gateway-web", "@thetis/ui-tools", "@thetis/ui-context", "@thetis/projects", "@thetis/ui-admin", "@thetis/ui-marketplace"],
+      "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache", "@thetis/tools-files", "@thetis/tools-plan", "@thetis/gateway-web", "@thetis/ui-tools", "@thetis/ui-context", "@thetis/projects", "@thetis/ui-admin", "@thetis/ui-marketplace", "@thetis/skills", "@thetis/skills-thetis", "@thetis/skills-hybrid", "@thetis/ui-skills"],
       _system: ["@thetis/provider-openrouter", "@thetis/gateway-login", "@thetis/marketplace"],
     },
     packages: {
       "@thetis/provider-openrouter": { apiKey: "${OPENROUTER_API_KEY}", baseUrl: "https://openrouter.ai/api/v1" },
       "@thetis/marketplace": { registries: [{ name: "thetis", url: MARKETPLACE_URL }] },
+      "@thetis/skills-hybrid": { embeddings: { apiKey: "${OPENROUTER_API_KEY}" } },
     },
     fence: {
       sandbox: "auto",

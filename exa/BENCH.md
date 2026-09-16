@@ -12,20 +12,20 @@ Suites: [`assembly-cost@1`](#suite-assembly-cost-v1), [`tool-recall@1`](#suite-t
 What a package costs the prompt before anything is retrieved: bytes by segment, how much of the prefix survives a turn, and how long assembly takes. No gold, no corpus, no adapter — any package with a step or a tool can opt in.
 
 7 tasks (2 of them controls), probe A.
-Generated 2026-09-16T02:33:33.600Z. Digest `sha256:9bec2ae25535…`.
+Generated 2026-09-16T03:09:39.212Z. Digest `sha256:ba8a447a4ba6…`.
 
 ### Compared
 
 Only numbers every arm can produce appear here, and only those on which the arms differ. A mechanism that does not rank cannot have a ranking score, and averaging one in would compare different acts.
 
-| arm | bytes_system | bytes_tools | bytes_turn1 | bytes_last | tools_n |
-|---|---|---|---|---|---|
-| none | 4324 ±0 | 2 ±0 | 4429.7 ±21 | 4578.4 ±42.3 | 0 ±0 |
-| **thetis-exa** | 4693 ±0 | 10322 ±0 | 15118.7 ±22 | 15267.4 ±42.9 | 10 ±0 |
-| thetis-tool-exec | 4655 ±0 | 2110 ±0 | 6868.7 ±21.4 | 7017.4 ±41.4 | 6 ±0 |
-| thetis-tools-files | 4670 ±0 | 5644 ±0 | 10417.7 ±21.3 | 10566.4 ±41.6 | 6 ±0 |
-| thetis-tools-plan | 4647 ±0 | 4460 ±0 | 9210.7 ±20.1 | 9359.4 ±41.6 | 6 ±0 |
-| all | 5509 ±0 | 22533 ±0 | 28145.7 ±21.6 | 28294.4 ±41.7 | 28 ±0 |
+| arm | bytes_system | bytes_tools | bytes_turn1 | bytes_last | tools_n | steps_n |
+|---|---|---|---|---|---|---|
+| none | 4324 ±0 | 2 ±0 | 4429.7 ±21 | 4578.4 ±42.3 | 0 ±0 | 10 ±0 |
+| **thetis-exa** | 4693 ±0 | 10322 ±0 | 15118.7 ±22 | 15267.4 ±42.9 | 10 ±0 | 10 ±0 |
+| thetis-tool-exec | 4655 ±0 | 2110 ±0 | 6868.7 ±21.4 | 7017.4 ±41.4 | 6 ±0 | 10 ±0 |
+| thetis-tools-files | 4670 ±0 | 5644 ±0 | 10417.7 ±21.3 | 10566.4 ±41.6 | 6 ±0 | 10 ±0 |
+| thetis-tools-plan | 4647 ±0 | 4460 ±0 | 9210.7 ±20.1 | 9359.4 ±41.6 | 6 ±0 | 10 ±0 |
+| all | 6299 ±0 | 23856 ±0 | 30258.7 ±21.6 | 30407.4 ±41.7 | 30 ±0 | 28 ±0 |
 
 ![assembly-cost@1 comparison](bench/assembly-cost-v1/chart.svg)
 
@@ -33,13 +33,13 @@ Only numbers every arm can produce appear here, and only those on which the arms
 
 Paired per task, so the constant cost of the harness cancels. `w/t/l` counts the tasks each arm won, tied and lost, which a mean can hide.
 
-| arm | bytes_system | bytes_tools | bytes_turn1 | bytes_last | tools_n |
-|---|---|---|---|---|---|
-| thetis-exa | 369 [369, 369] 7/0/0 | 10320 [10320, 10320] 7/0/0 | 10689 [10689, 10689] 7/0/0 | 10689 [10689, 10689] 7/0/0 | 10 [10, 10] 7/0/0 |
-| thetis-tool-exec | 331 [331, 331] 7/0/0 | 2108 [2108, 2108] 7/0/0 | 2439 [2439, 2439] 7/0/0 | 2439 [2439, 2439] 7/0/0 | 6 [6, 6] 7/0/0 |
-| thetis-tools-files | 346 [346, 346] 7/0/0 | 5642 [5642, 5642] 7/0/0 | 5988 [5988, 5988] 7/0/0 | 5988 [5988, 5988] 7/0/0 | 6 [6, 6] 7/0/0 |
-| thetis-tools-plan | 323 [323, 323] 7/0/0 | 4458 [4458, 4458] 7/0/0 | 4781 [4781, 4781] 7/0/0 | 4781 [4781, 4781] 7/0/0 | 6 [6, 6] 7/0/0 |
-| all | 1185 [1185, 1185] 7/0/0 | 22531 [22531, 22531] 7/0/0 | 23716 [23716, 23716] 7/0/0 | 23716 [23716, 23716] 7/0/0 | 28 [28, 28] 7/0/0 |
+| arm | bytes_system | bytes_tools | bytes_turn1 | bytes_last | tools_n | steps_n |
+|---|---|---|---|---|---|---|
+| thetis-exa | 369 [369, 369] 7/0/0 | 10320 [10320, 10320] 7/0/0 | 10689 [10689, 10689] 7/0/0 | 10689 [10689, 10689] 7/0/0 | 10 [10, 10] 7/0/0 | 0 [0, 0] 0/7/0 |
+| thetis-tool-exec | 331 [331, 331] 7/0/0 | 2108 [2108, 2108] 7/0/0 | 2439 [2439, 2439] 7/0/0 | 2439 [2439, 2439] 7/0/0 | 6 [6, 6] 7/0/0 | 0 [0, 0] 0/7/0 |
+| thetis-tools-files | 346 [346, 346] 7/0/0 | 5642 [5642, 5642] 7/0/0 | 5988 [5988, 5988] 7/0/0 | 5988 [5988, 5988] 7/0/0 | 6 [6, 6] 7/0/0 | 0 [0, 0] 0/7/0 |
+| thetis-tools-plan | 323 [323, 323] 7/0/0 | 4458 [4458, 4458] 7/0/0 | 4781 [4781, 4781] 7/0/0 | 4781 [4781, 4781] 7/0/0 | 6 [6, 6] 7/0/0 | 0 [0, 0] 0/7/0 |
+| all | 1975 [1975, 1975] 7/0/0 | 23854 [23854, 23854] 7/0/0 | 25829 [25829, 25829] 7/0/0 | 25829 [25829, 25829] 7/0/0 | 30 [30, 30] 7/0/0 | 18 [18, 18] 7/0/0 |
 
 ### Assembly latency
 
@@ -52,7 +52,7 @@ Absolute milliseconds are not committed: the fence opens lazily, the sandbox mod
 | thetis-tool-exec | 10 | not measured at 7 tasks |
 | thetis-tools-files | 10 | not measured at 7 tasks |
 | thetis-tools-plan | 10 | not measured at 7 tasks |
-| all | 10 | not measured at 7 tasks |
+| all | 28 | not measured at 7 tasks |
 
 ### Conformance
 
@@ -73,7 +73,7 @@ Two reports are comparable only when these match.
 |---|---|
 | suite | assembly-cost@1 (sha256:9efc984d505f…) |
 | corpus | none |
-| arms | none; thetis-exa (@thetis/exa@0.1.0); thetis-tool-exec (@thetis/tool-exec@0.1.0); thetis-tools-files (@thetis/tools-files@0.1.0); thetis-tools-plan (@thetis/tools-plan@0.3.0); all (@thetis/exa@0.1.0, @thetis/tool-exec@0.1.0, @thetis/tools-files@0.1.0, @thetis/tools-plan@0.3.0) |
+| arms | none; thetis-exa (@thetis/exa@0.1.0); thetis-tool-exec (@thetis/tool-exec@0.1.0); thetis-tools-files (@thetis/tools-files@0.1.0); thetis-tools-plan (@thetis/tools-plan@0.3.0); all (@thetis/exa@0.1.0, @thetis/skills-all@0.1.0, @thetis/skills-hybrid@0.1.0, @thetis/skills-l1@0.1.0, @thetis/tool-exec@0.1.0, @thetis/tools-files@0.1.0, @thetis/tools-plan@0.3.0) |
 | model | none — this probe needs no model |
 | sandbox | auto |
 | scorer | @thetis/bench@0.3.0 |

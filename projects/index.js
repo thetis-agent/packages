@@ -40,8 +40,26 @@ async function toolGroups(env, disabled) {
 }
 
 /**
- * get: one project with its instructions, the mounts, and the tool groups; without an id, the empty
- * template a new project's page starts from (the tools and mounts are the same either way).
+ * Every skill the person's packages and home hold, read the way the loaders read them, each with whether
+ * this project switched it off (directly, or through a switched-off parent). `@thetis/skills` is imported
+ * when asked, not at the top, so a person without the library still has their projects: the list is then
+ * empty and the page says so.
+ */
+async function skillList(env, disabled) {
+  let lib;
+  try {
+    lib = await import("@thetis/skills");
+  } catch {
+    return [];
+  }
+  const off = new Set(disabled);
+  const isOff = (id) => [...off].some((x) => id === x || id.startsWith(`${x}/`));
+  return lib.loadSkills(env, await env.kernel.packages.list()).map((s) => ({ id: s.id, brief: lib.brief(s), short: lib.firstSentence(s.description), package: s.source?.package ?? null, universal: Boolean(s.universal), disabled: isOff(s.id) }));
+}
+
+/**
+ * get: one project with its instructions, the mounts, the tool groups and the skills; without an id, the
+ * empty template a new project's page starts from (the tools, skills and mounts are the same either way).
  */
 export async function uiGet(args, env) {
   const id = args.id ?? null;
@@ -49,10 +67,10 @@ export async function uiGet(args, env) {
   const project = id ? await readProject(env, id) : null;
   if (id && !project) fail(`No project ${id}.`);
   const mounts = currentMounts();
-  const [instructions, assignments, tools] = await Promise.all([project ? readInstructions(env, id) : "", readAssignments(env), toolGroups(env, project?.tools.disable ?? [])]);
+  const [instructions, assignments, tools, skills] = await Promise.all([project ? readInstructions(env, id) : "", readAssignments(env), toolGroups(env, project?.tools.disable ?? []), skillList(env, project?.skills.disable ?? [])]);
   const directories = (project?.directories ?? []).map((path) => ({ path, mounted: mountModeOf(path, mounts) }));
   const conversations = project ? Object.values(assignments).filter((p) => p === id).length : 0;
-  return { data: { project, directories, instructions, conversations, mounts, tools } };
+  return { data: { project, directories, instructions, conversations, mounts, tools, skills } };
 }
 
 /** save: create (no id) or update. `instructions` left out keeps the file as it is. */

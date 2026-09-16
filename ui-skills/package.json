@@ -1,0 +1,36 @@
+{
+  "name": "@thetis/ui-skills",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "The Skills dock of the web gateway: the skills the open conversation can reach, which are in force, and what the project switched off.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "@thetis/skills": "^0.1.0"
+  },
+  "thetis": {
+    "type": "ui",
+    "ui": {
+      "dir": "ui",
+      "entry": "index.js",
+      "style": "index.css",
+      "dock": [
+        {
+          "id": "skills",
+          "label": "Skills",
+          "icon": "M4.5 4.5A1.5 1.5 0 0 1 6 3h9.5v11H6a1.5 1.5 0 0 0-1.5 1.5v-11Z M4.5 15.5A1.5 1.5 0 0 1 6 14h9.5v3H6a1.5 1.5 0 0 1-1.5-1.5Z M8 6.5h4.5",
+          "hint": "The skills this conversation can reach, and which are in force",
+          "wide": true,
+          "order": 110
+        }
+      ],
+      "commands": [
+        { "verb": "skills", "export": "uiSkills", "label": "List the skills" },
+        { "verb": "skill", "export": "uiSkill", "label": "Read one skill" }
+      ]
+    }
+  }
+}

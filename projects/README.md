@@ -1,6 +1,6 @@
 # @thetis/projects
 
-Named workspaces for one person. A project is a name, zero or more project directories, standing instructions, and a set of tools switched off; a conversation belongs to at most one project. The package is a `loader` with a `ui`: two pipeline steps that run inside the person's own fence on every turn, and a switcher and a settings place in the web gateway, which `@thetis/gateway-web` serves and whose commands it calls as the person. Its files live under `projects/` in the person's home. It has no build step and no dependencies. It changes no kernel code and never mounts anything.
+Named workspaces for one person. A project is a name, zero or more project directories, standing instructions, and a set of tools and skills switched off; a conversation belongs to at most one project. The package is a `loader` with a `ui`: two pipeline steps that run inside the person's own fence on every turn, and a switcher and a settings place in the web gateway, which `@thetis/gateway-web` serves and whose commands it calls as the person. Its files live under `projects/` in the person's home. It has no build step and one dependency, the `@thetis/skills` library, imported only when the page asks for the skill list (a person without it still has their projects). It changes no kernel code and never mounts anything.
 
 ## What it provides
 
@@ -21,14 +21,14 @@ Seven commands. Any signed-in person may send them; each answers `{ data }`, and
 | Verb | Export | Arguments | Answer |
 |---|---|---|---|
 | `list` | `uiList` | none | The projects with their directory and conversation counts, the session-to-project map, and `current`: the project of the conversation the page named, or `null`. |
-| `get` | `uiGet` | `id?` | The project, its directories with their mount state (`rw`, `ro` or `null`), the instructions, the conversation count, this fence's mounts, and every installed package's tools with a `disabled` flag. Without `id`, the template a new project starts from. |
-| `save` | `uiSave` | `id?`, `name`, `directories?`, `disable?`, `instructions?` | Creates without `id`, updates with one. `instructions` left out keeps the file; an empty string empties it. |
+| `get` | `uiGet` | `id?` | The project, its directories with their mount state (`rw`, `ro` or `null`), the instructions, the conversation count, this fence's mounts, every installed package's tools with a `disabled` flag, and `skills`: every skill `loadSkills` finds (`id`, `brief`, `short`, `package`, `universal`, `disabled`), a nested skill counting as disabled when its parent is. Without `id`, the template a new project starts from. |
+| `save` | `uiSave` | `id?`, `name`, `directories?`, `disable?`, `disableSkills?`, `instructions?` | Creates without `id`, updates with one. `disable` is tool names for `tools.disable`; `disableSkills` is skill ids for `skills.disable`. `instructions` left out keeps the file; an empty string empties it. |
 | `remove` | `uiRemove` | `id` | Deletes the record, the instructions, and the project's assignments. |
 | `assign` | `uiAssign` | `session`, `project` | Puts the conversation in a project, or takes it out with `null`. `session` must be the one the page named. |
 | `sessions` | `uiSessions` | `project` | The ids of the conversations in the project. |
 | `mounts` | `uiMounts` | none | This fence's mounts, from `THETIS_MOUNTS`. |
 
-`save` checks: a name of 1 to 80 characters; each directory absolute and normalized, with no `..` and no NUL; at most 64 directories, 256 tool names of at most 64 characters, 32768 characters of instructions; at most 32 projects per person. Duplicates are dropped.
+`save` checks: a name of 1 to 80 characters; each directory absolute and normalized, with no `..` and no NUL; at most 64 directories, 256 tool names of at most 64 characters, 256 skill ids in the library's shape (lowercase words and dashes, up to three levels joined by `/`), 32768 characters of instructions; at most 32 projects per person. Duplicates are dropped.
 
 The files are `projects/<id>.json` (the record), `projects/<id>.md` (the instructions) and `projects/sessions.json` (the assignments). An id is `p_` and 8 hexadecimal characters.
 
@@ -38,9 +38,9 @@ A project directory does not open the fence. The package reads what is mounted f
 
 **The switcher** sits at the head of the sidebar: a row `Project <name>` with a caret. It opens a list: All conversations, each project with how many conversations it holds, Settings for the chosen project, and New project…. Choosing a project narrows the conversation list to the conversations assigned to it; the choice is kept in `localStorage` under `thetis.project`. While a project is chosen, a conversation started with `+` is assigned to it with one `assign` request. Conversations that exist when the page loads are never assigned by the page.
 
-**The place** is the project's settings, opened from the switcher: a name input; the project directories, one row each with a badge `mounted · read-write`, `mounted · read-only` or `not mounted` and a remove button, plus an input to add one; a text area for the instructions; the conversation count; every installed package's tools with a switch each, off meaning switched off for the project; a note that no skill packages are installed yet; and **Save** and **Delete project**, the latter behind a confirm popover. Nothing is sent until Save. A new project is chosen after its first save.
+**The place** is the project's settings, opened from the switcher: a name input; the project directories, one row each with a badge `mounted · read-write`, `mounted · read-only` or `not mounted` and a remove button, plus an input to add one; a text area for the instructions; the conversation count; every installed package's tools with a switch each, off meaning switched off for the project; every skill the loaders see, grouped by the package it comes from (the home's own last), with the same switch, a nested skill greyed and off when its parent is off; and **Save** and **Delete project**, the latter behind a confirm popover. Nothing is sent until Save. A new project is chosen after its first save.
 
-The switch shows in the page after the first turn: the Tools dock of `@thetis/ui-tools` lists under **Turned off right now** every declared tool the last call did not carry.
+The tool switch shows in the page after the first turn: the Tools dock of `@thetis/ui-tools` lists under **Turned off right now** every declared tool the last call did not carry. The skill switch shows at once: the Skills dock of `@thetis/ui-skills` reads `skills.disable` through the library's `excludedFor` and lists the ids under **Switched off by the project**; the loaders leave them out of the prompt and of `skill_fetch` from the next turn.
 
 ## Files
 

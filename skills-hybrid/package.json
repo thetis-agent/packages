@@ -1,0 +1,44 @@
+{
+  "name": "@thetis/skills-hybrid",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "One brief per skill always in the prompt, a few cards retrieved for the conversation by dense and lexical ranking fused, pinned once, and skill_search for the rest.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "@thetis/skills": "^0.1.0"
+  },
+  "thetis": {
+    "type": "loader",
+    "steps": [
+      { "id": "bench-import", "phase": "bench", "export": "importCorpus" },
+      { "id": "pin", "phase": "prompt", "export": "pin" },
+      { "id": "bench-report", "phase": "bench", "export": "benchReport" }
+    ],
+    "tools": [
+      {
+        "name": "skill_search",
+        "description": "Search the installed skills by what you are trying to do and get the best matches, one line each with the id. The briefs in your prompt are pointers, not the content, and the cards retrieved at the start of the conversation were chosen from the first message only: search whenever the task at hand is not obviously covered by a skill you can already see, and before answering from memory on anything a skill might teach. Then call skill_fetch with the id before relying on a skill.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": { "type": "string", "description": "What you are trying to do, in a sentence: the words a person would use to ask for it." },
+            "k": { "type": "integer", "description": "How many matches to return. Default 5, at most 20." }
+          },
+          "required": ["query"]
+        },
+        "export": "skillSearch"
+      }
+    ],
+    "bench": {
+      "suites": ["skill-recall@1", "assembly-cost@1"],
+      "corpus": "caps@1",
+      "peerGroup": "skills",
+      "importer": "importCorpus",
+      "adapter": "benchReport"
+    }
+  }
+}

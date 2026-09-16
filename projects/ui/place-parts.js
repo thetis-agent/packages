@@ -1,9 +1,11 @@
-/* The two list sections of the project page. `directoriesSection` draws the project directories: one
+/* The three list sections of the project page. `directoriesSection` draws the project directories: one
  * row per path with a badge that says whether the fence has it mounted (read-write, read-only, or not
  * at all), a remove ✕, an input and a button to add one, and the note that a directory outside the
  * person's space needs an admin's mount. `toolsSection` draws every installed package's tools with a
- * switch per tool, on unless the project switched it off. Both edit the draft they are given and ask
- * the page to redraw through `redraw`; neither sends a request. */
+ * switch per tool, on unless the project switched it off. `skillsSection` draws every skill the loaders
+ * see, grouped by the package it comes from, with the same switch; a nested skill whose parent is off is
+ * off with it and its switch is greyed. All three edit the draft they are given and ask the page to
+ * redraw through `redraw`; none sends a request. */
 
 const X = ["M5 5l10 10", "M15 5l-10 10"];
 
@@ -115,8 +117,55 @@ export function toolsSection(ext, draft, groups, redraw) {
   );
 }
 
-export function skillsSection(ext) {
+/** "self" when the id is switched off by name, the parent's id when a parent is, or null. */
+export function skillOffBy(id, off) {
+  if (off.has(id)) return "self";
+  for (const x of off) if (id.startsWith(`${x}/`)) return x;
+  return null;
+}
+
+function skillRow(ext, skill, draft, redraw) {
+  const { el } = ext.dom;
+  const by = skillOffBy(skill.id, draft.disableSkills);
+  const byParent = by && by !== "self";
+  const input = el("input", { type: "checkbox", class: "pj-switch", checked: by ? null : "", disabled: byParent ? "" : null, "aria-label": `${skill.id} on`, title: byParent ? `Switched off with ${by}` : null });
+  input.addEventListener("change", () => {
+    if (input.checked) draft.disableSkills.delete(skill.id);
+    else draft.disableSkills.add(skill.id);
+    redraw();
+  });
+  return el(
+    "label",
+    { class: `pj-tool pj-skill${by ? " is-off" : ""}${skill.id.includes("/") ? " is-nested" : ""}`, "data-skill": skill.id },
+    el("span", { class: "pj-tool-text" }, el("code", { class: "pj-tool-name" }, skill.id), skill.short ? el("span", { class: "pj-tool-desc" }, skill.short) : null),
+    input
+  );
+}
+
+/** Every skill the loaders see, grouped by the package it comes from (the home last), a switch per skill. */
+export function skillsSection(ext, draft, skills, redraw) {
   const { el } = ext.dom;
   const { section } = ext.ui;
-  return el("section", { class: "pj-section" }, section("Skills"), el("p", { class: "pj-empty" }, "No skill packages are installed. When one is, its skills appear here with the same switches."));
+  const groups = new Map();
+  for (const s of skills) {
+    const key = s.package ?? "";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(s);
+  }
+  const off = skills.filter((s) => skillOffBy(s.id, draft.disableSkills)).length;
+  const blocks = [...groups].map(([pkg, list]) =>
+    el(
+      "div",
+      { class: "pj-tool-group pj-skill-group" },
+      el("div", { class: "pj-tool-group-head" }, el("code", { class: "pj-tool-package" }, pkg || "your skills/")),
+      el("div", { class: "pj-tool-list" }, ...list.map((s) => skillRow(ext, s, draft, redraw)))
+    )
+  );
+  return el(
+    "section",
+    { class: "pj-section pj-skills" },
+    section("Skills", skills.length ? (off ? `${skills.length} skills, ${off} switched off for this project` : `${skills.length} skills, every one on`) : null),
+    blocks.length ? el("div", { class: "pj-tool-groups" }, ...blocks) : el("p", { class: "pj-empty" }, "No skills are installed. A package that declares thetis.skills, or a skills/ directory under your home, adds some; each appears here with a switch."),
+    el("p", { class: "pj-note" }, "Every skill is on unless switched off here. A switched-off skill is left out of the prompt and of skill_fetch for conversations in this project, and a switched-off parent switches off its nested skills too.")
+  );
 }

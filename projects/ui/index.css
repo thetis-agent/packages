@@ -134,3 +134,7 @@
 @media (max-width: 760px) {
   .pj-place { padding: var(--gap-3) var(--gap-4) var(--gap-5); }
 }
+
+/* the skills section reuses the tool rows; a nested skill sits under its parent, and a switch a parent turned off is greyed */
+.pj-skill.is-nested { padding-left: 28px; }
+.pj-switch:disabled { opacity: 0.5; cursor: default; }

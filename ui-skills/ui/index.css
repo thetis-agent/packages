@@ -1,0 +1,38 @@
+/* The Skills dock: the loader, the skills in force, what is switched off, the catalogue with its search,
+ * and one skill's text. Everything is scoped under .sk-; the tokens, .section-head, .badge, .btn and
+ * .input come from the shell. */
+
+.sk-dock { display: flex; flex-direction: column; gap: var(--gap-4); }
+.sk-section { display: flex; flex-direction: column; gap: var(--gap-2); }
+.sk-section .section-head { flex-direction: row; align-items: baseline; flex-wrap: wrap; gap: var(--gap-2); }
+.sk-section .section-note { flex-basis: 100%; }
+.sk-loader-name { font-family: var(--mono); font-size: var(--text-sm); color: var(--text); }
+
+.sk-rows { display: flex; flex-direction: column; border: 1px solid var(--hairline); border-radius: var(--r-lg); background: var(--surface-1); overflow: hidden; }
+.sk-row { appearance: none; display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 8px 12px; border: 0; border-bottom: 1px solid var(--hairline); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.sk-row:last-child { border-bottom: 0; }
+.sk-row:hover { background: var(--surface-2); }
+.sk-row:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--glow); }
+.sk-row.is-nested { padding-left: 24px; }
+.sk-row.is-missing { cursor: default; }
+.sk-row.is-missing:hover { background: transparent; }
+.sk-row-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--gap-2); }
+.sk-row-id { font-family: var(--mono); font-size: var(--text-sm); font-weight: 600; overflow-wrap: anywhere; }
+.sk-row.is-off .sk-row-id { color: var(--text-faint); text-decoration: line-through; }
+.sk-row-title { font-size: var(--text-xs); color: var(--text-dim); }
+.sk-row-score { font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.sk-row-pkg { margin-left: auto; font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); }
+.sk-row-brief { font-size: var(--text-xs); color: var(--text-dim); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+.sk-search { width: 100%; }
+.sk-catalogue-list { display: flex; flex-direction: column; gap: var(--gap-2); }
+.sk-notes-list { margin: 0; padding-left: 18px; font-size: var(--text-xs); color: var(--text-dim); line-height: 1.5; }
+
+.sk-back { align-self: flex-start; }
+.sk-body-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--gap-2); }
+.sk-body-id { font-family: var(--mono); font-size: var(--text-md); font-weight: 600; overflow-wrap: anywhere; }
+.sk-body { padding: var(--gap-3) var(--gap-4); border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface-2); font-size: var(--text-sm); line-height: var(--leading); overflow-wrap: anywhere; }
+.sk-body > :last-child { margin-bottom: 0; }
+
+.sk-empty { font-size: var(--text-sm); color: var(--text-faint); padding: var(--gap-2) 0; }
+.sk-error { font-size: var(--text-sm); color: var(--err); padding: var(--gap-2) 0; }

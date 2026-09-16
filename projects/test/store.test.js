@@ -86,5 +86,27 @@ test("validation: names, directories, tool names, instructions", () => {
   assert.throws(() => validateProject({ name: "x", instructions: "y".repeat(32 * 1024 + 1) }), /over 32768/);
   assert.equal(checkDirectory("/"), "/");
   const ok = validateProject({ name: "x", directories: ["/a", "/a", "/b"], disable: ["exec", "exec"], instructions: undefined });
-  assert.deepEqual(ok, { name: "x", directories: ["/a", "/b"], disable: ["exec"], instructions: "" });
+  assert.deepEqual(ok, { name: "x", directories: ["/a", "/b"], disable: ["exec"], disableSkills: [], instructions: "" });
+});
+
+test("skills.disable: validated ids, deduplicated, written on create and update, kept when the field is left out of a save", async () => {
+  const { env, done } = await makeEnv();
+  assert.throws(() => validateProject({ name: "x", disableSkills: "packages" }), /list of skill ids/);
+  assert.throws(() => validateProject({ name: "x", disableSkills: [3] }), /skill id/);
+  assert.throws(() => validateProject({ name: "x", disableSkills: ["Packages"] }), /skill id/);
+  assert.throws(() => validateProject({ name: "x", disableSkills: ["a/b/c/d"] }), /skill id/);
+  assert.throws(() => validateProject({ name: "x", disableSkills: ["references/"] }), /skill id/);
+  assert.throws(() => validateProject({ name: "x", disableSkills: Array.from({ length: 257 }, (_, i) => `s${i}`) }), /At most 256 skills/);
+  const fields = validateProject({ name: "P", disableSkills: ["packages", "packages", "thetis/using"] });
+  assert.deepEqual(fields.disableSkills, ["packages", "thetis/using"]);
+  const created = await saveProject(env, null, fields);
+  assert.deepEqual(created.skills, { disable: ["packages", "thetis/using"] });
+  assert.deepEqual(created.tools, { disable: [] });
+  assert.deepEqual(JSON.parse(await env.readFile(`projects/${created.id}.json`)).skills, { disable: ["packages", "thetis/using"] });
+  const updated = await saveProject(env, created.id, validateProject({ name: "P", disable: ["exec"], disableSkills: ["thetis"] }));
+  assert.deepEqual(updated.skills, { disable: ["thetis"] });
+  assert.deepEqual(updated.tools, { disable: ["exec"] });
+  const cleared = await saveProject(env, created.id, validateProject({ name: "P" }));
+  assert.deepEqual(cleared.skills, { disable: [] }, "a save without the field clears it, as it does for tools");
+  await done();
 });

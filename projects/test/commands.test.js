@@ -111,3 +111,40 @@ test("the browser modules parse", () => {
   assert.ok(files.includes("index.js"));
   for (const f of files) execFileSync(process.execPath, ["--check", resolve(ui, f)]);
 });
+
+test("get lists the skills the loaders see, with the project's switches applied, and save writes skills.disable", async () => {
+  const { env, home, done } = await makeEnv({ session: "s_1", packages: PACKAGES });
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  const pack = resolve(home, "pack/skills");
+  const skill = (dir, name, description) => {
+    mkdirSync(resolve(pack, dir), { recursive: true });
+    writeFileSync(resolve(pack, dir, "SKILL.md"), `---\nname: ${name}\ndescription: ${description}\n---\nBody.\n`);
+  };
+  skill("thetis", "thetis", "What Thetis is. Use first.");
+  skill("thetis/using", "using", "Sessions and tools. Use when asked how.");
+  skill("concise", "concise", "Few words. Use for brevity.");
+  mkdirSync(resolve(home, "skills/mine"), { recursive: true });
+  writeFileSync(resolve(home, "skills/mine/SKILL.md"), "---\nname: mine\ndescription: My own skill.\n---\nBody.\n");
+  env.kernel.packages.list = async () => [...PACKAGES, { name: "@test/pack", version: "0.0.1", type: "skill", root: resolve(home, "pack"), thetis: { type: "skill", skills: "skills" } }];
+
+  const template = (await withMounts("[]", () => uiGet({}, env))).data.skills;
+  assert.deepEqual(
+    template.map((s) => [s.id, s.package, s.disabled]),
+    [["concise", "@test/pack", false], ["mine", null, false], ["thetis", "@test/pack", false], ["thetis/using", "@test/pack", false]]
+  );
+  assert.equal(template[0].brief, "`concise` — Few words.");
+  assert.equal(template[0].short, "Few words.");
+  assert.equal(template[0].universal, false);
+
+  const created = (await uiSave({ name: "P", disableSkills: ["thetis"] }, env)).data.project;
+  assert.deepEqual(created.skills, { disable: ["thetis"] });
+  const { data } = await withMounts("[]", () => uiGet({ id: created.id }, env));
+  assert.deepEqual(
+    data.skills.map((s) => [s.id, s.disabled]),
+    [["concise", false], ["mine", false], ["thetis", true], ["thetis/using", true]],
+    "a switched-off parent takes its nested skill with it"
+  );
+  assert.deepEqual(data.tools[0].tools.map((t) => t.disabled), [false, false], "tools.disable is untouched");
+  await assert.rejects(uiSave({ id: created.id, name: "P", disableSkills: ["Not An Id"] }, env), /skill id/);
+  await done();
+});

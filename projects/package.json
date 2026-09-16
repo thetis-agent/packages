@@ -8,6 +8,9 @@
   "scripts": {
     "test": "node --test \"test/*.test.js\""
   },
+  "dependencies": {
+    "@thetis/skills": "^0.1.0"
+  },
   "thetis": {
     "type": "loader",
     "steps": [
