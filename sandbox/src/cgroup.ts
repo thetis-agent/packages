@@ -40,9 +40,17 @@ export class Cgroups {
     }
   }
 
+  /**
+   * Where one fence's own group lives. `place` creates it; the sandbox binds it read-only at
+   * `/sys/fs/cgroup` so the fence can read its own `memory.max`, `memory.current` and `memory.events`.
+   */
+  fenceDir(id: string): string {
+    return resolve(this.root, `fence-${id}`);
+  }
+
   /** A limited group for one fence. `attach` moves a process into it; `release` removes the group once it is empty. */
   place(id: string, limits: FenceLimits): Placement {
-    const dir = resolve(this.root, `fence-${id}`);
+    const dir = this.fenceDir(id);
     mkdirSync(dir, { recursive: true });
     writeFileSync(resolve(dir, "memory.max"), String(Math.max(16, limits.memoryMb) * 1024 * 1024));
     if (existsSync(resolve(dir, "memory.swap.max"))) writeFileSync(resolve(dir, "memory.swap.max"), "0");

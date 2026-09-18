@@ -8,13 +8,15 @@ A library: nothing in `thetis`. Not installable.
 
 The layering rule: `sandbox` imports `@thetis/contracts` and `@thetis/lib`. Only `@thetis/host` imports it; the kernel never does. The test `packages/kernel/test/boundaries.test.ts` enforces the rule.
 
-In mode `bwrap` the agent sees the operating system read-only, its own userspace root read-write, the shared directory (writable for the system userspace, read-only for everyone else), the package tree and the promoted packages read-only, and its mounts. It has its own user, PID, IPC, and UTS namespaces, no capabilities, cannot make a nested user namespace, and dies with the kernel. It does not see `$THETIS_HOME`, other userspaces, `/home`, or the host `/tmp`.
+In mode `bwrap` the agent sees the operating system read-only, its own userspace root read-write, the shared directory (writable for the system userspace, read-only for everyone else), the package tree and the promoted packages read-only, its mounts, and its own cgroup read-only at `/sys/fs/cgroup`. It has its own user, PID, IPC, and UTS namespaces, no capabilities, cannot make a nested user namespace, and dies with the kernel. It does not see `$THETIS_HOME`, other userspaces, `/home`, the host `/tmp`, or any other fence's cgroup.
+
+The cgroup bind is what lets an agent tell an OOM kill from a transient failure: it reads its real `memory.max`, `memory.current` and `memory.events` (`oom_kill`) instead of guessing from the host's free memory. It is `--ro-bind-try`, so a kernel without a delegated cgroup, a cgroups v1 host, or mode `none` simply gets no bind — this never keeps a fence from starting. `/proc/meminfo` still reports the host's memory; that would need a FUSE layer such as `lxcfs` and is out of scope. See docs/03-fence.md section 3.3.
 
 | Option | Values | Meaning |
 |---|---|---|
 | `sandbox` | `auto`, `bwrap`, `none` | `auto` uses `bwrap` when `bwrap --ro-bind / / --unshare-pid -- true` succeeds, else `none`. `none` starts the agent directly, with no isolation. |
 | `network` | `auto`, `egress`, `none`, `host` | `egress` is a private network namespace with outbound NAT through `slirp4netns`: no host loopback, no host ports. `none` has no interface. `auto` picks `egress` when `/usr/bin/slirp4netns` exists and the sandbox is `bwrap`. |
-| `limits` | `memoryMb`, `pids`, `cpuPercent` | A cgroup v2 group per fence. Needs the kernel process in a delegated cgroup; otherwise the fences run unlimited and the kernel logs `[fence] resource limits off` once. |
+| `limits` | `memoryMb`, `pids`, `cpuPercent` | A cgroup v2 group per fence, bound read-only at `/sys/fs/cgroup` inside it. Needs the kernel process in a delegated cgroup; otherwise the fences run unlimited, get no bind, and the kernel logs `[fence] resource limits off` once. |
 
 The agent gets this environment and nothing else: `PATH`, `HOME`, `LANG`, `THETIS_USERSPACE`, `THETIS_HOME_DIR`, `THETIS_STORE`, `THETIS_SHARED`, `THETIS_USER`, and `THETIS_MOUNTS`. The kernel's own environment does not reach the fence.
 
@@ -52,12 +54,12 @@ The systemd unit `deploy/thetis-runtime.service` sets `Delegate=yes`.
 | `src/bwrap.ts` | The bubblewrap arguments and the launcher command around the gate. |
 | `src/handle.ts` | `ProcessHandle`. One agent process: requests out, RPC in, the request timer, cancel, and a close that kills an agent still there two seconds after `SIGTERM`. |
 | `src/pool.ts` | `FencePool`. Implements `Fences`: at most one open fence per userspace, reopened after a crash. |
-| `src/cgroup.ts` | `Cgroups`. Per-fence limits under the kernel's delegated cgroup. |
+| `src/cgroup.ts` | `Cgroups`. Per-fence limits under the kernel's delegated cgroup. `fenceDir` names the group the fence reads itself from. |
 | `src/network.ts` | `startEgress`, `hasSlirp`. The `slirp4netns` helper. |
 | `src/index.ts` | Re-exports. |
 
 ## Tests
 
-`npm test` from the runtime root builds and runs every suite. The suite of this package is `packages/sandbox/test/handle.test.ts`: `close` waits for the agent to exit and kills one that ignores `SIGTERM`. To run it alone after `npm run build`: `node --test packages/sandbox/dist/test/handle.test.js`. The real fence runs in `packages/host/test/e2e.test.ts`; its case `fence isolation` checks that a userspace cannot read the service plane or another userspace.
+`npm test` from the runtime root builds and runs every suite. The suites of this package are `packages/sandbox/test/handle.test.ts` (`close` waits for the agent to exit and kills one that ignores `SIGTERM`) and `packages/sandbox/test/bwrap.test.ts` (the cgroup bind: where it sits in the argument list, that it is absent when limits are off, and — under a real `bwrap` — that the fence reads its own limits there and cannot write them). To run them alone after `npm run build`: `node --test "packages/sandbox/dist/test/*.test.js"`. The real fence runs in `packages/host/test/e2e.test.ts`; its case `fence isolation` checks that a userspace cannot read the service plane or another userspace.
 
 See docs/03-fence.md in the runtime repository.

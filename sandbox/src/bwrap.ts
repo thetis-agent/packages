@@ -19,6 +19,11 @@ export interface BwrapLayout {
   /** The resolver file bound over /etc/resolv.conf in egress mode. */
   resolvConf: string;
   network: "egress" | "none" | "host";
+  /**
+   * This fence's own cgroup directory, bound read-only at `/sys/fs/cgroup`. Undefined when the kernel has
+   * no delegated cgroup (limits off) or the host runs cgroups v1; then the bind is simply left out.
+   */
+  cgroupDir?: string;
 }
 
 export function hasBwrap(): boolean {
@@ -48,6 +53,14 @@ export function bwrapArgs(us: Userspace, layout: BwrapLayout, env: Record<string
   if (layout.network === "egress" && existsSync(layout.resolvConf)) {
     args.push("--ro-bind", layout.resolvConf, "/etc/resolv.conf");
   }
+  // The fence's own cgroup, and nothing else of the host's tree: this is how an agent reads its own
+  // `memory.max`, `memory.current` and `memory.events` and can tell an OOM kill (exit 137, `oom_kill`
+  // rising) from a transient failure. Read-only, so it is self-knowledge and not control. `-try` because
+  // the directory is created by `Cgroups.place` while the launch gate is still shut: it exists by the time
+  // bubblewrap execs, and if limits are off it never appears and bubblewrap skips the bind instead of
+  // failing the fence. `/proc/meminfo` still reports the host's memory; correcting that needs something
+  // like lxcfs and is out of scope.
+  if (layout.cgroupDir) args.push("--ro-bind-try", layout.cgroupDir, "/sys/fs/cgroup");
   args.push("--bind", us.root, us.root, "--chdir", us.home);
   // Mounts come after the userspace and the OS, so a granted path wins over a read-only bind above it.
   for (const m of us.mounts ?? []) args.push(m.mode === "rw" ? "--bind" : "--ro-bind", m.path, m.path);

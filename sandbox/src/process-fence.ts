@@ -66,7 +66,9 @@ export class ProcessFence implements Fence {
     const openedAt = Date.now();
     // The cgroup is adopted before the first child exists: enabling controllers needs the parent group empty.
     const cgroups = this.sandbox === "bwrap" ? this.opts.cgroups?.() : undefined;
-    const child = this.spawn(us);
+    // The fence reads its own limits at /sys/fs/cgroup. `openGate` creates that directory before it opens
+    // the gate, so it is there by the time bubblewrap execs; when limits are off there is no directory to name.
+    const child = this.spawn(us, cgroups?.fenceDir(us.id));
     const cleanup: (() => void)[] = [];
     try {
       if (this.sandbox === "bwrap") await this.openGate(us, child, cgroups, cleanup);
@@ -97,7 +99,7 @@ export class ProcessFence implements Fence {
     this.log(`[fence] ${us.id}: started (network ${this.network}${placement ? ", limited" : ""})`);
   }
 
-  private spawn(space: Userspace): ChildProcess {
+  private spawn(space: Userspace, cgroupDir?: string): ChildProcess {
     // Package code learns the mounts from the environment in every mode; without a sandbox they are simply the host's paths.
     const us = { ...space, mounts: presentMounts(space, this.log) };
     const env = {
@@ -115,7 +117,7 @@ export class ProcessFence implements Fence {
     if (this.sandbox === "none") {
       return spawn(node[0], node.slice(1), { cwd: us.home, env, stdio: ["pipe", "pipe", "pipe"] });
     }
-    const layout = { ...this.opts, network: this.network };
+    const layout = { ...this.opts, network: this.network, cgroupDir };
     const cmd = launcherCommand(["bwrap", ...bwrapArgs(us, layout, env), "--", ...node], this.network);
     // fds 3 and 4 are unused; 5 is the launch gate (written by us), 6 the ready signal (written by the launcher).
     return spawn(cmd[0], cmd.slice(1), { env, stdio: ["pipe", "pipe", "pipe", "ignore", "ignore", "pipe", "pipe"] });
