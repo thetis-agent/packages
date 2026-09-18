@@ -2,7 +2,10 @@
 // (systemd `Delegate=yes` on the unit, or `systemd-run --user --scope -p Delegate=yes`). Without one
 // the fences run unlimited and the kernel says so once.
 import { existsSync, mkdirSync, readFileSync, rmdirSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
+
+/** Where the cgroup v2 filesystem is mounted — on the host, and inside every fence. */
+export const CGROUP_MOUNT = "/sys/fs/cgroup";
 
 export interface FenceLimits {
   memoryMb: number;
@@ -15,7 +18,31 @@ export interface Placement {
   release(): void;
 }
 
+/** One fence's own cgroup: where it is on the host, and where the fence has to see it. */
+export interface FenceCgroup {
+  /** The host directory of this fence's group. */
+  dir: string;
+  /**
+   * Where `dir` is bound inside the fence: the mount point plus the path this fence's own
+   * `/proc/self/cgroup` line reports. A runtime finds its group by concatenating those two — .NET does —
+   * so the group has to sit at exactly that path. Bound at the mount root instead, the concatenation
+   * names a directory that does not exist, .NET's probe reads garbage, and the runtime aborts
+   * (`munmap_chunk(): invalid pointer`, sometimes a segfault) at random inside every fence.
+   */
+  dest: string;
+}
+
 const CONTROLLERS = ["memory", "pids", "cpu"];
+
+/**
+ * Where a fence's cgroup directory has to appear inside the fence — derived here, so only this file knows
+ * how a cgroup path is spelled. The directory's path relative to the filesystem root is what
+ * `/proc/self/cgroup` reports inside the fence, and the mount point plus that path is where the fence, and
+ * any runtime resolving its own limits, looks for it.
+ */
+export function fenceMount(dir: string): FenceCgroup {
+  return { dir, dest: join(CGROUP_MOUNT, relative(CGROUP_MOUNT, dir)) };
+}
 
 export class Cgroups {
   private constructor(private readonly root: string) {}
@@ -25,7 +52,7 @@ export class Cgroups {
     try {
       const line = readFileSync("/proc/self/cgroup", "utf8").split("\n").find((l) => l.startsWith("0::"));
       if (!line) return undefined;
-      const root = resolve("/sys/fs/cgroup", "." + line.slice(3).trim());
+      const root = resolve(CGROUP_MOUNT, "." + line.slice(3).trim());
       const available = readFileSync(resolve(root, "cgroup.controllers"), "utf8").split(/\s+/);
       const missing = CONTROLLERS.filter((c) => !available.includes(c));
       if (missing.length) throw new Error(`controllers not delegated: ${missing.join(", ")}`);
@@ -40,12 +67,14 @@ export class Cgroups {
     }
   }
 
-  /**
-   * Where one fence's own group lives. `place` creates it; the sandbox binds it read-only at
-   * `/sys/fs/cgroup` so the fence can read its own `memory.max`, `memory.current` and `memory.events`.
-   */
+  /** Where one fence's own group lives on the host. `place` creates it. */
   fenceDir(id: string): string {
     return resolve(this.root, `fence-${id}`);
+  }
+
+  /** That directory and where the fence has to see it. `place` creates it. */
+  fence(id: string): FenceCgroup {
+    return fenceMount(this.fenceDir(id));
   }
 
   /** A limited group for one fence. `attach` moves a process into it; `release` removes the group once it is empty. */

@@ -4,6 +4,7 @@ import { existsSync, readlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Readable } from "node:stream";
 import { SYSTEM_USER, type Mount, type Userspace } from "@thetis/contracts";
+import type { FenceCgroup } from "./cgroup.js";
 
 /** The OS directories every fence may read. Missing ones are skipped. */
 const OS_DIRS = ["/usr", "/etc", "/opt", "/bin", "/sbin", "/lib", "/lib32", "/lib64"];
@@ -20,10 +21,11 @@ export interface BwrapLayout {
   resolvConf: string;
   network: "egress" | "none" | "host";
   /**
-   * This fence's own cgroup directory, bound read-only at `/sys/fs/cgroup`. Undefined when the kernel has
-   * no delegated cgroup (limits off) or the host runs cgroups v1; then the bind is simply left out.
+   * This fence's own cgroup directory and the path inside the fence it is bound read-only at. Undefined
+   * when the kernel has no delegated cgroup (limits off) or the host runs cgroups v1; then the bind is
+   * simply left out.
    */
-  cgroupDir?: string;
+  cgroup?: FenceCgroup;
 }
 
 export function hasBwrap(): boolean {
@@ -55,12 +57,16 @@ export function bwrapArgs(us: Userspace, layout: BwrapLayout, env: Record<string
   }
   // The fence's own cgroup, and nothing else of the host's tree: this is how an agent reads its own
   // `memory.max`, `memory.current` and `memory.events` and can tell an OOM kill (exit 137, `oom_kill`
-  // rising) from a transient failure. Read-only, so it is self-knowledge and not control. `-try` because
-  // the directory is created by `Cgroups.place` while the launch gate is still shut: it exists by the time
+  // rising) from a transient failure. Read-only, so it is self-knowledge and not control. The destination
+  // mirrors `/proc/self/cgroup` (`Cgroups.fence` derives it) rather than being the mount root: a runtime
+  // resolves its own group by appending that line to the mount point, so the leaf bound at the root makes
+  // that concatenation name a directory that does not exist — which corrupts .NET's probe and aborts the
+  // process. Bubblewrap creates the intermediate directories of the destination itself. `-try` because the
+  // directory is created by `Cgroups.place` while the launch gate is still shut: it exists by the time
   // bubblewrap execs, and if limits are off it never appears and bubblewrap skips the bind instead of
   // failing the fence. `/proc/meminfo` still reports the host's memory; correcting that needs something
   // like lxcfs and is out of scope.
-  if (layout.cgroupDir) args.push("--ro-bind-try", layout.cgroupDir, "/sys/fs/cgroup");
+  if (layout.cgroup) args.push("--ro-bind-try", layout.cgroup.dir, layout.cgroup.dest);
   args.push("--bind", us.root, us.root, "--chdir", us.home);
   // Mounts come after the userspace and the OS, so a granted path wins over a read-only bind above it.
   for (const m of us.mounts ?? []) args.push(m.mode === "rw" ? "--bind" : "--ro-bind", m.path, m.path);

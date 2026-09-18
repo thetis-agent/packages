@@ -1,4 +1,4 @@
 export { ProcessFence, type ProcessFenceOptions, type FenceNetwork, type SandboxMode } from "./process-fence.js";
 export { FencePool } from "./pool.js";
-export { Cgroups, type FenceLimits, type Placement } from "./cgroup.js";
+export { Cgroups, CGROUP_MOUNT, fenceMount, type FenceCgroup, type FenceLimits, type Placement } from "./cgroup.js";
 export { hasSlirp, startEgress, type Egress } from "./network.js";
