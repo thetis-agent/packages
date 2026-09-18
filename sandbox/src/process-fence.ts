@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import type { Writable } from "node:stream";
 import type { Fence, FenceHandle, KernelRpc, Userspace } from "@thetis/contracts";
 import { CodedError, errorMessage } from "@thetis/lib/error";
-import { bwrapArgs, hasBwrap, launcherCommand, launcherReady, presentMounts } from "./bwrap.js";
+import { bwrapArgs, hasBwrap, hasCgroupNamespace, launcherCommand, launcherReady, presentMounts } from "./bwrap.js";
 import type { Cgroups, FenceCgroup, FenceLimits } from "./cgroup.js";
 import { ProcessHandle, type SandboxHandle } from "./handle.js";
 import { hasSlirp, startEgress, writeResolvConf } from "./network.js";
@@ -40,6 +40,8 @@ export class ProcessFence implements Fence {
   private readonly sandbox: "bwrap" | "none";
   private readonly network: "egress" | "none" | "host";
   private readonly log: (line: string) => void;
+  /** Answered on the first sandboxed open with a cgroup, and remembered: it costs a bubblewrap run. */
+  private namespaced?: boolean;
 
   constructor(private readonly opts: ProcessFenceOptions) {
     this.log = opts.log ?? (() => {});
@@ -66,10 +68,12 @@ export class ProcessFence implements Fence {
     const openedAt = Date.now();
     // The cgroup is adopted before the first child exists: enabling controllers needs the parent group empty.
     const cgroups = this.sandbox === "bwrap" ? this.opts.cgroups?.() : undefined;
-    // The fence reads its own limits under /sys/fs/cgroup, at the path /proc/self/cgroup names. `openGate`
-    // creates that directory before it opens the gate, so it is there by the time bubblewrap execs; when
-    // limits are off there is no directory to name.
-    const child = this.spawn(us, cgroups?.fence(us.id));
+    // The fence reads its own limits under /sys/fs/cgroup: at the mount root when it gets a cgroup
+    // namespace, at the path /proc/self/cgroup names when it cannot. `openGate` creates that directory
+    // before it opens the gate, so it is there by the time bubblewrap execs, and puts the process in it
+    // before bubblewrap unshares, so the namespace is rooted at the fence's own group. When limits are off
+    // there is no directory to name and no namespace to take.
+    const child = this.spawn(us, cgroups && cgroups.fence(us.id, this.cgroupNamespace()));
     const cleanup: (() => void)[] = [];
     try {
       if (this.sandbox === "bwrap") await this.openGate(us, child, cgroups, cleanup);
@@ -81,6 +85,15 @@ export class ProcessFence implements Fence {
     const handle = new ProcessHandle(child, us, rpc, { requestTimeoutMs: this.opts.requestTimeoutMs, log: this.log }, cleanup);
     await handle.request("ping", {});
     return Object.assign(handle, { openedAt });
+  }
+
+  /**
+   * Whether this host can give a fence its own cgroup namespace. Probed once, on the first open that has a
+   * cgroup to bind — a one-shot command that opens no fence never runs bubblewrap for it — and a `false`
+   * only falls back to the older layout, it never fails a fence.
+   */
+  private cgroupNamespace(): boolean {
+    return (this.namespaced ??= hasCgroupNamespace());
   }
 
   private async openGate(us: Userspace, child: ChildProcess, cgroups: Cgroups | undefined, cleanup: (() => void)[]): Promise<void> {

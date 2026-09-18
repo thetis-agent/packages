@@ -21,15 +21,30 @@ export interface BwrapLayout {
   resolvConf: string;
   network: "egress" | "none" | "host";
   /**
-   * This fence's own cgroup directory and the path inside the fence it is bound read-only at. Undefined
-   * when the kernel has no delegated cgroup (limits off) or the host runs cgroups v1; then the bind is
-   * simply left out.
+   * This fence's own cgroup directory, the path inside the fence it is bound read-only at, and whether the
+   * fence gets a cgroup namespace of its own. Undefined when the kernel has no delegated cgroup (limits
+   * off) or the host runs cgroups v1; then the bind and the namespace are both simply left out.
    */
   cgroup?: FenceCgroup;
 }
 
 export function hasBwrap(): boolean {
   const probe = spawnSync("bwrap", ["--ro-bind", "/", "/", "--unshare-pid", "--", "true"], { stdio: "ignore" });
+  return probe.status === 0;
+}
+
+/**
+ * Whether a fence can have its own cgroup namespace: the kernel has to offer one (Linux 4.6 and later,
+ * which is what `/proc/self/ns/cgroup` being there means) and this bubblewrap has to know the flag and be
+ * allowed to use it. The second half is answered by running it rather than by reading a version number: an
+ * older bubblewrap rejects the unknown option, and a kernel that refuses `CLONE_NEWCGROUP` in a user
+ * namespace fails the clone, and either way the probe is not exit 0. A false answer is never fatal — the
+ * fence is then built the way it was before the namespace existed, with the group at the path
+ * `/proc/self/cgroup` names.
+ */
+export function hasCgroupNamespace(): boolean {
+  if (!existsSync("/proc/self/ns/cgroup")) return false;
+  const probe = spawnSync("bwrap", ["--ro-bind", "/", "/", "--unshare-cgroup", "--", "true"], { stdio: "ignore" });
   return probe.status === 0;
 }
 
@@ -57,20 +72,31 @@ export function bwrapArgs(us: Userspace, layout: BwrapLayout, env: Record<string
   }
   // The fence's own cgroup, and nothing else of the host's tree: this is how an agent reads its own
   // `memory.max`, `memory.current` and `memory.events` and can tell an OOM kill (exit 137, `oom_kill`
-  // rising) from a transient failure. Read-only, so it is self-knowledge and not control. The destination
-  // mirrors `/proc/self/cgroup` (`Cgroups.fence` derives it) rather than being the mount root: a runtime
-  // resolves its own group by appending that line to the mount point, so the leaf bound at the root makes
-  // that concatenation name a directory that does not exist — which corrupts .NET's probe and aborts the
-  // process. Bubblewrap creates the intermediate directories of the destination itself. `-try` because the
-  // directory is created by `Cgroups.place` while the launch gate is still shut: it exists by the time
-  // bubblewrap execs, and if limits are off it never appears and bubblewrap skips the bind instead of
-  // failing the fence. `/proc/meminfo` still reports the host's memory; correcting that needs something
-  // like lxcfs and is out of scope.
+  // rising) from a transient failure, and how a language runtime sizes its heap for the fence rather than
+  // for the machine. Read-only, so it is self-knowledge and not control. Where it goes is decided in
+  // `cgroup.ts` and is one of two layouts: at the mount root together with `--unshare-cgroup` below, the
+  // arrangement every container uses, or — when there is no cgroup namespace to be had — at the full path
+  // `/proc/self/cgroup` reports. A runtime resolves its own group by appending that line to the mount
+  // point, so the two have to agree; the leaf at the root without the namespace makes that concatenation
+  // name a directory that does not exist, which corrupts .NET's probe and aborts the process. Bubblewrap
+  // creates the intermediate directories of the destination itself. `-try` because the directory is
+  // created by `Cgroups.place` while the launch gate is still shut: it exists by the time bubblewrap
+  // execs, and if limits are off it never appears and bubblewrap skips the bind instead of failing the
+  // fence. `/proc/meminfo` still reports the host's memory; correcting that needs something like lxcfs and
+  // is out of scope.
   if (layout.cgroup) args.push("--ro-bind-try", layout.cgroup.dir, layout.cgroup.dest);
   args.push("--bind", us.root, us.root, "--chdir", us.home);
   // Mounts come after the userspace and the OS, so a granted path wins over a read-only bind above it.
   for (const m of us.mounts ?? []) args.push(m.mode === "rw" ? "--bind" : "--ro-bind", m.path, m.path);
   args.push("--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts");
+  // The cgroup namespace makes the group the fence is already in — `Cgroups.place` put it there while the
+  // launch gate was shut — the root of the hierarchy it can see: `/proc/self/cgroup` inside reads `0::/`,
+  // and `/sys/fs/cgroup` is a cgroup2 filesystem holding the fence's own files rather than a tmpfs with a
+  // bind buried in it. That is what lets .NET find its limit at all: it picks the cgroup version by
+  // `statfs` on the mount point, and only this layout answers v2. It is unshared only when the group is
+  // bound at the root, because each is wrong without the other, and only when the kernel and this
+  // bubblewrap both have it (`hasCgroupNamespace`); otherwise the fence keeps the layout it had before.
+  if (layout.cgroup?.namespace) args.push("--unshare-cgroup");
   args.push("--cap-drop", "ALL", "--disable-userns", "--die-with-parent", "--new-session");
   if (layout.network === "none") args.push("--unshare-net");
   for (const [k, v] of Object.entries(env)) args.push("--setenv", k, v);

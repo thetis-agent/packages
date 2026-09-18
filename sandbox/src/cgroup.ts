@@ -23,25 +23,35 @@ export interface FenceCgroup {
   /** The host directory of this fence's group. */
   dir: string;
   /**
-   * Where `dir` is bound inside the fence: the mount point plus the path this fence's own
-   * `/proc/self/cgroup` line reports. A runtime finds its group by concatenating those two — .NET does —
-   * so the group has to sit at exactly that path. Bound at the mount root instead, the concatenation
-   * names a directory that does not exist, .NET's probe reads garbage, and the runtime aborts
-   * (`munmap_chunk(): invalid pointer`, sometimes a segfault) at random inside every fence.
+   * Where `dir` is bound inside the fence. A runtime finds its group by concatenating the cgroup mount
+   * point with its own `/proc/self/cgroup` line — .NET does — so the group has to sit at exactly the path
+   * that concatenation names, and which path that is depends on `namespace`.
    */
   dest: string;
+  /**
+   * True when the fence also gets its own cgroup namespace (`bwrap --unshare-cgroup`). The namespace makes
+   * the group the fence is already in the root of its own cgroup hierarchy, so `/proc/self/cgroup` inside
+   * reads `0::/` and the concatenation lands on the mount point: `dest` is then the mount root, as in any
+   * container. False when the kernel or bubblewrap has no cgroup namespace, and then the group has to be
+   * bound at the full host path instead, because that is what `/proc/self/cgroup` still reports inside.
+   * The two go together: the leaf at the mount root without the namespace makes the concatenation name a
+   * directory that does not exist, .NET's probe reads garbage, and the runtime aborts
+   * (`munmap_chunk(): invalid pointer`, sometimes a segfault) at random inside every fence.
+   */
+  namespace: boolean;
 }
 
 const CONTROLLERS = ["memory", "pids", "cpu"];
 
 /**
  * Where a fence's cgroup directory has to appear inside the fence — derived here, so only this file knows
- * how a cgroup path is spelled. The directory's path relative to the filesystem root is what
- * `/proc/self/cgroup` reports inside the fence, and the mount point plus that path is where the fence, and
- * any runtime resolving its own limits, looks for it.
+ * how a cgroup path is spelled. With a cgroup namespace the fence's own group is the root of the hierarchy
+ * it can see, so it belongs at the mount point itself; without one, `/proc/self/cgroup` inside the fence
+ * still reports the host's path, and the group has to appear under the mount point at exactly that path.
+ * Either way the fence, and any runtime resolving its own limits, finds it by that concatenation.
  */
-export function fenceMount(dir: string): FenceCgroup {
-  return { dir, dest: join(CGROUP_MOUNT, relative(CGROUP_MOUNT, dir)) };
+export function fenceMount(dir: string, namespace: boolean): FenceCgroup {
+  return { dir, dest: namespace ? CGROUP_MOUNT : join(CGROUP_MOUNT, relative(CGROUP_MOUNT, dir)), namespace };
 }
 
 export class Cgroups {
@@ -72,9 +82,9 @@ export class Cgroups {
     return resolve(this.root, `fence-${id}`);
   }
 
-  /** That directory and where the fence has to see it. `place` creates it. */
-  fence(id: string): FenceCgroup {
-    return fenceMount(this.fenceDir(id));
+  /** That directory and where the fence has to see it, given whether the fence gets a cgroup namespace. `place` creates it. */
+  fence(id: string, namespace: boolean): FenceCgroup {
+    return fenceMount(this.fenceDir(id), namespace);
   }
 
   /** A limited group for one fence. `attach` moves a process into it; `release` removes the group once it is empty. */
