@@ -16,6 +16,14 @@
   },
   "thetis": {
     "type": "gateway",
+    "config": {
+      "secure": {
+        "type": "boolean",
+        "default": false,
+        "scope": "system",
+        "help": "Adds Secure to the login cookie; set it when TLS terminates in front of the door."
+      }
+    },
     "service": {
       "export": "startService"
     }

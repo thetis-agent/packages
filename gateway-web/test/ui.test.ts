@@ -15,6 +15,7 @@ import type { Server } from "node:http";
 import type { PackageInfo, UiDecl, Userspace } from "@thetis/contracts";
 import { createKernel, T, type Kernel } from "@thetis/host";
 import { createControlHandler, createRpcHandler, defaultConfig } from "@thetis/kernel";
+import { memoryStore } from "@thetis/lib/store";
 import { createDoor } from "@thetis/door";
 import { createLogin } from "@thetis/gateway-login";
 import { clientFromRpc } from "../src/client.js";
@@ -134,6 +135,9 @@ function envAt(root: string) {
       await mkdir(dirname(resolve(root, p)), { recursive: true });
       await writeFile(resolve(root, p), content);
     },
+    storage: (): never => {
+      throw new Error("no storage in this test");
+    },
   };
 }
 
@@ -201,7 +205,8 @@ before(async () => {
   config.systemPackages = { "*": ["@thetis/harness-core", "@thetis/tool-exec"], _system: ["@thetis/provider-echo"] };
   config.requestTimeoutMs = 60_000;
   const log = (line: string) => process.env.THETIS_TEST_VERBOSE && console.error(line);
-  kernel = createKernel(config, (c) => c.bind(T.log, () => log));
+  // The records live in memory: this file is about the extension seam, and no storage driver is among its system packages.
+  kernel = await createKernel(config, (c) => c.bind(T.log, () => log).bind(T.store, () => memoryStore()));
   kernel.users.create("alice");
   kernel.users.create("bob");
   kernel.users.create("root", "admin");
@@ -216,7 +221,7 @@ before(async () => {
   writeFileSync(join(packages, "plain", "package.json"), JSON.stringify({ name: "@alice/plain", version: "0.1.0", type: "module", main: "index.js", thetis: { type: "tool" } }));
   writeFileSync(join(packages, "plain", "index.js"), "export const nothing = 1;");
 
-  const rpcFor = (us: Userspace) => createRpcHandler(us, kernel.users, kernel.packages, kernel.sessions, kernel.auth, createControlHandler(kernel), async (u) => ({ model: kernel.config.model, models: await kernel.providers.listModels(u) }));
+  const rpcFor = (us: Userspace) => createRpcHandler(us, kernel, createControlHandler(kernel), async (u) => ({ model: kernel.config.model, models: await kernel.providers.listModels(u) }));
   const assets = join(home, "assets");
   mkdirSync(assets);
   writeFileSync(join(assets, "index.html"), "<title>app</title>");

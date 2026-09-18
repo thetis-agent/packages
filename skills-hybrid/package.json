@@ -13,6 +13,12 @@
   },
   "thetis": {
     "type": "loader",
+    "config": {
+      "fusionWeight": { "type": "number", "default": 0.7, "help": "The dense share in the rank fusion: 0 is lexical only, 1 is dense only." },
+      "pinLimit": { "type": "number", "default": 6, "help": "How many retrieved skills are pinned for the conversation; 0 pins nothing." },
+      "pinBodies": { "type": "boolean", "default": false, "help": "Pin the bodies of the retrieved skills instead of their cards; costs bytes, saves a round trip." },
+      "embeddings": { "type": "object", "help": "The vector source, an OpenAI-compatible embeddings endpoint: baseUrl (https://openrouter.ai/api/v1), apiKey (without one the ranking is lexical), model (openai/text-embedding-3-small) and dimensions (1536)." }
+    },
     "steps": [
       { "id": "bench-import", "phase": "bench", "export": "importCorpus" },
       { "id": "pin", "phase": "prompt", "export": "pin" },

@@ -1,6 +1,6 @@
 # @thetis/ui-admin
 
-The admin sections of the web gateway's control panel: People, Models, Mounts, Activity, Workspaces and Overview, and the commands behind them. It is a `ui` package with no build step and no dependencies. Its browser modules run in the page; its commands run inside the admin's own fence, where `@thetis/gateway-web` calls them as the admin, and each one is one call over the kernel's operator channel. Every person gets the package by default; a user sees none of it, because `api/ui` drops the entries and verbs above the person's role.
+The admin sections of the web gateway's control panel: People, Models, Configuration, Mounts, Activity, Workspaces and Overview, and the commands behind them. It is a `ui` package with no build step and no dependencies. Its browser modules run in the page; its commands run inside the admin's own fence, where `@thetis/gateway-web` calls them as the admin, and each one is one call over the kernel's operator channel. Every person gets the package by default; a user sees none of it, because `api/ui` drops the entries and verbs above the person's role.
 
 ## What it provides
 
@@ -10,6 +10,7 @@ The manifest declares `type: "ui"` and a `ui` block with `dir: "ui"`, `entry: "i
 |---|---|---|---|---|
 | `panel` | `people` | People | 20 | Who can sign in, and what they may do. |
 | `panel` | `models` | Models | 30 | Which model answers by default, and what the providers serve. |
+| `panel` | `configuration` | Configuration | 32 | What each package is configured with, and what is missing. |
 | `panel` | `mounts` | Mounts | 35 | Which host directories are bound into whose space. |
 | `panel` | `activity` | Activity | 40 | What happened: who did what, and when. |
 | `panel` | `workspaces` | Workspaces | 45 | What code each workspace is running, and how to put new code into service. |
@@ -27,6 +28,11 @@ The orders sort the sections after the gateway's built-in Packages section (orde
 | `user-remove` | `userRemove` | `id` | `users.remove`. Not for your own account. |
 | `models` | `models` | none | `{ model, models }` from `config.get` and `models`. |
 | `config` | `config` | none | `config.get`: the configuration as the kernel reports it, secrets replaced. |
+| `config-list` | `configList` | `user?` | `config.list`: a `ConfigReport` per package, at the system layer, or at that person's layer with `user`. |
+| `config-show` | `configShow` | `name`, `user?` | `config.show`: one package's report. |
+| `config-set` | `configSet` | `name`, `key`, `value`, `user?` | `config.set`: writes one key at the system layer, or at the person's with `user`. `value` is any JSON but never null or undefined: removing a value is `config-unset`. The value is passed through and never appears in a message. |
+| `config-unset` | `configUnset` | `name`, `key`, `user?` | `config.unset`: removes one key from that layer. |
+| `config-reload` | `configReload` | none | `config.reload`: re-reads `thetis.config.json` and the env file; answers `{ changed, restarted }`. |
 | `journal` | `journal` | `limit?`, `kind?` | `journal.tail`: the newest rows, 200 by default, at most 1000. |
 | `mounts-list` | `mountsList` | `user?` | `mounts.list`: one person's mounts, or everyone's, each with `present` and `kind`: what the host holds at the path now. |
 | `mounts-set` | `mountsSet` | `user`, `mounts` | `mounts.set`: replaces that person's list. At most 32 entries, each an absolute normalized path that is not `/`, mode `rw` or `ro`, no path twice. The kernel closes the person's fence. The answer says, per mount, whether the host has a directory there. |
@@ -41,10 +47,11 @@ The role is checked three times: the page draws only what `api/ui` listed for th
 
 ## Use
 
-An admin opens **Control panel** from the sidebar's ≡ menu and finds the six sections after Packages.
+An admin opens **Control panel** from the sidebar's ≡ menu and finds the seven sections after Packages.
 
 - **People**: a table of everyone with their role, status and since when. An **Add a person** form with id, role and password. Clicking a row opens a card with **Make an admin** or **Make a user**, **Suspend** or **Activate**, **Set password** and **Remove**, each behind a confirm popover. The admin's own row shows a note instead: another admin, or the host, changes that account.
 - **Models**: the default model and the models every provider serves, with a filter. Read-only.
+- **Configuration**: one card per package from `config-list`, at the system layer, or at one person's own layer from the picker at the top. The card header says the package, what it inherits from, and the kernel's one sentence about it, red when the package is broken; a line above the cards counts the broken ones ("2 packages are missing configuration"). A row per key: the key with its help, `required` and `admins only` badges, a control by type (text, number, a checkbox, a JSON box for an object or an array; a write-only password box for a secret that says `set` or `not set` beside it), and in small text where the value came from (`from the file`, `default`, `set for everyone`, `set by alice`, `inherited from @bitmuse/notion`) and which `${VAR}` is not in the environment. An undeclared key is a row too, typed by its value. **Clear** sits in the row whose value this layer holds. **Save** sends one `config-set` per key that changed; a JSON box that does not parse is marked in place and nothing is sent. A key declared `scope: "system"` is read-only in a person's view. **Reload the file** calls `config-reload` and says what changed and which services restarted, or "Nothing changed." The form itself is `ui/config-form.js`, the same file `@thetis/ui-marketplace` carries for a person's own layer.
 - **Mounts**: one table of every person's mounts with a column **On the host** (`bound`, or `skipped` and why) and an **Unbind** button per row, and a **Bind directory** form: the person, the host path with a **Choose…** picker over `mounts-browse`, the mode. Every change sends that person's whole list; the page says their fence reopens and their services restart, and names a path the host does not have. Changing your own mounts closes the fence this page is served from, so the page waits for the new one to answer instead of calling the lost request a failure. A mount marked skipped is written down and not in the fence.
 - **Activity**: the kernel's journal, newest first, with a filter by kind and a reload.
 - **Workspaces**: the daemon's own line (whether systemd supervises it, whether it is running older code than what is on disk, and that only `sudo systemctl restart thetis-runtime.service` replaces the kernel), then one row per workspace with a **Code** column in words — `running the code on disk`, `running code from 13:17 · newer on disk since 16:02`, or `not running · opens on the next request` — its services, and a **Reload** button behind a confirm. A workspace with no fence open has no button: there is nothing to reload. Reloading your own workspace closes the fence serving this page, so the page tolerates the lost request and waits for the new workspace to answer; after half a minute it says to run `thetis reload --user <id>` on the host. There is no button for everyone at once, by decision: `thetis reload --all` on the host does that without a command timeout and without cutting off the page that asked. The daemon's own line also asks for a **restart**, with a typed reason, since this is the card that says the daemon is running older code and that only a new process replaces the kernel; the control is offered when the daemon is stale and otherwise only when asked for, it is off with the reason said beside it when supervision or the deployed `Restart=` policy means a restart could not succeed, and the latch's sentence is shown word for word. `@thetis/tool-operator`'s chip owns the countdown and the Cancel.
@@ -54,15 +61,16 @@ An admin opens **Control panel** from the sidebar's ≡ menu and finds the six s
 
 | File | Content |
 |---|---|
-| `package.json` | The six `panel` entries and the fifteen commands. |
+| `package.json` | The seven `panel` entries and the twenty commands. |
 | `index.js` | The commands: the argument checks, then one operator call each. |
-| `ui/index.js` | `install(ext)`: registers the six sections. |
-| `ui/people.js`, `ui/models.js`, `ui/mounts.js`, `ui/activity.js`, `ui/workspaces.js`, `ui/overview.js` | One section each, built from `ext.dom` and `ext.ui`, sending through `ext.request`. |
+| `ui/index.js` | `install(ext)`: registers the seven sections. |
+| `ui/people.js`, `ui/models.js`, `ui/configuration.js`, `ui/mounts.js`, `ui/activity.js`, `ui/workspaces.js`, `ui/overview.js` | One section each, built from `ext.dom` and `ext.ui`, sending through `ext.request`. |
+| `ui/config-form.js` | One package's configuration card, from a `ConfigReport`. Kept byte-identical with `@thetis/ui-marketplace`'s copy, because a package's page may import only its own files; a test in ui-marketplace holds the two together. Its pure helpers (`kindOf`, `readValue`, `sourceText`, `brokenSentence`, `reloadSentence`) are tested here. |
 | `ui/index.css` | What the sections add to the shell's styles, under `.ua-`. |
 | `test/ui-admin.test.js` | The tests. |
 
 ## Tests
 
-`npm test` from the runtime root runs `test/ui-admin.test.js`: each command over a fake `env.kernel.operator.call` (the method and arguments it sends, what it refuses before the kernel is asked, the own-account refusal), and the browser modules (they parse, the entry defines `install` and nothing else, `install` registers exactly the six sections). `packages/gateway-web/test/gateway.test.ts` sends the verbs through a real gateway as an admin and as a user. The browser checklist is `packages/gateway-web/test/BROWSER.md`.
+`npm test` from the runtime root runs `test/ui-admin.test.js`: each command over a fake `env.kernel.operator.call` (the method and arguments it sends, what it refuses before the kernel is asked, the own-account refusal), the `config-*` verbs (the arguments they pass to `config.*`, what they refuse, and that nothing is written to the console, so no value can be), the form's pure helpers, and the browser modules (they parse, the entry defines `install` and nothing else, `install` registers exactly the seven sections). `packages/gateway-web/test/gateway.test.ts` sends the verbs through a real gateway as an admin and as a user. The browser checklist is `packages/gateway-web/test/BROWSER.md`.
 
 See docs/17-control-panel.md in the runtime repository.

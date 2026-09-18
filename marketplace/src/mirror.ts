@@ -164,6 +164,8 @@ export function describe(m: Record<string, unknown>, registry: Registry, dir: st
       }
     | undefined;
   if (typeof m.name !== "string" || typeof m.version !== "string" || !thetis || typeof thetis.type !== "string") return undefined;
+  // A storage driver runs on the host and is chosen in the configuration, so it is never installable and is not offered.
+  if (thetis.type === "storage") return undefined;
   return {
     name: m.name,
     version: m.version,

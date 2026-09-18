@@ -1,7 +1,7 @@
 import type { Fences, Message, ProviderEvent, StepContext, StepResult, ToolCall, ToolSpec, TurnEvent, Userspace } from "@thetis/contracts";
 import { CodedError, errorCode, errorMessage } from "@thetis/lib/error";
-import type { KernelConfig } from "../config.js";
 import type { ProviderRegistry, ResolvedProvider } from "../providers.js";
+import type { Settings } from "../settings.js";
 
 export type Emit = (event: TurnEvent) => void;
 
@@ -27,7 +27,7 @@ export function checkCancelled(signal?: AbortSignal): void {
  */
 export class ProviderCallStep {
   constructor(
-    private readonly config: KernelConfig,
+    private readonly settings: Settings,
     private readonly providers: ProviderRegistry,
     private readonly fences: Fences,
   ) {}
@@ -103,7 +103,7 @@ export class ProviderCallStep {
     let result: string;
     try {
       if (!spec) throw new CodedError(`unknown tool: ${tc.name}`, "tool");
-      const config = this.config.packages[spec.package] ?? {};
+      const config = await this.settings.effective(us, spec.package);
       const payload = { package: spec.package, export: spec.export, name: tc.name, args: tc.args, session: ctx.session, config };
       const raw = await this.fences.request(us, "tool", payload, undefined, signal);
       result = typeof raw === "string" ? raw : JSON.stringify(raw ?? null);

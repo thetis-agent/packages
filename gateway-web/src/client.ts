@@ -23,7 +23,13 @@ export function clientFromRpc(rpc: KernelRpc): KernelClient {
       inspect: (session) => call("sessions.inspect", { session }),
     },
     models: () => call("models", {}),
-  auth: {
+    config: {
+      show: (name) => call("config.show", { name }),
+      set: (name, key, value) => call("config.set", { name, key, value }),
+      unset: (name, key) => call("config.unset", { name, key }),
+      effective: (name) => call("config.effective", { name }),
+    },
+    auth: {
       login: (id, password) => call("auth.login", { id, password }),
       authenticate: (token) => call("auth.authenticate", { token }),
       logout: (token) => call("auth.logout", { token }),

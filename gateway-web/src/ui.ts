@@ -3,7 +3,8 @@
 // crosses to the browser or names a file. A bad declaration refuses that package by name and the rest
 // still composes. A package's browser files are served only from under its own declared directory. A
 // declared command runs an export of the package's `main` as the person, with the fence environment the
-// gateway already holds, and nothing more: no package configuration, no other package's authority.
+// gateway already holds and that package's effective configuration, fetched from the kernel on every call
+// so a change is live at once; nothing more: no other package's authority.
 import { existsSync, statSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
@@ -272,7 +273,15 @@ async function resolveCommand(ctx: CommandContext, who: { id: string; role: User
     });
   }
   if (args !== undefined && !isObject(args)) throw new HttpError(400, "args must be an object");
-  const env: UiCommandEnv = { ...ctx.env, user: who.id, role: who.role, ...(typeof session === "string" ? { session } : {}) };
+  // The package's configuration as its own steps and tools receive it. Once per request, never cached:
+  // a key set in the panel must reach the next command.
+  let config: Record<string, unknown>;
+  try {
+    config = await ctx.kernel.config.effective(pkg.name);
+  } catch (err) {
+    throw new HttpError(500, `${pkg.name} configuration could not be read: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const env: UiCommandEnv = { ...ctx.env, user: who.id, role: who.role, config, ...(typeof session === "string" ? { session } : {}) };
   return { pkg, cmd, args: (args as Record<string, unknown> | undefined) ?? {}, env };
 }
 

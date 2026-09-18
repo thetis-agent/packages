@@ -1,6 +1,6 @@
 # @thetis/lib
 
-Mechanism with no policy: ids, JSON files, queues, the container, the journal, the RPC framing, the socket server and client, the userspace layout, the mount store, package file operations, and scrypt. Nothing here decides who may do what; the kernel decides, with these parts. The package runs in the host process, where the kernel, the sandbox, the host, and the command line import it, and inside each fence, where the userspace agent imports the RPC framing.
+Mechanism with no policy: ids, JSON files, queues, the container, the journal, the RPC framing, the socket server and client, the userspace layout, the mount store, package file operations, scrypt, the store checks and mirror, the storage conformance suite, and the configuration layers. Nothing here decides who may do what; the kernel decides, with these parts. The package runs in the host process, where the kernel, the sandbox, the host, and the command line import it, and inside each fence, where the userspace agent imports the RPC framing.
 
 ## What it provides
 
@@ -20,9 +20,14 @@ The layering rule: `lib` imports only `@thetis/contracts`. `sandbox`, `kernel`, 
 | `rpc-frames` | `PendingCalls`, `callHandler`, `readFrames`, `encodeFrame`: the `{ id, method, args }` framing. |
 | `ndjson-socket` | `RpcSocketServer`, `connectRpcSocket`: the framing over a Unix socket. |
 | `userspace-layout` | `UserspaceLayout`: `pathFor`, `exists`, `ensure`, `remove`. |
-| `mounts` | `MountStore`: the per-user mount lists in `<home>/mounts.json`. `withPresence` adds what the host holds at each path (`present`, `kind`), which is what the fence will actually bind. `browseDirectories` lists the directories under one path, for a picker: directories only, hidden names left out unless asked, capped, and never throwing for a path that is missing or unreadable. |
+| `mounts` | `MountStore`: the per-user mount lists over a `StoreMirror` of the store namespace `mounts`. `parseMountList`: the check of a list that arrives from a socket. `withPresence` adds what the host holds at each path (`present`, `kind`), which is what the fence will actually bind. `browseDirectories` lists the directories under one path, for a picker: directories only, hidden names left out unless asked, capped, and never throwing for a path that is missing or unreadable. |
 | `pkg-fs` | `splitSource`, `isGitSource`, `cloneCommand`, `buildCommand`, `isInside`, `linkDir`, `removeLink`, `copyPackageAs`, `findDependency`, `forkVersion`, `forkPackage`, and the other package file operations. |
 | `crypto` | `randomHex`, `scryptHex`. |
+| `freshness` | `newestMtime`. |
+| `restart` | `RestartLatch`, `isSupervised`. |
+| `store` | `assertStoreId`, `storeId`, `assertStoreDoc`, `assertJsonValue`: the shared checks every driver runs. `memoryStore()`: a Map-backed driver for tests and the bench. `StoreMirror`: one namespace held in memory and written through in order, so the kernel's records stay synchronous; `flush()` on shutdown. |
+| `store-conformance` | `storeConformance(name, open, close?)`: the `node:test` cases a storage driver passes. |
+| `config` | `validateDecls`, `forkChain`, `mergedDecls`, `defaultsOf`, `isSecretKey`, `checkValue`, `mergeDocs`, `findRefs`, `resolveRefs`, `describe`, `changedPackages`, `parseDotEnv`, `EnvFile` (the `.env` file re-read on change, a shell value winning over the file's), `LayeredConfig` (the four layers over a driver in `config/*` and `secrets/*`, layer-major along a fork chain). |
 
 ## Use
 
@@ -75,9 +80,14 @@ if (remote) {
 | `src/mounts.ts` | The mount lists, their presence on the host, and the directory listing. |
 | `src/pkg-fs.ts` | Sources, clones, links, copies, forks. |
 | `src/crypto.ts` | Random hex and scrypt. |
+| `src/freshness.ts` | The newest modification time under a set of directories. |
+| `src/restart.ts` | The restart latch. |
+| `src/store.ts` | Store ids and documents, the memory driver, the mirror. |
+| `src/store-conformance.ts` | The driver test suite. |
+| `src/config.ts` | Declarations, chains, layers, references, the env file. |
 
 ## Tests
 
-`npm test` from the runtime root builds and runs every suite. The suite of this package is `packages/lib/test/lib.test.ts`: the container, the async queue, package sources, the JSON directory store, and the RPC framing. To run it alone after `npm run build`: `node --test packages/lib/dist/test/lib.test.js`.
+`npm test` from the runtime root builds and runs every suite. The suites of this package are under `packages/lib/test/`: `lib.test.ts` (the container, the async queue, package sources, the JSON directory store, the RPC framing), `store.test.ts` (ids, documents, the memory driver, the mirror), `config.test.ts` (declarations, the fork chain, layer-major merging, references, `describe`, the env file, `LayeredConfig` over `memoryStore()`), `freshness.test.ts` and `restart.test.ts`. To run one alone after `npm run build`: `node --test packages/lib/dist/test/lib.test.js`.
 
 See docs/02-kernel.md in the runtime repository.

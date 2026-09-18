@@ -4,20 +4,23 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createConnection } from "node:net";
 import { createInterface } from "node:readline";
-import type { TurnEvent } from "@thetis/contracts";
+import type { ConfigReport, TurnEvent } from "@thetis/contracts";
 import { createControlHandler, createRpcHandler, defaultConfig } from "@thetis/kernel";
+import { memoryStore } from "@thetis/lib/store";
 import type { ProcessFence } from "@thetis/sandbox";
-import { ControlServer, createKernel, T, type Kernel } from "../src/index.js";
+import { ControlServer, createKernel, migrateStore, T, type Kernel } from "../src/index.js";
 
 const PROJECT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), "../../test/fixtures");
 const SANDBOX = (process.env.THETIS_TEST_SANDBOX as "auto" | "none") ?? "auto";
+/** The shipped driver, when it has been built; otherwise the records live in memory and nothing about files can be asserted. */
+const REAL_DRIVER = existsSync(resolve(PROJECT, "packages/store-toml/dist/src/index.js"));
 
 let home: string;
 let kernel: Kernel;
@@ -37,17 +40,21 @@ before(async () => {
   home = mkdtempSync(join(tmpdir(), "thetis-e2e-"));
   const sys = join(home, "system-packages");
   mkdirSync(sys);
-  for (const name of ["harness-core", "tool-exec", "prompt-cache", "terminal"]) symlinkSync(resolve(PROJECT, "packages", name), join(sys, name));
-  symlinkSync(join(FIXTURES, "provider-echo"), join(sys, "provider-echo"));
+  for (const name of ["harness-core", "tool-exec", "prompt-cache", "terminal", "store-toml"]) symlinkSync(resolve(PROJECT, "packages", name), join(sys, name));
+  for (const name of ["provider-echo", "config-probe", "config-svc"]) symlinkSync(join(FIXTURES, name), join(sys, name));
   const config = defaultConfig(join(home, "data"), PROJECT);
   config.systemPackagesDir = sys;
   config.model = "echo";
   config.fence.sandbox = SANDBOX;
   config.fence.readOnly.push(sys, FIXTURES);
-  config.systemPackages = { "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache", "@thetis/terminal"], _system: ["@thetis/provider-echo"] };
+  config.systemPackages = { "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache", "@thetis/terminal", "@thetis/config-probe"], _system: ["@thetis/provider-echo"] };
   config.packages = { "@thetis/provider-echo": { tag: "t1" }, "@thetis/prompt-cache": { explicitVendors: ["echo"], ttl: "1h" } };
   config.requestTimeoutMs = 60_000;
-  kernel = createKernel(config, (c) => c.bind(T.log, () => (line: string) => process.env.THETIS_TEST_VERBOSE && console.error(line)));
+  if (!REAL_DRIVER) console.error("packages/store-toml is not built: the e2e records live in a memory store and file modes are not checked");
+  kernel = await createKernel(config, (c) => {
+    c.bind(T.log, () => (line: string) => process.env.THETIS_TEST_VERBOSE && console.error(line));
+    if (!REAL_DRIVER) c.bind(T.store, () => memoryStore());
+  });
   kernel.users.create("alice");
   kernel.users.create("bob");
   // `shell` is a client of a service: the session host listens on a socket inside the userspace, and
@@ -67,7 +74,7 @@ test("first turn seeds the userspace and round-trips through the provider", asyn
   assert.deepEqual(r.errors, []);
   assert.equal(r.text, "echo: hello (t1)");
   const names = kernel.packages.installed(kernel.userspaces.pathFor("alice")).map((p) => p.name);
-  assert.deepEqual(names, ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache", "@thetis/terminal"]);
+  assert.deepEqual(names, ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache", "@thetis/terminal", "@thetis/config-probe"]);
   assert.equal(kernel.sessions.inspect("alice", s.id).conversation.length, 2);
 });
 
@@ -200,7 +207,7 @@ test("a turn that fails after a tool ran keeps the tool call and its result in t
 });
 
 test("operator methods: an admin's fence may use them; a user's may not", async () => {
-  const handler = (id: string) => createRpcHandler(kernel.userspaces.pathFor(id), kernel.users, kernel.packages, kernel.sessions, kernel.auth, createControlHandler(kernel));
+  const handler = (id: string) => createRpcHandler(kernel.userspaces.pathFor(id), kernel, createControlHandler(kernel));
   await assert.rejects(handler("alice")("operator.users.list", {}), /only an admin/);
   kernel.users.create("root", "admin");
   const root = handler("root");
@@ -259,7 +266,7 @@ test("cancel: the turn ends at once, and the command it started keeps running in
 });
 
 test("rpc: identity is the fence; only the system fence logs people in; a token resolves only for its own user", async () => {
-  const handler = (id: string) => createRpcHandler(kernel.userspaces.pathFor(id), kernel.users, kernel.packages, kernel.sessions, kernel.auth);
+  const handler = (id: string) => createRpcHandler(kernel.userspaces.pathFor(id), kernel);
   const forAlice = handler("alice");
   const forBob = handler("bob");
   const forSystem = handler("_system");
@@ -283,7 +290,7 @@ test("rpc: identity is the fence; only the system fence logs people in; a token 
 });
 
 test("rpc: a fence lists the models its providers serve, and a turn may name one", async () => {
-  const forAlice = createRpcHandler(kernel.userspaces.pathFor("alice"), kernel.users, kernel.packages, kernel.sessions, kernel.auth, undefined, async (us) => ({ model: kernel.config.model, models: await kernel.providers.listModels(us) }));
+  const forAlice = createRpcHandler(kernel.userspaces.pathFor("alice"), kernel, undefined, async (us) => ({ model: kernel.config.model, models: await kernel.providers.listModels(us) }));
   const choices = (await forAlice("models", {})) as { model: string; models: { id: string; provider?: string }[] };
   assert.equal(choices.model, "echo");
   assert.ok(choices.models.some((m) => m.id === "echo" && m.provider === "@thetis/provider-echo"));
@@ -353,7 +360,7 @@ test("fence isolation: a userspace cannot read the service plane or another user
   // The service plane's data dir must be invisible except for the mount-point path to alice's own userspace.
   const data = join(home, "data");
   const probe = [
-    `cat ${join(data, "users.json")} && echo LEAK-USERS`,
+    `ls ${join(data, "store")} && echo LEAK-STORE`,
     `ls ${bob} && echo LEAK-BOB`,
     `ls -A ${data} | grep -v '^userspaces$' | grep -v '^packages$' | grep -v '^shared$' | grep . && echo LEAK-DATA`,
     `touch ${join(data, "shared", "x")} 2>/dev/null && echo LEAK-SHARED-WRITE`,
@@ -394,7 +401,7 @@ test("fork: a fork of a promoted package replaces it on install, and uninstallin
   assert.match(sys.text, /MARKER-FROM-ALICE/, "the fork's step runs");
   assert.match((await collect(kernel.sessions.send("alice", s.id, "fork: @thetis/hello as hello2"))).text, /not installed in your userspace/);
   assert.match((await collect(kernel.sessions.send("alice", s.id, "fork: @alice/hello2 as hello2"))).text, /target exists/);
-  const rpc = createRpcHandler(us, kernel.users, kernel.packages, kernel.sessions, kernel.auth);
+  const rpc = createRpcHandler(us, kernel);
   await rpc("packages.uninstall", { name: "@alice/hello2" });
   const after = kernel.packages.installed(us).map((p) => p.name);
   assert.ok(after.includes("@thetis/hello") && !after.includes("@alice/hello2"), `the origin is back: ${after.join(", ")}`);
@@ -511,5 +518,188 @@ test("fence.reload: a service's module graph is read again, which a modification
     await kernel.packages.uninstall(us, "@alice/probe");
     rmSync(dir, { recursive: true, force: true });
     rmSync(join(us.home, "probe.log"), { force: true });
+  }
+});
+
+/** Every file and directory under `dir`, for the mode check. */
+function walk(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? [join(dir, e.name), ...walk(join(dir, e.name))] : [join(dir, e.name)]));
+}
+
+test("config.set at the system layer reaches the provider on its next call, with no restart of anything", async () => {
+  const control = createControlHandler(kernel);
+  const opened = () => ({ ...((kernel.fences as { openedAt?(): Record<string, number> }).openedAt?.() ?? {}) });
+  const before = opened();
+  const rows = () => kernel.journal.tail(50).filter((r) => r.kind.startsWith("service.")).length;
+  const serviceRows = rows();
+  const s = kernel.sessions.create("alice");
+  assert.equal((await collect(kernel.sessions.send("alice", s.id, "hello"))).text, "echo: hello (t1)");
+  const report = (await control("config.set", { name: "@thetis/provider-echo", key: "tag", value: "t2" })) as ConfigReport;
+  assert.equal(report.keys.find((k) => k.key === "tag")?.source, "system");
+  assert.equal((await collect(kernel.sessions.send("alice", s.id, "hello"))).text, "echo: hello (t2)", "the provider was called with the new value");
+  assert.deepEqual(opened(), before, "no fence was reopened");
+  assert.equal(rows(), serviceRows, "no service was stopped or started: the provider has none");
+  const row = kernel.journal.tail(1, { kind: "config.set" })[0];
+  assert.equal(row.target, "_system");
+  assert.deepEqual(row.data, { package: "@thetis/provider-echo", key: "tag", layer: "system", secret: false });
+  await control("config.unset", { name: "@thetis/provider-echo", key: "tag" });
+  assert.equal((await collect(kernel.sessions.send("alice", s.id, "hello"))).text, "echo: hello (t1)", "the file layer shows again");
+});
+
+test("config.set on a service package restarts that service in the same fence, with the new configuration", async () => {
+  const us = kernel.userspaces.pathFor("alice");
+  const control = createControlHandler(kernel);
+  const log = () => readFileSync(join(us.home, "svc-config.log"), "utf8").trim().split("\n");
+  const openedAt = () => (kernel.fences as { openedAt?(): Record<string, number> }).openedAt?.()?.alice;
+  await kernel.packages.install(us, kernel.users.authorize("_system"), "@thetis/config-svc");
+  try {
+    assert.deepEqual(log(), ['started {"level":"quiet"}'], "the declared default");
+    const fence = openedAt();
+    assert.ok(fence, "alice's fence is open");
+    const rowsBefore = kernel.journal.tail(500, { target: "alice" }).length;
+    await control("config.set", { name: "@thetis/config-svc", key: "level", value: "loud", user: "alice" });
+    assert.deepEqual(log(), ['started {"level":"quiet"}', "stopped", 'started {"level":"loud"}'], "stopped, then started with the person's value");
+    assert.equal(openedAt(), fence, "the fence itself stayed open");
+    const rows = kernel.journal.tail(500, { target: "alice" });
+    const since = rows.slice(0, rows.length - rowsBefore).filter((r) => r.kind.startsWith("service.")).map((r) => r.kind);
+    assert.deepEqual(since, ["service.start", "service.stop"], "newest first: the stop was journaled before the start");
+    await assert.rejects(control("config.set", { name: "@thetis/config-svc", key: "level", value: 3, user: "alice" }), /declared string/);
+  } finally {
+    await kernel.packages.uninstall(us, "@thetis/config-svc");
+    rmSync(join(us.home, "svc-config.log"), { force: true });
+  }
+});
+
+test("storage: a tool keeps a document through env.storage(); another person reads nothing there; delete and removeUser clear it", async () => {
+  const s = kernel.sessions.create("alice");
+  assert.match((await collect(kernel.sessions.send("alice", s.id, "put: color blue"))).text, /tool said: stored color/);
+  assert.match((await collect(kernel.sessions.send("alice", s.id, "get: color"))).text, /tool said: blue/, "a later turn reads it back");
+  assert.match((await collect(kernel.sessions.send("alice", s.id, "get: size"))).text, /tool said: nothing/);
+  const b = kernel.sessions.create("bob");
+  assert.match((await collect(kernel.sessions.send("bob", b.id, "get: color"))).text, /tool said: nothing/, "bob's fence has its own namespace");
+  assert.deepEqual(await kernel.store.open("userspaces/alice/@thetis/config-probe/default").get("color"), { value: "blue" }, "under the prefix the kernel built");
+
+  // A package of alice's own, so that delete_package may remove it: what it kept goes with its files.
+  const us = kernel.userspaces.pathFor("alice");
+  const dir = join(us.home, "packages", "keeper");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "@alice/keeper", version: "0.1.0", type: "module", main: "index.js", thetis: { type: "tool" } }));
+  writeFileSync(join(dir, "index.js"), "export const nothing = 1;");
+  assert.match((await collect(kernel.sessions.send("alice", s.id, "install: packages/keeper"))).text, /installed @alice\/keeper/);
+  const rpc = createRpcHandler(us, kernel);
+  await rpc("store.set", { package: "@alice/keeper", key: "note", doc: { kept: true } });
+  await rpc("config.set", { name: "@alice/keeper", key: "flag", value: "on" });
+  assert.deepEqual(await kernel.store.open("userspaces/alice/@alice/keeper/default").get("note"), { kept: true });
+  assert.match((await collect(kernel.sessions.send("alice", s.id, "delete: @alice/keeper"))).text, /deleted @alice\/keeper/);
+  assert.equal(await kernel.store.open("userspaces/alice/@alice/keeper/default").get("note"), undefined, "delete_package cleared the package's namespace");
+  assert.equal(await kernel.store.open("config/users/alice").get("@alice/keeper"), undefined, "and alice's layer for it");
+
+  kernel.users.create("carol");
+  const carol = kernel.sessions.userspaceFor(kernel.users.authorize("carol"));
+  await createRpcHandler(carol, kernel)("store.set", { package: "@thetis/config-probe", key: "k", doc: { v: 1 } });
+  await createRpcHandler(carol, kernel)("config.set", { name: "@thetis/config-probe", key: "token", value: "tok-carol" });
+  await kernel.removeUser("carol");
+  assert.equal(await kernel.store.open("userspaces/carol/@thetis/config-probe/default").get("k"), undefined, "removeUser leaves no userspaces/carol namespace");
+  assert.equal(await kernel.store.open("secrets/users/carol").get("@thetis/config-probe"), undefined, "nor a layer");
+  assert.equal(kernel.users.get("carol"), undefined);
+});
+
+test("a secret set over RPC reaches the tool and nothing else: not the reply, not config.show, not the journal", async () => {
+  const us = kernel.userspaces.pathFor("alice");
+  const rpc = createRpcHandler(us, kernel);
+  const s = kernel.sessions.create("alice");
+  const before = JSON.parse((await collect(kernel.sessions.send("alice", s.id, "config?"))).text.replace(/^tool said: /, "")) as Record<string, unknown>;
+  assert.deepEqual(before, { greeting: "hi" }, "the declared default, and no token yet");
+  const shown = (await rpc("config.show", { name: "@thetis/config-probe" })) as ConfigReport;
+  assert.equal(shown.broken, true);
+  assert.equal(shown.summary, "token is required and not set");
+  await assert.rejects(rpc("config.set", { name: "@thetis/config-probe", key: "mode", value: "x" }), (e: { code: string }) => e.code === "unauthorized", "a system-scoped key is not a person's to set");
+  await assert.rejects(rpc("config.show", { name: "@thetis/provider-echo" }), (e: { code: string }) => e.code === "not-found", "not installed in alice's fence");
+  const reply = (await rpc("config.set", { name: "@thetis/config-probe", key: "token", value: "tok-alice" })) as ConfigReport;
+  const token = reply.keys.find((k) => k.key === "token")!;
+  assert.equal(token.state, "set");
+  assert.equal(token.source, "user");
+  assert.equal(token.value, undefined);
+  assert.equal(token.redacted, true);
+  assert.equal(reply.broken, false);
+  assert.ok(!JSON.stringify(await rpc("config.show", { name: "@thetis/config-probe" })).includes("tok-alice"));
+  assert.ok(!JSON.stringify(kernel.journal.tail(5, { kind: "config.set" })).includes("tok-alice"));
+  const after = JSON.parse((await collect(kernel.sessions.send("alice", s.id, "config?"))).text.replace(/^tool said: /, "")) as Record<string, unknown>;
+  assert.deepEqual(after, { greeting: "hi", token: "tok-alice" }, "the tool receives it on the next turn");
+  assert.deepEqual(await rpc("config.effective", { name: "@thetis/config-probe" }), { greeting: "hi", token: "tok-alice" });
+  const bob = JSON.parse((await collect(kernel.sessions.send("bob", kernel.sessions.create("bob").id, "config?"))).text.replace(/^tool said: /, "")) as Record<string, unknown>;
+  assert.deepEqual(bob, { greeting: "hi" }, "alice's layer is alice's");
+  await createControlHandler(kernel)("config.set", { name: "@thetis/config-probe", key: "mode", value: "strict" });
+  assert.deepEqual(await rpc("config.effective", { name: "@thetis/config-probe" }), { greeting: "hi", token: "tok-alice", mode: "strict" }, "an admin's system-scoped key reaches everyone");
+});
+
+test("a fork inherits its origin's configuration: the report says so, and its tool receives the origin's key", async () => {
+  const us = kernel.userspaces.pathFor("alice");
+  const s = kernel.sessions.create("alice");
+  assert.match((await collect(kernel.sessions.send("alice", s.id, "fork: @thetis/config-probe as probe2"))).text, /forked @thetis\/config-probe/);
+  assert.match((await collect(kernel.sessions.send("alice", s.id, "install: packages/probe2"))).text, /replaced @thetis\/config-probe/);
+  try {
+    const report = (await createControlHandler(kernel)("config.show", { name: "@alice/probe2", user: "alice" })) as ConfigReport;
+    assert.deepEqual(report.inherits, ["@thetis/config-probe"]);
+    const token = report.keys.find((k) => k.key === "token")!;
+    assert.equal(token.inheritedFrom, "@thetis/config-probe");
+    assert.equal(token.source, "user");
+    assert.equal(token.value, undefined);
+    assert.equal(report.keys.find((k) => k.key === "mode")?.inheritedFrom, "@thetis/config-probe");
+    const seen = JSON.parse((await collect(kernel.sessions.send("alice", s.id, "config?"))).text.replace(/^tool said: /, "")) as Record<string, unknown>;
+    assert.deepEqual(seen, { greeting: "hi", token: "tok-alice", mode: "strict" }, "the fork's tool runs with the origin's configuration");
+  } finally {
+    await kernel.packages.uninstall(us, "@alice/probe2");
+  }
+});
+
+test("the store keeps credentials, tokens and secrets unreadable to anyone else", async (t) => {
+  if (!REAL_DRIVER) return t.skip("the memory store has no files");
+  const root = join(home, "data", "store");
+  for (const dir of ["auth", "secrets"]) {
+    const entries = walk(join(root, dir));
+    assert.ok(entries.length > 0, `${dir} has files`);
+    for (const path of entries) assert.equal(statSync(path).mode & 0o077, 0, `${path} is private`);
+  }
+  assert.ok(existsSync(join(root, "users", "alice.toml")), "one document per record");
+});
+
+test("migrate: a data directory with the four legacy files refuses to start, imports once, and never twice", async (t) => {
+  if (!REAL_DRIVER) return t.skip("migrate needs the shipped driver");
+  const legacy = mkdtempSync(join(tmpdir(), "thetis-legacy-"));
+  try {
+    const config = defaultConfig(join(legacy, "data"), PROJECT);
+    config.systemPackagesDir = join(home, "system-packages");
+    config.systemPackages = { "*": [], _system: [] };
+    config.fence.sandbox = "none";
+    mkdirSync(config.home);
+    const token = "ab".repeat(32);
+    const stamp = new Date().toISOString();
+    writeFileSync(join(config.home, "users.json"), JSON.stringify({ _system: { id: "_system", role: "system", status: "active", createdAt: stamp }, alice: { id: "alice", role: "admin", status: "active", createdAt: stamp } }));
+    writeFileSync(join(config.home, "auth.json"), JSON.stringify({ credentials: { alice: { salt: "00".repeat(16), hash: "11".repeat(64) } }, tokens: { [token]: { user: "alice", createdAt: stamp } } }));
+    writeFileSync(join(config.home, "registry.json"), JSON.stringify({ "@thetis/harness-core": { name: "@thetis/harness-core", version: "0.1.0", type: "harness", owner: "_system", source: { kind: "system", ref: resolve(PROJECT, "packages/harness-core") }, userspaces: ["alice"] } }));
+    writeFileSync(join(config.home, "mounts.json"), JSON.stringify({ alice: [{ path: "/srv/x", mode: "ro" }], bob: [] }));
+    const quiet = (c: Parameters<NonNullable<Parameters<typeof createKernel>[1]>>[0]) => c.bind(T.log, () => () => {});
+    await assert.rejects(createKernel(config, quiet), (e: { code: string; message: string }) => e.code === "invalid" && /run `thetis migrate`/.test(e.message));
+    const first = await migrateStore(config, () => {});
+    assert.deepEqual(first, { imported: { "users.json": 2, "auth.json": 2, "registry.json": 1, "mounts.json": 1 }, skipped: [] });
+    for (const f of ["users.json", "auth.json", "registry.json", "mounts.json"]) {
+      assert.ok(!existsSync(join(config.home, f)), `${f} is gone`);
+      assert.ok(existsSync(join(config.home, `${f}.migrated`)), `${f}.migrated is there`);
+    }
+    const migrated = await createKernel(config, quiet);
+    try {
+      assert.equal(migrated.users.get("alice")?.role, "admin");
+      assert.equal(migrated.auth.authenticate(token)?.id, "alice", "the token still signs alice in");
+      assert.deepEqual(migrated.registry.get("@thetis/harness-core")?.userspaces, ["alice"]);
+      assert.deepEqual(migrated.mounts.get("alice"), [{ path: "/srv/x", mode: "ro" }]);
+      assert.deepEqual(migrated.mounts.get("bob"), [], "an empty list was not imported as a document");
+    } finally {
+      await migrated.shutdown();
+    }
+    assert.deepEqual(await migrateStore(config, () => {}), { imported: {}, skipped: ["users.json", "auth.json", "registry.json", "mounts.json"] }, "a second run imports nothing");
+  } finally {
+    rmSync(legacy, { recursive: true, force: true });
   }
 });

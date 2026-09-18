@@ -5,6 +5,7 @@ import type { Journal } from "@thetis/lib/journal";
 import type { JsonDirStore } from "@thetis/lib/json-store";
 import type { KernelConfig } from "../config.js";
 import type { PackageManager } from "../packages/manager.js";
+import type { Settings } from "../settings.js";
 import { Enumerator, isBuiltin } from "./enumerator.js";
 import { checkCancelled, type Emit, type ProviderCallStep } from "./provider-call.js";
 
@@ -14,6 +15,7 @@ const ROLES = new Set(["system", "user", "assistant", "tool"]);
 export class PipelineRunner {
   constructor(
     private readonly config: KernelConfig,
+    private readonly settings: Settings,
     private readonly enumerator: Enumerator,
     private readonly providerCall: ProviderCallStep,
     private readonly packages: PackageManager,
@@ -74,8 +76,8 @@ export class PipelineRunner {
   }
 
   /** A package step runs inside the fence with its own configuration; the rest of the context is the turn's. */
-  private runStep(us: Userspace, step: StepRef, ctx: StepContext, signal?: AbortSignal): Promise<unknown> {
-    const config = this.config.packages[step.package] ?? {};
+  private async runStep(us: Userspace, step: StepRef, ctx: StepContext, signal?: AbortSignal): Promise<unknown> {
+    const config = await this.settings.effective(us, step.package);
     return this.fences.request(us, "step", { package: step.package, export: step.export, ctx: { ...ctx, config } }, undefined, signal);
   }
 

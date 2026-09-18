@@ -4,6 +4,8 @@ import type { ModelChoices, ModelDescriptor, ProviderCall, ProviderEvent } from 
 import type { DeletedPackage, PackageInfo } from "./packages.js";
 import type { AuthUser, SessionInfo, SessionRecord, SessionSummaryRef, UserRole } from "./identity.js";
 import type { StepContext, StepResult, TurnEvent, TurnOptions } from "./pipeline.js";
+import type { ConfigReport } from "./config.js";
+import type { Store } from "./storage.js";
 
 export interface PackageQuery {
   has(name: string): boolean;
@@ -27,6 +29,12 @@ export interface StepEnv {
   exec(cmd: string, opts?: ExecOptions): Promise<{ code: number; stdout: string; stderr: string }>;
   readFile(path: string): Promise<string>;
   writeFile(path: string, content: string): Promise<void>;
+  /**
+   * Documents this package keeps, in the service-plane store, under a namespace the kernel prefixes with
+   * the fence's user and this package's name: a package reaches only what it wrote, and a delete of the
+   * package or of the user clears it. `namespace` names a sub-namespace, default `default`.
+   */
+  storage(namespace?: string): Store;
   kernel: KernelClient;
 }
 
@@ -57,6 +65,19 @@ export interface KernelClient {
   };
   /** The models the fence's own providers serve, and the default. */
   models(): Promise<ModelChoices>;
+  /**
+   * This person's own configuration layer for a package installed in this fence. `show` reports every key's
+   * state with secrets redacted; `set` and `unset` change the person's layer, secrets included, and the kernel
+   * refuses a key the package declared `scope: "system"`. `effective` is what that package's code receives,
+   * secrets included: the fence is one person's authority, so a package in it may load another's config the
+   * way the web gateway runs another package's UI commands.
+   */
+  config: {
+    show(name: string): Promise<ConfigReport>;
+    set(name: string, key: string, value: unknown): Promise<ConfigReport>;
+    unset(name: string, key: string): Promise<ConfigReport>;
+    effective(name: string): Promise<Record<string, unknown>>;
+  };
   auth: {
     login(id: string, password: string): Promise<{ token: string; user: AuthUser } | null>;
     authenticate(token: string): Promise<AuthUser | null>;
@@ -84,6 +105,8 @@ export interface UiCommandEnv extends StepEnv {
   role: UserRole;
   /** The session the page named, already checked to be the person's own. */
   session?: string;
+  /** The configuration of the package that declared the command, as its steps and tools receive it. */
+  config: Record<string, unknown>;
 }
 export type UiCommandResult = { text?: string; data?: unknown } | string | void;
 /** The export a `ui.commands[]` entry names. The web gateway calls it when the package's own page asks. */

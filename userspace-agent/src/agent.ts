@@ -10,6 +10,7 @@ import type {
   Provider, ProviderCall, ProviderEvent, ServiceEnv, ServiceHandle, SessionInfo, StepContext, StepEnv, StepResult, ToolEnv, TurnEvent,
 } from "@thetis/contracts";
 import { encodeFrame, PendingCalls, readFrames, type Frame } from "@thetis/lib/rpc-frames";
+import { buildEnvFor, noStorage } from "./env.js";
 
 const ROOT = process.env.THETIS_USERSPACE ?? process.cwd();
 const HOME = process.env.THETIS_HOME_DIR ?? ROOT;
@@ -52,6 +53,12 @@ const kernel: KernelClient = {
     inspect: (session) => rpc("sessions.inspect", { session }),
   },
   models: () => rpc("models"),
+  config: {
+    show: (name) => rpc("config.show", { name }),
+    set: (name, key, value) => rpc("config.set", { name, key, value }),
+    unset: (name, key) => rpc("config.unset", { name, key }),
+    effective: (name) => rpc("config.effective", { name }),
+  },
   auth: {
     login: (id, password) => rpc("auth.login", { id, password }),
     authenticate: (token) => rpc("auth.authenticate", { token }),
@@ -87,8 +94,12 @@ const env: StepEnv = {
     await mkdir(dirname(file), { recursive: true });
     await writeFile(file, content);
   },
+  storage: noStorage,
   kernel,
 };
+
+/** The env for code of `pkg`: the base env with storage under that package's name. */
+const envFor = (pkg: string) => buildEnvFor(env, rpc, pkg);
 
 function packageQuery(list: PackageInfo[]): PackageQuery {
   return {
@@ -151,14 +162,14 @@ const ops: { [K in Op]: Handler<K> } = {
   exec: (p, _emit, signal) => exec(p.cmd, { cwd: p.cwd, timeoutMs: p.timeoutMs }, signal),
   step: async (p) => {
     const fn = await loadExport(p.package, p.export);
-    const ctx: PackageStepContext = { ...p.ctx, packages: packageQuery(p.ctx.packages), env };
+    const ctx: PackageStepContext = { ...p.ctx, packages: packageQuery(p.ctx.packages), env: envFor(p.package) };
     const result = (await fn(ctx)) as StepResult | undefined;
     if (!result) return null;
     return { conversation: result.conversation, call: result.call, harness: result.harness };
   },
   tool: async (p) => {
     const fn = await loadExport(p.package, p.export);
-    const toolEnv: ToolEnv = { ...env, session: p.session, config: p.config ?? {} };
+    const toolEnv: ToolEnv = { ...envFor(p.package), session: p.session, config: p.config ?? {} };
     return fn(p.args ?? {}, toolEnv);
   },
   enumerate: async (p) => {
@@ -169,7 +180,7 @@ const ops: { [K in Op]: Handler<K> } = {
   "service.start": async (p) => {
     if (services.has(p.package)) return "running";
     const fn = await loadExport(p.package, p.export);
-    const serviceEnv: ServiceEnv = { ...env, config: p.config ?? {}, log: (line) => console.error(`[${p.package}] ${line}`) };
+    const serviceEnv: ServiceEnv = { ...envFor(p.package), config: p.config ?? {}, log: (line) => console.error(`[${p.package}] ${line}`) };
     services.set(p.package, (await fn(serviceEnv)) as ServiceHandle | void);
     return "started";
   },

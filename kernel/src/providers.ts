@@ -1,8 +1,8 @@
 import { SYSTEM_USER, type Fences, type ModelDescriptor, type PackageInfo, type ProviderCall, type ProviderEvent, type Userspace } from "@thetis/contracts";
 import { CodedError } from "@thetis/lib/error";
 import type { UserspaceLayout } from "@thetis/lib/userspace-layout";
-import type { KernelConfig } from "./config.js";
 import type { PackageManager } from "./packages/manager.js";
+import type { Settings } from "./settings.js";
 
 export interface ResolvedProvider {
   userspace: Userspace;
@@ -19,7 +19,7 @@ export class ProviderRegistry {
   private readonly models = new Map<string, { at: number; list: ModelDescriptor[] }>();
 
   constructor(
-    private readonly config: KernelConfig,
+    private readonly settings: Settings,
     private readonly packages: PackageManager,
     private readonly userspaces: UserspaceLayout,
     private readonly fences: Fences,
@@ -57,7 +57,7 @@ export class ProviderRegistry {
   }
 
   async call(p: ResolvedProvider, call: ProviderCall, onEvent: (e: ProviderEvent) => void, signal?: AbortSignal): Promise<void> {
-    await this.fences.request(p.userspace, "provider.call", this.payload(p, { call }), (e) => onEvent(e as ProviderEvent), signal);
+    await this.fences.request(p.userspace, "provider.call", await this.payload(p, { call }), (e) => onEvent(e as ProviderEvent), signal);
   }
 
   /**
@@ -73,13 +73,14 @@ export class ProviderRegistry {
     const key = `${p.userspace.id}:${p.pkg.name}`;
     const cached = this.models.get(key);
     if (cached && Date.now() - cached.at < MODELS_TTL_MS) return cached.list;
-    const raw = await this.fences.request(p.userspace, "provider.models", this.payload(p, {}));
+    const raw = await this.fences.request(p.userspace, "provider.models", await this.payload(p, {}));
     const entry = { at: Date.now(), list: Array.isArray(raw) ? (raw as ModelDescriptor[]) : [] };
     this.models.set(key, entry);
     return entry.list;
   }
 
-  private payload(p: ResolvedProvider, extra: Record<string, unknown>): Record<string, unknown> {
-    return { package: p.pkg.name, export: p.pkg.thetis.export ?? "createProvider", config: this.config.packages[p.pkg.name] ?? {}, ...extra };
+  /** The configuration is read for every call, so a changed key reaches the provider with no restart. */
+  private async payload(p: ResolvedProvider, extra: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return { package: p.pkg.name, export: p.pkg.thetis.export ?? "createProvider", config: await this.settings.effective(p.userspace, p.pkg.name), ...extra };
   }
 }

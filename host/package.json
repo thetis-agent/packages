@@ -20,6 +20,7 @@
     "@thetis/contracts": "^0.1.0",
     "@thetis/kernel": "^0.1.0",
     "@thetis/lib": "^0.1.0",
-    "@thetis/sandbox": "^0.1.0"
+    "@thetis/sandbox": "^0.1.0",
+    "@thetis/store-toml": "^0.1.0"
   }
 }

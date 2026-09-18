@@ -40,6 +40,9 @@ function ctxWith(over: Partial<PackageStepContext> = {}): PackageStepContext {
       root: "/root",
       store: "/store",
       shared: "/shared",
+      storage: (): never => {
+        throw new Error("no storage in this test");
+      },
       exec: async () => ({ code: 0, stdout: "", stderr: "" }),
       readFile: async () => {
         throw new Error("no such file");

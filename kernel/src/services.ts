@@ -2,8 +2,8 @@ import type { FenceHandle, Fences, PackageInfo, Userspace } from "@thetis/contra
 import { errorMessage } from "@thetis/lib/error";
 import type { Journal } from "@thetis/lib/journal";
 import type { UserspaceLayout } from "@thetis/lib/userspace-layout";
-import type { KernelConfig } from "./config.js";
 import type { PackageManager } from "./packages/manager.js";
+import type { Settings } from "./settings.js";
 import type { UserStore } from "./users.js";
 
 /**
@@ -15,7 +15,7 @@ export class ServiceSupervisor {
   private enabled = false;
 
   constructor(
-    private readonly config: KernelConfig,
+    private readonly settings: Settings,
     private readonly users: UserStore,
     private readonly userspaces: UserspaceLayout,
     private readonly packages: PackageManager,
@@ -59,6 +59,20 @@ export class ServiceSupervisor {
     await this.ensure(id);
   }
 
+  /**
+   * A service starts over with its configuration as it is now, in the fence it already runs in. Its
+   * configuration is read once when it starts, so a change reaches it no other way. The fence stays:
+   * the person's other services, gateway and shell sessions are not the ones that changed.
+   */
+  async restart(id: string, name: string): Promise<void> {
+    if (!this.enabled || !this.userspaces.exists(id)) return;
+    const us = this.userspaces.pathFor(id);
+    const pkg = this.packages.installed(us).find((p) => p.name === name);
+    if (!pkg?.thetis.service) return;
+    await this.uninstalled(us, pkg);
+    await this.start(us, pkg);
+  }
+
   /** Fence hook: starts every service of the userspace on the handle that just opened. */
   async opened(us: Userspace, handle: FenceHandle): Promise<void> {
     if (!this.enabled) return;
@@ -82,7 +96,7 @@ export class ServiceSupervisor {
   private async start(us: Userspace, pkg: PackageInfo, handle?: FenceHandle): Promise<void> {
     const service = pkg.thetis.service;
     if (!service) return;
-    const payload = { package: pkg.name, export: service.export, config: this.config.packages[pkg.name] ?? {} };
+    const payload = { package: pkg.name, export: service.export, config: await this.settings.effective(us, pkg.name) };
     try {
       const result = await (handle ? handle.request("service.start", payload) : this.fences.request(us, "service.start", payload));
       if (result === "started") {

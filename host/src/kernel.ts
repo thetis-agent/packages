@@ -1,23 +1,32 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { SYSTEM_USER, type Fence, type KernelRpc, type SessionRecord, type Userspace } from "@thetis/contracts";
+import { SYSTEM_USER, type Fence, type KernelRpc, type SessionRecord, type StoreDriver, type Userspace } from "@thetis/contracts";
 import {
-  AuthService, createControlHandler, createRpcHandler, Enumerator, PackageManager, PackageRegistry, PipelineRunner, ProviderCallStep,
+  AuthService, ConfigService, createControlHandler, createRpcHandler, Enumerator, PackageManager, PackageRegistry, PipelineRunner, ProviderCallStep,
   ProviderRegistry, ServiceSupervisor, SessionApi, SESSION_ID, UserStore, type KernelConfig, type KernelServices,
 } from "@thetis/kernel";
+import { EnvFile, LayeredConfig, type EnvSource } from "@thetis/lib/config";
 import { Container, token } from "@thetis/lib/container";
 import { Journal } from "@thetis/lib/journal";
 import { JsonDirStore } from "@thetis/lib/json-store";
 import { MountStore } from "@thetis/lib/mounts";
 import { RestartLatch } from "@thetis/lib/restart";
+import { storeId } from "@thetis/lib/store";
 import { UserspaceLayout } from "@thetis/lib/userspace-layout";
 import { Cgroups, FencePool, ProcessFence } from "@thetis/sandbox";
+import { assertMigrated } from "./migrate.js";
 import { deployedRestartPolicy } from "./policy.js";
+import { flushRecords, loadStoreDriver, openRecords, type Records } from "./store.js";
 
 /** Tokens for every service. Bind a different factory to replace a component. */
 export const T = {
   config: token<KernelConfig>("config"),
   log: token<(line: string) => void>("log"),
+  /** The storage driver. Unbound until `createKernel` loads the configured package; a test binds `memoryStore()` instead. */
+  store: token<StoreDriver>("store"),
+  records: token<Records>("records"),
+  env: token<EnvSource>("env"),
+  settings: token<ConfigService>("settings"),
   users: token<UserStore>("users"),
   auth: token<AuthService>("auth"),
   services: token<ServiceSupervisor>("services"),
@@ -43,13 +52,43 @@ export interface Kernel extends KernelServices {
   container: Container;
 }
 
-/** Composition root. `configure` may rebind any token before services are resolved. */
-export function createKernel(config: KernelConfig, configure?: (c: Container) => void): Kernel {
+/**
+ * Composition root. `configure` may rebind any token before services are resolved. The store is the one
+ * token resolved here rather than lazily: loading the driver is an import and opening the records is a read
+ * of every document, and both are asynchronous, which is why building a kernel is.
+ */
+export async function createKernel(config: KernelConfig, configure?: (c: Container) => void): Promise<Kernel> {
+  assertMigrated(config.home);
+  mkdirSync(config.home, { recursive: true });
   const c = new Container();
   bindServices(c, config);
   configure?.(c);
+  if (!c.has(T.store)) {
+    const driver = await loadStoreDriver(config, c.get(T.log));
+    c.bind(T.store, () => driver);
+  }
+  const records = await openRecords(c.get(T.store));
+  c.bind(T.records, () => records);
   const kernel = kernelOf(c);
   kernel.packages.observe(kernel.services);
+  // What a package kept in the store and in a person's configuration layer goes with the package's files;
+  // what the system layer held for a package follows its promoted copy.
+  kernel.packages.observe({
+    deleted: async (us, name) => {
+      await kernel.settings.forgetPackage(us.id, name);
+      await kernel.store.open(storeId("userspaces", us.id, name)).clear();
+    },
+    promoted: (from, to) => kernel.settings.copySystem(from, to),
+  });
+  // A changed key reaches a provider on its next call and a step or tool on its next run; a service read
+  // its configuration when it started, so it starts again. The model list is forgotten with it: a provider
+  // may serve different models under a different key.
+  kernel.settings.onChange(async ({ affected }) => {
+    for (const { user, package: name } of affected) {
+      kernel.providers.forget(user);
+      await kernel.services.restart(user, name);
+    }
+  });
   mkdirSync(config.promotedPackagesDir, { recursive: true });
   mkdirSync(config.sharedDir, { recursive: true });
   kernel.sessions.userspaceFor(kernel.users.authorize(SYSTEM_USER));
@@ -59,26 +98,36 @@ export function createKernel(config: KernelConfig, configure?: (c: Container) =>
 function bindServices(c: Container, config: KernelConfig): void {
   c.bind(T.config, () => config);
   c.bind(T.log, () => (line: string) => process.stderr.write(line + "\n"));
-  c.bind(T.users, (c) => new UserStore(c.get(T.config).home));
-  c.bind(T.auth, (c) => new AuthService(c.get(T.config).home, c.get(T.users)));
-  c.bind(T.mounts, (c) => new MountStore(c.get(T.config).home));
+  c.bind(T.users, (c) => new UserStore(c.get(T.records).users));
+  c.bind(T.auth, (c) => new AuthService(c.get(T.records).credentials, c.get(T.records).tokens, c.get(T.users)));
+  c.bind(T.mounts, (c) => new MountStore(c.get(T.records).mounts));
   // Every Userspace the layout hands out carries its mounts, so the fence binds them wherever it is opened from.
   c.bind(T.userspaces, (c) => new UserspaceLayout(c.get(T.config).home, (id) => c.get(T.mounts).get(id)));
   c.bind(T.journal, (c) => new Journal(c.get(T.config).home));
+  c.bind(T.env, (c) => new EnvFile(c.get(T.config).envFile));
+  // The file layer lives in the service, which `config.reload` replaces; the layers read it from there.
+  c.bind(T.settings, (c) => {
+    const settings: ConfigService = new ConfigService(
+      c.get(T.config).packages,
+      new LayeredConfig(c.get(T.store), () => settings.filePackages),
+      c.get(T.env), c.get(T.packages), c.get(T.registry), c.get(T.userspaces), c.get(T.journal),
+    );
+    return settings;
+  });
   c.bind(T.cgroups, (c) => (c.get(T.config).fence.sandbox === "none" ? undefined : Cgroups.detect(c.get(T.log))));
   c.bind(T.fence, (c) => processFence(c));
   c.bind(T.fences, (c) => new FencePool(c.get(T.fence), (us) => rpcFor(c, us), (us, h) => c.get(T.services).opened(us, h)));
   c.bind(T.services, (c) => {
-    return new ServiceSupervisor(c.get(T.config), c.get(T.users), c.get(T.userspaces), c.get(T.packages), c.get(T.fences), c.get(T.log), c.get(T.journal));
+    return new ServiceSupervisor(c.get(T.settings), c.get(T.users), c.get(T.userspaces), c.get(T.packages), c.get(T.fences), c.get(T.log), c.get(T.journal));
   });
-  c.bind(T.registry, (c) => new PackageRegistry(c.get(T.config).home));
+  c.bind(T.registry, (c) => new PackageRegistry(c.get(T.records).registry));
   c.bind(T.packages, (c) => new PackageManager(c.get(T.config), c.get(T.registry), c.get(T.fences)));
-  c.bind(T.providers, (c) => new ProviderRegistry(c.get(T.config), c.get(T.packages), c.get(T.userspaces), c.get(T.fences)));
+  c.bind(T.providers, (c) => new ProviderRegistry(c.get(T.settings), c.get(T.packages), c.get(T.userspaces), c.get(T.fences)));
   c.bind(T.sessionStore, () => new JsonDirStore<SessionRecord>(SESSION_ID));
   c.bind(T.enumerator, (c) => new Enumerator(c.get(T.config), c.get(T.fences)));
-  c.bind(T.providerCall, (c) => new ProviderCallStep(c.get(T.config), c.get(T.providers), c.get(T.fences)));
+  c.bind(T.providerCall, (c) => new ProviderCallStep(c.get(T.settings), c.get(T.providers), c.get(T.fences)));
   c.bind(T.runner, (c) => {
-    return new PipelineRunner(c.get(T.config), c.get(T.enumerator), c.get(T.providerCall), c.get(T.packages), c.get(T.fences), c.get(T.sessionStore), c.get(T.journal));
+    return new PipelineRunner(c.get(T.config), c.get(T.settings), c.get(T.enumerator), c.get(T.providerCall), c.get(T.packages), c.get(T.fences), c.get(T.sessionStore), c.get(T.journal));
   });
   c.bind(T.sessions, (c) => new SessionApi(c.get(T.users), c.get(T.userspaces), c.get(T.packages), c.get(T.sessionStore), c.get(T.runner)));
   // Armed here, fired nowhere: only `serve()` registers a handler, and the latch refuses to arm without one,
@@ -112,9 +161,9 @@ function processFence(c: Container): ProcessFence {
  * an admin's fence by the RPC handler; the kernel checks the role.
  */
 function rpcFor(c: Container, us: Userspace): KernelRpc {
-  const operator = createControlHandler(kernelOf(c));
+  const k = kernelOf(c);
   const models = async (space: Userspace) => ({ model: c.get(T.config).model, models: await c.get(T.providers).listModels(space) });
-  return createRpcHandler(us, c.get(T.users), c.get(T.packages), c.get(T.sessions), c.get(T.auth), operator, models);
+  return createRpcHandler(us, k, createControlHandler(k), models);
 }
 
 /** Every service of one container, as the kernel interface. Resolving them here is what boots the kernel. */
@@ -130,6 +179,8 @@ function kernelOf(c: Container): KernelServices {
     registry: c.get(T.registry),
     providers: c.get(T.providers),
     sessions: c.get(T.sessions),
+    settings: c.get(T.settings),
+    store: c.get(T.store),
     fences: c.get(T.fences),
     journal: c.get(T.journal),
     restart: c.get(T.restart),
@@ -139,8 +190,14 @@ function kernelOf(c: Container): KernelServices {
       await c.get(T.fences).close(id);
       c.get(T.registry).forgetUserspace(id);
       c.get(T.mounts).set(id, []);
+      await c.get(T.settings).forgetUser(id);
+      await c.get(T.store).open(storeId("userspaces", id)).clear();
       c.get(T.userspaces).remove(id);
     },
-    shutdown: () => c.get(T.fences).close(),
+    async shutdown() {
+      await c.get(T.fences).close();
+      await flushRecords(c.get(T.records));
+      await c.get(T.store).close?.();
+    },
   };
 }

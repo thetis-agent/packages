@@ -28,6 +28,19 @@ export function createProvider(config) {
         yield { type: "tool_call", call: { id: "c4", name: "delete_package", args: { name: text.slice(8) } } };
         return;
       }
+      if (text === "config?") {
+        yield { type: "tool_call", call: { id: "c6", name: "probe_config", args: {} } };
+        return;
+      }
+      if (text.startsWith("put: ")) {
+        const [key, value] = text.slice(5).split(" ");
+        yield { type: "tool_call", call: { id: "c7", name: "store_put", args: { key, value } } };
+        return;
+      }
+      if (text.startsWith("get: ")) {
+        yield { type: "tool_call", call: { id: "c8", name: "store_get", args: { key: text.slice(5) } } };
+        return;
+      }
       if (text.startsWith("slow: ")) {
         // Streams one word every 50 ms, so a test can cancel mid-stream.
         for (const word of text.slice(6).split(" ")) { await new Promise((r) => setTimeout(r, 50)); yield { type: "text", delta: word + " " }; }

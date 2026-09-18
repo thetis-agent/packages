@@ -7,3 +7,5 @@ export * from "./identity.js";
 export * from "./guest.js";
 export * from "./fence.js";
 export * from "./bench.js";
+export * from "./storage.js";
+export * from "./config.js";

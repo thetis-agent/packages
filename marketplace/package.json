@@ -24,6 +24,19 @@
   },
   "thetis": {
     "type": "service",
+    "config": {
+      "registries": {
+        "type": "array",
+        "scope": "system",
+        "help": "The git registries to mirror, each { name, url }; name defaults to the last path segment of url, and [] indexes nothing and keeps the refresh off the network."
+      },
+      "refreshMinutes": {
+        "type": "number",
+        "default": 30,
+        "scope": "system",
+        "help": "How many minutes between refreshes of the mirrors and the index."
+      }
+    },
     "service": {
       "export": "startService"
     }

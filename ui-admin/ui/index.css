@@ -11,3 +11,24 @@
 .ua-code { display: flex; flex-direction: column; gap: 4px; }
 .ua-lost, .ua-refused { color: var(--err); }
 .ua-reason { width: 100%; box-sizing: border-box; }
+.ua-configuration .toolbar .input { min-width: 220px; }
+.ua-broken { margin: 0; color: var(--err); font-size: var(--text-sm); }
+
+/* --- the configuration form: kept identical to @thetis/ui-marketplace's copy ------------------------- */
+
+.cf-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.cf-head code { font-family: var(--mono); }
+.cf-summary { margin-left: auto; font-weight: 400; color: var(--text-dim); }
+.cf-summary.is-broken { color: var(--err); }
+.cf-row { display: flex; flex-direction: column; gap: 4px; padding-bottom: var(--gap-2); border-bottom: 1px solid var(--hairline); }
+.cf-row:last-of-type { border-bottom: 0; padding-bottom: 0; }
+.cf-key { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cf-key code { font-family: var(--mono); font-weight: 600; }
+.cf-help { margin: 0; color: var(--text-dim); font-size: var(--text-xs); }
+.cf-control { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cf-control .cf-input { flex: 1 1 240px; min-width: 0; font-family: var(--mono); }
+.cf-control .cf-json { flex: 1 1 100%; font-family: var(--mono); font-size: var(--text-xs); resize: vertical; }
+.cf-control .cf-check { width: 16px; height: 16px; accent-color: var(--accent); }
+.cf-ref { font-family: var(--mono); color: var(--text-dim); }
+.cf-missing, .cf-error { margin: 0; color: var(--err); font-size: var(--text-xs); }
+.cf-row.is-missing .cf-key code { color: var(--err); }

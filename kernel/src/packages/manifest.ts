@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Manifest, PackageInfo, StepRef, ThetisField } from "@thetis/contracts";
+import { validateDecls } from "@thetis/lib/config";
 import { assert } from "@thetis/lib/error";
 
 const SCOPED_NAME = /^@[a-z0-9-]+\/[a-z0-9._-]+$/;
@@ -26,6 +27,7 @@ export function validateManifest(m: Manifest): Manifest {
     assert(tool && typeof tool.name === "string" && typeof tool.export === "string", `${m.name}: each tool needs name and export`);
     assert(typeof tool.description === "string", `${m.name}: tool ${tool.name} needs a description`);
   }
+  if (t.config !== undefined) validateDecls(m.name, t.config);
   return m;
 }
 

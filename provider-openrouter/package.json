@@ -19,6 +19,36 @@
   },
   "thetis": {
     "type": "provider",
+    "config": {
+      "apiKey": {
+        "type": "string",
+        "secret": true,
+        "required": true,
+        "help": "The OpenRouter API key, sent as the bearer token of every request; put it in .env as OPENROUTER_API_KEY and reference it."
+      },
+      "baseUrl": {
+        "type": "string",
+        "default": "https://openrouter.ai/api/v1",
+        "help": "The API root; a proxy or a compatible endpoint goes here."
+      },
+      "headers": {
+        "type": "object",
+        "help": "Extra HTTP headers sent with every request, over the HTTP-Referer and X-Title the provider sets."
+      },
+      "defaults": {
+        "type": "object",
+        "help": "Request fields sent with every call under call.params, for example max_tokens or provider.order."
+      },
+      "cache": {
+        "type": "object",
+        "help": "The prompt caching policy: enabled (true), ttl (5m), systemTtl (1h), anchorStride (8), maxBreakpoints (4), explicitVendors ([\"anthropic\"]), overrides ({}), hints (tune) and affinity (true); see docs/16-prompt-cache.md section 6."
+      },
+      "retries": {
+        "type": "number",
+        "default": 3,
+        "help": "How many times a transient refusal (429, 408, 409, 425, 5xx, an in-flight budget 402) is tried again before it is reported."
+      }
+    },
     "export": "createProvider"
   }
 }

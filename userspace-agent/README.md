@@ -22,7 +22,7 @@ A `{ "cancel": <id> }` line aborts a request: `exec` kills its process and `prov
 
 A module is loaded from `<store>/node_modules/<package>`: `main` from its `package.json` (default `index.js`), imported with the query `?v=<modification time>`, so a changed file is a new module. The named export must be a function.
 
-The agent reaches the kernel through RPC lines on `stdout`. The `KernelClient` it builds has `packages.install`, `uninstall`, `delete`, `list`; `sessions.create`, `ask`, `send`, `cancel`, `list`, `inspect`; `models`; `auth.login`, `authenticate`, `logout`; and `operator.call`. Every method acts as the fence's own user; the kernel authorizes it on each call.
+The agent reaches the kernel through RPC lines on `stdout`. The `KernelClient` it builds has `packages.install`, `uninstall`, `delete`, `list`; `sessions.create`, `ask`, `send`, `cancel`, `list`, `inspect`; `models`; `config.show`, `set`, `unset`, `effective`; `auth.login`, `authenticate`, `logout`; and `operator.call`. Every method acts as the fence's own user; the kernel authorizes it on each call.
 
 ## Use
 
@@ -44,6 +44,7 @@ export const listPackages: Tool = async (args, env) => {
 | `exec(cmd, opts)` | `opts.cwd` is relative to home; `opts.timeoutMs` defaults to 120000. Returns `{ code, stdout, stderr }`. |
 | `readFile(path)`, `writeFile(path, content)` | UTF-8, relative to home. `writeFile` creates parent directories. |
 | `kernel` | The kernel client above. |
+| `storage(namespace?)` | A `Store` of this package's documents: each method is a `store.*` RPC that names the package, and the kernel prefixes the namespace with the user and that name. The base env has no package and throws; only the env a step, tool or service receives has one. |
 | `session`, `config` | Tools only: `{ id, user, parent? }` and the tool's package configuration. |
 
 A service logs with `env.log(line)`, which writes to `stderr` with the package name as prefix, and returns `{ stop }` when it has something to close.
@@ -52,10 +53,11 @@ A service logs with `env.log(line)`, which writes to `stderr` with the package n
 
 | File | Content |
 |---|---|
-| `src/agent.ts` | The whole agent: the kernel client, the environment, module loading, the operations, cancel, and the frame loop. |
+| `src/agent.ts` | The agent: the kernel client, the environment, module loading, the operations, cancel, and the frame loop. |
+| `src/env.ts` | `storageClient` and `buildEnvFor`: the per-package env, kept apart from the agent so it can be tested without booting one. |
 
 ## Tests
 
-The package has no tests of its own. `packages/host/test/e2e.test.ts` runs the real agent inside the real fence for every case, and `packages/gateway-web/test/gateway.test.ts` runs the login target and a gateway as its services. Run every test with `npm test` from the runtime root.
+`test/env.test.ts` checks the per-package env against a fake RPC: the five store calls, `null` to `undefined`, the base env refusing storage. `packages/host/test/e2e.test.ts` runs the real agent inside the real fence for every case, and `packages/gateway-web/test/gateway.test.ts` runs the login target and a gateway as its services. Run every test with `npm test` from the runtime root.
 
 See docs/03-fence.md in the runtime repository.

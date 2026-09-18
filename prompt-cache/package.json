@@ -24,6 +24,47 @@
   },
   "thetis": {
     "type": "loader",
+    "config": {
+      "enabled": {
+        "type": "boolean",
+        "default": true,
+        "help": "false puts the strategy off in the hint for every model."
+      },
+      "ttl": {
+        "type": "string",
+        "help": "Lifetime of the conversation breakpoints, 5m or 1h; left out of the hint when unset, so the provider's policy applies."
+      },
+      "systemTtl": {
+        "type": "string",
+        "help": "Lifetime of the system prefix breakpoint, 5m or 1h; left out of the hint when unset."
+      },
+      "anchorStride": {
+        "type": "number",
+        "help": "Positions between the anchor breakpoints, 0 for no anchors; left out of the hint when unset."
+      },
+      "maxBreakpoints": {
+        "type": "number",
+        "help": "Upper bound on breakpoints in one request, clamped to 4 by the provider; left out of the hint when unset."
+      },
+      "explicitVendors": {
+        "type": "array",
+        "help": "Vendors that get the strategy breakpoints, every other vendor automatic; unset, the provider's own list (anthropic) applies."
+      },
+      "overrides": {
+        "type": "object",
+        "help": "Per-vendor or per-model settings keyed by vendor name or model id prefix, longest key wins, with values strategy, ttl, systemTtl, anchorStride and maxBreakpoints."
+      },
+      "diagnostics": {
+        "type": "boolean",
+        "default": true,
+        "help": "Record prefix fingerprints in the harness and log a turn that rewrites the cached prefix."
+      },
+      "affinity": {
+        "type": "boolean",
+        "default": true,
+        "help": "Put a stable per-user token in the hint, which the provider sends as the OpenRouter user field."
+      }
+    },
     "steps": [
       {
         "id": "cache-hints",

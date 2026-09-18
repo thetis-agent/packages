@@ -147,6 +147,103 @@ test("restart-request sends the trimmed reason and passes the latch's own senten
   assert.equal(calls.length, 1, "a restart with no reason never reaches the kernel");
 });
 
+/** Runs `fn` with every console method and stderr write recorded, and answers what was written. */
+async function captured(fn) {
+  const lines = [];
+  const saved = { log: console.log, error: console.error, warn: console.warn, info: console.info, write: process.stderr.write };
+  for (const m of ["log", "error", "warn", "info"]) console[m] = (...a) => lines.push(a.map(String).join(" "));
+  process.stderr.write = (chunk) => (lines.push(String(chunk)), true);
+  try {
+    await fn();
+  } finally {
+    Object.assign(console, { log: saved.log, error: saved.error, warn: saved.warn, info: saved.info });
+    process.stderr.write = saved.write;
+  }
+  return lines;
+}
+
+test("config-list, config-show, config-set, config-unset and config-reload pass their arguments to config.* and never say a value", async () => {
+  const report = (a) => ({ package: a.name ?? "@thetis/exa", user: a.user, inherits: [], keys: [{ key: "apiKey", state: "set", secret: true, declared: true, redacted: true }], summary: "every key is set", broken: false });
+  const { env, calls } = fakeEnv({ "config.list": (a) => [report(a)], "config.show": report, "config.set": report, "config.unset": report, "config.reload": { changed: ["@thetis/exa"], restarted: [{ user: "alice", package: "@thetis/exa" }] } });
+  const secret = "sk-or-v1-hunter2-never-logged";
+  const lines = await captured(async () => {
+    assert.deepEqual((await commands.configList({}, env)).data, [report({})]);
+    assert.equal((await commands.configList({ user: "alice" }, env)).data[0].user, "alice");
+    assert.equal((await commands.configShow({ name: "@thetis/exa" }, env)).data.package, "@thetis/exa");
+    assert.equal((await commands.configShow({ name: "@thetis/exa", user: "" }, env)).data.user, undefined, "an empty user is the system layer");
+    assert.equal((await commands.configSet({ name: "@thetis/exa", key: "apiKey", value: secret }, env)).data.keys[0].redacted, true);
+    assert.equal((await commands.configSet({ name: "@thetis/exa", key: "defaults", value: { n: 1 }, user: "alice" }, env)).data.user, "alice");
+    assert.equal((await commands.configSet({ name: "@thetis/exa", key: "on", value: false }, env)).data.broken, false, "false is a value");
+    assert.equal((await commands.configUnset({ name: "@thetis/exa", key: "apiKey", user: "alice" }, env)).data.user, "alice");
+    assert.deepEqual((await commands.configReload({}, env)).data, { changed: ["@thetis/exa"], restarted: [{ user: "alice", package: "@thetis/exa" }] });
+    await refuses(commands.configShow, { name: "exa" }, env, /looks like @scope\/name/);
+    await refuses(commands.configSet, { name: "@thetis/exa", key: "api key", value: secret }, env, /a configuration key is a word/);
+    await refuses(commands.configSet, { name: "@thetis/exa", key: "apiKey" }, env, /needs a value; config-unset removes one/);
+    await refuses(commands.configSet, { name: "@thetis/exa", key: "apiKey", value: null }, env, /needs a value/);
+    await refuses(commands.configSet, { name: "@thetis/exa", key: "apiKey", value: secret, user: "Alice" }, env, /user must be lowercase/);
+    await refuses(commands.configUnset, { name: "@thetis/exa", key: "" }, env, /a configuration key is a word/);
+  });
+  assert.deepEqual(calls, [
+    { method: "config.list", args: {} },
+    { method: "config.list", args: { user: "alice" } },
+    { method: "config.show", args: { name: "@thetis/exa" } },
+    { method: "config.show", args: { name: "@thetis/exa" } },
+    { method: "config.set", args: { name: "@thetis/exa", key: "apiKey", value: secret } },
+    { method: "config.set", args: { name: "@thetis/exa", key: "defaults", value: { n: 1 }, user: "alice" } },
+    { method: "config.set", args: { name: "@thetis/exa", key: "on", value: false } },
+    { method: "config.unset", args: { name: "@thetis/exa", key: "apiKey", user: "alice" } },
+    { method: "config.reload", args: {} },
+  ]);
+  assert.deepEqual(lines, [], "nothing is written to the console or stderr, so no value can be");
+  const kept = fakeEnv({ "config.set": new Error("apiKey is declared for the system") });
+  await refuses(commands.configSet, { name: "@thetis/exa", key: "apiKey", value: secret, user: "alice" }, kept.env, /declared for the system/);
+  for (const fn of [() => commands.configSet({ name: "@thetis/exa", key: "bad key", value: secret }, env), () => commands.configSet({ name: "@thetis/exa", key: "apiKey", value: secret, user: "Alice" }, env)]) {
+    const err = await fn().then(() => null, (e) => e);
+    assert.ok(err && !String(err.message).includes(secret), "a refusal never echoes the value");
+  }
+});
+
+test("the configuration form's pure helpers: the control per key, what counts as a change, the words for a source", async () => {
+  const { kindOf, readValue, sourceText, missingText, brokenSentence, reloadSentence } = await import("../ui/config-form.js");
+  const k = (extra) => ({ key: "k", state: "set", secret: false, declared: true, ...extra });
+  assert.equal(kindOf(k({ secret: true, type: "string" })), "secret");
+  assert.deepEqual(["string", "number", "boolean", "object", "array"].map((type) => kindOf(k({ type }))), ["text", "number", "checkbox", "json", "json"]);
+  assert.deepEqual([kindOf(k({ declared: false, value: 3 })), kindOf(k({ declared: false, value: true })), kindOf(k({ declared: false, value: [1] })), kindOf(k({ declared: false, value: "x" })), kindOf(k({ declared: false }))], ["number", "checkbox", "json", "text", "text"], "an undeclared key is typed by its value");
+  assert.deepEqual(readValue("secret", "", k()), { same: true }, "an empty password box writes nothing");
+  assert.deepEqual(readValue("secret", "tok", k()), { value: "tok" });
+  assert.deepEqual(readValue("text", "a", k({ value: "a" })), { same: true });
+  assert.deepEqual(readValue("text", "", k({ state: "unset" })), { same: true });
+  assert.deepEqual(readValue("text", "b", k({ value: "a" })), { value: "b" });
+  assert.deepEqual(readValue("number", " 7 ", k({ value: 7 })), { same: true });
+  assert.deepEqual(readValue("number", "7.5", k({ value: 7 })), { value: 7.5 });
+  assert.match(readValue("number", "seven", k({ value: 7 })).error, /not a number/);
+  assert.match(readValue("number", "", k({ value: 7 })).error, /Clear removes the value/);
+  assert.deepEqual(readValue("number", "", k({ state: "unset" })), { same: true });
+  assert.deepEqual(readValue("checkbox", false, k({ state: "unset" })), { same: true });
+  assert.deepEqual(readValue("checkbox", true, k({ value: false })), { value: true });
+  assert.deepEqual(readValue("json", '{"a": 1}', k({ type: "object", value: { a: 1 } })), { same: true });
+  assert.deepEqual(readValue("json", '{"a": 2}', k({ type: "object", value: { a: 1 } })), { value: { a: 2 } });
+  assert.match(readValue("json", "{a: 2}", k({ type: "object", value: { a: 1 } })).error, /^Not valid JSON/, "a parse error is said, and nothing is sent");
+  assert.match(readValue("json", "[1]", k({ type: "object" })).error, /object is expected/);
+  assert.match(readValue("json", "{}", k({ type: "array" })).error, /array is expected/);
+  assert.match(readValue("json", "null", k({ type: "object" })).error, /null cannot be stored/);
+  assert.equal(sourceText(k({ state: "unset" }), "system"), "not set");
+  assert.equal(sourceText(k({ source: "file" }), "system"), "from the file");
+  assert.equal(sourceText(k({ source: "default" }), "system"), "default");
+  assert.equal(sourceText(k({ source: "system", inheritedFrom: "@bitmuse/notion" }), "system"), "set for everyone · inherited from @bitmuse/notion");
+  assert.equal(sourceText(k({ source: "user" }), "user"), "set by you");
+  assert.equal(sourceText(k({ source: "user" }), "user", "alice"), "set by alice");
+  assert.equal(missingText(k({ state: "missing", missing: ["OPENROUTER_API_KEY"] })), "OPENROUTER_API_KEY is not in the environment");
+  assert.equal(missingText(k({ missing: ["A", "B"] })), "A, B are not in the environment");
+  assert.equal(missingText(k()), null);
+  assert.equal(brokenSentence([{ broken: false }]), null);
+  assert.equal(brokenSentence([{ broken: true }, { broken: false }]), "1 package is missing configuration");
+  assert.equal(brokenSentence([{ broken: true }, { broken: true }]), "2 packages are missing configuration");
+  assert.equal(reloadSentence({ changed: [], restarted: [] }), "Nothing changed.");
+  assert.equal(reloadSentence(null), "Nothing changed.");
+  assert.equal(reloadSentence({ changed: ["@thetis/exa", "@thetis/terminal"], restarted: [{ user: "alice", package: "@thetis/exa" }] }), "changed: @thetis/exa, @thetis/terminal; restarted: @thetis/exa for alice.");
+});
+
 test("a kernel refusal comes back as the error it threw", async () => {
   const { env } = fakeEnv({ "users.remove": new Error("unknown user: zed"), "fence.reload": new Error("user zed is suspended"), "restart.request": new Error("only an admin may restart the daemon") });
   await refuses(commands.userRemove, { id: "zed" }, env, /unknown user: zed/);
@@ -166,10 +263,10 @@ test("the browser modules parse, and the entry defines install and nothing else"
   assert.equal(mod.default.name, "install");
 });
 
-test("install registers exactly the six declared sections, each mounting through the seam", async () => {
+test("install registers exactly the seven declared sections, each mounting through the seam", async () => {
   const { default: install } = await import("../ui/index.js");
   const panels = {};
   install({ panel: (id, impl) => (panels[id] = impl) });
-  assert.deepEqual(Object.keys(panels), ["people", "models", "mounts", "activity", "workspaces", "overview"]);
+  assert.deepEqual(Object.keys(panels), ["people", "models", "configuration", "mounts", "activity", "workspaces", "overview"]);
   for (const impl of Object.values(panels)) assert.equal(typeof impl.mount, "function");
 });

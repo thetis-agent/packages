@@ -10,6 +10,36 @@
   },
   "thetis": {
     "type": "tool",
+    "config": {
+      "shell": {
+        "type": "string",
+        "default": "/bin/bash",
+        "help": "The program the pty runs; anything but bash runs unframed."
+      },
+      "sessions": {
+        "type": "number",
+        "default": 8,
+        "scope": "system",
+        "help": "Open shell sessions per person; the refusal names the limit and says to close one."
+      },
+      "bufferBytes": {
+        "type": "number",
+        "default": 262144,
+        "scope": "system",
+        "help": "The ring buffer per session, counted in characters of the decoded stream."
+      },
+      "idleMinutes": {
+        "type": "number",
+        "default": 30,
+        "scope": "system",
+        "help": "Close a session after this many minutes with no browser attached and nothing running; 0 disables the reaper."
+      },
+      "waitMs": {
+        "type": "number",
+        "default": 120000,
+        "help": "The default wait of the shell tool in milliseconds, when the call names no timeoutMs."
+      }
+    },
     "service": {
       "export": "startTerminals"
     },

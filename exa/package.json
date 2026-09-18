@@ -32,6 +32,28 @@
   },
   "thetis": {
     "type": "tool",
+    "config": {
+      "apiKey": {
+        "type": "string",
+        "secret": true,
+        "required": true,
+        "help": "The Exa API key; put it in .env as EXA_API_KEY and reference it, since a tool call without one fails."
+      },
+      "baseUrl": {
+        "type": "string",
+        "default": "https://api.exa.ai",
+        "help": "The API root; a proxy goes here."
+      },
+      "timeoutMs": {
+        "type": "number",
+        "default": 60000,
+        "help": "How long one HTTP request to Exa may take, in milliseconds."
+      },
+      "defaults": {
+        "type": "object",
+        "help": "Tool defaults the model can override per call: numResults (8), maxCharacters (no cap) and researchWaitSeconds (240, at most 540)."
+      }
+    },
     "tools": [
       {
         "name": "exa_search",

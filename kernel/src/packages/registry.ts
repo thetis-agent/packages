@@ -1,25 +1,16 @@
-import { resolve } from "node:path";
 import type { PackageRecord } from "@thetis/contracts";
-import { JsonFile } from "@thetis/lib/json";
+import type { StoreMirror } from "@thetis/lib/store";
 
-/** Service-plane record of what packages exist, who owns them, and where they are installed. */
+/** Service-plane record of what packages exist, who owns them, and where they are installed. One document per package name. */
 export class PackageRegistry {
-  private readonly file: JsonFile<Record<string, PackageRecord>>;
-
-  constructor(home: string) {
-    this.file = new JsonFile(resolve(home, "registry.json"), {});
-  }
-
-  private get records(): Record<string, PackageRecord> {
-    return this.file.value;
-  }
+  constructor(private readonly records: StoreMirror<PackageRecord>) {}
 
   get(name: string): PackageRecord | undefined {
-    return this.records[name];
+    return this.records.get(name);
   }
 
   all(): PackageRecord[] {
-    return Object.values(this.records);
+    return this.records.all().map(([, r]) => r);
   }
 
   installedIn(userspace: string): PackageRecord[] {
@@ -27,23 +18,21 @@ export class PackageRegistry {
   }
 
   record(rec: Omit<PackageRecord, "userspaces">, userspace: string): PackageRecord {
-    const existing = this.records[rec.name];
+    const existing = this.records.get(rec.name);
     const userspaces = existing ? existing.userspaces.filter((u) => u !== userspace) : [];
     // A promoted fork is installed into every userspace in turn; the first install that displaced something must not lose it.
     const kept = { ...(existing?.everyone ? { everyone: true } : {}), ...(existing?.replaced && !rec.replaced ? { replaced: existing.replaced, replacedSource: existing.replacedSource } : {}) };
     const next = { ...rec, userspaces: [...userspaces, userspace], ...kept };
-    this.records[rec.name] = next;
-    this.file.save();
+    this.records.set(rec.name, next);
     return next;
   }
 
   /** Marks a package as the default for everyone, or unmarks it. */
   setEveryone(name: string, on: boolean): void {
-    const rec = this.records[name];
+    const rec = this.records.get(name);
     if (!rec) return;
-    if (on) rec.everyone = true;
-    else delete rec.everyone;
-    this.file.save();
+    const { everyone, ...rest } = rec;
+    this.records.set(name, on ? { ...rest, everyone: true } : rest);
   }
 
   /** The packages every new person is seeded with. */
@@ -52,14 +41,14 @@ export class PackageRegistry {
   }
 
   unlink(name: string, userspace: string): void {
-    const rec = this.records[name];
+    const rec = this.records.get(name);
     if (!rec) return;
-    rec.userspaces = rec.userspaces.filter((u) => u !== userspace);
-    if (rec.userspaces.length === 0) delete this.records[name];
-    this.file.save();
+    const userspaces = rec.userspaces.filter((u) => u !== userspace);
+    if (userspaces.length === 0) this.records.delete(name);
+    else this.records.set(name, { ...rec, userspaces });
   }
 
   forgetUserspace(userspace: string): void {
-    for (const name of Object.keys(this.records)) this.unlink(name, userspace);
+    for (const name of this.records.keys()) this.unlink(name, userspace);
   }
 }

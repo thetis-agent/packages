@@ -5,11 +5,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createInterface as createPrompt } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
-import type { KernelRpc, ModelDescriptor, PackageInfo, SessionRecord, TurnEvent, UserRecord } from "@thetis/contracts";
+import type { ConfigReport, KernelRpc, ModelDescriptor, PackageInfo, SessionRecord, TurnEvent, UserRecord } from "@thetis/contracts";
 import { createDoor } from "@thetis/door";
 import { behind, readIndex, shortCommit, type Behind } from "@thetis/marketplace";
-import { ControlServer, controlSocketPath, createKernel } from "@thetis/host";
-import { configPath, createControlHandler, defaultConfig, loadConfig, saveConfig, type SessionRef } from "@thetis/kernel";
+import { ControlServer, controlSocketPath, createKernel, migrateStore, type KernelConfig } from "@thetis/host";
+import { configPath, createControlHandler, defaultConfig, loadConfig, redact, saveConfig, type SessionRef } from "@thetis/kernel";
+import { parseDotEnv } from "@thetis/lib/config";
 import { errorMessage } from "@thetis/lib/error";
 import { connectRpcSocket } from "@thetis/lib/ndjson-socket";
 import type { MountState } from "@thetis/lib/mounts";
@@ -50,7 +51,16 @@ usage: thetis <command> [options]
   mounts remove <user> <path>
   mounts browse [path]                 the directories under a host path, to pick one to bind
   models [--user <id>]                 models advertised by installed providers
-  config                               print effective config
+  config                               print the configuration file over its defaults, secrets hidden
+  config show [<package>] [--user <id>]  every key of one package and where its value comes from, or one line per package;
+                                       --user shows that person's own layer over the system's
+  config set <package> <key> [<value>] [--user <id>] [--json] [--stdin]
+                                       set one key at the system layer, or at that person's; --json parses the value,
+                                       --stdin reads it from stdin (a secret stays out of the shell history)
+  config unset <package> <key> [--user <id>]
+  config reload                        re-read the packages of thetis.config.json and the .env file; services whose
+                                       configuration changed start again
+  migrate                              move the users, auth, registry and mounts files of an older data dir into the store
   bench run <suite> [--write] [--force] [--sandbox auto|bwrap|none] [--package <dir>]
                                        measure the harness against a suite; --write updates each package's BENCH.md
   bench verify [<package-dir>]         check a package's thetis.bench declaration without running anything
@@ -80,7 +90,7 @@ export async function run(argv: string[]): Promise<void> {
     process.stdout.write(`initialized ${home}\n`);
     return;
   }
-  if (cmd === "config") return void process.stdout.write(JSON.stringify(config, null, 2) + "\n");
+  if (cmd === "config" && args._[1] === undefined) return print(JSON.stringify(redact(config), null, 2));
   if (cmd === "bench") {
     // The bench boots its own kernel in a temporary home, so it must not touch this one or a running daemon:
     // the arms, the phases and the installed set all have to be controlled for the numbers to mean anything.
@@ -99,6 +109,14 @@ export async function run(argv: string[]): Promise<void> {
     }
     return serve(config, socket);
   }
+  if (cmd === "migrate") {
+    // The records move while nothing holds them: a daemon has them in memory and would write the old files back.
+    if (remote) {
+      remote.close();
+      throw new Error(`a thetis daemon is running on ${socket}; stop it, then migrate`);
+    }
+    return migrateCmd(config);
+  }
   if (remote) {
     try {
       await dispatch(remote.call, cmd, args, config.sharedDir);
@@ -107,7 +125,7 @@ export async function run(argv: string[]): Promise<void> {
     }
     return;
   }
-  const kernel = createKernel(config);
+  const kernel = await createKernel(config);
   try {
     await dispatch(createControlHandler(kernel), cmd, args, config.sharedDir);
   } finally {
@@ -117,7 +135,7 @@ export async function run(argv: string[]): Promise<void> {
 
 /** Runs the kernel until SIGINT, SIGTERM or an armed restart: control socket for the CLI, the door for browsers, services for everyone else. */
 async function serve(config: ReturnType<typeof loadConfig>, socket: string): Promise<void> {
-  const kernel = createKernel(config);
+  const kernel = await createKernel(config);
   const log = (line: string) => process.stderr.write(line + "\n");
   const control = new ControlServer(socket, createControlHandler(kernel), log);
   const door = createDoor({
@@ -212,6 +230,8 @@ async function dispatch(call: Call, cmd: string, args: Args, shared: string): Pr
       return packagesCmd(call, args, user, shared);
     case "mounts":
       return mountsCmd(call, args, user);
+    case "config":
+      return configCmd(call, args, user);
     case "install":
     case "uninstall":
       return packagesCmd(call, { ...args, _: ["packages", ...args._] }, user, shared);
@@ -440,6 +460,68 @@ async function mountsCmd(call: Call, args: Args, user: string | undefined): Prom
 }
 
 /**
+ * One package's configuration, key by key. A secret shows as `•••`: the kernel never sends the value, and
+ * the command never asks. The summary sentence comes first, because it is the one line that says whether
+ * the package can work.
+ */
+function showReport(r: ConfigReport): void {
+  print(`${r.package}${r.user ? ` (${r.user})` : ""}${r.inherits.length ? `, inherits ${r.inherits.join(" < ")}` : ""}: ${r.summary}`);
+  for (const k of r.keys) {
+    const value = k.value !== undefined ? JSON.stringify(k.value) : k.state === "set" ? "•••" : "";
+    const cells = [k.key, k.state, value, k.source ?? "", k.inheritedFrom ?? "", (k.missing ?? []).join(" ")];
+    print(`  ${cells.join("\t")}`);
+  }
+}
+
+/**
+ * The configuration commands: what is set, and setting it. A value is one argument, `--json` for anything
+ * that is not a string, and `--stdin` for a secret, so that it never lands in the shell's history.
+ */
+async function configCmd(call: Call, args: Args, user: string | undefined): Promise<void> {
+  const [, sub, name, key, ...rest] = args._;
+  switch (sub) {
+    case "show": {
+      if (name) return showReport((await call("config.show", { name, user })) as ConfigReport);
+      const reports = (await call("config.list", { user })) as ConfigReport[];
+      // The packages that cannot work come first: they are what the listing is for.
+      for (const r of [...reports].sort((a, b) => Number(b.broken) - Number(a.broken))) print(`${r.broken ? "!" : " "} ${r.package}\t${r.summary}`);
+      return;
+    }
+    case "set": {
+      if (!name || !key) throw new Error("config set needs <package> <key>");
+      // `--json` right before the value swallows it as its argument; that is still the value.
+      const text = args.stdin === true ? await readStdin() : rest.length ? rest.join(" ") : typeof args.json === "string" ? args.json : undefined;
+      if (text === undefined) throw new Error("config set needs a <value>, or --stdin to read it from stdin");
+      const value: unknown = args.json ? JSON.parse(text) : text;
+      const r = (await call("config.set", { name, key, value, user })) as ConfigReport;
+      const state = r.keys.find((k) => k.key === key);
+      return print(`${name}${user ? ` (${user})` : ""}: ${key} is ${state?.state ?? "unset"}; ${r.summary}`);
+    }
+    case "unset": {
+      if (!name || !key) throw new Error("config unset needs <package> <key>");
+      const r = (await call("config.unset", { name, key, user })) as ConfigReport;
+      return print(`${name}${user ? ` (${user})` : ""}: ${key} cleared; ${r.summary}`);
+    }
+    case "reload": {
+      const r = (await call("config.reload", {})) as { changed: string[]; restarted: { user: string; package: string }[] };
+      print(r.changed.length ? `changed: ${r.changed.join(", ")}` : "nothing changed in the file");
+      for (const s of r.restarted) print(`restarted ${s.package} for ${s.user}`);
+      return;
+    }
+    default:
+      throw new Error(`unknown config subcommand: ${sub}`);
+  }
+}
+
+/** Moves the legacy record files into the store. Runs against the files directly, so the daemon must be stopped first. */
+async function migrateCmd(config: KernelConfig): Promise<void> {
+  const { imported, skipped } = await migrateStore(config, (line) => process.stderr.write(line + "\n"));
+  for (const [file, n] of Object.entries(imported)) print(`imported ${n} record(s) from ${file}; it is now ${file}.migrated`);
+  if (skipped.length) print(`not there, so nothing to import: ${skipped.join(", ")}`);
+  if (!Object.keys(imported).length) print("nothing to migrate");
+}
+
+/**
  * What an installation is behind on. Nothing updates on its own: the index says what is latest, the record
  * says what is installed, and this compares them so a person can decide.
  */
@@ -569,11 +651,16 @@ function usageLine(u: Record<string, number>): string {
 }
 
 function readLine(): Promise<string> {
+  return readStdin().then((data) => data.split("\n")[0] ?? "");
+}
+
+/** All of stdin, without the one newline an editor or `echo` leaves at the end. */
+function readStdin(): Promise<string> {
   return new Promise((done) => {
     let data = "";
     process.stdin.setEncoding("utf8");
     process.stdin.on("data", (chunk) => (data += chunk));
-    process.stdin.on("end", () => done(data.split("\n")[0] ?? ""));
+    process.stdin.on("end", () => done(data.replace(/\n$/, "")));
   });
 }
 
@@ -591,11 +678,11 @@ function parse(argv: string[]): Args {
   return out;
 }
 
+/** The file's variables into the process, for the daemon's own use. A name the shell already set keeps the shell's value. */
 function loadDotEnv(file: string): void {
   if (!existsSync(file)) return;
-  for (const line of readFileSync(file, "utf8").split("\n")) {
-    const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/.exec(line);
-    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+  for (const [name, value] of Object.entries(parseDotEnv(readFileSync(file, "utf8")))) {
+    if (process.env[name] === undefined) process.env[name] = value;
   }
 }
 

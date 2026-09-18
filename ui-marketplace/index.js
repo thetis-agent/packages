@@ -106,6 +106,40 @@ export async function update(args, env) {
   return { data: { ...installedRow(info), from: row.update.from, to: row.update.to } };
 }
 
+const CONFIG_KEY = /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/;
+const configKey = (value) => (typeof value === "string" && CONFIG_KEY.test(value) ? value : fail("a configuration key is a word: letters, digits, dots, dashes and underscores"));
+
+/** The person's own layer of one installed package: every key's state, secrets redacted. */
+export async function configShow(args, env) {
+  return { data: await env.kernel.config.show(packageName(args.name)) };
+}
+
+/**
+ * The one sentence per installed package, for the gallery: `[{ package, summary, broken }]`. One call from
+ * the page rather than one per card; a package the kernel cannot report on is left out, because a card
+ * that says nothing is better than a gallery that fails on one row.
+ */
+export async function configList(_args, env) {
+  const installed = await env.kernel.packages.list();
+  const reports = await Promise.all(installed.map((p) => env.kernel.config.show(p.name).catch(() => null)));
+  return { data: reports.filter(Boolean).map((r) => ({ package: r.package, summary: r.summary, broken: !!r.broken })) };
+}
+
+/**
+ * Writes one key at the person's own layer. The value is any JSON but never null or undefined: removing a
+ * value is `config-unset`. It is passed through untouched and never appears in a message.
+ */
+export async function configSet(args, env) {
+  const name = packageName(args.name);
+  const key = configKey(args.key);
+  if (args.value === undefined || args.value === null) fail(`${key} needs a value; config-unset removes one`);
+  return { data: await env.kernel.config.set(name, key, args.value) };
+}
+
+export async function configUnset(args, env) {
+  return { data: await env.kernel.config.unset(packageName(args.name), configKey(args.key)) };
+}
+
 const call = (env, method, a = {}) => env.kernel.operator.call(method, a);
 
 /** A shipped `@thetis/<name>` is marked for everyone and linked into every person; anything else is installed for the admin and promoted. */

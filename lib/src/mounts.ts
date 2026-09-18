@@ -2,7 +2,7 @@ import { readdirSync, statSync, type Dirent } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { Mount } from "@thetis/contracts";
 import { assert } from "./error.js";
-import { JsonFile } from "./json.js";
+import type { StoreMirror } from "./store.js";
 
 /** A mount and what the host holds at its path now. `present` is true only for a directory. */
 export interface MountState extends Mount {
@@ -22,29 +22,35 @@ export interface DirectoryListing {
   entries: { name: string; path: string }[];
 }
 
-/** The per-user mount lists in `<home>/mounts.json`: `{ "<user>": [ { path, mode } ] }`. Who may set one is the caller's decision. */
+/** The per-user mount lists: one document per person, `{ mounts: [ { path, mode } ] }`. Who may set one is the caller's decision. */
 export class MountStore {
-  private readonly file: JsonFile<Record<string, Mount[]>>;
-
-  constructor(home: string) {
-    this.file = new JsonFile(resolve(home, "mounts.json"), {});
-  }
+  constructor(private readonly docs: StoreMirror<{ mounts: Mount[] }>) {}
 
   /** A copy of one person's list; empty when none. */
   get(user: string): Mount[] {
-    return (this.file.value[user] ?? []).map((m) => ({ ...m }));
+    return (this.docs.get(user)?.mounts ?? []).map((m) => ({ ...m }));
   }
 
   all(): Record<string, Mount[]> {
-    return Object.fromEntries(Object.keys(this.file.value).map((u) => [u, this.get(u)]));
+    return Object.fromEntries(this.docs.all().map(([u]) => [u, this.get(u)]));
   }
 
-  /** Replaces one person's list; an empty list removes the entry. */
+  /** Replaces one person's list; an empty list removes the document. */
   set(user: string, mounts: Mount[]): void {
-    if (mounts.length) this.file.value[user] = mounts.map((m) => ({ path: m.path, mode: m.mode }));
-    else delete this.file.value[user];
-    this.file.save();
+    if (mounts.length) this.docs.set(user, { mounts: mounts.map((m) => ({ path: m.path, mode: m.mode })) });
+    else this.docs.delete(user);
   }
+}
+
+/** A mount list as it arrives from a socket: at most 32 entries, absolute normalized paths (so no `..`), mode `rw` or `ro`. */
+export function parseMountList(raw: unknown): Mount[] {
+  assert(Array.isArray(raw) && raw.length <= 32, "mounts must be a list of at most 32 entries", "invalid");
+  return raw.map((m: { path?: unknown; mode?: unknown } | null) => {
+    const path = String(m?.path ?? "");
+    assert(path !== "/" && path === resolve(path), `invalid mount path: ${path} (absolute and normalized, not /)`, "invalid");
+    assert(m?.mode === "rw" || m?.mode === "ro", `invalid mount mode for ${path}: ${String(m?.mode)} (rw or ro)`, "invalid");
+    return { path, mode: m.mode };
+  });
 }
 
 /**

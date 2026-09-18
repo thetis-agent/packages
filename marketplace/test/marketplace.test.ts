@@ -37,7 +37,7 @@ function sh(cmd: string, cwd: string): Promise<void> {
   return new Promise((done, fail) => cpExec(cmd, { cwd, shell: "/bin/bash" }, (err, _o, stderr) => (err ? fail(new Error(stderr || err.message)) : done())));
 }
 
-/** A git registry with two packages, each with a README, and one directory that is not a package. */
+/** A git registry with two packages, each with a README, one directory that is not a package, and one storage driver. */
 async function registryAt(dir: string): Promise<void> {
   mkdirSync(join(dir, "greet"), { recursive: true });
   mkdirSync(join(dir, "nested", "memo"), { recursive: true });
@@ -47,6 +47,8 @@ async function registryAt(dir: string): Promise<void> {
   writeFileSync(join(dir, "greet", "package.json"), JSON.stringify({ name: "@thetis/greet", version: "1.2.0", description: "Say hello to people", keywords: ["hello", "tool"], thetis: { type: "tool", tools: [{ name: "greet", description: "hi", export: "greet" }] } }));
   writeFileSync(join(dir, "nested", "memo", "package.json"), JSON.stringify({ name: "@thetis/memo", version: "0.3.1", description: "Remember things between turns", keywords: ["memory"], thetis: { type: "memory", steps: [{ id: "load", phase: "prompt", export: "load" }], service: { export: "start" } } }));
   writeFileSync(join(dir, "notes", "package.json"), JSON.stringify({ name: "plain", version: "1.0.0" }));
+  mkdirSync(join(dir, "store"), { recursive: true });
+  writeFileSync(join(dir, "store", "package.json"), JSON.stringify({ name: "@thetis/store-toml", version: "1.0.0", description: "Stores documents as TOML", thetis: { type: "storage", export: "createDriver" } }));
   await sh("git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -q -m init", dir);
 }
 
@@ -62,7 +64,7 @@ test("refresh mirrors a registry and indexes its packages", async () => {
     assert.equal(index.registries.length, 1);
     assert.match(index.registries[0].commit ?? "", /^[0-9a-f]{40}$/);
     assert.equal(index.registries[0].error, undefined);
-    assert.deepEqual(index.packages.map((p) => p.name).sort(), ["@thetis/greet", "@thetis/memo"], "the plain directory is not a package");
+    assert.deepEqual(index.packages.map((p) => p.name).sort(), ["@thetis/greet", "@thetis/memo"], "the plain directory is not a package, and a storage driver is never offered");
     const greet = index.packages.find((p) => p.name === "@thetis/greet")!;
     const commit = index.registries[0].commit!;
     assert.equal(greet.dir, "greet");

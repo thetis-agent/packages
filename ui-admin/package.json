@@ -2,7 +2,7 @@
   "name": "@thetis/ui-admin",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "The admin sections of the web gateway's control panel: people, models, activity, overview, mounts, and workspaces.",
+  "description": "The admin sections of the web gateway's control panel: people, models, configuration, mounts, activity, workspaces, and overview.",
   "type": "module",
   "main": "index.js",
   "thetis": {
@@ -14,6 +14,7 @@
       "panel": [
         { "id": "people", "label": "People", "note": "Who can sign in, and what they may do.", "role": "admin", "order": 20 },
         { "id": "models", "label": "Models", "note": "Which model answers by default, and what the providers serve.", "role": "admin", "order": 30 },
+        { "id": "configuration", "label": "Configuration", "note": "What each package is configured with, and what is missing.", "role": "admin", "order": 32 },
         { "id": "mounts", "label": "Mounts", "note": "Which host directories are bound into whose space.", "role": "admin", "order": 35 },
         { "id": "activity", "label": "Activity", "note": "What happened: who did what, and when.", "role": "admin", "order": 40 },
         { "id": "workspaces", "label": "Workspaces", "note": "What code each workspace is running, and how to put new code into service.", "role": "admin", "order": 45 },
@@ -28,6 +29,11 @@
         { "verb": "user-remove", "export": "userRemove", "label": "Remove a person", "role": "admin" },
         { "verb": "models", "export": "models", "label": "List the models", "role": "admin" },
         { "verb": "config", "export": "config", "label": "Read the configuration", "role": "admin" },
+        { "verb": "config-list", "export": "configList", "label": "What every package is configured with", "role": "admin" },
+        { "verb": "config-show", "export": "configShow", "label": "What one package is configured with", "role": "admin" },
+        { "verb": "config-set", "export": "configSet", "label": "Set one configuration key", "role": "admin" },
+        { "verb": "config-unset", "export": "configUnset", "label": "Clear one configuration key", "role": "admin" },
+        { "verb": "config-reload", "export": "configReload", "label": "Re-read the configuration file", "role": "admin" },
         { "verb": "journal", "export": "journal", "label": "Read the journal", "role": "admin" },
         { "verb": "mounts-list", "export": "mountsList", "label": "List the mounts", "role": "admin" },
         { "verb": "mounts-set", "export": "mountsSet", "label": "Set a person's mounts", "role": "admin" },

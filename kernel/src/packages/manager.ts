@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
-import { SYSTEM_SCOPE, SYSTEM_USER, type DeletedPackage, type ExecResult, type Fences, type Manifest, type PackageInfo, type PackageRecord, type PackageSource, type UserRecord, type Userspace } from "@thetis/contracts";
+import { STORAGE_TYPE, SYSTEM_SCOPE, SYSTEM_USER, type DeletedPackage, type ExecResult, type Fences, type Manifest, type PackageInfo, type PackageRecord, type PackageSource, type UserRecord, type Userspace } from "@thetis/contracts";
 import { assert, CodedError, errorMessage } from "@thetis/lib/error";
 import { buildCommand, cloneCommand, cloneSlug, copyPackageAs, hasPackageJson, headOf, isGitSource, isInside, linkDir, removeLink, splitSource } from "@thetis/lib/pkg-fs";
 import type { KernelConfig } from "../config.js";
@@ -12,8 +12,12 @@ const PLATFORM_PEERS = new Set(["@thetis/kernel", "@thetis/contracts", "@thetis/
 const BUILD_TIMEOUT_MS = 300_000;
 
 export interface PackageListener {
-  installed(us: Userspace, pkg: PackageInfo): Promise<void>;
-  uninstalled(us: Userspace, pkg: PackageInfo): Promise<void>;
+  installed?(us: Userspace, pkg: PackageInfo): Promise<void>;
+  uninstalled?(us: Userspace, pkg: PackageInfo): Promise<void>;
+  /** The package's files are gone: what was kept for it in the userspace goes too. */
+  deleted?(us: Userspace, name: string): Promise<void>;
+  /** A copy under the system scope exists; what was set for the original follows it. */
+  promoted?(from: string, to: string): Promise<void>;
 }
 
 /**
@@ -21,7 +25,7 @@ export interface PackageListener {
  * userspace that receives the package; the link into its store and the registry row are the kernel's.
  */
 export class PackageManager {
-  private listener?: PackageListener;
+  private readonly listeners: PackageListener[] = [];
 
   constructor(
     private readonly config: KernelConfig,
@@ -29,9 +33,36 @@ export class PackageManager {
     private readonly fences: Fences,
   ) {}
 
-  /** One observer of installs and uninstalls, for the service supervisor. */
+  /** Observers of installs, uninstalls, deletions and promotions: the service supervisor, and the host's store and config hooks. */
   observe(listener: PackageListener): void {
-    this.listener = listener;
+    this.listeners.push(listener);
+  }
+
+  private async each(fn: (l: PackageListener) => Promise<void> | undefined): Promise<void> {
+    for (const l of this.listeners) await fn(l);
+  }
+
+  /**
+   * The manifest of a package as this userspace sees it: the store link when it is there, else the shipped
+   * or promoted directory. A fork's origin is uninstalled by the fork, so its configuration chain is read this way.
+   */
+  manifestOf(us: Userspace, name: string): Manifest | undefined {
+    const link = this.linkPath(us, name);
+    const dir = hasPackageJson(link) ? link : (this.systemPackageDir(name) ?? this.displacedDir(us, name));
+    try {
+      return dir ? readManifest(dir) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Where a package a fork displaced still lives: its files stay where they were installed from. */
+  private displacedDir(us: Userspace, name: string): string | undefined {
+    const fork = this.registry.all().find((r) => r.replaced === name && r.userspaces.includes(us.id));
+    const src = fork?.replacedSource;
+    if (!src || src.kind === "system") return undefined;
+    const git = splitSource(src.ref);
+    return src.kind === "local" ? resolve(us.home, src.ref) : this.subdir(this.cloneDir(us, git.url, git.ref), git.sub);
   }
 
   /** Installed packages of a userspace, with their live manifests, in install order. */
@@ -108,7 +139,7 @@ export class PackageManager {
     assert(dir, `unknown system package: ${name}`);
     const manifest = readManifest(dir);
     this.link(us, name, dir);
-    const rec = { name, version: manifest.version, type: manifest.thetis.type, owner: SYSTEM_USER, source: { kind: "system" as const, ref: dir }, forkedFrom: manifest.thetis.forkedFrom };
+    const rec = { name, version: manifest.version, type: manifest.thetis.type, owner: SYSTEM_USER, source: { kind: "system" as const, ref: dir }, ...origin(manifest) };
     this.registry.record({ ...rec, ...replaced }, us.id);
     return toInfo(manifest, this.linkPath(us, name));
   }
@@ -122,24 +153,24 @@ export class PackageManager {
     if (scopeOf(source) === SYSTEM_SCOPE && !source.includes("/", SYSTEM_SCOPE.length + 1)) {
       assert(actor.role !== "user", "only admins can install system packages", "unauthorized");
       const dir = this.systemPackageDir(source);
-      const replaced = dir ? await this.displace(us, readManifest(dir)) : undefined;
+      const replaced = dir ? await this.displace(us, installable(readManifest(dir))) : undefined;
       const info = this.installSystem(us, source, replaced);
-      await this.listener?.installed(us, info);
+      await this.each((l) => l.installed?.(us, info));
       return info;
     }
     const kind: PackageSource["kind"] = isGitSource(source) ? "git" : "local";
     const dir = kind === "git" ? await this.clone(us, source) : this.localDir(us, source);
-    const manifest = readManifest(dir);
+    const manifest = installable(readManifest(dir));
     this.checkOwnership(manifest, us, actor);
     this.checkPeers(manifest, us);
     await this.build(us, dir, manifest);
     const replaced = await this.displace(us, manifest);
     this.link(us, manifest.name, dir);
-    const rec = { name: manifest.name, version: manifest.version, type: manifest.thetis.type, owner: us.id, source: { kind, ref: source }, forkedFrom: manifest.thetis.forkedFrom };
+    const rec = { name: manifest.name, version: manifest.version, type: manifest.thetis.type, owner: us.id, source: { kind, ref: source }, ...origin(manifest) };
     this.registry.record({ ...rec, ...replaced }, us.id);
     const info = { ...toInfo(manifest, this.linkPath(us, manifest.name)), ...(replaced ? { replaced: replaced.replaced } : {}) };
     if (kind === "git") this.pruneClones(us);
-    await this.listener?.installed(us, info);
+    await this.each((l) => l.installed?.(us, info));
     return info;
   }
 
@@ -147,7 +178,7 @@ export class PackageManager {
   async uninstall(us: Userspace, name: string): Promise<PackageInfo | undefined> {
     const rec = this.registry.get(name);
     const pkg = this.installed(us).find((p) => p.name === name);
-    if (pkg) await this.listener?.uninstalled(us, pkg);
+    if (pkg) await this.each((l) => l.uninstalled?.(us, pkg));
     removeLink(this.linkPath(us, name));
     this.registry.unlink(name, us.id);
     return rec?.replaced ? this.restore(us, rec.replaced, rec.replacedSource) : undefined;
@@ -161,6 +192,7 @@ export class PackageManager {
     assert(dir && isInside(us.home, dir), `${name} does not live under the home directory; uninstall it instead`, "unauthorized");
     const restored = await this.uninstall(us, name);
     rmSync(dir, { recursive: true, force: true });
+    await this.each((l) => l.deleted?.(us, name));
     return { name, path: dir, ...(restored ? { restored: restored.name } : {}) };
   }
 
@@ -179,7 +211,7 @@ export class PackageManager {
     const info = own ? this.relink(us, own) : this.systemPackageDir(name) ? this.installSystem(us, name) : undefined;
     if (!info) return undefined;
     if (own) this.registry.record({ ...own, version: info.version, type: info.type }, us.id);
-    await this.listener?.installed(us, info);
+    await this.each((l) => l.installed?.(us, info));
     return info;
   }
 
@@ -206,7 +238,7 @@ export class PackageManager {
    * links it into the existing userspaces and removes the owner's original. The configuration file is
    * never written by the kernel.
    */
-  promote(us: Userspace, name: string): string {
+  async promote(us: Userspace, name: string): Promise<string> {
     const rec = this.registry.get(name);
     assert(rec && rec.owner === us.id && rec.source.kind !== "system" && rec.userspaces.includes(us.id), `${name} is not a package of ${us.id}`, "invalid");
     const base = name.slice(name.indexOf("/") + 1);
@@ -215,6 +247,7 @@ export class PackageManager {
     assert(!existsSync(target) && !this.systemPackageDir(promoted), `${promoted} already exists`, "invalid");
     copyPackageAs(this.linkPath(us, name), target, promoted);
     readManifest(target);
+    await this.each((l) => l.promoted?.(name, promoted));
     return promoted;
   }
 
@@ -313,4 +346,15 @@ export class PackageManager {
   private linkPath(us: Userspace, name: string): string {
     return resolve(us.store, "node_modules", name);
   }
+}
+
+/** A storage driver serves the service plane from the host; a fence has no use for it and must not hold one. */
+function installable(m: Manifest): Manifest {
+  assert(m.thetis.type !== STORAGE_TYPE, `${m.name} is a storage driver: it runs on the host and is chosen by storage.driver in thetis.config.json; it is not installed`, "invalid");
+  return m;
+}
+
+/** The record holds no `undefined`: a store keeps only what JSON keeps. */
+function origin(m: Manifest): { forkedFrom?: PackageRecord["forkedFrom"] } {
+  return m.thetis.forkedFrom ? { forkedFrom: m.thetis.forkedFrom } : {};
 }

@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { SYSTEM_USER } from "@thetis/contracts";
 import { createKernel, defaultConfig, T, type Kernel, type KernelConfig } from "@thetis/host";
+import { memoryStore } from "@thetis/lib/store";
 
 export const BENCH_PHASE = "bench";
 export const PROBE_PACKAGE = "@thetis/bench-probe";
@@ -153,7 +154,8 @@ export class Arena {
     };
 
     const log = opts.log ?? (() => {});
-    const kernel = createKernel(config, (c) => c.bind(T.log, () => log));
+    // Records in memory: a bench home is thrown away with the run, and the arms' packages are the only ones in its system directory.
+    const kernel = await createKernel(config, (c) => c.bind(T.log, () => log).bind(T.store, () => memoryStore()));
     // Admins, because an arm may have to install a system-scoped candidate into its own userspace.
     for (const arm of opts.arms) kernel.users.create(users.get(arm.id) as string, "admin");
 

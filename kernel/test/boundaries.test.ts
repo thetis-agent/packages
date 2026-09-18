@@ -15,7 +15,11 @@ const ALLOWED: Record<string, string[]> = {
   sandbox: ["contracts", "lib"],
   kernel: ["contracts", "lib"],
   host: ["contracts", "lib", "sandbox", "kernel"],
+  "store-toml": ["contracts", "lib"],
 };
+
+/** Packages the rule covers when they are there: a driver is chosen by configuration and may be absent from a checkout. */
+const OPTIONAL = new Set(["store-toml"]);
 
 /** Besides the host, only the command line (a host process) may depend on the kernel. */
 const MAY_IMPORT_KERNEL = new Set(["host", "gateway-cli"]);
@@ -48,6 +52,7 @@ function sourcesOf(pkg: string): string[] {
 test("the layers import only downward: contracts < lib < sandbox, kernel < host", () => {
   for (const [pkg, allowed] of Object.entries(ALLOWED)) {
     const files = sourcesOf(pkg);
+    if (!files.length && OPTIONAL.has(pkg)) continue;
     assert.ok(files.length > 0, `${pkg} has sources`);
     for (const file of files) {
       const bad = thetisImports(file).filter((name) => !allowed.includes(name));

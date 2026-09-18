@@ -1,4 +1,5 @@
 // Packages: the manifest a package ships, what an installed package looks like, and the registry record.
+import type { ConfigDecl } from "./config.js";
 import type { BenchDecl } from "./bench.js";
 import type { UserRole } from "./identity.js";
 import type { JsonSchema } from "./messages.js";
@@ -94,6 +95,8 @@ export interface ThetisField {
   ui?: UiDecl;
   /** A directory of skills, relative to the package root, usually "skills". Read by @thetis/skills; the kernel never reads it. */
   skills?: string;
+  /** The keys this package reads from its configuration. The kernel validates the shape, types a value on `config.set`, and reports each key's state. */
+  config?: Record<string, ConfigDecl>;
 }
 
 export interface Manifest {

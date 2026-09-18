@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +24,7 @@ const fromRegistry = (name, commit) => ({ name, version: "0.1.0", type: "tool", 
 const entry = (name, version, commit, extra = {}) => ({ name, version, type: "tool", description: `${name} from the registry`, keywords: ["k"], registry: "thetis", url: REPO, dir: name.slice(8), commit, source: `${REPO}#${name.slice(8)}@${commit}`, steps: [], tools: ["t"], service: false, ...extra });
 
 /** An env with a shared directory holding `index`, `installed` behind the kernel, and an operator that records calls. */
-function fakeEnv({ installed = [], index, readmes = {}, answers = {}, role = "user", user = "alice" } = {}) {
+function fakeEnv({ installed = [], index, readmes = {}, answers = {}, role = "user", user = "alice", reports = {} } = {}) {
   const shared = mkdtempSync(join(tmpdir(), "ui-market-"));
   mkdirSync(join(shared, "marketplace", "readme", "thetis"), { recursive: true });
   if (index) writeFileSync(join(shared, "marketplace", "index.json"), JSON.stringify(index));
@@ -51,9 +51,30 @@ function fakeEnv({ installed = [], index, readmes = {}, answers = {}, role = "us
           return typeof answers[method] === "function" ? answers[method](args) : (answers[method] ?? null);
         },
       },
+      // The person's own configuration layer, as the fence RPC answers it: a report per package from `reports`.
+      config: {
+        show: async (name) => (calls.push({ method: "config.show", name }), reports[name] instanceof Error ? Promise.reject(reports[name]) : reports[name] ?? { package: name, inherits: [], keys: [], summary: "every key is set", broken: false }),
+        set: async (name, key, value) => (calls.push({ method: "config.set", name, key, value }), reports[name] ?? { package: name, inherits: [], keys: [], summary: "every key is set", broken: false }),
+        unset: async (name, key) => (calls.push({ method: "config.unset", name, key }), reports[name] ?? { package: name, inherits: [], keys: [], summary: "every key is set", broken: false }),
+      },
     },
   };
   return { env, calls, cleanup: () => rmSync(shared, { recursive: true, force: true }) };
+}
+
+/** Runs `fn` with every console method and stderr write recorded, and answers what was written. */
+async function captured(fn) {
+  const lines = [];
+  const saved = { log: console.log, error: console.error, warn: console.warn, info: console.info, write: process.stderr.write };
+  for (const m of ["log", "error", "warn", "info"]) console[m] = (...a) => lines.push(a.map(String).join(" "));
+  process.stderr.write = (chunk) => (lines.push(String(chunk)), true);
+  try {
+    await fn();
+  } finally {
+    Object.assign(console, { log: saved.log, error: saved.error, warn: saved.warn, info: saved.info });
+    process.stderr.write = saved.write;
+  }
+  return lines;
 }
 
 test("rows: installed first, then the registry's; a shared name learns its registry and whether it is behind", () => {
@@ -180,6 +201,49 @@ test("the admin verbs send one operator method each, with the arguments checked 
   } finally {
     t.cleanup();
   }
+});
+
+test("config-show, config-set and config-unset go to the person's own layer; config-list folds the installed packages' sentences", async () => {
+  const broken = { package: "@thetis/exa", inherits: [], keys: [{ key: "apiKey", state: "missing", secret: true, declared: true, required: true }], summary: "apiKey is required and not set", broken: true };
+  const t = fakeEnv({ installed: [shipped("@thetis/harness-core"), shipped("@thetis/exa"), shipped("@thetis/gone")], reports: { "@thetis/exa": broken, "@thetis/gone": new Error("not-found") } });
+  const secret = "exa-key-hunter2-never-logged";
+  try {
+    const lines = await captured(async () => {
+      assert.deepEqual((await commands.configShow({ name: "@thetis/exa" }, t.env)).data, broken);
+      assert.equal((await commands.configSet({ name: "@thetis/exa", key: "apiKey", value: secret }, t.env)).data.package, "@thetis/exa");
+      assert.equal((await commands.configSet({ name: "@thetis/exa", key: "defaults", value: { numResults: 5 } }, t.env)).data.package, "@thetis/exa");
+      assert.equal((await commands.configUnset({ name: "@thetis/exa", key: "apiKey" }, t.env)).data.package, "@thetis/exa");
+      assert.deepEqual((await commands.configList({}, t.env)).data, [
+        { package: "@thetis/harness-core", summary: "every key is set", broken: false },
+        { package: "@thetis/exa", summary: "apiKey is required and not set", broken: true },
+      ], "one sentence per installed package; one the kernel cannot report on is left out");
+      await assert.rejects(commands.configShow({ name: "exa" }, t.env), /looks like @scope\/name/);
+      await assert.rejects(commands.configSet({ name: "@thetis/exa", key: "api key", value: secret }, t.env), /a configuration key is a word/);
+      await assert.rejects(commands.configSet({ name: "@thetis/exa", key: "apiKey" }, t.env), /needs a value; config-unset removes one/);
+      await assert.rejects(commands.configSet({ name: "@thetis/exa", key: "apiKey", value: null }, t.env), /needs a value/);
+      await assert.rejects(commands.configUnset({ name: "@thetis/exa" }, t.env), /a configuration key is a word/);
+    });
+    assert.deepEqual(t.calls, [
+      { method: "config.show", name: "@thetis/exa" },
+      { method: "config.set", name: "@thetis/exa", key: "apiKey", value: secret },
+      { method: "config.set", name: "@thetis/exa", key: "defaults", value: { numResults: 5 } },
+      { method: "config.unset", name: "@thetis/exa", key: "apiKey" },
+      { method: "config.show", name: "@thetis/harness-core" },
+      { method: "config.show", name: "@thetis/exa" },
+      { method: "config.show", name: "@thetis/gone" },
+    ], "a refused call never reaches the kernel, and nothing goes through the operator");
+    assert.deepEqual(lines, [], "nothing is written to the console or stderr, so no value can be");
+    const err = await commands.configSet({ name: "@thetis/exa", key: "bad key", value: secret }, t.env).then(() => null, (e) => e);
+    assert.ok(err && !String(err.message).includes(secret), "a refusal never echoes the value");
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("the configuration form is the same file as @thetis/ui-admin's, because a page may import only its own", () => {
+  const twin = join(ROOT, "..", "ui-admin", "ui", "config-form.js");
+  if (!existsSync(twin)) return;
+  assert.equal(readFileSync(join(ROOT, "ui", "config-form.js"), "utf8"), readFileSync(twin, "utf8"), "packages/ui-marketplace/ui/config-form.js has drifted from packages/ui-admin/ui/config-form.js: copy one over the other");
 });
 
 test("the browser modules parse, and the entry defines install and nothing else", () => {

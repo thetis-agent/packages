@@ -1,0 +1,27 @@
+{
+  "name": "@thetis/store-toml",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "The default storage driver: one TOML file per document under <home>/store/<namespace>/<key>.toml. Runs on the host; chosen by storage.driver in thetis.config.json, not installed.",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test dist/test/"
+  },
+  "dependencies": {
+    "@thetis/contracts": "^0.1.0",
+    "@thetis/lib": "^0.1.0"
+  },
+  "thetis": {
+    "type": "storage",
+    "export": "createStore"
+  }
+}

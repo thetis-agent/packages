@@ -2,7 +2,7 @@
   "name": "@thetis/tool-exec",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "Tools for the model: install, fork, remove and delete packages, and spawn subagents in your own space. Running commands is @thetis/terminal.",
+  "description": "Tools for the model: install, fork, remove, delete and configure packages, and spawn subagents in your own space. Running commands is @thetis/terminal.",
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": {
@@ -88,6 +88,57 @@
           ]
         },
         "export": "deletePackage"
+      },
+      {
+        "name": "package_config",
+        "description": "Show what a package installed in your userspace is configured with: every key's state (set, missing or unset), which layer the value comes from and whether a fork inherits it, the value of a non-secret key, and the help of each declared key. A secret is shown as ••• and never its value.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "The installed package, such as @thetis/exa"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        },
+        "export": "packageConfig"
+      },
+      {
+        "name": "configure_package",
+        "description": "Set or unset one configuration key of an installed package in the person's own layer. Prefer asking the person to set a secret in the panel: a secret pasted into the conversation stays in the transcript. A key declared for the system is set by an admin in the panel, not here. The change is live on the next call. A string value may hold ${VAR} to read a variable from the environment; pass json: true to send a number, boolean, object or array. The reply names the key and its new state, never the value.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "The installed package, such as @thetis/exa"
+            },
+            "key": {
+              "type": "string",
+              "description": "The key, as package_config lists it"
+            },
+            "value": {
+              "type": "string",
+              "description": "The value to store; required unless unset is true"
+            },
+            "unset": {
+              "type": "boolean",
+              "description": "Remove the key from the person's layer instead of setting it"
+            },
+            "json": {
+              "type": "boolean",
+              "description": "Parse value as JSON before storing it"
+            }
+          },
+          "required": [
+            "name",
+            "key"
+          ]
+        },
+        "export": "configurePackage"
       },
       {
         "name": "spawn_subagent",

@@ -86,6 +86,44 @@ export async function config(_args, env) {
   return { data: await call(env, "config.get") };
 }
 
+const PACKAGE_NAME = /^@[a-z0-9-]+\/[a-z0-9._-]+$/;
+const CONFIG_KEY = /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/;
+
+const packageName = (value) => (typeof value === "string" && PACKAGE_NAME.test(value) ? value : fail("a package name looks like @scope/name"));
+const configKey = (value) => (typeof value === "string" && CONFIG_KEY.test(value) ? value : fail("a configuration key is a word: letters, digits, dots, dashes and underscores"));
+/** `user` names a person's layer; absent means the system layer. Only the keys given travel, so the kernel sees the same shape the CLI sends. */
+const layerOf = (args, rest) => (args.user === undefined || args.user === "" ? rest : { ...rest, user: userId(args.user, "user") });
+
+/** Every package's report: at the system layer, or at one person's when `user` is given. */
+export async function configList(args, env) {
+  return { data: await call(env, "config.list", layerOf(args, {})) };
+}
+
+export async function configShow(args, env) {
+  return { data: await call(env, "config.show", layerOf(args, { name: packageName(args.name) })) };
+}
+
+/**
+ * Writes one key. The value is any JSON but never null or undefined: removing a value is `config-unset`,
+ * so a missing field is a refusal here and not an accidental clear. The value is passed through untouched
+ * and never appears in a message: the kernel journals the package and the key, not what was written.
+ */
+export async function configSet(args, env) {
+  const name = packageName(args.name);
+  const key = configKey(args.key);
+  if (args.value === undefined || args.value === null) fail(`${key} needs a value; config-unset removes one`);
+  return { data: await call(env, "config.set", layerOf(args, { name, key, value: args.value })) };
+}
+
+export async function configUnset(args, env) {
+  return { data: await call(env, "config.unset", layerOf(args, { name: packageName(args.name), key: configKey(args.key) })) };
+}
+
+/** Re-reads thetis.config.json and the env file. Answers what changed and which services were restarted for it. */
+export async function configReload(_args, env) {
+  return { data: await call(env, "config.reload") };
+}
+
 /** The newest journal rows, at most 1000, narrowed to one kind when given. */
 export async function journal(args, env) {
   const limit = Math.min(1000, Number(args.limit ?? 200) || 200);

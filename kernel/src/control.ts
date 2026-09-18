@@ -1,9 +1,10 @@
 import { resolve } from "node:path";
-import { SYSTEM_USER, type Fences, type KernelRpc, type Mount, type PackageInfo, type UserRecord, type UserRole, type UserStatus } from "@thetis/contracts";
+import { SYSTEM_USER, type Fences, type KernelRpc, type PackageInfo, type UserRecord, type UserRole, type UserStatus } from "@thetis/contracts";
 import { assert, CodedError } from "@thetis/lib/error";
 import { newestMtime } from "@thetis/lib/freshness";
-import { browseDirectories, withPresence } from "@thetis/lib/mounts";
+import { browseDirectories, parseMountList, withPresence } from "@thetis/lib/mounts";
 import { isSupervised } from "@thetis/lib/restart";
+import { packagesLayer } from "./config.js";
 import type { KernelServices } from "./kernel.js";
 
 type Args = Record<string, string | undefined>;
@@ -24,6 +25,9 @@ export function createControlHandler(k: KernelServices): KernelRpc {
     const journal = (kind: string, target: string, data?: Record<string, unknown>) => {
       k.journal.append({ kind, actor: String(a.actor ?? "operator"), target, data });
     };
+    /** The configuration layer named: a person's own, or the system layer when none or the system user is named. */
+    const layer = () => (a.user && k.users.authorize(a.user).id !== SYSTEM_USER ? a.user : undefined);
+    const configTarget = () => ({ name: String(a.name), user: layer() });
     switch (method) {
       case "ping":
         return "pong";
@@ -62,7 +66,7 @@ export function createControlHandler(k: KernelServices): KernelRpc {
         return null;
       case "packages.promote": {
         const owner = us();
-        const promoted = k.packages.promote(owner, String(a.name));
+        const promoted = await k.packages.promote(owner, String(a.name));
         await k.packages.uninstall(owner, String(a.name));
         const userspaces = await installEverywhere(k, promoted);
         journal("package.promote", user(), { name: String(a.name), promoted, userspaces });
@@ -84,7 +88,7 @@ export function createControlHandler(k: KernelServices): KernelRpc {
         const target = k.users.get(user());
         assert(target, `unknown user: ${user()}`, "not-found");
         assert(target.role !== "system", "the system userspace takes no mounts", "invalid");
-        const mounts = parseMounts(a.mounts);
+        const mounts = parseMountList(a.mounts);
         k.mounts.set(target.id, mounts);
         journal("mounts", target.id, { mounts });
         await k.services.reload(target.id);
@@ -130,6 +134,20 @@ export function createControlHandler(k: KernelServices): KernelRpc {
         return k.journal.tail(Math.min(1000, Number(a.limit ?? 200) || 200), { actor: a.actor_filter, target: a.target, kind: a.kind });
       case "config.get":
         return redact(k.config);
+      case "config.list":
+        return k.settings.list(layer());
+      case "config.show":
+        return k.settings.show(configTarget());
+      case "config.set":
+        return k.settings.set(configTarget(), String(a.key), (raw as { value?: unknown }).value, String(a.actor ?? "operator"));
+      case "config.unset":
+        return k.settings.unset(configTarget(), String(a.key), String(a.actor ?? "operator"));
+      case "config.reload": {
+        // The file layer is read again and handed to the service; the kernel's copy follows it so `config.get` agrees.
+        const next = packagesLayer(k.config.home);
+        k.config.packages = next;
+        return k.settings.reload(next);
+      }
       case "models":
         return k.providers.listModels(us());
       case "sessions.create":
@@ -197,17 +215,6 @@ function status(k: KernelServices): unknown {
   };
 }
 
-/** A mount list as it arrives from a socket: at most 32 entries, absolute normalized paths (so no `..`), mode `rw` or `ro`. */
-function parseMounts(raw: unknown): Mount[] {
-  assert(Array.isArray(raw) && raw.length <= 32, "mounts must be a list of at most 32 entries", "invalid");
-  return raw.map((m: { path?: unknown; mode?: unknown } | null) => {
-    const path = String(m?.path ?? "");
-    assert(path !== "/" && path === resolve(path), `invalid mount path: ${path} (absolute and normalized, not /)`, "invalid");
-    assert(m?.mode === "rw" || m?.mode === "ro", `invalid mount mode for ${path}: ${String(m?.mode)} (rw or ro)`, "invalid");
-    return { path, mode: m.mode };
-  });
-}
-
 /**
  * Makes a package the default for everyone. A shipped system package is marked and linked into every
  * person. Anything else is installed for the actor first and then promoted, which copies it under
@@ -228,7 +235,7 @@ async function installEveryone(k: KernelServices, who: UserRecord, source: strin
     journal("package.everyone", info.name, { source, userspaces });
     return { name: info.name, userspaces };
   }
-  const promoted = k.packages.promote(own, info.name);
+  const promoted = await k.packages.promote(own, info.name);
   await k.packages.uninstall(own, info.name);
   const userspaces = await installEverywhere(k, promoted);
   journal("package.promote", who.id, { name: info.name, promoted, source, userspaces });

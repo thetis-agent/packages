@@ -3,7 +3,7 @@
 // person can see; reading, editing and searching files is @thetis/tools-files. Everything here acts
 // inside the fence through the agent's env.
 import { resolve } from "node:path";
-import type { Tool, ToolEnv } from "@thetis/contracts";
+import type { ConfigKeyState, ConfigReport, Tool, ToolEnv } from "@thetis/contracts";
 import { forkPackage as copyFork, forkVersion } from "@thetis/lib/pkg-fs";
 
 /** One path segment, as the kernel accepts in a package name. Keeps `as` from leaving packages/. */
@@ -33,7 +33,7 @@ export const forkPackage: Tool = async (args, env: ToolEnv) => {
   const to = resolve(env.cwd, "packages", as);
   const r = copyFork({ from: origin.root, to, name: forkName, version, origin: { name, version: origin.version }, root: env.root });
   const linked = r.linked.length ? `; dependencies linked: ${r.linked.join(", ")}` : "";
-  return `forked ${name}@${origin.version} to packages/${as} as ${forkName}@${version}${brings(origin.thetis)}${linked}. Edit it, then install_package with source "packages/${as}": it replaces ${name} until the fork is uninstalled or deleted.`;
+  return `forked ${name}@${origin.version} to packages/${as} as ${forkName}@${version}${brings(origin.thetis)}${linked}. Edit it, then install_package with source "packages/${as}": it replaces ${name} until the fork is uninstalled or deleted. The fork inherits ${name}'s configuration; package_config shows what it gets.`;
 };
 
 export const deletePackage: Tool = async (args, env) => {
@@ -46,6 +46,57 @@ export const spawnSubagent: Tool = async (args, env) => {
   const reply = await env.kernel.sessions.ask(child.id, String(args.task));
   return `[subagent ${child.id}]\n${reply}`;
 };
+
+/** The report as text: the summary, then one line per key, then its help. A secret is `•••`, never its value. */
+export const packageConfig: Tool = async (args, env) => {
+  const report = await env.kernel.config.show(String(args.name));
+  const lines = [`${report.package}: ${report.summary}`];
+  if (report.inherits.length) lines.push(`inherits ${report.inherits.join(" -> ")}`);
+  for (const k of report.keys) {
+    lines.push(keyLine(k));
+    if (k.help) lines.push(`  ${k.help}`);
+  }
+  return lines.join("\n");
+};
+
+/** Sets or unsets one key of the caller's own layer. The reply names the key and its state; the value stays out of the transcript. */
+export const configurePackage: Tool = async (args, env) => {
+  const name = String(args.name);
+  const key = String(args.key);
+  let report: ConfigReport;
+  if (args.unset === true) report = await env.kernel.config.unset(name, key);
+  else {
+    if (args.value === undefined) throw new Error("value is required unless unset is true");
+    report = await env.kernel.config.set(name, key, args.json === true ? parseJson(String(args.value)) : args.value);
+  }
+  const state = report.keys.find((k) => k.key === key);
+  const now = state ? `now ${state.state}${where(state)}` : "now unset";
+  const restarted = (await env.kernel.packages.list()).some((p) => p.name === name && p.thetis.service) ? " The service was restarted." : "";
+  return `${args.unset === true ? "unset" : "set"} ${key} on ${name}: ${now}. ${name}: ${report.summary}.${restarted}`;
+};
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("value is not valid JSON; pass json: false to store it as a string");
+  }
+}
+
+function keyLine(k: ConfigKeyState): string {
+  let line = `${k.key}: ${k.state}${where(k)}`;
+  if (k.redacted) line += " = •••";
+  else if (k.value !== undefined) line += ` = ${JSON.stringify(k.value)}`;
+  if (k.missing?.length) line += ` (${k.missing.join(", ")} not in the environment)`;
+  if (!k.declared) line += " (undeclared)";
+  return line;
+}
+
+/** ` [user]`, ` [default, inherited from @thetis/notion]`, or nothing when no layer supplied a value. */
+function where(k: ConfigKeyState): string {
+  if (!k.source) return "";
+  return ` [${k.source}${k.inheritedFrom ? `, inherited from ${k.inheritedFrom}` : ""}]`;
+}
 
 function brings(t: { steps?: { id: string; phase: string }[]; tools?: { name: string }[]; service?: { export: string } }): string {
   const steps = (t.steps ?? []).map((s) => `${s.phase}:${s.id}`).join(", ");

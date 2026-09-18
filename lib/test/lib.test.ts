@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Mount } from "@thetis/contracts";
 import { AsyncQueue } from "../src/async.js";
 import { Container, token } from "../src/container.js";
 import { JsonDirStore } from "../src/json-store.js";
-import { browseDirectories, withPresence } from "../src/mounts.js";
+import { MountStore, browseDirectories, parseMountList, withPresence } from "../src/mounts.js";
 import { findDependency, forkPackage, forkVersion, isGitSource, isInside, splitSource } from "../src/pkg-fs.js";
 import { PendingCalls, callHandler } from "../src/rpc-frames.js";
+import { StoreMirror, memoryStore } from "../src/store.js";
 
 test("container resolves lazily, caches singletons, and allows rebinding", () => {
   const A = token<{ n: number }>("A");
@@ -127,12 +129,34 @@ test("fork: the copy drops scripts and devDependencies, links what the origin re
   }
 });
 
-test("mounts: presence is what the fence will bind, and browse answers what a path is", () => {
+test("mounts: the store keeps one document per person, presence is what the fence will bind, and browse answers what a path is", async () => {
   const dir = mkdtempSync(join(tmpdir(), "mounts-"));
   try {
     mkdirSync(join(dir, "repos"));
     mkdirSync(join(dir, ".git"));
     writeFileSync(join(dir, "note.txt"), "x");
+    const space = memoryStore().open("mounts");
+    const mirror = await StoreMirror.open<{ mounts: Mount[] }>(space);
+    const mounts = new MountStore(mirror);
+    assert.deepEqual(mounts.get("alice"), []);
+    mounts.set("alice", [{ path: join(dir, "repos"), mode: "rw" }]);
+    mounts.set("bob", [{ path: dir, mode: "ro" }]);
+    assert.deepEqual(mounts.all(), { alice: [{ path: join(dir, "repos"), mode: "rw" }], bob: [{ path: dir, mode: "ro" }] });
+    mounts.get("alice")[0].mode = "ro";
+    assert.equal(mounts.get("alice")[0].mode, "rw", "get answers a copy");
+    mounts.set("bob", []);
+    assert.deepEqual(Object.keys(mounts.all()), ["alice"], "an empty list removes the document");
+    await mirror.flush();
+    assert.deepEqual(await space.get("alice"), { mounts: [{ path: join(dir, "repos"), mode: "rw" }] });
+    assert.equal(await space.get("bob"), undefined);
+    const reopened = new MountStore(await StoreMirror.open(space));
+    assert.deepEqual(reopened.get("alice"), [{ path: join(dir, "repos"), mode: "rw" }], "what was written is what a restart reads");
+    assert.deepEqual(parseMountList([{ path: dir, mode: "ro" }]), [{ path: dir, mode: "ro" }]);
+    assert.throws(() => parseMountList([{ path: "/a/../b", mode: "ro" }]), /absolute and normalized/);
+    assert.throws(() => parseMountList([{ path: "/", mode: "ro" }]), /not \//);
+    assert.throws(() => parseMountList([{ path: dir, mode: "rwx" }]), /rw or ro/);
+    assert.throws(() => parseMountList(Array.from({ length: 33 }, () => ({ path: dir, mode: "ro" }))), /at most 32/);
+    assert.throws(() => parseMountList("nope"), /at most 32/);
     assert.deepEqual(withPresence([{ path: join(dir, "repos"), mode: "rw" }, { path: join(dir, "note.txt"), mode: "ro" }, { path: join(dir, "gone"), mode: "rw" }]), [
       { path: join(dir, "repos"), mode: "rw", present: true, kind: "dir" },
       { path: join(dir, "note.txt"), mode: "ro", present: false, kind: "file" },

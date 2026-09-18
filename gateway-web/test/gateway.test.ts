@@ -14,6 +14,7 @@ import type { Server } from "node:http";
 import type { TurnEvent, Userspace } from "@thetis/contracts";
 import { createKernel, T, type Kernel } from "@thetis/host";
 import { createControlHandler, createRpcHandler, defaultConfig } from "@thetis/kernel";
+import { memoryStore } from "@thetis/lib/store";
 import { createDoor } from "@thetis/door";
 import { createLogin } from "@thetis/gateway-login";
 import { clientFromRpc } from "../src/client.js";
@@ -49,6 +50,9 @@ function envAt(root: string) {
     writeFile: async (p: string, content: string) => {
       await mkdir(dirname(resolve(root, p)), { recursive: true });
       await writeFile(resolve(root, p), content);
+    },
+    storage: (): never => {
+      throw new Error("no storage in this test");
     },
   };
 }
@@ -140,7 +144,8 @@ before(async () => {
   config.door = { host: "127.0.0.1", port: servicePort };
   config.requestTimeoutMs = 60_000;
   const log = (line: string) => process.env.THETIS_TEST_VERBOSE && console.error(line);
-  kernel = createKernel(config, (c) => c.bind(T.log, () => log));
+  // The records live in memory: this file is about the gateway, and no storage driver is among its system packages.
+  kernel = await createKernel(config, (c) => c.bind(T.log, () => log).bind(T.store, () => memoryStore()));
   kernel.users.create("alice");
   kernel.users.create("bob");
   kernel.users.create("root", "admin");
@@ -151,7 +156,7 @@ before(async () => {
 
   // In-process: one gateway per person over that person's own RPC handler, the login target over the
   // system one, and the door in front. The same handlers the fences would get, without the fences.
-  const rpcFor = (us: Userspace) => createRpcHandler(us, kernel.users, kernel.packages, kernel.sessions, kernel.auth, createControlHandler(kernel), async (u) => ({ model: kernel.config.model, models: await kernel.providers.listModels(u) }));
+  const rpcFor = (us: Userspace) => createRpcHandler(us, kernel, createControlHandler(kernel), async (u) => ({ model: kernel.config.model, models: await kernel.providers.listModels(u) }));
   const assets = join(home, "assets");
   mkdirSync(assets);
   writeFileSync(join(assets, "index.html"), "<title>app</title><base href=\"{{base}}/\"><meta name=\"csp-nonce\" content=\"{{nonce}}\">");
@@ -386,8 +391,8 @@ test("panel: the built-in sections are the same for everyone; a package's admin 
   assert.deepEqual((await (await api(root, "/root/api/panel")).json()).sections, ["packages"], "the admin sections come from @thetis/ui-admin, not from api/panel");
   const uiOf = async (cookie: string, user: string) => ((await (await api(cookie, `/${user}/api/ui`)).json()) as { extensions: { package: string; panel: { id: string; order: number }[]; commands: string[] }[] }).extensions.find((e) => e.package === "@thetis/ui-admin");
   const forRoot = await uiOf(root, "root");
-  assert.deepEqual(forRoot?.panel.map((e) => [e.id, e.order]), [["people", 20], ["models", 30], ["mounts", 35], ["activity", 40], ["workspaces", 45], ["overview", 50]]);
-  assert.deepEqual(forRoot?.commands, ["users", "user-create", "user-role", "user-status", "user-password", "user-remove", "models", "config", "journal", "mounts-list", "mounts-set", "mounts-browse", "fence-reload", "status", "restart-request"]);
+  assert.deepEqual(forRoot?.panel.map((e) => [e.id, e.order]), [["people", 20], ["models", 30], ["configuration", 32], ["mounts", 35], ["activity", 40], ["workspaces", 45], ["overview", 50]]);
+  assert.deepEqual(forRoot?.commands, ["users", "user-create", "user-role", "user-status", "user-password", "user-remove", "models", "config", "config-list", "config-show", "config-set", "config-unset", "config-reload", "journal", "mounts-list", "mounts-set", "mounts-browse", "fence-reload", "status", "restart-request"]);
   const forAlice = await uiOf(alice, "alice");
   assert.deepEqual(forAlice?.panel, [], "installed for everyone, but a user sees no admin section");
   assert.deepEqual(forAlice?.commands, [], "and no admin verb");
@@ -398,10 +403,10 @@ test("panel: the built-in sections are the same for everyone; a package's admin 
   for (const path of ["users", "models", "journal", "config", "packages"]) assert.equal((await api(root, `/root/api/admin/${path}`)).status, 404, `api/admin/${path} is gone`);
   const marketplaceUi = ((await (await api(root, "/root/api/ui")).json()) as { extensions: { package: string; places: { id: string; order: number }[]; commands: string[] }[] }).extensions.find((e) => e.package === "@thetis/ui-marketplace");
   assert.deepEqual(marketplaceUi?.places.map((e) => [e.id, e.order]), [["marketplace", 20]]);
-  assert.deepEqual(marketplaceUi?.commands, ["search", "show", "install", "remove", "delete", "update", "install-everyone", "install-for", "remove-for", "promote", "people"]);
+  assert.deepEqual(marketplaceUi?.commands, ["search", "show", "install", "remove", "delete", "update", "config-show", "config-list", "config-set", "config-unset", "install-everyone", "install-for", "remove-for", "promote", "people"]);
   const marketplaceForAlice = ((await (await api(alice, "/alice/api/ui")).json()) as { extensions: { package: string; places: { id: string }[]; commands: string[] }[] }).extensions.find((e) => e.package === "@thetis/ui-marketplace");
   assert.deepEqual(marketplaceForAlice?.places.map((e) => e.id), ["marketplace"], "the place is everyone's");
-  assert.deepEqual(marketplaceForAlice?.commands, ["search", "show", "install", "remove", "delete", "update"], "the admin verbs are not");
+  assert.deepEqual(marketplaceForAlice?.commands, ["search", "show", "install", "remove", "delete", "update", "config-show", "config-list", "config-set", "config-unset"], "the admin verbs are not; a person's own configuration is");
 });
 
 test("people: an admin adds a person, changes the role and status, and removes them through @thetis/ui-admin; the journal says so", async () => {

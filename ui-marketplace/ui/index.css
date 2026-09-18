@@ -73,6 +73,30 @@
 .mk-picker { display: flex; gap: var(--gap-2); align-items: center; margin-top: var(--gap-2); }
 .mk-picker .mk-person { flex: 1 1 auto; min-width: 0; }
 
+.mk-config-line { margin: 0; font-size: var(--text-sm); }
+.mk-card-broken { font-size: var(--text-xs); color: var(--err); }
+
+/* --- the configuration form: kept identical to @thetis/ui-admin's copy ------------------------------ */
+
+.mk-config { display: flex; flex-direction: column; gap: var(--gap-3); max-width: var(--measure); }
+.mk-config-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--gap-3); }
+.cf-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.cf-head code { font-family: var(--mono); }
+.cf-summary { margin-left: auto; font-weight: 400; color: var(--text-dim); }
+.cf-summary.is-broken { color: var(--err); }
+.cf-row { display: flex; flex-direction: column; gap: 4px; padding-bottom: var(--gap-2); border-bottom: 1px solid var(--hairline); }
+.cf-row:last-of-type { border-bottom: 0; padding-bottom: 0; }
+.cf-key { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cf-key code { font-family: var(--mono); font-weight: 600; }
+.cf-help { margin: 0; color: var(--text-dim); font-size: var(--text-xs); }
+.cf-control { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cf-control .cf-input { flex: 1 1 240px; min-width: 0; font-family: var(--mono); }
+.cf-control .cf-json { flex: 1 1 100%; font-family: var(--mono); font-size: var(--text-xs); resize: vertical; }
+.cf-control .cf-check { width: 16px; height: 16px; accent-color: var(--accent); }
+.cf-ref { font-family: var(--mono); color: var(--text-dim); }
+.cf-missing, .cf-error { margin: 0; color: var(--err); font-size: var(--text-xs); }
+.cf-row.is-missing .cf-key code { color: var(--err); }
+
 @media (max-width: 900px) {
   .mk-page { flex-direction: column; }
   .mk-side { flex: none; position: static; width: 100%; }

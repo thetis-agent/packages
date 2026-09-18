@@ -29,8 +29,12 @@ export interface KernelConfig {
   enumerator?: StepRef;
   /** System packages installed into userspaces: "*" applies to every userspace, a user id to that one. */
   systemPackages: Record<string, string[]>;
-  /** Per-package configuration handed to that package's steps, tools and providers. */
+  /** The file layer of per-package configuration. `${VAR}` references stay as written; the config service resolves them at read time. */
   packages: Record<string, Record<string, unknown>>;
+  /** The storage driver: a package of type `storage`, loaded by the host, never installed into a fence. */
+  storage: { driver: string };
+  /** The `.env` file whose variables `${VAR}` references resolve against. Derived: `<projectRoot>/.env`. */
+  envFile: string;
   fence: FenceConfig;
   /** The door: the one host port, which routes to the login target and to each person's gateway socket. */
   door: { host: string; port: number };
@@ -41,6 +45,17 @@ export interface KernelConfig {
 
 /** The approved extensions, indexed at their latest. An install takes a copy and pins the commit it took. */
 export const MARKETPLACE_URL = "https://github.com/thetis-agent/packages.git";
+
+const DEFAULT_PACKAGES: Record<string, Record<string, unknown>> = {
+  "@thetis/provider-openrouter": { apiKey: "${OPENROUTER_API_KEY}", baseUrl: "https://openrouter.ai/api/v1" },
+  "@thetis/marketplace": { registries: [{ name: "thetis", url: MARKETPLACE_URL }] },
+  "@thetis/skills-hybrid": { embeddings: { apiKey: "${OPENROUTER_API_KEY}" } },
+};
+
+/** The file layer as it is on disk now: the defaults under what `thetis.config.json` says. `config.reload` reads it again. */
+export function packagesLayer(home: string): Record<string, Record<string, unknown>> {
+  return { ...DEFAULT_PACKAGES, ...(readJson<Partial<KernelConfig>>(configPath(home), {}).packages ?? {}) };
+}
 
 export function defaultConfig(home: string, projectRoot: string): KernelConfig {
   return {
@@ -56,11 +71,9 @@ export function defaultConfig(home: string, projectRoot: string): KernelConfig {
       "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache", "@thetis/tools-files", "@thetis/tools-plan", "@thetis/terminal", "@thetis/gateway-web", "@thetis/ui-tools", "@thetis/ui-context", "@thetis/projects", "@thetis/ui-admin", "@thetis/ui-marketplace", "@thetis/skills", "@thetis/skills-thetis", "@thetis/skills-hybrid", "@thetis/ui-skills"],
       _system: ["@thetis/provider-openrouter", "@thetis/gateway-login", "@thetis/marketplace"],
     },
-    packages: {
-      "@thetis/provider-openrouter": { apiKey: "${OPENROUTER_API_KEY}", baseUrl: "https://openrouter.ai/api/v1" },
-      "@thetis/marketplace": { registries: [{ name: "thetis", url: MARKETPLACE_URL }] },
-      "@thetis/skills-hybrid": { embeddings: { apiKey: "${OPENROUTER_API_KEY}" } },
-    },
+    packages: structuredClone(DEFAULT_PACKAGES),
+    storage: { driver: "@thetis/store-toml" },
+    envFile: resolve(projectRoot, ".env"),
     fence: {
       sandbox: "auto",
       network: "auto",
@@ -78,14 +91,21 @@ export function configPath(home: string): string {
   return resolve(home, "thetis.config.json");
 }
 
-/** Loads config from disk over the defaults, interpolating ${ENV_VAR} references from the environment. */
+/**
+ * Loads config from disk over the defaults, interpolating ${ENV_VAR} references from the environment.
+ * `packages` is the exception: it keeps its references, because the config service resolves them on
+ * every read, so a variable that arrives later is seen without a restart.
+ */
 export function loadConfig(home: string, projectRoot: string, env: NodeJS.ProcessEnv = process.env): KernelConfig {
   const defaults = defaultConfig(home, projectRoot);
   const stored = readJson<Partial<KernelConfig>>(configPath(home), {});
+  const { packages, ...rest } = stored;
   const merged: KernelConfig = {
     ...defaults,
-    ...stored,
+    ...rest,
     home,
+    envFile: defaults.envFile,
+    storage: { ...defaults.storage, ...(stored.storage ?? {}) },
     fence: {
       ...defaults.fence,
       ...(stored.fence ?? {}),
@@ -94,12 +114,12 @@ export function loadConfig(home: string, projectRoot: string, env: NodeJS.Proces
     door: { ...defaults.door, ...(stored.door ?? {}) },
     control: { ...defaults.control, ...(stored.control ?? {}) },
   };
-  return interpolate(merged, env);
+  return { ...interpolate(merged, env), packages: { ...defaults.packages, ...(packages ?? {}) } };
 }
 
 /** Writes the config without derived paths, so the file stays valid when the checkout moves. */
 export function saveConfig(config: KernelConfig): void {
-  const { home, systemPackagesDir, promotedPackagesDir, sharedDir, agentPath, fence, ...portable } = config;
+  const { home, systemPackagesDir, promotedPackagesDir, sharedDir, agentPath, envFile, fence, ...portable } = config;
   writeJson(configPath(home), { ...portable, fence: { sandbox: fence.sandbox, network: fence.network, limits: fence.limits } });
 }
 

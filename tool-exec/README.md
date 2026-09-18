@@ -1,18 +1,19 @@
 # @thetis/tool-exec
 
-The tools that let the model run code in its own userspace and change what is installed there: a shell, package install and removal, forks, deletion, and subagents. It is a `tool` package in the default `systemPackages["*"]`, so it runs in each person's fence; every command it runs and every package it installs stays inside that fence. Reading, editing and searching files is `@thetis/tools-files`.
+The tools that let the model change what is installed in its own userspace and how it is configured: package install and removal, forks, deletion, configuration, and subagents. It is a `tool` package in the default `systemPackages["*"]`, so it runs in each person's fence; every command it runs and every package it installs stays inside that fence. Reading, editing and searching files is `@thetis/tools-files`.
 
 ## What it provides
 
-Six tools, declared in `thetis.tools`:
+Seven tools, declared in `thetis.tools`:
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `exec` | `cmd` (required), `cwd` (relative to home), `timeoutMs` | `exit <code>`, then `stdout:` and `stderr:` blocks when they are not empty. |
 | `install_package` | `source` (required): a path relative to home, a git URL, or `url#dir` | `installed <name>@<version> (<type>); steps: ...; tools: ...; replaced <name>. Live on the next turn.` |
 | `uninstall_package` | `name` (required) | `uninstalled <name>`. The files stay. When the package was a fork, the original comes back. |
 | `fork_package` | `name` (required, an installed package), `as` (directory under `packages/`; default the unscoped name) | `forked <name>@<version> to packages/<as> as @<you>/<as>@<version>-fork.N ...` and the next step. Does not install. |
 | `delete_package` | `name` (required) | `deleted <name> and its files at <path>; <original> is back in place. Live on the next turn.` Refuses `@thetis/*` packages. |
+| `package_config` | `name` (required) | The package's `ConfigReport` as text: the summary sentence, the fork chain it inherits from, one line per key (`key: state [source, inherited from X] = value`), and each declared key's help. A secret is `•••`. |
+| `configure_package` | `name`, `key` (required), `value`, `unset`, `json` | `set <key> on <name>: now <state> [<source>]. <name>: <summary>.` and `The service was restarted.` when the package declares a service. With `unset: true` the key leaves the person's layer and the reply says what it falls back to. `json: true` parses `value`. The reply never repeats the value. |
 | `spawn_subagent` | `task` (required) | `[subagent <session id>]` and the subagent's final reply. The subagent runs in the same userspace with the same files and packages. |
 
 Bench suites: `assembly-cost@1` and `tool-recall@1`, peer group `tools`. `BENCH.md` in this directory is the generated comparison.
@@ -57,7 +58,7 @@ spawn_subagent { task: "Read docs/ and list every command the CLI accepts." }
 
 | File | Content |
 |---|---|
-| `package.json` | The manifest: six tools and the bench declaration. |
+| `package.json` | The manifest: seven tools and the bench declaration. |
 | `src/index.ts` | The six tool functions. Forking is `forkPackage` from `@thetis/lib/pkg-fs`; install, uninstall and delete go through `env.kernel.packages`; subagents through `env.kernel.sessions`. |
 | `BENCH.md`, `bench/` | The generated benchmark view and reports. |
 

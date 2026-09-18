@@ -1,6 +1,8 @@
 /* The gallery: one toolbar row (a search box, one chip per package type, a note on the index) and a card per
  * package (its name, the state badge and an update on offer, two lines of description, then version · type · registry;
- * the fork and bench badges wait for the page).
+ * the fork and bench badges wait for the page). An installed package whose configuration is missing something
+ * carries the kernel's one sentence about it, from one `config-list` call after the rows, so a card that
+ * cannot work says so before its page is opened.
  * Installed packages come first, then what the registries offer. The search runs on the server through
  * the `search` command, because the index and its ranking live there; the page only keeps the last query
  * so coming back from a package page shows the same list. Clicking a card re-opens the place with the
@@ -16,6 +18,7 @@ export function openGallery(ext, root) {
   const { badge, busy, put, when } = ext.ui;
   let alive = true;
   let rows = [];
+  let summaries = new Map(); // package -> { summary, broken }, for installed packages
   let facts = { indexed: false, updatedAt: null, registries: [], total: 0 };
   const types = new Set();
   let timer = null;
@@ -49,6 +52,19 @@ export function openGallery(ext, root) {
       stop();
     }
     if (alive) draw();
+    if (alive && rows.some((r) => r.installed)) await loadSummaries();
+  }
+
+  /** The one sentence per installed package. Drawn after the rows, so the gallery never waits on it; a failure leaves the cards as they are. */
+  async function loadSummaries() {
+    try {
+      const out = await ext.request("config-list");
+      if (!alive) return;
+      summaries = new Map((Array.isArray(out?.data) ? out.data : []).map((s) => [s.package, s]));
+    } catch {
+      return;
+    }
+    if (alive) draw();
   }
 
   function chip(type, label) {
@@ -78,6 +94,7 @@ export function openGallery(ext, root) {
       { type: "button", class: `mk-card${r.installed ? " is-installed" : ""}`, "data-name": r.name, onClick: () => ext.open.place("marketplace", { name: r.name }) },
       el("div", { class: "mk-card-head" }, el("code", { class: "mk-card-name" }, r.name), el("div", { class: "tags" }, stateBadge(badge, r), updateBadge(badge, r))),
       el("p", { class: "mk-card-desc" }, r.description || "No description."),
+      r.installed && summaries.get(r.name)?.broken ? el("span", { class: "mk-card-broken" }, summaries.get(r.name).summary) : null,
       el("span", { class: "mk-card-meta" }, [r.version, r.type, r.registry].filter(Boolean).join(" · "))
     );
   }

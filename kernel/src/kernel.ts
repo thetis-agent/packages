@@ -1,4 +1,4 @@
-import type { Fences } from "@thetis/contracts";
+import type { Fences, StoreDriver } from "@thetis/contracts";
 import type { Journal } from "@thetis/lib/journal";
 import type { MountStore } from "@thetis/lib/mounts";
 import type { RestartLatch } from "@thetis/lib/restart";
@@ -10,6 +10,7 @@ import type { PackageRegistry } from "./packages/registry.js";
 import type { ProviderRegistry } from "./providers.js";
 import type { ServiceSupervisor } from "./services.js";
 import type { SessionApi } from "./sessions/api.js";
+import type { ConfigService } from "./settings.js";
 import type { UserStore } from "./users.js";
 
 /**
@@ -28,6 +29,10 @@ export interface KernelServices {
   registry: PackageRegistry;
   providers: ProviderRegistry;
   sessions: SessionApi;
+  /** Per-package configuration: the layers, who may set what, and what a package's code receives. */
+  settings: ConfigService;
+  /** The service plane's document store. The kernel holds the driver's interface only; the host loaded it. */
+  store: StoreDriver;
   fences: Fences;
   journal: Journal;
   /** The latch behind a restart Thetis can ask for. Arming is not restarting: only the serving daemon acts on it. */
@@ -36,6 +41,6 @@ export interface KernelServices {
   restartPolicy(): string | null;
   /** Removes the user, closes its fence, forgets its packages, and deletes its userspace directory. */
   removeUser(id: string): Promise<void>;
-  /** Closes every fence. */
+  /** Closes every fence, writes out every record, and closes the store. */
   shutdown(): Promise<void>;
 }
