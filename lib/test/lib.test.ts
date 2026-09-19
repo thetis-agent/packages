@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Mount } from "@thetis/contracts";
+import type { Mount, TurnEvent, WatchedTurnEvent } from "@thetis/contracts";
 import { AsyncQueue } from "../src/async.js";
 import { Container, token } from "../src/container.js";
 import { JsonDirStore } from "../src/json-store.js";
@@ -11,6 +11,7 @@ import { MountStore, browseDirectories, parseMountList, withPresence } from "../
 import { findDependency, forkPackage, forkVersion, isGitSource, isInside, splitSource } from "../src/pkg-fs.js";
 import { PendingCalls, callHandler } from "../src/rpc-frames.js";
 import { StoreMirror, memoryStore } from "../src/store.js";
+import { TurnTaps } from "../src/turn-taps.js";
 
 test("container resolves lazily, caches singletons, and allows rebinding", () => {
   const A = token<{ n: number }>("A");
@@ -174,4 +175,44 @@ test("mounts: the store keeps one document per person, presence is what the fenc
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("turn taps: a watcher gets the user's events stamped with the session, input on turn.start only; one that throws is dropped; the signal removes one", async () => {
+  const taps = new TurnTaps();
+  const seen: WatchedTurnEvent[] = [];
+  const inner: TurnEvent[] = [];
+  const control = new AbortController();
+  const done = taps.watch("alice", (m) => seen.push(m), control.signal);
+  let thrown = 0;
+  taps.watch("alice", () => {
+    thrown++;
+    throw new Error("a broken tap");
+  });
+  taps.watch("bob", () => assert.fail("bob's watcher saw alice's turn"));
+  const emit = taps.emitter("alice", { session: "s_1", parent: "s_0", input: "hi" }, (e) => inner.push(e));
+  const start: TurnEvent = { type: "turn.start", turn: "t1", session: "s_1" };
+  const text: TurnEvent = { type: "text", delta: "x" };
+  emit(start);
+  emit(text);
+  assert.deepEqual(inner, [start, text], "the inner sink gets every event, before the watchers");
+  assert.deepEqual(seen, [
+    { session: "s_1", parent: "s_0", input: "hi", event: start },
+    { session: "s_1", parent: "s_0", event: text },
+  ]);
+  assert.equal(thrown, 1, "a watcher that throws is dropped after its first throw, and the turn goes on");
+  assert.equal(taps.count("alice"), 1);
+  control.abort();
+  await done;
+  assert.equal(taps.count("alice"), 0, "the signal removed the watcher");
+  emit({ type: "turn.end", turn: "t1", session: "s_1" });
+  assert.equal(seen.length, 2);
+  assert.equal(inner.length, 3);
+  const plain: WatchedTurnEvent[] = [];
+  taps.watch("alice", (m) => plain.push(m));
+  taps.emitter("alice", { session: "s_2" }, () => {})({ type: "turn.start", turn: "t2", session: "s_2" });
+  assert.deepEqual(plain, [{ session: "s_2", event: { type: "turn.start", turn: "t2", session: "s_2" } }], "no parent and no input: the fields are absent, not undefined");
+  const already = new AbortController();
+  already.abort();
+  await taps.watch("carol", () => {}, already.signal);
+  assert.equal(taps.count("carol"), 0, "a signal that is already aborted registers nothing and resolves at once");
 });

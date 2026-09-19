@@ -19,7 +19,7 @@ export type RpcServices = Pick<KernelServices, "users" | "packages" | "sessions"
  */
 export function createRpcHandler(us: Userspace, k: RpcServices, operator?: KernelRpc, models?: (us: Userspace) => Promise<ModelChoices>): KernelRpc {
   const system = us.id === SYSTEM_USER;
-  return async (method, raw, emit) => {
+  return async (method, raw, emit, signal) => {
     const args = (raw ?? {}) as Args;
     const actor = k.users.authorize(us.id);
     if (method.startsWith(OPERATOR)) {
@@ -61,6 +61,8 @@ export function createRpcHandler(us: Userspace, k: RpcServices, operator?: Kerne
         return k.sessions.list(us.id);
       case "sessions.inspect":
         return k.sessions.inspect(us.id, String(args.session));
+      case "sessions.watch":
+        return k.sessions.watch(us.id, (m) => emit?.(m), signal);
       case "store.get":
         return (await space().get(String(args.key))) ?? null;
       case "store.set": {

@@ -7,7 +7,7 @@ import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
   EnumeratorContext, ExecOptions, KernelClient, PackageInfo, PackageQuery, PackageStepContext,
-  Provider, ProviderCall, ProviderEvent, ServiceEnv, ServiceHandle, SessionInfo, StepContext, StepEnv, StepResult, ToolEnv, TurnEvent,
+  Provider, ProviderCall, ProviderEvent, ServiceEnv, ServiceHandle, SessionInfo, StepContext, StepEnv, StepResult, ToolEnv, TurnEvent, WatchedTurnEvent,
 } from "@thetis/contracts";
 import { encodeFrame, PendingCalls, readFrames, type Frame } from "@thetis/lib/rpc-frames";
 import { buildEnvFor, noStorage } from "./env.js";
@@ -51,6 +51,8 @@ const kernel: KernelClient = {
     cancel: (session) => rpc("sessions.cancel", { session }),
     list: () => rpc("sessions.list"),
     inspect: (session) => rpc("sessions.inspect", { session }),
+    // Settles only when the fence closes: the pending call has no timer, so it may stay open for the life of this process.
+    watch: (onEvent) => rpc("sessions.watch", {}, (e) => onEvent(e as WatchedTurnEvent)),
   },
   models: () => rpc("models"),
   config: {
@@ -167,9 +169,9 @@ const ops: { [K in Op]: Handler<K> } = {
     if (!result) return null;
     return { conversation: result.conversation, call: result.call, harness: result.harness };
   },
-  tool: async (p) => {
+  tool: async (p, _emit, signal) => {
     const fn = await loadExport(p.package, p.export);
-    const toolEnv: ToolEnv = { ...envFor(p.package), session: p.session, config: p.config ?? {} };
+    const toolEnv: ToolEnv = { ...envFor(p.package), session: p.session, config: p.config ?? {}, signal };
     return fn(p.args ?? {}, toolEnv);
   },
   enumerate: async (p) => {

@@ -21,6 +21,7 @@ import { clientFromRpc } from "../src/client.js";
 import { createGateway } from "../src/server.js";
 import { GatewayStore } from "../src/store.js";
 import type { TurnMessage } from "../src/turns.js";
+import type { ChildRecord } from "../src/server.js";
 
 const PROJECT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const FIXTURES = resolve(PROJECT, "packages/host/test/fixtures");
@@ -100,6 +101,38 @@ async function turn(cookie: string, user: string, session: string, trigger: () =
   control.abort();
   return { events, text, input };
 }
+
+/** Reads every `turn` message of the person's stream until `until` says so. The caller starts the turns after the snapshot arrived. */
+async function collect(cookie: string, user: string, trigger: () => Promise<unknown>, until: (m: TurnMessage, all: TurnMessage[]) => boolean): Promise<TurnMessage[]> {
+  const control = new AbortController();
+  const gen = frames(cookie, control.signal, `/${user}/api/events`);
+  assert.equal((await gen.next()).value?.event, "snapshot");
+  await trigger();
+  const all: TurnMessage[] = [];
+  for await (const f of gen) {
+    if (f.event !== "turn") continue;
+    const m = f.data as unknown as TurnMessage;
+    all.push(m);
+    if (until(m, all)) break;
+  }
+  control.abort();
+  return all;
+}
+
+/** Polls the person's record of a session until `ready` holds, or fails after `ms`. */
+async function recordWhen<T>(cookie: string, user: string, session: string, ready: (rec: T) => boolean, ms = 5_000): Promise<T> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const rec = (await (await api(cookie, `/${user}/api/sessions/${session}`)).json()) as T;
+    if (ready(rec)) return rec;
+    assert.ok(Date.now() < deadline, `the record of ${session} did not become ready within ${ms} ms: ${JSON.stringify(rec).slice(0, 300)}`);
+    await new Promise((r) => setTimeout(r, 40));
+  }
+}
+
+const SUBAGENT_LINE = /^\[subagent (s_[a-f0-9]+)(?: ([^\]]*))?\]/;
+type Shown = { status: string; turn: { events: unknown[] } | null; children: ChildRecord[] };
+const said = (messages: TurnMessage[], session: string) => messages.filter((m) => m.session === session && m.event.type === "text").map((m) => (m.event as { delta: string }).delta).join("");
 
 async function api(cookie: string, path: string, init: RequestInit = {}, origin = base): Promise<Response> {
   return fetch(`${origin}${path}`, { ...init, headers: { cookie, "content-type": "application/json", ...(init.headers ?? {}) }, redirect: "manual" });
@@ -294,6 +327,107 @@ test("a page that connects mid-turn receives the snapshot of the turn in progres
   control.abort();
   const rec = (await (await api(cookie, `/alice/api/sessions/${id}`)).json()) as { turn: { events: unknown[] } | null };
   assert.ok(rec.turn === null || rec.turn.events.length > 0);
+});
+
+test("a subagent's turn is on the parent's stream, tagged with its parent, and the record lists it under children with its label and task", async () => {
+  const cookie = await cookieFor("alice", "wonderland");
+  const { id } = (await (await api(cookie, "/alice/api/sessions", { method: "POST" })).json()) as { id: string };
+  const messages = await collect(
+    cookie,
+    "alice",
+    async () => assert.equal((await api(cookie, `/alice/api/sessions/${id}/send`, { method: "POST", body: JSON.stringify({ text: "spawn: hello" }) })).status, 202),
+    (m) => m.session === id && m.event.type === "turn.end",
+  );
+  const mine = messages.filter((m) => m.session === id);
+  assert.ok(mine.every((m) => m.parent === undefined), "a conversation's own messages carry no parent");
+  const child = messages.filter((m) => m.parent === id);
+  assert.ok(child.length > 0, "the subagent's events reach the person's stream");
+  const childId = child[0].session;
+  assert.match(childId, /^s_[a-f0-9]+$/);
+  assert.ok(child.every((m) => m.session === childId));
+  assert.equal(child.find((m) => m.event.type === "turn.start")?.input, "hello", "the child's turn.start carries its task");
+  assert.deepEqual(child.map((m) => m.event.type).filter((t) => ["turn.start", "message", "turn.end"].includes(t)), ["turn.start", "message", "turn.end"]);
+  assert.equal(said(messages, childId), "echo: hello (t1)");
+  assert.equal(new Set(child.map((m) => m.seq)).size, child.length, "the child's messages are numbered like a turn of the hub's own");
+  const result = mine.map((m) => m.event).find((e) => e.type === "tool.result") as { name: string; result: string };
+  assert.equal(result.name, "spawn_subagent");
+  const line = SUBAGENT_LINE.exec(result.result);
+  assert.equal(line?.[1], childId, "the result line names the child");
+  assert.equal(line?.[2], "helper", "and its label");
+  assert.equal(said(messages, id), `tool said: [subagent ${childId} helper]\necho: hello (t1)`);
+  const childEnd = messages.findIndex((m) => m.session === childId && m.event.type === "turn.end");
+  const parentResult = messages.findIndex((m) => m.session === id && m.event.type === "tool.result");
+  assert.ok(childEnd >= 0 && childEnd < parentResult, "the child ends before the parent's tool result arrives");
+
+  const shown = (await (await api(cookie, `/alice/api/sessions/${id}`)).json()) as Shown;
+  assert.equal(shown.children.length, 1);
+  const rec = shown.children[0];
+  assert.equal(rec.id, childId);
+  assert.equal(rec.parent, id);
+  assert.equal(rec.label, "helper");
+  assert.equal(rec.task, "hello");
+  assert.equal(rec.status, "idle");
+  assert.equal(rec.turn, null);
+  assert.equal(rec.turns, 1);
+  assert.deepEqual(rec.conversation.map((m) => [m.role, m.content]), [["user", "hello"], ["assistant", "echo: hello (t1)"]]);
+  assert.deepEqual(rec.usage, {});
+  const list = (await (await api(cookie, "/alice/api/sessions")).json()) as { id: string }[];
+  assert.ok(list.some((s) => s.id === id) && !list.some((s) => s.id === childId), "the list still holds root conversations only");
+  const own = (await (await api(cookie, `/alice/api/sessions/${childId}`)).json()) as Shown;
+  assert.equal(own.status, "idle");
+  assert.deepEqual(own.children, [], "the child is a session of the person's own, with no children of its own");
+});
+
+test("a page that connects while a subagent runs sees it in the snapshot with its parent", async () => {
+  const cookie = await cookieFor("alice", "wonderland");
+  const { id } = (await (await api(cookie, "/alice/api/sessions", { method: "POST" })).json()) as { id: string };
+  assert.equal((await api(cookie, `/alice/api/sessions/${id}/send`, { method: "POST", body: JSON.stringify({ text: "spawn: slow: a b c d e f g h" }) })).status, 202);
+  const mid = await recordWhen<Shown>(cookie, "alice", id, (r) => r.children.length === 1 && r.children[0].turn !== null && r.children[0].turn.events.length > 0);
+  assert.equal(mid.children[0].status, "running");
+  assert.equal(mid.children[0].label, null, "the label comes with the parent's result, so a running child has none yet; the page takes it from the spawn call's args");
+  assert.equal(mid.children[0].task, "slow: a b c d e f g h", "the task comes from the running turn's input while the child's record is empty");
+  const control = new AbortController();
+  const gen = frames(cookie, control.signal, "/alice/api/events");
+  const first = (await gen.next()).value as { event: string; data: { running: { session: string; parent?: string; input: string; events: unknown[] }[] } };
+  assert.equal(first.event, "snapshot");
+  const parent = first.data.running.find((r) => r.session === id);
+  assert.ok(parent && parent.parent === undefined, "the parent's turn is in the snapshot without a parent");
+  const child = first.data.running.find((r) => r.parent === id);
+  assert.ok(child, "the child's turn is in the snapshot with its parent");
+  assert.equal(child.input, "slow: a b c d e f g h");
+  assert.ok(child.events.length > 0, "with the events so far");
+  for await (const f of gen) if (f.event === "turn" && (f.data as TurnMessage).session === id && (f.data as TurnMessage).event.type === "turn.end") break;
+  control.abort();
+  const done = (await (await api(cookie, `/alice/api/sessions/${id}`)).json()) as Shown;
+  assert.equal(done.children[0].status, "idle");
+  assert.equal(done.children[0].turn, null);
+});
+
+test("stopping the parent stops its subagent", async () => {
+  const cookie = await cookieFor("alice", "wonderland");
+  const { id } = (await (await api(cookie, "/alice/api/sessions", { method: "POST" })).json()) as { id: string };
+  let childId = "";
+  const messages = await collect(
+    cookie,
+    "alice",
+    async () => {
+      assert.equal((await api(cookie, `/alice/api/sessions/${id}/send`, { method: "POST", body: JSON.stringify({ text: "spawn: slow: a b c d e f g h" }) })).status, 202);
+      const mid = await recordWhen<Shown>(cookie, "alice", id, (r) => r.children.length === 1 && r.children[0].status === "running");
+      childId = mid.children[0].id;
+      assert.equal((await api(cookie, `/alice/api/sessions/${id}/cancel`, { method: "POST" })).status, 200);
+    },
+    (_m, all) => all.some((m) => m.session === id && m.event.type === "turn.end") && all.some((m) => m.session === childId && m.event.type === "turn.end"),
+  );
+  const parentError = messages.find((m) => m.session === id && m.event.type === "error")?.event as { code?: string } | undefined;
+  assert.equal(parentError?.code, "cancelled");
+  const childError = messages.find((m) => m.session === childId && m.event.type === "error")?.event as { code?: string } | undefined;
+  assert.equal(childError?.code, "cancelled", "the stop cascaded to the child");
+  assert.ok(said(messages, childId).split(" ").filter(Boolean).length < 8, "the child was stopped mid-stream");
+  const child = await recordWhen<Shown>(cookie, "alice", childId, (r) => r.status === "idle", 1_000);
+  assert.equal(child.turn, null);
+  const parent = (await (await api(cookie, `/alice/api/sessions/${id}`)).json()) as Shown;
+  assert.equal(parent.status, "idle");
+  assert.equal(parent.children[0].id, childId);
 });
 
 test("archive and restore", async () => {

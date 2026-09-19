@@ -3,7 +3,7 @@
 import type { ModelChoices, ModelDescriptor, ProviderCall, ProviderEvent } from "./messages.js";
 import type { DeletedPackage, PackageInfo } from "./packages.js";
 import type { AuthUser, SessionInfo, SessionRecord, SessionSummaryRef, UserRole } from "./identity.js";
-import type { StepContext, StepResult, TurnEvent, TurnOptions } from "./pipeline.js";
+import type { StepContext, StepResult, TurnEvent, TurnOptions, WatchedTurnEvent } from "./pipeline.js";
 import type { ConfigReport } from "./config.js";
 import type { Store } from "./storage.js";
 
@@ -62,6 +62,12 @@ export interface KernelClient {
     cancel(session: string): Promise<boolean>;
     list(): Promise<SessionSummaryRef[]>;
     inspect(session: string): Promise<SessionRecord & { status: "idle" | "running" }>;
+    /**
+     * Every turn event of every session of this person, from the moment of the call: turns started by
+     * anyone, subagents included. Resolves when the fence closes. A caller that wants the events for as
+     * long as it lives calls once and never awaits it.
+     */
+    watch(onEvent: (m: WatchedTurnEvent) => void): Promise<void>;
   };
   /** The models the fence's own providers serve, and the default. */
   models(): Promise<ModelChoices>;
@@ -95,6 +101,8 @@ export type Step = (ctx: PackageStepContext) => Promise<StepResult | void>;
 export interface ToolEnv extends StepEnv {
   session: SessionInfo;
   config: Record<string, unknown>;
+  /** Aborted when the turn is stopped while the tool runs. A tool that started something stops it here. */
+  signal?: AbortSignal;
 }
 
 export type Tool = (args: Record<string, unknown>, env: ToolEnv) => Promise<string | object>;

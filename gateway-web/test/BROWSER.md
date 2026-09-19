@@ -577,3 +577,70 @@ the OpenRouter key in the environment of `serve` (steps 43 and 47 send one messa
 
 Stop the daemon by the pid on `.devhome7/thetis.sock` (SIGINT), release `/tmp/thetis-browser.lock`, and
 delete `.devhome7`.
+
+## Subagents on the page (2026-09-19)
+
+The pass runs against `.devhome3` on door port 8803 with the echo provider fixture as the model, so a
+subagent costs nothing and behaves the same every time. Setup, after `init` and before `users add`:
+make `.devhome3/system-packages` with a symlink per directory of `packages/` plus
+`packages/host/test/fixtures/provider-echo` as `provider-echo`; in `.devhome3/thetis.config.json` set
+`"model": "echo"`, `"door": {"host": "127.0.0.1", "port": 8803}`, `"systemPackagesDir": "<runtime>/.devhome3/system-packages"`,
+add `"@thetis/provider-echo"` to `systemPackages._system`, `packages["@thetis/provider-echo"] = {"tag": "t1"}`,
+`packages["@thetis/gateway-login"] = {"secure": false}`, and `fence.readOnly` listing `<runtime>/packages`,
+`<runtime>/node_modules`, `<runtime>/.devhome3/packages`, `<runtime>/.devhome3/system-packages` and
+`<runtime>/packages/host/test/fixtures`. The cue `spawn: <task>` makes the echo model call `spawn_subagent`
+with the label `helper`; a task of `slow: w1 w2 …` streams one word every 50 ms, so a child of eighty words
+runs for four seconds. The echo provider reports no usage, so every meta line and cost is empty here.
+
+69. **A short subagent**: sign in at `http://127.0.0.1:8803/login` at 1440px, open a conversation, and send
+    `spawn: hello there`. Expect at the root of the transcript (never inside a `.tool-run`), in order:
+    `.msg.is-user`, `details.agent[data-call][data-agent^="s_"]` and `.msg.is-assistant` (the parent's reply,
+    `tool said: [subagent … helper] …`). No `details.tool` at all. The block: `.agent-label` "helper",
+    `.agent-gist` "hello there", `.agent-brief` "hello there", `.agent-state` "done", `.agent-took` set,
+    `.agent-stop[hidden]`, folded (`open` false), one `.msg.is-assistant` in `.agent-body` with the child's
+    reply, and after the body **no** `.tool-label` "reply": the result is the reply the child's last row already
+    shows, so it is not quoted twice (it is quoted when it differs, the `[subagent …]` line stripped). In the sidebar, under the active `.session` row: one `.session-agent.is-done.is-last[data-agent]`
+    holding `button.session-agent-go` (`.session-agent-dot`, `.session-agent-label` "helper",
+    `.session-agent-state` "done") and `button.session-agent-open` "Open in a tab". No console errors.
+70. **Reveal from the sidebar**: click `.session-agent-go`. Expect the block `open`, scrolled into view, and
+    `.agent.is-flashed` for 1200 ms (check it synchronously: `document.querySelector('.session-agent-go').click()`
+    in `browser_evaluate`, then read the class).
+71. **The child's tab**: focus the row, then click `.session-agent-open`. Expect `.tab.is-agent.is-active`
+    (`.tab-title` "helper", `.tab-dot` displayed, an empty `.tab-note`), `.pane.is-agent.is-active` with
+    `.chat-bar.is-agent` holding `.chat-dot`, `.chat-title.is-agent` "helper", `.chat-agent-state` "done",
+    `.chat-state[hidden]`, `.chip-spend[hidden]`, `.chat-parent` "Show in conversation", `.chat-stop[hidden]`;
+    in the pane `.msg.is-user.is-brief` "hello there" then `.msg.is-assistant`. The composer: `#input`
+    disabled with the placeholder "A subagent has no composer. Talk to its conversation.", `#send[hidden]`,
+    `#composer.is-agent`, the picker hidden, `.composer-hint` not visible. `document.title` and the
+    `.session.is-active` row still name the conversation. Click `.chat-parent`: the conversation's tab is
+    active again and the block is open and flashed. Click `.session-agent-go` with the child's tab open:
+    that tab is activated. Close the child's tab.
+72. **A streaming child**: from `browser_evaluate`, set `#input` to `spawn: slow: w0 w1 … w79`, dispatch
+    `input`, `requestSubmit()` the form, and wait 1500 ms. Expect the newest `.agent.is-running[open]` with
+    `.agent-state` "working", `.agent-stop` shown, a `.msg-text.is-live` in `.agent-body` growing word by word,
+    the transcript still at the bottom; the sidebar's active row reading `spawn_subagent` with the facts
+    `1 tool call · 1 agent`, its child row `.session-agent.is-working.is-last` reading `working · writing a reply`
+    under the sheen (`--phase` set on the row), `.tab.is-working`, `.chat-state` "spawn_subagent",
+    `document.title` "(1) …", `#stop` shown. After 4500 ms more: the block folded, `.agent-state` "done",
+    `.agent-took` "4s", the row `is-done`, the title without "(1)".
+73. **Stop a running block**: send a hundred-word `slow:` spawn the same way, wait 1200 ms, and click
+    `.agent-stop` from `browser_evaluate`. Expect the block still `open` right after the click (the button
+    does not toggle the fold), then within 2500 ms: `.agent.is-bad`, folded, `.agent-state` "stopped",
+    `.agent-stop[hidden]`, in `.agent-body` the partial `.msg.is-assistant` and a `.msg.is-note.is-quiet`
+    "Stopped.", after it a `.tool-label` "stopped" with a `.tool-pre` reading `stopped: the subagent was stopped
+    before it finished.` and, under `What it had said so far:`, the words it streamed; the sidebar row
+    `.session-agent.is-stopped`; and the parent's own reply (`tool said: [subagent … helper] stopped: …`, no
+    stack trace) ending the turn.
+74. **Reload while a child runs**: send a 120-word `slow:` spawn, wait 900 ms, and reload. Expect, once the
+    record is restored, the newest block `.agent.is-running[open]` with `.agent-state` "working", its
+    `.msg-text.is-live` continuing from the words already streamed, the sidebar row `is-working`, the tab
+    `is-working`, `#stop` shown; every finished block folded with an **empty** `.agent-body` (rows are built on
+    first open). After the child ends: `.agent-state` "done", `.agent-took` "6s", one row in the body.
+75. **Lazy build on open**: click a finished block's `.agent-head`. Expect `open` and the child's rows in
+    `.agent-body` (one `.msg.is-assistant` for an echo child). The stopped child of step 73 is restored with
+    `.agent-label` "helper" and `.agent-state` "stopped" (its spawn result's second line is `stopped: …`), and
+    its sidebar row reads `helper stopped`.
+76. **Regression**: steps 1 to 13 still pass on this setup (the echo provider reports no usage, so step 4's
+    `.msg-usage` is absent here by design; `#statusbar` is shown because `@thetis/terminal` is installed).
+
+Stop the daemon by the pid on `.devhome3/thetis.sock`, release `/tmp/thetis-browser.lock`, and delete `.devhome3`.

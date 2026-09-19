@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { Fences, Manifest, Mount, PackageInfo, StoreDriver, UserRecord, Userspace } from "@thetis/contracts";
+import type { Fences, Manifest, Message, Mount, PackageInfo, SessionRecord, StoreDriver, TurnEvent, UserRecord, Userspace, WatchedTurnEvent } from "@thetis/contracts";
 import { LayeredConfig } from "@thetis/lib/config";
 import { Journal } from "@thetis/lib/journal";
+import { JsonDirStore } from "@thetis/lib/json-store";
 import { MountStore } from "@thetis/lib/mounts";
 import { RestartLatch, type ArmResult, type FireReport, type RestartState } from "@thetis/lib/restart";
 import { memoryStore, StoreMirror } from "@thetis/lib/store";
@@ -22,6 +23,8 @@ import { Enumerator, BUILTIN_CALL } from "../src/pipeline/enumerator.js";
 import { defaultConfig, saveConfig, loadConfig, packagesLayer, MARKETPLACE_URL } from "../src/config.js";
 import { createControlHandler, redact } from "../src/control.js";
 import { createRpcHandler, type RpcServices } from "../src/rpc.js";
+import { SessionApi, SESSION_ID } from "../src/sessions/api.js";
+import type { PipelineRunner } from "../src/pipeline/runner.js";
 import type { KernelServices } from "../src/kernel.js";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "thetis-unit-"));
@@ -539,6 +542,66 @@ test("packages: a storage driver is refused an install, and manifestOf reads the
     assert.equal(manager.manifestOf(us, "@thetis/shipped")?.name, "@thetis/shipped");
     assert.equal(registry.get("@thetis/shipped")?.forkedFrom, undefined);
     assert.ok(!("forkedFrom" in registry.get("@thetis/shipped")!), "a record holds no undefined: the store would refuse it");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("sessions.watch: every turn of the user reaches the watcher with its session, parent and input, whoever started it; the signal removes it", async () => {
+  const home = tmp();
+  try {
+    const driver = memoryStore();
+    const users = new UserStore(await mirror(driver, "users"));
+    users.create("bob");
+    users.create("eve");
+    const packages = { installed: () => [{}], seedSystem: () => {} } as unknown as PackageManager;
+    const runner = {
+      runTurn: async (_us: Userspace, session: SessionRecord, input: Message[], emit: (e: TurnEvent) => void) => {
+        emit({ type: "turn.start", turn: "t1", session: session.id });
+        emit({ type: "message", message: { role: "assistant", content: `re: ${input[0].content}` } });
+        emit({ type: "turn.end", turn: "t1", session: session.id });
+        return session;
+      },
+    } as unknown as PipelineRunner;
+    const api = new SessionApi(users, new UserspaceLayout(home), packages, new JsonDirStore<SessionRecord>(SESSION_ID), runner);
+    const root = api.create("bob");
+    const child = api.create("bob", { parent: root.id });
+    const seen: WatchedTurnEvent[] = [];
+    const control = new AbortController();
+    const done = api.watch("bob", (m) => seen.push(m), control.signal);
+    assert.throws(() => api.watch("nobody", () => {}), code("unauthorized"), "a watch is authorized like every other call");
+    assert.equal(await api.ask("bob", child.id, "do it"), "re: do it");
+    assert.deepEqual(
+      seen.map((m) => [m.session, m.parent, m.input, m.event.type]),
+      [
+        [child.id, root.id, "do it", "turn.start"],
+        [child.id, root.id, undefined, "message"],
+        [child.id, root.id, undefined, "turn.end"],
+      ],
+      "a subagent's turn is stamped with its parent, and the input rides on turn.start only",
+    );
+    await api.ask("bob", root.id, [{ role: "user", content: "as messages" }]);
+    assert.equal(seen.length, 6);
+    assert.equal(seen[3].parent, undefined, "a root session has no parent");
+    assert.equal(seen[3].input, undefined, "input is reported only when the turn was sent as text");
+    const eve = api.create("eve");
+    await api.ask("eve", eve.id, "hers");
+    assert.equal(seen.length, 6, "another user's turns are not bob's to see");
+    control.abort();
+    await done;
+    await api.ask("bob", root.id, "again");
+    assert.equal(seen.length, 6, "the aborted signal removed the watcher");
+    // Over the RPC handler: the fence's own user, the event as the emit, and the handler's signal ends it.
+    const k = { users, sessions: api } as unknown as RpcServices;
+    const rpc = createRpcHandler(new UserspaceLayout(home).pathFor("bob"), k);
+    const life = new AbortController();
+    const over: WatchedTurnEvent[] = [];
+    const settled = rpc("sessions.watch", {}, (m) => over.push(m as WatchedTurnEvent), life.signal);
+    await api.ask("bob", root.id, "through rpc");
+    assert.equal(over.length, 3);
+    assert.equal(over[0].session, root.id);
+    life.abort();
+    assert.equal(await settled, undefined, "the watch settles when the fence is gone");
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

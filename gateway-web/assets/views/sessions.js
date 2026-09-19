@@ -2,7 +2,12 @@
  * section at the foot. A working row carries a pulsing dot, the live step under a sheen, and a clock that
  * counts up; the clocks tick in place so a hover or a sheen is never dropped by a redraw. Search filters
  * as you type. The row menu renames, archives and restores. A package may narrow the list further
- * with a filter (`store.sessionFilter`, set through `ext.sessions.filter`). */
+ * with a filter (`store.sessionFilter`, set through `ext.sessions.filter`).
+ *
+ * The open conversation's subagents sit under its row, indented behind a rail with an elbow into each,
+ * so the ownership reads at a glance: a dot, the label, the step while it works, then the outcome and
+ * the cost. Clicking one shows it (its block in the conversation, or its own tab when one is open); the
+ * glyph at the end opens it in a tab. Any other working row counts its agents among its facts. */
 
 import { applyActivityPhase, fmtAgo, fmtCost, fmtDuration, shortModel, countWorking } from "../lib/activity.js";
 import { $, clear, el, icon, onClickOutside } from "../lib/dom.js";
@@ -10,6 +15,7 @@ import { store } from "../lib/store.js";
 
 const dot = (y) => `M10 ${y}a1.35 1.35 0 1 1 0-2.7 1.35 1.35 0 0 1 0 2.7z`;
 const MORE = [dot(6.7), dot(11.35), dot(16)];
+const OPEN_TAB = ["M4 4h6M4 4v6M4 4l7 7", "M9 16h7v-7"];
 const TICK_MS = { working: 1000, idle: 30_000 };
 
 export function titleOf(session) {
@@ -29,7 +35,7 @@ function bucket(iso) {
   return "Earlier";
 }
 
-export function mountSessions({ onOpen, onNew, onArchive, onRename }) {
+export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onOpenAgent }) {
   const list = $("session-list");
   const search = $("session-search");
   let query = "";
@@ -64,6 +70,7 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename }) {
     if (activity?.state === "working") {
       const facts = [];
       if (activity.steps > 0) facts.push(`${activity.steps} ${activity.steps === 1 ? "tool call" : "tool calls"}`);
+      if (activity.agents > 0) facts.push(`${activity.agents} ${activity.agents === 1 ? "agent" : "agents"}`);
       if (activity.cost >= 0.0005) facts.push(fmtCost(activity.cost));
       return el(
         "div",
@@ -137,8 +144,41 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename }) {
     return node;
   }
 
+  /** A subagent's row, under the conversation that spawned it. */
+  function agentRow(agent, last) {
+    const activity = store.activityOf(agent.id);
+    const working = activity?.state === "working" || store.isRunning(agent.id);
+    const label = agent.label || "subagent";
+    const outcome = agent.outcome || (activity?.state === "failed" ? "failed" : activity?.state === "stopped" ? "stopped" : "done");
+    const state = working ? "working" : outcome;
+    const step = activity?.state === "working" ? (activity.tool ? activity.step : activity.step.toLowerCase()) : "";
+    const facts = working ? ["working", step].filter(Boolean) : [outcome, agent.cost > 0 ? fmtCost(agent.cost) : ""].filter(Boolean);
+    const node = el(
+      "div",
+      { class: `session-agent is-${state}${last ? " is-last" : ""}`, "data-agent": agent.id },
+      el(
+        "button",
+        { type: "button", class: "session-agent-go", title: working ? `${label} is working — show it in the conversation` : `${label} · ${facts.join(" · ")} — show it in the conversation`, onClick: () => onAgent(agent.id) },
+        el("span", { class: "session-agent-dot" }),
+        el("span", { class: "session-agent-label" }, label),
+        el("span", { class: `session-agent-state${activity?.tool && working ? " has-tool" : ""}` }, facts.join(" · "))
+      ),
+      el("button", { type: "button", class: "session-agent-open", title: "Open in a tab", "aria-label": `Open ${label} in a tab`, onClick: () => onOpenAgent(agent.id) }, icon(OPEN_TAB, { size: 13, width: 1.7 }))
+    );
+    applyActivityPhase(node, working ? { state: "working" } : null);
+    return node;
+  }
+
+  /** A conversation's row and, for the open conversation, the rows of its subagents. */
+  function rows_(session) {
+    const node = row(session);
+    if (session.id !== store.rootOf(store.get("current"))) return [node];
+    const agents = store.agentsOf(session.id);
+    return [node, ...agents.map((agent, i) => agentRow(agent, i === agents.length - 1))];
+  }
+
   function row(session) {
-    const active = session.id === store.get("current");
+    const active = session.id === store.rootOf(store.get("current"));
     const activity = store.activityOf(session.id);
     const state = activity?.state ?? "idle";
     const renaming = busy?.mode === "rename" && busy.id === session.id;
@@ -203,7 +243,7 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename }) {
     }
     for (const [label, rows] of buckets) {
       const working = rows.filter((s) => store.activityOf(s.id)?.state === "working").length;
-      list.append(group(label, rows.map(row), working));
+      list.append(group(label, rows.flatMap(rows_), working));
     }
     if (archived.length) {
       list.append(
@@ -211,7 +251,7 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename }) {
           "details",
           { class: "session-archived", open: archiveOpen || query ? "" : null, onToggle: (event) => { if (!query) archiveOpen = event.target.open; } },
           el("summary", {}, el("span", { class: "session-group" }, "Archived", el("span", { class: "session-count" }, archived.length))),
-          ...archived.map(row)
+          ...archived.flatMap(rows_)
         )
       );
     }
@@ -248,7 +288,7 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename }) {
 
   function setTitle(working) {
     const current = store.get("current");
-    const name = current ? titleOf(store.session(current)) : "";
+    const name = current ? titleOf(store.session(store.rootOf(current))) : "";
     const base = name ? `${name} — ${baseTitle}` : baseTitle;
     const wanted = working ? `(${working}) ${base}` : base;
     if (document.title !== wanted) document.title = wanted;
@@ -266,7 +306,7 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename }) {
   });
   $("new-chat").addEventListener("click", () => onNew());
 
-  for (const key of ["sessions", "current", "activity", "sessionFilter"]) store.watch(key, redraw);
+  for (const key of ["sessions", "current", "activity", "sessionFilter", "agents"]) store.watch(key, redraw);
   draw();
 
   return {

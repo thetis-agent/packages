@@ -51,3 +51,13 @@ export type TurnEvent =
   | { type: "usage"; usage: Record<string, number> }
   | { type: "error"; message: string; code?: string }
   | { type: "turn.end"; turn: string; session: string };
+
+/** One turn event of one session of a person, as `sessions.watch` reports it. */
+export interface WatchedTurnEvent {
+  session: string;
+  /** The parent session, when the session is a subagent. */
+  parent?: string;
+  /** On `turn.start` only: the text the turn was sent, when it was sent as text. */
+  input?: string;
+  event: TurnEvent;
+}

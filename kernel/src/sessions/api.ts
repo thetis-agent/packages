@@ -1,8 +1,9 @@
-import type { Message, SessionRecord, TurnEvent, TurnOptions, UserRecord, Userspace } from "@thetis/contracts";
+import type { Message, SessionRecord, TurnEvent, TurnOptions, UserRecord, Userspace, WatchedTurnEvent } from "@thetis/contracts";
 import { AsyncQueue } from "@thetis/lib/async";
 import { assert } from "@thetis/lib/error";
 import { newId, now } from "@thetis/lib/ids";
 import type { JsonDirStore } from "@thetis/lib/json-store";
+import { TurnTaps } from "@thetis/lib/turn-taps";
 import type { UserspaceLayout } from "@thetis/lib/userspace-layout";
 import type { PackageManager } from "../packages/manager.js";
 import type { PipelineRunner } from "../pipeline/runner.js";
@@ -25,6 +26,8 @@ export type TurnInput = string | Message[];
 /** The session API: the only surface gateways and subagent-spawning steps use. Every call is authorized against a user. */
 export class SessionApi {
   private readonly running = new Map<string, AbortController>();
+  /** Every turn's events also reach the user's watchers (`watch`), whoever started the turn. */
+  private readonly taps = new TurnTaps();
 
   constructor(
     private readonly users: UserStore,
@@ -42,9 +45,13 @@ export class SessionApi {
     return us;
   }
 
+  /** The authorized user's userspace: what every session call starts from. */
+  private space(userId: string): Userspace {
+    return this.userspaceFor(this.users.authorize(userId));
+  }
+
   create(userId: string, opts: { parent?: string } = {}): SessionRef {
-    const user = this.users.authorize(userId);
-    const us = this.userspaceFor(user);
+    const us = this.space(userId);
     if (opts.parent) this.load(us, opts.parent);
     const stamp = now();
     const rec: SessionRecord = { id: newId("s"), user: us.id, parent: opts.parent, createdAt: stamp, updatedAt: stamp, turns: 0, conversation: [], harness: {} };
@@ -54,8 +61,7 @@ export class SessionApi {
 
   /** `opts.model` names the model for this turn; steps may still change `call.model`. Empty means the configured default. */
   send(userId: string, sessionId: string, input: TurnInput, opts: TurnOptions = {}): AsyncIterable<TurnEvent> {
-    const user = this.users.authorize(userId);
-    const us = this.userspaceFor(user);
+    const us = this.space(userId);
     const session = this.load(us, sessionId);
     const key = `${userId}/${sessionId}`;
     assert(!this.running.has(key), `session ${sessionId} already has a turn in progress`, "busy");
@@ -63,8 +69,9 @@ export class SessionApi {
     this.running.set(key, control);
     const messages: Message[] = typeof input === "string" ? [{ role: "user", content: input }] : input;
     const queue = new AsyncQueue<TurnEvent>();
+    const emit = this.taps.emitter(userId, { session: sessionId, parent: session.parent, input: typeof input === "string" ? input : undefined }, (e) => queue.push(e));
     this.runner
-      .runTurn(us, session, messages, (e) => queue.push(e), control.signal, opts)
+      .runTurn(us, session, messages, emit, control.signal, opts)
       .then(() => queue.close(), (err: unknown) => queue.close(err))
       .finally(() => this.running.delete(key));
     return queue;
@@ -98,17 +105,23 @@ export class SessionApi {
   }
 
   inspect(userId: string, sessionId: string): SessionRecord & { status: "idle" | "running" } {
-    const user = this.users.authorize(userId);
-    const rec = this.load(this.userspaceFor(user), sessionId);
+    const rec = this.load(this.space(userId), sessionId);
     return { ...rec, status: this.running.has(`${userId}/${sessionId}`) ? "running" : "idle" };
   }
 
   list(userId: string): SessionRef[] {
-    const user = this.users.authorize(userId);
     return this.store
-      .list(this.userspaceFor(user).sessions)
+      .list(this.space(userId).sessions)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
       .map(ref);
+  }
+
+  /**
+   * Every turn event of every session of the user, whoever started the turn, each stamped with its session,
+   * the parent when it is a subagent, and on `turn.start` the text it was sent. Resolves when `signal` aborts.
+   */
+  watch(userId: string, fn: (m: WatchedTurnEvent) => void, signal?: AbortSignal): Promise<void> {
+    return this.taps.watch(this.users.authorize(userId).id, fn, signal);
   }
 
   /** A session of this userspace only: another user's id is unknown here, whatever it names elsewhere. */

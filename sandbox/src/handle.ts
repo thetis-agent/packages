@@ -34,6 +34,8 @@ const SHUTDOWN_MS = 500;
  */
 export class ProcessHandle implements FenceHandle {
   private readonly pending = new PendingCalls("r");
+  /** Aborts when the agent is gone: the signal every RPC it opened is served with, so a kernel method that streams for the life of the fence ends with it. */
+  private readonly life = new AbortController();
   /** Resolves when the agent process is gone, so the pool can forget a handle the moment it is a corpse. */
   readonly gone: Promise<void>;
   private closed = false;
@@ -120,12 +122,13 @@ export class ProcessHandle implements FenceHandle {
   }
 
   private async serveRpc(rid: string, method: string, args: unknown): Promise<void> {
-    const outcome = await callHandler(this.rpc, method, args, (event) => this.send({ rpcEvent: rid, event }));
+    const outcome = await callHandler(this.rpc, method, args, (event) => this.send({ rpcEvent: rid, event }), this.life.signal);
     this.send({ rpcResult: rid, ...outcome });
   }
 
   private onExit(code: number | null): void {
     this.closed = true;
+    this.life.abort();
     for (const fn of this.cleanup) fn();
     this.pending.failAll(new CodedError(`userspace agent for ${this.us.id} exited (${code ?? "signal"})`, "fence"));
   }

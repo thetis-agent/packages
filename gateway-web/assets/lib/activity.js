@@ -8,11 +8,16 @@ import { store } from "./store.js";
 export const SHEEN_MS = 2600;
 
 function fresh(since) {
-  return { state: "working", step: "Starting", tool: false, since, steps: 0, cost: 0, tokens: 0, outcome: null };
+  return { state: "working", step: "Starting", tool: false, since, steps: 0, agents: 0, cost: 0, tokens: 0, outcome: null };
 }
 
-/** Applies one turn event to a session's activity record. `startedAt` is the turn's start when known. */
-export function applyActivity(session, event, startedAt) {
+/**
+ * Applies one turn event to a session's activity record. `startedAt` is the turn's start when known.
+ * `parent` is set for a subagent's event: the child keeps its own record, and the parent's record
+ * counts it among its `agents` and takes its cost, so the conversation's row says what its children do.
+ */
+export function applyActivity(session, event, startedAt, parent) {
+  if (parent) touchParent(parent, event);
   const had = store.activityOf(session);
   switch (event.type) {
     case "turn.start":
@@ -56,6 +61,25 @@ export function applyActivity(session, event, startedAt) {
   }
 }
 
+/** What a child's event does to the record of the session that spawned it. Only a working parent is touched. */
+function touchParent(parent, event) {
+  const had = store.activityOf(parent);
+  if (had?.state !== "working") return;
+  switch (event.type) {
+    case "turn.start":
+      return store.setActivity(parent, { ...had, agents: (had.agents ?? 0) + 1 });
+    case "turn.end":
+      return store.setActivity(parent, { ...had, agents: Math.max(0, (had.agents ?? 0) - 1) });
+    case "usage": {
+      const cost = event.usage?.cost;
+      if (typeof cost !== "number") return;
+      return store.setActivity(parent, { ...had, cost: had.cost + cost });
+    }
+    default:
+      return;
+  }
+}
+
 function stepName(step) {
   const id = step?.id || step?.export || "";
   return id ? id.replace(/[-_]+/g, " ") : "Working";
@@ -68,10 +92,10 @@ export function applyActivityPhase(node, activity) {
   node.style.setProperty("--phase", `-${String(Date.now() % SHEEN_MS)}ms`);
 }
 
-/** How many conversations are working right now. */
+/** How many conversations are working right now. A subagent is part of its conversation, not one more. */
 export function countWorking() {
   let n = 0;
-  for (const record of store.get("activity").values()) if (record.state === "working") n += 1;
+  for (const [id, record] of store.get("activity")) if (record.state === "working" && !store.isAgent(id)) n += 1;
   return n;
 }
 

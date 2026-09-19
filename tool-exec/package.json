@@ -142,12 +142,16 @@
       },
       {
         "name": "spawn_subagent",
-        "description": "Start a subagent session in your userspace (same files and packages), send it a task, and return its final reply.",
+        "description": "Start a subagent session in your userspace (same files and packages), send it a task, and return its final reply. The person watches the subagent work under its label. The first line of the result names it: [subagent <id> <label>]. Stopping your turn stops the subagent. A subagent may spawn subagents of its own.",
         "parameters": {
           "type": "object",
           "properties": {
             "task": {
               "type": "string"
+            },
+            "label": {
+              "type": "string",
+              "description": "A short name for the subagent, shown to the person, for example research."
             }
           },
           "required": [

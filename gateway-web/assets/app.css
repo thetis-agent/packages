@@ -467,6 +467,91 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .session-archived > summary:hover .session-group { color: var(--text-dim); }
 .session-archived .session-open { opacity: .75; }
 
+/* A subagent's row, under the conversation that owns it: indented behind a rail with an elbow into each
+ * row, sized down, because a subagent is work inside a conversation and not a peer of it. Like `.session`,
+ * the row is a container: the open glyph is a sibling of the button that reveals the block. */
+.session-agent {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: calc(100% - 14px);
+  margin: 0 0 2px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  font-size: var(--text-xs);
+  transition: background-color var(--fast) var(--ease);
+}
+.session-agent::before {
+  content: "";
+  position: absolute;
+  left: -7px; top: -3px; bottom: -3px;
+  width: 1px;
+  background: var(--hairline-strong);
+}
+.session-agent.is-last::before { bottom: 50%; }
+.session-agent::after {
+  content: "";
+  position: absolute;
+  left: -7px; top: 50%;
+  width: 6px; height: 1px;
+  background: var(--hairline-strong);
+}
+.session-agent:hover { background: var(--surface-2); }
+.session-agent-go {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 4px 5px 9px;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-md);
+  cursor: pointer;
+}
+.session-agent-dot { flex: none; width: 5px; height: 5px; border-radius: var(--r-pill); background: var(--text-faint); }
+.session-agent.is-working .session-agent-dot { background: var(--accent); box-shadow: 0 0 0 2px var(--accent-wash); animation: pulse 1.4s var(--ease) infinite; animation-delay: var(--phase, 0ms); }
+.session-agent.is-done .session-agent-dot { background: var(--ok); }
+.session-agent.is-failed .session-agent-dot, .session-agent.is-stopped .session-agent-dot { background: var(--err); }
+.session-agent-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); color: var(--text-dim); }
+.session-agent.is-working .session-agent-label { color: var(--text); }
+.session-agent-state { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.session-agent-state.has-tool { font-family: var(--mono); }
+.session-agent.is-failed .session-agent-state, .session-agent.is-stopped .session-agent-state { color: var(--err); }
+.session-agent.is-working .session-agent-state {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  background-image: linear-gradient(90deg, var(--text-faint) 0%, var(--text-faint) 38%, var(--text) 50%, var(--text-faint) 62%, var(--text-faint) 100%);
+  background-size: 250% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: sheen-text var(--sheen) linear infinite;
+  animation-delay: var(--phase, 0ms);
+}
+.session-agent-open {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px; height: 22px;
+  margin-right: 3px;
+  padding: 0;
+  visibility: hidden;
+  color: var(--text-faint);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.session-agent:hover .session-agent-open, .session-agent:focus-within .session-agent-open { visibility: visible; }
+.session-agent-open:hover { color: var(--text); background: var(--surface-3); border-color: var(--hairline); }
+@media (prefers-reduced-motion: reduce) {
+  .session-agent.is-working .session-agent-dot { animation: none; }
+  .session-agent.is-working .session-agent-state { animation: none; background-image: none; color: var(--text); -webkit-text-fill-color: currentColor; }
+}
+
 /* --- status --------------------------------------------------------------- */
 
 .status { color: var(--text-faint); display: inline-flex; align-items: center; gap: 6px; }
@@ -542,6 +627,13 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 }
 .tab:hover .tab-close, .tab.is-active .tab-close, .tab:focus-within .tab-close { visibility: visible; }
 .tab-close:hover { color: var(--text); background: var(--surface-3); }
+/* A subagent's tab: the label in mono, a state dot that stays once it is done, and its cost as a note. */
+.tab.is-agent .tab-title { font-family: var(--mono); font-size: var(--text-xs); }
+.tab.is-agent .tab-dot { display: inline-block; background: var(--text-faint); box-shadow: none; animation: none; }
+.tab.is-agent.is-working .tab-dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); animation: pulse 1.4s var(--ease) infinite; }
+.tab.is-agent.is-bad .tab-dot { background: var(--err); }
+.tab-note { flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.tab-note:empty { display: none; }
 
 /* Panes stack in one cell; only the active one is visible. Hidden panes keep their scroll position. */
 .panes { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); }
@@ -582,6 +674,27 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .chip.is-broken { color: var(--text-faint); text-decoration: line-through; }
 .chat-state { flex: none; font-size: var(--text-xs); color: var(--accent); display: inline-flex; align-items: center; gap: 6px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-state::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); animation: pulse 1.4s var(--ease) infinite; }
+/* A subagent's bar: a state dot, the label in the accent mono, the state word, and the way back to its conversation. */
+.chat-dot { flex: none; width: 7px; height: 7px; border-radius: var(--r-pill); background: var(--text-faint); }
+.chat-dot.is-working { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); animation: pulse 1.4s var(--ease) infinite; }
+.chat-dot.is-bad { background: var(--err); }
+.chat-title.is-agent { font-family: var(--mono); font-size: var(--text-sm); color: var(--accent); cursor: default; margin-left: 0; }
+.chat-title.is-agent:hover { border-color: transparent; background: transparent; }
+.chat-agent-state, .agent-state {
+  flex: none;
+  padding: 0 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  line-height: 1.6;
+}
+.chat-bar.is-agent .chat-state { margin-left: var(--gap-1); }
+.ghost-btn.sm { padding: 3px 9px; font-size: var(--text-xs); border-radius: var(--r-pill); }
+.stop-btn.sm { height: 26px; padding: 0 10px 0 7px; font-size: var(--text-xs); }
 
 /* --- transcript ----------------------------------------------------------- */
 
@@ -816,9 +929,111 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .note-dot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
 .msg.is-note.is-error { color: var(--err); }
 .msg.is-note.is-quiet { font-style: italic; }
+
+/* A subagent's block: another agent's conversation happening inside this one, and the reader must never
+ * mistake one for the other. It is inset with an accent edge, sits one surface up, and its rows are
+ * scaled down, so a wall of a child's tool calls reads as subordinate. It folds itself when the child ends:
+ * the point of delegating is not having to read the middle of it, and the reply is quoted below. */
+.agent {
+  max-width: var(--measure);
+  margin: 0 auto var(--gap-4);
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  border-left: 2px solid var(--accent-edge);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  animation: fade var(--med) var(--ease);
+  transition: border-color var(--med) var(--ease), background-color var(--med) var(--ease), box-shadow var(--med) var(--ease);
+}
+.agent:hover { border-color: var(--hairline-strong); border-left-color: var(--accent-edge); }
+.agent.is-running { border-left-color: var(--accent); }
+.agent.is-bad { border-left-color: var(--err); }
+.agent.is-flashed { border-left-color: var(--accent); background: var(--accent-wash); box-shadow: 0 0 0 3px var(--accent-wash); }
+.agent > summary { list-style: none; }
+.agent > summary::-webkit-details-marker { display: none; }
+.agent-head {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+  padding: 7px 10px 7px 12px;
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.agent-head:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.agent-head::before {
+  content: "";
+  flex: none;
+  width: 5px; height: 5px;
+  border-right: 1.4px solid currentColor;
+  border-bottom: 1.4px solid currentColor;
+  transform: rotate(-45deg);
+  opacity: .7;
+  transition: transform var(--med) var(--ease);
+}
+.agent[open] > .agent-head::before { transform: rotate(45deg); }
+.agent-dot { flex: none; width: 7px; height: 7px; border-radius: var(--r-pill); background: var(--text-faint); }
+.agent.is-running > .agent-head > .agent-dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); animation: pulse 1.4s var(--ease) infinite; animation-delay: var(--phase, 0ms); }
+.agent.is-bad > .agent-head > .agent-dot { background: var(--err); }
+.agent-label { flex: none; font-family: var(--mono); font-weight: 600; color: var(--accent); letter-spacing: .01em; }
+.agent.is-bad > .agent-head > .agent-label { color: var(--err); }
+.agent-gist { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-faint); }
+.agent-meta, .agent-took { flex: none; font-family: var(--mono); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.agent-meta:empty, .agent-took:empty { display: none; }
+.agent.is-running > .agent-head > .agent-state { color: var(--accent); border-color: var(--accent-edge); background: var(--accent-wash); animation: pulse 1.4s var(--ease) infinite; animation-delay: var(--phase, 0ms); }
+.agent.is-bad > .agent-head > .agent-state { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent); background: var(--err-wash); }
+.agent-actions { flex: none; display: inline-flex; align-items: center; gap: 4px; }
+.agent-open, .agent-stop {
+  display: inline-grid;
+  place-items: center;
+  height: 22px;
+  padding: 0 6px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-faint);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: color var(--fast) var(--ease), background-color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.agent-open { width: 22px; padding: 0; }
+.agent-open:hover { color: var(--text); background: var(--surface-3); border-color: var(--hairline); }
+.agent-stop { color: var(--err); }
+.agent-stop:hover { background: var(--err-wash); border-color: color-mix(in srgb, var(--err) 35%, transparent); }
+.agent-brief { padding: 8px 12px; border-top: 1px solid var(--hairline); font-size: var(--text-sm); color: var(--text-dim); }
+/* The clamp sits on an inner element: it clips at the content box, and padding on the same box would show a sliver of the next line. */
+.agent-brief-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.agent-brief:has(.agent-brief-text:empty) { display: none; }
+/* Inside the block the conversation's gutters and faces do not apply: every row belongs to the one agent named in the head. */
+.agent-body { padding: var(--gap-3) 12px; border-top: 1px solid var(--hairline); font-size: var(--text-sm); }
+.agent-body:empty { display: none; }
+.agent-body .msg, .agent-body .tool-run, .agent-body .agent { max-width: none; margin-left: 0; margin-right: 0; }
+.agent-body .msg { margin-bottom: var(--gap-3); }
+.agent-body .tool-run { margin-bottom: var(--gap-3); }
+.agent-body .turn-avatar { display: none; }
+.agent-body .msg.is-user { align-items: flex-start; }
+.agent-body > :last-child { margin-bottom: 0; }
+.agent > .tool-label { border-top: 1px solid var(--hairline); }
+/* In a subagent's own tab, its user rows are its brief, not something the reader typed: left, quiet, labelled. */
+.msg.is-user.is-brief { align-items: flex-start; }
+.msg.is-user.is-brief .msg-text { max-width: 100%; color: var(--text-dim); background: transparent; border-style: dashed; border-color: var(--hairline-strong); }
+.msg.is-user.is-brief::before { content: "brief"; font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
+
 @media (prefers-reduced-motion: reduce) {
-  .msg, .tool-run, .transcript-empty, .jump-latest { animation: none; }
+  .msg, .tool-run, .transcript-empty, .jump-latest, .agent { animation: none; }
   .tool.is-running .tool-status, .chat-state::before, .status.is-busy::before, .pending-note::before { animation: none; }
+  .agent.is-running > .agent-head > .agent-dot, .agent.is-running > .agent-head > .agent-state, .tab.is-agent.is-working .tab-dot, .chat-dot.is-working { animation: none; }
 }
 
 /* --- composer ------------------------------------------------------------- */
@@ -838,6 +1053,10 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .composer.is-locked { border-color: var(--hairline); box-shadow: none; }
 .composer.is-locked .composer-input { color: var(--text-dim); cursor: default; }
 .composer.is-running { border-color: var(--accent-edge); }
+.composer.is-agent { border-color: var(--hairline); box-shadow: none; }
+.composer.is-agent .composer-input { cursor: not-allowed; }
+.composer.is-agent .composer-input::placeholder { color: var(--text-dim); }
+.composer.is-agent + .composer-hint { visibility: hidden; }
 .composer-field { position: relative; }
 .composer-input {
   display: block;

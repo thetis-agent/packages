@@ -5,7 +5,13 @@
  * `store.current`. Closing the active tab activates its neighbour; closing the last shows the empty
  * state. Live events are routed here by session, with the per-session `drawn` mark that keeps an event
  * the record already carried from being drawn twice. Chip buttons come from the registry's `chips`
- * slot and are drawn into every pane, because a chip is a fact about that pane's conversation. */
+ * slot and are drawn into every pane, because a chip is a fact about that pane's conversation.
+ *
+ * A subagent opens as a tab too (`open(childId)`, an id the store knows as an agent): its bar shows a
+ * dot, the label, the state, the spend, "Show in conversation" and, while it works, Stop. No rename, no
+ * chips, no model, no archive: a child is work inside a conversation, not a conversation. Its events
+ * reach its own pane as any session's do, and, through `applyChild`, the pane of every open ancestor,
+ * where its block lives. */
 
 import { fmtCost, shortModel } from "../lib/activity.js";
 import { api } from "../lib/api.js";
@@ -18,12 +24,13 @@ import { emptyState, mountTranscript } from "./transcript.js";
 
 const X = ["M5 5l10 10", "M15 5l-10 10"];
 const ARCHIVE = ["M3.5 5.5h13v2.5h-13zM4.5 8v7.5h11V8M8 11h4"];
+const STOP = ["M6.5 6.5h7v7h-7z"];
 
 export function mountTabs({ onNew, onArchive, onRename, onModel }) {
   const strip = $("tabs");
   const host = $("panes");
   const newTab = $("new-tab");
-  const panes = new Map(); // session id -> { id, node, tab, dot, label, transcript, bar, chips, drawn }
+  const panes = new Map(); // session id -> { id, agent, node, tab, dot, label, note, transcript, bar, chips, drawn }
   const order = [];        // open session ids, in tab order
   const empty = el("section", { class: "pane is-empty is-active" }, emptyState("none", onNew));
   host.append(empty);
@@ -33,27 +40,43 @@ export function mountTabs({ onNew, onArchive, onRename, onModel }) {
   // ---- one pane ----
 
   function createPane(id) {
-    const bar = {
-      title: el("button", { type: "button", class: "chat-title", title: "Rename this conversation", onClick: () => onRename(id) }),
-      state: el("span", { class: "chat-state", hidden: true }),
-      model: el("button", { type: "button", class: "chip-quiet mono chip-model", onClick: () => onModel(id) }),
-      spend: el("span", { class: "chip-quiet mono chip-spend" }),
-      archive: el("button", { type: "button", class: "icon-btn sm archive-chat", onClick: () => onArchive(id) }, icon(ARCHIVE, { size: 16, width: 1.6 })),
-    };
-    const chips = el("div", { class: "chips", id: `chips-${id}` });
+    const agent = store.isAgent(id);
+    const bar = agent
+      ? {
+          dot: el("span", { class: "chat-dot", "aria-hidden": "true" }),
+          title: el("span", { class: "chat-title is-agent" }),
+          word: el("span", { class: "chat-agent-state" }),
+          state: el("span", { class: "chat-state", hidden: true }),
+          spend: el("span", { class: "chip-quiet mono chip-spend" }),
+          parent: el("button", { type: "button", class: "ghost-btn sm chat-parent", title: "Show this subagent's block in its conversation", onClick: () => { void reveal(id, { open: true, self: false }); } }, "Show in conversation"),
+          stop: el("button", { type: "button", class: "stop-btn sm chat-stop", title: "Stop this subagent", "aria-label": "Stop this subagent", hidden: true, onClick: () => { void cancel(id); } }, icon(STOP, { size: 14, width: 0 }), "Stop"),
+        }
+      : {
+          title: el("button", { type: "button", class: "chat-title", title: "Rename this conversation", onClick: () => onRename(id) }),
+          state: el("span", { class: "chat-state", hidden: true }),
+          model: el("button", { type: "button", class: "chip-quiet mono chip-model", onClick: () => onModel(id) }),
+          spend: el("span", { class: "chip-quiet mono chip-spend" }),
+          archive: el("button", { type: "button", class: "icon-btn sm archive-chat", onClick: () => onArchive(id) }, icon(ARCHIVE, { size: 16, width: 1.6 })),
+        };
+    if (agent) bar.stop.querySelector("path").setAttribute("fill", "currentColor");
+    const chips = agent ? null : el("div", { class: "chips", id: `chips-${id}` });
     const root = el("div", { class: "transcript", tabindex: "0" });
-    const node = el("section", { class: "pane", "data-session": id, role: "tabpanel" }, el("div", { class: "chat-bar" }, bar.title, bar.state, el("span", { class: "chat-bar-gap" }), chips, bar.model, bar.spend, bar.archive), root);
+    const node = agent
+      ? el("section", { class: "pane is-agent", "data-session": id, role: "tabpanel" }, el("div", { class: "chat-bar is-agent" }, bar.dot, bar.title, bar.word, bar.state, el("span", { class: "chat-bar-gap" }), bar.spend, bar.parent, bar.stop), root)
+      : el("section", { class: "pane", "data-session": id, role: "tabpanel" }, el("div", { class: "chat-bar" }, bar.title, bar.state, el("span", { class: "chat-bar-gap" }), chips, bar.model, bar.spend, bar.archive), root);
     const dot = el("span", { class: "tab-dot", "aria-hidden": "true" });
     const label = el("span", { class: "tab-title" });
+    const note = agent ? el("span", { class: "tab-note" }) : null;
     const tab = el(
       "div",
-      { class: "tab", "data-session": id },
-      el("button", { type: "button", class: "tab-open", role: "tab", onClick: () => activate(id) }, dot, label),
+      { class: `tab${agent ? " is-agent" : ""}`, "data-session": id },
+      el("button", { type: "button", class: "tab-open", role: "tab", onClick: () => activate(id) }, dot, label, note),
       el("button", { type: "button", class: "tab-close", title: "Close this tab", "aria-label": "Close this tab", onClick: () => close(id) }, icon(X, { size: 10, width: 2 }))
     );
     strip.insertBefore(tab, newTab);
     host.append(node);
-    const pane = { id, node, tab, dot, label, bar, chips, transcript: mountTranscript(root, { session: id }), drawn: { turn: null, seq: 0 } };
+    const transcript = mountTranscript(root, { session: id, brief: agent, onOpenAgent: (child) => { void open(child); } });
+    const pane = { id, agent, node, tab, dot, label, note, bar, chips, transcript, drawn: { turn: null, seq: 0 } };
     panes.set(id, pane);
     drawChips(pane);
     drawBar(pane);
@@ -72,9 +95,18 @@ export function mountTabs({ onNew, onArchive, onRename, onModel }) {
     }
   }
 
+  async function cancel(id) {
+    try {
+      await api(`/api/sessions/${id}/cancel`, { method: "POST" });
+    } catch (err) {
+      toast(err.message, { tone: "error" });
+    }
+  }
+
   // ---- the chat bar and the tab, from the store ----
 
   function drawBar(pane) {
+    if (pane.agent) return drawAgentBar(pane);
     const { id, bar } = pane;
     const session = store.session(id);
     const activity = store.activityOf(id);
@@ -99,6 +131,35 @@ export function mountTabs({ onNew, onArchive, onRename, onModel }) {
     pane.tab.classList.toggle("is-archived", Boolean(session?.archived));
   }
 
+  /** A subagent's bar: the label, the state word, the step while it works, and its spend. */
+  function drawAgentBar(pane) {
+    const { id, bar } = pane;
+    const agent = store.agent(id);
+    const activity = store.activityOf(id);
+    const working = store.isRunning(id) || activity?.state === "working";
+    const label = agent?.label || "subagent";
+    const word = working ? "working" : agent?.outcome || (activity?.state === "failed" ? "failed" : activity?.state === "stopped" ? "stopped" : "done");
+    const bad = word === "failed" || word === "stopped";
+    bar.title.textContent = label;
+    bar.title.title = agent?.task ? `${label} · ${agent.task}` : label;
+    bar.word.textContent = word;
+    setHidden(bar.state, !working);
+    bar.state.textContent = activity?.state === "working" ? (activity.tool ? activity.step : activity.step.toLowerCase()) : "working";
+    const cost = (agent?.cost ?? 0) + (activity?.state === "working" ? activity.cost : 0);
+    setHidden(bar.spend, !(cost > 0));
+    bar.spend.textContent = fmtCost(cost);
+    bar.spend.title = working ? "Spent by this subagent, counting the running turn" : "Spent by this subagent";
+    bar.spend.classList.toggle("is-live", working && activity?.cost > 0);
+    setHidden(bar.stop, !working);
+    for (const node of [bar.dot, pane.tab]) {
+      node.classList.toggle("is-working", working);
+      node.classList.toggle("is-bad", bad);
+    }
+    pane.label.textContent = label;
+    pane.note.textContent = cost > 0 ? fmtCost(cost) : "";
+    pane.tab.title = `${label} · ${word}${agent?.task ? ` · ${agent.task}` : ""}`;
+  }
+
   function drawAll() {
     for (const pane of panes.values()) drawBar(pane);
   }
@@ -106,6 +167,7 @@ export function mountTabs({ onNew, onArchive, onRename, onModel }) {
   // ---- chips: every declared chip, in every pane; the package draws the text and decides if it shows ----
 
   function drawChips(pane, only) {
+    if (!pane.chips) return;
     for (const entry of registry.entries("chips")) {
       if (only && entry.package !== only) continue;
       let button = pane.chips.querySelector(`[data-chip="${CSS.escape(entry.key)}"]`);
@@ -182,15 +244,39 @@ export function mountTabs({ onNew, onArchive, onRename, onModel }) {
     empty.classList.add("is-active");
   }
 
-  /** One message off the event stream, to the pane of its session, if that conversation is open. */
+  /**
+   * Brings a subagent on screen: its own pane when one is open (unless `self` is false: the way back
+   * from that pane), else its block in its conversation's pane, revealed and flashed. With `open`, the
+   * conversation is opened first when it is not. False when there is nothing to show.
+   */
+  async function reveal(id, { open: mayOpen = false, self = true } = {}) {
+    if (self && panes.has(id)) {
+      activate(id);
+      return true;
+    }
+    const root = store.rootOf(id);
+    if (root === id) return false;
+    if (!panes.has(root)) {
+      if (!mayOpen) return false;
+      await open(root);
+    }
+    activate(root);
+    return Boolean(panes.get(root)?.transcript.revealAgent(id));
+  }
+
+  /** One message off the event stream: to the pane of its session, if open, and to the block in every open ancestor's pane. */
   function applyTurn(message) {
     const pane = panes.get(message.session);
-    if (!pane) return;
-    const turn = message.turn || "pending";
-    if (turn === pane.drawn.turn && message.seq <= pane.drawn.seq) return;
-    if (turn !== pane.drawn.turn) pane.drawn = { turn, seq: 0 };
-    pane.drawn.seq = message.seq;
-    pane.transcript.applyEvent(message.event, message.input);
+    if (pane) {
+      const turn = message.turn || "pending";
+      const seen = turn === pane.drawn.turn && message.seq <= pane.drawn.seq;
+      if (!seen) {
+        if (turn !== pane.drawn.turn) pane.drawn = { turn, seq: 0 };
+        pane.drawn.seq = message.seq;
+        pane.transcript.applyEvent(message.event, message.input);
+      }
+    }
+    for (let up = message.parent, hops = 0; up && hops < 32; up = store.agent(up)?.parent, hops += 1) panes.get(up)?.transcript.applyChild(message);
   }
 
   /** After a reconnect: every open pane is rebuilt from its record, which carries the turn in progress. */
@@ -198,12 +284,13 @@ export function mountTabs({ onNew, onArchive, onRename, onModel }) {
     await Promise.all([...panes.values()].map(load));
   }
 
-  for (const key of ["current", "sessions", "running", "activity", "choices"]) store.watch(key, drawAll);
+  for (const key of ["current", "sessions", "running", "activity", "choices", "agents"]) store.watch(key, drawAll);
 
   return {
     open,
     activate,
     close,
+    reveal,
     applyTurn,
     reload,
     list: () => [...order],

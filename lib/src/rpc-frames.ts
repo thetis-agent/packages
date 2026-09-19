@@ -6,7 +6,8 @@ import type { Readable } from "node:stream";
 import type { EventSink } from "@thetis/contracts";
 import { CodedError, errorCode, errorMessage } from "./error.js";
 
-export type RpcHandler = (method: string, args: unknown, emit?: EventSink) => Promise<unknown>;
+/** `signal` aborts when the caller is gone; a handler that streams until then watches it. Servers that have no such moment pass none. */
+export type RpcHandler = (method: string, args: unknown, emit?: EventSink, signal?: AbortSignal) => Promise<unknown>;
 
 export type Frame = Record<string, unknown>;
 
@@ -83,9 +84,9 @@ export class PendingCalls {
 }
 
 /** Runs one request and turns the outcome into the reply fields, so every server answers the same way. */
-export async function callHandler(handler: RpcHandler, method: string, args: unknown, emit?: EventSink): Promise<Outcome> {
+export async function callHandler(handler: RpcHandler, method: string, args: unknown, emit?: EventSink, signal?: AbortSignal): Promise<Outcome> {
   try {
-    return { result: (await handler(method, args, emit)) ?? null };
+    return { result: (await handler(method, args, emit, signal)) ?? null };
   } catch (err) {
     return { error: errorMessage(err), code: errorCode(err) };
   }

@@ -8,7 +8,9 @@ const state = {
   sessionFilter: null, // a package's narrowing of the sidebar list: (session) => boolean, or null
   running: new Set(),  // session ids with a turn in progress
   pending: new Set(),  // session ids with a send awaiting the server's 202
-  activity: new Map(), // session id -> { state, step, tool, since, steps, cost, outcome }
+  activity: new Map(), // session id -> { state, step, tool, since, steps, agents, cost, outcome }
+  agents: new Map(),   // child session id -> { id, parent, label, task, createdAt, outcome, cost }
+                       // outcome: null while never finished, else "done" | "failed" | "stopped"; cost: what its replies reported
   choices: null,       // { model, models } from /api/models, once loaded
   creating: false,
   connection: "connecting", // connecting | online | offline
@@ -54,5 +56,42 @@ export const store = {
   /** The model in force for a session: the chosen one, else the configured default. */
   modelFor(id) {
     return store.session(id)?.model || state.choices?.model || "";
+  },
+
+  // ---- subagents: a child session is an agent of the session that spawned it ----
+
+  agent: (id) => state.agents.get(id) ?? null,
+  isAgent: (id) => state.agents.has(id),
+  /** Merges a patch into one agent's record (undefined fields are left alone), replacing the map so watchers fire. */
+  setAgent(id, patch) {
+    this.setAgents([[id, patch]]);
+  },
+  /** Several agents at once, one notification. `entries` is `[[id, patch], ...]`. */
+  setAgents(entries) {
+    const next = new Map(state.agents);
+    for (const [id, patch] of entries) {
+      const had = next.get(id) ?? { id, parent: null, label: null, task: "", createdAt: null, outcome: null, cost: 0 };
+      const merged = { ...had };
+      for (const [key, value] of Object.entries(patch ?? {})) if (value !== undefined) merged[key] = value;
+      merged.id = id;
+      next.set(id, merged);
+    }
+    this.set({ agents: next });
+  },
+  /** The agents spawned by `parent`, in creation order. */
+  agentsOf(parent) {
+    return [...state.agents.values()].filter((a) => a.parent === parent).sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
+  },
+  /** The conversation an id belongs to: `parent` followed up until a session with none. An unknown id is its own root. */
+  rootOf(id) {
+    let cur = id;
+    const seen = new Set();
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      const parent = state.agents.get(cur)?.parent;
+      if (!parent) return cur;
+      cur = parent;
+    }
+    return id;
   },
 };

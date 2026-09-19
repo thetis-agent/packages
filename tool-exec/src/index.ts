@@ -41,10 +41,41 @@ export const deletePackage: Tool = async (args, env) => {
   return `deleted ${r.name} and its files at ${r.path}${r.restored ? `; ${r.restored} is back in place` : ""}. Live on the next turn.`;
 };
 
+/**
+ * The first line of the result is `[subagent <id>]` or `[subagent <id> <label>]`; every reader parses it with
+ * `/^\[subagent (s_[a-f0-9]+)(?: ([^\]]*))?\]/`. The rest is the child's reply, or `stopped: …` with what it had
+ * said when it was stopped, or `error: <message>` when its turn failed. The turn is driven with `send` rather
+ * than `ask` so a stop still yields the partial text, and so no error of the child's becomes a thrown error
+ * here: a throw from a tool carries its stack back to the model, and the child's failure is a result, not a bug.
+ * A stop of the parent turn aborts `env.signal`, and the child is cancelled with it, so a stop cascades down
+ * however deep the subagents go.
+ */
 export const spawnSubagent: Tool = async (args, env) => {
   const child = await env.kernel.sessions.create(env.session.id);
-  const reply = await env.kernel.sessions.ask(child.id, String(args.task));
-  return `[subagent ${child.id}]\n${reply}`;
+  const label = typeof args.label === "string" ? args.label.replace(/[\]\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) : "";
+  const head = `[subagent ${child.id}${label ? ` ${label}` : ""}]`;
+  const stop = () => void env.kernel.sessions.cancel(child.id).catch(() => {});
+  env.signal?.addEventListener("abort", stop, { once: true });
+  let reply = "";
+  let partial = "";
+  let failure: { message: string; code?: string } | undefined;
+  try {
+    await env.kernel.sessions.send(child.id, String(args.task), (e) => {
+      if (e.type === "text") partial += e.delta;
+      else if (e.type === "message" && e.message.role === "assistant") {
+        if (e.message.content.trim()) reply = e.message.content;
+        partial = "";
+      } else if (e.type === "error") failure = { message: e.message, code: e.code };
+    });
+  } finally {
+    env.signal?.removeEventListener("abort", stop);
+  }
+  if (failure?.code === "cancelled") {
+    const said = partial.trim() || reply.trim();
+    return `${head}\nstopped: the subagent was stopped before it finished.${said ? `\nWhat it had said so far:\n${said}` : ""}`;
+  }
+  if (failure) return `${head}\nerror: ${failure.message}`;
+  return `${head}\n${reply}`;
 };
 
 /** The report as text: the summary, then one line per key, then its help. A secret is `•••`, never its value. */

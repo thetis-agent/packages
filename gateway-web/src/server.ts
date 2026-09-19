@@ -47,9 +47,31 @@ export interface SessionSummary {
   status: "idle" | "running";
   /** The model the person chose for this conversation. Absent means the default. */
   model?: string;
-  /** The cost the replies reported so far, summed. Absent when nothing was reported. */
+  /** The cost the replies reported so far, summed, the conversation's subagents included. Absent when nothing was reported. */
   cost?: number;
 }
+
+/** A subagent of a conversation, as `GET /api/sessions/<id>` lists it under `children`. */
+export interface ChildRecord {
+  id: string;
+  parent: string;
+  createdAt: string;
+  updatedAt: string;
+  turns: number;
+  status: "idle" | "running";
+  /** The label the parent gave, from its `[subagent <id> <label>]` result; null when none. */
+  label: string | null;
+  /** The child's first user message, or the input of its running turn. */
+  task: string;
+  conversation: Message[];
+  usage: SessionUsage;
+  /** The cost the child's replies reported, its own subagents included. Absent when nothing was reported. */
+  cost?: number;
+  turn: RunningTurn | null;
+}
+
+/** The first line of a `spawn_subagent` result, as every reader parses it: the child's id and, when the parent gave one, its label. */
+const SUBAGENT_LINE = /^\[subagent (s_[a-f0-9]+)(?: ([^\]]*))?\]/;
 
 /** Builds the gateway. Call `.listen()` on the result with a unix socket path or a port. */
 export function createGateway(kernel: KernelClient, store: GatewayStore, opts: GatewayOptions): Server {
@@ -57,7 +79,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
   const assets = opts.assets ?? resolve(dirname(fileURLToPath(import.meta.url)), "../../assets");
   const base = (opts.base ?? "").replace(/\/$/, "");
   const storeDir = opts.store ?? opts.env?.store;
-  const hub = new TurnHub(kernel, log, recordUsage);
+  const hub = new TurnHub(kernel, log, recordUsage, opts.user);
 
   const server = createServer((req, res) => {
     handle(req, res).catch((err) => {
@@ -168,18 +190,19 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
 
   async function listSessions(user: string): Promise<SessionSummary[]> {
     const archived = store.archived(user);
-    const refs = (await kernel.sessions.list()).filter((s) => !s.parent);
-    const records = await Promise.all(refs.map((s) => kernel.sessions.inspect(s.id)));
-    return records.map((rec) => summarize(user, rec, archived)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const all = await kernel.sessions.list();
+    const records = await Promise.all(all.filter((s) => !s.parent).map((s) => kernel.sessions.inspect(s.id)));
+    return records.map((rec) => summarize(user, rec, archived, descendants(all, rec.id))).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
-  function summarize(user: string, rec: SessionRecord, archived: Set<string>): SessionSummary {
+  /** `below` is the conversation's subagents at any depth: what they cost is part of what the conversation cost. */
+  function summarize(user: string, rec: SessionRecord, archived: Set<string>, below: string[]): SessionSummary {
     const running = hub.runningOf(user, rec.id);
     const said = rec.conversation.filter((m) => m.role === "user" || (m.role === "assistant" && m.content.trim()));
     const first = rec.conversation.find((m) => m.role === "user")?.content ?? running?.input ?? "";
     const last = said.at(-1)?.content ?? running?.input ?? "";
     const named = store.title(user, rec.id);
-    const cost = totalCost(store.usage(user, rec.id));
+    const cost = costOf(user, [rec.id, ...below]);
     const model = store.model(user, rec.id);
     return {
       id: rec.id,
@@ -196,9 +219,57 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     };
   }
 
-  async function showSession(user: string, id: string): Promise<SessionRecord & { status: string; archived: boolean; turn: RunningTurn | null; usage: SessionUsage; model: string | null; title: string | null }> {
+  async function showSession(user: string, id: string): Promise<SessionRecord & { status: string; archived: boolean; turn: RunningTurn | null; usage: SessionUsage; model: string | null; title: string | null; children: ChildRecord[] }> {
     const rec = await kernel.sessions.inspect(id);
-    return { ...rec, archived: store.archived(user).has(id), turn: hub.runningOf(user, id) ?? null, usage: store.usage(user, id), model: store.model(user, id) ?? null, title: store.title(user, id) ?? null };
+    const all = await kernel.sessions.list();
+    const labels = labelsOf(user, rec);
+    const children = await Promise.all(all.filter((s) => s.parent === id).map((s) => childRecord(user, s.id, labels.get(s.id) ?? null, descendants(all, s.id))));
+    return { ...rec, archived: store.archived(user).has(id), turn: hub.runningOf(user, id) ?? null, usage: store.usage(user, id), model: store.model(user, id) ?? null, title: store.title(user, id) ?? null, children };
+  }
+
+  async function childRecord(user: string, id: string, label: string | null, below: string[]): Promise<ChildRecord> {
+    const rec = await kernel.sessions.inspect(id);
+    const turn = hub.runningOf(user, id) ?? null;
+    const cost = costOf(user, [id, ...below]);
+    return {
+      id: rec.id,
+      parent: rec.parent ?? "",
+      createdAt: rec.createdAt,
+      updatedAt: rec.updatedAt,
+      turns: rec.turns,
+      status: rec.status,
+      label,
+      task: rec.conversation.find((m) => m.role === "user")?.content ?? turn?.input ?? "",
+      conversation: rec.conversation,
+      usage: store.usage(user, id),
+      ...(cost !== undefined ? { cost } : {}),
+      turn,
+    };
+  }
+
+  /**
+   * The labels a conversation's `spawn_subagent` results gave, by child id. A result of the turn in progress is
+   * not in the saved conversation yet, so the running turn's `tool.result` events are read too.
+   */
+  function labelsOf(user: string, rec: SessionRecord): Map<string, string | null> {
+    const texts = rec.conversation.filter((m) => m.role === "tool").map((m) => m.content);
+    for (const { event } of hub.runningOf(user, rec.id)?.events ?? []) if (event.type === "tool.result") texts.push(event.result);
+    const labels = new Map<string, string | null>();
+    for (const text of texts) {
+      const m = SUBAGENT_LINE.exec(text);
+      if (m) labels.set(m[1], m[2]?.trim() || null);
+    }
+    return labels;
+  }
+
+  /** The recorded cost of these sessions, summed; undefined when none of them reported any. */
+  function costOf(user: string, ids: string[]): number | undefined {
+    let total: number | undefined;
+    for (const id of ids) {
+      const cost = totalCost(store.usage(user, id));
+      if (cost !== undefined) total = (total ?? 0) + cost;
+    }
+    return total;
   }
 
   /**
@@ -273,6 +344,18 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
 }
 
 // ---- helpers ----
+
+/** The sessions under `id` at any depth, in creation order. `refs` is in creation order too, and a child is created after its parent, so one pass finds them. */
+function descendants(refs: { id: string; parent?: string }[], id: string): string[] {
+  const under = new Set([id]);
+  const out: string[] = [];
+  for (const s of refs) {
+    if (!s.parent || !under.has(s.parent)) continue;
+    under.add(s.id);
+    out.push(s.id);
+  }
+  return out;
+}
 
 /** The `cost` fields of the recorded usage, summed; undefined when none was reported. */
 function totalCost(usage: SessionUsage): number | undefined {

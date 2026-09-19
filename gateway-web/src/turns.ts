@@ -1,6 +1,8 @@
 // Runs turns in the background and fans their events out to every connected browser of the user.
 // A turn's events are buffered while it runs, so a page that connects mid-turn receives what it missed.
-import type { KernelClient, TurnEvent } from "@thetis/contracts";
+// Turns the hub did not start (a subagent's, one sent from the command line) reach it through
+// `sessions.watch` and are carried the same way, stamped with the session's parent when it has one.
+import type { KernelClient, TurnEvent, WatchedTurnEvent } from "@thetis/contracts";
 
 export interface NumberedEvent {
   seq: number;
@@ -9,6 +11,8 @@ export interface NumberedEvent {
 
 export interface RunningTurn {
   session: string;
+  /** The parent session, when the turn is a subagent's. */
+  parent?: string;
   /** The turn id, known after `turn.start`. */
   turn?: string;
   input: string;
@@ -20,6 +24,8 @@ export interface RunningTurn {
 
 export interface TurnMessage extends NumberedEvent {
   session: string;
+  /** The parent session, on every message of a subagent's turn. */
+  parent?: string;
   turn?: string;
   /** Set on `turn.start` only: what the user sent, so another tab can draw it. */
   input?: string;
@@ -30,13 +36,21 @@ export type Listener = (message: TurnMessage) => void;
 export class TurnHub {
   private readonly running = new Map<string, RunningTurn>();
   private readonly listeners = new Map<string, Set<Listener>>();
+  /** The turns this hub started, as `user/session`: `send` delivers their events, so the watch must not. */
+  private readonly mine = new Set<string>();
 
   constructor(
     private readonly kernel: KernelClient,
     private readonly log: (line: string) => void = () => {},
     /** Called after `turn.end` with the complete event list of the turn. */
     private readonly onEnd: (user: string, run: RunningTurn) => void | Promise<void> = () => {},
-  ) {}
+    /** The person this hub serves, whom the kernel client acts as. With it the hub also carries the turns it did not start. */
+    user?: string,
+  ) {
+    if (user) {
+      kernel.sessions.watch((m) => this.watched(user, m)).catch((err: Error) => log(`[gateway-web] turns started elsewhere will not be shown: ${err.message}`));
+    }
+  }
 
   /**
    * Starts a turn. Resolves once the kernel has emitted its first event; rejects with the kernel's own
@@ -52,6 +66,8 @@ export class TurnHub {
         this.running.set(key(user, session), run);
         done(run);
       };
+      // Before `send`: the watch reports the first event before `send` does, and it must already know the turn is ours.
+      this.mine.add(key(user, session));
       this.kernel.sessions
         .send(session, input, (event) => {
           begin();
@@ -61,7 +77,10 @@ export class TurnHub {
         .then(
           () => this.finish(user, run, begin),
           (err: Error) => {
-            if (!started) return fail(err);
+            if (!started) {
+              this.mine.delete(key(user, session));
+              return fail(err);
+            }
             this.log(`[gateway-web] turn failed for ${user}/${session}: ${err.message}`);
             this.push(user, run, { type: "error", message: err.message, code: "gateway" });
             this.finish(user, run, begin);
@@ -93,10 +112,30 @@ export class TurnHub {
     };
   }
 
+  /**
+   * A turn event the watch reported. A turn of this hub's own is ignored: `send` delivers it. Any other
+   * turn opens on `turn.start`, is carried like one of ours, and ends through the same bookkeeping, so a
+   * subagent's usage is recorded under its own session. An event of a turn that was never seen to start
+   * is dropped: a turn already running when the hub subscribed cannot be replayed from its middle.
+   */
+  private watched(user: string, m: WatchedTurnEvent): void {
+    const k = key(user, m.session);
+    if (this.mine.has(k)) return;
+    let run = this.running.get(k);
+    if (m.event.type === "turn.start") {
+      run = { session: m.session, parent: m.parent, turn: m.event.turn, input: m.input ?? "", startedAt: new Date().toISOString(), events: [] };
+      this.running.set(k, run);
+    }
+    if (!run) return;
+    this.push(user, run, m.event);
+    if (m.event.type === "turn.end") this.finish(user, run, () => {});
+  }
+
   private finish(user: string, run: RunningTurn, begin: () => void): void {
     begin();
     if (run.events.at(-1)?.event.type !== "turn.end") this.push(user, run, { type: "turn.end", turn: run.turn ?? "", session: run.session });
     this.running.delete(key(user, run.session));
+    this.mine.delete(key(user, run.session));
     Promise.resolve()
       .then(() => this.onEnd(user, run))
       .catch((err: Error) => this.log(`[gateway-web] turn bookkeeping failed for ${user}/${run.session}: ${err.message}`));
@@ -106,6 +145,7 @@ export class TurnHub {
     const numbered = { seq: run.events.length + 1, event };
     run.events.push(numbered);
     const message: TurnMessage = { ...numbered, session: run.session, turn: run.turn };
+    if (run.parent) message.parent = run.parent;
     if (event.type === "turn.start") message.input = run.input;
     for (const fn of this.listeners.get(user) ?? []) {
       try {

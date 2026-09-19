@@ -67,6 +67,20 @@ async function openConversation(id) {
   composer.focus();
 }
 
+/** A sidebar row's click on a subagent: its tab when one is open, else its block in the conversation. */
+async function showAgent(id) {
+  places.close();
+  closeSidebar();
+  if (!(await tabs.reveal(id))) toast("That subagent's output is not on screen.");
+}
+
+/** The open glyph of a subagent's row: a tab of its own. */
+async function openAgent(id) {
+  places.close();
+  closeSidebar();
+  await tabs.open(id);
+}
+
 async function createConversation() {
   if (store.get("creating")) return;
   store.set({ creating: true });
@@ -151,7 +165,7 @@ async function chooseModel(id, model) {
 // --- the views ---
 
 const composer = mountComposer({ onSend: (text) => { void send(text); }, onStop: stop, onModel: chooseModel });
-const sessions = mountSessions({ onOpen: openConversation, onNew: createConversation, onArchive: archive, onRename: rename });
+const sessions = mountSessions({ onOpen: openConversation, onNew: createConversation, onArchive: archive, onRename: rename, onAgent: showAgent, onOpenAgent: openAgent });
 const tabs = mountTabs({
   onNew: createConversation,
   onArchive: (id) => { const s = store.session(id); if (s) void archive(id, !s.archived); },
@@ -221,9 +235,26 @@ $("sidebar-veil").addEventListener("click", closeSidebar);
 
 // --- the event stream ---
 
+/** A child turn's message names its `parent`: the child is registered as that session's agent before anything draws it. */
+function noteAgent(message) {
+  const { session, event, parent } = message;
+  if (!parent) return;
+  const patch = { parent };
+  if (!store.agent(session)) patch.createdAt = message.startedAt || new Date().toISOString();
+  if (event.type === "turn.start" && typeof message.input === "string") patch.task = message.input;
+  if (event.type === "turn.end") {
+    // What the child's own events said, kept once its activity record goes.
+    const activity = store.activityOf(session);
+    patch.outcome = activity?.state === "failed" ? "failed" : activity?.state === "stopped" ? "stopped" : "done";
+    patch.cost = (store.agent(session)?.cost ?? 0) + (activity?.cost ?? 0);
+  }
+  store.setAgent(session, patch);
+}
+
 function applyTurn(message) {
-  const { session, event } = message;
-  applyActivity(session, event, message.startedAt);
+  const { session, event, parent } = message;
+  noteAgent(message);
+  applyActivity(session, event, message.startedAt, parent);
   if (event.type === "turn.start") store.mark("running", session, true);
   if (event.type === "turn.end") {
     store.mark("running", session, false);
@@ -239,7 +270,11 @@ connect({
   onSnapshot: async (snapshot) => {
     store.set({ running: new Set(snapshot.running.map((r) => r.session)) });
     // Every running turn's events so far, replayed through the activity model, so the sidebar knows the step.
-    for (const r of snapshot.running) for (const { event } of r.events ?? []) applyActivity(r.session, event, r.startedAt);
+    // Conversations before their subagents, so a child's events find its parent's record already open.
+    const running = [...snapshot.running].sort((a, b) => Number(Boolean(a.parent)) - Number(Boolean(b.parent)));
+    const children = running.filter((r) => r.parent).map((r) => [r.session, { parent: r.parent, task: r.input, createdAt: r.startedAt }]);
+    if (children.length) store.setAgents(children);
+    for (const r of running) for (const { event } of r.events ?? []) applyActivity(r.session, event, r.startedAt, r.parent);
     for (const [id, record] of store.get("activity")) if (record.state === "working" && !snapshot.running.some((r) => r.session === id)) store.setActivity(id, null);
     await refreshList();
     if (opened) {

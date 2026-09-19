@@ -11,6 +11,10 @@ export function createProvider(config) {
         yield { type: "tool_call", call: { id: "c1", name: "shell", args: { cmd: text.slice(5) } } };
         return;
       }
+      if (text.startsWith("spawn: ") && call.tools.some((t) => t.name === "spawn_subagent")) {
+        yield { type: "tool_call", call: { id: "c9", name: "spawn_subagent", args: { task: text.slice(7), label: "helper" } } };
+        return;
+      }
       if (text === "interrupt!") {
         yield { type: "tool_call", call: { id: "c5", name: "shell_interrupt", args: {} } };
         return;

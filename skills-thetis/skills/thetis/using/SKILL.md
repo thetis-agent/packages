@@ -43,7 +43,7 @@ The person can stop a turn. The text you streamed before the stop stays in the c
 
 A subagent is a session with a parent. It lives in the same userspace. It sees the same files and the same packages. It has its own conversation and its own harness.
 
-Call `spawn_subagent` with `task`. The tool creates a child session, sends the task, and returns `[subagent <session id>]` and the final reply. The child session persists after the reply.
+Call `spawn_subagent` with `task` and a short `label` such as `research`. The tool creates a child session, sends the task, and returns `[subagent <session id> <label>]` on its first line and the final reply after it; `stopped: …` there means the person stopped it (what it had said so far follows), `error: …` means its turn failed. The person sees the subagent work under its label inside your conversation, so choose a label that says what it is doing. Stopping your turn stops the subagent. A subagent may call `spawn_subagent` itself. The child session persists after the reply.
 
 The subagent turn runs inside your tool call. Your turn waits. The default request timeout is 600000 milliseconds. Give a subagent a task that ends inside that time.
 

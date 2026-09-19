@@ -14,7 +14,7 @@ Seven tools, declared in `thetis.tools`:
 | `delete_package` | `name` (required) | `deleted <name> and its files at <path>; <original> is back in place. Live on the next turn.` Refuses `@thetis/*` packages. |
 | `package_config` | `name` (required) | The package's `ConfigReport` as text: the summary sentence, the fork chain it inherits from, one line per key (`key: state [source, inherited from X] = value`), and each declared key's help. A secret is `•••`. |
 | `configure_package` | `name`, `key` (required), `value`, `unset`, `json` | `set <key> on <name>: now <state> [<source>]. <name>: <summary>.` and `The service was restarted.` when the package declares a service. With `unset: true` the key leaves the person's layer and the reply says what it falls back to. `json: true` parses `value`. The reply never repeats the value. |
-| `spawn_subagent` | `task` (required) | `[subagent <session id>]` and the subagent's final reply. The subagent runs in the same userspace with the same files and packages. |
+| `spawn_subagent` | `task` (required), `label` (a short name the person sees, such as `research`) | `[subagent <session id> <label>]` on the first line, or `[subagent <session id>]` without a label, then the subagent's final reply. The subagent runs in the same userspace with the same files and packages. Stopping the parent turn stops it: the tool runs with `env.signal` and cancels the child when the signal aborts. A subagent may spawn subagents. |
 
 Bench suites: `assembly-cost@1` and `tool-recall@1`, peer group `tools`. `BENCH.md` in this directory is the generated comparison.
 
@@ -48,22 +48,24 @@ install_package { source: "packages/tools-plan" }
 delete_package { name: "@alice/tools-plan" }
 ```
 
-Hand a task to a subagent and wait for its reply:
+Hand a task to a subagent and wait for its reply. The label is what the person sees while it works:
 
 ```
-spawn_subagent { task: "Read docs/ and list every command the CLI accepts." }
+spawn_subagent { task: "Read docs/ and list every command the CLI accepts.", label: "cli survey" }
 ```
+
+The reply begins `[subagent s_… cli survey]`. Readers parse that line with `/^\[subagent (s_[a-f0-9]+)(?: ([^\]]*))?\]/`; the web gateway uses it to tie the child's record to the call that spawned it. A stopped child answers `stopped: the subagent was stopped before it finished.` on the second line, with what it had said so far after that; a failed one answers `error: <message>` there.
 
 ## Files
 
 | File | Content |
 |---|---|
 | `package.json` | The manifest: seven tools and the bench declaration. |
-| `src/index.ts` | The six tool functions. Forking is `forkPackage` from `@thetis/lib/pkg-fs`; install, uninstall and delete go through `env.kernel.packages`; subagents through `env.kernel.sessions`. |
+| `src/index.ts` | The seven tool functions. Forking is `forkPackage` from `@thetis/lib/pkg-fs`; install, uninstall and delete go through `env.kernel.packages`; subagents through `env.kernel.sessions`, with the cancel cascade on `env.signal`. |
 | `BENCH.md`, `bench/` | The generated benchmark view and reports. |
 
 ## Tests
 
-The package has no test directory of its own. `npm test` from the runtime root covers it through the host tests: `packages/host/test/e2e.test.ts` runs the write, exec and install cycle through a real fence.
+The package has no test directory of its own. `npm test` from the runtime root covers it through the host tests: `packages/host/test/e2e.test.ts` runs the write, exec and install cycle through a real fence, and `packages/gateway-web/test/gateway.test.ts` spawns a subagent with the echo provider's `spawn:` cue, checks the result line and the child's record, and stops the parent while the child streams.
 
 See docs/20-tools.md in the runtime repository.

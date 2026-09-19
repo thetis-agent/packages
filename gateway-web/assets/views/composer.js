@@ -104,6 +104,20 @@ export function mountComposer({ onSend, onStop, onModel }) {
     const running = id && store.isRunning(id);
     const busy = locked();
     setHidden(stopBtn, !running);
+    if (id && store.isAgent(id)) {
+      // A subagent's tab: nothing can be said to it. Stop stays, and cancels the child.
+      input.disabled = true;
+      input.placeholder = "A subagent has no composer. Talk to its conversation.";
+      form.classList.add("is-agent");
+      form.classList.toggle("is-running", Boolean(running));
+      form.classList.remove("is-locked");
+      setHidden(sendBtn, true);
+      note.textContent = running ? "The subagent is working." : "";
+      setHidden(picker.node, true);
+      return;
+    }
+    form.classList.remove("is-agent");
+    setHidden(sendBtn, false);
     input.disabled = Boolean(busy);
     input.placeholder = store.get("creating") ? "Creating the conversation…" : busy ? "Sending…" : running ? "Thetis is working — the box opens when the turn ends" : "Message Thetis…";
     form.classList.toggle("is-locked", Boolean(busy));
@@ -135,14 +149,14 @@ export function mountComposer({ onSend, onStop, onModel }) {
     const text = input.value.trim();
     if (!text || locked()) return;
     const id = store.get("current");
-    if (id && store.isRunning(id)) return;
+    if (id && (store.isRunning(id) || store.isAgent(id))) return;
     if (onSend(text) === false) return;
     input.value = "";
     autosize();
     draw();
   });
 
-  for (const key of ["current", "running", "pending", "creating", "sessions", "choices"]) store.watch(key, draw);
+  for (const key of ["current", "running", "pending", "creating", "sessions", "choices", "agents"]) store.watch(key, draw);
   store.watch("current", () => {
     input.value = "";
     autosize();
