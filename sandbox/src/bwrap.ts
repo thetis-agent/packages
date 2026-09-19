@@ -5,6 +5,7 @@ import { dirname } from "node:path";
 import type { Readable } from "node:stream";
 import { SYSTEM_USER, type Mount, type Userspace } from "@thetis/contracts";
 import type { FenceCgroup } from "./cgroup.js";
+import { FENCE_DOCKER_SOCKET } from "./docker.js";
 
 /** The OS directories every fence may read. Missing ones are skipped. */
 const OS_DIRS = ["/usr", "/etc", "/opt", "/bin", "/sbin", "/lib", "/lib32", "/lib64"];
@@ -26,6 +27,11 @@ export interface BwrapLayout {
    * off) or the host runs cgroups v1; then the bind and the namespace are both simply left out.
    */
   cgroup?: FenceCgroup;
+  /**
+   * The host's Docker socket, bound into the fence at `FENCE_DOCKER_SOCKET`. Undefined for no Docker.
+   * Socket access is host root; see `docker.ts` for why it is offered anyway.
+   */
+  dockerSocket?: string;
 }
 
 export function hasBwrap(): boolean {
@@ -85,6 +91,15 @@ export function bwrapArgs(us: Userspace, layout: BwrapLayout, env: Record<string
   // fence. `/proc/meminfo` still reports the host's memory; correcting that needs something like lxcfs and
   // is out of scope.
   if (layout.cgroup) args.push("--ro-bind-try", layout.cgroup.dir, layout.cgroup.dest);
+  // The Docker socket, always at the path the CLI looks at by default, whatever it is called on the host, so
+  // `docker` and `docker compose` work in the fence with nothing configured. It goes after every bind above
+  // and its destination is under no other bind's path, because a bind of a parent directory lands on top of
+  // whatever was mounted beneath it and would silently take this away again. A unix socket is filesystem and
+  // not network, so this works in network mode `none` too. Read-only still permits `connect` — that needs
+  // write permission on the inode, which the mount's read-only flag does not govern — and does stop the
+  // fence unlinking the socket or putting its own there. `-try` so a daemon that is not running, or a path
+  // that is wrong, never keeps a fence from starting.
+  if (layout.dockerSocket) args.push("--ro-bind-try", layout.dockerSocket, FENCE_DOCKER_SOCKET);
   args.push("--bind", us.root, us.root, "--chdir", us.home);
   // Mounts come after the userspace and the OS, so a granted path wins over a read-only bind above it.
   for (const m of us.mounts ?? []) args.push(m.mode === "rw" ? "--bind" : "--ro-bind", m.path, m.path);

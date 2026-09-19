@@ -10,6 +10,14 @@ export interface FenceConfig {
   readOnly: string[];
   /** Host paths masked inside every fence. */
   hidden: string[];
+  /**
+   * Whether every fence is given the host's Docker socket. `auto` binds one when the kernel can use it,
+   * `on` binds it whether or not the probe passes, `off` never does. Socket access is host root: see
+   * `packages/sandbox/src/docker.ts` and [12-security.md](../../../docs/12-security.md) section 3.
+   */
+  docker: "auto" | "on" | "off";
+  /** The host Docker socket to bind, when it is not in one of the usual places. */
+  dockerSocket?: string;
 }
 
 export interface KernelConfig {
@@ -80,6 +88,7 @@ export function defaultConfig(home: string, projectRoot: string): KernelConfig {
       limits: { memoryMb: 1024, pids: 512, cpuPercent: 200 },
       readOnly: [resolve(projectRoot, "packages"), resolve(projectRoot, "node_modules"), resolve(home, "packages")],
       hidden: [home],
+      docker: "auto",
     },
     door: { host: "127.0.0.1", port: 8777 },
     control: { allowRestart: true, minUptimeSecs: 60, quietWaitMs: 120_000 },
@@ -120,7 +129,10 @@ export function loadConfig(home: string, projectRoot: string, env: NodeJS.Proces
 /** Writes the config without derived paths, so the file stays valid when the checkout moves. */
 export function saveConfig(config: KernelConfig): void {
   const { home, systemPackagesDir, promotedPackagesDir, sharedDir, agentPath, envFile, fence, ...portable } = config;
-  writeJson(configPath(home), { ...portable, fence: { sandbox: fence.sandbox, network: fence.network, limits: fence.limits } });
+  writeJson(configPath(home), {
+    ...portable,
+    fence: { sandbox: fence.sandbox, network: fence.network, limits: fence.limits, docker: fence.docker, ...(fence.dockerSocket ? { dockerSocket: fence.dockerSocket } : {}) },
+  });
 }
 
 function interpolate<T>(value: T, env: NodeJS.ProcessEnv): T {

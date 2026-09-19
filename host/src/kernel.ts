@@ -149,6 +149,8 @@ function processFence(c: Container): ProcessFence {
     hidden: cfg.fence.hidden,
     sharedDir: cfg.sharedDir,
     resolvConf: resolve(cfg.home, "fence-resolv.conf"),
+    docker: cfg.fence.docker,
+    dockerSocketPath: cfg.fence.dockerSocket,
     cgroups: () => c.get(T.cgroups),
     requestTimeoutMs: cfg.requestTimeoutMs,
     log: c.get(T.log),

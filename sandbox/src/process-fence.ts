@@ -5,6 +5,7 @@ import type { Fence, FenceHandle, KernelRpc, Userspace } from "@thetis/contracts
 import { CodedError, errorMessage } from "@thetis/lib/error";
 import { bwrapArgs, hasBwrap, hasCgroupNamespace, launcherCommand, launcherReady, presentMounts } from "./bwrap.js";
 import type { Cgroups, FenceCgroup, FenceLimits } from "./cgroup.js";
+import { dockerSocket, FENCE_DOCKER_SOCKET, type DockerAccess } from "./docker.js";
 import { ProcessHandle, type SandboxHandle } from "./handle.js";
 import { hasSlirp, startEgress, writeResolvConf } from "./network.js";
 
@@ -24,6 +25,10 @@ export interface ProcessFenceOptions {
   network: FenceNetwork;
   /** Where to write the resolver file bound over /etc/resolv.conf in egress mode. */
   resolvConf: string;
+  /** Whether every fence gets the host's Docker socket. `auto` binds one when the kernel can use it. */
+  docker: DockerAccess;
+  /** The host socket to bind, when it is not in one of the usual places. */
+  dockerSocketPath?: string;
   limits: FenceLimits;
   /** Resolved on the first sandboxed open, so a one-shot command that opens no fence never probes the cgroup. */
   cgroups?: () => Cgroups | undefined;
@@ -42,12 +47,25 @@ export class ProcessFence implements Fence {
   private readonly log: (line: string) => void;
   /** Answered on the first sandboxed open with a cgroup, and remembered: it costs a bubblewrap run. */
   private namespaced?: boolean;
+  /** The host's Docker socket bound into every fence, or undefined for no Docker. */
+  private readonly docker?: string;
 
   constructor(private readonly opts: ProcessFenceOptions) {
     this.log = opts.log ?? (() => {});
     this.sandbox = opts.sandbox === "auto" ? (hasBwrap() ? "bwrap" : "none") : opts.sandbox;
     this.network = resolveNetwork(this.sandbox, opts.network);
     if (this.network === "egress") writeResolvConf(opts.resolvConf);
+    // In mode `none` the agent runs as the host user and already reaches the host's socket at its own path;
+    // there is nothing to bind and nothing to report.
+    this.docker = this.sandbox === "bwrap" ? dockerSocket(opts.docker, opts.dockerSocketPath, this.log) : undefined;
+    if (this.docker) this.log(`[fence] docker: ${this.docker} is bound into every fence (socket access is host root)`);
+    // Worth saying once, because the failure it predicts looks like a broken stack rather than a fence rule:
+    // egress mode has no route to the host's loopback, so a container that publishes a port there — the
+    // default for `network_mode: host` with a loopback bind address — is unreachable from the fence that
+    // started it. The fence can still reach a container on a bridge network by its address.
+    if (this.docker && this.network === "egress") {
+      this.log('[fence] docker: containers listening on the host\'s loopback cannot be reached from network mode "egress"; set fence.network to "host" to reach them');
+    }
   }
 
   get mode(): "bwrap" | "none" {
@@ -56,6 +74,11 @@ export class ProcessFence implements Fence {
 
   get networkMode(): "egress" | "none" | "host" {
     return this.network;
+  }
+
+  /** The host's Docker socket every fence is given, or undefined when no fence has Docker. */
+  get dockerMode(): string | undefined {
+    return this.docker;
   }
 
   /**
@@ -110,7 +133,7 @@ export class ProcessFence implements Fence {
       cleanup.push(egress.stop);
     }
     (child.stdio as unknown as (Writable | null)[])[5]?.end("go\n");
-    this.log(`[fence] ${us.id}: started (network ${this.network}${placement ? ", limited" : ""})`);
+    this.log(`[fence] ${us.id}: started (network ${this.network}${placement ? ", limited" : ""}${this.docker ? ", docker" : ""})`);
   }
 
   private spawn(space: Userspace, cgroup?: FenceCgroup): ChildProcess {
@@ -126,12 +149,16 @@ export class ProcessFence implements Fence {
       THETIS_SHARED: this.opts.sharedDir,
       THETIS_USER: us.id,
       THETIS_MOUNTS: JSON.stringify(us.mounts),
+      // Set only when the socket is really bound, so a tool asks the environment what this fence has rather
+      // than probing a path and guessing why it is missing — the same reason `THETIS_MOUNTS` reports the
+      // mounts that were bound and not the ones that were asked for.
+      ...(this.docker ? { THETIS_DOCKER: FENCE_DOCKER_SOCKET } : {}),
     };
     const node = [process.execPath, this.opts.agentPath];
     if (this.sandbox === "none") {
       return spawn(node[0], node.slice(1), { cwd: us.home, env, stdio: ["pipe", "pipe", "pipe"] });
     }
-    const layout = { ...this.opts, network: this.network, cgroup };
+    const layout = { ...this.opts, network: this.network, cgroup, dockerSocket: this.docker };
     const cmd = launcherCommand(["bwrap", ...bwrapArgs(us, layout, env), "--", ...node], this.network);
     // fds 3 and 4 are unused; 5 is the launch gate (written by us), 6 the ready signal (written by the launcher).
     return spawn(cmd[0], cmd.slice(1), { env, stdio: ["pipe", "pipe", "pipe", "ignore", "ignore", "pipe", "pipe"] });
