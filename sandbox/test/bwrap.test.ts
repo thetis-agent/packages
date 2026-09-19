@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Userspace } from "@thetis/contracts";
 import { bwrapArgs, hasBwrap, hasCgroupNamespace, type BwrapLayout } from "../src/bwrap.js";
-import { CGROUP_MOUNT, fenceMount } from "../src/cgroup.js";
+import { CGROUP_MOUNT, fenceMount, limitValues } from "../src/cgroup.js";
 
 function space(root: string): Userspace {
   return { id: "alice", root, home: root, store: join(root, "store"), run: join(root, "run"), mounts: [] } as unknown as Userspace;
@@ -180,4 +180,28 @@ test("the fallback layout still starts that runtime, every time", { skip: toolch
   const read = spawnSync("bwrap", [...args, "--", "/bin/sh", "-c", show], { encoding: "utf8" });
   assert.equal(read.status, 0, read.stderr);
   assert.equal(read.stdout.trim().split("\n")[0], `0::${(own as string).slice(CGROUP_MOUNT.length)}`, "the host's path, no namespace");
+});
+
+test("memoryMb auto means no ceiling, and swap is only capped when memory is", () => {
+  // The default: the fence may use the whole machine, the way a container started without --memory does.
+  // The group is still created and still accounts, so memory.current, memory.peak and the oom_kill counter
+  // keep working; what goes away is the ceiling, not the bookkeeping.
+  const auto = limitValues({ memoryMb: "auto", pids: 512, cpuPercent: 200 });
+  assert.equal(auto.memoryMax, "max");
+  // Zero swap exists to stop a fence sliding out from under its ceiling. With no ceiling there is nothing
+  // to slide out of, and a zero there would be a limit nobody asked for, stricter than the host's own.
+  assert.equal(auto.swapMax, "max");
+  // A number still limits, and the other two are unaffected by the memory setting either way.
+  const capped = limitValues({ memoryMb: 8192, pids: 512, cpuPercent: 200 });
+  assert.equal(capped.memoryMax, String(8192 * 1024 * 1024));
+  assert.equal(capped.swapMax, "0");
+  assert.equal(capped.pidsMax, auto.pidsMax);
+  assert.equal(capped.cpuMax, auto.cpuMax);
+});
+
+test("the floors still apply to a limit that is a number", () => {
+  const tiny = limitValues({ memoryMb: 1, pids: 1, cpuPercent: 0 });
+  assert.equal(tiny.memoryMax, String(16 * 1024 * 1024), "a fence under 16 MiB cannot start at all");
+  assert.equal(tiny.pidsMax, "8");
+  assert.equal(tiny.cpuMax, "1000 100000");
 });

@@ -8,7 +8,13 @@ import { join, relative, resolve } from "node:path";
 export const CGROUP_MOUNT = "/sys/fs/cgroup";
 
 export interface FenceLimits {
-  memoryMb: number;
+  /**
+   * The memory ceiling of one fence in megabytes, or `"auto"` for none: the fence may then use the whole
+   * machine, the way a container does when it is started without `--memory`. `"auto"` is the default. The
+   * group is still created and still accounts, so `memory.current`, `memory.peak` and the `oom_kill`
+   * counter all keep working; what goes away is the ceiling, not the bookkeeping.
+   */
+  memoryMb: number | "auto";
   pids: number;
   cpuPercent: number;
 }
@@ -42,6 +48,23 @@ export interface FenceCgroup {
 }
 
 const CONTROLLERS = ["memory", "pids", "cpu"];
+/** What cgroup v2 writes into a `.max` file to mean no limit at all. */
+const NO_LIMIT = "max";
+
+/** One fence's limits as the control files spell them. Pure, so the decision can be read and tested on its own. */
+export function limitValues(limits: FenceLimits): { memoryMax: string; swapMax: string; pidsMax: string; cpuMax: string } {
+  // Swap is capped at zero only when memory is: the point of that zero is to stop a fence sliding out from
+  // under its ceiling into swap, and with no ceiling there is nothing to slide out of. Leaving it at zero
+  // under an unlimited memory setting would be a limit nobody asked for, and a stricter one than the host's
+  // own default.
+  const unlimited = limits.memoryMb === "auto";
+  return {
+    memoryMax: unlimited ? NO_LIMIT : String(Math.max(16, limits.memoryMb as number) * 1024 * 1024),
+    swapMax: unlimited ? NO_LIMIT : "0",
+    pidsMax: String(Math.max(8, limits.pids)),
+    cpuMax: `${Math.max(1, limits.cpuPercent) * 1000} 100000`,
+  };
+}
 
 /**
  * Where a fence's cgroup directory has to appear inside the fence — derived here, so only this file knows
@@ -90,11 +113,12 @@ export class Cgroups {
   /** A limited group for one fence. `attach` moves a process into it; `release` removes the group once it is empty. */
   place(id: string, limits: FenceLimits): Placement {
     const dir = this.fenceDir(id);
+    const v = limitValues(limits);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(resolve(dir, "memory.max"), String(Math.max(16, limits.memoryMb) * 1024 * 1024));
-    if (existsSync(resolve(dir, "memory.swap.max"))) writeFileSync(resolve(dir, "memory.swap.max"), "0");
-    writeFileSync(resolve(dir, "pids.max"), String(Math.max(8, limits.pids)));
-    writeFileSync(resolve(dir, "cpu.max"), `${Math.max(1, limits.cpuPercent) * 1000} 100000`);
+    writeFileSync(resolve(dir, "memory.max"), v.memoryMax);
+    if (existsSync(resolve(dir, "memory.swap.max"))) writeFileSync(resolve(dir, "memory.swap.max"), v.swapMax);
+    writeFileSync(resolve(dir, "pids.max"), v.pidsMax);
+    writeFileSync(resolve(dir, "cpu.max"), v.cpuMax);
     return {
       attach: (pid) => writeFileSync(resolve(dir, "cgroup.procs"), String(pid)),
       release: () => {

@@ -5,7 +5,8 @@ import { readJson, writeJson } from "@thetis/lib/json";
 export interface FenceConfig {
   sandbox: "auto" | "bwrap" | "none";
   network: "auto" | "egress" | "none" | "host";
-  limits: { memoryMb: number; pids: number; cpuPercent: number };
+  /** Per-fence resource limits. `memoryMb: "auto"` is no memory ceiling at all, and is the default. */
+  limits: { memoryMb: number | "auto"; pids: number; cpuPercent: number };
   /** Host paths every fence may read besides the OS. */
   readOnly: string[];
   /** Host paths masked inside every fence. */
@@ -85,7 +86,7 @@ export function defaultConfig(home: string, projectRoot: string): KernelConfig {
     fence: {
       sandbox: "auto",
       network: "auto",
-      limits: { memoryMb: 1024, pids: 512, cpuPercent: 200 },
+      limits: { memoryMb: "auto", pids: 512, cpuPercent: 200 },
       readOnly: [resolve(projectRoot, "packages"), resolve(projectRoot, "node_modules"), resolve(home, "packages")],
       hidden: [home],
       docker: "auto",

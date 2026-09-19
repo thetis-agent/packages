@@ -90,7 +90,9 @@ Clean up after yourself. A container you leave running outlives your session, yo
 
 ## Limits
 
-`fence.limits` gives each fence a cgroup v2 group: `memoryMb` (default 1024), `pids` (default 512), and `cpuPercent` (default 200, where 100 is one core). The limits apply only when the kernel runs in a delegated cgroup. Otherwise the kernel logs `[fence] resource limits off` once. There is no disk quota.
+`fence.limits` gives each fence a cgroup v2 group: `memoryMb` (default `auto`), `pids` (default 512), and `cpuPercent` (default 200, where 100 is one core). The limits apply only when the kernel runs in a delegated cgroup. Otherwise the kernel logs `[fence] resource limits off` once. There is no disk quota.
+
+By default there is no memory ceiling: `memory.max` reads `max` and you may use the whole machine. The group still accounts, so `memory.current`, `memory.peak` and the `oom_kill` counter in `memory.events` are still the honest answers about what you used and whether something was killed at a limit. Read `memory.max` before you believe any number: an installation may set a cap, and when it does, that is how much memory you have, not what `/proc/meminfo` says.
 
 Each fence request has a timer of `requestTimeoutMs` milliseconds, default 600000. On timeout the request fails with the code `fence`, and the agent is closed. The next request opens a new agent. A tool or a subagent must end inside that time.
 
@@ -110,7 +112,7 @@ Each fence request has a timer of `requestTimeoutMs` milliseconds, default 60000
 | `npm install` with network mode `none`. | Fails. | No interface. |
 | Bind a host port from a service. | Refused. | Use a unix socket under `run/`. |
 | A request longer than `requestTimeoutMs`. | The agent is killed and restarted. | The request timer. |
-| A process count above `pids` or memory above `memoryMb`. | Killed. | The cgroup limit, when delegated. |
+| A process count above `pids`, or memory above `memoryMb` when it is a number. | Killed. | The cgroup limit, when delegated. `memory.events` shows `oom_kill` rising; an exit 137 without it is something else. |
 | Write to `process.stdout` from package code. | The line is logged as stray output. | `stdout` is the protocol channel. |
 
 Identity is the fence. A call to the kernel acts as the userspace's own user. No argument can name another user. An admin's fence may call operator methods. The kernel checks the role on every call.
