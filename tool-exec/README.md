@@ -51,7 +51,7 @@ delete_package { name: "@alice/tools-plan" }
 Hand a task to a subagent and wait for its reply. The label is what the person sees while it works:
 
 ```
-spawn_subagent { task: "Read docs/ and list every command the CLI accepts.", label: "cli survey" }
+spawn_subagent { task: "Read packages/gateway-cli/README.md and list every command the CLI accepts.", label: "cli survey" }
 ```
 
 The reply begins `[subagent s_… cli survey]`. Readers parse that line with `/^\[subagent (s_[a-f0-9]+)(?: ([^\]]*))?\]/`; the web gateway uses it to tie the child's record to the call that spawned it. A stopped child answers `stopped: the subagent was stopped before it finished.` on the second line, with what it had said so far after that; a failed one answers `error: <message>` there.
@@ -67,5 +67,3 @@ The reply begins `[subagent s_… cli survey]`. Readers parse that line with `/^
 ## Tests
 
 The package has no test directory of its own. `npm test` from the runtime root covers it through the host tests: `packages/host/test/e2e.test.ts` runs the write, exec and install cycle through a real fence, and `packages/gateway-web/test/gateway.test.ts` spawns a subagent with the echo provider's `spawn:` cue, checks the result line and the child's record, and stops the parent while the child streams.
-
-See docs/20-tools.md in the runtime repository.

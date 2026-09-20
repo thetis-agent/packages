@@ -112,7 +112,5 @@ Readers import from `@thetis/marketplace`: `readIndex(env)`, `search(index, quer
 
 ## Sources
 
-- docs/18-marketplace.md
-- docs/08-cli.md
 - packages/marketplace/README.md
 - packages/ui-marketplace/package.json

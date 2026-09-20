@@ -39,7 +39,8 @@ You changed a file and nothing behaves differently. Nothing is broken: what it t
 | The **one file** a `tool`, `step`, `enumerator` or UI-command export is declared in, a package's browser files under `ui/`, or its `package.json` | Nothing. The next turn, or the next request from the page, has it. |
 | **A file that entry imports**, such as a shared client or helper it does `import` at the top | A reload of that workspace. The agent re-reads the entry with a modification-time query, but a static import inside it carries no query, so the module cache keeps serving the old copy until the agent process is new. This is the row people get wrong: tool code is not all one tier. |
 | A package's service code, a provider, or the userspace agent | That person's workspace reloaded. |
-| `@thetis/kernel`, `@thetis/host`, `@thetis/sandbox`, `@thetis/door`, `@thetis/lib`, `@thetis/contracts`, the `thetis` command (`@thetis/gateway-cli`), or `thetis.config.json` | A new daemon process. |
+| `@thetis/kernel`, `@thetis/host`, `@thetis/sandbox`, `@thetis/door`, `@thetis/lib`, `@thetis/contracts`, or the `thetis` command (`@thetis/gateway-cli`) | A new daemon process. |
+| `thetis.config.json` | Depends on the key. `thetis config reload` applies most of it at once, closes the fences for the `fence` block, and names what still needs a new process. See `thetis/configuration`. |
 
 Why: a `tool` or `step` export is imported with a modification-time query, so the agent re-reads it on every call. A service is imported once, when its agent starts, and the query versions only a package's entry module, so nothing short of a new agent process reads that module graph again. The kernel, the door and the configuration are read once by `thetis serve` and held for its life.
 
@@ -178,13 +179,6 @@ The provider retries `429`, `408`, `409`, `425`, `5xx`, and a `402` that names `
 
 ## Sources
 
-- docs/02-kernel.md
-- docs/03-fence.md
-- docs/05-packages.md
-- docs/07-providers.md
-- docs/10-development.md
-- docs/12-security.md
-- docs/20-tools.md
 - packages/kernel/src/packages/manager.ts
 - packages/kernel/src/pipeline/runner.ts
 - packages/kernel/src/pipeline/provider-call.ts
@@ -192,4 +186,3 @@ The provider retries `429`, `408`, `409`, `425`, `5xx`, and a `402` that names `
 - packages/tool-exec/src/index.ts
 - packages/lib/src/restart.ts
 - packages/tool-operator/index.js
-- docs/25-restart.md

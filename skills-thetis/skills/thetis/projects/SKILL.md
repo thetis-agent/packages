@@ -72,6 +72,5 @@ The place is the project's settings. It shows the name, the directories with a m
 
 ## Sources
 
-- docs/22-projects.md
 - packages/projects/package.json
 - packages/projects/README.md

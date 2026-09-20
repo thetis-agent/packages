@@ -73,5 +73,3 @@ exa_research_get { id: "<the run id from exa_research>" }
 ## Tests
 
 `npm test` from the runtime root. `test/exa.test.ts` runs every tool against a recorded fake fetch and checks the error sentences and the path guard. One live case runs only when `EXA_API_KEY` is set in the environment.
-
-See docs/19-exa.md in the runtime repository.

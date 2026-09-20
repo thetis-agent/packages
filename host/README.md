@@ -57,5 +57,3 @@ The socket is `$THETIS_HOME/thetis.sock`, mode `0600`. Anyone who can open it is
 ## Tests
 
 `npm test` from the runtime root builds and runs every suite. The suite of this package is `packages/host/test/e2e.test.ts`: a real kernel with the real `ProcessFence` and userspace agent and the echo provider, no network. It covers seeding, the prompt and tool steps, the tool loop, a package written into the userspace and live on the next turn, scope and visibility between users, promotion, git installs, operator methods from a fence, cancel, RPC identity, the control socket, suspension, fence isolation, forks, mounts, a live `config.set` reaching a provider and restarting a service in place, `env.storage()` with its clearing on delete and on user removal, a secret reaching a tool and nothing else, a fork inheriting its origin's key, the `0600` modes under `store/auth` and `store/secrets`, and `migrate`. To run it alone after `npm run build`: `node --test packages/host/dist/test/e2e.test.js`. Set `THETIS_TEST_SANDBOX=none` to run it without bubblewrap.
-
-See docs/02-kernel.md in the runtime repository.

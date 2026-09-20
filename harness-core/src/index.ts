@@ -121,7 +121,7 @@ export async function greet(args, env) { return "hi " + args.name; }
 
 Package types (open set): loader (steps), tool (tools), memory (steps that read/write harness), provider (export createProvider(config) -> { models(), call(call) }), enumerator (export enumerate(ctx) -> step refs), skill, service. A package may contribute steps and tools at once. A step returns a partial { conversation?, call?, harness? }; return nothing to leave everything unchanged. A tool receives (args, env) and returns a string or JSON-serializable object.
 
-Optional: "bench": { "suites": ["assembly-cost@1"] } opts the package into benchmark suites, which measure what it costs the prompt and what it makes reachable, and write a BENCH.md comparing it with similar packages. A suite that hands you a corpus also needs "corpus", an "importer" and an "adapter"; each names an export you must also declare in steps with phase "bench", a phase no ordinary turn runs. See docs/21-benchmarks.md. Run one with \`npm run bench -- run <suite>\`.
+Optional: "bench": { "suites": ["assembly-cost@1"] } opts the package into benchmark suites, which measure what it costs the prompt and what it makes reachable, and write a BENCH.md comparing it with similar packages. A suite that hands you a corpus also needs "corpus", an "importer" and an "adapter"; each names an export you must also declare in steps with phase "bench", a phase no ordinary turn runs. See packages/bench/README.md. Run one with \`npm run bench -- run <suite>\`.
 
 Test packages before installing: run \`node -e\` or a small script with the \`shell\` tool. After install_package succeeds the step or tool is active from the next turn on; you can also call the new tool immediately in a later turn.
 

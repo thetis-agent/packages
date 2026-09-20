@@ -69,7 +69,7 @@ test("the package manifest declares a skill directory and nothing else in thetis
 });
 
 test("the expected skills exist", () => {
-  const expected = ["thetis", ...["using", "packages", "pipeline", "skills", "projects", "marketplace", "web", "bench", "configuration", "fence", "troubleshooting"].map((n) => `thetis/${n}`)];
+  const expected = ["thetis", ...["using", "packages", "pipeline", "skills", "projects", "marketplace", "web", "bench", "configuration", "developing", "fence", "troubleshooting"].map((n) => `thetis/${n}`)];
   for (const id of expected) assert.ok(ids.has(id), `missing skill ${id}`);
   assert.equal(skills.length, expected.length);
 });

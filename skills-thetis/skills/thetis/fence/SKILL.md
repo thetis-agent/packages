@@ -119,9 +119,6 @@ Identity is the fence. A call to the kernel acts as the userspace's own user. No
 
 ## Sources
 
-- docs/03-fence.md
-- docs/12-security.md
 - packages/sandbox/src/docker.ts
-- docs/08-cli.md
 - packages/sandbox/README.md
 - packages/userspace-agent/src/agent.ts

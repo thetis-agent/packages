@@ -1,7 +1,7 @@
 # Browser checklist for the web gateway
 
 The browser code has no automated test. This checklist is driven through the Playwright MCP browser
-against a throwaway data directory (`docs/15-web-gateway.md` §10), and its result goes into the commit
+against a throwaway data directory (`packages/gateway-web/README.md` §10), and its result goes into the commit
 message of any phase that touches `assets/`. Each step names the DOM it expects, by id or class, so it
 can be checked with a snapshot or `document.querySelector` rather than by eye.
 
@@ -519,7 +519,7 @@ the OpenRouter key in the environment of `serve` (steps 43 and 47 send one messa
     it; the emulator loads (`ui/vendor/xterm.js`, once per page) into `.term-panes > .term-pane` and shows a
     prompt; `.term-cwd` reads `~` and `.term-meta` `bash · idle`; the chip reads `1 terminal`. The
     console must be clean: a blocked stylesheet here means the page was served without its nonce (see
-    `docs/12-security.md`). Reload: the drawer opens by itself, because the conversation has a shell, at
+    `packages/sandbox/README.md`). Reload: the drawer opens by itself, because the conversation has a shell, at
     the same height.
 55. **Type in it**: click the screen and type `printf '\033[31mRED\033[0m \033[1;32mGREEN\033[0m\n'` and
     Enter. `RED` renders in `--term-red` and `GREEN` bold in `--term-bright-green` — `getComputedStyle` on

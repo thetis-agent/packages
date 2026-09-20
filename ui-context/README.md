@@ -40,5 +40,3 @@ The dock asks when the page opens, when the open conversation changes, and when 
 ## Tests
 
 `npm test` from the runtime root runs `test/ui-context.test.js`: the command over a fake kernel (the record, `null` before a call, the refusal without a conversation), the manifest's files, and the browser module over a fake seam (nothing at import, one dock registered, the two tabs drawn, the refresh on conversation change and turn end, coalescing, the dropped late answer). The browser checklist is `packages/gateway-web/test/BROWSER.md`.
-
-See docs/15-web-gateway.md in the runtime repository.

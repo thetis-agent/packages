@@ -88,5 +88,3 @@ The package reads no environment variables itself. It writes `skills-hybrid/vect
 ## Tests
 
 `npm test` from the runtime root, or `node --test "test/*.test.js"` in this directory.
-
-See docs/23-skills.md in the runtime repository.

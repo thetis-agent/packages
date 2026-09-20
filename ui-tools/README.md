@@ -39,5 +39,3 @@ The dock asks once per conversation, once more when a turn of the open conversat
 ## Tests
 
 `npm test` from the runtime root runs `test/ui-tools.test.js`: the command over a fake kernel, and the browser module over a fake seam (nothing at import, one dock registered, one request per conversation and per turn end, the withheld set, the filter, the refusal). The browser checklist is `packages/gateway-web/test/BROWSER.md`.
-
-See docs/15-web-gateway.md in the runtime repository.

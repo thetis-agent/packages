@@ -31,4 +31,4 @@ An unknown method fails with the code `rpc`. A fence whose user has the role `us
 
 The methods a fence calls as itself, without `operator.`: `packages.install`, `packages.uninstall`, `packages.delete`, `packages.list`, `sessions.create`, `sessions.ask`, `sessions.send`, `sessions.cancel`, `sessions.list`, `sessions.inspect`, `models`, `auth.login`, `auth.authenticate`, and `auth.logout`. `auth.login` is answered only for the system userspace.
 
-Sources: docs/08-cli.md, docs/03-fence.md, packages/kernel/src/control.ts, packages/kernel/src/rpc.ts.
+Sources: the package that owns it, the package that owns it, packages/kernel/src/control.ts, packages/kernel/src/rpc.ts.

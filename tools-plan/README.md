@@ -79,5 +79,3 @@ ask_user { intro: "Two things before I start.", questions: [
 ## Tests
 
 `npm test` from the runtime root. The files are `test/todo.test.js`, `test/ask.test.js` and `test/ui-commands.test.js`, plain `node --test` files over a temporary directory.
-
-See docs/20-tools.md in the runtime repository.

@@ -52,5 +52,3 @@ On `skill-recall@1` this loader puts 13 whole bodies in the prompt for 98,677 by
 ## Tests
 
 `npm test` from the runtime root, or `node --test "test/*.test.js"` in this directory.
-
-See docs/23-skills.md in the runtime repository.

@@ -79,5 +79,3 @@ Continuous integration regenerates every report and fails on any difference, the
 ## Tests
 
 `npm test` from the runtime root. The files are `test/metrics.test.ts`, `test/report.test.ts`, `test/chart.test.ts`, `test/safety.test.ts`, `test/arena.e2e.test.ts`, `test/skills.e2e.test.ts`, `test/provider.test.js` and `test/upstream.test.js`.
-
-See docs/21-benchmarks.md in the runtime repository.

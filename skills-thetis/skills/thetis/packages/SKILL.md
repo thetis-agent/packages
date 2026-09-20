@@ -82,7 +82,17 @@ export async function greet(args, env) {
 }
 ```
 
-A tool receives the arguments and a `ToolEnv`: `cwd`, `root`, `store`, `shared`, `exec`, `readFile`, `writeFile`, `kernel`, `session` (`{ id, user, parent? }`), and `config` (the package's own configuration). A tool returns a string or a JSON value. A thrown error becomes `error: <message>` for the model. The turn continues.
+A tool receives the arguments and a `ToolEnv`: `cwd`, `root`, `store`, `shared`, `exec`, `readFile`, `writeFile`, `kernel`, `storage`, `session` (`{ id, user, parent? }`), and `config` (the package's own configuration). A tool returns a string or a JSON value. A thrown error becomes `error: <message>` for the model. The turn continues.
+
+## Keeping documents: `env.storage()`
+
+`env.storage(namespace?)` gives a package a `Store` of JSON documents: `get`, `set`, `delete`, `list`, `clear`. The kernel prefixes the namespace with `userspaces/<your user>/<your package>/`, so a package reaches only what it wrote and nothing a package names can leave its own tree. One document is capped at 256 KiB; an array at the top, or a `null` anywhere inside, is refused.
+
+Use it for what a package has to remember between turns. A file under home works too, and is the better choice for anything a person should be able to read and edit.
+
+`delete_package` clears a package's documents; `uninstall` leaves them, so reinstalling finds them again.
+
+**One trap.** A UI command's `env.storage()` is bound to `@thetis/gateway-web`, not to the package whose command is running. A page that needs its own documents has to go through a tool or a service of its own package.
 
 A provider:
 
@@ -204,9 +214,6 @@ The system userspace is never included. The full operator table is in [reference
 
 ## Sources
 
-- docs/05-packages.md
-- docs/07-providers.md
-- docs/08-cli.md
 - packages/kernel/src/packages/manifest.ts
 - packages/kernel/src/control.ts
 - packages/tool-exec/src/index.ts

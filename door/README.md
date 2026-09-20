@@ -51,5 +51,3 @@ Then open `http://127.0.0.1:8777/login` in a browser.
 ## Tests
 
 `npm test` from the runtime root builds and runs every suite. The suite of this package is `packages/door/test/door.test.ts`: closing the door ends an open event stream and its upstream request. To run it alone after `npm run build`: `node --test packages/door/dist/test/door.test.js`. `packages/gateway-web/test/gateway.test.ts` runs every case through a door in front of the login target and one gateway per person.
-
-See docs/15-web-gateway.md in the runtime repository.

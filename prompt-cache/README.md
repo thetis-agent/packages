@@ -87,5 +87,3 @@ applyOpenAiCompatible(body, policy);
 ## Tests
 
 `npm test` from the runtime root. The files are `test/policy.test.ts`, `test/plan.test.ts`, `test/wire.test.ts`, `test/usage.test.ts` and `test/step.test.ts`.
-
-See docs/16-prompt-cache.md in the runtime repository.

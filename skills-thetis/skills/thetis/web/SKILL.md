@@ -152,9 +152,6 @@ The shell draws the header and the close button. `open` returns an unmount funct
 
 ## Sources
 
-- docs/15-web-gateway.md
-- docs/17-control-panel.md
-- docs/plans/gateway-ui-modular.md
 - packages/gateway-web/README.md
 - packages/gateway-web/src/ui.ts
 - packages/gateway-web/assets/lib/ext.js

@@ -136,9 +136,6 @@ Keep `THETIS.md` stable inside a session. A change to it changes the system prom
 
 ## Sources
 
-- docs/03-fence.md
-- docs/06-sessions-and-users.md
-- docs/20-tools.md
 - packages/terminal/index.js
 - packages/tool-exec/src/index.ts
 - packages/tools-files/package.json
@@ -146,4 +143,3 @@ Keep `THETIS.md` stable inside a session. A change to it changes the system prom
 - packages/tools-plan/lib/ask-user.js
 - packages/harness-core/src/index.ts
 - packages/tool-operator/package.json
-- docs/25-restart.md

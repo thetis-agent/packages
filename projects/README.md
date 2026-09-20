@@ -75,5 +75,3 @@ The tool switch shows in the page after the first turn: the Tools dock of `@thet
 ## Tests
 
 `npm test` from the runtime root runs `test/store.test.js` (create, read, update, assign, remove, the limit, every validation rule), `test/steps.test.js` (nothing for an unassigned or stale session, the prompt section with mount states and instructions, the tool filter, `THETIS_MOUNTS` parsing) and `test/commands.test.js` (every verb against a fake environment over a temporary home, and that the browser modules parse). The browser checklist is `packages/gateway-web/test/BROWSER.md`.
-
-See docs/22-projects.md in the runtime repository.

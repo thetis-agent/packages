@@ -15,7 +15,7 @@ export interface FenceConfig {
   /**
    * Whether every fence is given the host's Docker socket. `auto` binds one when the kernel can use it,
    * `on` binds it whether or not the probe passes, `off` never does. Socket access is host root: see
-   * `packages/sandbox/src/docker.ts` and [12-security.md](../../../docs/12-security.md) section 3.
+   * `packages/sandbox/src/docker.ts`, which says what socket access gives away.
    */
   docker: "auto" | "on" | "off";
   /** The host Docker socket to bind, when it is not in one of the usual places. */

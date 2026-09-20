@@ -59,5 +59,3 @@ export async function benchReport(ctx) {
 ## Tests
 
 `npm test` from the runtime root runs `test/probe.test.js` with `node --test`: a well formed claim, a malformed one, junk inside a claim, the observation, and that `collect` keeps other packages' harness keys.
-
-See docs/21-benchmarks.md in the runtime repository.

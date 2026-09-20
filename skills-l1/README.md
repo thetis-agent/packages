@@ -58,5 +58,3 @@ The v2 design gave `load_skill` an `enum` of the known names, so that a hallucin
 ## Tests
 
 `npm test` from the runtime root, or `node --test "test/*.test.js"` in this directory.
-
-See docs/23-skills.md in the runtime repository.

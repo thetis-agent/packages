@@ -1,6 +1,6 @@
 # @thetis/skills-thetis
 
-The skills that teach an agent inside Thetis what Thetis is, how to use it, and how to change it from the inside. It is a `skill` package: a directory of `SKILL.md` files and nothing else. A loader package puts the skills in front of the model. The text is Simplified Technical English (ASD-STE100). Every command, path, field, and shape comes from `docs/` and from the code, and the code wins when the two disagree.
+The skills that teach an agent inside Thetis what Thetis is, how to use it, and how to change it from the inside. It is a `skill` package: a directory of `SKILL.md` files and nothing else. A loader package puts the skills in front of the model. The text is Simplified Technical English (ASD-STE100). Every command, path, field, and shape comes from the code, which is the only thing that can be wrong in a way a reader can check.
 
 ## What it provides
 
@@ -68,4 +68,3 @@ Run `node --test "packages/skills-thetis/test/*.test.js"` from the runtime root.
 - Every body ends with a `## Sources` list.
 - No file uses a word or a character from the style deny-list in `test/skills.test.js`.
 
-See docs/plans/skills.md in the runtime repository.

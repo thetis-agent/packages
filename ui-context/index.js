@@ -1,6 +1,6 @@
 // The command export of @thetis/ui-context. The dock asks `context` for the open conversation and gets
 // the session's turn count with the record `@thetis/harness-core` keeps under its own key in `harness`
-// after every call (docs/04-pipeline.md section 10). Nothing is computed here: the page draws what the
+// after every call (packages/kernel/src/pipeline/runner.ts). Nothing is computed here: the page draws what the
 // harness wrote, and an empty state when it has written nothing yet.
 
 /** The key `@thetis/harness-core` keeps its per-session state under. */

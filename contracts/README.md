@@ -56,5 +56,3 @@ The fence side is the pair `Fence` and `FenceHandle`, and the pool `Fences`. The
 ## Tests
 
 The package has no tests of its own. `packages/kernel/test/boundaries.test.ts` checks that its sources import nothing from `@thetis`. Run every test with `npm test` from the runtime root.
-
-See docs/02-kernel.md in the runtime repository.

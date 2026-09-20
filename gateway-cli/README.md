@@ -9,11 +9,16 @@ The manifest declares `type: gateway` and nothing else: no steps, no tools, no s
 | Command | Effect |
 |---|---|
 | `init` | Creates `$THETIS_HOME/thetis.config.json` with the portable defaults when it does not exist. |
-| `config` | Prints the effective configuration as JSON, interpolated API key included. |
+| `config` | Prints the effective configuration as JSON, interpolated API key included. Also `show [<package>] [--user <id>]`, `set <package> <key> [<value>] [--user <id>] [--json] [--stdin]`, `unset <package> <key> [--user <id>]`, and `reload`, which re-reads the file and says which keys went live, which reopened the fences, and which still need a new daemon. |
+| `status` | What is running, and whether each fence is on the code that is on disk now. |
+| `reload` | `--user <id>` or `--all`: closes that fence and opens it again, so its services start on the code on disk. |
+| `restart` | Asks the running daemon to restart itself once every turn has ended. Also `restart status` and `restart cancel`. |
+| `migrate` | Moves legacy record files into the storage driver. The daemon refuses to start while they are present. |
 | `serve` | Runs the kernel, its control socket, the door, and every installed service until `SIGINT` or `SIGTERM`. |
 | `users` | `list`, `add <id> [--admin]`, `remove <id>`, `suspend <id>`, `unsuspend <id>`, `role <id> <admin\|user>`, `passwd <id> [--password <text>]`. |
 | `packages` | `list`, `install <source>`, `uninstall <name>`, `promote <name> --user <id>`, `outdated`, `update [<name>]`, each with `[--user <id>]`. `install` and `uninstall` also work at the top level. Without `--user` the target is the system userspace. |
 | `mounts` | `list [--user <id>]` (each line says whether the host still has the directory), `add <user> <path> [--ro]` (refused with a sentence when it does not), `remove <user> <path>`, `browse [path]`. |
+| `ssh` | `list [--user <id>]`, `grant <user> <key> [--host <name>] [--scan <name>]`, `keygen <user>`, `revoke <user> <key>`. A grant names one key file, which the kernel loads into that fence's own agent; the key is never bound into the fence. |
 | `sessions` | `list --user <id>`, `show --user <id> --session <id>`. |
 | `send`, `chat` | One turn, or an interactive loop, as `--user <id>`, streaming the events. |
 | `models` | Every model id and its provider package. |
@@ -53,5 +58,3 @@ thetis chat --user alice
 ## Tests
 
 The package has no tests of its own. `packages/kernel/test/boundaries.test.ts` allows it, and only it besides the host, to import the kernel; `packages/host/test/e2e.test.ts` drives the control socket the commands use. Run every test with `npm test` from the runtime root.
-
-See docs/08-cli.md in the runtime repository.

@@ -41,7 +41,7 @@
       },
       "cache": {
         "type": "object",
-        "help": "The prompt caching policy: enabled (true), ttl (5m), systemTtl (1h), anchorStride (8), maxBreakpoints (4), explicitVendors ([\"anthropic\"]), overrides ({}), hints (tune) and affinity (true); see docs/16-prompt-cache.md section 6."
+        "help": "The prompt caching policy: enabled (true), ttl (5m), systemTtl (1h), anchorStride (8), maxBreakpoints (4), explicitVendors ([\"anthropic\"]), overrides ({}), hints (tune) and affinity (true); see packages/prompt-cache/README.md."
       },
       "retries": {
         "type": "number",

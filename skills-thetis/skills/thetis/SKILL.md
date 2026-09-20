@@ -36,6 +36,6 @@ A brief is a pointer, not the content. Call `skill_fetch` with the id before you
 
 ## Sources
 
-- docs/01-overview.md
-- docs/ARCHITECTURE.md
-- docs/plans/skills.md
+- README.md and each package's own README.md
+- packages/kernel/src/kernel.ts, packages/host/src/kernel.ts
+- packages/skills-thetis/skills/thetis/ for the rest of this set

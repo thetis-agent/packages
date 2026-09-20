@@ -12,10 +12,10 @@ The manifest declares `type: "ui"` and a `ui` block with `dir: "ui"`, `entry: "i
 
 | Verb | Export | Who may send it | What it does |
 |---|---|---|---|
-| `skills` | `uiSkills` | any signed-in person | `{ loader, loaders, universal, pinned, loaded, catalogue, dropped, notes, excluded, skills }`. The first block is the state the loader in force wrote for the conversation under `harness["@thetis/skills"]` (docs/23-skills.md section 5), read through `env.kernel.sessions.inspect(env.session)`; `loaders` names the installed loader packages; `excluded` is what the conversation's project switched off, from `excludedFor`, so a switch flipped in the project place shows at once; `skills` is the catalogue from `loadSkills(env, env.kernel.packages.list())`, one row per skill: `id`, `name`, `title`, `brief`, `short` (the first sentence), `description`, `tags`, `universal`, `package` (null for a skill under the home), `contentHash`, `children`, and `error` when `lint` would leave it out. Without a session, the catalogue alone. |
+| `skills` | `uiSkills` | any signed-in person | `{ loader, loaders, universal, pinned, loaded, catalogue, dropped, notes, excluded, skills }`. The first block is the state the loader in force wrote for the conversation under `harness["@thetis/skills"]` (packages/skills/README.md), read through `env.kernel.sessions.inspect(env.session)`; `loaders` names the installed loader packages; `excluded` is what the conversation's project switched off, from `excludedFor`, so a switch flipped in the project place shows at once; `skills` is the catalogue from `loadSkills(env, env.kernel.packages.list())`, one row per skill: `id`, `name`, `title`, `brief`, `short` (the first sentence), `description`, `tags`, `universal`, `package` (null for a skill under the home), `contentHash`, `children`, and `error` when `lint` would leave it out. Without a session, the catalogue alone. |
 | `skill` | `uiSkill` | any signed-in person | `{ id }` to `{ id, title, brief, package, contentHash, universal, excluded, children, resources, text }`, where `text` is what `renderBody` makes: the body, the skill directory, and the files beside `SKILL.md`. A missing or unknown id is refused. |
 
-Neither command reads a configuration; a UI command gets none (docs/15-web-gateway.md section 11.4).
+Neither command reads a configuration; a UI command gets none (packages/gateway-web/README.md).
 
 ## Use
 
@@ -51,4 +51,4 @@ The dock asks once per conversation, once more when a turn of the open conversat
 
 `npm test` from the runtime root runs `test/ui-skills.test.js`: the two commands over a fake kernel and a temporary home with a pack and a project (the state, the switches with a parent taking its nested skill, the catalogue rows, the refusals), the page's BM25 against the library's on the same rows, the manifest, and the browser module over a fake seam (nothing at import, one dock registered, one request per conversation and per turn end, the sections, the search without a request, a row opening the text through `skill` and the back link, the refusal). The browser checklist is `packages/gateway-web/test/BROWSER.md`.
 
-See docs/15-web-gateway.md and docs/23-skills.md in the runtime repository.
+See packages/gateway-web/README.md and packages/skills/README.md in the runtime repository.

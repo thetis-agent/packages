@@ -79,7 +79,28 @@ The defaults of the object fields:
 
 The kernel never sends the configuration of one package to another package. A web page command does not get it. A provider's secret stays in the fence of that provider. The OpenRouter key reaches only the system userspace. The kernel's own environment, `OPENROUTER_API_KEY` included, reaches no fence.
 
-To give your own package a setting, ask an operator to add `config.packages["@<you>/<name>"]` on the host. Inside the fence, a package can also read a file in home instead.
+To give your own package a setting, **declare it in your manifest** under `thetis.config`, then set it with the `configure_package` tool or the Configure form. A declaration is what makes a key real: the kernel validates it on install, so a malformed one refuses the install, and a declared key gets a type, a default, a help line and a place in the form. Asking an operator to add `config.packages[...]` on the host is the older way and is now only for a system default. The field table is in `thetis/packages`, in `references/manifest.md`.
+
+## When a configuration change takes effect
+
+`CONFIG_TIERS` in `packages/kernel/src/config.ts` declares this per key of `thetis.config.json`, and `thetis config reload` prints which of the three happened:
+
+| Tier | Keys | What it takes |
+|---|---|---|
+| `dispatch` | `model`, `phases`, `callPhase`, `enumerator`, `systemPackages`, `packages`, `control` | `thetis config reload`, live at once |
+| `fence` | the whole `fence` block, `requestTimeoutMs` | `thetis config reload`, which closes every fence so each reopens with it |
+| `boot` | `door`, `storage` | a daemon restart |
+
+**A key with no entry is treated as `boot`.** So a new configuration key that nobody declared a tier for is silently un-reloadable, and the fix is a line in `CONFIG_TIERS` rather than anything at the call site. A person's own package settings are not in this table at all: `config.set` from a fence, the Configure form and the `configure_package` tool all take effect on the next call, with no reload of anything.
+
+`thetis config reload` also names the keys it could **not** apply, rather than looking like it worked:
+
+```
+changed: model, fence.docker, door.port
+live now: model
+applied by reopening every fence: fence.docker
+NOT applied -- these are read once at startup and need a daemon restart: door.port
+```
 
 Known keys:
 
@@ -118,8 +139,5 @@ A minimal file:
 
 ## Sources
 
-- docs/09-configuration.md
-- docs/07-providers.md
-- docs/12-security.md
 - packages/kernel/src/config.ts
 - packages/kernel/src/control.ts

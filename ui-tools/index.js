@@ -3,11 +3,11 @@
 // It reads `env.kernel.packages.list()`, which is the same list the control panel shows, so the dock
 // never disagrees with it; and, when a conversation is open, `env.kernel.sessions.inspect(env.session)`
 // for the record `@thetis/harness-core` keeps under its own key in `harness` after every completed
-// turn (docs/04-pipeline.md section 10). Only the time and the tool names of that record travel: the
+// turn (packages/kernel/src/pipeline/runner.ts). Only the time and the tool names of that record travel: the
 // dock subtracts them from the declarations to name what a project or a mode package withheld in the
 // call phase, without this package knowing which one did. No package configuration is available here:
 // the gateway hands a UI command the fence environment, the person, and the session, and the kernel
-// sends `config.packages[<name>]` only into that package's own steps and tools (docs/15-web-gateway.md
+// sends `config.packages[<name>]` only into that package's own steps and tools (packages/gateway-web/README.md
 // section 11.4). This command needs none.
 
 /** The key `@thetis/harness-core` keeps its per-session state under. */

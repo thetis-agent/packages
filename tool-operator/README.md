@@ -83,4 +83,4 @@ The page's Content Security Policy allows no inline styles, so everything the ch
 
 `npm test` from the runtime root, or `node --test "test/*.test.js"` here. `test/tool.test.js`: every `ArmResult` state comes back byte for byte, an armed one carries the instruction to say it now, a missing or blank reason is refused before the kernel is asked, a trimmed reason is the only argument sent, a thrown `unauthorized` becomes the plain sentence, any other failure is not swallowed, and the manifest declares what this README says it does. `test/chip.test.js`: hidden while nothing is pending, the countdown and the Cancel button, both branches of the deadline in the title, the daemon going and the page waiting, and the waiting really ending.
 
-See `docs/25-restart.md` in the runtime repository for the whole restart feature, and `docs/05-packages.md` for the one package deliberately not installed for everyone.
+See `packages/lib/src/restart.ts` in the runtime repository for the whole restart feature, and `packages/kernel/src/packages/manifest.ts` for the one package deliberately not installed for everyone.

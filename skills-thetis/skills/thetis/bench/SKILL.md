@@ -129,7 +129,5 @@ Read the **Notes** section of a report before you quote a figure.
 
 ## Sources
 
-- docs/21-benchmarks.md
-- docs/08-cli.md
 - packages/bench/README.md
 - packages/bench-probe/README.md

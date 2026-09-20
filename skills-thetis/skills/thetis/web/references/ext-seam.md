@@ -27,4 +27,4 @@ The page calls `install(ext)` once per package. `ext` is frozen. Its members:
 
 A registration whose id is not in the package's declaration is ignored. A throwing `draw`, `mount`, `open`, or `render` is caught and reported once per package per slot. A transcript renderer that returns nothing falls through to the next one, then to the built-in row.
 
-Sources: docs/plans/gateway-ui-modular.md section 6.3, packages/gateway-web/assets/lib/ext.js.
+Sources: packages/gateway-web/assets/lib/ext.js, packages/gateway-web/README.md.

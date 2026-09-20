@@ -62,5 +62,3 @@ export async function remember(ctx) {
 ## Tests
 
 `npm test` from the runtime root builds every package and runs `test/harness.test.ts` with `node --test`.
-
-See docs/04-pipeline.md in the runtime repository.

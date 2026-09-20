@@ -7,7 +7,7 @@
  * place and nothing is sent.
  *
  * Kept byte-identical in @thetis/ui-admin and @thetis/ui-marketplace. A package's page may import only its
- * own files (docs/15 section 11.6), so the two copies are held together by a test rather than an import.
+ * own files (packages/gateway-web/README.md), so the two copies are held together by a test rather than an import.
  * The pure helpers are exported for that test; they touch no DOM. */
 
 /** The control a key gets, from its declared type, or from its value when it is not declared. */

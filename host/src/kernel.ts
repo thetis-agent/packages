@@ -148,7 +148,7 @@ function processFence(c: Container): ProcessFence {
     agentPath: cfg.agentPath,
     // The configuration object itself, not a copy of its values: `config.reload` writes the file layer
     // into it in place, so the next fence to open is built from the new settings with nothing else to
-    // wire. See [09-configuration.md](../../../docs/09-configuration.md) section 5.
+    // wire. `CONFIG_TIERS` in `packages/kernel/src/config.ts` says which keys that reaches.
     fence: cfg.fence,
     sharedDir: cfg.sharedDir,
     resolvConf: resolve(cfg.home, "fence-resolv.conf"),

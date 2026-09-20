@@ -64,5 +64,3 @@ error: old_text appears 3 times in packages/hello/index.js. Include enough surro
 ## Tests
 
 `npm test` from the runtime root. The files are `test/tools.test.js`, `test/paths.test.js`, `test/mounts.test.js` and `test/spill.test.js`, plain `node --test` files over a temporary directory.
-
-See docs/20-tools.md in the runtime repository.

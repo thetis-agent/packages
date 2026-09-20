@@ -1,6 +1,6 @@
 # @thetis/kernel
 
-The trusted service plane: who may do what. Users, passwords and tokens, sessions, the pipeline, package ownership, providers, the RPC table a fence may call, and the operator table the command line uses. It runs in the host process. It holds authority, not mechanism, and it has no opinions: prompts, tools, memory, and providers are packages that run in a fence. The kernel must stay under 1,400 lines of code.
+The trusted service plane: who may do what. Users, passwords and tokens, sessions, the pipeline, package ownership, providers, the RPC table a fence may call, and the operator table the command line uses. It runs in the host process. It holds authority, not mechanism, and it has no opinions: prompts, tools, memory, and providers are packages that run in a fence. The kernel must stay under the line count its guard sets, which is 1,450 and is stated only in `test/loc.test.ts`.
 
 ## What it provides
 
@@ -26,7 +26,7 @@ The layering rule: `kernel` imports `@thetis/contracts` and `@thetis/lib`, never
 
 `KernelConfig` is loaded by `loadConfig(home, projectRoot)`: the defaults from `defaultConfig`, then `$THETIS_HOME/thetis.config.json` over them, then every `${NAME}` in a string replaced from the environment, except under `packages`, which keeps its references for the config service to resolve at read time. The fields are `model`, `phases`, `callPhase`, `enumerator`, `systemPackages`, `packages` (the file layer of per-package configuration), `storage` (`{ driver }`), `fence`, `door`, `control`, and `requestTimeoutMs`, plus the derived paths `home`, `systemPackagesDir`, `promotedPackagesDir`, `sharedDir`, `agentPath`, and `envFile`. `packagesLayer(home)` reads the `packages` layer again for `config.reload`. `saveConfig` writes the file without the derived paths; only `thetis init` calls it.
 
-A package's code receives `ConfigService.effective(userspace, name)`: the declared defaults, the file layer, the system layer and the person's layer merged along the fork chain, secrets included, `${NAME}` references resolved from the process environment and the `.env` file as they are now. The layers live in the store (`config/*`, `secrets/*`); `LayeredConfig` in `@thetis/lib/config` is the mechanism and this package decides who may write which layer. See docs/09-configuration.md section 4.
+A package's code receives `ConfigService.effective(userspace, name)`: the declared defaults, the file layer, the system layer and the person's layer merged along the fork chain, secrets included, `${NAME}` references resolved from the process environment and the `.env` file as they are now. The layers live in the store (`config/*`, `secrets/*`); `LayeredConfig` in `@thetis/lib/config` is the mechanism and this package decides who may write which layer. The declaration fields are in `packages/contracts/src/config.ts`.
 
 ## Use
 
@@ -66,6 +66,4 @@ The rules the kernel enforces on every call: an unknown or suspended user is rej
 
 ## Tests
 
-`npm test` from the runtime root builds and runs every suite. This package has three, under `packages/kernel/test/`: `loc.test.ts` counts the lines of code and fails at 1,400 or more; `boundaries.test.ts` checks the import layers of every package; `unit.test.ts` covers the user store, the auth service, manifest validation, the enumerator, the configuration, redaction, the service restart, the config service, the `store.*` and `config.*` RPC handling, and the refusal of a storage driver at install. To run one alone after `npm run build`: `node --test packages/kernel/dist/test/loc.test.js`.
-
-See docs/02-kernel.md in the runtime repository.
+`npm test` from the runtime root builds and runs every suite. This package has three, under `packages/kernel/test/`: `loc.test.ts` counts the lines of code and fails at the `LIMIT` in that file, currently 1,450, not counting imports, re-exports, blank lines, comment-only lines or tests; `boundaries.test.ts` checks the import layers of every package; `unit.test.ts` covers the user store, the auth service, manifest validation, the enumerator, the configuration, redaction, the service restart, the config service, the `store.*` and `config.*` RPC handling, and the refusal of a storage driver at install. To run one alone after `npm run build`: `node --test packages/kernel/dist/test/loc.test.js`.

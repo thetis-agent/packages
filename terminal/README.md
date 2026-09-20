@@ -111,5 +111,3 @@ Left out on purpose: remote sessions over ssh (that crosses the fence's egress a
 ## Tests
 
 `npm test` from the runtime root, or `node --test "test/*.test.js"` here: `test/session.test.js` (spawn, exit status, a working directory carried over, a command that outruns its wait and is collected later, an interrupt that leaves the session alive, a ring buffer that drops and says so, an unframed shell, the session's own tty, a resize during a command that the running program sees and one at idle that prints nothing, and the typed fallback in a shell without the rc), `test/host.test.js` (the socket, the session limit, two consumers with independent cursors, the idle reaper, close on fence close, who typed read from the cursor key, a resize over the socket and the deferred fallback) and `test/marks.test.js` (the escape parser, including one split across two chunks and one inside command output, and the tty report). The gateway's stream route has its own tests in `@thetis/gateway-web`, and the browser checklist is `packages/gateway-web/test/BROWSER.md`.
-
-See docs/24-terminal.md in the runtime repository.

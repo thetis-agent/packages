@@ -83,5 +83,3 @@ Nothing updates on its own: the index says what is latest, the registry record s
 ## Tests
 
 `npm test` from the runtime root. `test/marketplace.test.ts` builds a git registry in a temporary directory, refreshes it with a real `exec`, and checks the index, a failed registry, the README copies and their cap, the image copies and their rules, the search ranking, the configuration parsing, the pinned sources, and what `behind` lists.
-
-See docs/18-marketplace.md in the runtime repository.

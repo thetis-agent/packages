@@ -57,5 +57,3 @@ const server = createLogin(kernel, { secure: false });
 ## Tests
 
 The package has no tests of its own; its `test/` directory is empty. `packages/gateway-web/test/gateway.test.ts` runs the login target behind a door: login refused and accepted, `next` kept inside the person's prefix, a suspended person, a password change, and logout; its last case installs this package into the system userspace and drives the same path through a real fence. Run every test with `npm test` from the runtime root.
-
-See docs/15-web-gateway.md in the runtime repository.

@@ -89,5 +89,3 @@ A person opens `/login`, signs in, and lands on `/<person>/`. The sidebar lists 
 ## Tests
 
 `npm test` from the runtime root builds the package and runs `test/gateway.test.ts` (a real kernel, one gateway per person behind the login target and the door) and `test/ui.test.ts` (the seam, with the fixtures `ui-good`, `ui-bad` and `ui-dup`). The browser code has no automated test; the checklist is `packages/gateway-web/test/BROWSER.md`.
-
-See docs/15-web-gateway.md in the runtime repository.

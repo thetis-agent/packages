@@ -67,4 +67,4 @@ interface SessionRecord {
 }
 ```
 
-Sources: docs/04-pipeline.md, docs/06-sessions-and-users.md, docs/07-providers.md, docs/16-prompt-cache.md.
+Sources: packages/kernel/src/pipeline/runner.ts, the package that owns it, the package that owns it, packages/prompt-cache/README.md.

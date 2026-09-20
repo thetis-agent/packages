@@ -14,7 +14,7 @@
 //
 // A tool answers a person's colleague: a string, factual, bounded, and claiming nothing that was not
 // observed. A ui command answers a program: `{ data }`, because the gateway keeps `text` and `data` and
-// drops every other field (`docs/15-web-gateway.md` section 11.4), and a thrown error is a `400` with
+// drops every other field (`packages/gateway-web/README.md` section 11.4), and a thrown error is a `400` with
 // its sentence. The one streaming command yields values instead, batched on a frame tick, and closes its
 // connection when the browser lets go.
 import { randomBytes } from "node:crypto";

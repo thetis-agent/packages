@@ -73,5 +73,3 @@ The model of a turn is `config.model` (`anthropic/claude-sonnet-5` by default), 
 ## Tests
 
 `npm test` from the runtime root builds every package and runs `test/retry.test.ts` with `node --test`. Nothing in the tests reaches the network.
-
-See docs/07-providers.md in the runtime repository.

@@ -1,10 +1,10 @@
 // The two commands of @thetis/ui-skills. `skills` answers what the dock draws: the state the loader in
-// force wrote for the open conversation under `harness["@thetis/skills"]` (docs/23-skills.md section 5),
+// force wrote for the open conversation under `harness["@thetis/skills"]` (packages/skills/README.md),
 // the ids the conversation's project switched off, and the catalogue every loader works from, read with
 // the library's own `loadSkills` over `env.kernel.packages.list()`, so the dock never disagrees with the
 // prompt. `skill` answers the rendered text of one skill so a row can open it. The exclusion comes from
 // `excludedFor`, not from the harness state, so a switch flipped in the project place shows here at once,
-// before the next turn. No package configuration is available to a UI command (docs/15-web-gateway.md
+// before the next turn. No package configuration is available to a UI command (packages/gateway-web/README.md
 // section 11.4); these need none.
 import { brief, excludedFor, firstSentence, lint, loadSkills, renderBody, STATE } from "@thetis/skills";
 

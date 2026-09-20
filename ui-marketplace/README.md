@@ -56,5 +56,3 @@ Each answers `{ data }`; a refusal is a thrown error, which the gateway answers 
 ## Tests
 
 `npm test` from the runtime root runs `test/ui-marketplace.test.js`: the row merge, `search` and `show` with and without an index, the person's own install, remove, delete and update, the admin verbs over a fake operator call, the `config-*` verbs over a fake `env.kernel.config` (what they pass, what they refuse, that nothing is written to the console), that `ui/config-form.js` is the same file as ui-admin's, and that the browser modules parse and the entry defines `install` and nothing else. `packages/gateway-web/test/gateway.test.ts` sends `search`, `show` and the admin verbs through a real gateway. The browser checklist is `packages/gateway-web/test/BROWSER.md`.
-
-See docs/18-marketplace.md in the runtime repository.

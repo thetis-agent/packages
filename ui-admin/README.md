@@ -72,5 +72,3 @@ An admin opens **Control panel** from the sidebar's ≡ menu and finds the seven
 ## Tests
 
 `npm test` from the runtime root runs `test/ui-admin.test.js`: each command over a fake `env.kernel.operator.call` (the method and arguments it sends, what it refuses before the kernel is asked, the own-account refusal), the `config-*` verbs (the arguments they pass to `config.*`, what they refuse, and that nothing is written to the console, so no value can be), the form's pure helpers, and the browser modules (they parse, the entry defines `install` and nothing else, `install` registers exactly the seven sections). `packages/gateway-web/test/gateway.test.ts` sends the verbs through a real gateway as an admin and as a user. The browser checklist is `packages/gateway-web/test/BROWSER.md`.
-
-See docs/17-control-panel.md in the runtime repository.

@@ -89,5 +89,3 @@ if (remote) {
 ## Tests
 
 `npm test` from the runtime root builds and runs every suite. The suites of this package are under `packages/lib/test/`: `lib.test.ts` (the container, the async queue, package sources, the JSON directory store, the RPC framing), `store.test.ts` (ids, documents, the memory driver, the mirror), `config.test.ts` (declarations, the fork chain, layer-major merging, references, `describe`, the env file, `LayeredConfig` over `memoryStore()`), `freshness.test.ts` and `restart.test.ts`. To run one alone after `npm run build`: `node --test packages/lib/dist/test/lib.test.js`.
-
-See docs/02-kernel.md in the runtime repository.

@@ -79,7 +79,7 @@ A skill with an error is left out and named in the prompt's notes. A warning kee
 
 ## The library and the loaders
 
-The plan `docs/plans/skills.md` defines one library and three loaders. Read the installed package list in the system prompt to see which loader is installed.
+One library and three loaders ship: `@thetis/skills` and `skills-all`, `skills-l1`, `skills-hybrid`. Read the installed package list in the system prompt to see which loader is installed.
 
 The library `@thetis/skills` (type `skill-type`) parses, loads, lints, and ranks skills. It declares one tool that every loader shares:
 
@@ -105,6 +105,6 @@ The loaders opt into `skill-recall@1` and `assembly-cost@1` with `peerGroup: "sk
 
 ## Sources
 
-- docs/plans/skills.md
-- docs/21-benchmarks.md
-- docs/22-projects.md
+- packages/skills/README.md and packages/skills/src/
+- packages/skills-all/README.md, packages/skills-l1/README.md, packages/skills-hybrid/README.md
+- packages/skills-thetis/README.md for the lint this package is held to

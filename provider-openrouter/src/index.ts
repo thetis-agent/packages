@@ -10,7 +10,7 @@ export interface OpenRouterConfig {
   headers?: Record<string, string>;
   /** Request fields sent with every call, under `call.params`. For example `provider: { order: ["anthropic"] }`. */
   defaults?: Record<string, unknown>;
-  /** Prompt caching policy. See docs/16-prompt-cache.md. */
+  /** Prompt caching policy. See packages/prompt-cache/README.md. */
   cache?: CacheConfig;
   /** How many times a refused request is retried when the refusal is transient (rate limit, in-flight budget, server error). Default 3. */
   retries?: number;

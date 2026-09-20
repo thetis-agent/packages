@@ -59,5 +59,3 @@ A service logs with `env.log(line)`, which writes to `stderr` with the package n
 ## Tests
 
 `test/env.test.ts` checks the per-package env against a fake RPC: the five store calls, `null` to `undefined`, the base env refusing storage. `packages/host/test/e2e.test.ts` runs the real agent inside the real fence for every case, and `packages/gateway-web/test/gateway.test.ts` runs the login target and a gateway as its services. Run every test with `npm test` from the runtime root.
-
-See docs/03-fence.md in the runtime repository.
