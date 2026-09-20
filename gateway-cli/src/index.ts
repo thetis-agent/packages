@@ -1,6 +1,7 @@
 // CLI gateway. When `thetis serve` runs, every command is a client of that one kernel over the control
 // socket, so installs, passwords and moderation reach the running services. Without a daemon, a command
 // boots a kernel in-process. Both paths speak to the same operator handler, so the commands are one code.
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createInterface as createPrompt } from "node:readline/promises";
@@ -14,6 +15,7 @@ import { parseDotEnv } from "@thetis/lib/config";
 import { errorMessage } from "@thetis/lib/error";
 import { connectRpcSocket } from "@thetis/lib/ndjson-socket";
 import type { MountState } from "@thetis/lib/mounts";
+import type { SshGrantState } from "@thetis/lib/ssh";
 import { isSupervised, type Pending, type RestartState } from "@thetis/lib/restart";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
@@ -50,6 +52,12 @@ usage: thetis <command> [options]
   mounts add <user> <path> [--ro]      bind a host directory into that person's fence at the same path (read-write unless --ro)
   mounts remove <user> <path>
   mounts browse [path]                 the directories under a host path, to pick one to bind
+  ssh list [--user <id>]               the ssh keys granted to each person's fence, and whether each is on this host
+  ssh grant <user> <key> [--host <name>]... [--scan <name>]...
+                                       load one host key file into that person's fence agent; --host adds a
+                                       known_hosts line, --scan fetches them with ssh-keyscan. The key is never
+                                       bound into the fence: the agent holds it and the fence asks it to sign
+  ssh revoke <user> <key>
   models [--user <id>]                 models advertised by installed providers
   config                               print the configuration file over its defaults, secrets hidden
   config show [<package>] [--user <id>]  every key of one package and where its value comes from, or one line per package;
@@ -230,6 +238,8 @@ async function dispatch(call: Call, cmd: string, args: Args, shared: string): Pr
       return packagesCmd(call, args, user, shared);
     case "mounts":
       return mountsCmd(call, args, user);
+    case "ssh":
+      return sshCmd(call, args, user);
     case "config":
       return configCmd(call, args, user);
     case "install":
@@ -415,6 +425,64 @@ async function usersCmd(call: Call, args: Args): Promise<void> {
 function stateOf(m: MountState): string {
   if (m.present === undefined) return "";
   return m.present ? "bound" : m.kind === "file" ? "skipped (a file, not a directory)" : "skipped (not on the host)";
+}
+
+/**
+ * The grant list is replaced whole by `ssh.set`, the same way mounts are; grant and revoke read the
+ * current list first and send the edited one. A grant names one key file, never a directory: a host
+ * `~/.ssh` holds unrelated credentials, and granting the directory would give a fence all of them. The
+ * key is read by the kernel into that fence's own agent and is never bound where the fence can reach it.
+ */
+async function sshCmd(call: Call, args: Args, user: string | undefined): Promise<void> {
+  const [, sub, id, key] = args._;
+  const listOf = async (u: string) => ((await call("ssh.list", { user: u })) as Record<string, SshGrantState[]>)[u] ?? [];
+  if (sub !== "list" && sub !== undefined && !(id && key)) throw new Error(`ssh ${sub} needs <user> <key-path>`);
+  switch (sub) {
+    case "list":
+    case undefined: {
+      if (user) {
+        for (const g of await listOf(user)) print([user, g.key, g.present ? "" : "missing", (g.hosts ?? []).length ? `${(g.hosts ?? []).length} known host(s)` : "no known hosts"].filter(Boolean).join("\t"));
+        return;
+      }
+      const all = (await call("ssh.list", {})) as Record<string, SshGrantState[]>;
+      for (const [u, list] of Object.entries(all)) for (const g of list) print([u, g.key, g.present ? "" : "missing"].filter(Boolean).join("\t"));
+      return;
+    }
+    case "grant": {
+      // Known hosts are part of the grant because a key with no vouched-for host cannot connect to
+      // anything: StrictHostKeyChecking is on inside the fence, and there is nobody there to answer a
+      // prompt. `--host` may be given more than once, and `--scan` fetches the lines with ssh-keyscan.
+      const hosts = await knownHostLines(args);
+      const ssh = [...(await listOf(id)).filter((g) => g.key !== key), { key, ...(hosts.length ? { hosts } : {}) }];
+      const after = (await call("ssh.set", { user: id, ssh })) as SshGrantState[];
+      const granted = after.find((g) => g.key === key);
+      if (granted && granted.present === false) throw new Error(`${key} is written down for ${id}, but there is no such file on the host: the fence opens without an agent. Fix the path.`);
+      if (!hosts.length) print(`warning: no known hosts for ${key}; add --host <name> or --scan <name>, or ssh will refuse every connection`);
+      return print(`granted ${key} to ${id}; the fence reopens with an agent holding it`);
+    }
+    case "revoke": {
+      const before = await listOf(id);
+      const ssh = before.filter((g) => g.key !== key);
+      if (ssh.length === before.length) throw new Error(`${key} is not granted to ${id}`);
+      await call("ssh.set", { user: id, ssh });
+      return print(`revoked ${key} for ${id}; the fence reopens without it`);
+    }
+    default:
+      throw new Error(`unknown ssh subcommand: ${sub}`);
+  }
+}
+
+/** The known_hosts lines for a grant: those given with --host, plus those ssh-keyscan finds for --scan. */
+async function knownHostLines(args: Args): Promise<string[]> {
+  const named = [args.host].flat().filter((h): h is string => typeof h === "string" && h.length > 0);
+  const scan = [args.scan].flat().filter((h): h is string => typeof h === "string" && h.length > 0);
+  const lines = [...named];
+  for (const host of scan) {
+    const run = spawnSync("ssh-keyscan", [host], { encoding: "utf8" });
+    if (run.status !== 0) throw new Error(`ssh-keyscan ${host} failed: ${(run.stderr ?? "").trim()}`);
+    for (const line of run.stdout.split("\n").map((l) => l.trim())) if (line && !line.startsWith("#")) lines.push(line);
+  }
+  return [...new Set(lines)];
 }
 
 /**

@@ -26,6 +26,17 @@ export interface Mount {
   mode: "rw" | "ro";
 }
 
+/**
+ * An ssh credential an admin has granted to one person's fence. `key` is a host path the kernel reads; it
+ * is loaded into that fence's own agent and is never bound anywhere the fence can reach, so the fence may
+ * use the credential while it is open and can never copy it. `hosts` are the `known_hosts` lines vouched
+ * for alongside it, because a fence with a key and no known host cannot connect to anything.
+ */
+export interface SshGrant {
+  key: string;
+  hosts?: string[];
+}
+
 export interface Userspace {
   id: string;
   root: string;
@@ -36,6 +47,8 @@ export interface Userspace {
   run: string;
   /** Host paths bound into the fence besides the userspace. Absent or empty: none. */
   mounts?: Mount[];
+  /** ssh credentials this fence's own agent holds. Absent or empty: no agent, and no ssh. */
+  ssh?: SshGrant[];
 }
 
 export interface SessionInfo {

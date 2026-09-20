@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
-import type { Mount, Userspace } from "@thetis/contracts";
+import type { Mount, SshGrant, Userspace } from "@thetis/contracts";
 
 /**
  * The on-disk layout of each user's fenced environment under `<home>/userspaces/<id>`. `mountsFor`
@@ -10,11 +10,13 @@ export class UserspaceLayout {
   constructor(
     private readonly home: string,
     private readonly mountsFor: (userId: string) => Mount[] = () => [],
+    private readonly sshFor: (userId: string) => SshGrant[] = () => [],
   ) {}
 
   pathFor(userId: string): Userspace {
     const root = resolve(this.home, "userspaces", userId);
     const mounts = this.mountsFor(userId);
+    const ssh = this.sshFor(userId);
     return {
       id: userId,
       root,
@@ -23,6 +25,7 @@ export class UserspaceLayout {
       sessions: resolve(root, "sessions"),
       run: resolve(root, "run"),
       ...(mounts.length ? { mounts } : {}),
+      ...(ssh.length ? { ssh } : {}),
     };
   }
 

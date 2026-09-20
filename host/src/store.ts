@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { STORAGE_TYPE, type Manifest, type Mount, type PackageRecord, type StoreDriver, type StoreFactory, type UserRecord } from "@thetis/contracts";
 import type { Credential, KernelConfig, TokenRecord } from "@thetis/kernel";
 import { assert, CodedError, errorMessage } from "@thetis/lib/error";
+import type { SshGrant } from "@thetis/contracts";
 import { StoreMirror } from "@thetis/lib/store";
 
 /** The service plane's records, each namespace held in memory and written through. */
@@ -15,6 +16,7 @@ export interface Records {
   tokens: StoreMirror<TokenRecord>;
   registry: StoreMirror<PackageRecord>;
   mounts: StoreMirror<{ mounts: Mount[] }>;
+  ssh: StoreMirror<{ ssh: SshGrant[] }>;
 }
 
 /**
@@ -72,6 +74,7 @@ export async function openRecords(driver: StoreDriver): Promise<Records> {
     tokens: await StoreMirror.open(driver.open("auth/tokens", { private: true })),
     registry: await StoreMirror.open(driver.open("registry")),
     mounts: await StoreMirror.open(driver.open("mounts")),
+    ssh: await StoreMirror.open(driver.open("ssh")),
   };
 }
 

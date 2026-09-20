@@ -53,6 +53,10 @@
       "types": "./dist/src/mounts.d.ts",
       "default": "./dist/src/mounts.js"
     },
+    "./ssh": {
+      "types": "./dist/src/ssh.d.ts",
+      "default": "./dist/src/ssh.js"
+    },
     "./pkg-fs": {
       "types": "./dist/src/pkg-fs.d.ts",
       "default": "./dist/src/pkg-fs.js"

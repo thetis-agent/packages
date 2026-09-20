@@ -6,6 +6,13 @@
 // where they belong, and their mechanism did go to @thetis/lib (freshness, the restart latch) and
 // @thetis/sandbox. The guard stays a forcing function; it now has room to spend rather than a ceiling
 // the next honest feature has to squeeze under.
+//
+// 1,400 to 1,450 for ssh grants, which are the same kind of question: which credential may a person's
+// fence use. It earned the room first. The mechanism went to @thetis/lib (SshStore, parseSshGrants,
+// withKeyPresence, knownHostsOf) and @thetis/sandbox (the agent itself), and the guard caught that
+// granting a mount and granting a key are one act written twice -- so control.ts now has one `grant` and
+// one `listing` serving both, and is shorter per verb than it was before. What is left over is the two
+// new verbs themselves, and those belong here.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -13,7 +20,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "../../src");
-const LIMIT = 1400;
+const LIMIT = 1450;
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((f) => {

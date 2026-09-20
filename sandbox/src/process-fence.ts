@@ -1,13 +1,15 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import type { Writable } from "node:stream";
 import type { Fence, FenceHandle, KernelRpc, Userspace } from "@thetis/contracts";
 import { CodedError, errorMessage } from "@thetis/lib/error";
+import { knownHostsOf } from "@thetis/lib/ssh";
 import { bwrapArgs, hasBwrap, hasCgroupNamespace, launcherCommand, launcherReady, presentMounts } from "./bwrap.js";
 import type { Cgroups, FenceCgroup, FenceLimits } from "./cgroup.js";
 import { dockerSocket, FENCE_DOCKER_SOCKET, type DockerAccess } from "./docker.js";
 import { ProcessHandle, type SandboxHandle } from "./handle.js";
 import { hasSlirp, startEgress, writeResolvConf } from "./network.js";
+import { FENCE_SSH_AUTH_SOCK, startSshAgent, writeSshFiles, type SshAgent } from "./ssh.js";
 
 export type SandboxMode = "auto" | "bwrap" | "none";
 export type FenceNetwork = "auto" | "egress" | "none" | "host";
@@ -29,6 +31,8 @@ export interface ProcessFenceOptions {
   docker: DockerAccess;
   /** The host socket to bind, when it is not in one of the usual places. */
   dockerSocketPath?: string;
+  /** Where the per-fence ssh agent socket and its client files are written. One directory per user beneath it. */
+  sshDir: string;
   limits: FenceLimits;
   /** Resolved on the first sandboxed open, so a one-shot command that opens no fence never probes the cgroup. */
   cgroups?: () => Cgroups | undefined;
@@ -96,10 +100,13 @@ export class ProcessFence implements Fence {
     // before it opens the gate, so it is there by the time bubblewrap execs, and puts the process in it
     // before bubblewrap unshares, so the namespace is rooted at the fence's own group. When limits are off
     // there is no directory to name and no namespace to take.
-    const child = this.spawn(us, cgroups && cgroups.fence(us.id, this.cgroupNamespace()));
-    const cleanup: (() => void)[] = [];
+    // The agent is started before bubblewrap, because its socket is one of the paths bound into the fence.
+    // It is a kernel-owned child like the egress helper: the fence talks to it, never holds what it holds.
+    const ssh = this.sandbox === "bwrap" ? this.openSsh(us) : undefined;
+    const child = this.spawn(us, cgroups && cgroups.fence(us.id, this.cgroupNamespace()), ssh);
+    const cleanup: (() => void)[] = ssh ? [ssh.stop] : [];
     try {
-      if (this.sandbox === "bwrap") await this.openGate(us, child, cgroups, cleanup);
+      if (this.sandbox === "bwrap") await this.openGate(us, child, cgroups, cleanup, ssh);
     } catch (err) {
       child.kill("SIGKILL");
       for (const fn of cleanup) fn();
@@ -119,7 +126,19 @@ export class ProcessFence implements Fence {
     return (this.namespaced ??= hasCgroupNamespace());
   }
 
-  private async openGate(us: Userspace, child: ChildProcess, cgroups: Cgroups | undefined, cleanup: (() => void)[]): Promise<void> {
+  /**
+   * This fence's own ssh agent, holding only the keys granted to this person. Undefined when there is no
+   * grant, when the host has no `ssh-agent`, or when no granted key could be loaded: a fence without ssh
+   * opens exactly as it did before, and a credential problem never costs someone their workspace.
+   */
+  private openSsh(us: Userspace): SshAgent | undefined {
+    const grants = us.ssh ?? [];
+    if (!grants.length) return undefined;
+    const files = writeSshFiles(join(this.opts.sshDir, us.id), knownHostsOf(grants));
+    return startSshAgent(files, grants.map((g) => g.key), this.log);
+  }
+
+  private async openGate(us: Userspace, child: ChildProcess, cgroups: Cgroups | undefined, cleanup: (() => void)[], ssh?: SshAgent): Promise<void> {
     await launcherReady(child);
     const pid = child.pid ?? 0;
     const placement = cgroups?.place(us.id, this.opts.limits);
@@ -132,11 +151,13 @@ export class ProcessFence implements Fence {
       placement?.attach(egress.pid);
       cleanup.push(egress.stop);
     }
+    // The agent belongs to this fence, so it is accounted to this fence, exactly as the egress helper is.
+    if (ssh && placement) placement.attach(ssh.pid);
     (child.stdio as unknown as (Writable | null)[])[5]?.end("go\n");
-    this.log(`[fence] ${us.id}: started (network ${this.network}${placement ? ", limited" : ""}${this.docker ? ", docker" : ""})`);
+    this.log(`[fence] ${us.id}: started (network ${this.network}${placement ? ", limited" : ""}${this.docker ? ", docker" : ""}${ssh ? ", ssh" : ""})`);
   }
 
-  private spawn(space: Userspace, cgroup?: FenceCgroup): ChildProcess {
+  private spawn(space: Userspace, cgroup?: FenceCgroup, ssh?: SshAgent): ChildProcess {
     // Package code learns the mounts from the environment in every mode; without a sandbox they are simply the host's paths.
     const us = { ...space, mounts: presentMounts(space, this.log) };
     const env = {
@@ -153,13 +174,17 @@ export class ProcessFence implements Fence {
       // than probing a path and guessing why it is missing — the same reason `THETIS_MOUNTS` reports the
       // mounts that were bound and not the ones that were asked for.
       ...(this.docker ? { THETIS_DOCKER: FENCE_DOCKER_SOCKET } : {}),
+      // Set only when an agent is really running with a key in it, for the same reason as the two above:
+      // the fence asks what it has rather than probing a path and guessing why a connection was refused.
+      // `SSH_AUTH_SOCK` is what ssh itself reads; `THETIS_SSH` is what a tool or a skill checks.
+      ...(ssh ? { SSH_AUTH_SOCK: FENCE_SSH_AUTH_SOCK, THETIS_SSH: FENCE_SSH_AUTH_SOCK } : {}),
     };
     const node = [process.execPath, this.opts.agentPath];
     if (this.sandbox === "none") {
       return spawn(node[0], node.slice(1), { cwd: us.home, env, stdio: ["pipe", "pipe", "pipe"] });
     }
-    const layout = { ...this.opts, network: this.network, cgroup, dockerSocket: this.docker };
-    const cmd = launcherCommand(["bwrap", ...bwrapArgs(us, layout, env), "--", ...node], this.network);
+    const layout = { ...this.opts, network: this.network, cgroup, dockerSocket: this.docker, ssh };
+    const cmd = launcherCommand(["bwrap", ...bwrapArgs(us, layout, env, this.log), "--", ...node], this.network);
     // fds 3 and 4 are unused; 5 is the launch gate (written by us), 6 the ready signal (written by the launcher).
     return spawn(cmd[0], cmd.slice(1), { env, stdio: ["pipe", "pipe", "pipe", "ignore", "ignore", "pipe", "pipe"] });
   }

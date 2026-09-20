@@ -10,6 +10,7 @@ import { Container, token } from "@thetis/lib/container";
 import { Journal } from "@thetis/lib/journal";
 import { JsonDirStore } from "@thetis/lib/json-store";
 import { MountStore } from "@thetis/lib/mounts";
+import { SshStore } from "@thetis/lib/ssh";
 import { RestartLatch } from "@thetis/lib/restart";
 import { storeId } from "@thetis/lib/store";
 import { UserspaceLayout } from "@thetis/lib/userspace-layout";
@@ -32,6 +33,7 @@ export const T = {
   services: token<ServiceSupervisor>("services"),
   userspaces: token<UserspaceLayout>("userspaces"),
   mounts: token<MountStore>("mounts"),
+  ssh: token<SshStore>("ssh"),
   fence: token<Fence>("fence"),
   fences: token<FencePool>("fences"),
   registry: token<PackageRegistry>("registry"),
@@ -101,8 +103,10 @@ function bindServices(c: Container, config: KernelConfig): void {
   c.bind(T.users, (c) => new UserStore(c.get(T.records).users));
   c.bind(T.auth, (c) => new AuthService(c.get(T.records).credentials, c.get(T.records).tokens, c.get(T.users)));
   c.bind(T.mounts, (c) => new MountStore(c.get(T.records).mounts));
-  // Every Userspace the layout hands out carries its mounts, so the fence binds them wherever it is opened from.
-  c.bind(T.userspaces, (c) => new UserspaceLayout(c.get(T.config).home, (id) => c.get(T.mounts).get(id)));
+  c.bind(T.ssh, (c) => new SshStore(c.get(T.records).ssh));
+  // Every Userspace the layout hands out carries its mounts and its ssh grants, so a fence binds them and
+  // loads them wherever it is opened from.
+  c.bind(T.userspaces, (c) => new UserspaceLayout(c.get(T.config).home, (id) => c.get(T.mounts).get(id), (id) => c.get(T.ssh).get(id)));
   c.bind(T.journal, (c) => new Journal(c.get(T.config).home));
   c.bind(T.env, (c) => new EnvFile(c.get(T.config).envFile));
   // The file layer lives in the service, which `config.reload` replaces; the layers read it from there.
@@ -151,6 +155,7 @@ function processFence(c: Container): ProcessFence {
     resolvConf: resolve(cfg.home, "fence-resolv.conf"),
     docker: cfg.fence.docker,
     dockerSocketPath: cfg.fence.dockerSocket,
+    sshDir: resolve(cfg.home, "fence-ssh"),
     cgroups: () => c.get(T.cgroups),
     requestTimeoutMs: cfg.requestTimeoutMs,
     log: c.get(T.log),
@@ -177,6 +182,7 @@ function kernelOf(c: Container): KernelServices {
     services: c.get(T.services),
     userspaces: c.get(T.userspaces),
     mounts: c.get(T.mounts),
+    ssh: c.get(T.ssh),
     packages: c.get(T.packages),
     registry: c.get(T.registry),
     providers: c.get(T.providers),
@@ -192,6 +198,7 @@ function kernelOf(c: Container): KernelServices {
       await c.get(T.fences).close(id);
       c.get(T.registry).forgetUserspace(id);
       c.get(T.mounts).set(id, []);
+      c.get(T.ssh).set(id, []);
       await c.get(T.settings).forgetUser(id);
       await c.get(T.store).open(storeId("userspaces", id)).clear();
       c.get(T.userspaces).remove(id);

@@ -1,6 +1,7 @@
 import type { Fences, StoreDriver } from "@thetis/contracts";
 import type { Journal } from "@thetis/lib/journal";
 import type { MountStore } from "@thetis/lib/mounts";
+import type { SshStore } from "@thetis/lib/ssh";
 import type { RestartLatch } from "@thetis/lib/restart";
 import type { UserspaceLayout } from "@thetis/lib/userspace-layout";
 import type { AuthService } from "./auth.js";
@@ -25,6 +26,7 @@ export interface KernelServices {
   userspaces: UserspaceLayout;
   /** The host paths an admin has granted into each person's fence. */
   mounts: MountStore;
+  ssh: SshStore;
   packages: PackageManager;
   registry: PackageRegistry;
   providers: ProviderRegistry;

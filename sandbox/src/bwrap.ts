@@ -7,7 +7,7 @@ import { SYSTEM_USER, type Mount, type Userspace } from "@thetis/contracts";
 import type { FenceCgroup } from "./cgroup.js";
 import { FENCE_DOCKER_SOCKET } from "./docker.js";
 import { orderIntents, renderIntents, validateIntents, type MountIntent } from "./plan.js";
-import { FENCE_SSH_AUTH_SOCK, FENCE_SSH_CONFIG, FENCE_SSH_KNOWN_HOSTS, type FenceSsh } from "./ssh.js";
+import { FENCE_SSH_AUTH_SOCK, FENCE_SSH_CONFIG, FENCE_SSH_DIR, FENCE_SSH_KNOWN_HOSTS, type FenceSsh } from "./ssh.js";
 
 /** The OS directories every fence may read. Missing ones are skipped. */
 const OS_DIRS = ["/usr", "/etc", "/opt", "/bin", "/sbin", "/lib", "/lib32", "/lib64"];
@@ -106,6 +106,10 @@ export function fencePlan(us: Userspace, layout: BwrapLayout): MountIntent[] {
   // fast instead of hanging on a prompt. The private key is never among them: it stays with the agent, on
   // the other side of this socket. See `ssh.ts`.
   if (layout.ssh) {
+    // An empty /etc/ssh first: `/etc` is bound read-only, so there is nowhere to put these two otherwise,
+    // and the fence is then left with exactly the client configuration the kernel wrote and no host
+    // defaults beneath it. Ordering by depth is what lets this sit inside the read-only bind above it.
+    intents.push({ kind: "tmpfs", target: FENCE_SSH_DIR, why: "room for the ssh client files" });
     intents.push({ kind: "ro", target: FENCE_SSH_AUTH_SOCK, source: layout.ssh.sock, optional: true, why: "an ssh grant" });
     intents.push({ kind: "ro", target: FENCE_SSH_CONFIG, source: layout.ssh.config, optional: true, why: "the ssh client options" });
     intents.push({ kind: "ro", target: FENCE_SSH_KNOWN_HOSTS, source: layout.ssh.knownHosts, optional: true, why: "the known hosts" });
