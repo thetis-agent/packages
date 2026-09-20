@@ -146,15 +146,12 @@ function processFence(c: Container): ProcessFence {
   const cfg = c.get(T.config);
   return new ProcessFence({
     agentPath: cfg.agentPath,
-    sandbox: cfg.fence.sandbox,
-    network: cfg.fence.network,
-    limits: cfg.fence.limits,
-    readOnly: cfg.fence.readOnly,
-    hidden: cfg.fence.hidden,
+    // The configuration object itself, not a copy of its values: `config.reload` writes the file layer
+    // into it in place, so the next fence to open is built from the new settings with nothing else to
+    // wire. See [09-configuration.md](../../../docs/09-configuration.md) section 5.
+    fence: cfg.fence,
     sharedDir: cfg.sharedDir,
     resolvConf: resolve(cfg.home, "fence-resolv.conf"),
-    docker: cfg.fence.docker,
-    dockerSocketPath: cfg.fence.dockerSocket,
     sshDir: resolve(cfg.home, "fence-ssh"),
     cgroups: () => c.get(T.cgroups),
     requestTimeoutMs: cfg.requestTimeoutMs,

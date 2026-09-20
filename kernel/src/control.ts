@@ -5,7 +5,8 @@ import { newestMtime } from "@thetis/lib/freshness";
 import { browseDirectories, parseMountList, withPresence } from "@thetis/lib/mounts";
 import { parseSshGrants, withKeyPresence } from "@thetis/lib/ssh";
 import { isSupervised } from "@thetis/lib/restart";
-import { packagesLayer } from "./config.js";
+import { applyInPlace, classifyChanges } from "@thetis/lib/config-tiers";
+import { CONFIG_TIERS, loadConfig } from "./config.js";
 import type { KernelServices } from "./kernel.js";
 
 type Args = Record<string, string | undefined>;
@@ -162,10 +163,19 @@ export function createControlHandler(k: KernelServices): KernelRpc {
       case "config.unset":
         return k.settings.unset(configTarget(), String(a.key), String(a.actor ?? "operator"));
       case "config.reload": {
-        // The file layer is read again and handed to the service; the kernel's copy follows it so `config.get` agrees.
-        const next = packagesLayer(k.config.home);
-        k.config.packages = next;
-        return k.settings.reload(next);
+        // The whole file is read again, not only `packages[*]`. What that reaches depends on how each key
+        // is consumed: `CONFIG_TIERS` says which, `applyInPlace` writes the new values into the object the
+        // kernel bound at boot -- so every holder of it, and of any object inside it, sees them without
+        // being handed a new reference -- and the fences are closed when a key they are built from moved.
+        // Keys that are read once into a socket or a driver are named in the answer instead of silently
+        // doing nothing, which is the failure this replaces.
+        const next = loadConfig(k.config.home, k.config.projectRoot);
+        const tiers = classifyChanges(k.config, next, CONFIG_TIERS);
+        applyInPlace(k.config as unknown as Record<string, unknown>, next as unknown as Record<string, unknown>);
+        const settings = await k.settings.reload(k.config.packages);
+        if (tiers.fence.length) for (const u of k.users.list()) await k.services.reload(u.id);
+        journal("config.reload", SYSTEM_USER, { ...tiers });
+        return { ...settings, ...tiers };
       }
       case "models":
         return k.providers.listModels(us());

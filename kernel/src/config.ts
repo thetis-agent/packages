@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import type { StepRef } from "@thetis/contracts";
+import type { ConfigTier } from "@thetis/lib/config-tiers";
 import { readJson, writeJson } from "@thetis/lib/json";
 
 export interface FenceConfig {
@@ -24,6 +25,9 @@ export interface FenceConfig {
 export interface KernelConfig {
   /** Service-plane data directory: users, registry, userspaces. */
   home: string;
+  /** The checkout the derived paths below are resolved against. Derived, never written to the file, and the
+   * second thing `config.reload` needs in order to read the file again the way it was first read. */
+  projectRoot: string;
   /** Where the shipped @thetis/* packages live. */
   systemPackagesDir: string;
   /** Where promoted packages live: user packages made the default for everyone. Derived: `<home>/packages`. */
@@ -69,6 +73,7 @@ export function packagesLayer(home: string): Record<string, Record<string, unkno
 export function defaultConfig(home: string, projectRoot: string): KernelConfig {
   return {
     home,
+    projectRoot,
     systemPackagesDir: resolve(projectRoot, "packages"),
     promotedPackagesDir: resolve(home, "packages"),
     sharedDir: resolve(home, "shared"),
@@ -97,6 +102,36 @@ export function defaultConfig(home: string, projectRoot: string): KernelConfig {
   };
 }
 
+/**
+ * What it takes to put a change to each key into service.
+ *
+ * The tier is a property of how the key's consumer reads it, not of what the key is about. `model` is read
+ * by the runner on every turn and `phases` by the enumerator on every enumerate, so writing the new value
+ * into the held configuration is the whole of it. `fence.*` is read by `ProcessFence` on every open, so
+ * closing the fences is the whole of it. `door` is a bound socket and `storage` a driver instantiated at
+ * boot; those want a new process and there is no cheaper honest answer.
+ *
+ * A key with no declaration is treated as `boot`, which is why the derived paths are not listed: they come
+ * from `projectRoot` at load time, never from the file, and are never reported as changed. Adding a key
+ * here is how it becomes live; forgetting to is how it stays safe.
+ */
+export const CONFIG_TIERS: Record<string, ConfigTier> = {
+  model: "dispatch",
+  phases: "dispatch",
+  callPhase: "dispatch",
+  enumerator: "dispatch",
+  systemPackages: "dispatch",
+  packages: "dispatch",
+  // The latch holds `config.control` by reference, so writing into that object in place reaches it.
+  control: "dispatch",
+  fence: "fence",
+  // Read once into a listening socket, and once into a storage driver the whole kernel is built on.
+  door: "boot",
+  storage: "boot",
+  // Passed to each `ProcessHandle` as a number when the fence opens, and captured there for its life.
+  requestTimeoutMs: "boot",
+};
+
 export function configPath(home: string): string {
   return resolve(home, "thetis.config.json");
 }
@@ -114,6 +149,7 @@ export function loadConfig(home: string, projectRoot: string, env: NodeJS.Proces
     ...defaults,
     ...rest,
     home,
+    projectRoot: defaults.projectRoot,
     envFile: defaults.envFile,
     storage: { ...defaults.storage, ...(stored.storage ?? {}) },
     fence: {
@@ -129,7 +165,7 @@ export function loadConfig(home: string, projectRoot: string, env: NodeJS.Proces
 
 /** Writes the config without derived paths, so the file stays valid when the checkout moves. */
 export function saveConfig(config: KernelConfig): void {
-  const { home, systemPackagesDir, promotedPackagesDir, sharedDir, agentPath, envFile, fence, ...portable } = config;
+  const { home, projectRoot, systemPackagesDir, promotedPackagesDir, sharedDir, agentPath, envFile, fence, ...portable } = config;
   writeJson(configPath(home), {
     ...portable,
     fence: { sandbox: fence.sandbox, network: fence.network, limits: fence.limits, docker: fence.docker, ...(fence.dockerSocket ? { dockerSocket: fence.dockerSocket } : {}) },

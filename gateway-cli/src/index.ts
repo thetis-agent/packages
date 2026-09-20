@@ -571,9 +571,14 @@ async function configCmd(call: Call, args: Args, user: string | undefined): Prom
       return print(`${name}${user ? ` (${user})` : ""}: ${key} cleared; ${r.summary}`);
     }
     case "reload": {
-      const r = (await call("config.reload", {})) as { changed: string[]; restarted: { user: string; package: string }[] };
+      const r = (await call("config.reload", {})) as { changed: string[]; restarted: { user: string; package: string }[]; dispatch: string[]; fence: string[]; boot: string[] };
       print(r.changed.length ? `changed: ${r.changed.join(", ")}` : "nothing changed in the file");
       for (const s of r.restarted) print(`restarted ${s.package} for ${s.user}`);
+      if (r.dispatch.length) print(`live now: ${r.dispatch.join(", ")}`);
+      if (r.fence.length) print(`applied by reopening every fence: ${r.fence.join(", ")}`);
+      // Said last and said plainly. A reload that looked like it worked while quietly doing nothing for
+      // these keys is the thing this line exists to prevent.
+      if (r.boot.length) print(`NOT applied -- these are read once at startup and need a daemon restart: ${r.boot.join(", ")}`);
       return;
     }
     default:
