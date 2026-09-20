@@ -6,13 +6,20 @@
  * because it is 345 KiB and a person who never opens a shell must never fetch it. The element is made at
  * once but the terminal is opened into it only when it is in the document, because xterm measures a cell
  * to render and a detached element measures zero; writes that arrive before either happens are held and
- * flushed in order, so no output is lost between the first chunk and the first paint. And the colours are
- * read from the page's own variables through a probe element rather than from the variables themselves:
- * the emulator parses real colours, and a token like `color-mix(…)` reaches getComputedStyle unresolved,
- * so it is the browser that must resolve it — which it does, in whichever scheme is in force. */
+ * flushed in order, so no output is lost between the first chunk and the first paint. And the palette
+ * comes from theme.css, read back through the cascade: xterm wants colours as strings and cannot resolve
+ * a custom property itself. Every --term-* token is a plain hex literal for exactly this reason — a
+ * color-mix() would arrive here unresolved and be rejected. The probe element stays for one job only,
+ * measuring a cell of the font the way the emulator measures it. */
 
 const FALLBACK_FONT = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
-const LINE_HEIGHT = 1.25;
+// Typography has to be set on the emulator: xterm measures a cell from these and positions every glyph
+// absolutely, so a CSS font-size on the pane would shift the text out of the grid it drew. Looser than
+// xterm's default line height: dense output is the drawer's normal state, and 1.25 packed it into a slab
+// that was hard to scan a line of.
+const FONT_SIZE = 12.5;
+const LINE_HEIGHT = 1.45;
+const SCROLLBACK = 5000;
 const SCROLLBAR = 14; // xterm's viewport keeps a scrollbar; the columns must not sit under it
 const MIN_COLS = 20;
 const MIN_ROWS = 2;
@@ -31,56 +38,48 @@ function load() {
 function probeNode() {
   if (!probe || !probe.isConnected) {
     probe = document.createElement("span");
-    probe.className = "tm-probe";
+    probe.className = "term-probe";
     probe.setAttribute("aria-hidden", "true");
     document.body.append(probe);
   }
   return probe;
 }
 
-/** Whatever the page would paint for `expr`, as an rgb() string the emulator can parse. */
-function paint(expr, fallback) {
-  const node = probeNode();
-  node.style.setProperty("color", "");
-  node.style.setProperty("color", expr);
-  const painted = getComputedStyle(node).color;
-  node.style.setProperty("color", "");
-  return painted || fallback;
-}
-
-/** The emulator's palette, in the shell's own colours, so a terminal looks like the page it sits in. */
+/** The emulator's palette, from the --term-* tokens in theme.css: the terminal's own warm neutrals and
+ *  desaturated hues, the same in both colour schemes, because a terminal is a dark device set into the page. */
 function theme() {
+  const css = getComputedStyle(document.documentElement);
+  const tok = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
   return {
-    background: paint("var(--surface-1)", "#101016"),
-    foreground: paint("var(--text)", "#ececf2"),
-    cursor: paint("var(--accent)", "#7c9cff"),
-    cursorAccent: paint("var(--surface-1)", "#101016"),
-    selectionBackground: paint("color-mix(in srgb, var(--accent) 34%, transparent)", "rgba(124, 156, 255, .34)"),
-    black: paint("var(--surface-3)", "#1d1d28"),
-    red: paint("var(--err)", "#f2788f"),
-    green: paint("var(--ok)", "#7fd18f"),
-    yellow: paint("var(--warn)", "#e8b673"),
-    blue: paint("var(--accent)", "#7c9cff"),
-    magenta: paint("color-mix(in srgb, var(--accent) 55%, var(--err))", "#b184c8"),
-    cyan: paint("color-mix(in srgb, var(--accent) 45%, var(--ok))", "#79c5c0"),
-    white: paint("var(--text-dim)", "#a3a3b4"),
-    brightBlack: paint("var(--text-faint)", "#6e6e82"),
-    brightRed: paint("color-mix(in srgb, var(--err) 78%, white)", "#f79aab"),
-    brightGreen: paint("color-mix(in srgb, var(--ok) 78%, white)", "#9fdfab"),
-    brightYellow: paint("color-mix(in srgb, var(--warn) 78%, white)", "#efcb98"),
-    brightBlue: paint("color-mix(in srgb, var(--accent) 78%, white)", "#9db4ff"),
-    brightMagenta: paint("color-mix(in srgb, var(--accent) 45%, var(--err))", "#c48bbf"),
-    brightCyan: paint("color-mix(in srgb, var(--accent) 35%, var(--ok))", "#8fd0b6"),
-    brightWhite: paint("var(--text)", "#ececf2"),
+    background: tok("--term-bg", "#141414"),
+    foreground: tok("--term-fg", "#d4d4d4"),
+    cursor: tok("--term-cursor", "#a3b8cc"),
+    cursorAccent: tok("--term-bg", "#141414"),
+    selectionBackground: tok("--term-selection", "#2f4a3a"),
+    black: tok("--term-black", "#232323"),
+    red: tok("--term-red", "#e387a7"),
+    green: tok("--term-green", "#3a8e5b"),
+    yellow: tok("--term-yellow", "#d9b48a"),
+    blue: tok("--term-blue", "#81a1c1"),
+    magenta: tok("--term-magenta", "#e394dc"),
+    cyan: tok("--term-cyan", "#82d2ce"),
+    white: tok("--term-white", "#d4d4d4"),
+    brightBlack: tok("--term-bright-black", "#5a5a5a"),
+    brightRed: tok("--term-bright-red", "#f0a3bd"),
+    brightGreen: tok("--term-bright-green", "#70b489"),
+    brightYellow: tok("--term-bright-yellow", "#e8cba6"),
+    brightBlue: tok("--term-bright-blue", "#a3bcd6"),
+    brightMagenta: tok("--term-bright-magenta", "#f0b3ea"),
+    brightCyan: tok("--term-bright-cyan", "#a0e0dd"),
+    brightWhite: tok("--term-bright-white", "#f0f0f0"),
   };
 }
 
-/** The font the terminal is drawn in: the page's monospace stack at its small size. */
+/** The font the terminal is drawn in: the page's monospace stack at the drawer's own size. */
 function fontOf() {
   const css = getComputedStyle(document.documentElement);
   const family = css.getPropertyValue("--mono").trim() || FALLBACK_FONT;
-  const size = Math.max(10, Math.round(parseFloat(css.getPropertyValue("--text-sm")) || 12.5));
-  return { family, size };
+  return { family, size: FONT_SIZE };
 }
 
 /**
@@ -107,7 +106,7 @@ function cellOf(font) {
  */
 export function createScreen(id, { onData, onReady } = {}) {
   const element = document.createElement("div");
-  element.className = "tm-screen";
+  element.className = "term-pane";
   const font = fontOf();
   let term = null;
   let held = [];             // what the session printed before the module arrived
@@ -141,7 +140,7 @@ export function createScreen(id, { onData, onReady } = {}) {
         fontFamily: font.family,
         fontSize: font.size,
         lineHeight: LINE_HEIGHT,
-        scrollback: 5000,
+        scrollback: SCROLLBACK,
         theme: theme(),
       });
       term.onData((text) => onData && onData(text));
@@ -174,6 +173,13 @@ export function createScreen(id, { onData, onReady } = {}) {
       if (gone || failure) return;
       if (term) term.write(text);
       else held.push(text);
+    },
+
+    /** The eraser: the view is wiped, the shell keeps running, and what arrives next starts at the top. */
+    clear() {
+      if (gone || failure) return;
+      if (term) term.clear();
+      else held = [];
     },
 
     /** The whole ring buffer is arriving: what is on the screen is not the session's output any more. */
@@ -251,8 +257,9 @@ export function createScreen(id, { onData, onReady } = {}) {
   return screen;
 }
 
-// The page follows the browser's colour scheme with no reload, and so must every open terminal: its
-// palette is baked into the emulator, not inherited from the CSS.
+// The page follows the browser's colour scheme with no reload. The --term-* tokens are the same in both
+// schemes today, but the palette is baked into the emulator, not inherited from the CSS, so a scheme that
+// does override them is still followed by every open terminal.
 try {
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
     const next = theme();

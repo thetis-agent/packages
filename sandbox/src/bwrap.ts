@@ -6,6 +6,8 @@ import type { Readable } from "node:stream";
 import { SYSTEM_USER, type Mount, type Userspace } from "@thetis/contracts";
 import type { FenceCgroup } from "./cgroup.js";
 import { FENCE_DOCKER_SOCKET } from "./docker.js";
+import { orderIntents, renderIntents, validateIntents, type MountIntent } from "./plan.js";
+import { FENCE_SSH_AUTH_SOCK, FENCE_SSH_CONFIG, FENCE_SSH_KNOWN_HOSTS, type FenceSsh } from "./ssh.js";
 
 /** The OS directories every fence may read. Missing ones are skipped. */
 const OS_DIRS = ["/usr", "/etc", "/opt", "/bin", "/sbin", "/lib", "/lib32", "/lib64"];
@@ -32,6 +34,8 @@ export interface BwrapLayout {
    * Socket access is host root; see `docker.ts` for why it is offered anyway.
    */
   dockerSocket?: string;
+  /** The per-fence ssh agent socket and the client files that go with it. Undefined when this fence has no ssh grant. */
+  ssh?: FenceSsh;
 }
 
 export function hasBwrap(): boolean {
@@ -59,53 +63,70 @@ export function nodePrefix(): string {
   return dirname(dirname(process.execPath));
 }
 
-/** The bubblewrap arguments that give `us` a read-only host, a writable userspace, and its namespaces. */
-export function bwrapArgs(us: Userspace, layout: BwrapLayout, env: Record<string, string>): string[] {
-  const args = ["--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp"];
-  // Hidden directories are masked first, so a read-only bind inside one (the promoted packages) still shows.
-  for (const dir of layout.hidden) args.push("--tmpfs", dir);
+/**
+ * The mount plan for `us`: every path the fence sees, as data. Nothing here depends on the order the
+ * entries are written in -- `orderIntents` puts them parents-first, which is the only order in which each
+ * one survives. See `plan.ts` for why that matters and what it cost to learn.
+ */
+export function fencePlan(us: Userspace, layout: BwrapLayout): MountIntent[] {
+  const intents: MountIntent[] = [
+    { kind: "dev", target: "/dev", why: "the fence's own /dev" },
+    { kind: "proc", target: "/proc", why: "the fence's own /proc" },
+    { kind: "tmpfs", target: "/tmp", why: "an empty /tmp, never the host's" },
+  ];
   for (const dir of [...OS_DIRS, nodePrefix(), ...layout.readOnly]) {
     if (!existsSync(dir)) continue;
     const link = linkTarget(dir);
-    if (link) args.push("--symlink", link, dir);
-    else args.push("--ro-bind", dir, dir);
+    intents.push(link ? { kind: "symlink", target: dir, source: link, why: "the operating system" } : { kind: "ro", target: dir, source: dir, why: "the operating system" });
   }
+  // Masks are declared after the binds they sit inside and are ordered by depth, so a mask beneath a bound
+  // parent applies and a bind beneath a mask still shows through. Writing them first, which is what the
+  // hand-ordered list did, is what let `/opt` swallow the mask over `$THETIS_HOME`.
+  for (const dir of layout.hidden) intents.push({ kind: "tmpfs", target: dir, why: "fence.hidden" });
   if (existsSync(layout.sharedDir)) {
-    args.push(us.id === SYSTEM_USER ? "--bind" : "--ro-bind", layout.sharedDir, layout.sharedDir);
+    intents.push({ kind: us.id === SYSTEM_USER ? "rw" : "ro", target: layout.sharedDir, source: layout.sharedDir, why: "the shared directory" });
   }
   if (layout.network === "egress" && existsSync(layout.resolvConf)) {
-    args.push("--ro-bind", layout.resolvConf, "/etc/resolv.conf");
+    intents.push({ kind: "ro", target: "/etc/resolv.conf", source: layout.resolvConf, why: "the egress resolver" });
   }
-  // The fence's own cgroup, and nothing else of the host's tree: this is how an agent reads its own
-  // `memory.max`, `memory.current` and `memory.events` and can tell an OOM kill (exit 137, `oom_kill`
-  // rising) from a transient failure, and how a language runtime sizes its heap for the fence rather than
-  // for the machine. Read-only, so it is self-knowledge and not control. Where it goes is decided in
-  // `cgroup.ts` and is one of two layouts: at the mount root together with `--unshare-cgroup` below, the
-  // arrangement every container uses, or — when there is no cgroup namespace to be had — at the full path
-  // `/proc/self/cgroup` reports. A runtime resolves its own group by appending that line to the mount
-  // point, so the two have to agree; the leaf at the root without the namespace makes that concatenation
-  // name a directory that does not exist, which corrupts .NET's probe and aborts the process. Bubblewrap
-  // creates the intermediate directories of the destination itself. `-try` because the directory is
-  // created by `Cgroups.place` while the launch gate is still shut: it exists by the time bubblewrap
-  // execs, and if limits are off it never appears and bubblewrap skips the bind instead of failing the
-  // fence. `/proc/meminfo` still reports the host's memory; correcting that needs something like lxcfs and
-  // is out of scope.
-  if (layout.cgroup) args.push("--ro-bind-try", layout.cgroup.dir, layout.cgroup.dest);
-  // The Docker socket, always at the path the CLI looks at by default, whatever it is called on the host, so
-  // `docker` and `docker compose` work in the fence with nothing configured. It goes after every bind above
-  // and its destination is under no other bind's path, because a bind of a parent directory lands on top of
-  // whatever was mounted beneath it and would silently take this away again. A unix socket is filesystem and
-  // not network, so this works in network mode `none` too. Read-only still permits `connect` — that needs
-  // write permission on the inode, which the mount's read-only flag does not govern — and does stop the
-  // fence unlinking the socket or putting its own there. `-try` so a daemon that is not running, or a path
-  // that is wrong, never keeps a fence from starting.
-  if (layout.dockerSocket) args.push("--ro-bind-try", layout.dockerSocket, FENCE_DOCKER_SOCKET);
-  args.push("--bind", us.root, us.root, "--chdir", us.home);
-  // Mounts come after the userspace and the OS, so a granted path wins over a read-only bind above it.
-  for (const m of us.mounts ?? []) args.push(m.mode === "rw" ? "--bind" : "--ro-bind", m.path, m.path);
+  // The fence's own cgroup and nothing else of the host's tree: how an agent reads its own `memory.max`,
+  // `memory.current` and `memory.events` and can tell an OOM kill from a transient failure, and how a
+  // language runtime sizes its heap for the fence rather than for the machine. Read-only, so it is
+  // self-knowledge and not control. Where it goes is decided in `cgroup.ts` and goes with `--unshare-cgroup`
+  // below; the two are one choice, because a runtime resolves its group by appending its `/proc/self/cgroup`
+  // line to the mount point. Optional because `Cgroups.place` creates the directory while the launch gate
+  // is still shut, and because limits being off must never keep a fence from starting.
+  if (layout.cgroup) intents.push({ kind: "ro", target: layout.cgroup.dest, source: layout.cgroup.dir, optional: true, why: "this fence's cgroup" });
+  // Always at the path the Docker CLI reads by default, whatever the socket is called on the host, so
+  // `docker` and `docker compose` work with nothing configured. A unix socket is filesystem and not network,
+  // so this works in network mode `none` too; read-only still permits `connect`, which needs write
+  // permission on the inode rather than on the mount, and does stop the fence replacing the socket.
+  if (layout.dockerSocket) intents.push({ kind: "ro", target: FENCE_DOCKER_SOCKET, source: layout.dockerSocket, optional: true, why: "fence.docker" });
+  // The agent socket, the known hosts the kernel vouches for, and the client options that make ssh fail
+  // fast instead of hanging on a prompt. The private key is never among them: it stays with the agent, on
+  // the other side of this socket. See `ssh.ts`.
+  if (layout.ssh) {
+    intents.push({ kind: "ro", target: FENCE_SSH_AUTH_SOCK, source: layout.ssh.sock, optional: true, why: "an ssh grant" });
+    intents.push({ kind: "ro", target: FENCE_SSH_CONFIG, source: layout.ssh.config, optional: true, why: "the ssh client options" });
+    intents.push({ kind: "ro", target: FENCE_SSH_KNOWN_HOSTS, source: layout.ssh.knownHosts, optional: true, why: "the known hosts" });
+  }
+  intents.push({ kind: "rw", target: us.root, source: us.root, why: "the userspace" });
+  // Declared last, so a granted path wins over a read-only bind of the same path. Depth decides the rest.
+  for (const m of us.mounts ?? []) intents.push({ kind: m.mode === "rw" ? "rw" : "ro", target: m.path, source: m.path, why: `a ${m.mode} mount` });
+  return intents;
+}
+
+/** The bubblewrap arguments that give `us` a read-only host, a writable userspace, and its namespaces. */
+export function bwrapArgs(us: Userspace, layout: BwrapLayout, env: Record<string, string>, log?: (line: string) => void): string[] {
+  const ordered = orderIntents(fencePlan(us, layout));
+  // A conflict is reported and never fatal: the plan still renders, and the operator learns which entry
+  // took the path. Silence here is what the old list gave, and silence is what made the mask bug survive.
+  for (const c of validateIntents(ordered)) log?.(`[fence] ${us.id}: mount plan conflict at ${c.target}: ${c.message}`);
+  const args = renderIntents(ordered);
+  args.push("--chdir", us.home);
   args.push("--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts");
-  // The cgroup namespace makes the group the fence is already in — `Cgroups.place` put it there while the
-  // launch gate was shut — the root of the hierarchy it can see: `/proc/self/cgroup` inside reads `0::/`,
+  // The cgroup namespace makes the group the fence is already in -- `Cgroups.place` put it there while the
+  // launch gate was shut -- the root of the hierarchy it can see: `/proc/self/cgroup` inside reads `0::/`,
   // and `/sys/fs/cgroup` is a cgroup2 filesystem holding the fence's own files rather than a tmpfs with a
   // bind buried in it. That is what lets .NET find its limit at all: it picks the cgroup version by
   // `statfs` on the mount point, and only this layout answers v2. It is unshared only when the group is

@@ -370,16 +370,18 @@ export async function uiInterrupt(args, env) {
 }
 
 /**
- * resize: the pane's size, in rows and columns. `applied: false` is the limitation stated rather than
- * hidden — a command is running, so the size is written down and handed over when it ends, and the
- * program running now keeps the old one.
+ * resize: the pane's size, in rows and columns. The ordinary answer is `applied: true`: the size was set
+ * on the session's tty from outside the shell, whether or not something is running. `applied: false,
+ * deferred: true` is the fallback for a shell that never reported its tty, stated rather than hidden —
+ * a command is running, so the size is written down and typed at the next prompt, and the program
+ * running now keeps the old one.
  */
 export async function uiResize(args, env) {
   const id = idArg(args);
   const rows = Math.trunc(wantNumber(args.rows, "rows must be a number of rows greater than zero."));
   const cols = Math.trunc(wantNumber(args.cols, "cols must be a number of columns greater than zero."));
   const out = await call(env.root, "resize", { id, rows, cols });
-  return { data: { applied: out.applied === true } };
+  return { data: { applied: out.applied === true, deferred: out.deferred === true } };
 }
 
 /** close: this session ends, and the shell in it with it. */

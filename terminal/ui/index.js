@@ -1,10 +1,11 @@
 /* The browser module of @thetis/terminal. The shell calls `install(ext)` once after the page has mounted.
- * It registers the shelf entry and the statusbar chip, and holds the one thing both of them need: the
- * session table, kept live by a single `watch` subscription for the whole page.
+ * It registers the shelf entry (the drawer's body) and the chip in every conversation's chat bar, and
+ * holds the one thing both of them need: the session table, kept live by a single `watch` subscription
+ * for the whole page.
  *
- * One subscription, not one per view, and it is opened here rather than in the shelf because the chip
- * counts shells while the shelf is closed, a screen keeps filling while nobody is looking, and opening
- * the shelf must cost no request. It is never stopped while the page lives; the shelf comes and goes
+ * One subscription, not one per view, and it is opened here rather than in the drawer because the chip
+ * counts shells while the drawer is closed, a screen keeps filling while nobody is looking, and opening
+ * the drawer must cost no request. It is never stopped while the page lives; the drawer comes and goes
  * around it.
  *
  * The browser reconnects an EventSource by itself, and the server then starts its export again from the
@@ -13,8 +14,13 @@
  * chunk of a reconnect is the whole ring buffer with `replace`, which is dropped for the same reason
  * when nothing has happened since. That is what makes a reconnect cost nothing and lose nothing.
  *
- * A stream that ends or is refused is said in the shelf head and retried with a widening delay. Nothing
- * here pretends to be live when it is not. Nothing runs at import. */
+ * A stream that ends or is refused is said in the drawer's footer and retried with a widening delay.
+ * Nothing here pretends to be live when it is not. Nothing runs at import.
+ *
+ * Two rules from the legacy drawer live here rather than in the view, because they are about the page
+ * and not about the drawer's body: a shell appearing in the open conversation brings the drawer up,
+ * without a click, every time; and switching conversations closes it and reopens it when the new
+ * conversation has shells, so a drawer is never left standing over another conversation's shells. */
 
 import { createScreen } from "./screen.js";
 import { mountShelf } from "./shelf.js";
@@ -30,11 +36,14 @@ export default function install(ext) {
   const sessions = new Map();  // id -> SessionState, in the order the server lists them
   const screens = new Map();   // id -> screen, one emulator per live session
   const seqs = new Map();      // id -> the highest output counter this page has written
-  const notes = new Map();     // id -> the sentence about size the row must carry, when there is one
-  const watchers = new Set();  // the shelf, while it is mounted
+  const notes = new Map();     // id -> the sentence about size the footer must carry, when there is one
+  const known = new Set();     // ids this page has had a row for: a session outside it is one that appeared
+  const hidden = new Set();    // closed rows the person removed from the list; the host keeps its record
+  const watchers = new Set();  // the drawer, while it is mounted
+  const outputs = new Set();   // who wants to know that a session printed, without a redraw
   const pending = new Map();   // id -> keystrokes waiting for the next coalesced `write`
   let stream = { live: false, why: "Connecting to the shells…" };
-  let autoOpen = true;         // the shelf opens itself once per page load, for this conversation's first command
+  let autoOpen = true;         // the drawer also opens itself once per page load for this conversation's first command
   let stop = null;
   let retry = null;
   let wait = FIRST_RETRY_MS;
@@ -52,6 +61,10 @@ export default function install(ext) {
     ext.redraw("terminal");
   }
 
+  /** A shell of this conversation, or the person's own (opened from the drawer with no conversation). */
+  const mine = (session, conversation = ext.conversation.current ?? null) =>
+    !session.conversation || session.conversation === conversation;
+
   // ---- the session table ----
 
   function setSessions(list) {
@@ -59,6 +72,8 @@ export default function install(ext) {
     sessions.clear();
     for (const session of list) if (session && typeof session.id === "string") sessions.set(session.id, session);
     for (const id of [...screens.keys()]) if (!sessions.has(id)) forget(id);
+    for (const id of [...known]) if (!sessions.has(id)) known.delete(id);
+    for (const id of [...hidden]) if (!sessions.has(id)) hidden.delete(id);
     for (const session of sessions.values()) settle(session);
   }
 
@@ -80,8 +95,14 @@ export default function install(ext) {
   /** What follows from a session's state, whichever value carried it. */
   function settle(session) {
     if (session.state === "closed") screens.get(session.id)?.freeze();
-    // Idle again: whatever starts next starts at the size the server has, so the deferred-resize note goes.
+    // Idle again: whatever starts next starts at the size the server has, so any note about size goes.
     if (session.state === "idle") notes.delete(session.id);
+    if (!known.has(session.id)) {
+      known.add(session.id);
+      // The point of the whole drawer: a shell appearing in the conversation on screen brings it up,
+      // without a click. A shell of another conversation brightens nothing and opens nothing.
+      if (session.state !== "closed" && ext.conversation.current && mine(session)) ext.open.shelf("terminal");
+    }
     if (autoOpen && BUSY.has(session.state) && session.conversation && session.conversation === ext.conversation.current) {
       autoOpen = false;
       ext.open.shelf("terminal"); // once per page load, and nothing here takes the focus from the composer
@@ -120,6 +141,15 @@ export default function install(ext) {
     seqs.set(id, seq);
     if (replace) screen.reset(); // the whole ring buffer follows; what is on the screen is not it
     screen.write(text);
+    // The screen changed, not the table: no redraw, only a word to the drawer so a row you are not
+    // looking at can brighten. A replay of the ring buffer is not activity, and says so.
+    for (const fn of outputs) {
+      try {
+        fn(id, Boolean(replace));
+      } catch (err) {
+        console.error("@thetis/terminal: a view threw on output:", err);
+      }
+    }
   }
 
   // ---- the keys ----
@@ -193,7 +223,7 @@ export default function install(ext) {
     changed();
   }
 
-  /** The shelf's Reconnect: try now rather than when the widening delay runs out. */
+  /** The drawer's Reconnect: try now rather than when the widening delay runs out. */
   function reconnect() {
     clearTimeout(retry);
     retry = null;
@@ -205,20 +235,47 @@ export default function install(ext) {
     listen();
   }
 
+  // ---- the conversation on screen ----
+
+  /* Switching conversations: the drawer belongs to the one on screen. Closed, not merely emptied — a
+   * drawer left standing over another conversation's shells is a lie — and reopened at once when this
+   * conversation has shells of its own. The drawer's rows follow through `store.watch`. */
+  ext.conversation.watch((id) => {
+    ext.close.shelf();
+    if (id && visible().some((s) => s.state !== "closed" && mine(s, id))) ext.open.shelf("terminal");
+    changed();
+  });
+
   // ---- what the two views are given ----
 
+  /** The rows the page shows: every session but the closed ones the person tidied away. */
+  const visible = () => [...sessions.values()].filter((s) => !hidden.has(s.id));
+
   const store = {
-    list: () => [...sessions.values()],
-    get: (id) => (id ? sessions.get(id) ?? null : null),
+    list: visible,
+    get: (id) => (id && !hidden.has(id) ? sessions.get(id) ?? null : null),
+    /** A closed row's trash: gone from this page's list without asking; the host keeps the record. */
+    hide(id) {
+      if (sessions.get(id)?.state !== "closed") return;
+      hidden.add(id);
+      changed();
+    },
     busy: (session) => BUSY.has(session?.state),
+    mine,
+    /** The title of a conversation this page knows, for a row of a shell opened elsewhere. */
+    conversationTitle: (id) => ext.sessions.list().find((s) => s.id === id)?.title?.trim() || null,
     stream: () => stream,
     reconnect,
     screen: screenFor,
-    /** A session the server has just described in an answer, so the row appears without waiting for the stream. */
+    /** A session the server has just described in an answer, so the row appears without waiting for the stream.
+     *  A row the stream has already delivered is left alone: the stream's record is the fresher one, and the
+     *  answer to `open` can arrive after the state event that says the new shell is already at its prompt. */
     adopt(session) {
       if (!session || typeof session.id !== "string") return;
-      sessions.set(session.id, session);
-      settle(session);
+      if (!sessions.has(session.id)) {
+        sessions.set(session.id, session);
+        settle(session);
+      }
       changed();
     },
     note: (id) => notes.get(id) ?? null,
@@ -232,32 +289,47 @@ export default function install(ext) {
       watchers.add(fn);
       return () => watchers.delete(fn);
     },
+    watchOutput(fn) {
+      outputs.add(fn);
+      return () => outputs.delete(fn);
+    },
   };
 
   // ---- the registrations ----
 
-  ext.shelf("terminal", { mount: (root) => mountShelf(ext, store, root) });
+  ext.shelf("terminal", { mount: (root, shelf) => mountShelf(ext, store, root, shelf) });
 
-  ext.statusbar("terminal", {
-    draw(node) {
-      const { el, setHidden } = ext.dom;
-      const open = [...sessions.values()].filter((session) => session.state !== "closed");
-      const busy = open.filter((session) => BUSY.has(session.state)).length;
-      // The chip is the only way into the shelf, and the button that opens the first shell is inside it,
-      // so it stays even with nothing to count: hiding it would put the terminal out of reach entirely.
-      setHidden(node, false);
-      const words = open.length
-        ? `${open.length} ${open.length === 1 ? "shell" : "shells"}${busy ? ` · ${busy} busy` : ""}`
-        : stream.live
-          ? "Terminal"
-          : "shells · not connected";
-      const chip = el("button", {
-        type: "button",
-        class: `tm-chip${stream.live ? "" : " is-stale"}`,
-        title: stream.live ? (open.length ? "The shells this workspace has open" : "Open a shell in this workspace") : `Not live: ${stream.why}`,
-        onClick: () => ext.open.shelf("terminal"),
-      }, words);
-      node.append(chip);
+  /* The chip in the chat bar, one per conversation pane: the legacy header chip. A dot in the app's own
+   * colours (it lives in the app's chrome, not in the device) and a count of the shells of that
+   * conversation plus the person's own, or the word alone when there are none — it stays, because it is
+   * the way into the drawer and the button that opens the first shell is inside it. */
+  ext.chip("terminal", {
+    draw(button, { session } = {}) {
+      const { el, clear, setHidden } = ext.dom;
+      const rows = visible().filter((s) => mine(s, session ?? null));
+      const live = rows.filter((s) => s.state !== "closed").length;
+      const busy = rows.some((s) => BUSY.has(s.state));
+      const open = ext.shelf.isOpen();
+      button.classList.add("term-chip");
+      button.classList.toggle("is-busy", busy);
+      button.classList.toggle("is-on", open);
+      button.classList.toggle("is-stale", !stream.live);
+      clear(button).append(
+        el("span", { class: `term-dot ${busy ? "is-busy" : live ? "is-ok" : "is-done"}` }),
+        el("span", {}, rows.length ? `${rows.length} terminal${rows.length === 1 ? "" : "s"}` : "Terminal")
+      );
+      button.title = !stream.live
+        ? `Not live: ${stream.why}`
+        : open
+          ? "Hide the terminal drawer"
+          : "Show the shells this conversation has open";
+      setHidden(button, false);
+    },
+    /** Click toggles the drawer; opening it also uncollapses it, which the shelf does on its own. */
+    open() {
+      if (ext.shelf.isOpen()) ext.close.shelf();
+      else ext.open.shelf("terminal");
+      ext.redraw("terminal");
     },
   });
 

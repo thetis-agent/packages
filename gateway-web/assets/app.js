@@ -185,6 +185,8 @@ bindShell({
   openDock: (key) => { places.close(); dock.open(key); },
   openPlace: (key, params) => places.open(key, params),
   openShelf: (key) => { places.close(); shelf.open(key); },
+  closeShelf: () => shelf.close(),
+  shelfOpen: () => shelf.isOpen(),
   openPanel: (key) => places.open(registry.keyOf(registry.BUILTIN, PANEL_PLACE.id), { section: key }),
 });
 

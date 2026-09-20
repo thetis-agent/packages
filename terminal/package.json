@@ -156,7 +156,7 @@
           "hint": "The shells this workspace has open"
         }
       ],
-      "statusbar": [{ "id": "terminal", "order": 100 }],
+      "chips": [{ "id": "terminal", "order": 50 }],
       "commands": [
         { "verb": "sessions", "export": "uiSessions", "label": "List the shell sessions" },
         { "verb": "open", "export": "uiOpen", "label": "Open a shell session" },

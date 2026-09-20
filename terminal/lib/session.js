@@ -21,7 +21,7 @@
 //   Nothing is inferred. An exit status is reported only when a mark carried it. A command is "running"
 //   only because a submit was seen going in and no end mark has come back out. A shell that will not carry
 //   the marks is `unframed` and says so, rather than being guessed at.
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -49,8 +49,11 @@ export const INTERRUPT_SETTLE_MS = 400;
 export const FRAMING_GRACE_MS = 2_000;
 /** A `cd` sent on the caller's behalf before their command. It is a builtin; a second is already generous. */
 export const CD_WAIT_MS = 5_000;
-/** How long the `stty` of a resize is given before we stop hiding it from the agent's transcript. */
+/** How long the typed `stty` of a fallback resize is given before we stop hiding it from the agent's
+ *  transcript. The ordinary resize is an ioctl on the device and never appears in the transcript. */
 export const RESIZE_WAIT_MS = 1_000;
+/** How long the sibling `stty -F` of a resize is given. It is one ioctl; two seconds is a stuck kernel. */
+export const RESIZE_EXEC_MS = 2_000;
 /** After a command ends the shell runs PROMPT_COMMAND and redraws its prompt. A command written into
  *  that gap is echoed once by the line discipline and then again by readline's redisplay, so the person
  *  sees it twice and the agent sees it before its own prompt region. This is how long the next command
@@ -252,9 +255,10 @@ export function openSession({
   let endToken = -1;
 
   let atPrompt = false; // a command-start mark has been seen and nothing has been submitted since
-  let internalBusy = false; // a command this package sent (a resize); never reported as anyone's command
+  let internalBusy = false; // a command this package sent (a fallback resize); never reported as anyone's command
   let internalFrom = 0;
-  let pendingResize = null;
+  let pendingResize = null; // a fallback resize waiting for the next idle; the device path never defers
+  let ttyPath = null; // the shell's own tty, reported once by the init file; null for a shell without the rc
   let wantRows = rows;
   let wantCols = cols;
 
@@ -325,6 +329,7 @@ export function openSession({
       conversation,
       bytes,
       closedAt,
+      tty: ttyPath,
     };
   }
 
@@ -334,7 +339,7 @@ export function openSession({
   // something running is re-checked once a second.
   let lastSignature = null;
   const signature = (s) =>
-    [s.state, s.name, s.cwd, s.command, s.holder, s.since, s.lastExit, s.framed, s.dropped, s.watchers, s.closedAt].join("\u0000");
+    [s.state, s.name, s.cwd, s.command, s.holder, s.since, s.lastExit, s.framed, s.dropped, s.watchers, s.closedAt, s.tty].join("\u0000");
   function maybeEmitState() {
     const s = state();
     const sig = signature(s);
@@ -370,8 +375,9 @@ export function openSession({
   function onMark(mark) {
     // Only the semantic-prompt marks prove the shell is framed. OSC 7 is emitted by plenty of things that
     // say nothing about the prompt, and taking it as proof let the first command be written before the
-    // shell had a prompt up at all.
-    if (mark.kind !== "alt" && mark.kind !== "cwd") framed = true;
+    // shell had a prompt up at all. The tty report comes from our own init file, but from its first line,
+    // before the prompt is wrapped, so it is no proof of a prompt either.
+    if (mark.kind !== "alt" && mark.kind !== "cwd" && mark.kind !== "tty") framed = true;
     switch (mark.kind) {
       case "prompt-start":
         promptFrom = mark.at;
@@ -397,14 +403,21 @@ export function openSession({
       case "cwd":
         cwdNow = mark.cwd;
         break;
+      case "tty":
+        ttyPath = mark.path;
+        break;
       default:
         break;
     }
-    if (pendingResize && !running && !internalBusy) {
-      const want = pendingResize;
-      pendingResize = null;
-      queueMicrotask(() => void applyResize(want.rows, want.cols));
-    }
+    flushPendingResize();
+  }
+
+  /** A fallback resize that was waiting for the idle it has now got. */
+  function flushPendingResize() {
+    if (!pendingResize || running || internalBusy) return;
+    const want = pendingResize;
+    pendingResize = null;
+    queueMicrotask(() => void applyResize(want.rows, want.cols));
   }
 
   /** The unframed path: the marker is a printed line, so it is looked for in the text rather than parsed
@@ -421,6 +434,7 @@ export function openSession({
       lastExit = hit.exit;
       if (hit.cwd) cwdNow = hit.cwd;
       endToken = cmdToken;
+      flushPendingResize(); // an unframed shell has no mark to wake the fallback on; the marker line is its end
       return;
     }
     const keep = a.marker.length + 300;
@@ -530,6 +544,22 @@ export function openSession({
     };
   }
 
+  /**
+   * The ordinary resize: `stty -F <tty> rows R cols C` run as a sibling process, no shell involved. It is
+   * an ioctl on the device, so nothing is written into the pty, nothing is echoed, and the kernel raises
+   * SIGWINCH in the foreground process group, so the program running now learns the size at once. Answers
+   * whether it worked; a failure (the device gone, `stty` missing) is the fallback's cue, not an error.
+   */
+  function setSizeOnDevice(r, c) {
+    return new Promise((done) => {
+      execFile("stty", ["-F", ttyPath, "rows", String(r), "cols", String(c)], { timeout: RESIZE_EXEC_MS }, (err, _out, stderr) => {
+        if (err) log(`terminal: session ${id}: stty -F ${ttyPath} failed, falling back to a typed stty: ${String(stderr || err?.message || err).trim()}`);
+        done(!err);
+      });
+    });
+  }
+
+  /** The fallback: a typed `stty` at the prompt, for a shell that never reported its tty. */
   async function applyResize(r, c) {
     wantRows = r;
     wantCols = c;
@@ -691,16 +721,22 @@ export function openSession({
 
     /**
      * Node cannot set a pty's window size without a native module and this repository has no runtime
-     * dependency, so a resize is an `stty` written to the session's own tty. It can only be written when
-     * nothing is running, so a resize during a command is deferred to the next idle and the answer says
-     * which happened. A full-screen program already running does not learn the new size; it learns it when
-     * it next starts.
+     * dependency, but `stty` can: with the shell's tty path known, the size is set on the device from a
+     * sibling process, immediately, silently, and while a command runs. Without the path (a shell that
+     * did not run the init file, or one still starting) the resize is an `stty` typed at the prompt: it
+     * can only be written when nothing is running, so during a command it is deferred to the next idle
+     * and the answer says so, and the program running now keeps its old size.
      */
     async resize(r, c) {
       assertOpen();
       const rr = Math.trunc(Number(r));
       const cc = Math.trunc(Number(c));
       if (!(rr > 0) || !(cc > 0)) throw new Error("resize needs a positive number of rows and columns.");
+      if (ttyPath && (await setSizeOnDevice(rr, cc))) {
+        wantRows = rr;
+        wantCols = cc;
+        return { applied: true, deferred: false, rows: rr, cols: cc };
+      }
       if (running || internalBusy) {
         pendingResize = { rows: rr, cols: cc };
         return { applied: false, deferred: true, rows: rr, cols: cc, reason: "a command is running; the size is set when it ends" };

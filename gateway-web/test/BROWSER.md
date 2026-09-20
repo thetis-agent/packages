@@ -506,43 +506,69 @@ the OpenRouter key in the environment of `serve` (steps 43 and 47 send one messa
 
 `@thetis/terminal` must be in `systemPackages["*"]` for these; it is there by default.
 
-53. **The chip, with nothing open**: the status bar shows `.tm-chip` reading **Terminal**. It is never
-    hidden, because the button that opens the first shell is inside the shelf and the chip is the only
-    way in. Click it: `#shelf` appears under the conversation with the title **Terminals**, the empty
-    list "No shells are open.", and the pane "No shell is open. The + above opens one in this
-    conversation."
-54. **Open one**: click **+**. A row `main` appears with **Close** and the working directory shortened to
-    `~`; the emulator loads (`ui/vendor/xterm.js`, once per page) and the pane shows a prompt. The chip
-    reads `1 shell`. The console must be clean: a blocked stylesheet here means the page was served
-    without its nonce (see `docs/12-security.md`).
+53. **The chip, with nothing open**: the status bar stays `hidden` (no package fills it). The active
+    pane's chat bar shows `.chips .chip.term-chip` reading **Terminal** with a grey `.term-dot.is-done`;
+    it is never hidden, because the **+** that opens the first shell is inside the drawer and the chip is
+    the way in. Click it: `#shelf.is-open` rises under the conversation (no `hidden`, an inline height of
+    `300px`), `.shelf-title` **TERMINALS** (uppercase, faint), `.shelf-actions` holding `.term-add`,
+    `.term-clear`, `.shelf-collapse`, `.shelf-close` in that order, `.term-list` with only `.term-empty`
+    "No shells open — open one with +, or the agent opens one when it needs to run something.", an empty
+    `.term-foot`, and the chip now `.is-on`.
+54. **Open one**: click `.term-add`. A `.term-tab.is-active[data-id]` appears with `.term-dot.is-ok`,
+    `.term-tab-label` `main`, `.term-tab-sub` `home`, and `.term-tab-info` and `.term-tab-kill` beside
+    it; the emulator loads (`ui/vendor/xterm.js`, once per page) into `.term-panes > .term-pane` and shows a
+    prompt; `.term-cwd` reads `~` and `.term-meta` `bash · idle`; the chip reads `1 terminal`. The
+    console must be clean: a blocked stylesheet here means the page was served without its nonce (see
+    `docs/12-security.md`). Reload: the drawer opens by itself, because the conversation has a shell, at
+    the same height.
 55. **Type in it**: click the screen and type `printf '\033[31mRED\033[0m \033[1;32mGREEN\033[0m\n'` and
-    Enter. `RED` renders red and `GREEN` bold green — `getComputedStyle` on those spans must not return
-    the default foreground. Keystrokes reach the shell through `write`, coalesced at 15 ms.
-56. **Your own command**: type `sleep 30` and Enter. The row says `you are running sleep 30` with
-    **Interrupt**; the chip reads `1 shell · 1 busy`; the shelf head says "1 of 1 shell is running
-    something." Click **Interrupt**: `^C` appears, the row returns to the working directory and the chip
-    to `1 shell`.
-57. **The agent's command, watched live**: with the shelf open, send `Run this with the shell tool,
-    exactly: sleep 25 && echo hello` in a conversation. A second row appears, `the agent is running sleep
-    25 && echo hello · 0s`, the clock ticking once a second. After five seconds of silence it becomes
-    `running … · no output for 6s` — `busy-quiet`, which is the observed fact and not a guess about what
-    the program is waiting for. The reply reports `exit 0`.
-58. **A full-screen program**: type `printf '\033[?1049h'; sleep 8; printf '\033[?1049l'`. The row reads
-    `a full-screen program has the terminal` for those eight seconds, then returns.
-59. **Resize while something runs**: type `sleep 20`, then make the window wider. The row carries "the
-    program now running keeps the old size; the next one starts at this one". When the command ends the
-    note goes and an `stty rows R cols C` is sent at the next prompt — visible in the transcript, because
-    it is a real command in a real shell.
-60. **Close keeps the transcript**: click **Close** on a row with output in it. The row becomes `closed ·
-    exit N` with **Reopen**; the screen keeps what it printed, and the pane says "This shell is closed, so
-    it takes no more keys. What it printed is still here; Reopen in the row starts a new one." The host
-    keeps the last four closed sessions, so the row disappears only after that.
-61. **Nothing is shown as live when it is not**: stop the daemon. Within a few seconds the shelf head
-    reads "Not live: the stream \"watch\" to this workspace ended. What the rows say may be out of date."
-    with a **Reconnect** button, and the chip turns `.tm-chip.is-stale` reading `shells · not connected`.
-    The browser's own silent retry is deliberately not relied on here: `ext.subscribe` ends the
-    subscription so the page owns the retry and can say what it knows. Start the daemon and click
-    **Reconnect**: the rows come back.
+    Enter. `RED` renders in `--term-red` and `GREEN` bold in `--term-bright-green` — `getComputedStyle` on
+    those spans must not return the default foreground. Keystrokes reach the shell through `write`,
+    coalesced at 15 ms.
+56. **Your own command**: type `sleep 30` and Enter. The row's dot becomes `.is-busy` (pulsing yellow), a
+    `.term-tab-stop` appears before the info button, `.term-meta` reads `bash · you are running sleep 30`,
+    and the chip is `.is-busy` with its dot in the warning colour. Click `.term-tab-stop`: `^C` appears,
+    the dot returns to `.is-ok`, the stop button goes, and the meta returns to `bash · idle`.
+57. **The agent's command, watched live**: click `.term-add` once more (a row `2`, chosen), then send
+    `run: sleep 6; echo hi` (the echo model calls the `shell` tool, which uses `main`). The `main` row turns
+    `.is-busy` with `.has-activity` (the label bold and bright) and the view stays on `2`; choose `main`:
+    `.term-meta` reads `bash · the agent is running sleep 6; echo hi · 2s`, the clock ticking once a
+    second, and after five seconds of silence `bash · running … · no output for 6s` — `busy-quiet`, the
+    observed fact and not a guess about what the program is waiting for. The reply reports `exit 0`.
+    `.term-tab-info` opens `.term-card[role="dialog"]` left of the list with the rows Name, Session id,
+    Working directory, Conversation, Shell, State, Command and Running since while it runs, Last exit,
+    Terminal (`/dev/pts/N`), Reports exit codes, and the foot "What you type here goes to the shell.";
+    Escape closes it. Double-click `.term-tab-label` on `2`: `.term-tab-rename` takes its place; type
+    `build` and Enter: the label reads `build`. Double-click again, type, Escape: the name is unchanged.
+58. **A full-screen program**: type `printf '\033[?1049h'; sleep 8; printf '\033[?1049l'`. `.term-meta`
+    reads `bash · a full-screen program has the terminal` for those eight seconds, then `bash · idle`.
+59. **Resize while something runs**: type `sleep 20`, then make the window wider. No note appears on the
+    row and nothing is typed into the shell: the size is set on the pty from outside it, so the prompt that
+    follows the sleep is already at the new width. Type `less /etc/services` and resize again: `less`
+    redraws at the new size at once. The details card's Terminal row shows the device it was set on,
+    `/dev/pts/N`.
+60. **Close keeps the transcript**: hover a row with output in it and click `.term-tab-kill`. A
+    `.term-popover[role="dialog"]` "Close build?" appears with "The shell in ~ and everything it is running
+    will be terminated. The agent may be using it." and Cancel and **Close** (`.btn.is-warn`); Escape
+    cancels it. Open it again and click **Close**: the row's dot becomes `.is-done`, `.term-tab-note` reads
+    `exited`, `.term-meta` `bash · closed · exit N` (or `closed`), the screen keeps what it printed and the
+    cursor stops blinking. The trash on the closed row now reads "Remove … from the list" and removes the
+    row without asking; the host keeps the last four closed sessions, so it is back after a reload until
+    then. The drawer's chrome: `.shelf-collapse` adds `.is-collapsed` (the body hidden, the chevron
+    turned, the inline height cleared) and again restores it; dragging `.shelf-grip` up adds `.is-dragging`
+    while the pointer moves and leaves the new height in `localStorage["thetis.shelf.height"]`, which a
+    reload restores; `.shelf-close` animates the height to 0 and then sets `hidden`, and the chip loses
+    `.is-on`. With `prefers-reduced-motion: reduce` the pulse and the transition are off and hiding still
+    lands. At 1060px `.term-list` is 158px and `.term-tab-sub` is hidden; at 900px it is 128px and
+    `.term-tab-info` is hidden too, the kill never. A new conversation (`#new-chat`) closes the drawer and
+    its chip reads `Terminal`; the first conversation's tab reopens it with its rows.
+61. **Nothing is shown as live when it is not**: stop the daemon. Within a few seconds `.term-foot`
+    reads `not live: the stream "watch" to this workspace ended · Reconnect` (`.term-meta.is-stale`, a
+    `.term-reconnect` link) and the chip turns `.term-chip.is-stale` with the reason in its title. The
+    browser's own silent retry is deliberately not relied on here: `ext.subscribe` ends the subscription
+    so the page owns the retry and can say what it knows. Start the daemon: the page's own retry (a second,
+    doubling to thirty) reconnects, or **Reconnect** does it now. The shells closed with the fence, so the
+    list is empty and live again; the drawer stays up.
 
 ### Workspaces, and putting new code into service
 

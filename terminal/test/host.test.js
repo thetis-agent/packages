@@ -219,10 +219,25 @@ test("who typed is read from the cursor key, not claimed by the caller", async (
   assert.equal(stopped.session.state, "idle");
 });
 
-test("a resize while a command is running answers that it was deferred", async (t) => {
+test("a resize while a command is running is applied over the socket, and the row carries the tty", async (t) => {
   const { client } = await withHost(t);
   const c = await client();
   const opened = await c.request("open", { conversation: "conv-1" });
+  await c.request("run", { id: opened.id, cmd: "true", consumer: "conv-1" });
+  assert.match((await c.request("list", {}))[0].tty, /^\/dev\/pts\/\d+$/);
+  await c.request("run", { id: opened.id, cmd: "sleep 1", timeoutMs: 200, consumer: "conv-1" });
+  const applied = await c.request("resize", { id: opened.id, rows: 40, cols: 100 });
+  assert.equal(applied.applied, true);
+  assert.equal(applied.deferred, false);
+  assert.equal(applied.id, opened.id);
+  await c.request("interrupt", { id: opened.id });
+});
+
+test("a resize while a command is running in a shell without the rc answers that it was deferred", async (t) => {
+  const { client } = await withHost(t, { shell: "/bin/sh" });
+  const c = await client();
+  const opened = await c.request("open", { conversation: "conv-1" });
+  assert.equal(opened.tty, null);
   await c.request("run", { id: opened.id, cmd: "sleep 1", timeoutMs: 200, consumer: "conv-1" });
   const deferred = await c.request("resize", { id: opened.id, rows: 40, cols: 100 });
   assert.equal(deferred.applied, false);

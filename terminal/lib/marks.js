@@ -1,8 +1,9 @@
 // Framing a stream that never ends. A shell's output is one long stream, so the only way to know where
 // one command's output stops is to have the shell say so. We say it the way every modern terminal already
 // does: OSC 133 (semantic prompt) for prompt-start, command-start and command-finished-with-this-status,
-// and OSC 7 for the working directory. `initFile` writes the bash that emits them; `MarkParser` reads them
-// back out of the pty's output.
+// and OSC 7 for the working directory, plus one private OSC, 7770, by which the shell reports the path of
+// its own tty once, so a resize can be an ioctl on that device instead of a command typed into the shell.
+// `initFile` writes the bash that emits them; `MarkParser` reads them back out of the pty's output.
 //
 // Two rules shape the parser. It never modifies the stream: the marks stay in the bytes that reach the
 // ring buffer, because the browser's emulator consumes them and the person must see a clean transcript
@@ -34,13 +35,15 @@ const sq = (s) => `'${String(s).replaceAll("'", "'\\''")}'`;
  * their `$?` preserved by the `return`. Bash 5.1 made PROMPT_COMMAND an array, so both shapes are handled.
  *
  * `rows`/`cols` are set here rather than sent as a command because a command would be echoed into the
- * person's transcript before they had done anything. See session.js for a resize after this point, which
- * cannot avoid that.
+ * person's transcript before they had done anything. The line after it reports the shell's tty path once,
+ * so that a resize after this point can be an `stty -F <path>` from a sibling process and echo nothing
+ * either (session.js).
  */
 export function initFile({ rc, rows = 24, cols = 120 } = {}) {
   return [
     "# Written by @thetis/terminal for one session. Not a file to edit: it is rewritten on every open.",
     `[ -t 0 ] && stty rows ${Number(rows) | 0} cols ${Number(cols) | 0} 2>/dev/null`,
+    "[ -t 0 ] && printf '\\033]7770;tty=%s\\007' \"$(tty)\" 2>/dev/null",
     rc ? `[ -r ${sq(rc)} ] && . ${sq(rc)}` : "# no rc file for this person",
     "__thetis_pre() { __thetis_st=$?; return $__thetis_st; }",
     "__thetis_post() {",
@@ -93,6 +96,13 @@ function findCsiEnd(buf, from) {
   return -1;
 }
 
+/** The private OSC number the init file reports the shell's tty through. Private-use, and unknown to
+ *  every emulator, which drops it. */
+export const TTY_OSC = 7770;
+/** The only paths a tty report is believed for: a pty slave or a console device. Anything else — a
+ *  program printing our own escape with a path of its choosing — is ignored rather than handed to `stty -F`. */
+const TTY_PATH = /^\/dev\/(pts\/\d+|tty[A-Za-z0-9]*)$/;
+
 /** A mark, or null when the body is some other program's escape. Strict on purpose: see the head comment. */
 function parseOsc(body) {
   if (body.startsWith("133;")) {
@@ -120,6 +130,10 @@ function parseOsc(body) {
       // A path with a stray % is not URL-encoded; take it as it came rather than refusing the mark.
     }
     return { kind: "cwd", cwd: path, host };
+  }
+  if (body.startsWith(`${TTY_OSC};tty=`)) {
+    const path = body.slice(`${TTY_OSC};tty=`.length);
+    return TTY_PATH.test(path) ? { kind: "tty", path } : null;
   }
   return null;
 }

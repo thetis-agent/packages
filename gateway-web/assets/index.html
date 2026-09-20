@@ -77,17 +77,6 @@
 
     <div id="panes" class="panes"></div>
 
-    <div id="shelf" class="shelf" hidden>
-      <div class="shelf-grip" role="separator" aria-orientation="horizontal" aria-label="Resize"></div>
-      <div class="shelf-head">
-        <span class="shelf-title"></span>
-        <button type="button" class="icon-btn sm shelf-close" title="Close" aria-label="Close the shelf">
-          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5l-10 10" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
-        </button>
-      </div>
-      <div class="shelf-body"></div>
-    </div>
-
     <div class="composer-wrap">
       <form id="composer" class="composer" autocomplete="off">
         <div class="composer-field">
@@ -112,6 +101,28 @@
         </div>
       </form>
       <p class="composer-hint">Enter to send · Shift+Enter for a newline</p>
+    </div>
+
+    <!-- The shelf: the bottom dock under the conversation, the legacy terminal drawer's chrome made
+         generic. Inside .main rather than across the whole page, because what it shows belongs to the
+         conversation — so it shortens the transcript and leaves the sidebar and the rail alone. The
+         shell owns the grip, the title, collapse and hide; a package mounts into the body and may put
+         its own buttons before collapse. Hidden until a shelf entry is opened; the height is animated
+         and set by views/shelf.js, so nothing here fixes it. -->
+    <div id="shelf" class="shelf" hidden aria-label="Shelf">
+      <div class="shelf-grip" role="separator" aria-orientation="horizontal" title="Drag to resize"></div>
+      <header class="shelf-head">
+        <span class="shelf-title"></span>
+        <div class="shelf-actions">
+          <button type="button" class="icon-btn sm shelf-collapse" title="Collapse to the title strip" aria-label="Collapse the shelf">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 8l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="icon-btn sm shelf-close" title="Hide the shelf — what is in it keeps running" aria-label="Hide the shelf">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 6l8 8M14 6l-8 8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </header>
+      <div class="shelf-body"></div>
     </div>
   </main>
 

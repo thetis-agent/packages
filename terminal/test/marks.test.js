@@ -42,6 +42,20 @@ test("a percent-encoded path is decoded, and a stray percent is taken as it came
   assert.equal(new MarkParser().feed(osc("7;file://dev/tmp/100%done"))[0].cwd, "/tmp/100%done");
 });
 
+test("the shell's tty report is a mark, with its path", () => {
+  const bel = new MarkParser().feed(`${ESC}]7770;tty=/dev/pts/3${BEL}`);
+  assert.deepEqual(bel.map((m) => [m.kind, m.path]), [["tty", "/dev/pts/3"]]);
+  const st = new MarkParser().feed(osc("7770;tty=/dev/pts/12"));
+  assert.deepEqual(st.map((m) => [m.kind, m.path]), [["tty", "/dev/pts/12"]]);
+  assert.equal(new MarkParser().feed(osc("7770;tty=/dev/ttyS0"))[0].path, "/dev/ttyS0");
+});
+
+test("a tty report with a path outside /dev is ignored rather than handed to stty", () => {
+  const p = new MarkParser();
+  const bad = [osc("7770;tty=/tmp/not-a-tty"), osc("7770;tty=/dev/pts/../sda"), osc("7770;tty=not a tty"), osc("7770;tty="), osc("7770;/dev/pts/1")];
+  assert.deepEqual(p.feed(bad.join("")), []);
+});
+
 test("a BEL-terminated mark is read as well as an ST-terminated one", () => {
   const [mark] = new MarkParser().feed(`${ESC}]133;D;3${BEL}`);
   assert.equal(mark.exit, 3);
@@ -100,6 +114,7 @@ test("the init file sources the person's rc and emits all four marks", () => {
   const text = initFile({ rc: "/home/someone/.bashrc", rows: 30, cols: 100 });
   assert.match(text, /\[ -r '\/home\/someone\/\.bashrc' \] && \. '\/home\/someone\/\.bashrc'/);
   assert.match(text, /stty rows 30 cols 100/);
+  assert.match(text, /printf '\\033\]7770;tty=%s\\007' "\$\(tty\)"/, "the shell reports its tty once, so a resize can be an ioctl on it");
   assert.match(text, /133;A/);
   assert.match(text, /133;B/);
   assert.match(text, /133;D;%s/);

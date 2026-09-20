@@ -14,7 +14,7 @@ The transcript lives in the agent process's memory and nowhere else. It is not w
 
 ## What it provides
 
-The manifest declares `service.export: "startTerminals"`, five `tools`, and a `ui` block with `dir: "ui"`, `entry: "index.js"`, `style: "index.css"`, one `shelf` entry, one `statusbar` chip and eight commands.
+The manifest declares `service.export: "startTerminals"`, five `tools`, and a `ui` block with `dir: "ui"`, `entry: "index.js"`, `style: "index.css"`, one `shelf` entry, one chat-bar `chips` entry and eight commands.
 
 | Tool | Arguments | Answer |
 |---|---|---|
@@ -30,10 +30,10 @@ A refusal comes back as `error: <sentence>`, so the transcript shows a failed ca
 
 | Slot | Id | Label |
 |---|---|---|
-| `shelf` | `terminal` | Terminals — the bottom dock under the conversation, which shortens it rather than covering it. |
-| `statusbar` | `terminal` | The chip: `2 shells · 1 busy`, which opens the shelf. |
+| `shelf` | `terminal` | Terminals — the drawer in the bottom dock under the conversation, which shortens it rather than covering it. |
+| `chips` | `terminal` | The chip in every chat bar: `2 terminals`, or `Terminal` when there are none, which toggles the drawer. |
 
-The shelf is the session list, the state word and the repair in each row, the pane with the emulator in it, and an input that is always enabled — including while the agent holds the prompt, because that is how a person answers the question the agent's command asked. It opens by itself the first time a session in the open conversation starts a command, once per page load, and never takes the focus from the composer.
+The drawer is the legacy terminal drawer's look and structure on a real pty: the emulator on the left, a compact list of shells on the right (a dot for the state, the name, the last segment of the directory, `exited` on a closed row), a footer with the chosen shell's full directory and one sentence about it, an interrupt on a busy row, a details card, a two-step close, and a rename by double-click. The input is always enabled — including while the agent holds the prompt, because that is how a person answers the question the agent's command asked. A shell appearing in the open conversation opens the drawer by itself; switching conversations closes it and reopens it when the new one has shells; nothing takes the focus from the composer. The shelf's chrome — the grip, the head with **+** and the eraser before collapse and hide, the animated height kept across reloads — is the gateway's.
 
 Eight commands, each any signed-in person's, each acting on their own fence alone. Seven answer `{ data }`; the eighth streams.
 
@@ -43,7 +43,7 @@ Eight commands, each any signed-in person's, each acting on their own fence alon
 | `open` | `uiOpen` | `conversation?`, `name?`, `cwd?` | `{ session }` |
 | `write` | `uiWrite` | `id`, `text` | `{}`. Keystrokes as the emulator made them; a burst ending in a carriage return is submitted as a command, so the session learns whose it is. |
 | `interrupt` | `uiInterrupt` | `id` | `{}` |
-| `resize` | `uiResize` | `id`, `rows`, `cols` | `{ applied }`. `false` means a command is running and the size is handed over when it ends. |
+| `resize` | `uiResize` | `id`, `rows`, `cols` | `{ applied, deferred }`. Normally `applied: true`: the size is set on the session's tty from outside the shell, at once, whether or not something is running. `applied: false, deferred: true` is the fallback for a shell that reported no tty: a command is running and the size is typed at the next prompt. |
 | `close` | `uiClose` | `id` | `{}` |
 | `rename` | `uiRename` | `id`, `name` | `{ session }` |
 | `watch` | `uiWatch` | none | Streams. See below. |
@@ -87,7 +87,7 @@ The state word is computed where the truth is, and every surface says the same o
 | Idle close | 30 minutes | Nothing watching and nothing running. |
 | Transcript on disk | none | Memory only, and gone with the fence. |
 
-Two limitations stated rather than hidden. **A resize is an `stty` on the session's own tty**, because Node cannot set a pty's window size without a native module and this repository has no runtime dependency; it is sent when the session is next idle, so a full-screen program that is already running does not learn the new size — it learns it when it next starts, and the row says so. **A session does not survive its fence closing**: a `mounts.set` or a daemon restart closes the fence and everything in it, and the shelf says the session closed rather than pretending to reattach.
+Two limitations stated rather than hidden. **A resize is an `stty -F <tty>` from a sibling process**, because Node cannot set a pty's window size without a native module and this repository has no runtime dependency: the init file reports the shell's tty once through a private OSC, and the size is set on that device from outside the shell — nothing typed, nothing echoed, `SIGWINCH` to whatever is running, so a full-screen program redraws at once. A shell that reported no tty (not bash, so no init file) gets the fallback: an `stty` typed at the next prompt, deferred while a command runs, and the row says so; a program already running in such a shell keeps its old size until it next starts. **A session does not survive its fence closing**: a `mounts.set` or a daemon restart closes the fence and everything in it, and the shelf says the session closed rather than pretending to reattach.
 
 Left out on purpose: remote sessions over ssh (that crosses the fence's egress and authority model, and a person can `ssh` inside a session), a session shared between two people (a session lives in one fence), and the transcript kept across reloads. The file tools remain the cheaper and safer way to read and change a file, and the tool descriptions say so.
 
@@ -97,12 +97,12 @@ Left out on purpose: remote sessions over ssh (that crosses the fence's egress a
 |---|---|
 | `package.json` | The manifest: the service, the five tools, the shelf, the chip, the eight commands, the bench declaration. |
 | `index.js` | The service export, the five tools, the eight ui commands, and the one connection this process holds. Argument checks only. |
-| `lib/session.js` | One session: the pty, the marks, the ring buffer, the cursors, write, resize, interrupt, close, and the state word. |
+| `lib/session.js` | One session: the pty, the marks, the ring buffer, the cursors, write, resize (an `stty -F` on the reported tty, or the typed fallback), interrupt, close, and the state word. |
 | `lib/host.js` | The session table, the socket server, the line protocol, subscribe and broadcast, the limits, the idle reaper. |
 | `lib/client.js` | Connect, request, subscribe — used by both processes. |
-| `lib/marks.js` | The init file written for a session, and the parser for its escapes. |
-| `ui/index.js` | `install(ext)`: the shelf registration, the chip, and the one `watch` subscription the whole page shares. |
-| `ui/shelf.js`, `ui/screen.js`, `ui/index.css` | The list and the pane, the emulator wrapper, the styles. |
+| `lib/marks.js` | The init file written for a session, and the parser for its escapes, the tty report among them. |
+| `ui/index.js` | `install(ext)`: the shelf registration, the chip in the chat bar, the one `watch` subscription the whole page shares, and the two rules that open and close the drawer. |
+| `ui/shelf.js`, `ui/screen.js`, `ui/index.css` | The drawer's body (the list, the pane, the footer, the card, the popover), the emulator wrapper, the styles on the `--term-*` tokens. |
 | `ui/vendor/` | The emulator. See below. |
 | `test/session.test.js`, `test/host.test.js`, `test/marks.test.js` | The tests. |
 
@@ -110,6 +110,6 @@ Left out on purpose: remote sessions over ssh (that crosses the fence's egress a
 
 ## Tests
 
-`npm test` from the runtime root, or `node --test "test/*.test.js"` here: `test/session.test.js` (spawn, exit status, a working directory carried over, a command that outruns its wait and is collected later, an interrupt that leaves the session alive, a ring buffer that drops and says so, an unframed shell), `test/host.test.js` (the socket, the session limit, two consumers with independent cursors, the idle reaper, close on fence close, who typed read from the cursor key) and `test/marks.test.js` (the escape parser, including one split across two chunks and one inside command output). The gateway's stream route has its own tests in `@thetis/gateway-web`, and the browser checklist is `packages/gateway-web/test/BROWSER.md`.
+`npm test` from the runtime root, or `node --test "test/*.test.js"` here: `test/session.test.js` (spawn, exit status, a working directory carried over, a command that outruns its wait and is collected later, an interrupt that leaves the session alive, a ring buffer that drops and says so, an unframed shell, the session's own tty, a resize during a command that the running program sees and one at idle that prints nothing, and the typed fallback in a shell without the rc), `test/host.test.js` (the socket, the session limit, two consumers with independent cursors, the idle reaper, close on fence close, who typed read from the cursor key, a resize over the socket and the deferred fallback) and `test/marks.test.js` (the escape parser, including one split across two chunks and one inside command output, and the tty report). The gateway's stream route has its own tests in `@thetis/gateway-web`, and the browser checklist is `packages/gateway-web/test/BROWSER.md`.
 
 See docs/24-terminal.md in the runtime repository.

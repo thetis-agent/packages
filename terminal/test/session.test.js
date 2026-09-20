@@ -168,25 +168,76 @@ test("a full-screen program is seen taking the terminal, and giving it back", as
   assert.notEqual(session.state().state, "fullscreen");
 });
 
-test("a resize while a command is running is deferred, and applied at the next idle", async (t) => {
+test("a session knows its own tty, and it is the one the shell is on", async (t) => {
+  const { session } = await withSession(t);
+  const tty = await session.run("tty", { consumer: "conv" });
+  const known = session.state().tty;
+  assert.match(known, /^\/dev\/pts\/\d+$/, "the init file reported a pty slave");
+  assert.equal(tty.output, `${known}\n`);
+});
+
+test("a resize while a command is running is applied at once, and the program running gets the size", async (t) => {
   const { session } = await withSession(t, { cols: 120 });
+  await session.run("sleep 1; tput cols", { timeoutMs: 200, consumer: "conv" });
+  assert.equal(session.running, true);
+  const answer = await session.resize(33, 111);
+  assert.deepEqual(answer, { applied: true, deferred: false, rows: 33, cols: 111 });
+
+  let rest = await session.read("conv", { waitMs: 4000 });
+  let collected = rest.output;
+  while (rest.running) {
+    rest = await session.read("conv", { waitMs: 4000 });
+    collected += rest.output;
+  }
+  assert.equal(rest.exit, 0);
+  assert.equal(collected.trim(), "111", "the tput after the sleep saw the size set during the sleep");
+  assert.deepEqual(session.size, { rows: 33, cols: 111 }, "a reopen keeps the size");
+});
+
+test("a resize at idle is an ioctl on the device: nothing is printed, for the agent or the person", async (t) => {
+  const { session } = await withSession(t);
+  await session.run("true", { consumer: "conv" });
+  await new Promise((r) => setTimeout(r, 300)); // the prompt after `true` is still being drawn when run answers
+  const before = session.bytes;
+  const applied = await session.resize(30, 90);
+  assert.deepEqual({ applied: applied.applied, deferred: applied.deferred }, { applied: true, deferred: false });
+  await new Promise((r) => setTimeout(r, 300));
+  // What the pty printed is readline redrawing its prompt in place on SIGWINCH, as it does in any
+  // terminal that was resized: a carriage return, an erase, and the prompt again between its marks.
+  const raw = session.buffer(before).text;
+  assert.doesNotMatch(raw, /stty/, "the raw buffer, which is what the person's emulator gets, has no stty in it");
+  assert.match(raw, /^(\r\u001b\[K\r\u001b\]133;A.*\u001b\]133;B\u001b\\)?$/s, "a prompt redraw, or nothing");
+  assert.equal((await session.read("conv", {})).output, "", "and the agent is handed nothing");
+
+  const next = await session.run("tput lines; tput cols", { consumer: "conv" });
+  assert.equal(next.output, "30\n90\n");
+  assert.doesNotMatch(next.output, /stty/);
+});
+
+test("a shell without the rc reports no tty, and a resize during its command is deferred to the next idle", async (t) => {
+  // /bin/sh is dash here: no init file, so no tty report, so the fallback — an stty typed at the prompt.
+  const { session } = await withSession(t, { shell: "/bin/sh", cols: 120 });
+  await session.run("true", { timeoutMs: 5000, consumer: "conv" });
+  assert.equal(session.state().tty, null);
   await session.run("sleep 1", { timeoutMs: 200, consumer: "conv" });
   const deferred = await session.resize(40, 100);
   assert.equal(deferred.applied, false);
   assert.equal(deferred.deferred, true);
 
-  await session.read("conv", { waitMs: 3000 });
-  const cols = await session.run("tput cols", { consumer: "conv" });
+  let rest = await session.read("conv", { waitMs: 4000 });
+  while (rest.running) rest = await session.read("conv", { waitMs: 4000 });
+  const cols = await session.run("tput cols", { timeoutMs: 5000, consumer: "conv" });
   assert.equal(cols.output.trim(), "100");
 });
 
-test("a resize at idle is applied straight away and is not shown to the agent as a command", async (t) => {
-  const { session } = await withSession(t);
-  await session.run("true", { consumer: "conv" });
+test("a shell without the rc resized at idle types the stty, and the agent is not shown it", async (t) => {
+  const { session } = await withSession(t, { shell: "/bin/sh" });
+  await session.run("true", { timeoutMs: 5000, consumer: "conv" });
   const applied = await session.resize(30, 90);
   assert.deepEqual({ applied: applied.applied, deferred: applied.deferred }, { applied: true, deferred: false });
+  assert.match(session.buffer(0).text, /stty rows 30 cols 90/, "the fallback is a real command in a real shell, and the person sees it");
 
-  const next = await session.run("tput lines; tput cols", { consumer: "conv" });
+  const next = await session.run("tput lines; tput cols", { timeoutMs: 5000, consumer: "conv" });
   assert.equal(next.output, "30\n90\n");
   assert.doesNotMatch(next.output, /stty/, "the stty this package sent for its own reasons is not the agent's business");
 });

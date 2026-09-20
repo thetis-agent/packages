@@ -15,7 +15,7 @@ import * as registry from "./registry.js";
 import { store } from "./store.js";
 import { toast } from "./toast.js";
 
-let shell = null; // { send, openConversation, openDock, openPlace, openShelf, openPanel }
+let shell = null; // { send, openConversation, openDock, openPlace, openShelf, closeShelf, shelfOpen, openPanel }
 const turnWatchers = new Set();
 
 /** Hands the shell's functions to the seam. Called once, before any extension loads. */
@@ -51,7 +51,8 @@ export function createExt(extension) {
     sidebar: (id, mount) => registry.register("sidebar", pkg, id, typeof mount === "function" ? { mount } : mount),
     chip: slot("chips"),
     composer: slot("composer"),
-    shelf: slot("shelf"),
+    /** `ext.shelf(id, { mount })` registers; `ext.shelf.isOpen()` says whether the shelf is open right now. */
+    shelf: Object.freeze(Object.assign(slot("shelf"), { isOpen: () => Boolean(shell.shelfOpen?.()) })),
     statusbar: slot("statusbar"),
     transcript: (render) => registry.addRenderer(pkg, render),
 
@@ -127,6 +128,11 @@ export function createExt(extension) {
       place: (id, params) => shell.openPlace(registry.keyOf(pkg, id), params),
       shelf: (id) => shell.openShelf(registry.keyOf(pkg, id)),
       panel: (id) => shell.openPanel(registry.keyOf(pkg, id)),
+    }),
+
+    /** The shelf closes whoever is in it; nothing else on the page closes on a package's word. */
+    close: Object.freeze({
+      shelf: () => shell.closeShelf(),
     }),
 
     dom: DOM,

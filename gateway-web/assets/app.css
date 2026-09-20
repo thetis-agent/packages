@@ -1288,13 +1288,110 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .dock .panel-head { padding: var(--gap-3) var(--gap-3) var(--gap-3) var(--gap-4); align-items: center; }
 .dock .panel-title { font-size: var(--text-md); }
 
-/* --- the shelf: the bottom dock under the conversation, resized by its grip ----- */
+/* --- the shelf ------------------------------------------------------------------
+   The bottom dock under the conversation: the legacy terminal drawer's chrome, kept
+   generic so any package can mount into it.
 
-.shelf { --shelf-h: 360px; position: relative; flex: 0 0 auto; height: var(--shelf-h); max-height: 70vh; display: flex; flex-direction: column; min-height: 0; background: var(--surface-1); border-top: 1px solid var(--hairline); }
-.shelf-grip { position: absolute; left: 0; right: 0; top: -3px; height: 6px; cursor: row-resize; z-index: 2; }
+   Docked, not floating: it is a child of `.main` above the composer, so opening it
+   shortens the transcript instead of covering it — the same reasoning that makes
+   every inspector a rail tab. It stops at `.main`'s edge, above the composer's zone
+   and inside the status bar, because it describes this conversation's sandbox
+   rather than the installation.
+
+   Height is animated and set inline by the view, so nothing here fixes it. */
+
+/* A dark device in both colour schemes. The legacy drawer's file had no light scheme; this app has one,
+   and its text, surface and accent tokens switch with it, which on the terminal's neutrals would be dark
+   on dark. They are restated inside the device at their dark values, so the rules below and a tenant's
+   can name the same tokens the legacy ones did. The floating card and popover a tenant appends to the
+   body restate them too. */
+.shelf, .shelf-scheme {
+  --text:       #ececf2;
+  --text-dim:   #a3a3b4;
+  --text-faint: #6e6e82;
+  --surface-1:  #101016;
+  --surface-2:  #16161f;
+  --surface-3:  #1d1d28;
+  --hairline:        #24242f;
+  --hairline-strong: #32323f;
+  --accent:      #7c9cff;
+  --accent-hot:  color-mix(in srgb, #7c9cff 82%, #ffffff);
+  --accent-wash: color-mix(in srgb, #7c9cff 14%, transparent);
+  --accent-edge: color-mix(in srgb, #7c9cff 38%, transparent);
+  --ok:   #7fd18f;
+  --warn: #e8b673;
+  --err:  #f2788f;
+  --err-wash: color-mix(in srgb, #f2788f 12%, transparent);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, .5);
+  color: var(--text);
+}
+
+.shelf {
+  flex: 0 0 auto;
+  /* The inline height is authoritative while animating; these bound it. */
+  min-height: 0;
+  max-height: 72vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  background: var(--term-bg);
+  /* Depth from the shadow alone, with square corners. The rounded top looked
+     wrong for the same reason it would on a real terminal: the drawer spans the
+     full width of the column and butts against the rail and the status bar, so
+     a radius left two slivers of transcript showing through at the corners and
+     read as a card that had not quite landed. The upward shadow is enough to
+     say it floats. */
+  border-top: 1px solid var(--term-hairline);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, .38);
+  transition: height var(--med) var(--ease);
+}
+/* Dragging must track the pointer exactly, so the easing that makes opening
+   feel deliberate is exactly what makes resizing feel like lag. */
+.shelf.is-dragging { transition: none; }
+.shelf.is-collapsed { height: auto !important; }
+.shelf.is-collapsed .shelf-body { display: none; }
+.shelf.is-collapsed .shelf-collapse svg { transform: rotate(180deg); }
+
+/* The resize handle: a 5px strip over the top border, widened to the whole
+   width so it is easy to hit without being visible. */
+.shelf-grip {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 5px;
+  cursor: ns-resize;
+  z-index: 2;
+}
 .shelf-grip:hover { background: var(--accent-edge); }
-.shelf-head { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-2); height: 32px; padding: 0 var(--gap-2) 0 var(--gap-4); border-bottom: 1px solid var(--hairline); font-size: var(--text-sm); font-weight: 600; }
-.shelf-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.shelf.is-collapsed .shelf-grip { cursor: default; }
+
+/* The drawer's chrome uses the --term-* neutrals rather than --surface-*: the
+   terminal is a device set into the page, and its greys are a touch warmer than
+   the app's. Same family, different material. */
+.shelf-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--gap-3);
+  padding: var(--gap-1) var(--gap-2) var(--gap-1) var(--gap-3);
+  background: var(--term-panel);
+  border-bottom: 1px solid var(--term-hairline);
+  min-width: 0;
+}
+/* Names the device, since the shell list no longer sits in the header. */
+.shelf-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.shelf-actions { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+.shelf-collapse svg { transition: transform var(--fast) var(--ease); }
+/* The body is the tenant's: it lays itself out, so the shelf clips and nothing more. */
+.shelf-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 
 /* --- the status bar: 26px, empty until a package fills it ------------------------ */
 
