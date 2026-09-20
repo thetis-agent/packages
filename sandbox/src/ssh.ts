@@ -13,6 +13,17 @@
 //
 // The shape is borrowed wholesale from the egress helper: a kernel-owned child, placed in the fence's
 // cgroup, stopped by the same cleanup list when the fence closes.
+//
+// **What this does not buy, on an installation like this one.** "The fence can never copy the key" is true
+// of the fence's own filesystem view and false in practice while `fence.docker` binds the host's Docker
+// socket, because a fence can ask the daemon for a container with the host root in it and read `~/.ssh`
+// there. Socket access is host root, deliberately, and this does not claw that back. What the agent is
+// actually worth here is narrower and still worth having: a grant names one key rather than a directory,
+// so a fence gets the credential it was given and not the other three in the same `~/.ssh`; the key dies
+// with the fence and revoking is killing a process; `known_hosts` and the client options come with it, so
+// ssh fails in a second instead of hanging on a prompt; and every grant is journalled. Those are
+// organisation and operability properties. Treat the containment as a tidiness boundary, as with the rest
+// of the fence on a single-operator installation, and turn `fence.docker` off if it has to be more.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
