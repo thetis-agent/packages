@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import type { ConfigReport, KernelRpc, ModelDescriptor, PackageInfo, SessionRecord, TurnEvent, UserRecord } from "@thetis/contracts";
 import { createDoor } from "@thetis/door";
 import { behind, readIndex, shortCommit, type Behind } from "@thetis/marketplace";
-import { ControlServer, controlSocketPath, createKernel, migrateStore, type KernelConfig } from "@thetis/host";
+import { ControlServer, controlSocketPath, createKernel, migrateStore, readControlToken, writeControlToken, type KernelConfig } from "@thetis/host";
 import { configPath, createControlHandler, defaultConfig, loadConfig, redact, saveConfig, type SessionRef } from "@thetis/kernel";
 import { parseDotEnv } from "@thetis/lib/config";
 import { errorMessage } from "@thetis/lib/error";
@@ -57,6 +57,10 @@ usage: thetis <command> [options]
                                        load one host key file into that person's fence agent; --host adds a
                                        known_hosts line, --scan fetches them with ssh-keyscan. The key is never
                                        bound into the fence: the agent holds it and the fence asks it to sign
+  ssh keygen <user> [--host <name>]... [--scan <name>]...
+                                       make that person's fence a key of its own and grant it, for when
+                                       there is no host credential to share; prints the public half to
+                                       register. The private half never leaves the kernel
   ssh revoke <user> <key>
   models [--user <id>]                 models advertised by installed providers
   config                               print the configuration file over its defaults, secrets hidden
@@ -109,7 +113,9 @@ export async function run(argv: string[]): Promise<void> {
   }
 
   const socket = controlSocketPath(home);
-  const remote = await connectRpcSocket(socket);
+  // The running daemon's token, from the host's run directory. Undefined when there is none, and then the
+  // daemon has none either and admits anyone who can open the socket, as it always did.
+  const remote = await connectRpcSocket(socket, readControlToken());
   if (cmd === "serve") {
     if (remote) {
       remote.close();
@@ -145,7 +151,8 @@ export async function run(argv: string[]): Promise<void> {
 async function serve(config: ReturnType<typeof loadConfig>, socket: string): Promise<void> {
   const kernel = await createKernel(config);
   const log = (line: string) => process.stderr.write(line + "\n");
-  const control = new ControlServer(socket, createControlHandler(kernel), log);
+  // Written fresh on every start, so a token from a dead daemon is never accepted by a live one.
+  const control = new ControlServer(socket, createControlHandler(kernel), log, writeControlToken(log));
   const door = createDoor({
     loginSocket: resolve(kernel.userspaces.pathFor("_system").run, "login.sock"),
     socketFor: (user) => (kernel.users.get(user)?.role !== "system" && kernel.users.get(user) && kernel.userspaces.exists(user) ? resolve(kernel.userspaces.pathFor(user).run, "web.sock") : undefined),
@@ -436,7 +443,8 @@ function stateOf(m: MountState): string {
 async function sshCmd(call: Call, args: Args, user: string | undefined): Promise<void> {
   const [, sub, id, key] = args._;
   const listOf = async (u: string) => ((await call("ssh.list", { user: u })) as Record<string, SshGrantState[]>)[u] ?? [];
-  if (sub !== "list" && sub !== undefined && !(id && key)) throw new Error(`ssh ${sub} needs <user> <key-path>`);
+  if (sub === "keygen" && !id) throw new Error("ssh keygen needs <user>");
+  if (sub !== "list" && sub !== "keygen" && sub !== undefined && !(id && key)) throw new Error(`ssh ${sub} needs <user> <key-path>`);
   switch (sub) {
     case "list":
     case undefined: {
@@ -459,6 +467,16 @@ async function sshCmd(call: Call, args: Args, user: string | undefined): Promise
       if (granted && granted.present === false) throw new Error(`${key} is written down for ${id}, but there is no such file on the host: the fence opens without an agent. Fix the path.`);
       if (!hosts.length) print(`warning: no known hosts for ${key}; add --host <name> or --scan <name>, or ssh will refuse every connection`);
       return print(`granted ${key} to ${id}; the fence reopens with an agent holding it`);
+    }
+    case "keygen": {
+      // No host credential to lend, and none needed: this fence gets a key of its own, already granted.
+      // The private half stays with the kernel, so it is agent-held like any other grant.
+      const hosts = await knownHostLines(args);
+      const made = (await call("ssh.keygen", { user: id, ssh: [{ key: "/generated", hosts }] })) as { key: string; publicKey: string };
+      print(made.publicKey);
+      print(`granted ${made.key} to ${id}; register the line above wherever it is going`);
+      if (!hosts.length) print(`warning: no known hosts; add --host <name> or --scan <name>, or ssh will refuse every connection`);
+      return;
     }
     case "revoke": {
       const before = await listOf(id);

@@ -1,5 +1,6 @@
-import { statSync } from "node:fs";
-import { resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
 import type { SshGrant } from "@thetis/contracts";
 import { assert } from "./error.js";
 import type { StoreMirror } from "./store.js";
@@ -70,4 +71,25 @@ function isFile(path: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Makes a keypair for one person, for the case where there is no host credential to share and there does
+ * not need to be. Each fence is then its own machine: the public half is registered wherever it is going,
+ * revocation is per person and visible at the far end -- which key pushed this -- and nothing on the host
+ * is lent out. The private half lands beside the other things the kernel holds for that fence, never in
+ * the userspace, so it is agent-held like any other grant and the fence still cannot read it.
+ *
+ * An existing key is kept rather than replaced: generating over one that is already registered somewhere
+ * would silently break whatever trusts it.
+ */
+export function generateKey(dir: string, comment: string): { key: string; publicKey: string } {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const key = join(dir, "id_ed25519");
+  if (!existsSync(key)) {
+    const gen = spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-C", comment, "-f", key], { encoding: "utf8" });
+    assert(gen.status === 0, `ssh-keygen failed: ${(gen.stderr ?? "").trim() || `exit ${gen.status}`}`, "invalid");
+  }
+  chmodSync(key, 0o600);
+  return { key, publicKey: readFileSync(`${key}.pub`, "utf8").trim() };
 }

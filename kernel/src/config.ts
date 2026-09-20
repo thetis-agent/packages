@@ -128,8 +128,9 @@ export const CONFIG_TIERS: Record<string, ConfigTier> = {
   // Read once into a listening socket, and once into a storage driver the whole kernel is built on.
   door: "boot",
   storage: "boot",
-  // Passed to each `ProcessHandle` as a number when the fence opens, and captured there for its life.
-  requestTimeoutMs: "boot",
+  // Read when a fence opens and held by that `ProcessHandle` for its life, so the fences have to be closed
+  // for a new value to be in force -- which is exactly what the `fence` tier does.
+  requestTimeoutMs: "fence",
 };
 
 export function configPath(home: string): string {

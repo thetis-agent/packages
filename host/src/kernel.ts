@@ -154,7 +154,7 @@ function processFence(c: Container): ProcessFence {
     resolvConf: resolve(cfg.home, "fence-resolv.conf"),
     sshDir: resolve(cfg.home, "fence-ssh"),
     cgroups: () => c.get(T.cgroups),
-    requestTimeoutMs: cfg.requestTimeoutMs,
+    requestTimeoutMs: () => cfg.requestTimeoutMs,
     log: c.get(T.log),
   });
 }

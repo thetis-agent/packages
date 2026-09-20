@@ -3,7 +3,7 @@ import { SYSTEM_USER, type Fences, type KernelRpc, type PackageInfo, type UserRe
 import { assert, CodedError } from "@thetis/lib/error";
 import { newestMtime } from "@thetis/lib/freshness";
 import { browseDirectories, parseMountList, withPresence } from "@thetis/lib/mounts";
-import { parseSshGrants, withKeyPresence } from "@thetis/lib/ssh";
+import { generateKey, parseSshGrants, withKeyPresence } from "@thetis/lib/ssh";
 import { isSupervised } from "@thetis/lib/restart";
 import { applyInPlace, classifyChanges } from "@thetis/lib/config-tiers";
 import { CONFIG_TIERS, loadConfig } from "./config.js";
@@ -112,6 +112,16 @@ export function createControlHandler(k: KernelServices): KernelRpc {
         // Presence, like mounts: a caller learns at once that a granted key is not on this host, rather
         // than from a fence that quietly opened without an agent.
         return listing((u) => k.ssh.get(u), () => k.ssh.all(), withKeyPresence);
+      case "ssh.keygen": {
+        // No host credential to lend: the kernel makes this person a key of their own, grants it, and
+        // hands back the public half to register wherever it is going. The private half sits with the
+        // other things the kernel holds for that fence, so it is agent-held like any other grant.
+        const made = generateKey(resolve(k.config.home, "fence-keys", user()), `thetis-${user()}`);
+        const hosts = parseSshGrants(a.ssh ?? []);
+        const ssh = [...k.ssh.get(user()).filter((g) => g.key !== made.key), { key: made.key, ...(hosts[0]?.hosts?.length ? { hosts: hosts[0].hosts } : {}) }];
+        await grant("ssh", ssh, (id, v) => k.ssh.set(id, v), (v) => v.map((g) => g.key));
+        return made;
+      }
       case "ssh.set":
         // The key paths are the grant; the key material is never read here and never journalled.
         return withKeyPresence(await grant("ssh", parseSshGrants(a.ssh), (id, v) => k.ssh.set(id, v), (v) => v.map((g) => g.key)));

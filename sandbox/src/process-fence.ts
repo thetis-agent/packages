@@ -56,7 +56,8 @@ export interface ProcessFenceOptions {
   sshDir: string;
   /** Resolved on the first sandboxed open, so a one-shot command that opens no fence never probes the cgroup. */
   cgroups?: () => Cgroups | undefined;
-  requestTimeoutMs: number;
+  /** Read when a fence opens, not when the pool is built, so a reload reaches the next fence to open. */
+  requestTimeoutMs: () => number;
   log?: (line: string) => void;
 }
 
@@ -150,7 +151,7 @@ export class ProcessFence implements Fence {
       for (const fn of cleanup) fn();
       throw new CodedError(`fence for ${us.id} could not start: ${errorMessage(err)}`, "fence");
     }
-    const handle = new ProcessHandle(child, us, rpc, { requestTimeoutMs: this.opts.requestTimeoutMs, log: this.log }, cleanup);
+    const handle = new ProcessHandle(child, us, rpc, { requestTimeoutMs: this.opts.requestTimeoutMs(), log: this.log }, cleanup);
     await handle.request("ping", {});
     return Object.assign(handle, { openedAt });
   }

@@ -13,6 +13,20 @@ export class RpcSocketServer {
     private readonly path: string,
     private readonly handler: RpcHandler,
     private readonly log: (line: string) => void = () => {},
+    /**
+     * A secret every caller has to present, or undefined to admit anyone who can open the socket.
+     *
+     * The socket's `0600` defends it against other users. It has never defended against a process running
+     * as the *same* user, and on this host every fence is one: the daemon and its fences all run as the
+     * unit's `User=`. That is not hypothetical -- a fence reached this socket and had `users.list`
+     * answered, for two days, when a masking bug left the data directory visible inside fences.
+     *
+     * Two things that sound like the fix are not. `SO_PEERCRED` is not exposed by Node's `net` at all,
+     * and even if it were it would report a fence's uid as the daemon's own and distinguish nothing. What
+     * does work is a secret kept somewhere no fence can read -- the host's `/run`, since bubblewrap gives
+     * each fence a fresh one -- which is what the host passes here.
+     */
+    private readonly token?: string,
   ) {}
 
   async listen(): Promise<void> {
@@ -40,6 +54,14 @@ export class RpcSocketServer {
     const write = (msg: unknown) => socket.writable && socket.write(encodeFrame(msg));
     readFrames(socket, (msg) => {
       const id = String(msg.id);
+      // Carried on every frame rather than exchanged once on connect, so that a command line and a daemon
+      // of different vintages still work: an older daemon ignores the extra field, and an older caller is
+      // refused with a sentence that says what to do rather than a dropped connection.
+      if (this.token && msg.token !== this.token) {
+        this.log("[socket] a caller without the control token was refused");
+        write({ id, error: "this caller did not present the control token; run the command line from the same host as the daemon, and as the user it runs as", code: "unauthorized" });
+        return;
+      }
       void callHandler(this.handler, String(msg.method), msg.args, (event) => write({ id, event })).then((outcome) => write({ id, ...outcome }));
     });
     socket.on("error", (err) => this.log(`[socket] ${err.message}`));
@@ -52,7 +74,7 @@ export interface RpcSocketClient {
 }
 
 /** Connects to a server. Resolves undefined when there is none (no socket file, or a stale one). */
-export function connectRpcSocket(path: string): Promise<RpcSocketClient | undefined> {
+export function connectRpcSocket(path: string, token?: string): Promise<RpcSocketClient | undefined> {
   if (!existsSync(path)) return Promise.resolve(undefined);
   return new Promise((done) => {
     const socket = createConnection(path);
@@ -64,7 +86,7 @@ export function connectRpcSocket(path: string): Promise<RpcSocketClient | undefi
       done({
         call: (method, args, emit) => {
           const { id, result } = pending.open({ onEvent: emit });
-          socket.write(encodeFrame({ id, method, args }));
+          socket.write(encodeFrame({ id, method, args, ...(token ? { token } : {}) }));
           return result;
         },
         close: () => socket.end(),
