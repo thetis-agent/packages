@@ -11,6 +11,12 @@ test("changedKeys reports dotted paths, and compares arrays by value", () => {
   assert.deepEqual(changedKeys({ phases: ["x", "y"] }, { phases: ["x", "y"] }), [], "an equal array is not a change");
   assert.deepEqual(changedKeys({ phases: ["x"] }, { phases: ["y"] }), ["phases"]);
   assert.deepEqual(changedKeys({ a: 1 }, {}), ["a"], "a key that went away changed");
+  // An array of objects has to compare by value, or it never equals itself and every reload reports a
+  // change that did not happen. `registries` is exactly this shape and did exactly that.
+  const registries = [{ name: "thetis", url: "https://example/packages.git" }];
+  assert.deepEqual(changedKeys({ registries }, { registries: [{ ...registries[0] }] }), []);
+  assert.deepEqual(changedKeys({ registries }, { registries: [{ ...registries[0], url: "other" }] }), ["registries"]);
+  assert.deepEqual(changedKeys({ a: { b: [1, { c: 2 }] } }, { a: { b: [1, { c: 2 }] } }), []);
   assert.deepEqual(changedKeys({}, { a: 1 }), ["a"]);
 });
 

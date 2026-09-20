@@ -80,8 +80,21 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-/** Arrays and scalars compare by value; anything else by identity, which `changedKeys` has already tried. */
+/**
+ * Deep value equality, for the places `changedKeys` stops recursing: inside an array.
+ *
+ * Objects have to be compared by value here too, or an array of them never equals itself and every reload
+ * reports a change that did not happen. `packages["@thetis/marketplace"].registries` is one such array,
+ * and it named itself as changed on a reload of an untouched file until this compared objects properly.
+ */
 function same(a: unknown, b: unknown): boolean {
-  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((v, i) => same(v, b[i]));
-  return a === b;
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => same(v, b[i]));
+  }
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const keys = Object.keys(a);
+    return keys.length === Object.keys(b).length && keys.every((k) => k in b && same(a[k], b[k]));
+  }
+  return false;
 }
