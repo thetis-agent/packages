@@ -51,8 +51,12 @@ export function setHidden(node, hide) {
 
 /** Closes a menu when the next click lands outside it. */
 export function onClickOutside(node, handler) {
+  // The path the event took, not `node.contains(target)`: a click inside that redraws part of the node
+  // (a picker row that replaces the list, say) has detached its own target by the time this runs, and
+  // `contains` would then call an inside click an outside one and close the node under the person.
   const listener = (event) => {
-    if (!node.contains(event.target)) handler(event);
+    const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+    if (!path.includes(node) && !node.contains(event.target)) handler(event);
   };
   setTimeout(() => document.addEventListener("click", listener), 0);
   return () => document.removeEventListener("click", listener);

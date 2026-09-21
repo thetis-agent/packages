@@ -24,6 +24,7 @@ function stateOf(listing) {
   if (listing.kind === "file") return { ok: false, text: "A file, not a directory.", tone: "warn" };
   if (!listing.readable) return { ok: false, text: "A directory, but it cannot be read from here.", tone: "warn" };
   const n = listing.entries.length;
+  if (listing.path === "/") return { ok: false, text: `The root of the host: ${n} directories inside. Go into one; the root itself cannot be chosen.`, tone: "dim" };
   const inside = n === 0 ? "no directories inside" : `${n}${listing.truncated ? "+" : ""} ${n === 1 ? "directory" : "directories"} inside`;
   return { ok: true, text: `A directory: ${inside}.`, tone: "ok" };
 }

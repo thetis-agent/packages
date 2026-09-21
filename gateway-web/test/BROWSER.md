@@ -483,8 +483,11 @@ the OpenRouter key in the environment of `serve` (steps 43 and 47 send one messa
     inside.", and one `.dp-row` per directory. Type `/srv/nowhere` in the path box: `.dp-status.is-warn`
     "Not on the host." and the **Use this directory** button `[disabled]`. Type the absolute path of a
     real directory outside the home (`/tmp` will do): the status turns `.is-ok` and the button enables.
-    Click a `.dp-row` to descend, then the `.dp-row.is-up` to go back. Press Escape: the popover closes
-    and nothing is added.
+    Click a `.dp-row` to descend: the popover **stays open** (a row click redraws the list under its own
+    target, which once counted as a click outside), `input.dp-path` holds the new path and the rows are
+    its directories; click the `.dp-row.is-up` to go back. At `/` the status is `.is-dim` "The root of
+    the host: …" and the button is `[disabled]`, since a mount cannot name the root. Press Escape: the
+    popover closes and nothing is added.
 50. **Binding one from the page**: pick `/tmp` in the picker, leave the mode select at read-write, and
     click **Use this directory**. The row is added, then a confirm popover "Bind it read-write?" with the
     lines Directory and Mode and the note about the workspace reopening. Confirm: one `POST
