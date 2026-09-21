@@ -46,15 +46,24 @@ press does not): open a new tab on the same URL and close the old one before the
    `.archive-chat`) and a `.transcript` with `.transcript-empty` ("No messages yet"), and a matching
    `.session.is-active` row in the sidebar. The `.picker` in `#composer-tools` is visible.
 3. **Second tab** with `#new-tab`. Expect two `.tab`s, the new one `.is-active`; two `.pane`s, only the
-   new one `.is-active` (the other keeps `visibility: hidden`).
+   new one `.is-active` (the other keeps `visibility: hidden` and `content-visibility: hidden`, so
+   `checkVisibility()` on its `.transcript` is false).
 4. **Send one message** in `#input` (Enter). Expect in the active pane, in order: `.msg.is-user` (first
    `.is-pending` with `.pending-note`, then plain), the tab's `.tab-dot` visible while the turn runs
    (`.tab.is-working`), `.chat-state` visible, then `.msg.is-assistant .msg-text` with the reply and a
    `.msg-usage` footnote. The other pane still holds its own content (0 `.msg`). The sidebar row shows the
    working step while it runs and the preview and `.session-meta` after.
 5. **Switch tabs from the sidebar**: click the other `.session-open` row. Expect its `.tab.is-active` and
-   `.pane.is-active`; the pane with the reply keeps its 2 `.msg`s. Click the first tab's `.tab-open` to
-   come back the same way.
+   `.pane.is-active`; the pane with the reply keeps its 2 `.msg`s (a pane stays built while it is among
+   the 5 most recently shown). Click the first tab's `.tab-open` to come back the same way. Scroll that
+   transcript up by 200px, switch away and back: `scrollTop` is still 200 and `.jump-latest` is shown;
+   click it and the transcript is at the bottom again.
+5a. **Panes past the limit lose their rows**: open eight conversations from the sidebar in turn. Expect
+    eight `.tab`s and eight `.pane[data-session]`, but only 5 whose `.transcript` has children; the
+    three shown least recently have an empty `.transcript`. Click one of those: its pane is `.is-active`
+    and one `GET /api/sessions/<id>` rebuilds its rows; the events of a turn running in it are drawn from
+    that record, none twice. No long task over 100 ms during the eight switches, whatever the size of the
+    conversations (the scroll-follow runs once a frame, and hidden panes are not laid out).
 6. **Model pill**: click `.pane.is-active .chip-model`. Expect the composer's `.picker.is-open` with a
    `.picker-menu` listbox; pick a model. Expect the chip text to change, `.chip-model.is-set`, the
    `.picker-label` to match, and the sidebar row's `.session-meta` to name it.

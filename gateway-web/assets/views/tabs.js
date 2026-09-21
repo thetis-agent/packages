@@ -7,6 +7,11 @@
  * the record already carried from being drawn twice. Chip buttons come from the registry's `chips`
  * slot and are drawn into every pane, because a chip is a fact about that pane's conversation.
  *
+ * Only the `KEEP` most recently shown panes keep their rows built: a tab further back keeps its tab and
+ * bar, but its transcript is emptied, its events are not drawn, and it is rebuilt from its record when it
+ * is shown again (the record carries the turn in progress, so nothing is missed). Without that, every
+ * conversation opened in a day stays in the page, and the page slows with each one.
+ *
  * A subagent opens as a tab too (`open(childId)`, an id the store knows as an agent): its bar shows a
  * dot, the label, the state, the spend, "Show in conversation" and, while it works, Stop. No rename, no
  * chips, no model, no archive: a child is work inside a conversation, not a conversation. Its events
@@ -25,13 +30,15 @@ import { emptyState, mountTranscript } from "./transcript.js";
 const X = ["M5 5l10 10", "M15 5l-10 10"];
 const ARCHIVE = ["M3.5 5.5h13v2.5h-13zM4.5 8v7.5h11V8M8 11h4"];
 const STOP = ["M6.5 6.5h7v7h-7z"];
+const KEEP = 5; // panes with their rows built: the shown one and the ones shown most recently
 
 export function mountTabs({ onNew, onArchive, onRename, onModel }) {
   const strip = $("tabs");
   const host = $("panes");
   const newTab = $("new-tab");
-  const panes = new Map(); // session id -> { id, agent, node, tab, dot, label, note, transcript, bar, chips, drawn }
+  const panes = new Map(); // session id -> { id, agent, node, tab, dot, label, note, transcript, bar, chips, drawn, built }
   const order = [];        // open session ids, in tab order
+  const recent = [];       // open session ids, most recently shown first: the first KEEP stay built
   const empty = el("section", { class: "pane is-empty is-active" }, emptyState("none", onNew));
   host.append(empty);
 
@@ -76,23 +83,41 @@ export function mountTabs({ onNew, onArchive, onRename, onModel }) {
     strip.insertBefore(tab, newTab);
     host.append(node);
     const transcript = mountTranscript(root, { session: id, brief: agent, onOpenAgent: (child) => { void open(child); } });
-    const pane = { id, agent, node, tab, dot, label, note, bar, chips, transcript, drawn: { turn: null, seq: 0 } };
+    const pane = { id, agent, node, tab, dot, label, note, bar, chips, transcript, drawn: { turn: null, seq: 0 }, built: false };
     panes.set(id, pane);
     drawChips(pane);
     drawBar(pane);
     return pane;
   }
 
+  /** Builds a pane's rows from its record. A pane dropped while the record was on its way stays empty. */
   async function load(pane) {
+    pane.built = true;
     try {
       const record = await api(`/api/sessions/${pane.id}`);
-      if (!panes.has(pane.id)) return;
+      if (!panes.has(pane.id) || !pane.built) return;
       pane.transcript.restore(record);
       pane.drawn = record.turn ? { turn: record.turn.turn || "pending", seq: record.turn.events.at(-1)?.seq ?? 0 } : { turn: null, seq: 0 };
       store.mark("running", pane.id, Boolean(record.turn));
     } catch (err) {
+      pane.built = false;
       toast(err.message, { tone: "error" });
     }
+  }
+
+  /** Shown now: first in `recent`; the panes past KEEP give up their rows. */
+  function keep(id) {
+    const at = recent.indexOf(id);
+    if (at >= 0) recent.splice(at, 1);
+    recent.unshift(id);
+    for (const old of recent.splice(KEEP)) drop(panes.get(old));
+  }
+
+  function drop(pane) {
+    if (!pane?.built) return;
+    pane.built = false;
+    pane.drawn = { turn: null, seq: 0 };
+    pane.transcript.reset();
   }
 
   async function cancel(id) {
@@ -205,7 +230,8 @@ export function mountTabs({ onNew, onArchive, onRename, onModel }) {
 
   // ---- open, activate, close ----
 
-  function activate(id) {
+  /** Shows a pane, building its rows first when it has none. Resolves once they are built. */
+  async function activate(id) {
     const pane = panes.get(id);
     if (!pane) return;
     store.set({ current: id });
@@ -216,16 +242,17 @@ export function mountTabs({ onNew, onArchive, onRename, onModel }) {
     }
     empty.classList.remove("is-active");
     pane.tab.scrollIntoView({ block: "nearest", inline: "nearest" });
-    pane.transcript.shown();
+    keep(id);
+    if (pane.built) return pane.transcript.shown();
+    await load(pane);
   }
 
   async function open(id) {
     if (panes.has(id)) return activate(id);
-    const pane = createPane(id);
+    createPane(id);
     order.push(id);
     store.set({ tabs: [...order] });
-    activate(id);
-    await load(pane);
+    await activate(id);
   }
 
   function close(id) {
@@ -233,6 +260,7 @@ export function mountTabs({ onNew, onArchive, onRename, onModel }) {
     if (!pane) return;
     const at = order.indexOf(id);
     order.splice(at, 1);
+    recent.splice(recent.indexOf(id) >>> 0, 1);
     panes.delete(id);
     pane.node.remove();
     pane.tab.remove();
@@ -260,14 +288,14 @@ export function mountTabs({ onNew, onArchive, onRename, onModel }) {
       if (!mayOpen) return false;
       await open(root);
     }
-    activate(root);
+    await activate(root);
     return Boolean(panes.get(root)?.transcript.revealAgent(id));
   }
 
-  /** One message off the event stream: to the pane of its session, if open, and to the block in every open ancestor's pane. */
+  /** One message off the event stream: to the pane of its session, if built, and to the block in every built ancestor's pane. */
   function applyTurn(message) {
     const pane = panes.get(message.session);
-    if (pane) {
+    if (pane?.built) {
       const turn = message.turn || "pending";
       const seen = turn === pane.drawn.turn && message.seq <= pane.drawn.seq;
       if (!seen) {
@@ -276,12 +304,15 @@ export function mountTabs({ onNew, onArchive, onRename, onModel }) {
         pane.transcript.applyEvent(message.event, message.input);
       }
     }
-    for (let up = message.parent, hops = 0; up && hops < 32; up = store.agent(up)?.parent, hops += 1) panes.get(up)?.transcript.applyChild(message);
+    for (let up = message.parent, hops = 0; up && hops < 32; up = store.agent(up)?.parent, hops += 1) {
+      const above = panes.get(up);
+      if (above?.built) above.transcript.applyChild(message);
+    }
   }
 
-  /** After a reconnect: every open pane is rebuilt from its record, which carries the turn in progress. */
+  /** After a reconnect: every built pane is rebuilt from its record, which carries the turn in progress. */
   async function reload() {
-    await Promise.all([...panes.values()].map(load));
+    await Promise.all([...panes.values()].filter((p) => p.built).map(load));
   }
 
   for (const key of ["current", "sessions", "running", "activity", "choices", "agents"]) store.watch(key, drawAll);

@@ -103,6 +103,8 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   let run = null;         // the open run of tool cards, or null
   let answered = [];      // renderer hooks waiting for the next user message (an ask form locks itself)
   let follow = true;
+  let frame = 0;          // the animation frame booked for the next catch-up, 0 when none
+  let restoring = false;  // while a record is replayed nothing scrolls: one catch-up at the end
   let childRecords = new Map(); // child id -> ChildRecord, from the last restored record
   const blocks = [];            // agent blocks, in the order they were placed
   const byAgent = new Map();    // child id -> block
@@ -110,11 +112,21 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   let jump = null;
 
   if (!nested) {
-    jump = el("button", { type: "button", class: "jump-latest", title: "Jump to the latest message", onClick: () => { follow = true; root.scrollTop = root.scrollHeight; draw(); } }, icon(DOWN, { size: 14, width: 2 }), "Latest");
+    jump = el("button", { type: "button", class: "jump-latest", title: "Jump to the latest message", onClick: () => { follow = true; settle(); } }, icon(DOWN, { size: 14, width: 2 }), "Latest");
     jump.hidden = true;
     root.parentElement.append(jump);
+    // Only a scroll upward is the reader leaving. Content growing, the pane changing height under them
+    // (the composer growing as they type) and the smooth scroll to the bottom all fire scroll events too,
+    // and each can catch the pane away from the bottom for a frame; none of them is a wish to stop following.
+    let top = root.scrollTop;
+    let height = root.clientHeight;
     root.addEventListener("scroll", () => {
-      follow = root.scrollHeight - root.scrollTop - root.clientHeight < 64;
+      const up = root.scrollTop < top && root.clientHeight === height;
+      top = root.scrollTop;
+      height = root.clientHeight;
+      if (root.scrollHeight - root.scrollTop - root.clientHeight < 64) follow = true;
+      else if (up) follow = false;
+      else if (follow) catchUp();
       draw();
     }, { passive: true });
   }
@@ -123,11 +135,23 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     if (jump) jump.hidden = follow || root.scrollHeight <= root.clientHeight + 8;
   }
 
+  /**
+   * The one scroll a frame: to the bottom when the reader is following, else only the jump button. Reading
+   * `scrollHeight` forces a layout, so this runs once per frame however many rows arrived (`catchUp` books
+   * it), never while a record is being replayed, and not in a pane that is not shown (`checkVisibility`
+   * sees through `content-visibility: hidden`): `shown()` catches it up when it is.
+   */
+  function settle() {
+    frame = 0;
+    if (restoring || (root.checkVisibility && !root.checkVisibility({ visibilityProperty: true }))) return;
+    if (follow) root.scrollTop = root.scrollHeight;
+    draw();
+  }
+
   /** Keeps the newest row in view when the reader is at the bottom. Nested: the outer pane is what scrolls. */
   function catchUp() {
     if (nested) return outerCatchUp?.();
-    if (follow) root.scrollTop = root.scrollHeight;
-    else draw();
+    if (!frame && !restoring) frame = requestAnimationFrame(settle);
   }
 
   function place(node, into = root) {
@@ -199,8 +223,9 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
 
   function openLive() {
     if (live) return live;
-    const textEl = el("div", { class: "msg-text is-live" });
-    live = { node: row("assistant", textEl), textEl, text: "" };
+    const textNode = document.createTextNode("");
+    const textEl = el("div", { class: "msg-text is-live" }, textNode);
+    live = { node: row("assistant", textEl), textEl, textNode, text: "" };
     return live;
   }
 
@@ -664,8 +689,9 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
         break;
       case "text": {
         const bubble = openLive();
-        bubble.text += event.delta || "";
-        bubble.textEl.textContent = bubble.text;
+        const delta = event.delta || "";
+        bubble.text += delta;
+        bubble.textNode.appendData(delta); // one text node grown in place, not the whole reply set again per token
         catchUp();
         break;
       }
@@ -707,6 +733,7 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   /** Rebuilds from a session record, including the turn in progress if there is one. */
   function restore(record) {
     reset();
+    restoring = true;
     childRecords = new Map((record.children ?? []).map((c) => [c.id, c]));
     if (childRecords.size) store.setAgents(agentsOfRecord(record));
     (record.conversation ?? []).forEach((message, index) => drawMessage(message, record.usage?.[index]));
@@ -718,15 +745,14 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     }
     bindRunningChildren();
     if (!root.childElementCount) showEmpty();
-    root.scrollTop = root.scrollHeight;
+    restoring = false;
     follow = true;
-    draw();
+    settle();
   }
 
   /** After the pane comes back into view: keep following the newest message if we were. */
   function shown() {
-    if (follow) root.scrollTop = root.scrollHeight;
-    draw();
+    settle();
   }
 
   showEmpty();

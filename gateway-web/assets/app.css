@@ -637,12 +637,14 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .tab-note { flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .tab-note:empty { display: none; }
 
-/* Panes stack in one cell; only the active one is visible. Hidden panes keep their scroll position.
- * The basis is 0, not auto: with auto a long transcript's content height becomes the basis, the column
- * overflows, and the tab strip above shrinks in proportion to almost nothing. */
+/* Panes stack in one cell; only the active one is visible. A hidden pane skips layout and paint
+ * (`content-visibility: hidden` keeps its DOM and scroll position), so a forced layout in the active one
+ * costs the active one alone, however many tabs are open. The basis is 0, not auto: with auto a long
+ * transcript's content height becomes the basis, the column overflows, and the tab strip above shrinks
+ * in proportion to almost nothing. */
 .panes { flex: 1 1 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); }
-.pane { grid-area: 1 / 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; position: relative; visibility: hidden; pointer-events: none; }
-.pane.is-active { visibility: visible; pointer-events: auto; }
+.pane { grid-area: 1 / 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; position: relative; visibility: hidden; pointer-events: none; content-visibility: hidden; }
+.pane.is-active { visibility: visible; pointer-events: auto; content-visibility: visible; }
 .chips { display: contents; }
 
 .chat-bar {
