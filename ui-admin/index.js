@@ -4,8 +4,8 @@
 // runs a command only when the person's role clears the declared one (admin, for every verb here); the
 // kernel allows an operator method only when the fence's own user is an admin. Nothing here trusts the
 // browser: the person's own id comes from `env.user`, never from the arguments.
-import { realpathSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
+import { dependenciesOf, gitWord, installedPackage, realRoot } from "./git.js";
 
 const USER_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const MOUNT_LIMIT = 32;
@@ -101,26 +101,21 @@ const layerOf = (args, rest) => (args.user === undefined || args.user === "" ? r
  * type, scope, source, what it forked from and replaces), the registry's word on it when the marketplace
  * index is here (the version it holds, and whether this copy is behind it), and the git checkout the files
  * live in when there is one: the branch, how far ahead of or behind its upstream, and how many files of
- * this package are changed and not committed. The marketplace library is imported when asked, so an
- * installation without it still answers with the record and the checkout.
+ * this package are changed and not committed; and what it depends on and what installed here depends
+ * on it, from the package.json files. The marketplace library is imported when asked, so an installation
+ * without it still answers with the record and the checkout.
  */
 export async function packageInfo(args, env) {
   const name = packageName(args.name);
   const installed = await env.kernel.packages.list();
-  const info = installed.find((p) => p.name === name) ?? fail(`${name} is not installed in your workspace`);
+  const info = await installedPackage(env, name);
   const { version, type, description, everyone, forkedFrom, replaced, source } = info;
   const root = realRoot(info.root);
   const [registry, git] = await Promise.all([registryWord(env, info), gitWord(env, root)]);
-  return { data: { name, version, type, description, root, everyone: Boolean(everyone), forkedFrom: forkedFrom ?? null, replaced: replaced ?? null, source: source ?? null, registry, git } };
-}
-
-/** The package's files as they really are: the store links a package by name, and the link is not what a person looks for. */
-function realRoot(root) {
-  try {
-    return typeof root === "string" ? realpathSync(root) : root;
-  } catch {
-    return root;
-  }
+  const dependencies = dependenciesOf(root);
+  // What else installed here names this package: read from each one's package.json, the way node resolves it.
+  const dependents = installed.filter((p) => p.name !== name && dependenciesOf(realRoot(p.root)).includes(name)).map((p) => p.name);
+  return { data: { name, version, type, description, root, everyone: Boolean(everyone), forkedFrom: forkedFrom ?? null, replaced: replaced ?? null, source: source ?? null, registry, git, dependencies, dependents } };
 }
 
 /** The marketplace index's entry for the package and whether this copy is behind it, or null without an index. */
@@ -137,32 +132,6 @@ async function registryWord(env, info) {
   const update = lib.behind([info], index)[0] ?? null;
   return { registry: entry.registry, version: entry.version, commit: entry.commit, update: update ? { version: update.version, installed: update.installed, available: update.available, source: update.source } : null };
 }
-
-/** The checkout the package's files are in: branch, ahead and behind its upstream, files of this package changed. Null when there is none. */
-async function gitWord(env, root) {
-  if (typeof env.exec !== "function" || typeof root !== "string") return null;
-  const q = (cmd) => env.exec(cmd, { timeoutMs: 10_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
-  const status = await q(`git -C ${shellQuote(root)} status --porcelain=v1 -b -- .`);
-  if (status.code !== 0) return null;
-  const [head, ...rest] = status.stdout.split("\n");
-  const line = /^## (\S+?)(?:\.\.\.(\S+))?(?: \[(.*)\])?$/.exec(head ?? "");
-  const branch = line?.[1] ?? null;
-  let upstream = line?.[2] ?? null;
-  const counts = line?.[3] ?? "";
-  let ahead = Number(/ahead (\d+)/.exec(counts)?.[1] ?? 0);
-  let behind = Number(/behind (\d+)/.exec(counts)?.[1] ?? 0);
-  // A branch with no tracking upstream is still pushed somewhere: the remote's branch of the same name, when there is one.
-  if (!upstream && branch && !branch.startsWith("HEAD")) {
-    const against = `origin/${branch}`;
-    const count = await q(`git -C ${shellQuote(root)} rev-list --left-right --count ${shellQuote(branch)}...${shellQuote(against)}`);
-    const pair = /^(\d+)\s+(\d+)/.exec(count.stdout.trim());
-    if (count.code === 0 && pair) [upstream, ahead, behind] = [against, Number(pair[1]), Number(pair[2])];
-  }
-  const commit = (await q(`git -C ${shellQuote(root)} rev-parse --short HEAD`)).stdout.trim() || null;
-  return { branch, upstream, ahead, behind, changed: rest.filter((l) => l.trim()).length, commit };
-}
-
-const shellQuote = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
 
 export async function configList(args, env) {
   return { data: await call(env, "config.list", layerOf(args, {})) };
@@ -262,3 +231,8 @@ export async function restartRequest(args, env) {
   if (!reason) fail("a restart needs a reason: it is shown to everyone waiting and recorded");
   return { data: await call(env, "restart.request", { reason }) };
 }
+
+// The package page's own commands live beside this file: git questions in git.js, the people and the fleet in
+// fleet.js. Each is one export the manifest names.
+export { packageCommit, packageDiff, packageLog, packagePush, packageReadme } from "./git.js";
+export { fleet, packageActivity, packageFork, packageInstallFor, packagePromote, packageRemove, packageUpdate, packageWhere } from "./fleet.js";

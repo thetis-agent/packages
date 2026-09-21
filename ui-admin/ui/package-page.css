@@ -1,0 +1,136 @@
+/* One package's page: the header with its badges and actions, the tabs, the three overview cards and the
+ * full-width tabs. Layout tokens and the card, badge, button and kv looks come from the shell; only what
+ * the page adds is here, under .ua-pkg and the pieces the tabs draw. */
+
+.ua-pkg { display: flex; flex-direction: column; gap: var(--gap-4); position: relative; }
+.ua-pkg-head { display: flex; flex-direction: column; gap: var(--gap-2); }
+.ua-pkg-crumb { display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); color: var(--text-dim); }
+.ua-pkg-crumb code { font-family: var(--mono); color: var(--text); }
+.ua-sep { color: var(--text-faint); }
+.ua-pkg-title-row { display: flex; align-items: flex-start; gap: var(--gap-5); }
+.ua-pkg-title-col { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; min-width: 0; }
+.ua-pkg-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ua-pkg-name { margin: 0; font-family: var(--mono); font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
+.ua-pkg-version { font-family: var(--mono); font-size: var(--text-lg); color: var(--text-dim); }
+.ua-pkg-desc { margin: 0; max-width: 860px; color: var(--text-dim); font-size: var(--text-md); line-height: 1.5; }
+.ua-pkg-facts-line { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: var(--text-sm); color: var(--text-dim); }
+.ua-pkg-facts-line b { color: var(--text); font-weight: 600; }
+.ua-pkg-actions-col { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex: none; max-width: 38%; }
+.ua-pkg-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.ua-pkg-actions .btn { display: inline-flex; align-items: center; gap: 6px; }
+.ua-pkg-legend { display: flex; gap: 12px; flex-wrap: wrap; justify-content: flex-end; font-size: var(--text-xs); color: var(--text-faint); }
+.ua-pkg-legend span { display: inline-flex; align-items: center; gap: 4px; }
+
+/* Who a control or a section is for. */
+.ua-tag { display: inline-flex; align-items: center; padding: 1px 6px; border-radius: var(--r-pill); font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: none; white-space: nowrap; line-height: 1.4; }
+.ua-tag.is-admin { color: #c7b0ff; background: rgba(199, 176, 255, .12); border: 1px solid rgba(199, 176, 255, .35); }
+.ua-tag.is-yours { color: var(--ok); background: var(--ok-wash); border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent); }
+.btn.is-primary .ua-tag.is-admin { color: #fff; background: rgba(255, 255, 255, .18); border-color: rgba(255, 255, 255, .35); }
+
+/* The tabs. */
+.ua-pkg-tabs { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--hairline); padding-bottom: 6px; }
+.ua-pkg-tab { appearance: none; display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: var(--r-sm); border: 1px solid transparent; background: none; color: var(--text-dim); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+.ua-pkg-tab:hover { color: var(--text); background: var(--surface-2); }
+.ua-pkg-tab.is-on { color: var(--text); background: var(--accent-wash); border-color: var(--accent-edge); }
+.ua-pkg-body { display: flex; flex-direction: column; gap: var(--gap-4); min-height: 120px; position: relative; }
+
+/* Cards: a title with badges beside it; the overview's three columns; small buttons and coloured words. */
+.ua-card-title { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ua-pkg-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap-4); align-items: start; }
+.ua-pkg .card-body { display: flex; flex-direction: column; gap: var(--gap-3); }
+.ua-pkg .btn.is-sm { padding: 3px 8px; font-size: var(--text-xs); }
+.ua-ok { color: var(--ok); }
+.ua-warn { color: var(--warn); }
+.ua-err { color: var(--err); }
+.ua-accent { color: var(--accent-hot); }
+.ua-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); vertical-align: middle; }
+.ua-dot.is-ok { background: var(--ok); }
+.ua-dot.is-warn { background: var(--warn); }
+.ua-dot.is-accent { background: var(--accent); }
+.ua-dot.is-hollow { background: transparent; border: 2px solid var(--text-faint); box-sizing: border-box; }
+.ua-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: var(--text-xs); color: var(--text-faint); }
+.ua-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.ua-pkg-facts dd.is-warn { color: var(--warn); }
+.ua-pkg-facts dd.is-err { color: var(--err); }
+
+/* Provenance: the lineage drawing. */
+.ua-lineage { display: block; max-width: 100%; }
+.ua-lineage-line { stroke: var(--hairline-strong); stroke-width: 1.5; fill: none; }
+.ua-lineage-line.is-dim { stroke-dasharray: 3 3; }
+.ua-lineage-line.is-fork { stroke: var(--warn); }
+.ua-lineage-node { fill: var(--surface-1); stroke: var(--accent); stroke-width: 2; }
+.ua-lineage-node.is-this { fill: var(--accent); }
+.ua-lineage-node.is-promoted { stroke: var(--text-faint); }
+.ua-lineage-node.is-none { stroke-dasharray: 3 3; stroke: var(--text-faint); }
+.ua-lineage-node.is-fork { stroke: var(--warn); }
+.ua-lineage-text { font-family: var(--font); font-size: 11px; fill: var(--text-dim); }
+.ua-lineage-text.is-strong { fill: var(--text); font-weight: 600; }
+.ua-lineage-text.is-mono { font-family: var(--mono); font-size: 10.5px; fill: var(--text-faint); }
+.ua-lineage-text.is-fork { fill: var(--warn); }
+.ua-lineage-text.is-dim { fill: var(--text-faint); }
+
+/* Checkout: the sync line and the mini graph. */
+.ua-sync-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--text-sm); }
+.ua-mini-graph { display: flex; flex-direction: column; }
+.ua-mini-row { display: flex; align-items: center; gap: 8px; min-height: 36px; font-size: var(--text-sm); border-bottom: 1px solid var(--hairline); }
+.ua-mini-row:last-child { border-bottom: 0; }
+.ua-mini-row.is-working { min-height: 28px; }
+.ua-mini-lane { position: relative; width: 20px; flex: none; display: flex; justify-content: center; align-self: stretch; align-items: center; }
+.ua-mini-lane::before { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; border-left: 2px solid var(--hairline-strong); }
+.ua-mini-row.is-local .ua-mini-lane::before { border-color: var(--warn); }
+.ua-mini-row.is-pushed .ua-mini-lane::before { border-color: var(--accent); }
+.ua-mini-lane .ua-dot { position: relative; }
+.ua-mini-row code { font-family: var(--mono); flex: none; }
+.ua-mini-subject { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Where it runs: the person picker card, and the tab's table. */
+.ua-person-row { display: flex; align-items: center; gap: 8px; }
+.ua-person-row .ua-person { flex: 1 1 auto; min-width: 0; }
+.ua-person-facts dd { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ua-person-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ua-where-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--hairline); font-size: var(--text-xs); color: var(--text-faint); }
+.ua-where-foot b { color: var(--text); font-weight: 600; }
+.ua-where.is-full .ua-person-facts { grid-template-columns: 120px 1fr; }
+.ua-where-table .table-wrap { border: 0; border-radius: 0; }
+
+/* Files. */
+.ua-files { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-3); }
+.ua-files code { font-family: var(--mono); font-size: var(--text-xs); overflow-wrap: anywhere; }
+
+/* Configuration at full width: the settings form's card and rows spread across the page, one key per row
+ * with the control in the middle and its source on the right; the settings page's own package card is not
+ * drawn here, the header above says all of it. */
+.ua-pkg-body.is-configuration .panel-cols { grid-template-columns: minmax(0, 1fr); }
+.ua-pkg-body.is-configuration .ua-pkg-card { display: none; }
+.ua-pkg-body.is-configuration .cf-card .card-body { display: flex; flex-direction: column; gap: 0; padding: 0; }
+.ua-pkg-body.is-configuration .cf-row { display: grid; grid-template-columns: 260px minmax(0, 1fr); align-items: start; gap: 6px 16px; padding: 12px 14px; border-bottom: 1px solid var(--hairline); }
+.ua-pkg-body.is-configuration .cf-row:last-of-type { border-bottom: 0; }
+.ua-pkg-body.is-configuration .cf-key { grid-column: 1; }
+.ua-pkg-body.is-configuration .cf-help { grid-column: 1; }
+.ua-pkg-body.is-configuration .cf-control { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+.ua-pkg-body.is-configuration .cf-control .cf-input { flex: 1 1 320px; }
+.ua-pkg-body.is-configuration .cf-missing, .ua-pkg-body.is-configuration .cf-error { grid-column: 2; }
+.ua-pkg-body.is-configuration .cf-row > .text-faint { grid-column: 2; }
+.ua-pkg-body.is-configuration .card-actions { padding: 12px 14px; border-top: 1px solid var(--hairline); }
+
+/* Activity: chips in the head, the table below. */
+.ua-activity-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ua-chips { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.ua-chip { appearance: none; display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: var(--r-pill); border: 1px solid var(--hairline-strong); background: var(--surface-2); color: var(--text-dim); font: inherit; font-size: var(--text-xs); cursor: pointer; }
+.ua-chip:hover { color: var(--text); background: var(--surface-3); }
+.ua-chip.is-on { color: var(--text); background: var(--accent-wash); border-color: var(--accent-edge); }
+.ua-activity .table-wrap { border: 0; border-radius: 0; }
+.ua-detail { font-family: var(--mono); font-size: var(--text-xs); }
+
+/* README. */
+.ua-readme-body .md { max-width: 900px; }
+
+@media (max-width: 1100px) {
+  .ua-pkg-grid { grid-template-columns: minmax(0, 1fr); }
+  .ua-pkg-title-row { flex-direction: column; }
+  .ua-pkg-actions-col { align-items: flex-start; }
+  .ua-pkg-actions, .ua-pkg-legend { justify-content: flex-start; }
+  .ua-files { grid-template-columns: minmax(0, 1fr); }
+  .ua-pkg-body.is-configuration .cf-row { grid-template-columns: minmax(0, 1fr); }
+  .ua-pkg-body.is-configuration .cf-control { grid-column: 1; grid-row: auto; }
+}

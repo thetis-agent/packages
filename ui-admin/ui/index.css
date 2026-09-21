@@ -1,3 +1,8 @@
+/* The package page, its history tab and the fleet matrix keep their styles in files of their own. */
+@import "./package-page.css";
+@import "./history.css";
+@import "./fleet.css";
+
 /* The admin sections of the control panel. Layout (.panel-cols, .card, .table, .badge, .kv) comes from the
  * shell; only what the sections add is here, under .ua-. */
 

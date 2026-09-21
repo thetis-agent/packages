@@ -219,7 +219,7 @@ test("package-info: the record, the registry's word and the checkout, each said 
     },
   };
   const out = await commands.packageInfo({ name: "@alice/hello" }, env);
-  assert.deepEqual(out.data, { name: "@alice/hello", version: "0.1.0-fork.1", type: "loader", description: "Says hello.", root: "/home/alice/packages/hello", everyone: false, forkedFrom: { name: "@thetis/hello", version: "0.1.0" }, replaced: "@thetis/hello", source: { kind: "local", ref: "packages/hello" }, registry: null, git: { branch: "main", upstream: "origin/main", ahead: 2, behind: 1, changed: 2, commit: "abc1234" } });
+  assert.deepEqual(out.data, { name: "@alice/hello", version: "0.1.0-fork.1", type: "loader", description: "Says hello.", root: "/home/alice/packages/hello", everyone: false, forkedFrom: { name: "@thetis/hello", version: "0.1.0" }, replaced: "@thetis/hello", source: { kind: "local", ref: "packages/hello" }, registry: null, git: { branch: "main", upstream: "origin/main", ahead: 2, behind: 1, changed: 2, commit: "abc1234" }, dependencies: [], dependents: [] });
   assert.ok(execs[0].includes("'/home/alice/packages/hello'") && execs[0].endsWith("-- ."), "git is asked about this package's files only");
   const bare = await commands.packageInfo({ name: "@alice/hello" }, { ...env, exec: async () => ({ code: 128, stdout: "", stderr: "not a git repository" }) });
   assert.equal(bare.data.git, null);
@@ -316,18 +316,33 @@ test("install registers exactly the seven declared entries, each mounting throug
   for (const [id, impl] of Object.entries(panels)) if (id !== "configuration") assert.equal(impl.children, undefined);
 });
 
-test("configurationChildren lists the packages with keys, marks the broken ones, and hangs under packages in the manifest", async () => {
-  const { configurationChildren } = await import("../ui/configuration.js");
+test("configurationChildren: the fleet page first, then the packages with keys or a mark, each mark a glyph with its sentence", async () => {
+  const { configurationChildren, FLEET } = await import("../ui/configuration.js");
   const reports = [
     { package: "@thetis/exa", summary: "apiKey is required and not set", broken: true, keys: [{ key: "apiKey" }] },
     { package: "@thetis/tools-files", summary: "every key is set", broken: false, keys: [] },
     { package: "@bitmuse/moo", summary: "every key is set", broken: false, keys: [{ key: "base_url" }, { key: "username" }] },
+    { package: "@thetis/terminal", summary: "every key is set", broken: false, keys: [{ key: "shell" }] },
   ];
-  const kids = await configurationChildren({ request: async (verb) => (verb === "config-list" ? { data: reports } : { data: null }) });
-  assert.deepEqual(kids, [
-    { id: "@thetis/exa", label: "@thetis/exa", note: "apiKey is required and not set", mark: "err" },
-    { id: "@bitmuse/moo", label: "@bitmuse/moo", note: "every key is set", mark: null },
-  ]);
+  const fleet = { packages: [
+    { name: "@thetis/terminal", registry: { update: { version: "0.2.0" } }, config: { broken: false }, byUser: { bitmuse: { fork: true, stale: true, broken: false }, dev: { fork: false, stale: false, broken: false } } },
+    { name: "@thetis/tools-files", registry: null, config: { broken: false }, byUser: { dev: { fork: false, stale: true, broken: false } } },
+    { name: "@bitmuse/moo", registry: null, config: { broken: false }, byUser: { bitmuse: { fork: false, stale: false, broken: true } } },
+  ] };
+  const request = async (verb) => (verb === "config-list" ? { data: reports } : verb === "fleet" ? { data: fleet } : { data: null });
+  const kids = await configurationChildren({ request });
+  assert.equal(FLEET, "*");
+  assert.deepEqual(kids[0], { id: "*", label: "All workspaces", kind: "page", note: "Every package in every workspace" });
+  assert.deepEqual(kids.slice(1).map((k) => k.id), ["@bitmuse/moo", "@thetis/exa", "@thetis/terminal", "@thetis/tools-files"], "sorted; tools-files has no keys but someone runs it on older code");
+  const by = Object.fromEntries(kids.slice(1).map((k) => [k.id, k]));
+  assert.deepEqual(by["@thetis/exa"].marks, [{ glyph: "!", tone: "err", title: "config broken: apiKey is required and not set" }]);
+  assert.deepEqual(by["@thetis/terminal"].marks.map((m) => [m.glyph, m.tone]), [["↑", "warn"], ["Y", "warn"], ["◐", "warn"]]);
+  assert.equal(by["@thetis/terminal"].marks[1].title, "fork in use: bitmuse");
+  assert.deepEqual(by["@bitmuse/moo"].marks, [{ glyph: "!", tone: "err", title: "config broken for bitmuse: every key is set" }]);
+  assert.deepEqual(by["@thetis/tools-files"].marks, [{ glyph: "◐", tone: "warn", title: "older code running: dev" }]);
+  // Without the fleet command (an older installation) the packages with keys are still listed, unmarked but for a broken one.
+  const bare = await configurationChildren({ request: async (verb) => (verb === "config-list" ? { data: reports } : Promise.reject(new Error("no fleet"))) });
+  assert.deepEqual(bare.slice(1).map((k) => [k.id, k.marks.map((m) => m.glyph)]), [["@bitmuse/moo", []], ["@thetis/exa", ["!"]], ["@thetis/terminal", []]]);
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   const entry = manifest.thetis.ui.panel.find((e) => e.id === "configuration");
   assert.equal(entry.under, "packages");

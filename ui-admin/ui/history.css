@@ -1,0 +1,80 @@
+/* The History tab: a lane graph beside the commit rows, and the inspector on the right. The row height
+ * is shared by the rows and the graph (44px), so a node always sits on its row. Lanes: the upstream in
+ * the accent, local commits not pushed in the warn tone; the registry's commit and the pin are markers. */
+
+.uh { display: flex; flex-direction: column; gap: var(--gap-3); }
+.uh-head { display: flex; align-items: center; gap: var(--gap-3); flex-wrap: wrap; }
+.uh-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.uh-title code { font-family: var(--mono); font-size: var(--text-lg); font-weight: 600; }
+.uh-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.uh-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.uh-lanes { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.uh-gap { flex: 1; }
+.uh-chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: var(--r-pill); border: 1px solid var(--hairline-strong); background: var(--surface-2); color: var(--text-dim); font: inherit; font-size: var(--text-xs); cursor: pointer; }
+.uh-chip.is-on { color: var(--text); border-color: var(--accent-edge); background: var(--accent-wash); }
+.uh-chip.is-static { cursor: default; }
+.uh-search { width: 260px; }
+.uh-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--text-faint); }
+.uh-dot.is-upstream { background: var(--accent); }
+.uh-dot.is-local { background: var(--warn); }
+.uh-dot.is-registry { background: var(--ok); }
+.uh-dot.is-pin { background: var(--surface-1); box-shadow: inset 0 0 0 2px var(--ok); }
+
+.uh-body { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: var(--gap-4); align-items: start; }
+.uh-commits { display: flex; flex-direction: column; min-width: 0; }
+.uh-list-head { display: flex; align-items: center; gap: 12px; }
+.uh-legend { margin-left: auto; font-weight: 400; }
+.uh-list { display: flex; outline: none; }
+.uh-list:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.uh-graph { flex: none; width: 64px; }
+.uh-rows { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.uh-row { display: grid; grid-template-columns: 76px minmax(0, 1fr) 120px 56px; align-items: center; gap: 10px; height: 44px; box-sizing: border-box; padding: 0 12px 0 0; border-bottom: 1px solid var(--hairline); font-size: var(--text-sm); cursor: pointer; }
+.uh-row:last-child { border-bottom: 0; }
+.uh-row:hover { background: var(--surface-2); }
+.uh-row.is-selected { background: var(--accent-wash); box-shadow: inset 2px 0 0 var(--accent); }
+.uh-hash { font-family: var(--mono); color: var(--accent); }
+.uh-row.is-local .uh-hash { color: var(--warn); }
+.uh-subject { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.uh-subject .badge { flex: none; }
+.uh-subject-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uh-author { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uh-age { color: var(--text-faint); text-align: right; font-variant-numeric: tabular-nums; }
+.uh-rows .panel-hint { padding: var(--gap-3); }
+
+.uh-lane { stroke-width: 2; fill: none; }
+.uh-lane.is-upstream { stroke: var(--accent); }
+.uh-lane.is-local { stroke: var(--warn); }
+.uh-node { stroke-width: 2; }
+.uh-node.is-upstream { fill: var(--accent); stroke: var(--accent); }
+.uh-node.is-local { fill: var(--warn); stroke: var(--warn); }
+.uh-node.is-head { stroke: var(--text); }
+.uh-node.is-pin { fill: var(--surface-1); stroke: var(--ok); stroke-width: 3; }
+.uh-node.is-registry { fill: var(--ok); stroke: var(--ok); }
+.uh-node.is-selected { stroke: var(--text); stroke-width: 3; }
+
+.uh-inspector { position: sticky; top: 0; }
+.uh-insp-head { display: flex; align-items: center; gap: 10px; }
+.uh-insp-head .badge { margin-left: auto; }
+.uh-insp-hash { font-family: var(--mono); color: var(--accent); }
+.uh-insp-body { display: flex; flex-direction: column; gap: var(--gap-3); }
+.uh-insp-subject { font-size: var(--text-md); font-weight: 600; line-height: 1.4; }
+.uh-insp-msg { margin: 0; color: var(--text-dim); font-size: var(--text-sm); line-height: 1.5; white-space: pre-wrap; }
+.uh-summary { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
+.uh-files-head { text-transform: uppercase; letter-spacing: .08em; font-size: var(--text-xs); }
+.uh-files { display: flex; flex-direction: column; }
+.uh-file { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--hairline); font-size: var(--text-sm); }
+.uh-file:last-child { border-bottom: 0; }
+.uh-file-path { flex: 1; min-width: 0; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uh-file-count { flex: none; font-family: var(--mono); color: var(--text-faint); font-size: var(--text-xs); }
+.uh-bar { flex: none; display: inline-flex; width: 90px; height: 6px; border-radius: 3px; background: var(--hairline); overflow: hidden; }
+.uh-bar-add { background: var(--ok); }
+.uh-bar-del { background: var(--err); }
+.uh-insp-actions { display: flex; gap: 8px; padding-top: 4px; }
+.uh-insp-actions > :last-child { margin-left: auto; }
+.uh-ok { color: var(--ok); }
+.uh-warn { color: var(--warn); }
+
+@media (max-width: 1100px) {
+  .uh-body { grid-template-columns: minmax(0, 1fr); }
+  .uh-inspector { position: static; }
+}

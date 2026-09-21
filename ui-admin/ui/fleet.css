@@ -1,0 +1,58 @@
+/* The fleet matrix: tiles, the filter row, the matrix with a column per person, the legend. Colours are the
+ * theme's: ok for current, warn for older code and forks, err for a broken configuration, and a dashed faint
+ * cell for a package not installed there. */
+
+.ua-fleet-cols { grid-template-columns: minmax(0, 1fr); }
+.ua-fleet { gap: var(--gap-4); }
+
+.ua-fl-tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--gap-2); }
+.ua-fl-tile { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: var(--r-md); background: var(--surface-1); border: 1px solid var(--hairline); min-width: 0; }
+.ua-fl-tile-label { font-size: var(--text-xs); color: var(--text-faint); }
+.ua-fl-tile b { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ua-fl-tile.is-ok b { color: var(--ok); }
+.ua-fl-tile.is-warn b { color: var(--warn); }
+.ua-fl-tile.is-err b { color: var(--err); }
+
+.ua-fl-filters { display: flex; align-items: center; gap: var(--gap-2); flex-wrap: wrap; }
+.ua-fl-search { width: 280px; }
+.ua-fl-chips { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.ua-fl-chip { appearance: none; height: 26px; padding: 0 10px; border-radius: var(--r-pill); border: 1px solid var(--hairline-strong); background: var(--surface-2); color: var(--text-dim); font: inherit; font-size: var(--text-xs); cursor: pointer; }
+.ua-fl-chip:hover { color: var(--text); }
+.ua-fl-chip.is-on { color: var(--text); border-color: var(--accent-edge); background: var(--accent-wash); }
+.ua-fl-label { font-size: var(--text-xs); color: var(--text-faint); margin-left: 6px; }
+.ua-fl-gap { flex: 1; }
+
+.ua-fl-table td { white-space: nowrap; }
+.ua-fl-table .ua-fl-th-name { min-width: 240px; }
+.ua-fl-name { font-family: var(--mono); }
+.ua-fl-type { font-size: var(--text-xs); }
+.ua-fl-desc { font-size: var(--text-xs); white-space: normal; max-width: 360px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; }
+.ua-fl-group td { background: var(--surface-2); color: var(--text-faint); font-size: var(--text-xs); letter-spacing: .08em; text-transform: uppercase; padding: 5px 12px; }
+.ua-fl-row { cursor: pointer; }
+.ua-fl-row:hover td { background: var(--surface-2); }
+.ua-fl-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ua-fl-row.is-marked td { background: var(--accent-wash); }
+.ua-fl-row.is-marked td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.ua-fl-user { text-align: center; }
+.ua-fl-open { text-align: right; }
+.ua-fl-link { color: var(--accent); font-size: var(--text-xs); }
+
+.ua-fl-cell { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border-radius: var(--r-sm); font-family: var(--mono); font-size: var(--text-xs); border: 1px solid var(--hairline); background: var(--surface-2); color: var(--text-dim); }
+.ua-fl-cell.is-current { border-color: color-mix(in srgb, var(--ok) 35%, transparent); color: color-mix(in srgb, var(--ok) 70%, var(--text)); }
+.ua-fl-cell.is-stale { border-color: color-mix(in srgb, var(--warn) 45%, transparent); color: color-mix(in srgb, var(--warn) 80%, var(--text)); background: var(--warn-wash); }
+.ua-fl-cell.is-fork { border-color: color-mix(in srgb, var(--warn) 45%, transparent); color: color-mix(in srgb, var(--warn) 80%, var(--text)); }
+.ua-fl-cell.is-broken { border-color: color-mix(in srgb, var(--err) 45%, transparent); color: color-mix(in srgb, var(--err) 80%, var(--text)); background: var(--err-wash); }
+.ua-fl-cell.is-none { border-style: dashed; color: var(--text-faint); }
+
+.ua-fl-config { display: inline-flex; align-items: center; gap: 6px; }
+.ua-fl-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.ua-fl-dot.is-ok { background: var(--ok); }
+.ua-fl-dot.is-err { background: var(--err); }
+
+.ua-fl-legend { display: flex; align-items: center; gap: var(--gap-4); flex-wrap: wrap; font-size: var(--text-xs); color: var(--text-faint); }
+.ua-fl-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.ua-fl-legend .ua-fl-cell { height: 18px; padding: 0 6px; }
+
+@media (max-width: 1100px) {
+  .ua-fl-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

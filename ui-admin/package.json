@@ -125,6 +125,84 @@
           "role": "admin"
         },
         {
+          "verb": "package-log",
+          "export": "packageLog",
+          "label": "The commits touching one package, with what is pushed and pinned",
+          "role": "admin"
+        },
+        {
+          "verb": "package-commit",
+          "export": "packageCommit",
+          "label": "One commit's message and the files of the package it changed",
+          "role": "admin"
+        },
+        {
+          "verb": "package-diff",
+          "export": "packageDiff",
+          "label": "The change between two points, for one package's files",
+          "role": "admin"
+        },
+        {
+          "verb": "package-push",
+          "export": "packagePush",
+          "label": "Push the checkout's branch",
+          "role": "admin"
+        },
+        {
+          "verb": "package-readme",
+          "export": "packageReadme",
+          "label": "One package's README",
+          "role": "admin"
+        },
+        {
+          "verb": "package-where",
+          "export": "packageWhere",
+          "label": "Where one package runs: every person's copy, workspace and configuration",
+          "role": "admin"
+        },
+        {
+          "verb": "package-activity",
+          "export": "packageActivity",
+          "label": "The journal entries about one package",
+          "role": "admin"
+        },
+        {
+          "verb": "package-update",
+          "export": "packageUpdate",
+          "label": "Move a package to the version its registry holds",
+          "role": "admin"
+        },
+        {
+          "verb": "package-fork",
+          "export": "packageFork",
+          "label": "Copy a package into your home as your own",
+          "role": "admin"
+        },
+        {
+          "verb": "package-promote",
+          "export": "packagePromote",
+          "label": "Make a person's package a system package for everyone",
+          "role": "admin"
+        },
+        {
+          "verb": "package-remove",
+          "export": "packageRemove",
+          "label": "Remove a package for one person, or for everyone",
+          "role": "admin"
+        },
+        {
+          "verb": "package-install-for",
+          "export": "packageInstallFor",
+          "label": "Install a system package for one person",
+          "role": "admin"
+        },
+        {
+          "verb": "fleet",
+          "export": "fleet",
+          "label": "Every package in every workspace, with what needs a look",
+          "role": "admin"
+        },
+        {
           "verb": "config-show",
           "export": "configShow",
           "label": "What one package is configured with",
