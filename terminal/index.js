@@ -406,9 +406,17 @@ export async function uiRename(args, env) {
  *
  * It yields four values and nothing else: `sessions` when it opens and whenever one is added or gone,
  * `output` with the session's counter *after* the chunk, `state` when a session's word changes, and
- * `closed`. The first `output` of each session carries the whole ring buffer with `replace`, so a page
- * that opens in the middle of a build sees the last screenful and a reconnect is a redraw that costs
- * nothing: every value is written to be replayed.
+ * `closed`. The first three are the rows, a few hundred bytes a session, and every subscription carries
+ * them. `output` is the screens, and only a subscription opened with `args.screens: true` carries it:
+ * the page asks for the screens while its drawer is open and for the rows alone while it is closed,
+ * because a closed drawer has nowhere to put a screenful and the ring buffers of a workspace with a
+ * dozen shells run to hundreds of kilobytes. The flag is read once, here; the page opens a new
+ * subscription to change it.
+ *
+ * With the screens, the first `output` of each session carries the whole ring buffer with `replace`,
+ * so a drawer that opens in the middle of a build sees the last screenful and a reconnect is a redraw
+ * that costs nothing: every value is written to be replayed. Without them, nothing is replayed and the
+ * host's output events are dropped here, before they cost a frame.
  *
  * Output is batched on a `FRAME_MS` tick, one frame per session, because the gateway applies no
  * backpressure and a `yes` loop would otherwise become a request per write. Everything else is yielded
@@ -418,7 +426,8 @@ export async function uiRename(args, env) {
  * This is the one export with a connection of its own: a subscribed connection is what the host counts
  * as a watcher, and a `finally` closes it, so a browser that walks away leaves nothing behind.
  */
-export async function* uiWatch(_args, env) {
+export async function* uiWatch(args, env) {
+  const screens = args?.screens === true;
   const key = `ui:${randomBytes(6).toString("hex")}`; // stable for this subscription, and only this one
   const conn = await connect(env.root);
 
@@ -490,7 +499,7 @@ export async function* uiWatch(_args, env) {
   function onEvent(event) {
     if (stopped) return;
     if (event.ev === "output") {
-      if (typeof event.id !== "string" || typeof event.text !== "string") return;
+      if (!screens || typeof event.id !== "string" || typeof event.text !== "string") return;
       // The host sends the offset the chunk starts at; the page counts from the end of it, so that a
       // chunk it has already written can be recognised and dropped.
       const after = (typeof event.seq === "number" ? event.seq : 0) + event.text.length;
@@ -529,9 +538,9 @@ export async function* uiWatch(_args, env) {
 
   try {
     if (env.signal?.aborted) return;
-    // `from: 0` asks for everything each ring still holds. The host writes those chunks before it
-    // answers, so what is held when the answer arrives is the replay and nothing else.
-    const snapshot = await conn.subscribe(0, onEvent, { consumer: key });
+    // `from: 0` asks for everything each ring still holds; no `from` asks for no replay. The host writes
+    // the chunks before it answers, so what is held when the answer arrives is the replay and nothing else.
+    const snapshot = await conn.subscribe(screens ? 0 : undefined, onEvent, { consumer: key });
     announce(snapshot?.sessions ?? []); // the rows first: the page has nowhere to put output yet
     for (const frame of frames.values()) frame.replace = true;
     live = true;

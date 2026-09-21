@@ -4,15 +4,21 @@
  * for the whole page.
  *
  * One subscription, not one per view, and it is opened here rather than in the drawer because the chip
- * counts shells while the drawer is closed, a screen keeps filling while nobody is looking, and opening
- * the drawer must cost no request. It is never stopped while the page lives; the drawer comes and goes
- * around it.
+ * counts shells while the drawer is closed and a shell appearing must bring the drawer up on its own.
+ * What it carries follows the drawer: the rows always, a few hundred bytes a session; the screens —
+ * every ring buffer when it opens, every chunk printed after — only while the drawer is on screen,
+ * because a closed drawer has nowhere to put a screenful and the rings of a workspace with a dozen
+ * shells run to hundreds of kilobytes. The server reads the `screens` flag once, when the stream opens,
+ * so the drawer opening or closing swaps the subscription for one with the other flag (`sync`). The
+ * table is never without one while the page lives; the drawer comes and goes around it.
  *
- * The browser reconnects an EventSource by itself, and the server then starts its export again from the
- * beginning. So every value is written to be replayed: an output chunk carries the session's counter
- * after it, and a chunk at or below the counter this page has already written is dropped. The first
- * chunk of a reconnect is the whole ring buffer with `replace`, which is dropped for the same reason
- * when nothing has happened since. That is what makes a reconnect cost nothing and lose nothing.
+ * A stream that is retried, and one swapped for the drawer, starts the export again from the beginning.
+ * So every value is written to be replayed: an output chunk carries the session's counter after it, and
+ * a chunk at or below the counter this page has already written is dropped. The first chunk of each
+ * session is the whole ring buffer with `replace`, which is dropped for the same reason when nothing
+ * has happened since. That is what makes a reconnect cost nothing and lose nothing, and what lets the
+ * drawer close without losing its picture: the emulators keep their scrollback while nothing is sent to
+ * them, and reopening sends only what they have not seen.
  *
  * A stream that ends or is refused is said in the drawer's footer and retried with a widening delay.
  * Nothing here pretends to be live when it is not. Nothing runs at import.
@@ -44,6 +50,8 @@ export default function install(ext) {
   const pending = new Map();   // id -> keystrokes waiting for the next coalesced `write`
   let stream = { live: false, why: "Connecting to the shells…" };
   let autoOpen = true;         // the drawer also opens itself once per page load for this conversation's first command
+  let mounted = false;         // the drawer's body is the shelf's tenant (it stays so while the shelf is hidden)
+  let withScreens = false;     // the subscription that is open was asked for the screens, not only the rows
   let stop = null;
   let retry = null;
   let wait = FIRST_RETRY_MS;
@@ -101,11 +109,11 @@ export default function install(ext) {
       known.add(session.id);
       // The point of the whole drawer: a shell appearing in the conversation on screen brings it up,
       // without a click. A shell of another conversation brightens nothing and opens nothing.
-      if (session.state !== "closed" && ext.conversation.current && mine(session)) ext.open.shelf("terminal");
+      if (session.state !== "closed" && ext.conversation.current && mine(session)) openDrawer();
     }
     if (autoOpen && BUSY.has(session.state) && session.conversation && session.conversation === ext.conversation.current) {
       autoOpen = false;
-      ext.open.shelf("terminal"); // once per page load, and nothing here takes the focus from the composer
+      openDrawer(); // once per page load, and nothing here takes the focus from the composer
     }
   }
 
@@ -132,7 +140,7 @@ export default function install(ext) {
 
   function output({ id, seq, text, replace }) {
     if (typeof id !== "string" || typeof seq !== "number" || typeof text !== "string") return;
-    if (seq <= (seqs.get(id) ?? -1)) return; // already written: this is a reconnect replaying itself
+    if (seq <= (seqs.get(id) ?? -1)) return; // already written: a reconnect, or the drawer reopening, replaying itself
     const screen = screenFor(id);
     // No screen means no row yet, or a session that was already closed when this page found it. The counter
     // is left where it was on purpose, so the ring buffer arriving after the next `sessions` value is still
@@ -183,11 +191,16 @@ export default function install(ext) {
 
   // ---- the subscription ----
 
+  /** Whether the screens are wanted: the drawer's body is in the shelf and the shelf is up. */
+  const showing = () => mounted && ext.shelf.isOpen();
+
   function listen() {
     clearTimeout(retry);
     retry = null;
+    withScreens = showing();
     try {
       stop = ext.subscribe("watch", {
+        args: { screens: withScreens },
         onEvent: (value) => {
           if (!stream.live) {
             stream = { live: true, why: null };
@@ -235,14 +248,42 @@ export default function install(ext) {
     listen();
   }
 
-  // ---- the conversation on screen ----
+  /**
+   * The drawer opened or closed: the stream must carry what the page can now show, and no more. A
+   * subscription open with the other flag is swapped for one with this one, live throughout — the rows
+   * arrive again in a moment and the footer has nothing to say. One that is not open is left alone: the
+   * retry, or the Reconnect, reads the flag when it opens the next.
+   */
+  function sync() {
+    if (!stop || withScreens === showing()) return;
+    stop();
+    stop = null;
+    listen();
+  }
+
+  // ---- the drawer ----
+
+  /* Every way this module has of moving the drawer ends in `sync`, so the screens start with the drawer
+   * and stop with it. The shelf's own Hide button and another package taking the shelf reach `sync` too:
+   * the first through the drawer's fit callback, the second through the unmount. */
+  function openDrawer() {
+    ext.open.shelf("terminal");
+    sync();
+  }
+
+  function closeDrawer() {
+    ext.close.shelf();
+    sync();
+  }
 
   /* Switching conversations: the drawer belongs to the one on screen. Closed, not merely emptied — a
    * drawer left standing over another conversation's shells is a lie — and reopened at once when this
-   * conversation has shells of its own. The drawer's rows follow through `store.watch`. */
+   * conversation has shells of its own. The drawer's rows follow through `store.watch`. One `sync` for
+   * both moves: a close and a reopen in the same breath must not swap the stream twice. */
   ext.conversation.watch((id) => {
     ext.close.shelf();
     if (id && visible().some((s) => s.state !== "closed" && mine(s, id))) ext.open.shelf("terminal");
+    sync();
     changed();
   });
 
@@ -266,6 +307,8 @@ export default function install(ext) {
     conversationTitle: (id) => ext.sessions.list().find((s) => s.id === id)?.title?.trim() || null,
     stream: () => stream,
     reconnect,
+    /** The shelf settled after moving (the drawer's fit callback): the drawer says so, and the stream follows it. */
+    sync,
     screen: screenFor,
     /** A session the server has just described in an answer, so the row appears without waiting for the stream.
      *  A row the stream has already delivered is left alone: the stream's record is the fresher one, and the
@@ -297,7 +340,17 @@ export default function install(ext) {
 
   // ---- the registrations ----
 
-  ext.shelf("terminal", { mount: (root, shelf) => mountShelf(ext, store, root, shelf) });
+  ext.shelf("terminal", {
+    mount(root, shelf) {
+      mounted = true;
+      const unmount = mountShelf(ext, store, root, shelf);
+      return () => {
+        unmount();
+        mounted = false; // another package took the shelf: no drawer of ours is on screen
+        sync();
+      };
+    },
+  });
 
   /* The chip in the chat bar, one per conversation pane: the legacy header chip. A dot in the app's own
    * colours (it lives in the app's chrome, not in the device) and a count of the shells of that
@@ -327,14 +380,14 @@ export default function install(ext) {
     },
     /** Click toggles the drawer; opening it also uncollapses it, which the shelf does on its own. */
     open() {
-      if (ext.shelf.isOpen()) ext.close.shelf();
-      else ext.open.shelf("terminal");
+      if (ext.shelf.isOpen()) closeDrawer();
+      else openDrawer();
       ext.redraw("terminal");
     },
   });
 
   listen();
-  // The subscription lives as long as the page. This only spares the gateway a stream it is still writing to.
+  // A subscription lives as long as the page. This only spares the gateway a stream it is still writing to.
   addEventListener("pagehide", () => {
     clearTimeout(retry);
     stop?.();

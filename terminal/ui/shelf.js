@@ -20,8 +20,9 @@
  *
  * The session table and the emulators are the page's, not the drawer's (see index.js): this mounts on a
  * table that is already filled and already live, draws it, and puts the chosen session's screen into the
- * pane. Hiding the shelf leaves this mounted and the emulator's scrollback alone, so showing it again
- * costs no request and loses no output. */
+ * pane. Hiding the shelf leaves this mounted and the emulators' scrollback alone; the page stops sending
+ * the screens while the drawer is hidden and resumes them when it shows (index.js), so showing it again
+ * is one subscription and loses no output. */
 
 const REDRAW_MS = 1000;   // the clock in the footer
 const FIT_MS = 120;       // a drag must not send a `resize` per frame
@@ -608,9 +609,11 @@ export function mountShelf(ext, store, root, shelf) {
   // a pane of a new size, and the debounce keeps a drag from sending a `resize` per frame.
   const observer = new ResizeObserver(scheduleFit);
   observer.observe(panesEl);
-  // The shelf says when its animation, a drag or a collapse has settled; the chip's `.is-on` follows the same word.
+  // The shelf says when its animation, a drag, a collapse or its own Hide has settled; the chip's `.is-on`
+  // and the stream's screens follow the same word.
   const unfit = shelf?.fit?.(() => {
     scheduleFit();
+    store.sync();
     ext.redraw("terminal");
   });
   draw();
