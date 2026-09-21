@@ -1,4 +1,9 @@
-/* One observable object for the page's state. Views watch keys and redraw. */
+/* One observable object for the page's state. Views watch keys and redraw, or watch sessions and
+ * touch up one row: `set` tells key watchers at once, and anything that changes what one session is
+ * doing (its activity, its agents, whether it runs) also names that session and its conversation to
+ * the session watchers. The activity map is changed in place, and its key watchers are told once per
+ * burst rather than once per event, because a busy turn produces many events a second and a whole
+ * redraw per event is what made the page slow. */
 
 const state = {
   user: null,          // { user, role }
@@ -17,6 +22,34 @@ const state = {
 };
 
 const watchers = new Map();
+const sessionWatchers = new Set();
+
+// Notifications that may coalesce: the keys and sessions named since the last flush, told together a
+// moment later. A timer, not an animation frame, so the title's working count still moves in a hidden tab.
+const BURST_MS = 16;
+const pendingKeys = new Set();
+const pendingSessions = new Set();
+let flushTimer = null;
+
+function notifyKey(key) {
+  for (const fn of watchers.get(key) ?? []) fn(state[key]);
+}
+
+function flush() {
+  flushTimer = null;
+  const keys = [...pendingKeys];
+  const ids = [...pendingSessions];
+  pendingKeys.clear();
+  pendingSessions.clear();
+  for (const key of keys) notifyKey(key);
+  for (const id of ids) for (const fn of sessionWatchers) fn(id);
+}
+
+function later(keys, ids) {
+  for (const key of keys) pendingKeys.add(key);
+  for (const id of ids) if (id) pendingSessions.add(id);
+  if (!flushTimer) flushTimer = setTimeout(flush, BURST_MS);
+}
 
 export const store = {
   get: (key) => state[key],
@@ -27,28 +60,33 @@ export const store = {
       state[key] = value;
       changed.push(key);
     }
-    for (const key of changed) for (const fn of watchers.get(key) ?? []) fn(state[key]);
+    for (const key of changed) notifyKey(key);
   },
   watch(key, fn) {
     if (!watchers.has(key)) watchers.set(key, new Set());
     watchers.get(key).add(fn);
     return () => watchers.get(key).delete(fn);
   },
+  /** `fn(id)` after anything about one session changed: its activity, its agents, its running or pending mark. Coalesced per burst. */
+  watchSession(fn) {
+    sessionWatchers.add(fn);
+    return () => sessionWatchers.delete(fn);
+  },
   /** Sets or clears one id in a set-valued key, replacing the set so watchers fire. */
   mark(key, id, on) {
+    if (state[key].has(id) === on) return;
     const next = new Set(state[key]);
     if (on) next.add(id);
     else next.delete(id);
-    if (next.size === state[key].size && [...next].every((x) => state[key].has(x))) return;
     this.set({ [key]: next });
+    later([], [id, this.rootOf(id)]);
   },
-  /** Replaces one session's activity record, replacing the map so watchers fire. */
   activityOf: (id) => state.activity.get(id) ?? null,
+  /** Replaces one session's activity record in place; the `activity` key and the session are told in the next burst. */
   setActivity(id, record) {
-    const next = new Map(state.activity);
-    if (record) next.set(id, record);
-    else next.delete(id);
-    this.set({ activity: next });
+    if (record) state.activity.set(id, record);
+    else if (!state.activity.delete(id)) return;
+    later(["activity"], [id, this.rootOf(id)]);
   },
   isRunning: (id) => state.running.has(id),
   isPending: (id) => state.pending.has(id),
@@ -77,6 +115,7 @@ export const store = {
       next.set(id, merged);
     }
     this.set({ agents: next });
+    later([], entries.flatMap(([id]) => [id, this.rootOf(id)]));
   },
   /** The agents spawned by `parent`, in creation order. */
   agentsOf(parent) {

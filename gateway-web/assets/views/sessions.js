@@ -4,6 +4,13 @@
  * as you type. The row menu renames, archives and restores. A package may narrow the list further
  * with a filter (`store.sessionFilter`, set through `ext.sessions.filter`).
  *
+ * The list is built whole only when the list itself changes: the sessions, the filter, the search, the
+ * archive fold. What one conversation is doing changes many times a second while it works, and that
+ * reaches the sidebar through `store.watchSession`, which redraws the inside of that one row and the
+ * agent rows under it; the row node and its buttons stay, so a hover, a focus or a click in flight is not
+ * lost under the reader. The bucket's working count, the title and the clock ticker follow. A row with
+ * its menu open or its name being edited is left alone until that is over.
+ *
  * The open conversation's subagents sit under its row, indented behind a rail with an elbow into each,
  * so the ownership reads at a glance: a dot, the label, the step while it works, then the outcome and
  * the cost. Clicking one shows it (its block in the conversation, or its own tab when one is open); the
@@ -35,12 +42,15 @@ function bucket(iso) {
   return "Earlier";
 }
 
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
 export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onOpenAgent }) {
   const list = $("session-list");
   const search = $("session-search");
   let query = "";
   let busy = null; // { id, mode: "menu" | "rename", stop }
   let archiveOpen = false;
+  let activeRoot = null; // the conversation whose row is highlighted and carries the agent rows
   const baseTitle = "Thetis";
 
   function release() {
@@ -69,8 +79,8 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
   function statusLine(session, activity) {
     if (activity?.state === "working") {
       const facts = [];
-      if (activity.steps > 0) facts.push(`${activity.steps} ${activity.steps === 1 ? "tool call" : "tool calls"}`);
-      if (activity.agents > 0) facts.push(`${activity.agents} ${activity.agents === 1 ? "agent" : "agents"}`);
+      if (activity.steps > 0) facts.push(plural(activity.steps, "tool call"));
+      if (activity.agents > 0) facts.push(plural(activity.agents, "agent"));
       if (activity.cost >= 0.0005) facts.push(fmtCost(activity.cost));
       return el(
         "div",
@@ -88,7 +98,7 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
   /** Turns · cost · model: the facts a person wants without opening the conversation. */
   function factsLine(session) {
     const facts = [];
-    if (session.turns > 0) facts.push(`${session.turns} ${session.turns === 1 ? "turn" : "turns"}`);
+    if (session.turns > 0) facts.push(plural(session.turns, "turn"));
     if (typeof session.cost === "number" && session.cost > 0) facts.push(fmtCost(session.cost));
     if (session.model) facts.push(shortModel(session.model));
     if (!facts.length) return null;
@@ -144,8 +154,8 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
     return node;
   }
 
-  /** A subagent's row, under the conversation that spawned it. */
-  function agentRow(agent, last) {
+  /** A subagent's row, under the conversation that spawned it. `data-parent` ties it to that row for a swap. */
+  function agentRow(agent, parent, last) {
     const activity = store.activityOf(agent.id);
     const working = activity?.state === "working" || store.isRunning(agent.id);
     const label = agent.label || "subagent";
@@ -155,7 +165,7 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
     const facts = working ? ["working", step].filter(Boolean) : [outcome, agent.cost > 0 ? fmtCost(agent.cost) : ""].filter(Boolean);
     const node = el(
       "div",
-      { class: `session-agent is-${state}${last ? " is-last" : ""}`, "data-agent": agent.id },
+      { class: `session-agent is-${state}${last ? " is-last" : ""}`, "data-agent": agent.id, "data-parent": parent },
       el(
         "button",
         { type: "button", class: "session-agent-go", title: working ? `${label} is working — show it in the conversation` : `${label} · ${facts.join(" · ")} — show it in the conversation`, onClick: () => onAgent(agent.id) },
@@ -169,16 +179,19 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
     return node;
   }
 
-  /** A conversation's row and, for the open conversation, the rows of its subagents. */
-  function rows_(session) {
-    const node = row(session);
-    if (session.id !== store.rootOf(store.get("current"))) return [node];
+  /** The rows of the open conversation's subagents; none for any other conversation. */
+  function agentRows(session) {
+    if (session.id !== activeRoot) return [];
     const agents = store.agentsOf(session.id);
-    return [node, ...agents.map((agent, i) => agentRow(agent, i === agents.length - 1))];
+    return agents.map((agent, i) => agentRow(agent, session.id, i === agents.length - 1));
+  }
+
+  /** A conversation's row and the rows of its subagents. */
+  function rows(session) {
+    return [row(session), ...agentRows(session)];
   }
 
   function row(session) {
-    const active = session.id === store.rootOf(store.get("current"));
     const activity = store.activityOf(session.id);
     const state = activity?.state ?? "idle";
     const renaming = busy?.mode === "rename" && busy.id === session.id;
@@ -187,11 +200,11 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
       { type: "button", class: "session-more", title: "More", "aria-label": `More for ${titleOf(session)}`, "aria-haspopup": "menu", "aria-expanded": "false" },
       icon(MORE, { size: 15, width: 0 })
     );
-    more.querySelector("svg").querySelectorAll("path").forEach((p) => p.setAttribute("fill", "currentColor"));
+    more.querySelectorAll("path").forEach((p) => p.setAttribute("fill", "currentColor"));
     const title = el("div", { class: "session-title" }, renaming ? renameField(session) : el("span", { class: "session-title-text" }, titleOf(session)), renaming ? null : clock(session, activity));
     const node = el(
       "div",
-      { class: `session is-${state}${active ? " is-active" : ""}${session.archived ? " is-archived" : ""}`, "data-session": session.id },
+      { class: `session is-${state}${session.id === activeRoot ? " is-active" : ""}${session.archived ? " is-archived" : ""}`, "data-session": session.id },
       renaming
         ? el("div", { class: "session-open is-inert" }, title, statusLine(session, activity), factsLine(session))
         : el("button", { type: "button", class: "session-open", title: `${titleOf(session)}${session.preview ? ` · ${session.preview}` : ""}`, onClick: () => onOpen(session.id) }, title, statusLine(session, activity), factsLine(session)),
@@ -219,13 +232,17 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
     return `${session.title} ${session.preview}`.toLowerCase().includes(query);
   }
 
-  function group(label, rows, working) {
-    return el(
-      "section",
-      { class: "session-bucket", "aria-label": label },
-      el("div", { class: "session-group" }, label, working ? el("span", { class: "session-count is-working" }, `${working} working`) : null),
-      ...rows
-    );
+  function group(label, sessions) {
+    return el("section", { class: "session-bucket", "aria-label": label }, el("div", { class: "session-group" }, label, el("span", { class: "session-count is-working", hidden: true })), ...sessions.flatMap(rows));
+  }
+
+  /** The "n working" beside a bucket's label, from the rows it holds right now. */
+  function countBucket(section) {
+    const count = section?.querySelector(":scope > .session-group > .session-count");
+    if (!count) return;
+    const n = section.querySelectorAll(":scope > .session.is-working").length;
+    count.textContent = n ? `${n} working` : "";
+    count.hidden = !n;
   }
 
   function draw() {
@@ -241,22 +258,19 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
       if (!buckets.has(key)) buckets.set(key, []);
       buckets.get(key).push(session);
     }
-    for (const [label, rows] of buckets) {
-      const working = rows.filter((s) => store.activityOf(s.id)?.state === "working").length;
-      list.append(group(label, rows.flatMap(rows_), working));
-    }
+    for (const [label, sessions] of buckets) list.append(group(label, sessions));
     if (archived.length) {
       list.append(
         el(
           "details",
           { class: "session-archived", open: archiveOpen || query ? "" : null, onToggle: (event) => { if (!query) archiveOpen = event.target.open; } },
           el("summary", {}, el("span", { class: "session-group" }, "Archived", el("span", { class: "session-count" }, archived.length))),
-          ...archived.flatMap(rows_)
+          ...archived.flatMap(rows)
         )
       );
     }
-    setTitle(countWorking());
-    schedule();
+    for (const section of list.querySelectorAll(".session-bucket")) countBucket(section);
+    settle();
   }
 
   const redraw = () => {
@@ -264,7 +278,34 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
     draw();
   };
 
-  // ---- clocks tick in place ----
+  /** Swaps one conversation's row, and the agent rows under it, for one drawn from the store now. */
+  function refresh(id) {
+    if (busy?.id === id) return;
+    const node = list.querySelector(`.session[data-session="${CSS.escape(id)}"]`);
+    const session = store.session(id);
+    if (!node || !session) return;
+    const fresh = row(session);
+    const open = node.querySelector(":scope > .session-open");
+    node.className = fresh.className;
+    open.title = fresh.querySelector(".session-open").title;
+    open.replaceChildren(...fresh.querySelector(".session-open").childNodes);
+    applyActivityPhase(node, store.activityOf(id));
+    for (const agent of list.querySelectorAll(`.session-agent[data-parent="${CSS.escape(id)}"]`)) agent.remove();
+    node.after(...agentRows(session));
+    countBucket(node.closest(".session-bucket"));
+    settle();
+  }
+
+  /** The open conversation moved: the old root loses its highlight and its agent rows, the new one takes them. */
+  function moveActive(current) {
+    const was = activeRoot;
+    activeRoot = current ? store.rootOf(current) : null;
+    if (was && was !== activeRoot) refresh(was);
+    if (activeRoot) refresh(activeRoot);
+    settle();
+  }
+
+  // ---- what follows every change: the title, and the clocks ticking in place ----
 
   const tick = () => {
     const now = Date.now();
@@ -275,20 +316,27 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
     }
   };
   let ticker = null;
-  function schedule() {
+  let tickMode = null; // "working" | "idle" | null (hidden), so a burst of changes never restarts the clock
+  function schedule(working) {
+    const mode = document.hidden ? null : working ? "working" : "idle";
+    if (mode === tickMode) return;
+    tickMode = mode;
     clearInterval(ticker);
-    ticker = null;
-    if (document.hidden) return;
-    ticker = setInterval(tick, countWorking() ? TICK_MS.working : TICK_MS.idle);
+    ticker = mode ? setInterval(tick, TICK_MS[mode]) : null;
   }
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) tick();
-    schedule();
+    schedule(countWorking() > 0);
   });
 
+  function settle() {
+    const working = countWorking();
+    setTitle(working);
+    schedule(working > 0);
+  }
+
   function setTitle(working) {
-    const current = store.get("current");
-    const name = current ? titleOf(store.session(store.rootOf(current))) : "";
+    const name = activeRoot ? titleOf(store.session(activeRoot)) : "";
     const base = name ? `${name} — ${baseTitle}` : baseTitle;
     const wanted = working ? `(${working}) ${base}` : base;
     if (document.title !== wanted) document.title = wanted;
@@ -306,7 +354,11 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
   });
   $("new-chat").addEventListener("click", () => onNew());
 
-  for (const key of ["sessions", "current", "activity", "sessionFilter", "agents"]) store.watch(key, redraw);
+  store.watch("sessions", redraw);
+  store.watch("sessionFilter", redraw);
+  store.watch("current", moveActive);
+  store.watchSession(refresh);
+  moveActive(store.get("current"));
   draw();
 
   return {
