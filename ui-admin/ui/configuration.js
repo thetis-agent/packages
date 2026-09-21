@@ -10,12 +10,16 @@
  * system view. A key declared for the system is read-only in a person's view: it is set here, at the
  * system layer, and a person's layer never overrides it.
  *
+ * Above the form sits the package card (`package-card.js`): the version, where the copy came from, what
+ * it forked from, the registry's word on it and the state of its git checkout, from `package-info`.
+ *
  * "Reload the file" re-reads thetis.config.json and the env file without a restart; the answer names
  * what changed and which services were restarted for it, so the button says what it did rather than
  * that it ran. After a save or a clear the page asks the nav to read its children again, so the mark
  * beside the package follows the kernel's word. */
 
 import { configCard, reloadSentence } from "./config-form.js";
+import { packageCard } from "./package-card.js";
 
 /** The packages with configuration, for the nav under Packages. */
 export async function configurationChildren(ext) {
@@ -35,13 +39,15 @@ export function mountConfiguration(ext, root, { child, refresh } = {}) {
   let people = [];
   let person = ""; // "" is the system layer
   let report = null;
+  let info = null; // package-info: version, source, fork, registry, git
 
   async function load() {
     const stop = busy(wrap, `Reading ${child}…`);
     try {
-      const [users, shown] = await Promise.all([ext.request("users"), ext.request("config-show", { args: person ? { name: child, user: person } : { name: child } })]);
+      const [users, shown, about] = await Promise.all([ext.request("users"), ext.request("config-show", { args: person ? { name: child, user: person } : { name: child } }), ext.request("package-info", { args: { name: child } }).catch(() => ({ data: null }))]);
       people = (Array.isArray(users.data) ? users.data : []).filter((p) => p.role !== "system");
       report = shown.data ?? null;
+      info = about.data ?? null;
     } catch (err) {
       ext.toast(err.message, { tone: "error" });
     } finally {
@@ -85,7 +91,8 @@ export function mountConfiguration(ext, root, { child, refresh } = {}) {
     });
     put(
       wrap,
-      el("div", { class: "toolbar" }, heading(child, report.inherits?.length ? `inherits from ${report.inherits.join(", ")}` : null), el("div", { class: "toolbar-gap" }), layer, reloadBtn),
+      el("div", { class: "toolbar" }, heading(child, info?.description || (report.inherits?.length ? `inherits from ${report.inherits.join(", ")}` : null)), el("div", { class: "toolbar-gap" }), layer, reloadBtn),
+      info ? packageCard(ext, info) : null,
       card,
       el("p", { class: "panel-hint" }, "A value set here is live on the package's next call; a package that runs a service has it restarted. A secret is written and never shown again: the row says whether one is set. ${VAR} in a value is read from the environment when the package is called, and the row names a variable that is not there. The file thetis.config.json is read once; Reload the file reads it again.")
     );

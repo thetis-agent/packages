@@ -32,3 +32,8 @@
 .cf-ref { font-family: var(--mono); color: var(--text-dim); }
 .cf-missing, .cf-error { margin: 0; color: var(--err); font-size: var(--text-xs); }
 .cf-row.is-missing .cf-key code { color: var(--err); }
+
+/* The package card on a settings page: badges beside the name in the head; a fact worth a glance is coloured. */
+.ua-pkg-head { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ua-pkg-facts dd.is-warn { color: var(--warn); }
+.ua-pkg-facts dd.is-err { color: var(--err); }

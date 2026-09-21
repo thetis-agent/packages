@@ -213,8 +213,14 @@ pid on `.devhome3/thetis.sock` (`ss -lxp`). Run 2026-09-15: every step below pas
     errors. `api/ui` for dev lists the `panel` entries with `configuration` carrying `under: "packages"`.
 21a. **A package's settings**: click a child row under Packages (`.is-selected` moves to it, Packages
     stays open). Expect `.panel-note` "What this package is
-    configured with, and what is missing.", the toolbar heading with the package name, the layer select,
-    **Reload the file**, one `.cf-card[data-package]` for that package only, and the `.panel-hint`. Set a
+    configured with, and what is missing.", the toolbar heading with the package name and its description,
+    the layer select, **Reload the file**, then the `.ua-pkg-card` (one `POST …/package-info`): a `.badge`
+    Everyone or Only me, `dl.ua-pkg-facts` with the rows version, scope, source ("shipped with Thetis" for
+    a system package), registry ("not in the marketplace index" without one), checkout (the branch and
+    commit of the runtime checkout, "in step with origin/main" or how many commits are not pushed, files of
+    this package changed) and files (the root in `code`); a fork shows the fork row and a `fork` badge, an
+    update on offer the `update to` badge. Then one `.cf-card[data-package]` for that package only, and the
+    `.panel-hint`. Set a
     key and **Save**: one `config-set`, the card redrawn, and the nav's mark for that package following the
     kernel's summary. Switch the layer select to a person: one `config-show` with `user`, and a `scope:
     "system"` key read-only. Clicking the Packages row again shows the table and re-reads the children.

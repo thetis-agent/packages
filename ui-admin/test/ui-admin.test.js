@@ -204,6 +204,48 @@ test("config-list, config-show, config-set, config-unset and config-reload pass 
   }
 });
 
+test("package-info: the record, the registry's word and the checkout, each said only when it is there", async () => {
+  const info = { name: "@alice/hello", version: "0.1.0-fork.1", type: "loader", description: "Says hello.", root: "/home/alice/packages/hello", everyone: false, forkedFrom: { name: "@thetis/hello", version: "0.1.0" }, replaced: "@thetis/hello", source: { kind: "local", ref: "packages/hello" } };
+  const execs = [];
+  const env = {
+    user: "alice",
+    role: "admin",
+    kernel: { packages: { list: async () => [info] }, operator: { call: async () => null } },
+    readFile: async () => { throw new Error("no index"); },
+    exec: async (cmd) => {
+      execs.push(cmd);
+      if (cmd.includes("status")) return { code: 0, stdout: "## main...origin/main [ahead 2, behind 1]\n M index.js\n?? notes.md\n", stderr: "" };
+      return { code: 0, stdout: "abc1234\n", stderr: "" };
+    },
+  };
+  const out = await commands.packageInfo({ name: "@alice/hello" }, env);
+  assert.deepEqual(out.data, { name: "@alice/hello", version: "0.1.0-fork.1", type: "loader", description: "Says hello.", root: "/home/alice/packages/hello", everyone: false, forkedFrom: { name: "@thetis/hello", version: "0.1.0" }, replaced: "@thetis/hello", source: { kind: "local", ref: "packages/hello" }, registry: null, git: { branch: "main", upstream: "origin/main", ahead: 2, behind: 1, changed: 2, commit: "abc1234" } });
+  assert.ok(execs[0].includes("'/home/alice/packages/hello'") && execs[0].endsWith("-- ."), "git is asked about this package's files only");
+  const bare = await commands.packageInfo({ name: "@alice/hello" }, { ...env, exec: async () => ({ code: 128, stdout: "", stderr: "not a git repository" }) });
+  assert.equal(bare.data.git, null);
+  // No tracking upstream: the remote's branch of the same name is what the push goes to, so it is what the count is against.
+  const untracked = await commands.packageInfo({ name: "@alice/hello" }, { ...env, exec: async (cmd) => (cmd.includes("status") ? { code: 0, stdout: "## main\n", stderr: "" } : cmd.includes("rev-list") ? { code: 0, stdout: "3\t0\n", stderr: "" } : { code: 0, stdout: "abc1234\n", stderr: "" }) });
+  assert.deepEqual(untracked.data.git, { branch: "main", upstream: "origin/main", ahead: 3, behind: 0, changed: 0, commit: "abc1234" });
+  await refuses(commands.packageInfo, { name: "@alice/nope" }, env, /is not installed/);
+  await refuses(commands.packageInfo, { name: "hello" }, env, /looks like @scope\/name/);
+});
+
+test("the package card's facts: source, fork, registry and checkout in words", async () => {
+  const { packageFacts } = await import("../ui/package-card.js");
+  const base = { name: "@thetis/exa", version: "0.1.0", type: "tool", root: "/srv/packages/exa", everyone: true, forkedFrom: null, replaced: null, source: { kind: "system", ref: "exa" }, registry: null, git: null };
+  const words = (info) => Object.fromEntries(packageFacts(info).map(([k, v, tone]) => [k, tone ? `${v} [${tone}]` : v]));
+  assert.deepEqual(words(base), { version: "0.1.0 · tool", scope: "everyone has it", source: "shipped with Thetis", registry: "not in the marketplace index", checkout: "not in a git checkout", files: "/srv/packages/exa" });
+  const git = words({ ...base, everyone: false, source: { kind: "git", ref: "https://x/registry.git#exa@0123456789abcdef" }, registry: { registry: "main", version: "0.2.0", commit: "fedcba9876543210", update: { version: "0.2.0", installed: "0123456789abcdef", available: "fedcba9876543210", source: "https://x/registry.git#exa@fedcba9876543210" } }, git: { branch: "main", upstream: "origin/main", ahead: 1, behind: 0, changed: 0, commit: "0123456" } });
+  assert.equal(git.scope, "only you");
+  assert.equal(git.source, "https://x/registry.git · exa · pinned to 0123456");
+  assert.match(git.registry, /^main holds 0\.2\.0 \(fedcba9\); this copy is 0123456: an update is on offer in the marketplace \[warn\]$/);
+  assert.equal(git.checkout, "on main · at 0123456 · 1 commit not pushed · nothing uncommitted here [warn]");
+  const fork = words({ ...base, forkedFrom: { name: "@thetis/exa", version: "0.1.0" }, replaced: "@thetis/exa", source: { kind: "local", ref: "packages/exa" }, git: { branch: null, upstream: null, ahead: 0, behind: 0, changed: 3, commit: "abc1234" } });
+  assert.equal(fork.fork, "forked from @thetis/exa 0.1.0, replacing @thetis/exa [warn]");
+  assert.equal(fork.source, "a directory: packages/exa");
+  assert.equal(fork.checkout, "detached · at abc1234 · no upstream branch tracked · 3 files of this package changed and not committed [warn]");
+});
+
 test("the configuration form's pure helpers: the control per key, what counts as a change, the words for a source", async () => {
   const { kindOf, readValue, sourceText, missingText, brokenSentence, reloadSentence } = await import("../ui/config-form.js");
   const k = (extra) => ({ key: "k", state: "set", secret: false, declared: true, ...extra });

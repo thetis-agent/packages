@@ -119,6 +119,12 @@
           "role": "admin"
         },
         {
+          "verb": "package-info",
+          "export": "packageInfo",
+          "label": "What one package is and where it stands",
+          "role": "admin"
+        },
+        {
           "verb": "config-show",
           "export": "configShow",
           "label": "What one package is configured with",
@@ -186,5 +192,8 @@
         }
       ]
     }
+  },
+  "dependencies": {
+    "@thetis/marketplace": "^0.1.0"
   }
 }
