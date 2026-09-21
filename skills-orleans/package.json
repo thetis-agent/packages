@@ -1,0 +1,23 @@
+{
+  "name": "@thetis/skills-orleans",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "The skills that teach an agent Microsoft Orleans 10, the .NET virtual actor framework: grains, hosting, clustering, placement, persistence, timers and reminders, streams, observers, serialization, transactions, testing, deployment, migration and best practices, from the learn.microsoft.com documentation.",
+  "keywords": [
+    "orleans",
+    "dotnet",
+    "csharp",
+    "grains",
+    "silo",
+    "actors",
+    "distributed"
+  ],
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "thetis": {
+    "type": "skill",
+    "skills": "skills"
+  }
+}
