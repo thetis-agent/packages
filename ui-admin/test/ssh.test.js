@@ -96,10 +96,11 @@ test("ssh-scan runs ssh-keyscan in this fence and parses its lines; a bad host n
 test("ssh-test answers ssh's exit code and words, for the admin's own workspace", async () => {
   const ran = [];
   const { env } = fakeEnv({}, { exec: async (cmd) => { ran.push(cmd); return { code: 1, stdout: "", stderr: "Hi bitmuse! You've successfully authenticated, but GitHub does not provide shell access.\n" }; } });
-  const out = await commands.sshTest({ host: "github.com" }, env);
-  assert.deepEqual(out.data, { host: "github.com", code: 1, output: "Hi bitmuse! You've successfully authenticated, but GitHub does not provide shell access." });
+  const out = await commands.sshTest({ target: "git@github.com" }, env);
+  assert.deepEqual(out.data, { target: "git@github.com", code: 1, output: "Hi bitmuse! You've successfully authenticated, but GitHub does not provide shell access." });
   assert.equal(ran[0], "ssh -T -o BatchMode=yes -o ConnectTimeout=10 git@github.com");
-  await refuses(commands.sshTest, { host: "github.com && whoami" }, env, /hostname/);
+  await refuses(commands.sshTest, { target: "git@github.com && whoami" }, env, /user@host/);
+  await refuses(commands.sshTest, { host: "github.com" }, env, /user@host/);
 });
 
 test("the section's helpers: the host of a known_hosts line, a grant's hosts, a key's name", async () => {

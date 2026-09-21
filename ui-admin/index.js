@@ -322,9 +322,13 @@ export async function sshScan(args, env) {
  * grants, so it answers for nobody else. A refused key and a successful greeting both come back as words.
  */
 export async function sshTest(args, env) {
-  const host = hostOf(args.host);
-  const [name, port] = host.split(":");
-  const run = await env.exec(`ssh -T -o BatchMode=yes -o ConnectTimeout=10${port ? ` -p ${port}` : ""} git@${name}`, { timeoutMs: 20_000 });
+  // Any user at any host: a code host's git user, or a login on a server. The target is checked here so
+  // nothing but a name reaches the shell; the port rides as -p.
+  const target = String(args.target ?? "").trim();
+  const m = /^([a-z0-9._-]+)@([a-z0-9.-]+)(?::(\d{1,5}))?$/i.exec(target);
+  if (!m) fail("a target is user@host, with an optional :port");
+  const [, user, host, port] = m;
+  const run = await env.exec(`ssh -T -o BatchMode=yes -o ConnectTimeout=10${port ? ` -p ${port}` : ""} ${user}@${host}`, { timeoutMs: 20_000 });
   const output = [run.stdout, run.stderr].map((s) => String(s ?? "").trim()).filter(Boolean).join("\n");
-  return { data: { host, code: run.code, output } };
+  return { data: { target, code: run.code, output } };
 }

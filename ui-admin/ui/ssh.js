@@ -1,18 +1,18 @@
-/* SSH keys: which keys each person's workspace may use, and where they may go. One person at a time, from
- * a picker: their grants as a table, and under it the two ways a key comes to be — the kernel makes one
- * for them, or one they already have is uploaded. A grant names one key file on the host; the kernel
- * loads it into that person's own ssh-agent, so the fence signs with it and can never read it. Every
- * change sends the person's whole list through `ssh-set`, as the command line does; the kernel closes
- * that person's fence, which reopens with an agent holding the new list, so the page says that before it
- * sends, and when the change is to the signed-in admin's own grants it waits for its own gateway to come
- * back rather than calling the lost request a failure (the same settle as the mounts section).
+/* SSH keys: which keys each person's workspace may use, and which hosts it may reach with them. One
+ * person at a time, from a picker; their keys as cards, each with its public half ready to copy and the
+ * hosts it vouches for; New key and Import key open one form at the top. A grant names one key file on
+ * the host; the kernel loads it into that person's own ssh-agent, so the fence signs with it and can
+ * never read it. Every change sends the person's whole list through `ssh-set`, as the command line does;
+ * the kernel closes that person's fence, which reopens with an agent holding the new list, so the page
+ * says that before it sends, and when the change is to the signed-in admin's own grants it waits for its
+ * own gateway to come back rather than calling the lost request a failure (the same settle as mounts).
  *
- * A key with no vouched-for host cannot connect to anything: StrictHostKeyChecking is on inside the fence
- * and there is nobody there to answer a prompt. So known hosts are part of a grant, and the page finds
- * their lines with `ssh-scan` (ssh-keyscan, run inside this fence) rather than asking anyone to paste
- * them. The public half of a key is shown with a copy button and the sentence about where it goes, since
- * registering it at the far end is the half of the job the kernel cannot do. Private key material is sent
- * once, to `ssh-import`, and never drawn again. */
+ * Known hosts are part of a grant but never required: the fence accepts a host it meets for the first
+ * time and remembers its key, and refuses one whose key changed. Vouching for a host ahead of time pins
+ * its key from the start; the page finds the lines with `ssh-scan` (ssh-keyscan, run inside this fence)
+ * rather than asking anyone to paste them. Nothing here is about one service: a key goes wherever this workspace should be let in, a code
+ * host's account or a server's authorized_keys, and the connection check takes any user@host. Private key
+ * material is sent once, to `ssh-import`, and never drawn again. */
 
 /** The first token of a known_hosts line: the host name it vouches for. */
 export function hostOfLine(line) {
@@ -24,22 +24,34 @@ export function hostsOf(grant) {
   return [...new Set((grant.hosts ?? []).map(hostOfLine).filter(Boolean))];
 }
 
-/** A key's short name for the table: the file's name under its directory. */
+/** A key's short name: the file's name under its directory. */
 export const keyName = (path) => String(path || "").split("/").filter(Boolean).at(-1) ?? "";
+
+/** What a connection attempt's words mean, in one sentence, and its tone. */
+export function verdictOf(code, output) {
+  const text = String(output || "");
+  if (/successfully authenticated|welcome/i.test(text) || code === 0) return { tone: "ok", text: "Let in: the far end accepted a key from this workspace." };
+  if (/permission denied/i.test(text)) return { tone: "warn", text: "Reached, but refused: the far end does not know any of this workspace's keys yet. Register a public key there." };
+  if (/host key verification failed|no .*known_hosts|not in the list of known hosts/i.test(text)) return { tone: "err", text: "Not trusted: no known_hosts line vouches for this host. Add the host to a key." };
+  if (/could not resolve|connection timed out|connection refused|network is unreachable|timed out/i.test(text)) return { tone: "err", text: "Not reached: the host did not answer from this workspace." };
+  return { tone: "err", text: `ssh ended with code ${code ?? "?"}.` };
+}
 
 export function mountSsh(ext, root, who = {}) {
   const { el, clear } = ext.dom;
-  const { badge, busy, button, confirm, field, heading, put, table } = ext.ui;
+  const { badge, busy, button, confirm, field, heading, put } = ext.ui;
   const me = who.user ?? null;
   let people = [];
   let byUser = {}; // user -> [{ key, hosts?, present, publicKey, fingerprint }]
   let person = "";
-  let shown = null; // { key, publicKey } of the public key panel open under the table
-  let adding = null; // the key whose "add host" form is open
+  let form = null; // "new" | "import" | null: the one form open at the top
+  let opened = null; // { key, publicKey, fingerprint } of a key just made or imported, shown first
+  let addingTo = null; // the key whose host box is open
   const wrap = el("div", { class: "panel-col ua-ssh" });
   root.append(el("div", { class: "panel-cols" }, wrap));
 
   const grantsOf = (user) => byUser[user] ?? [];
+  const sent = (grants) => grants.map((g) => ({ key: g.key, ...(g.hosts?.length ? { hosts: g.hosts } : {}) }));
 
   async function load() {
     const stop = busy(wrap, "Reading the keys…");
@@ -87,166 +99,211 @@ export function mountSsh(ext, root, who = {}) {
     await load();
   }
 
-  const sent = (user, grants) => grants.map((g) => ({ key: g.key, ...(g.hosts?.length ? { hosts: g.hosts } : {}) }));
+  const reopens = (u) => `${u}'s workspace closes and reopens with the change; its services restart.${u === me ? " This page reconnects." : ""}`;
 
   async function revoke(anchor, grant) {
-    const ok = await confirm(anchor, { title: "Revoke this key?", lines: [["person", person], ["key", grant.key]], note: `${person}'s fence reopens without it; their services restart. The file stays where it is.`, confirmLabel: "Revoke", tone: "warn" });
+    const ok = await confirm(anchor, { title: "Revoke this key?", lines: [["person", person], ["key", keyName(grant.key)], ["fingerprint", grant.fingerprint || "unknown"]], note: `${reopens(person)} The key file stays where it is.`, confirmLabel: "Revoke", tone: "warn" });
     if (!ok) return;
-    await change("ssh-set", { user: person, ssh: sent(person, grantsOf(person).filter((g) => g.key !== grant.key)) }, `${keyName(grant.key)} was revoked for ${person}.`);
+    await change("ssh-set", { user: person, ssh: sent(grantsOf(person).filter((g) => g.key !== grant.key)) }, `${keyName(grant.key)} was revoked for ${person}.`);
   }
 
-  async function addHosts(anchor, grant, lines) {
-    if (!lines.length) return ext.toast("Scan a host first.", { tone: "error" });
-    const ok = await confirm(anchor, { title: "Vouch for these hosts?", lines: [["person", person], ["key", keyName(grant.key)], ["hosts", [...new Set(lines.map(hostOfLine))].join(", ")]], note: `${person}'s fence reopens with the lines in its known_hosts.`, confirmLabel: "Add" });
+  async function setHosts(anchor, grant, lines, said) {
+    const next = grantsOf(person).map((g) => (g.key === grant.key ? { ...g, hosts: lines } : g));
+    const ok = await confirm(anchor, { title: said.title, lines: [["person", person], ["key", keyName(grant.key)], ["hosts", [...new Set(lines.map(hostOfLine))].join(", ") || "none"]], note: reopens(person), confirmLabel: said.label, tone: said.tone });
     if (!ok) return;
-    const next = grantsOf(person).map((g) => (g.key === grant.key ? { ...g, hosts: [...new Set([...(g.hosts ?? []), ...lines])] } : g));
-    adding = null;
-    await change("ssh-set", { user: person, ssh: sent(person, next) }, `${keyName(grant.key)} may reach ${[...new Set(lines.map(hostOfLine))].join(", ")} for ${person}.`);
+    addingTo = null;
+    await change("ssh-set", { user: person, ssh: sent(next) }, said.done);
   }
 
-  /** The lines ssh-keyscan finds for a host, shown under the box they were asked for. */
-  function scanner(onLines) {
-    const host = el("input", { class: "input ua-host", type: "text", placeholder: "github.com", "aria-label": "Host", autocomplete: "off", spellcheck: "false" });
-    const found = el("div", { class: "ua-scan-found", hidden: true });
-    let lines = [];
+  /**
+   * The known-hosts editor: a host to look up, Scan, and the lines found kept as chips by host name.
+   * Used by both forms and by a key's own host box, so hosts are added the same way everywhere.
+   */
+  function hostsEditor(initial = []) {
+    let lines = [...initial];
+    const chips = el("div", { class: "ua-chips" });
+    const input = el("input", { class: "input ua-host", type: "text", placeholder: "host, or host:port", "aria-label": "Host", autocomplete: "off", spellcheck: "false" });
+    const note = el("span", { class: "text-faint ua-scan-note" });
+    const drawChips = () => {
+      clear(chips);
+      const names = [...new Set(lines.map(hostOfLine).filter(Boolean))];
+      if (!names.length) chips.append(el("span", { class: "text-faint" }, "none yet"));
+      for (const name of names) {
+        const off = button("×", { title: `Forget ${name}`, onClick: () => { lines = lines.filter((l) => hostOfLine(l) !== name); drawChips(); } });
+        off.setAttribute("aria-label", `Forget ${name}`);
+        off.classList.add("ua-chip-x");
+        chips.append(el("span", { class: "ua-chip" }, el("code", {}, name), off));
+      }
+    };
     const scan = button("Scan", {
+      title: "ssh-keyscan runs inside this workspace and returns the host's public keys",
       onClick: async () => {
-        const value = host.value.trim();
-        if (!value) return host.focus();
+        const value = input.value.trim();
+        if (!value) return input.focus();
         scan.disabled = true;
+        note.textContent = `asking ${value}…`;
         try {
           const out = await ext.request("ssh-scan", { args: { host: value } });
-          lines = Array.isArray(out?.data?.lines) ? out.data.lines : [];
-          clear(found);
-          found.hidden = false;
-          put(found, el("span", { class: "text-faint" }, `${lines.length} known_hosts line${lines.length === 1 ? "" : "s"} for ${out?.data?.host ?? value}:`), ...lines.map((l) => el("code", { class: "ua-wrap ua-hostline" }, l)));
-          onLines?.(lines);
+          const found = Array.isArray(out?.data?.lines) ? out.data.lines : [];
+          lines = [...new Set([...lines, ...found])];
+          note.textContent = found.length ? `${found.length} key${found.length === 1 ? "" : "s"} for ${out?.data?.host ?? value}` : `${value} answered with no keys`;
+          input.value = "";
+          drawChips();
         } catch (err) {
-          lines = [];
-          found.hidden = false;
-          clear(found);
-          put(found, el("span", { class: "ua-refused" }, err.message));
-          onLines?.(lines);
+          note.textContent = err.message;
         } finally {
           scan.disabled = false;
         }
       },
     });
-    host.addEventListener("keydown", (e) => {
+    input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
         scan.click();
       }
     });
-    return { host, scan, found, lines: () => lines };
+    drawChips();
+    const node = el("div", { class: "ua-hosts" }, el("div", { class: "row" }, input, scan, note), chips);
+    return { node, lines: () => lines, focus: () => input.focus() };
   }
 
-  /** The public half of a key, with the sentence about where it goes and a button that copies it. */
-  function publicKeyPanel(title, publicKey, fingerprint) {
-    const box = el("textarea", { class: "input ua-pubkey", rows: "3", readonly: "", "aria-label": "Public key", spellcheck: "false" });
-    box.value = publicKey || "";
-    const copy = button("Copy", { onClick: () => { box.select(); navigator.clipboard?.writeText(box.value).then(() => ext.toast("Copied.", { tone: "good" }), () => ext.toast("Could not copy; select the line and copy it.", { tone: "error" })); } });
+  /** The public half of a key: the line, ready to copy, and where it goes. */
+  function publicKeyLine(grant) {
+    if (!grant.publicKey) return el("span", { class: "text-faint" }, "The public half is not on the host beside this key.");
+    const box = el("input", { class: "input ua-pubkey", type: "text", readonly: "", "aria-label": "Public key", spellcheck: "false" });
+    box.value = grant.publicKey;
+    box.addEventListener("focus", () => box.select());
+    const copy = button("Copy", { onClick: () => navigator.clipboard?.writeText(box.value).then(() => ext.toast("Copied.", { tone: "good" }), () => { box.focus(); ext.toast("Select the line and copy it.", { tone: "error" }); }) });
+    return el("div", { class: "row ua-pubkey-row" }, box, copy);
+  }
+
+  function keyCard(grant) {
+    const hosts = hostsOf(grant);
+    const fresh = opened?.key === grant.key;
+    const revokeBtn = button("Revoke", { tone: "warn", onClick: () => void revoke(revokeBtn, grant) });
+    const addBtn = button(addingTo === grant.key ? "Done" : "Add host", { onClick: () => { addingTo = addingTo === grant.key ? null : grant.key; draw(); } });
+    const forget = (name) => {
+      const off = button("×", { title: `Stop vouching for ${name}`, onClick: () => void setHosts(off, grant, (grant.hosts ?? []).filter((l) => hostOfLine(l) !== name), { title: `Stop vouching for ${name}?`, label: "Remove", tone: "warn", done: `${keyName(grant.key)} no longer vouches for ${name}.` }) });
+      off.setAttribute("aria-label", `Stop vouching for ${name}`);
+      off.classList.add("ua-chip-x");
+      return off;
+    };
+    let addBox = null;
+    if (addingTo === grant.key) {
+      const editor = hostsEditor();
+      const add = button("Add these hosts", { tone: "primary", onClick: () => { const lines = editor.lines(); if (!lines.length) return ext.toast("Scan a host first.", { tone: "error" }); void setHosts(add, grant, [...new Set([...(grant.hosts ?? []), ...lines])], { title: "Vouch for these hosts?", label: "Add", tone: "primary", done: `${keyName(grant.key)} may reach ${[...new Set(lines.map(hostOfLine))].join(", ")} for ${person}.` }); } });
+      addBox = el("div", { class: "ua-addhost" }, editor.node, el("div", { class: "row" }, add));
+    }
     return el(
       "div",
-      { class: "card ua-pubkey-card" },
-      el("div", { class: "card-head" }, title, fingerprint ? el("code", { class: "ua-fp" }, fingerprint) : null, el("span", { class: "toolbar-gap" }), copy),
-      el("div", { class: "card-body ua-code" }, publicKey ? box : el("span", { class: "text-faint" }, "The public half is not on the host beside this key."), el("p", { class: "text-faint" }, "Add it at github.com/settings/keys as an authentication key, or wherever this workspace should be let in. The private half stays with the kernel."))
+      { class: `card ua-key${fresh ? " is-fresh" : ""}`, "data-key": grant.key },
+      el(
+        "div",
+        { class: "card-head ua-key-head" },
+        el("code", { class: "ua-key-name" }, keyName(grant.key)),
+        grant.fingerprint ? el("code", { class: "ua-fp" }, grant.fingerprint) : el("span", { class: "text-faint" }, "fingerprint unknown"),
+        grant.present === false ? badge("not on the host", "err") : null,
+        !hosts.length ? badge("no vouched hosts", "dim") : null,
+        fresh ? badge("new", "accent") : null,
+        el("span", { class: "toolbar-gap" }),
+        revokeBtn
+      ),
+      el(
+        "div",
+        { class: "card-body ua-key-body" },
+        el("div", { class: "ua-key-row" }, el("span", { class: "ua-key-label" }, "Public key"), el("div", { class: "ua-key-value" }, publicKeyLine(grant), el("p", { class: "text-faint" }, "Register this line wherever the workspace should be let in: a code host's account, or a server's authorized_keys. The private half stays with the kernel."))),
+        el("div", { class: "ua-key-row" }, el("span", { class: "ua-key-label" }, "Known hosts"), el("div", { class: "ua-key-value" }, el("div", { class: "ua-chips" }, ...(hosts.length ? hosts.map((name) => el("span", { class: "ua-chip" }, el("code", {}, name), forget(name))) : [el("span", { class: "text-faint" }, "none vouched: a host met for the first time is accepted and remembered; one whose key changes is refused")]), addBtn), addBox)),
+        el("div", { class: "ua-key-row" }, el("span", { class: "ua-key-label" }, "File"), el("div", { class: "ua-key-value" }, el("code", { class: "ua-wrap text-faint" }, grant.key)))
+      )
     );
   }
 
-  function row(grant) {
-    const hosts = hostsOf(grant);
-    const showBtn = button("Show public key", { onClick: () => { shown = shown?.key === grant.key ? null : { key: grant.key, publicKey: grant.publicKey, fingerprint: grant.fingerprint }; draw(); } });
-    const hostBtn = button("Add host", { onClick: () => { adding = adding === grant.key ? null : grant.key; draw(); } });
-    const revokeBtn = button("Revoke", { tone: "warn", onClick: () => void revoke(revokeBtn, grant) });
-    return el("div", { class: "ua-ssh-actions" }, showBtn, hostBtn, revokeBtn);
-  }
-
-  /** The form under a row: scan a host, then add its lines to that grant. */
-  function addHostBlock(grant) {
-    const s = scanner();
-    const add = button("Add", { tone: "primary", onClick: () => void addHosts(add, grant, s.lines()) });
-    return el("div", { class: "card ua-add ua-addhost" }, el("div", { class: "card-head" }, `Vouch for a host with ${keyName(grant.key)}`), el("div", { class: "card-body" }, el("div", { class: "row wrap" }, field("Host", s.host), s.scan, add), s.found, el("p", { class: "text-faint" }, "ssh-keyscan runs inside this workspace and returns the host's public keys; the fence then trusts that host and no other. Without a line for it, ssh refuses the connection in a second.")));
-  }
-
-  function keygenBlock() {
-    const s = scanner();
-    const go = button("Generate a key", { tone: "primary", onClick: () => void generate() });
-    async function generate() {
-      const hosts = s.lines();
-      const ok = await confirm(go, { title: "Make a key for this person?", lines: [["person", person], ["hosts", hosts.length ? [...new Set(hosts.map(hostOfLine))].join(", ") : "none yet"]], note: `The kernel makes ${person} an ed25519 key of their own and grants it; their fence reopens with it. A key already made is kept, not replaced.`, confirmLabel: "Generate" });
-      if (!ok) return;
-      go.disabled = true;
-      try {
-        await change("ssh-keygen", { user: person, hosts }, `A key was made for ${person}.`, (data) => { if (data?.publicKey) shown = { key: data.key, publicKey: data.publicKey, fingerprint: data.fingerprint }; });
-      } finally {
-        go.disabled = false;
+  /** The one form at the top: New key (hosts only) or Import key (name, the private key, hosts). */
+  function formCard() {
+    const editor = hostsEditor();
+    const cancel = button("Cancel", { onClick: () => { form = null; draw(); } });
+    if (form === "new") {
+      const go = button("Make the key", { tone: "primary", onClick: () => void generate() });
+      async function generate() {
+        const hosts = editor.lines();
+        const ok = await confirm(go, { title: `Make a key for ${person}?`, lines: [["person", person], ["hosts", [...new Set(hosts.map(hostOfLine))].join(", ") || "none yet"]], note: `The kernel makes ${person} an ed25519 key of their own and grants it. A key already made is kept, not replaced. ${reopens(person)}`, confirmLabel: "Make it" });
+        if (!ok) return;
+        go.disabled = true;
+        try {
+          await change("ssh-keygen", { user: person, hosts }, `A key was made for ${person}.`, (data) => { form = null; if (data?.key) opened = { key: data.key, publicKey: data.publicKey, fingerprint: data.fingerprint }; });
+        } finally {
+          go.disabled = false;
+        }
       }
+      return el("div", { class: "card ua-form" }, el("div", { class: "card-head" }, `New key for ${person}`), el("div", { class: "card-body" }, el("p", { class: "text-faint" }, "No credential is lent: the person gets a key of their own. Its public half is shown afterwards to register at the far end; the private half stays with the kernel."), field("Hosts it may reach", editor.node, "Scan each host now or add them to the key later."), el("div", { class: "row" }, go, cancel)));
     }
-    return el("div", { class: "card add-block ua-add" }, el("div", { class: "card-head" }, "Generate a key"), el("div", { class: "card-body" }, el("div", { class: "row wrap" }, field("Host to vouch for", s.host), s.scan, go), s.found, el("p", { class: "text-faint" }, "No host credential is lent: the person gets a key of their own, the public half is shown to register at the far end, and the private half stays with the kernel. Revoking is per person and visible at the far end as which key stopped pushing.")));
-  }
-
-  function importBlock() {
-    const name = el("input", { class: "input", type: "text", placeholder: "github", "aria-label": "Key name", autocomplete: "off", spellcheck: "false", maxlength: "64" });
-    const material = el("textarea", { class: "input ua-material", rows: "6", placeholder: "-----BEGIN OPENSSH PRIVATE KEY-----", "aria-label": "Private key", spellcheck: "false", autocomplete: "off" });
-    const s = scanner();
-    const go = button("Upload the key", { tone: "primary", onClick: () => void upload() });
+    const name = el("input", { class: "input", type: "text", placeholder: "deploy", "aria-label": "Key name", autocomplete: "off", spellcheck: "false", maxlength: "64" });
+    const material = el("textarea", { class: "input ua-material", rows: "7", placeholder: "-----BEGIN OPENSSH PRIVATE KEY-----", "aria-label": "Private key", spellcheck: "false", autocomplete: "off" });
+    const go = button("Import the key", { tone: "primary", onClick: () => void upload() });
     async function upload() {
       const key = name.value.trim();
       const text = material.value;
       if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(key)) return ext.toast("A key name is lowercase letters, digits, dots, dashes and underscores.", { tone: "error" }), name.focus();
       if (!text.trim() || !text.includes("PRIVATE KEY")) return ext.toast("Paste the whole private key, BEGIN and END lines included.", { tone: "error" }), material.focus();
-      const hosts = s.lines();
-      const ok = await confirm(go, { title: "Upload this key?", lines: [["person", person], ["name", key], ["hosts", hosts.length ? [...new Set(hosts.map(hostOfLine))].join(", ") : "none yet"]], note: `The key is sent once, over this page's connection, and kept by the kernel where ${person}'s fence cannot read it; the fence reopens with an agent holding it.`, confirmLabel: "Upload" });
+      const hosts = editor.lines();
+      const ok = await confirm(go, { title: `Import a key for ${person}?`, lines: [["person", person], ["name", key], ["hosts", [...new Set(hosts.map(hostOfLine))].join(", ") || "none yet"]], note: `The key is sent once, over this page's connection, and kept by the kernel where ${person}'s fence cannot read it. ${reopens(person)}`, confirmLabel: "Import" });
       if (!ok) return;
       go.disabled = true;
       try {
-        await change("ssh-import", { user: person, name: key, privateKey: text, hosts }, `${key} was uploaded for ${person}.`, (data) => { material.value = ""; if (data?.publicKey) shown = { key: data.key, publicKey: data.publicKey, fingerprint: data.fingerprint }; });
+        await change("ssh-import", { user: person, name: key, privateKey: text, hosts }, `${key} was imported for ${person}.`, (data) => { material.value = ""; form = null; if (data?.key) opened = { key: data.key, publicKey: data.publicKey, fingerprint: data.fingerprint }; });
       } finally {
         go.disabled = false;
       }
     }
-    return el("div", { class: "card add-block ua-add" }, el("div", { class: "card-head" }, "Upload a key"), el("div", { class: "card-body" }, el("div", { class: "row wrap" }, field("Name", name), field("Host to vouch for", s.host), s.scan), field("Private key", material, "Sent once over this page's connection and stored by the kernel where the fence cannot read it. Prefer a key made for this workspace alone."), s.found, el("div", { class: "row" }, go)));
+    return el("div", { class: "card ua-form" }, el("div", { class: "card-head" }, `Import a key for ${person}`), el("div", { class: "card-body" }, el("div", { class: "ua-form-grid" }, field("Name", name, "A plain name; the file lands beside the generated key."), field("Private key", material, "Sent once over this page's connection; a key with a passphrase is refused, since nothing in the fence can answer a prompt.")), field("Hosts it may reach", editor.node), el("div", { class: "row" }, go, cancel)));
   }
 
-  async function test(anchor, host) {
-    anchor.disabled = true;
-    try {
-      const out = await ext.request("ssh-test", { args: { host } });
-      const { code, output } = out?.data ?? {};
-      const greeted = /successfully authenticated/i.test(output || "");
-      const refused = /permission denied/i.test(output || "");
-      ext.toast(greeted ? `${host} let this workspace in: ${output.split("\n")[0]}` : refused ? `${host} refused the key: it is not registered there yet. ${output.split("\n")[0]}` : `${host} answered ${code}: ${output || "nothing"}`, { tone: greeted ? "good" : refused ? "warn" : "error" });
-    } catch (err) {
-      ext.toast(err.message, { tone: "error" });
-    } finally {
-      anchor.disabled = false;
+  /** A connection attempt from the admin's own workspace, to any user@host: what the far end said, and what that means. */
+  function tryCard() {
+    const target = el("input", { class: "input ua-host", type: "text", placeholder: "user@host, or user@host:port", "aria-label": "Target", autocomplete: "off", spellcheck: "false" });
+    const out = el("div", { class: "ua-try-out", hidden: true });
+    const go = button("Try", { tone: "primary", onClick: () => void attempt() });
+    async function attempt() {
+      const value = target.value.trim();
+      if (!/^[a-z0-9._-]+@[a-z0-9.-]+(:\d{1,5})?$/i.test(value)) return ext.toast("A target is user@host, with an optional :port.", { tone: "error" }), target.focus();
+      go.disabled = true;
+      out.hidden = false;
+      clear(out);
+      put(out, el("span", { class: "text-faint" }, `ssh -T ${value} …`));
+      try {
+        const r = (await ext.request("ssh-test", { args: { target: value } }))?.data ?? {};
+        const v = verdictOf(r.code, r.output);
+        clear(out);
+        put(out, badge(v.tone === "ok" ? "let in" : v.tone === "warn" ? "refused" : "failed", v.tone), el("p", { class: "ua-verdict" }, v.text), r.output ? el("pre", { class: "ua-try-pre" }, r.output) : null);
+      } catch (err) {
+        clear(out);
+        put(out, badge("failed", "err"), el("p", { class: "ua-verdict" }, err.message));
+      } finally {
+        go.disabled = false;
+      }
     }
+    target.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        go.click();
+      }
+    });
+    return el("div", { class: "card ua-try" }, el("div", { class: "card-head" }, "Try a connection", el("span", { class: "text-faint ua-head-note" }, "from your own workspace, with your keys")), el("div", { class: "card-body" }, el("div", { class: "row" }, target, go), out));
   }
 
   function draw() {
     clear(wrap);
-    const picker = el("select", { class: "input", "aria-label": "Person", onChange: () => { person = picker.value; shown = null; adding = null; draw(); } }, ...people.map((p) => el("option", { value: p.id, selected: p.id === person || null }, `${p.id}${p.id === me ? " (me)" : ""} · ${grantsOf(p.id).length} ${grantsOf(p.id).length === 1 ? "key" : "keys"}`)));
-    const grants = grantsOf(person);
-    const testBtn = person === me ? button("Test github.com", { title: "Runs ssh -T git@github.com inside your own workspace", onClick: () => void test(testBtn, "github.com") }) : null;
+    const picker = el("select", { class: "input", "aria-label": "Person", onChange: () => { person = picker.value; form = null; opened = null; addingTo = null; draw(); } }, ...people.map((p) => el("option", { value: p.id, selected: p.id === person || null }, `${p.id}${p.id === me ? " (me)" : ""} · ${grantsOf(p.id).length} ${grantsOf(p.id).length === 1 ? "key" : "keys"}`)));
+    const grants = [...grantsOf(person)].sort((a, b) => (opened?.key === a.key ? -1 : opened?.key === b.key ? 1 : 0));
+    const newBtn = button("New key", { tone: form === "new" ? "quiet" : "primary", onClick: () => { form = form === "new" ? null : "new"; draw(); } });
+    const importBtn = button("Import key", { onClick: () => { form = form === "import" ? null : "import"; draw(); } });
     put(
       wrap,
-      el("div", { class: "toolbar" }, heading("SSH keys", people.length ? `${grants.length} ${grants.length === 1 ? "key" : "keys"} for ${person}` : null), el("div", { class: "toolbar-gap" }), el("label", { class: "ua-line" }, el("span", { class: "text-faint" }, "Person"), picker), testBtn),
-      table(
-        [
-          { key: "name", label: "Key", render: (g) => el("span", { class: "ua-code" }, el("code", {}, keyName(g.key)), el("span", { class: "text-faint ua-wrap" }, g.key)) },
-          { key: "fingerprint", label: "Fingerprint", render: (g) => (g.fingerprint ? el("code", { class: "ua-fp" }, g.fingerprint) : el("span", { class: "text-faint" }, "—")) },
-          { key: "state", label: "On the host", render: (g) => (g.present === undefined ? badge("not known", "dim") : g.present ? badge("present", "ok") : badge("not on the host", "err")) },
-          { key: "hosts", label: "May reach", render: (g) => { const h = hostsOf(g); return h.length ? el("span", { class: "ua-line" }, ...h.map((x) => el("code", {}, x))) : badge("no hosts · refuses every connection", "warn"); } },
-          { key: "actions", label: "", render: row },
-        ],
-        grants,
-        { rowKey: (g) => g.key, empty: people.length ? `${person}'s workspace has no ssh key. Generate one below, or upload one.` : "No person has a workspace here." }
-      ),
-      shown ? publicKeyPanel(`Public key · ${keyName(shown.key)}`, shown.publicKey, shown.fingerprint) : null,
-      adding && grants.some((g) => g.key === adding) ? addHostBlock(grants.find((g) => g.key === adding)) : null,
-      people.length ? el("div", { class: "ua-ssh-forms" }, keygenBlock(), importBlock()) : null,
-      el("p", { class: "panel-hint" }, "A grant names one key file, never a directory: the person's fence gets the use of that key through its own ssh-agent and cannot copy it. A change closes the person's fence; it reopens on their next request with the new keys and known hosts, and their services restart. Changing your own keys reopens this page. Test github.com runs in your own workspace, so it answers for your grants only.")
+      el("div", { class: "toolbar" }, heading("SSH keys", people.length ? `${grants.length} ${grants.length === 1 ? "key" : "keys"} for ${person}` : null), el("div", { class: "toolbar-gap" }), el("label", { class: "ua-line" }, el("span", { class: "text-faint" }, "Person"), picker), newBtn, importBtn),
+      form ? formCard() : null,
+      grants.length ? el("div", { class: "ua-keys" }, ...grants.map(keyCard)) : el("div", { class: "card ua-empty" }, el("div", { class: "card-body" }, people.length ? `${person}'s workspace has no key. New key makes one for it; Import key takes one that already exists.` : "No person has a workspace here.")),
+      person === me ? tryCard() : null,
+      el("p", { class: "panel-hint" }, "A grant names one key file, never a directory: the person's fence gets the use of that key through its own ssh-agent and cannot copy it. A change closes the person's fence; it reopens on their next request with the new keys and known hosts, and their services restart.")
     );
   }
 

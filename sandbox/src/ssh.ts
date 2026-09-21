@@ -63,16 +63,19 @@ export interface SshAgent extends FenceSsh {
  * missing credential or an unknown host waits on a prompt nobody can answer, and the fence's request timer
  * runs out instead, which reads as "ssh is broken" rather than "this fence has no key for that host".
  * `IdentitiesOnly` keeps ssh from walking through other identities and spending a rate limit on each.
- * `StrictHostKeyChecking yes` is the point of shipping a known-hosts file at all -- `no` would turn a
- * missing entry into a silent acceptance of any key, which is a downgrade wearing the costume of a fix.
+ * Host keys: the lines the operator vouched for are the global file, read-only; a host met for the first
+ * time is accepted and remembered in the workspace's own `.ssh/known_hosts` under its home (`accept-new`;
+ * the path is written out in full, because `~` inside a fence is not the home for every process that runs
+ * there), so a key needs no vouched host to be useful; a host whose key changed is refused either way.
+ * `no` would accept a changed key too, which is a downgrade wearing the costume of a fix.
  */
 const CLIENT_CONFIG = `# Written by Thetis for this fence. The agent on the other side of IdentityAgent holds the keys.
 Host *
   IdentityAgent ${FENCE_SSH_AUTH_SOCK}
   IdentitiesOnly yes
   BatchMode yes
-  StrictHostKeyChecking yes
-  UserKnownHostsFile ${FENCE_SSH_KNOWN_HOSTS}
+  StrictHostKeyChecking accept-new
+  GlobalKnownHostsFile ${FENCE_SSH_KNOWN_HOSTS}
   ConnectTimeout 10
   ServerAliveInterval 15
   ServerAliveCountMax 3
@@ -83,11 +86,23 @@ export function hasSshAgent(): boolean {
 }
 
 /** Writes the client options and the known hosts the kernel vouches for. Both are bound read-only. */
-export function writeSshFiles(dir: string, knownHosts: string): FenceSsh {
+export function writeSshFiles(dir: string, knownHosts: string, home?: string): FenceSsh {
   mkdirSync(dir, { recursive: true });
   const config = join(dir, "ssh_config");
   const hosts = join(dir, "known_hosts");
-  writeFileSync(config, CLIENT_CONFIG, { mode: 0o644 });
+  // The workspace's own known_hosts, where first-met hosts are remembered: made here, 0700, because ssh
+  // creates the file but not the directory when the path is spelled out.
+  let own = "";
+  if (home) {
+    const sshDir = join(home, ".ssh");
+    try {
+      mkdirSync(sshDir, { recursive: true, mode: 0o700 });
+      own = `  UserKnownHostsFile ${join(sshDir, "known_hosts")}\n`;
+    } catch {
+      /* a home that cannot take the directory: the global file alone, and first-met hosts are not kept */
+    }
+  }
+  writeFileSync(config, CLIENT_CONFIG + own, { mode: 0o644 });
   writeFileSync(hosts, knownHosts.endsWith("\n") || !knownHosts ? knownHosts : `${knownHosts}\n`, { mode: 0o644 });
   return { sock: join(dir, "agent.sock"), config, knownHosts: hosts };
 }

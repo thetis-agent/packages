@@ -173,7 +173,7 @@ export class ProcessFence implements Fence {
   private openSsh(us: Userspace): SshAgent | undefined {
     const grants = us.ssh ?? [];
     if (!grants.length) return undefined;
-    const files = writeSshFiles(join(this.opts.sshDir, us.id), knownHostsOf(grants));
+    const files = writeSshFiles(join(this.opts.sshDir, us.id), knownHostsOf(grants), us.home);
     return startSshAgent(files, grants.map((g) => g.key), this.log);
   }
 

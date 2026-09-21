@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Userspace } from "@thetis/contracts";
@@ -53,7 +53,12 @@ test("the client options make ssh fail rather than hang, and keep host checking 
   assert.match(config, /BatchMode yes/);
   assert.match(config, /IdentitiesOnly yes/);
   // `no` would turn a missing known-hosts entry into silent acceptance of any key: a downgrade, not a fix.
-  assert.match(config, /StrictHostKeyChecking yes/);
+  assert.match(config, /StrictHostKeyChecking accept-new/);
+  assert.match(config, /GlobalKnownHostsFile \/etc\/ssh\/ssh_known_hosts/);
+  assert.doesNotMatch(config, /UserKnownHostsFile/, "without a home there is no user file to remember hosts in");
+  const homed = readFileSync(writeSshFiles(join(dir, "homed"), "", join(dir, "home")).config, "utf8");
+  assert.ok(homed.includes(`UserKnownHostsFile ${join(dir, "home", ".ssh", "known_hosts")}`), "with a home, first-met hosts are remembered under it");
+  assert.equal((statSync(join(dir, "home", ".ssh")).mode & 0o777), 0o700, "the workspace's .ssh is made for ssh, private");
   assert.match(config, new RegExp(`IdentityAgent ${FENCE_SSH_AUTH_SOCK}`));
   assert.equal(readFileSync(files.knownHosts, "utf8"), "github.com ssh-ed25519 AAAAC3Nz\n");
 });

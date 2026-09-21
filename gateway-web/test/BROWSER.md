@@ -280,24 +280,32 @@ pid on `.devhome3/thetis.sock` (`ss -lxp`). Run 2026-09-15: every step below pas
     `.devhome3/mounts.json` holding it, and the daemon log showing bob's fence restarted. **Unbind** opens
     "Unbind this directory?"; the warn button sends the list without it: `0 mounts` and `{}` on disk.
 24a. **SSH keys**: the nav item after Mounts. Expect `.ua-ssh` with the toolbar heading "SSH keys · n keys
-    for <person>", a `select[aria-label=Person]` listing each person with `(me)` on the signed-in admin and
-    their key count, and, when the picked person is you, a **Test github.com** button; requests `users`
-    and `ssh-list`. With no key, the `.table-empty` "…has no ssh key. Generate one below, or upload one."
-    and the two `.ua-add` cards **Generate a key** and **Upload a key** in `.ua-ssh-forms`. In **Generate a
-    key** type `github.com`, click **Scan**: one `ssh-scan {host: "github.com"}` and `.ua-scan-found` with n
-    `code.ua-hostline`s (or the refusal in `.ua-refused` when the fence has no egress). Click **Generate a
-    key**: a `.popover` "Make a key for this person?"; **Generate** sends `ssh-keygen {user, hosts}` (for
-    your own workspace the answer may be lost and the page settles by polling `ssh-list`), then the table
-    has one row (`code` `id_ed25519`, `.ua-fp` fingerprint, badge `present`, the hosts listing `github.com`)
-    and `.ua-pubkey-card` shows `textarea.ua-pubkey` starting `ssh-ed25519` with **Copy**. **Show public
-    key** toggles that card. **Add host** opens `.ua-addhost` under the table; Scan then **Add** → "Vouch
-    for these hosts?" → one `ssh-set` with the lines appended. **Upload a key**: name `deploy`, paste a key
-    (`ssh-keygen -t ed25519 -f /tmp/k -N ""` gives one), Scan, **Upload the key** → "Upload this key?" → one
-    `ssh-import {user, name, privateKey, hosts}`, the textarea empties, a second row appears. **Revoke** on
-    a row → "Revoke this key?" → `ssh-set` without it, the row is gone. **Test github.com** → one
-    `ssh-test {host: "github.com"}` and a toast: with the key registered at GitHub "let this workspace in:
-    Hi <name>! …", else "refused the key: it is not registered there yet". A malformed paste is refused in
-    the page before any request. Switch the picker to another person: their rows, no Test button.
+    for <person>", `select[aria-label=Person]` listing each person with `(me)` on the signed-in admin and
+    their key count, and the buttons **New key** (`.is-primary`) and **Import key**; requests `users` and
+    `ssh-list`. With no key, `.ua-empty` "…has no key. New key makes one for it; Import key takes one
+    that already exists." and, for yourself, the **Try a connection** card. Click **New key**: `.ua-form`
+    "New key for <person>" with the `.ua-hosts` editor (a host box, **Scan**, chips; "none yet") and the
+    buttons **Make the key** and **Cancel**; hosts are optional. Type `github.com`, **Scan**: one `ssh-scan
+    {host: "github.com"}`, the note "3 keys for github.com" and a `.ua-chip` `github.com` with a `×`.
+    **Make the key** → `.popover` "Make a key for <person>?" → `ssh-keygen {user, hosts}` (for your own
+    workspace the answer may be lost and the page settles by polling `ssh-list`); the form closes and a
+    `.ua-key.is-fresh` card appears: `code.ua-key-name` `id_ed25519`, `.ua-fp` `SHA256:…`, badge `new`,
+    the Public key row with `input.ua-pubkey` starting `ssh-ed25519` and **Copy**, the Known hosts row
+    with the `github.com` chip and **Add host**, the File row. Without any host the card carries the warn
+    badge "no known hosts…" only as information: a first connection is accepted and remembered. **Add
+    host** opens the dashed `.ua-addhost` editor under the chips; Scan, **Add these hosts** → "Vouch for
+    these hosts?" → one `ssh-set` with the lines appended, the chip appears; a chip's `×` → "Stop vouching
+    for …?" → `ssh-set` without those lines. **Import key**: `.ua-form` with Name, the Private key
+    textarea and the hosts editor; name `deploy`, paste a key (`ssh-keygen -t ed25519 -f /tmp/k -N ""`
+    gives one), **Import the key** → "Import a key for <person>?" → one `ssh-import {user, name,
+    privateKey, hosts}`, a second card. A malformed paste is refused in the page before any request; a
+    key with a passphrase is refused by the kernel with its sentence. **Revoke** on a card → "Revoke this
+    key?" → `ssh-set` without it; the card is gone, the file stays. **Try a connection** (your own
+    workspace only): type `git@github.com`, **Try** → one `ssh-test {target}` and under it a badge `let
+    in`, `refused` or `failed`, the sentence, and ssh's words in `pre.ua-try-pre`; with no key registered
+    at GitHub the badge is `refused` and the sentence says to register a public key there; a host never
+    vouched for is still reached (accept-new) and its key is remembered in the workspace. Switch the
+    picker to another person: their cards, no Try card.
 25. **Activity**: the fifth nav item. Expect "Reading the journal…" then `n newest rows` and the
     `.ua-activity .table`, newest first, with `.badge`s for the kinds and `dev` in the **Who** column for
     `user.create`, `user.role`, `user.status`, `user.password`, `user.remove` (target `carol`) and two
