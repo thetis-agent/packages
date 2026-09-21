@@ -30,7 +30,7 @@ The library (`dist/src/index.js`) exports the arena, the runner, the scorer, the
 
 ## Configuration
 
-There is no `config.packages["@thetis/bench"]`: the bench is not installed by the kernel, and a run builds its own configuration. With `--model`, the provider forwards each call to OpenRouter and reads `OPENROUTER_API_KEY` from the environment of the process that runs the bench. `--max-cost` (default 1 dollar) governs whether another call is started, not what one costs, so the last call may carry the total a little past the line.
+There is no `config.packages["@thetis/bench"]`: the bench is not installed by the kernel, and a run builds its own configuration. That configuration sets `@thetis/harness-core`'s `turnContext` to `false`: a dated line on the query would move `bytes_messages` with the weekday, and a retriever under measurement must see the task's query exactly as the corpus wrote it. With `--model`, the provider forwards each call to OpenRouter and reads `OPENROUTER_API_KEY` from the environment of the process that runs the bench. `--max-cost` (default 1 dollar) governs whether another call is started, not what one costs, so the last call may carry the total a little past the line.
 
 A package opts in through its own manifest:
 

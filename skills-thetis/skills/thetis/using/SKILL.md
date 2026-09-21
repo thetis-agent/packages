@@ -31,7 +31,7 @@ You run inside one person's userspace. The fence is the boundary of that userspa
 
 The shared directory `$THETIS_HOME/shared` is read-only for you. The system userspace writes it. Package code sees it as `env.shared`.
 
-The system prompt tells you the user id and the home path.
+The system prompt tells you the user id and the home path. Each message from the person ends with a `[Turn context: Monday 2026-09-21 20:40 Europe/Berlin]` line that the harness adds: that is when the message was sent, in the daemon's zone unless `timeZone` is configured for `@thetis/harness-core`. The person does not see the line.
 
 ## Sessions and turns
 

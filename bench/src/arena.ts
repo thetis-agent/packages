@@ -139,6 +139,9 @@ export class Arena {
     const upstreamPackage = opts.upstream?.package ?? "@thetis/provider-openrouter";
     if (opts.upstream) stage(resolve(project, "packages", upstreamPackage.split("/").pop() as string));
     config.packages = {
+      // No turn context line: a weekday in the query would move bytes_messages between runs, and a retriever under
+      // measurement must see the task's query exactly as the corpus wrote it.
+      "@thetis/harness-core": { turnContext: false },
       ...opts.packageConfig,
       [PROVIDER_PACKAGE]: {
         capture,

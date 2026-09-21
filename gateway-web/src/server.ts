@@ -8,7 +8,7 @@ import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { KernelClient, Message, ModelChoices, SessionRecord, SessionSummaryRef, StepEnv, UserRole } from "@thetis/contracts";
+import { withoutTurnContext, type KernelClient, type Message, type ModelChoices, type SessionRecord, type SessionSummaryRef, type StepEnv, type UserRole } from "@thetis/contracts";
 import { HttpError, json, readJson } from "./http.js";
 import { handlePanel } from "./panel.js";
 import { serveFile } from "./static.js";
@@ -266,7 +266,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       turns: rec.turns,
       status: rec.status,
       label,
-      task: rec.conversation.find((m) => m.role === "user")?.content ?? turn?.input ?? "",
+      task: withoutTurnContext(rec.conversation.find((m) => m.role === "user")?.content ?? turn?.input ?? ""),
       conversation: rec.conversation,
       usage: store.usage(user, id),
       ...(cost !== undefined ? { cost } : {}),

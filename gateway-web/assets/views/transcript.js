@@ -26,6 +26,9 @@ import { renderTranscript } from "../lib/registry.js";
 import { store } from "../lib/store.js";
 import { toast } from "../lib/toast.js";
 
+/** The per-turn line @thetis/harness-core appends to the person's message; the same pattern the harness exports. */
+const TURN_CONTEXT = /\n\n\[Turn context: [^\n\]]*\]$/;
+
 const RESULT_PREVIEW = 4000;
 const RUN_FOLD = 4; // a restored run of more tool calls than this starts folded
 const DOWN = ["M5 8l5 5 5-5"];
@@ -197,7 +200,8 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     answered = [];
     for (const fn of hooks) fn();
     if (nested) return null; // the block's brief is the child's user row
-    const node = row("user", el("div", { class: "msg-text" }, text));
+    // The harness ends each input with a [Turn context: ...] line for the model; the person did not type it.
+    const node = row("user", el("div", { class: "msg-text" }, String(text ?? "").replace(TURN_CONTEXT, "")));
     if (brief) node.classList.add("is-brief");
     return node;
   }

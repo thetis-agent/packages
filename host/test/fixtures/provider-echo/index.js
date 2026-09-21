@@ -6,7 +6,8 @@ export function createProvider(config) {
       const last = call.messages[call.messages.length - 1];
       if (last?.role === "tool" && /FAIL_NEXT/.test(last.content)) { yield { type: "error", message: "the provider gave up" }; return; }
       if (last?.role === "tool") { yield { type: "text", delta: `tool said: ${last.content}` }; return; }
-      const text = last?.content ?? "";
+      // The harness ends each input with a [Turn context: ...] line; the triggers below are the words before it.
+      const text = (last?.content ?? "").replace(/\n\n\[Turn context: [^\n\]]*\]$/, "");
       if (text.startsWith("run: ") && call.tools.some((t) => t.name === "shell")) {
         yield { type: "tool_call", call: { id: "c1", name: "shell", args: { cmd: text.slice(5) } } };
         return;

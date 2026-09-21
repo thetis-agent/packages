@@ -369,7 +369,8 @@ test("a subagent's turn is on the parent's stream, tagged with its parent, and t
   assert.equal(rec.status, "idle");
   assert.equal(rec.turn, null);
   assert.equal(rec.turns, 1);
-  assert.deepEqual(rec.conversation.map((m) => [m.role, m.content]), [["user", "hello"], ["assistant", "echo: hello (t1)"]]);
+  assert.deepEqual(rec.conversation.map((m) => [m.role, m.content.replace(/\n\n\[Turn context: [^\n\]]*\]$/, "")]), [["user", "hello"], ["assistant", "echo: hello (t1)"]]);
+  assert.match(rec.conversation[0].content, /\n\n\[Turn context: \w+ \d{4}-\d{2}-\d{2} \d{2}:\d{2} [\w/]+\]$/, "the harness dated the input and the record keeps the line");
   assert.deepEqual(rec.usage, {});
   const list = (await (await api(cookie, "/alice/api/sessions")).json()) as { id: string }[];
   assert.ok(list.some((s) => s.id === id) && !list.some((s) => s.id === childId), "the list still holds root conversations only");

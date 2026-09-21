@@ -16,6 +16,16 @@ export interface Message {
   name?: string;
 }
 
+/**
+ * The line the default harness appends to a message from the person, so the model knows when it was sent:
+ * `[Turn context: Monday 2026-09-21 20:40 Europe/Berlin]`, after a blank line, at the very end. Anything that shows
+ * the person their own words, or matches on them, takes it off with `withoutTurnContext`.
+ */
+export const TURN_CONTEXT = /\n\n\[Turn context: [^\n\]]*\]$/;
+
+/** The message text without the turn context line, if it ends with one. */
+export const withoutTurnContext = (text: string): string => text.replace(TURN_CONTEXT, "");
+
 export type JsonSchema = Record<string, unknown>;
 
 export interface ToolSpec {

@@ -12,7 +12,7 @@ Suites: [`assembly-cost@1`](#suite-assembly-cost-v1), [`tool-recall@1`](#suite-t
 What a package costs the prompt before anything is retrieved: bytes by segment, how much of the prefix survives a turn, and how long assembly takes. No gold, no corpus, no adapter — any package with a step or a tool can opt in.
 
 7 tasks (2 of them controls), probe A.
-Generated 2026-09-21T18:24:03.816Z. Digest `sha256:d06d8080dc33…`.
+Generated 2026-09-21T18:39:22.597Z. Digest `sha256:d06d8080dc33…`.
 
 ### Compared
 
@@ -20,13 +20,13 @@ Only numbers every arm can produce appear here, and only those on which the arms
 
 | arm | bytes_system | bytes_tools | bytes_turn1 | bytes_last | tools_n | steps_n |
 |---|---|---|---|---|---|---|
-| none | 2131 ±0 | 2 ±0 | 2236.7 ±21 | 2385.4 ±42.3 | 0 ±0 | 10 ±0 |
-| **thetis-tools-files** | 2159 ±0 | 5644 ±0 | 7906.7 ±21.3 | 8055.4 ±41.6 | 6 ±0 | 10 ±0 |
-| thetis-exa | 2143 ±0 | 10322 ±0 | 12568.7 ±22 | 12717.4 ±42.9 | 10 ±0 | 10 ±0 |
-| thetis-terminal | 2153 ±0 | 3523 ±0 | 5779.7 ±21.4 | 5928.4 ±43.4 | 5 ±0 | 10 ±0 |
-| thetis-tool-exec | 2155 ±0 | 4092 ±0 | 6350.7 ±21.4 | 6499.4 ±41.4 | 8 ±0 | 10 ±0 |
-| thetis-tools-plan | 2157 ±0 | 4460 ±0 | 6720.7 ±20.1 | 6869.4 ±41.6 | 6 ±0 | 10 ±0 |
-| all | 2129 ±0 | 29073 ±0 | 31305.7 ±21.6 | 31454.4 ±41.7 | 37 ±0 | 28 ±0 |
+| none | 2131 ±0 | 2 ±0 | 2236.7 ±21 | 2385.4 ±42.3 | 0 ±0 | 12 ±0 |
+| **thetis-tools-files** | 2159 ±0 | 5644 ±0 | 7906.7 ±21.3 | 8055.4 ±41.6 | 6 ±0 | 12 ±0 |
+| thetis-exa | 2143 ±0 | 10322 ±0 | 12568.7 ±22 | 12717.4 ±42.9 | 10 ±0 | 12 ±0 |
+| thetis-terminal | 2153 ±0 | 3523 ±0 | 5779.7 ±21.4 | 5928.4 ±43.4 | 5 ±0 | 12 ±0 |
+| thetis-tool-exec | 2155 ±0 | 4092 ±0 | 6350.7 ±21.4 | 6499.4 ±41.4 | 8 ±0 | 12 ±0 |
+| thetis-tools-plan | 2157 ±0 | 4460 ±0 | 6720.7 ±20.1 | 6869.4 ±41.6 | 6 ±0 | 12 ±0 |
+| all | 2129 ±0 | 29073 ±0 | 31305.7 ±21.6 | 31454.4 ±41.7 | 37 ±0 | 30 ±0 |
 
 ![assembly-cost@1 comparison](bench/assembly-cost-v1/chart.svg)
 
@@ -49,13 +49,13 @@ Absolute milliseconds are not committed: the fence opens lazily, the sandbox mod
 
 | arm | steps | assembly vs floor |
 |---|---|---|
-| none | 10 | floor |
-| thetis-tools-files | 10 | not measured at 7 tasks |
-| thetis-exa | 10 | not measured at 7 tasks |
-| thetis-terminal | 10 | not measured at 7 tasks |
-| thetis-tool-exec | 10 | not measured at 7 tasks |
-| thetis-tools-plan | 10 | not measured at 7 tasks |
-| all | 28 | not measured at 7 tasks |
+| none | 12 | floor |
+| thetis-tools-files | 12 | not measured at 7 tasks |
+| thetis-exa | 12 | not measured at 7 tasks |
+| thetis-terminal | 12 | not measured at 7 tasks |
+| thetis-tool-exec | 12 | not measured at 7 tasks |
+| thetis-tools-plan | 12 | not measured at 7 tasks |
+| all | 30 | not measured at 7 tasks |
 
 ### Conformance
 

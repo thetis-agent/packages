@@ -4,10 +4,11 @@ The default harness. It builds the system prompt that tells the model where it i
 
 ## What it provides
 
-Three pipeline steps, one per phase, declared in `thetis.steps`:
+Four pipeline steps, declared in `thetis.steps`:
 
 | Step id | Phase | Export | What it does |
 |---|---|---|---|
+| `turn-context` | `history` | `turnContext` | Ends the turn's input message with `[Turn context: Monday 2026-09-21 20:40 Europe/Berlin]`, once. The line is saved with the conversation, so a later turn re-sends the message byte for byte and the prefix stays cached; the system prompt carries no clock. The web transcript hides the line; `skill_search` and the loader's ranking strip it from the query. |
 | `system-prompt` | `prompt` | `systemPrompt` | Appends to `call.system`: the guide (the user and the home, what is reachable, the tool policy, the working style, one sentence on skills, two on packages; one extra line when the session has a parent), the content of `home/THETIS.md` when it exists, and `harness.notes` when it is a string. The installed packages and the session id are not written into the prompt. |
 | `attach-tools` | `tools` | `attachTools` | Adds every tool declared by every installed package to `call.tools`. The first package with a given tool name wins. A tool with no `parameters` gets `{ type: "object", properties: {} }`. |
 | `record-call` | `after` | `recordCall` | Writes `{ model, system, systemChars, tools, messages, at }` to `harness["@thetis/harness-core"].lastCall`, keeps the other fields under that key, and returns only `harness`. |
@@ -20,7 +21,14 @@ Steps declared with phase `bench` never run on an ordinary turn; `list_packages`
 
 ## Configuration
 
-`config.packages["@thetis/harness-core"]` has no keys. The package reads no environment variables.
+`config.packages["@thetis/harness-core"]`:
+
+| Key | Default | Effect |
+|---|---|---|
+| `turnContext` | `true` | Append the turn context line. `false` appends nothing. |
+| `timeZone` | the daemon's zone | The IANA zone the line is written in, for example `Europe/Berlin`. An unknown zone falls back to `UTC`. |
+
+The package reads no environment variables.
 
 Two things under the person's control shape the prompt:
 
@@ -51,9 +59,9 @@ export async function remember(ctx) {
 
 | File | Content |
 |---|---|
-| `package.json` | The manifest: three steps. |
-| `src/index.ts` | `systemPrompt`, `attachTools`, `recordCall`, the guide text, the `LastCall` type. |
-| `test/harness.test.ts` | The three steps over a fake context. |
+| `package.json` | The manifest: four steps and two configuration keys. |
+| `src/index.ts` | `turnContext`, `systemPrompt`, `attachTools`, `recordCall`, the guide text, the `LastCall` type. |
+| `test/harness.test.ts` | The four steps over a fake context. |
 
 ## Tests
 

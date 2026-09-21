@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { PackageInfo, PackageStepContext } from "@thetis/contracts";
-import { attachTools, recordCall, systemPrompt, type LastCall } from "../src/index.js";
+import { attachTools, recordCall, systemPrompt, turnContext, turnContextLine, TURN_CONTEXT, type LastCall } from "../src/index.js";
 
 const greet = {
   name: "@thetis/greet",
@@ -106,4 +106,21 @@ test("systemPrompt adds one line for a subagent and nothing else changes", async
   const line = "\n- You are a subagent. Your final reply goes to the agent that spawned you, not to a person: make it complete, with paths, quoted output, and what you could not find.";
   assert.ok(child.call!.system!.includes(line));
   assert.equal(child.call!.system!.replace(line, ""), parent.call!.system, "apart from that line the two prompts are byte-identical");
+});
+
+test("turnContext ends the turn's input with a dated line, once, and leaves the rest of the conversation alone", async () => {
+  const ctx = ctxWith({ config: { timeZone: "Europe/Berlin" } });
+  const once = await turnContext(ctx);
+  assert.deepEqual(Object.keys(once!), ["conversation"]);
+  const [first, reply] = once!.conversation!;
+  assert.match(first.content, /^hi\n\n\[Turn context: [A-Z][a-z]+day \d{4}-\d{2}-\d{2} \d{2}:\d{2} Europe\/Berlin\]$/);
+  assert.deepEqual(reply, ctx.conversation[1], "the messages after the input are untouched");
+  assert.equal(await turnContext({ ...ctx, conversation: once!.conversation! }), undefined, "an input that already carries the line is left alone");
+  assert.equal(await turnContext({ ...ctx, config: { turnContext: false } }), undefined, "switched off, the step returns nothing");
+  assert.ok(TURN_CONTEXT.test(first.content));
+});
+
+test("turnContextLine writes the weekday, the date, the time and the zone, and a bad zone falls back to UTC", () => {
+  assert.equal(turnContextLine(new Date("2026-09-21T18:40:00Z"), "Europe/Berlin"), "[Turn context: Monday 2026-09-21 20:40 Europe/Berlin]");
+  assert.equal(turnContextLine(new Date("2026-09-21T00:05:00Z"), "UTC"), "[Turn context: Monday 2026-09-21 00:05 UTC]");
 });

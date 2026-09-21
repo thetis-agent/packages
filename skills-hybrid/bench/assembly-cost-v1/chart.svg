@@ -99,18 +99,18 @@
 <text class="t" x="16" y="616" font-size="12" font-weight="600">steps_n</text>
 <line x1="192" y1="620" x2="566" y2="620" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="636" font-size="11" text-anchor="end">none</text>
-<rect x="192" y="627" width="133.57" height="10" rx="2" fill="url(#hatch)"/>
-<text class="t" x="331.57" y="636" font-size="11">10<tspan class="f" font-size="9"> ±0</tspan></text>
+<rect x="192" y="627" width="149.6" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="347.6" y="636" font-size="11">12<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="652" font-size="11" text-anchor="end" font-weight="600">thetis-skills-hybrid</text>
-<rect x="192" y="643" width="213.71" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="411.71" y="652" font-size="11">16<tspan class="f" font-size="9"> ±0</tspan></text>
+<rect x="192" y="643" width="224.4" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="422.4" y="652" font-size="11">18<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="668" font-size="11" text-anchor="end">thetis-skills-all</text>
-<rect x="192" y="659" width="213.71" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="411.71" y="668" font-size="11">16<tspan class="f" font-size="9"> ±0</tspan></text>
+<rect x="192" y="659" width="224.4" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="422.4" y="668" font-size="11">18<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="684" font-size="11" text-anchor="end">thetis-skills-l1</text>
-<rect x="192" y="675" width="213.71" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="411.71" y="684" font-size="11">16<tspan class="f" font-size="9"> ±0</tspan></text>
+<rect x="192" y="675" width="224.4" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="422.4" y="684" font-size="11">18<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="700" font-size="11" text-anchor="end">all</text>
 <rect x="192" y="691" width="374" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="572" y="700" font-size="11">28<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="572" y="700" font-size="11">30<tspan class="f" font-size="9"> ±0</tspan></text>
 </svg>

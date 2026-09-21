@@ -125,6 +125,7 @@ A cancelled turn ends with an `error` event of code `cancelled`. Streamed text s
 
 | Package | Step | Phase | Effect |
 |---|---|---|---|
+| `@thetis/harness-core` | `turnContext` | `history` | Ends the input message with `[Turn context: <weekday> <date> <time> <zone>]`. |
 | `@thetis/harness-core` | `systemPrompt` | `prompt` | Appends the guide (where you are, tool policy, working style), `home/THETIS.md`, and `harness.notes` to `call.system`. The installed packages are not in it: `list_packages` is. |
 | `@thetis/harness-core` | `attachTools` | `tools` | Adds every declared tool of every package to `call.tools`. The first package with a name wins. |
 | `@thetis/prompt-cache` | `cacheHints` | `call` | Sets `call.hints.cache` and records prefix fingerprints in `harness`. |
@@ -137,7 +138,7 @@ The provider caches the unchanged prefix of a request. The prefix is `tools -> s
 
 Keep the prefix byte-stable:
 
-- Keep `call.system` frozen inside a session. Do not put the time, a random id, or a per-turn value into it. Put per-turn context at the end of `call.messages`.
+- Keep `call.system` frozen inside a session. Do not put the time, a random id, or a per-turn value into it. Per-turn context goes on the turn's input message, which is new anyway: `@thetis/harness-core` ends it with a `[Turn context: ...]` line in the `history` phase, and the line is saved so the message is re-sent unchanged.
 - Do not change the tool list or the model in the middle of a conversation. Both invalidate the whole prefix.
 - Append to the conversation. Do not edit or delete a message in the middle. A `history` step that must cut must cut at a stable point and keep the cut for many turns.
 - Serialize deterministically. Do not build tool schemas from unordered sets.

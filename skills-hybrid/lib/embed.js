@@ -30,7 +30,9 @@ export const hashOfKey = (key) => key.slice(key.lastIndexOf("|") + 1);
 export const indexTextOf = (skill) => [skill.name ?? "", skill.description ?? "", (skill.tags ?? []).join(" ")].filter(Boolean).join("\n");
 
 /** The query as it is ranked and hashed: the text clipped to `QUERY_CLIP` characters. */
-export const queryTextOf = (text) => String(text ?? "").slice(0, QUERY_CLIP);
+/** The harness ends an input with a [Turn context: ...] line; it is not part of what the person asked. */
+const TURN_CONTEXT = /\n\n\[Turn context: [^\n\]]*\]$/;
+export const queryTextOf = (text) => String(text ?? "").replace(TURN_CONTEXT, "").slice(0, QUERY_CLIP);
 export const queryHashOf = (text) => createHash("sha256").update(queryTextOf(text)).digest("hex");
 
 export const round6 = (vector) => vector.map((x) => Math.round(Number(x) * 1e6) / 1e6);

@@ -2,7 +2,7 @@
   "name": "@thetis/harness-core",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "The default harness: the system prompt that teaches self-extension, and every installed tool attached to the call.",
+  "description": "The default harness: the system prompt, the turn context line, and every installed tool attached to the call.",
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": {
@@ -17,7 +17,16 @@
   },
   "thetis": {
     "type": "loader",
+    "config": {
+      "turnContext": { "type": "boolean", "default": true, "help": "Append a [Turn context: <weekday> <date> <time> <zone>] line to each message from the person, so the model knows when it is." },
+      "timeZone": { "type": "string", "help": "The IANA zone of the turn context line, for example Europe/Berlin. Unset means the zone of the daemon." }
+    },
     "steps": [
+      {
+        "id": "turn-context",
+        "phase": "history",
+        "export": "turnContext"
+      },
       {
         "id": "system-prompt",
         "phase": "prompt",
