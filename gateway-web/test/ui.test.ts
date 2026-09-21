@@ -83,6 +83,15 @@ test("composeUi: a package without ui is skipped; bad declarations are refused b
   assert.equal(refused.length, 8);
 });
 
+test("a panel entry may hang under a section; under is refused on any other slot", () => {
+  const hung = pkg("@t/hung", { panel: [{ id: "settings", label: "Settings", under: "packages" }] });
+  const out = composeUi([hung], "admin", "/nowhere");
+  assert.equal(out.refused.length, 0);
+  assert.deepEqual(out.extensions[0].panel, [{ id: "settings", label: "Settings", under: "packages", order: 100 }]);
+  const wrong = pkg("@t/wrong", { dock: [{ id: "d", under: "packages" }] });
+  assert.match(composeUi([wrong], "admin", "/nowhere").refused[0]?.message ?? "", /under is for panel entries only/);
+});
+
 test("composeUi: the first package to claim a shared slot id keeps it; panel ids are not deduped; roles filter", () => {
   const first = pkg("@t/first", { dock: [{ id: "todo" }], panel: [{ id: "people", role: "admin" }, { id: "packages" }], commands: [{ verb: "list", export: "a" }, { verb: "remove", export: "b", role: "admin" }] });
   const second = pkg("@t/second", { dock: [{ id: "todo" }], panel: [{ id: "people" }] });

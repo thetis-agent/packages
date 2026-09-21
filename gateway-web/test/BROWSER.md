@@ -200,8 +200,17 @@ pid on `.devhome3/thetis.sock` (`ss -lxp`). Run 2026-09-15: every step below pas
 
 21. **The nav, as dev**: sign in at `http://127.0.0.1:8803/login`, open `#menu` and click `.menu-item[data-place]`.
     Expect `.panel-nav-item`s in this order: Packages (`.is-active`), People, Models, Mounts, Activity,
-    Overview; `head` holding a `link[href$="ext/@thetis/ui-admin/index.css"]`; no console errors. `api/ui`
-    for dev lists the five `panel` entries (orders 20, 30, 35, 40, 50), eleven `commands`, and `hidden: []`.
+    Overview; no top-level item named Configuration. Under Packages a `.panel-nav-children[role=group]`
+    holds one `.panel-nav-item.is-child` per package with configuration keys, in mono, named by the
+    package (`@thetis/config-probe` among them), with a `.panel-nav-mark.is-err` on a broken one; a package
+    with no keys is absent. `head` holds a `link[href$="ext/@thetis/ui-admin/index.css"]`; no console
+    errors. `api/ui` for dev lists the `panel` entries with `configuration` carrying `under: "packages"`.
+21a. **A package's settings**: click a child under Packages. Expect `.panel-note` "What this package is
+    configured with, and what is missing.", the toolbar heading with the package name, the layer select,
+    **Reload the file**, one `.cf-card[data-package]` for that package only, and the `.panel-hint`. Set a
+    key and **Save**: one `config-set`, the card redrawn, and the nav's mark for that package following the
+    kernel's summary. Switch the layer select to a person: one `config-show` with `user`, and a `scope:
+    "system"` key read-only. Clicking Packages again shows the table and re-reads the children.
 22. **People**: click the second nav item. Expect `.panel-note` "Who can sign in, and what they may do.",
     a `.ua-people .table` with one row per person (`dev (me)`, `bob`), and the `.ua-add` card. Type `carol`
     and `carolpass1`, click **Add person**: one `POST api/ext/@thetis/ui-admin/user-create`, the row

@@ -112,11 +112,14 @@ function entry(raw: unknown, slot: Slot): UiEntryDecl {
   const icon = text(raw.icon, `${what} icon`, 4096);
   const hint = text(raw.hint, `${what} hint`, 200);
   const note = text(raw.note, `${what} note`, 200);
+  const under = text(raw.under, `${what} under`, 120);
+  if (under !== undefined && slot !== "panel") fail(`${what} under is for panel entries only`);
   const need = role(raw.role, what);
   if (label !== undefined) out.label = label;
   if (icon !== undefined) out.icon = icon;
   if (hint !== undefined) out.hint = hint;
   if (note !== undefined) out.note = note;
+  if (under !== undefined) out.under = under;
   if (raw.wide !== undefined) out.wide = raw.wide;
   if (need !== undefined) out.role = need;
   return out;

@@ -1423,10 +1423,17 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 /* ---- the control panel, inside its place ---- */
 .panel-shell { display: flex; flex: 1; min-height: 0; }
 .panel-note { margin: 0 0 var(--gap-3); color: var(--text-dim); font-size: var(--text-sm); }
-.panel-nav { display: flex; flex-direction: column; gap: 2px; width: 180px; flex: none; padding: var(--gap-3); border-right: 1px solid var(--hairline); }
-.panel-nav-item { appearance: none; border: 1px solid transparent; background: none; text-align: left; padding: 8px 10px; border-radius: var(--r-md); color: var(--text-dim); font: inherit; cursor: pointer; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
+.panel-nav { display: flex; flex-direction: column; gap: 2px; width: 220px; flex: none; padding: var(--gap-3); border-right: 1px solid var(--hairline); overflow-y: auto; }
+.panel-nav-item { appearance: none; display: flex; align-items: center; gap: 6px; min-width: 0; border: 1px solid transparent; background: none; text-align: left; padding: 8px 10px; border-radius: var(--r-md); color: var(--text-dim); font: inherit; cursor: pointer; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
 .panel-nav-item:hover { color: var(--text); background: var(--surface-2); }
 .panel-nav-item.is-active { color: var(--text); background: var(--accent-wash); border-color: var(--accent-edge); }
+.panel-nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The pages hung under a section: indented behind a rail, in mono because they are package names. */
+.panel-nav-children { display: flex; flex-direction: column; gap: 1px; margin: 0 0 4px 12px; padding-left: 8px; border-left: 1px solid var(--hairline); }
+.panel-nav-item.is-child { padding: 5px 8px; font-family: var(--mono); font-size: var(--text-xs); }
+.panel-nav-mark { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--text-faint); }
+.panel-nav-mark.is-err { background: var(--err); }
+.panel-nav-mark.is-warn { background: var(--warn); }
 .panel-main { flex: 1; min-width: 0; overflow: auto; padding: var(--gap-4) var(--gap-5); }
 .panel-cols { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: var(--gap-5); align-items: start; }
 .panel-col { min-width: 0; display: flex; flex-direction: column; gap: var(--gap-3); position: relative; }
@@ -1525,6 +1532,7 @@ select.input { padding-right: 24px; }
   .dock { --dock-w: 100vw; }
   .panel-shell { flex-direction: column; }
   .panel-nav { flex-direction: row; flex-wrap: wrap; width: auto; border-right: 0; border-bottom: 1px solid var(--hairline); }
+  .panel-nav-children { flex-direction: row; flex-wrap: wrap; margin: 0; padding: 0; border-left: 0; }
   .panel-main { padding: var(--gap-3); }
   .input[type="search"] { width: 100%; }
 }

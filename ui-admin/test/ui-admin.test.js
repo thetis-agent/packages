@@ -3,6 +3,7 @@
 // they parse, and the entry does nothing at import beyond defining `install`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -263,10 +264,29 @@ test("the browser modules parse, and the entry defines install and nothing else"
   assert.equal(mod.default.name, "install");
 });
 
-test("install registers exactly the seven declared sections, each mounting through the seam", async () => {
+test("install registers exactly the seven declared entries, each mounting through the seam; configuration also answers children", async () => {
   const { default: install } = await import("../ui/index.js");
   const panels = {};
   install({ panel: (id, impl) => (panels[id] = impl) });
   assert.deepEqual(Object.keys(panels), ["people", "models", "configuration", "mounts", "activity", "workspaces", "overview"]);
   for (const impl of Object.values(panels)) assert.equal(typeof impl.mount, "function");
+  assert.equal(typeof panels.configuration.children, "function");
+  for (const [id, impl] of Object.entries(panels)) if (id !== "configuration") assert.equal(impl.children, undefined);
+});
+
+test("configurationChildren lists the packages with keys, marks the broken ones, and hangs under packages in the manifest", async () => {
+  const { configurationChildren } = await import("../ui/configuration.js");
+  const reports = [
+    { package: "@thetis/exa", summary: "apiKey is required and not set", broken: true, keys: [{ key: "apiKey" }] },
+    { package: "@thetis/tools-files", summary: "every key is set", broken: false, keys: [] },
+    { package: "@bitmuse/moo", summary: "every key is set", broken: false, keys: [{ key: "base_url" }, { key: "username" }] },
+  ];
+  const kids = await configurationChildren({ request: async (verb) => (verb === "config-list" ? { data: reports } : { data: null }) });
+  assert.deepEqual(kids, [
+    { id: "@thetis/exa", label: "@thetis/exa", note: "apiKey is required and not set", mark: "err" },
+    { id: "@bitmuse/moo", label: "@bitmuse/moo", note: "every key is set", mark: null },
+  ]);
+  const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  const entry = manifest.thetis.ui.panel.find((e) => e.id === "configuration");
+  assert.equal(entry.under, "packages");
 });

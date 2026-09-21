@@ -41,6 +41,12 @@ export interface UiEntryDecl {
   wide?: boolean;
   /** Panel only: the sentence under the section title. */
   note?: string;
+  /**
+   * Panel only: the id of the section (a built-in one such as `packages`, or `<package>#<id>`) this entry
+   * hangs pages under, instead of being a nav item itself. Its module answers `children()`; a click on a
+   * child mounts the entry with `child` naming it.
+   */
+  under?: string;
   /** The least role that may see it. Default: any signed-in person. */
   role?: UserRole;
   /** Sort key among every package's entries of the same slot. Default 100. Ties keep install order. */
