@@ -115,15 +115,17 @@ export class TurnHub {
   /**
    * A turn event the watch reported. A turn of this hub's own is ignored: `send` delivers it. Any other
    * turn opens on `turn.start`, is carried like one of ours, and ends through the same bookkeeping, so a
-   * subagent's usage is recorded under its own session. An event of a turn that was never seen to start
-   * is dropped: a turn already running when the hub subscribed cannot be replayed from its middle.
+   * subagent's usage is recorded under its own session. The kernel replays the events so far of every
+   * turn in progress when the watch opens, `turn.start` first with the moment it really started, so a hub
+   * that is new (the gateway restarted with its fence) picks up the turns the old one was carrying, its
+   * own included: they are watched now, not "mine". An event of a turn never seen to start is dropped.
    */
-  private watched(user: string, m: WatchedTurnEvent): void {
+  private watched(user: string, m: WatchedTurnEvent & { startedAt?: string }): void {
     const k = key(user, m.session);
     if (this.mine.has(k)) return;
     let run = this.running.get(k);
     if (m.event.type === "turn.start") {
-      run = { session: m.session, parent: m.parent, turn: m.event.turn, input: m.input ?? "", startedAt: new Date().toISOString(), events: [] };
+      run = { session: m.session, parent: m.parent, turn: m.event.turn, input: m.input ?? "", startedAt: m.startedAt ?? new Date().toISOString(), events: [] };
       this.running.set(k, run);
     }
     if (!run) return;

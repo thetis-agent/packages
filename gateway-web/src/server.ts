@@ -8,7 +8,7 @@ import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { KernelClient, Message, SessionRecord, StepEnv, UserRole } from "@thetis/contracts";
+import type { KernelClient, Message, ModelChoices, SessionRecord, SessionSummaryRef, StepEnv, UserRole } from "@thetis/contracts";
 import { HttpError, json, readJson } from "./http.js";
 import { handlePanel } from "./panel.js";
 import { serveFile } from "./static.js";
@@ -33,6 +33,7 @@ export interface GatewayOptions {
 }
 
 const COOKIE = "thetis_web";
+const MODELS_TTL_MS = 60_000;
 
 export interface SessionSummary {
   id: string;
@@ -80,6 +81,9 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
   const base = (opts.base ?? "").replace(/\/$/, "");
   const storeDir = opts.store ?? opts.env?.store;
   const hub = new TurnHub(kernel, log, recordUsage, opts.user);
+  // The models list is hundreds of rows and a page asks for it once per load; the fence's providers change
+  // rarely, so one answer serves for a minute and carries only what the picker draws.
+  let choices: { at: number; value: Promise<ModelChoices> } | undefined;
 
   const server = createServer((req, res) => {
     handle(req, res).catch((err) => {
@@ -136,7 +140,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     }
     if (seg[1] === "me" && method === "GET") return json(res, 200, { user, role: who!.role });
     if (seg[1] === "events" && method === "GET") return stream(req, res, user);
-    if (seg[1] === "models" && seg.length === 2 && method === "GET") return json(res, 200, await kernel.models());
+    if (seg[1] === "models" && seg.length === 2 && method === "GET") return json(res, 200, await modelChoices());
     if (await handlePanel(kernel, req, res, who!, seg, method, url)) return;
     if (seg[1] === "sessions") {
       if (seg.length === 2 && method === "GET") return json(res, 200, await listSessions(user));
@@ -188,42 +192,58 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     return who && who.id === opts.user ? who : undefined;
   }
 
+  async function modelChoices(): Promise<ModelChoices> {
+    if (!choices || Date.now() - choices.at > MODELS_TTL_MS) {
+      const value = kernel.models().then(
+        (c) => ({ model: c.model, models: c.models.map(({ id, name, provider }) => ({ id, ...(name ? { name } : {}), ...(provider ? { provider } : {}) })) }),
+        (err: unknown) => {
+          choices = undefined; // a refusal is not kept for a minute
+          throw err;
+        },
+      );
+      choices = { at: Date.now(), value };
+    }
+    return choices.value;
+  }
+
+  /** The list is built from the kernel's summaries alone: no record is read, however many conversations there are. */
   async function listSessions(user: string): Promise<SessionSummary[]> {
     const archived = store.archived(user);
     const all = await kernel.sessions.list();
-    const records = await Promise.all(all.filter((s) => !s.parent).map((s) => kernel.sessions.inspect(s.id)));
-    return records.map((rec) => summarize(user, rec, archived, descendants(all, rec.id))).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return all
+      .filter((s) => !s.parent)
+      .map((s) => summarize(user, s, archived, descendants(all, s.id)))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
   /** `below` is the conversation's subagents at any depth: what they cost is part of what the conversation cost. */
-  function summarize(user: string, rec: SessionRecord, archived: Set<string>, below: string[]): SessionSummary {
-    const running = hub.runningOf(user, rec.id);
-    const said = rec.conversation.filter((m) => m.role === "user" || (m.role === "assistant" && m.content.trim()));
-    const first = rec.conversation.find((m) => m.role === "user")?.content ?? running?.input ?? "";
-    const last = said.at(-1)?.content ?? running?.input ?? "";
-    const named = store.title(user, rec.id);
-    const cost = costOf(user, [rec.id, ...below]);
-    const model = store.model(user, rec.id);
+  function summarize(user: string, s: SessionSummaryRef, archived: Set<string>, below: string[]): SessionSummary {
+    const running = hub.runningOf(user, s.id);
+    const named = store.title(user, s.id);
+    const cost = costOf(user, [s.id, ...below]);
+    const model = store.model(user, s.id);
     return {
-      id: rec.id,
-      createdAt: rec.createdAt,
-      updatedAt: running ? running.startedAt : rec.updatedAt,
-      turns: rec.turns,
-      title: named ?? clip(first, 60),
+      id: s.id,
+      createdAt: s.createdAt,
+      updatedAt: running ? running.startedAt : s.updatedAt,
+      turns: s.turns,
+      title: named ?? clip(s.first || running?.input || "", 60),
       named: named !== undefined,
-      preview: clip(last, 120),
-      archived: archived.has(rec.id),
-      status: running ? "running" : "idle",
+      preview: clip(s.last || running?.input || "", 120),
+      archived: archived.has(s.id),
+      status: running || s.running ? "running" : "idle",
       ...(model ? { model } : {}),
       ...(cost !== undefined ? { cost } : {}),
     };
   }
 
-  async function showSession(user: string, id: string): Promise<SessionRecord & { status: string; archived: boolean; turn: RunningTurn | null; usage: SessionUsage; model: string | null; title: string | null; children: ChildRecord[] }> {
-    const rec = await kernel.sessions.inspect(id);
+  async function showSession(user: string, id: string): Promise<Omit<SessionRecord, "turn"> & { status: string; archived: boolean; turn: RunningTurn | null; usage: SessionUsage; model: string | null; title: string | null; children: ChildRecord[] }> {
+    const { turn: _marker, ...rec } = await kernel.sessions.inspect(id);
     const all = await kernel.sessions.list();
     const labels = labelsOf(user, rec);
     const children = await Promise.all(all.filter((s) => s.parent === id).map((s) => childRecord(user, s.id, labels.get(s.id) ?? null, descendants(all, s.id))));
+    // `turn` is the hub's, never the record's marker: a marker left by an interrupted turn would put the
+    // page in a turn nothing will end, while its message is in the conversation already.
     return { ...rec, archived: store.archived(user).has(id), turn: hub.runningOf(user, id) ?? null, usage: store.usage(user, id), model: store.model(user, id) ?? null, title: store.title(user, id) ?? null, children };
   }
 

@@ -1,92 +1,123 @@
 // UI state the gateway owns: which conversations each user archived, the name and the model each
 // person chose for a conversation, and the accounting reported for each reply so a reopened
-// transcript can show it. Kept in the gateway's own directory inside
-// the userspace home. Identity lives in the kernel, not here.
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+// transcript can show it. Kept in the gateway's own directory inside the userspace home, one small
+// file per conversation, so a change to one conversation rewrites that file and nothing else; the whole
+// set is read once at start and served from memory. Identity lives in the kernel, not here.
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 /** Usage by conversation index of the assistant message it belongs to. */
 export type SessionUsage = Record<string, Record<string, number | string>>;
 
-interface State {
+/** What the gateway keeps about one conversation. A key left undefined is not written. */
+interface Entry {
+  title?: string;
+  model?: string;
+  usage?: SessionUsage;
+  archived?: boolean;
+}
+
+/** The former single-file layout, read once to migrate it. */
+interface LegacyState {
   archived: Record<string, string[]>;
   usage?: Record<string, SessionUsage>;
-  /** The model chosen for a conversation, keyed `user/session`. Absent means the default. */
   models?: Record<string, string>;
-  /** A name the person gave a conversation, keyed `user/session`. */
   titles?: Record<string, string>;
 }
 
 export class GatewayStore {
-  private readonly file: string;
-  private readonly state: State;
+  private readonly dir: string;
+  private readonly entries = new Map<string, Entry>(); // "user/session" -> what is kept about it
 
   constructor(dir: string) {
-    mkdirSync(dir, { recursive: true });
-    this.file = resolve(dir, "state.json");
-    this.state = existsSync(this.file) ? (JSON.parse(readFileSync(this.file, "utf8")) as State) : { archived: {} };
+    this.dir = resolve(dir, "sessions");
+    mkdirSync(this.dir, { recursive: true });
+    this.migrate(resolve(dir, "state.json"));
+    for (const user of readdirSync(this.dir)) {
+      for (const file of readdirSync(resolve(this.dir, user))) {
+        if (!file.endsWith(".json")) continue;
+        this.entries.set(`${user}/${file.slice(0, -5)}`, JSON.parse(readFileSync(resolve(this.dir, user, file), "utf8")) as Entry);
+      }
+    }
   }
 
   archived(user: string): Set<string> {
-    return new Set(this.state.archived[user] ?? []);
+    const out = new Set<string>();
+    for (const [key, entry] of this.entries) if (entry.archived && key.startsWith(`${user}/`)) out.add(key.slice(user.length + 1));
+    return out;
   }
 
   setArchived(user: string, session: string, archived: boolean): void {
-    const set = this.archived(user);
-    if (archived) set.add(session);
-    else set.delete(session);
-    this.state.archived[user] = [...set];
-    this.flush();
+    this.put(user, session, { archived: archived || undefined });
   }
 
   usage(user: string, session: string): SessionUsage {
-    return this.state.usage?.[`${user}/${session}`] ?? {};
+    return this.entry(user, session).usage ?? {};
   }
 
   /** Records the usage of the assistant messages at the given conversation indices. */
   setUsage(user: string, session: string, entries: Record<number, Record<string, number | string>>): void {
-    const all = (this.state.usage ??= {});
-    const key = `${user}/${session}`;
-    all[key] = { ...(all[key] ?? {}), ...Object.fromEntries(Object.entries(entries).map(([i, u]) => [String(i), u])) };
-    this.flush();
+    const usage = { ...this.usage(user, session), ...Object.fromEntries(Object.entries(entries).map(([i, u]) => [String(i), u])) };
+    this.put(user, session, { usage });
   }
 
   model(user: string, session: string): string | undefined {
-    return this.state.models?.[`${user}/${session}`];
+    return this.entry(user, session).model;
   }
 
   /** An empty model means the default. */
   setModel(user: string, session: string, model: string): void {
-    const all = (this.state.models ??= {});
-    if (model) all[`${user}/${session}`] = model;
-    else delete all[`${user}/${session}`];
-    this.flush();
+    this.put(user, session, { model: model || undefined });
   }
 
   title(user: string, session: string): string | undefined {
-    return this.state.titles?.[`${user}/${session}`];
+    return this.entry(user, session).title;
   }
 
   /** An empty title restores the derived one. */
   setTitle(user: string, session: string, title: string): void {
-    const all = (this.state.titles ??= {});
-    if (title) all[`${user}/${session}`] = title;
-    else delete all[`${user}/${session}`];
-    this.flush();
+    this.put(user, session, { title: title || undefined });
   }
 
   forget(user: string, session: string): void {
-    const key = `${user}/${session}`;
-    delete this.state.usage?.[key];
-    delete this.state.models?.[key];
-    delete this.state.titles?.[key];
-    this.flush();
+    this.put(user, session, { usage: undefined, model: undefined, title: undefined });
   }
 
-  private flush(): void {
-    const tmp = `${this.file}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(this.state, null, 2));
-    renameSync(tmp, this.file);
+  private entry(user: string, session: string): Entry {
+    return this.entries.get(`${user}/${session}`) ?? {};
+  }
+
+  /** Merges `patch` into the conversation's entry and writes that one file; an entry with nothing left is removed. */
+  private put(user: string, session: string, patch: Entry): void {
+    const next: Entry = { ...this.entry(user, session), ...patch };
+    for (const key of Object.keys(next) as (keyof Entry)[]) if (next[key] === undefined) delete next[key];
+    const key = `${user}/${session}`;
+    const file = resolve(this.dir, user, `${session}.json`);
+    if (!Object.keys(next).length) {
+      this.entries.delete(key);
+      rmSync(file, { force: true });
+      return;
+    }
+    this.entries.set(key, next);
+    mkdirSync(resolve(this.dir, user), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(next));
+    renameSync(tmp, file);
+  }
+
+  /** The one-file layout becomes per-conversation files; the old file is kept aside, not deleted. */
+  private migrate(legacy: string): void {
+    if (!existsSync(legacy)) return;
+    const state = JSON.parse(readFileSync(legacy, "utf8")) as LegacyState;
+    const split = (key: string): [string, string] => {
+      const at = key.indexOf("/");
+      return [key.slice(0, at), key.slice(at + 1)];
+    };
+    for (const [key, usage] of Object.entries(state.usage ?? {})) this.put(...split(key), { usage });
+    for (const [key, model] of Object.entries(state.models ?? {})) this.put(...split(key), { model });
+    for (const [key, title] of Object.entries(state.titles ?? {})) this.put(...split(key), { title });
+    for (const [user, ids] of Object.entries(state.archived ?? {})) for (const id of ids) this.put(user, id, { archived: true });
+    renameSync(legacy, `${legacy}.migrated`);
   }
 }
 

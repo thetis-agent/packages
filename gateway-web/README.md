@@ -18,7 +18,7 @@ All relative to `/<user>`. Every `/api/*` and `/ext/*` route needs the cookie; a
 | `GET /api/sessions`, `POST /api/sessions` | The person's conversations, newest first; create one. |
 | `GET /api/sessions/<id>` | The record with `status`, `archived`, `turn`, `usage`, `model` and `title`. |
 | `POST /api/sessions/<id>/send`, `/cancel`, `/archive`, `/model`, `/title` | Start a turn, stop it, archive or restore, choose the model, name the conversation. |
-| `GET /api/models` | The default model and the models the person's providers serve. |
+| `GET /api/models` | The default model and the models the person's providers serve (`id`, `name`, `provider` only), cached in the gateway for a minute. |
 | `GET /api/events` | The Server-Sent Events stream: every turn event of the person, opened with a snapshot of the turns in progress. |
 | `GET /api/panel`, `GET` and `POST /api/packages`, `DELETE /api/packages/<name>` | The built-in Packages section of the control panel. |
 | `GET /api/ui` | What installed packages add to the page, for the person's role. |
@@ -82,7 +82,7 @@ A person opens `/login`, signs in, and lands on `/<person>/`. The sidebar lists 
 | `src/panel.ts`, `src/http.ts` | The Packages routes and the HTTP helpers. |
 | `src/static.ts` | `serveFile` and the table of file types the page may load. |
 | `src/turns.ts` | `TurnHub`: runs turns in the background and feeds the event streams. |
-| `src/store.ts` | `GatewayStore`: archive flags, names, chosen models and per-reply usage, in `home/gateway-web/state.json`. |
+| `src/store.ts` | `GatewayStore`: archive flags, names, chosen models and per-reply usage, one file per conversation under `home/gateway-web/sessions/<user>/`; an older `state.json` is migrated on first start and kept as `state.json.migrated`. |
 | `src/client.ts` | `clientFromRpc(rpc)`: a `KernelClient` over a raw RPC function. |
 | `assets/` | The browser code: plain ES modules, no build step. `lib/ext.js` is the browser side of the seam. |
 
