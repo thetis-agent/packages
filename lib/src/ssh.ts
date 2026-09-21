@@ -1,13 +1,26 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { SshGrant } from "@thetis/contracts";
 import { assert } from "./error.js";
 import type { StoreMirror } from "./store.js";
 
-/** A grant and what the host holds at the key's path now. `present` is true only for a regular file. */
+/**
+ * A grant and what the host holds at the key's path now. `present` is true only for a regular file;
+ * `publicKey` is the half that gets registered elsewhere and `fingerprint` the way GitHub and the like
+ * name it, both null when the key is not there to read.
+ */
 export interface SshGrantState extends SshGrant {
   present: boolean;
+  publicKey: string | null;
+  fingerprint: string | null;
+}
+
+/** What making or importing a key answers: where it is, and the half to register wherever it is going. */
+export interface MadeKey {
+  key: string;
+  publicKey: string;
+  fingerprint: string | null;
 }
 
 /**
@@ -52,10 +65,40 @@ export function parseSshGrants(raw: unknown): SshGrant[] {
 
 /**
  * The grants with what the host says about each key now, so a caller can tell a grant that works from one
- * that is only written down -- the same distinction `mounts.list` draws with `present`.
+ * that is only written down -- the same distinction `mounts.list` draws with `present` -- and, for a key
+ * that is there, the public half and its fingerprint, which is what a person needs to see to register it
+ * or to recognise it at the far end. The public half comes from `<key>.pub` beside the key when there is
+ * one, else from the key itself; the private material is read by ssh-keygen and never answered.
  */
-export function withKeyPresence(grants: SshGrant[]): SshGrantState[] {
-  return grants.map((g) => ({ ...g, present: isFile(g.key) }));
+export function describeKeys(grants: SshGrant[]): SshGrantState[] {
+  return grants.map((g) => {
+    const present = isFile(g.key);
+    const publicKey = present ? publicKeyOf(g.key) : null;
+    return { ...g, present, publicKey, fingerprint: publicKey ? fingerprintOf(publicKey) : null };
+  });
+}
+
+/** The former name. */
+export const withKeyPresence = describeKeys;
+
+/** The public line of a key: the `.pub` beside it, else derived from the key; null when neither can be read. */
+function publicKeyOf(key: string): string | null {
+  if (isFile(`${key}.pub`)) {
+    try {
+      return readFileSync(`${key}.pub`, "utf8").trim() || null;
+    } catch {
+      return null;
+    }
+  }
+  const run = spawnSync("ssh-keygen", ["-y", "-P", "", "-f", key], { encoding: "utf8" });
+  return run.status === 0 ? run.stdout.trim() || null : null;
+}
+
+/** `SHA256:…` for a public line, the way the far end shows it; null when ssh-keygen cannot read the line. */
+export function fingerprintOf(publicKey: string): string | null {
+  const run = spawnSync("ssh-keygen", ["-lf", "-"], { encoding: "utf8", input: `${publicKey}\n` });
+  const token = run.status === 0 ? run.stdout.split(/\s+/).find((t) => t.startsWith("SHA256:")) : undefined;
+  return token ?? null;
 }
 
 /** Every known_hosts line of a grant list, deduplicated, in the order they were granted. */
@@ -83,7 +126,7 @@ function isFile(path: string): boolean {
  * An existing key is kept rather than replaced: generating over one that is already registered somewhere
  * would silently break whatever trusts it.
  */
-export function generateKey(dir: string, comment: string): { key: string; publicKey: string } {
+export function generateKey(dir: string, comment: string): MadeKey {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const key = join(dir, "id_ed25519");
   if (!existsSync(key)) {
@@ -91,5 +134,38 @@ export function generateKey(dir: string, comment: string): { key: string; public
     assert(gen.status === 0, `ssh-keygen failed: ${(gen.stderr ?? "").trim() || `exit ${gen.status}`}`, "invalid");
   }
   chmodSync(key, 0o600);
-  return { key, publicKey: readFileSync(`${key}.pub`, "utf8").trim() };
+  const publicKey = readFileSync(`${key}.pub`, "utf8").trim();
+  return { key, publicKey, fingerprint: fingerprintOf(publicKey) };
+}
+
+/** A name a person gives an imported key: one path segment, never the public half's suffix. */
+const KEY_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
+/**
+ * Takes a private key a person already has -- one registered at GitHub, say -- and puts it beside the
+ * generated ones, so the fence's agent can hold it like any other grant. The material is written once
+ * with the key's own mode, read back by ssh-keygen to prove it is a key and to derive the public half,
+ * and is never returned or logged. A key that ssh-keygen cannot read is removed again before the refusal,
+ * so a typo leaves nothing behind; one with a passphrase is refused too, because an agent nobody can
+ * answer a prompt for cannot load it. An existing name is never overwritten: whatever trusts that key
+ * would break silently.
+ */
+export function importKey(dir: string, name: string, material: string): MadeKey {
+  assert(KEY_NAME.test(name) && !name.endsWith(".pub"), `a key name is one plain name, letters, digits, dots, dashes and underscores, not ending in .pub: ${name}`, "invalid");
+  const text = String(material ?? "").replace(/\r\n/g, "\n").trim();
+  assert(text.startsWith("-----BEGIN ") && text.includes("PRIVATE KEY-----"), "the material is not a private key: it should start with -----BEGIN ... PRIVATE KEY-----", "invalid");
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const key = join(dir, name);
+  assert(!existsSync(key), `${key} already exists: revoke and remove it first, or pick another name`, "invalid");
+  writeFileSync(key, `${text}\n`, { mode: 0o600 });
+  const run = spawnSync("ssh-keygen", ["-y", "-P", "", "-f", key], { encoding: "utf8" });
+  if (run.status !== 0) {
+    unlinkSync(key);
+    const why = (run.stderr ?? "").trim();
+    assert(!/passphrase|incorrect/i.test(why), "the key has a passphrase: an agent nobody can answer a prompt for cannot load it; import a key without one", "invalid");
+    assert(false, `not a private key ssh-keygen can read${why ? `: ${why}` : ""}`, "invalid");
+  }
+  const publicKey = run.stdout.trim();
+  writeFileSync(`${key}.pub`, `${publicKey}\n`, { mode: 0o644 });
+  return { key, publicKey, fingerprint: fingerprintOf(publicKey) };
 }

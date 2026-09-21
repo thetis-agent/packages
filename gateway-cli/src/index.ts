@@ -61,6 +61,10 @@ usage: thetis <command> [options]
                                        make that person's fence a key of its own and grant it, for when
                                        there is no host credential to share; prints the public half to
                                        register. The private half never leaves the kernel
+  ssh import <user> <name> [--host <name>]... [--scan <name>]...
+                                       read a private key from stdin (a key already registered at GitHub, say),
+                                       keep it with the kernel under that name and grant it to the person's fence;
+                                       prints the public half and its fingerprint. A key with a passphrase is refused
   ssh revoke <user> <key>
   models [--user <id>]                 models advertised by installed providers
   config                               print the configuration file over its defaults, secrets hidden
@@ -444,16 +448,17 @@ async function sshCmd(call: Call, args: Args, user: string | undefined): Promise
   const [, sub, id, key] = args._;
   const listOf = async (u: string) => ((await call("ssh.list", { user: u })) as Record<string, SshGrantState[]>)[u] ?? [];
   if (sub === "keygen" && !id) throw new Error("ssh keygen needs <user>");
+  if (sub === "import" && !(id && key)) throw new Error("ssh import needs <user> <name>, and the key on stdin");
   if (sub !== "list" && sub !== "keygen" && sub !== undefined && !(id && key)) throw new Error(`ssh ${sub} needs <user> <key-path>`);
   switch (sub) {
     case "list":
     case undefined: {
       if (user) {
-        for (const g of await listOf(user)) print([user, g.key, g.present ? "" : "missing", (g.hosts ?? []).length ? `${(g.hosts ?? []).length} known host(s)` : "no known hosts"].filter(Boolean).join("\t"));
+        for (const g of await listOf(user)) print([user, g.key, g.fingerprint ?? "", g.present ? "" : "missing", (g.hosts ?? []).length ? `${(g.hosts ?? []).length} known host(s)` : "no known hosts"].filter(Boolean).join("\t"));
         return;
       }
       const all = (await call("ssh.list", {})) as Record<string, SshGrantState[]>;
-      for (const [u, list] of Object.entries(all)) for (const g of list) print([u, g.key, g.present ? "" : "missing"].filter(Boolean).join("\t"));
+      for (const [u, list] of Object.entries(all)) for (const g of list) print([u, g.key, g.fingerprint ?? "", g.present ? "" : "missing"].filter(Boolean).join("\t"));
       return;
     }
     case "grant": {
@@ -472,9 +477,21 @@ async function sshCmd(call: Call, args: Args, user: string | undefined): Promise
       // No host credential to lend, and none needed: this fence gets a key of its own, already granted.
       // The private half stays with the kernel, so it is agent-held like any other grant.
       const hosts = await knownHostLines(args);
-      const made = (await call("ssh.keygen", { user: id, ssh: [{ key: "/generated", hosts }] })) as { key: string; publicKey: string };
+      const made = (await call("ssh.keygen", { user: id, ssh: [{ key: "/generated", hosts }] })) as { key: string; publicKey: string; fingerprint: string | null };
       print(made.publicKey);
-      print(`granted ${made.key} to ${id}; register the line above wherever it is going`);
+      print(`granted ${made.key} to ${id}${made.fingerprint ? ` (${made.fingerprint})` : ""}; register the line above wherever it is going`);
+      if (!hosts.length) print(`warning: no known hosts; add --host <name> or --scan <name>, or ssh will refuse every connection`);
+      return;
+    }
+    case "import": {
+      // A key the person already has: the material goes over the control socket once and the kernel keeps
+      // it beside the generated ones; it never touches this shell's history or the journal.
+      if (process.stdin.isTTY) throw new Error("ssh import reads the private key from stdin: thetis ssh import <user> <name> < key");
+      const hosts = await knownHostLines(args);
+      const privateKey = await readStdin();
+      const made = (await call("ssh.import", { user: id, name: key, privateKey, hosts })) as { key: string; publicKey: string; fingerprint: string | null };
+      print(made.publicKey);
+      print(`granted ${made.key} to ${id}${made.fingerprint ? ` (${made.fingerprint})` : ""}; the fence reopens with an agent holding it`);
       if (!hosts.length) print(`warning: no known hosts; add --host <name> or --scan <name>, or ssh will refuse every connection`);
       return;
     }

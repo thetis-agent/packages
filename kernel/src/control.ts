@@ -3,7 +3,7 @@ import { SYSTEM_USER, type Fences, type KernelRpc, type PackageInfo, type UserRe
 import { assert, CodedError } from "@thetis/lib/error";
 import { newestMtime } from "@thetis/lib/freshness";
 import { browseDirectories, parseMountList, withPresence } from "@thetis/lib/mounts";
-import { generateKey, parseSshGrants, withKeyPresence } from "@thetis/lib/ssh";
+import { describeKeys, generateKey, importKey, parseSshGrants, type MadeKey } from "@thetis/lib/ssh";
 import { isSupervised } from "@thetis/lib/restart";
 import { applyInPlace, classifyChanges } from "@thetis/lib/config-tiers";
 import { CONFIG_TIERS, loadConfig } from "./config.js";
@@ -43,6 +43,12 @@ export function createControlHandler(k: KernelServices): KernelRpc {
      */
     const listing = <T, R>(get: (u: string) => T[], all: () => Record<string, T[]>, state: (v: T[]) => R): Record<string, R> =>
       Object.fromEntries(Object.entries(a.user ? { [user()]: get(user()) } : all()).map(([u, list]) => [u, state(list)]));
+    /** A key the kernel holds for this person, granted with its known hosts in place of any grant of the same path. */
+    const ownKey = async (made: MadeKey, hosts?: string[]): Promise<MadeKey> => {
+      const ssh = [...k.ssh.get(user()).filter((g) => g.key !== made.key), { key: made.key, ...(hosts?.length ? { hosts } : {}) }];
+      await grant("ssh", ssh, (id, v) => k.ssh.set(id, v), (v) => v.map((g) => g.key));
+      return made;
+    };
     const grant = async <T>(kind: string, value: T, put: (id: string, v: T) => void, row: (v: T) => unknown): Promise<T> => {
       const target = k.users.get(user());
       assert(target, `unknown user: ${user()}`, "not-found");
@@ -110,21 +116,20 @@ export function createControlHandler(k: KernelServices): KernelRpc {
         return withPresence(await grant("mounts", parseMountList(a.mounts), (id, v) => k.mounts.set(id, v), (v) => v));
       case "ssh.list":
         // Presence, like mounts: a caller learns at once that a granted key is not on this host, rather
-        // than from a fence that quietly opened without an agent.
-        return listing((u) => k.ssh.get(u), () => k.ssh.all(), withKeyPresence);
-      case "ssh.keygen": {
+        // than from a fence that quietly opened without an agent; the public half rides along for the ones there.
+        return listing((u) => k.ssh.get(u), () => k.ssh.all(), describeKeys);
+      case "ssh.keygen":
         // No host credential to lend: the kernel makes this person a key of their own, grants it, and
         // hands back the public half to register wherever it is going. The private half sits with the
         // other things the kernel holds for that fence, so it is agent-held like any other grant.
-        const made = generateKey(resolve(k.config.home, "fence-keys", user()), `thetis-${user()}`);
-        const hosts = parseSshGrants(a.ssh ?? []);
-        const ssh = [...k.ssh.get(user()).filter((g) => g.key !== made.key), { key: made.key, ...(hosts[0]?.hosts?.length ? { hosts: hosts[0].hosts } : {}) }];
-        await grant("ssh", ssh, (id, v) => k.ssh.set(id, v), (v) => v.map((g) => g.key));
-        return made;
-      }
+        return ownKey(generateKey(resolve(k.config.home, "fence-keys", user()), `thetis-${user()}`), parseSshGrants(a.ssh ?? [])[0]?.hosts);
+      case "ssh.import":
+        // A key the person already has, registered somewhere: it lands beside the generated ones, read once
+        // by ssh-keygen to prove it is one, and the journal names its path, never the material.
+        return ownKey(importKey(resolve(k.config.home, "fence-keys", user()), String(a.name ?? ""), String(a.privateKey ?? "")), parseSshGrants([{ key: "/hosts", hosts: (raw as { hosts?: unknown }).hosts ?? [] }])[0]?.hosts);
       case "ssh.set":
         // The key paths are the grant; the key material is never read here and never journalled.
-        return withKeyPresence(await grant("ssh", parseSshGrants(a.ssh), (id, v) => k.ssh.set(id, v), (v) => v.map((g) => g.key)));
+        return describeKeys(await grant("ssh", parseSshGrants(a.ssh), (id, v) => k.ssh.set(id, v), (v) => v.map((g) => g.key)));
       case "fence.reload": {
         // `_system` is a legal target, unlike mounts.set: the providers and the sign-in page live in it,
         // and are otherwise out of reach without a new daemon. `authorize` refuses the unknown and the suspended.

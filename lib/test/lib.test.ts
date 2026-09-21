@@ -12,6 +12,7 @@ import { findDependency, forkPackage, forkVersion, isGitSource, isInside, splitS
 import { PendingCalls, callHandler } from "../src/rpc-frames.js";
 import { StoreMirror, memoryStore } from "../src/store.js";
 import { SessionStore, summarize } from "../src/session-store.js";
+import { describeKeys, generateKey, importKey } from "../src/ssh.js";
 import { TurnTaps } from "../src/turn-taps.js";
 
 test("container resolves lazily, caches singletons, and allows rebinding", () => {
@@ -267,5 +268,34 @@ test("session store: the index beside the records answers a list without opening
   assert.equal(store.load(dir, "s_bbbb"), undefined);
   assert.deepEqual(new JsonDirStore<SessionRecord>(/^s_[a-f0-9]+$/).list(dir).map((r) => r.id), ["s_aaaa"], "the index file is not a record");
   assert.equal(summarize({ ...base, id: "s_cccc", turns: 0, conversation: [] }).first, "");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("ssh: a key the kernel made carries its public half and fingerprint; a missing one is present false with nulls; an imported key is read back, refused when not a key, and never overwritten", () => {
+  const dir = mkdtempSync(join(tmpdir(), "thetis-ssh-"));
+  const made = generateKey(join(dir, "alice"), "thetis-alice");
+  assert.equal(made.key, join(dir, "alice", "id_ed25519"));
+  assert.match(made.publicKey, /^ssh-ed25519 /);
+  assert.match(made.fingerprint ?? "", /^SHA256:/);
+  const [there, gone] = describeKeys([{ key: made.key, hosts: ["github.com ssh-ed25519 AAAA"] }, { key: join(dir, "nowhere") }]);
+  assert.deepEqual(there, { key: made.key, hosts: ["github.com ssh-ed25519 AAAA"], present: true, publicKey: made.publicKey, fingerprint: made.fingerprint });
+  assert.deepEqual(gone, { key: join(dir, "nowhere"), present: false, publicKey: null, fingerprint: null });
+  // Without the .pub beside it the public half is derived from the key itself.
+  rmSync(`${made.key}.pub`);
+  assert.equal(describeKeys([{ key: made.key }])[0].publicKey, made.publicKey);
+
+  const material = readFileSync(made.key, "utf8");
+  const imported = importKey(join(dir, "bob"), "github", material);
+  assert.equal(imported.key, join(dir, "bob", "github"));
+  assert.equal(imported.publicKey, made.publicKey, "the same key: the same public half");
+  assert.equal(imported.fingerprint, made.fingerprint);
+  assert.equal(readFileSync(`${imported.key}.pub`, "utf8").trim(), made.publicKey);
+  assert.throws(() => importKey(join(dir, "bob"), "github", material), /already exists/);
+  assert.throws(() => importKey(join(dir, "bob"), "notes", "hello, not a key"), /not a private key/);
+  assert.equal(existsSync(join(dir, "bob", "notes")), false, "a refused import leaves nothing behind");
+  assert.throws(() => importKey(join(dir, "bob"), "garbage", "-----BEGIN OPENSSH PRIVATE KEY-----\nnope\n-----END OPENSSH PRIVATE KEY-----"), /not a private key ssh-keygen can read/);
+  assert.equal(existsSync(join(dir, "bob", "garbage")), false);
+  assert.throws(() => importKey(join(dir, "bob"), "bad.pub", material), /not ending in \.pub/);
+  assert.throws(() => importKey(join(dir, "bob"), "../escape", material), /one plain name/);
   rmSync(dir, { recursive: true, force: true });
 });

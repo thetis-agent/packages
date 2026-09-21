@@ -18,7 +18,7 @@ The manifest declares `type: gateway` and nothing else: no steps, no tools, no s
 | `users` | `list`, `add <id> [--admin]`, `remove <id>`, `suspend <id>`, `unsuspend <id>`, `role <id> <admin\|user>`, `passwd <id> [--password <text>]`. |
 | `packages` | `list`, `install <source>`, `uninstall <name>`, `promote <name> --user <id>`, `outdated`, `update [<name>]`, each with `[--user <id>]`. `install` and `uninstall` also work at the top level. Without `--user` the target is the system userspace. |
 | `mounts` | `list [--user <id>]` (each line says whether the host still has the directory), `add <user> <path> [--ro]` (refused with a sentence when it does not), `remove <user> <path>`, `browse [path]`. |
-| `ssh` | `list [--user <id>]`, `grant <user> <key> [--host <name>] [--scan <name>]`, `keygen <user>`, `revoke <user> <key>`. A grant names one key file, which the kernel loads into that fence's own agent; the key is never bound into the fence. |
+| `ssh` | `list [--user <id>]`, `grant <user> <key> [--host <name>] [--scan <name>]`, `keygen <user>`, `import <user> <name> < key`, `revoke <user> <key>`. A grant names one key file, which the kernel loads into that fence's own agent; the key is never bound into the fence. `keygen` makes the person a key of their own; `import` keeps a key they already have (read from stdin, refused with a passphrase) beside it. Both print the public half and its fingerprint; `list` prints the fingerprint of every key that is there. |
 | `sessions` | `list --user <id>`, `show --user <id> --session <id>`. |
 | `send`, `chat` | One turn, or an interactive loop, as `--user <id>`, streaming the events. |
 | `models` | Every model id and its provider package. |
