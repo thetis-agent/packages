@@ -88,11 +88,12 @@ test("attachTools adds each installed tool once, after whatever is already attac
   assert.deepEqual(twice.call!.tools.map((t) => t.name), ["first", "greet"], "the first package with a name wins; nothing is attached twice");
 });
 
-test("systemPrompt appends to the system prompt and names the installed packages", async () => {
+test("systemPrompt appends to the system prompt, points at list_packages and does not list the packages itself", async () => {
   const ctx = ctxWith({ harness: { notes: "remember the cat" } });
   const result = await systemPrompt(ctx);
   assert.deepEqual(Object.keys(result), ["call"]);
   assert.ok(result.call!.system!.startsWith("You are Thetis.\n\n"), "what was there stays first");
-  assert.match(result.call!.system!, /- @thetis\/greet@1\.0\.0 \(tool\): Says hello tools\[greet\]/);
+  assert.match(result.call!.system!, /call list_packages/);
+  assert.doesNotMatch(result.call!.system!, /@thetis\/greet@1\.0\.0/, "the package list is a tool's answer, not prompt text");
   assert.match(result.call!.system!, /## Session notes\nremember the cat/);
 });

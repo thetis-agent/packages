@@ -1,13 +1,14 @@
 # @thetis/tool-exec
 
-The tools that let the model change what is installed in its own userspace and how it is configured: package install and removal, forks, deletion, configuration, and subagents. It is a `tool` package in the default `systemPackages["*"]`, so it runs in each person's fence; every command it runs and every package it installs stays inside that fence. Reading, editing and searching files is `@thetis/tools-files`.
+The tools that let the model see and change what is installed in its own userspace and how it is configured: the package list, install and removal, forks, deletion, configuration, and subagents. It is a `tool` package in the default `systemPackages["*"]`, so it runs in each person's fence; every command it runs and every package it installs stays inside that fence. Reading, editing and searching files is `@thetis/tools-files`.
 
 ## What it provides
 
-Seven tools, declared in `thetis.tools`:
+Eight tools, declared in `thetis.tools`:
 
 | Tool | Arguments | Returns |
 |---|---|---|
+| `list_packages` | `type` (optional: only packages of that type) | `N packages installed in your userspace:` then one line per package: `- <name>@<version> (<type>): <description> steps[phase:export, …] tools[…] bench[…] service fork of <name>@<version>`. This is the list the system prompt used to carry on every call; the prompt now points here instead. |
 | `install_package` | `source` (required): a path relative to home, a git URL, or `url#dir` | `installed <name>@<version> (<type>); steps: ...; tools: ...; replaced <name>. Live on the next turn.` |
 | `uninstall_package` | `name` (required) | `uninstalled <name>`. The files stay. When the package was a fork, the original comes back. |
 | `fork_package` | `name` (required, an installed package), `as` (directory under `packages/`; default the unscoped name) | `forked <name>@<version> to packages/<as> as @<you>/<as>@<version>-fork.N ...` and the next step. Does not install. |

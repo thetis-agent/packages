@@ -97,10 +97,13 @@ test("harness steps build the system prompt and attach tools", async () => {
   const s = kernel.sessions.create("alice");
   const sys = await collect(kernel.sessions.send("alice", s.id, "system?"));
   assert.match(sys.text, /You are Thetis/);
-  assert.match(sys.text, /@thetis\/tool-exec@0\.1\.0 \(tool\): Tools for the model/);
-  assert.match(sys.text, /@thetis\/terminal@0\.1\.0 \(tool\): Long-lived shell sessions/);
+  assert.match(sys.text, /call list_packages/, "the prompt points at the tool instead of carrying the list");
+  assert.doesNotMatch(sys.text, /@thetis\/tool-exec@/);
   const tools = await collect(kernel.sessions.send("alice", s.id, "tools?"));
-  for (const t of ["shell", "install_package", "spawn_subagent"]) assert.ok(tools.text.split(",").includes(t), `missing tool ${t}`);
+  for (const t of ["shell", "list_packages", "install_package", "spawn_subagent"]) assert.ok(tools.text.split(",").includes(t), `missing tool ${t}`);
+  const listed = await collect(kernel.sessions.send("alice", s.id, "packages?"));
+  assert.match(listed.text, /@thetis\/tool-exec@0\.1\.0 \(tool\): Tools for the model/);
+  assert.match(listed.text, /@thetis\/terminal@0\.1\.0 \(tool\): Long-lived shell sessions/);
 });
 
 test("tool loop: the model runs a command inside the fence and sees the result", async () => {
@@ -395,9 +398,10 @@ test("fork: a fork of a promoted package replaces it on install, and uninstallin
   assert.equal(rec?.replacedSource?.kind, "system");
   const tools = await collect(kernel.sessions.send("alice", s.id, "tools?"));
   assert.equal(tools.text.split(",").filter((t) => t === "greet").length, 1, `the tool is offered once, by the fork: ${tools.text}`);
+  const listed = await collect(kernel.sessions.send("alice", s.id, "packages?"));
+  assert.match(listed.text, /@alice\/hello2@0\.1\.0-fork\.1 \(loader\).*fork of @thetis\/hello@0\.1\.0/);
+  assert.doesNotMatch(listed.text, /- @thetis\/hello@/);
   const sys = await collect(kernel.sessions.send("alice", s.id, "system?"));
-  assert.match(sys.text, /@alice\/hello2@0\.1\.0-fork\.1/);
-  assert.doesNotMatch(sys.text, /@thetis\/hello@/);
   assert.match(sys.text, /MARKER-FROM-ALICE/, "the fork's step runs");
   assert.match((await collect(kernel.sessions.send("alice", s.id, "fork: @thetis/hello as hello2"))).text, /not installed in your userspace/);
   assert.match((await collect(kernel.sessions.send("alice", s.id, "fork: @alice/hello2 as hello2"))).text, /target exists/);

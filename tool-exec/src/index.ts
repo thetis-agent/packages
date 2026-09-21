@@ -9,6 +9,29 @@ import { forkPackage as copyFork, forkVersion } from "@thetis/lib/pkg-fs";
 /** One path segment, as the kernel accepts in a package name. Keeps `as` from leaving packages/. */
 const DIR_NAME = /^[a-z0-9._-]+$/;
 
+/** A phase no production configuration lists. Its steps cannot run here, so naming them would mislead. */
+const BENCH_PHASE = "bench";
+
+/**
+ * Every package installed in this userspace, one line each: name, version, type, description, then the
+ * steps (`phase:export`), the tools and the bench suites it declares, and what it forked from. `type`
+ * narrows the list. This is the list the system prompt used to carry on every call.
+ */
+export const listPackages: Tool = async (args, env) => {
+  const wanted = typeof args.type === "string" && args.type ? args.type : null;
+  const lines = (await env.kernel.packages.list())
+    .filter((p) => !wanted || p.type === wanted)
+    .map((p) => {
+      const steps = (p.thetis.steps ?? []).filter((s) => s.phase !== BENCH_PHASE).map((s) => `${s.phase}:${s.export}`).join(", ");
+      const tools = (p.thetis.tools ?? []).map((t) => t.name).join(", ");
+      const bench = (p.thetis.bench?.suites ?? []).join(", ");
+      const fork = p.forkedFrom ? ` fork of ${p.forkedFrom.name}@${p.forkedFrom.version}` : "";
+      return `- ${p.name}@${p.version} (${p.type})${p.description ? `: ${p.description}` : ""}${steps ? ` steps[${steps}]` : ""}${tools ? ` tools[${tools}]` : ""}${bench ? ` bench[${bench}]` : ""}${p.thetis.service ? " service" : ""}${fork}`;
+    });
+  if (!lines.length) return wanted ? `no ${wanted} packages are installed in your userspace` : "no packages are installed in your userspace";
+  return `${lines.length} ${wanted ? `${wanted} ` : ""}package${lines.length === 1 ? "" : "s"} installed in your userspace:\n${lines.join("\n")}`;
+};
+
 export const installPackage: Tool = async (args, env) => {
   const info = await env.kernel.packages.install(String(args.source));
   const replaced = info.replaced ? `; replaced ${info.replaced}` : "";

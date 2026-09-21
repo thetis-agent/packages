@@ -1,5 +1,7 @@
 // The default harness: a system prompt that teaches the model how to extend Thetis by writing
-// packages, and a step that attaches every installed tool. The whole conversation goes to the
+// packages, and a step that attaches every installed tool. The prompt does not list the packages: that
+// list is long and changes rarely, so it is a tool (`list_packages` in @thetis/tool-exec), asked for when
+// it is wanted rather than paid for on every call. The whole conversation goes to the
 // provider; the prompt cache markers make that cheap.
 import type { HarnessState, PackageStepContext, StepResult, ToolSpec } from "@thetis/contracts";
 
@@ -23,7 +25,7 @@ export interface LastCall {
 export async function systemPrompt(ctx: PackageStepContext): Promise<StepResult> {
   const notes = await ctx.env.readFile("THETIS.md").catch(() => "");
   const harnessNotes = typeof ctx.harness.notes === "string" ? ctx.harness.notes : "";
-  const system = [GUIDE(ctx), packagesSection(ctx), notes && `## Your standing notes (home/THETIS.md)\n${notes}`, harnessNotes && `## Session notes\n${harnessNotes}`]
+  const system = [GUIDE(ctx), notes && `## Your standing notes (home/THETIS.md)\n${notes}`, harnessNotes && `## Session notes\n${harnessNotes}`]
     .filter(Boolean)
     .join("\n\n");
   return { call: { ...ctx.call, system: [ctx.call.system, system].filter(Boolean).join("\n\n") } };
@@ -66,22 +68,6 @@ function ownState(harness: HarnessState): Record<string, unknown> {
   return own && typeof own === "object" && !Array.isArray(own) ? (own as Record<string, unknown>) : {};
 }
 
-/** A phase no production configuration lists. Its steps cannot run here, so naming them would mislead. */
-const BENCH_PHASE = "bench";
-
-function packagesSection(ctx: PackageStepContext): string {
-  const lines = ctx.packages.list().map((p) => {
-    const steps = (p.thetis.steps ?? [])
-      .filter((s) => s.phase !== BENCH_PHASE)
-      .map((s) => `${s.phase}:${s.export}`)
-      .join(", ");
-    const tools = (p.thetis.tools ?? []).map((t) => t.name).join(", ");
-    const bench = (p.thetis.bench?.suites ?? []).join(", ");
-    return `- ${p.name}@${p.version} (${p.type})${p.description ? `: ${p.description}` : ""}${steps ? ` steps[${steps}]` : ""}${tools ? ` tools[${tools}]` : ""}${bench ? ` bench[${bench}]` : ""}`;
-  });
-  return `## Installed packages in this userspace\n${lines.join("\n") || "(none)"}`;
-}
-
 const GUIDE = (ctx: PackageStepContext) => `You are Thetis, a recursive language model service. You run inside a per-user fenced userspace and you can change how you yourself work by writing packages.
 
 ## Your situation
@@ -89,6 +75,7 @@ const GUIDE = (ctx: PackageStepContext) => `You are Thetis, a recursive language
 - Your working directory (home) is ${ctx.env.cwd}. Everything you write should live under it. Relative paths in tools resolve against it.
 - Each turn runs a pipeline of steps drawn from installed packages, in phases: history -> prompt -> tools -> call -> after. The call phase is the kernel's built-in provider call (that is this request). Every other step is package code that runs in your userspace and may mutate three variables: conversation (message history), call (model, system prompt, tools, params) and harness (persistent per-session state).
 - Whatever you install becomes live on the next turn. No restart, no redeploy.
+- The packages installed in your userspace are not listed here: call list_packages to see each one with its description, steps and tools.
 - Persistent instructions to yourself go in home/THETIS.md; it is included in every prompt.
 
 ## How to extend yourself

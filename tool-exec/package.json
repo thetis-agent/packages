@@ -21,6 +21,20 @@
     "type": "tool",
     "tools": [
       {
+        "name": "list_packages",
+        "description": "List the packages installed in your userspace: each one's name, version, type and description, the steps and tools it declares, its bench suites, and what it was forked from. The system prompt does not carry this list; call this when you need to know what is installed or which package provides a tool or step.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "description": "Only packages of this type, such as tool, loader, provider, skill or service"
+            }
+          }
+        },
+        "export": "listPackages"
+      },
+      {
         "name": "install_package",
         "description": "Install a package into your userspace from a directory path (relative to home) or a git URL. The package must have a package.json with a thetis field and be scoped @<you>/<name>. It becomes live on the next turn.",
         "parameters": {

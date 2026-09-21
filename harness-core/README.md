@@ -8,7 +8,7 @@ Three pipeline steps, one per phase, declared in `thetis.steps`:
 
 | Step id | Phase | Export | What it does |
 |---|---|---|---|
-| `system-prompt` | `prompt` | `systemPrompt` | Appends to `call.system`: the guide (who the model is, the pipeline, how to write and install a package), the list of installed packages with each one's description, steps, tools and bench suites, the content of `home/THETIS.md` when it exists, and `harness.notes` when it is a string. |
+| `system-prompt` | `prompt` | `systemPrompt` | Appends to `call.system`: the guide (who the model is, the pipeline, how to write and install a package, and that `list_packages` in `@thetis/tool-exec` tells it what is installed), the content of `home/THETIS.md` when it exists, and `harness.notes` when it is a string. The installed packages are not written into the prompt. |
 | `attach-tools` | `tools` | `attachTools` | Adds every tool declared by every installed package to `call.tools`. The first package with a given tool name wins. A tool with no `parameters` gets `{ type: "object", properties: {} }`. |
 | `record-call` | `after` | `recordCall` | Writes `{ model, system, systemChars, tools, messages, at }` to `harness["@thetis/harness-core"].lastCall`, keeps the other fields under that key, and returns only `harness`. |
 
@@ -29,13 +29,7 @@ Two things under the person's control shape the prompt:
 
 ## Use
 
-The package is installed for everyone by default. The package list the model sees on every call looks like this:
-
-```
-## Installed packages in this userspace
-- @thetis/harness-core@0.1.0 (loader): The default harness: ... steps[prompt:systemPrompt, tools:attachTools, after:recordCall]
-- @thetis/tools-files@0.1.0 (tool): Bounded, path-contained file tools: ... tools[read_path, edit_path, write_path, search_files, find_files, get_directory] bench[assembly-cost@1, tool-recall@1]
-```
+The package is installed for everyone by default. The prompt names no packages: the model calls `list_packages` (from `@thetis/tool-exec`) when it needs to know what is installed, so the list is paid for when it is wanted and not on every call.
 
 Read what the last call received, after a turn:
 

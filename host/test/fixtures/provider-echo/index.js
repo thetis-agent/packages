@@ -32,6 +32,10 @@ export function createProvider(config) {
         yield { type: "tool_call", call: { id: "c4", name: "delete_package", args: { name: text.slice(8) } } };
         return;
       }
+      if (text === "packages?") {
+        yield { type: "tool_call", call: { id: "c7", name: "list_packages", args: {} } };
+        return;
+      }
       if (text === "config?") {
         yield { type: "tool_call", call: { id: "c6", name: "probe_config", args: {} } };
         return;
