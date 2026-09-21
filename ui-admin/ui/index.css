@@ -2,6 +2,7 @@
 @import "./package-page.css";
 @import "./history.css";
 @import "./fleet.css";
+@import "./ssh.css";
 
 /* The admin sections of the control panel. Layout (.panel-cols, .card, .table, .badge, .kv) comes from the
  * shell; only what the sections add is here, under .ua-. */

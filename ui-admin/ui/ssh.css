@@ -1,0 +1,15 @@
+/* The SSH keys section: the grants table, the public-key panel, the host scanner, and the two forms. */
+.ua-ssh .ua-host { min-width: 200px; font-family: var(--mono); }
+.ua-ssh td:last-child { text-align: right; white-space: nowrap; }
+.ua-ssh-actions { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.ua-fp { font-family: var(--mono); font-size: var(--text-xs); color: var(--text-dim); overflow-wrap: anywhere; }
+.ua-pubkey { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: var(--text-xs); resize: vertical; }
+.ua-pubkey-card .card-head { display: flex; align-items: center; gap: 10px; }
+.ua-material { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: var(--text-xs); resize: vertical; }
+.ua-scan-found { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.ua-hostline { display: block; font-size: var(--text-xs); }
+.ua-ssh-forms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-4); align-items: start; }
+.ua-ssh-forms .field { min-width: 0; }
+@media (max-width: 1100px) {
+  .ua-ssh-forms { grid-template-columns: minmax(0, 1fr); }
+}

@@ -306,11 +306,11 @@ test("the browser modules parse, and the entry defines install and nothing else"
   assert.equal(mod.default.name, "install");
 });
 
-test("install registers exactly the seven declared entries, each mounting through the seam; configuration also answers children", async () => {
+test("install registers exactly the eight declared entries, each mounting through the seam; configuration also answers children", async () => {
   const { default: install } = await import("../ui/index.js");
   const panels = {};
   install({ panel: (id, impl) => (panels[id] = impl) });
-  assert.deepEqual(Object.keys(panels), ["people", "models", "configuration", "mounts", "activity", "workspaces", "overview"]);
+  assert.deepEqual(Object.keys(panels), ["people", "models", "configuration", "mounts", "ssh", "activity", "workspaces", "overview"]);
   for (const impl of Object.values(panels)) assert.equal(typeof impl.mount, "function");
   assert.equal(typeof panels.configuration.children, "function");
   for (const [id, impl] of Object.entries(panels)) if (id !== "configuration") assert.equal(impl.children, undefined);

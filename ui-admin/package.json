@@ -42,6 +42,13 @@
           "order": 35
         },
         {
+          "id": "ssh",
+          "label": "SSH keys",
+          "note": "Which keys each person's workspace may use, and where they may go.",
+          "role": "admin",
+          "order": 36
+        },
+        {
           "id": "activity",
           "label": "Activity",
           "note": "What happened: who did what, and when.",
@@ -248,6 +255,42 @@
           "verb": "mounts-browse",
           "export": "mountsBrowse",
           "label": "List the directories under a host path",
+          "role": "admin"
+        },
+        {
+          "verb": "ssh-list",
+          "export": "sshList",
+          "label": "List the keys granted to each person's workspace",
+          "role": "admin"
+        },
+        {
+          "verb": "ssh-set",
+          "export": "sshSet",
+          "label": "Set a person's ssh grants",
+          "role": "admin"
+        },
+        {
+          "verb": "ssh-keygen",
+          "export": "sshKeygen",
+          "label": "Make a person a key of their own",
+          "role": "admin"
+        },
+        {
+          "verb": "ssh-import",
+          "export": "sshImport",
+          "label": "Upload a person's private key",
+          "role": "admin"
+        },
+        {
+          "verb": "ssh-scan",
+          "export": "sshScan",
+          "label": "Find a host's known_hosts lines",
+          "role": "admin"
+        },
+        {
+          "verb": "ssh-test",
+          "export": "sshTest",
+          "label": "Try reaching a host as git from this workspace",
           "role": "admin"
         },
         {
