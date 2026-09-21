@@ -84,10 +84,15 @@
 .ua-mini-subject { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Where it runs: the person picker card, and the tab's table. */
-.ua-person-row { display: flex; align-items: center; gap: 8px; }
-.ua-person-row .ua-person { flex: 1 1 auto; min-width: 0; }
-.ua-person-facts dd { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.ua-person-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ua-where-body { display: flex; flex-direction: column; gap: 12px; }
+.ua-person-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; }
+.ua-person-row .ua-person { min-width: 0; width: 100%; }
+.ua-person-row .btn { padding: 0 9px; }
+.ua-person-facts { grid-template-columns: 84px minmax(0, 1fr); row-gap: 8px; }
+.ua-person-facts dd { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.ua-person-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.ua-person-actions .btn { justify-content: center; white-space: nowrap; }
+.ua-person-actions .btn:only-child, .ua-person-actions .btn.is-primary, .ua-person-actions .btn.is-warn { grid-column: 1 / -1; }
 .ua-where-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--hairline); font-size: var(--text-xs); color: var(--text-faint); }
 .ua-where-foot b { color: var(--text); font-weight: 600; }
 .ua-where.is-full .ua-person-facts { grid-template-columns: 120px 1fr; }

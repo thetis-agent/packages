@@ -5,7 +5,9 @@
 // fence alone; a fork lands in the admin's own home the way tool-exec's does, because the page's Fork
 // means "fork it and use it". The marketplace library is imported when asked, so an installation without
 // it still answers everything but the registry's word.
+import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
+import { newestMtime } from "@thetis/lib/freshness";
 
 const USER_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const PACKAGE_NAME = /^@[a-z0-9-]+\/[a-z0-9._-]+$/;
@@ -57,6 +59,26 @@ async function workspaces(env) {
   }
 }
 
+// ---- older code: per package, not per workspace ----
+
+/**
+ * Whether a person's copy of a package is newer on disk than the code their workspace loaded. The
+ * kernel's `status` says this per workspace, which marks every package the moment any file in the
+ * checkout changes; a package's own files against the workspace's opening time is the honest answer.
+ * A root the fence cannot read (another person's home) has no newest time, so it is never called older.
+ */
+function freshness(copy, space) {
+  const opened = space?.openedAt ? Date.parse(space.openedAt) : 0;
+  let root = typeof copy?.root === "string" ? copy.root : null;
+  try {
+    if (root) root = realpathSync(root);
+  } catch {
+    /* the link may not resolve from here: the walk below then finds nothing */
+  }
+  const mtime = root ? newestMtime([root]) : 0;
+  return { codeAt: mtime > 0 ? new Date(mtime).toISOString() : null, stale: Boolean(opened && mtime > opened) };
+}
+
 // ---- where one package runs ----
 
 /**
@@ -70,13 +92,15 @@ export async function packageWhere(args, env) {
   const rows = await Promise.all(
     everyone.map(async (person) => {
       const list = await installedFor(env, person.id);
-      const copy = list.find((p) => p.name === name) ?? null;
+      // A fork that replaced the package stands in for it: that person has it, as the fork.
+      const copy = list.find((p) => p.name === name) ?? list.find((p) => p.replaced === name) ?? null;
       const space = spaces.get(person.id) ?? null;
-      const loaded = space?.openedAt ? { openedAt: space.openedAt, codeAt: space.codeAt ?? null, stale: Boolean(space.stale) } : null;
+      const loaded = space?.openedAt ? { openedAt: space.openedAt, ...freshness(copy, space) } : null;
       let config = null;
       if (copy) {
         try {
-          const report = await call(env, "config.show", { name, user: person.id });
+          // A fork's configuration is kept under the fork's name at that person's layer.
+          const report = await call(env, "config.show", { name: copy.name, user: person.id });
           config = report ? { broken: Boolean(report.broken), summary: report.summary ?? "" } : null;
         } catch {
           config = null;
@@ -247,10 +271,11 @@ export async function fleet(_args, env) {
     return r;
   };
   for (const { person, list, reports } of perPerson) {
-    const stale = Boolean(spaces.get(person.id)?.stale);
+    const space = spaces.get(person.id) ?? null;
     for (const p of list) {
       const r = row(p);
       r.versions.push(p.version);
+      const { stale } = freshness(p, space);
       r.byUser[person.id] = { version: p.version, fork: false, forkOf: p.forkedFrom?.name ?? null, stale, broken: Boolean(reports.get(p.name)?.broken) };
       // The original this fork replaced is not in the person's list any more: its row says a fork stands in.
       if (p.forkedFrom && p.replaced) {
@@ -262,7 +287,7 @@ export async function fleet(_args, env) {
   for (const p of systemList) {
     const r = row(p);
     r.versions.push(p.version);
-    r.byUser[SYSTEM] = { version: p.version, fork: false, forkOf: null, stale: Boolean(spaces.get(SYSTEM)?.stale), broken: Boolean(system.get(p.name)?.broken) };
+    r.byUser[SYSTEM] = { version: p.version, fork: false, forkOf: null, stale: freshness(p, spaces.get(SYSTEM) ?? null).stale, broken: Boolean(system.get(p.name)?.broken) };
   }
   const packages = [...rows.values()].map((r) => {
     const mine = ownByName.get(r.name);
@@ -285,7 +310,7 @@ export async function fleet(_args, env) {
     updates: packages.filter((p) => p.registry?.update).length,
     forks: packages.filter((p) => Object.values(p.byUser).some((c) => c.fork || c.forkOf)).length,
     broken: packages.filter((p) => p.config?.broken).length,
-    stale: everyone.filter((person) => spaces.get(person.id)?.stale).length,
+    stale: everyone.filter((person) => packages.some((r) => r.byUser[person.id]?.stale)).length,
     unpushed: 0,
   };
   return { data: { people: everyone.map((u) => ({ user: u.id, role: u.role, status: u.status })), packages, stats } };

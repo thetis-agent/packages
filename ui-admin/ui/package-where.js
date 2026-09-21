@@ -38,9 +38,6 @@ export function whereCard(ext, ctx, { alive, full = false } = {}) {
   }
   const people = where.people;
   const counts = where.counts ?? {};
-  if (counts.stale) head.append(badge(`${counts.stale} of ${counts.installed ?? people.length} on older code`, "warn"));
-  else if (counts.broken) head.append(badge(`${counts.broken} config broken`, "err"));
-  else head.append(badge(`${counts.installed ?? people.length} of ${counts.people ?? people.length} have it`, "ok"));
   let at = Math.max(0, people.findIndex((p) => p.installed));
 
   async function reloadOne(anchor, user) {
@@ -71,19 +68,19 @@ export function whereCard(ext, ctx, { alive, full = false } = {}) {
   function draw() {
     clear(body);
     const p = people[at];
-    const select = el("select", { class: "input ua-person", "aria-label": "Person", onChange: () => { at = Number(select.value); draw(); } }, ...people.map((x, i) => el("option", { value: String(i), selected: i === at || null }, `${x.user} · ${x.role} · ${personSummary(x)}`)));
+    const select = el("select", { class: "input ua-person", "aria-label": "Person", onChange: () => { at = Number(select.value); draw(); } }, ...people.map((x, i) => el("option", { value: String(i), selected: i === at || null }, `${x.user} · ${personSummary(x)}`)));
     const prev = button("‹", { title: "Previous person", onClick: () => { at = (at + people.length - 1) % people.length; draw(); } });
     const next = button("›", { title: "Next person", onClick: () => { at = (at + 1) % people.length; draw(); } });
     prev.setAttribute("aria-label", "Previous person");
     next.setAttribute("aria-label", "Next person");
     prev.classList.add("is-sm");
     next.classList.add("is-sm");
-    const facts = [];
+    const facts = [[el("dt", {}, "who"), el("dd", {}, p.user, el("span", { class: "text-faint" }, ` · ${p.role}${p.status && p.status !== "active" ? ` · ${p.status}` : ""}`))]];
     if (p.installed) {
       facts.push([el("dt", {}, "has it as"), el("dd", {}, el("code", {}, p.version ?? "?"), p.forkedFrom ? [" ", badge(`fork · ${p.forkedFrom.name} ${p.forkedFrom.version}`, "warn")] : null, p.replaced ? el("span", { class: "text-faint" }, ` replaces ${p.replaced}`) : null)]);
       const l = p.loaded;
       const loaded = l?.openedAt
-        ? [el("span", { class: `ua-dot ${l.stale ? "is-warn" : "is-ok"}` }), ` at ${when(l.openedAt)}, `, ...(l.stale ? [el("span", { class: "ua-warn" }, "behind the code on disk"), l.codeAt ? el("span", { class: "text-faint" }, ` (newest ${when(l.codeAt)})`) : null] : ["current"])]
+        ? [el("span", { class: `ua-dot ${l.stale ? "is-warn" : "is-ok"}` }), ` at ${when(l.openedAt)}, `, ...(l.stale ? [el("span", { class: "ua-warn" }, "its files changed since"), l.codeAt ? el("span", { class: "text-faint" }, ` (newest ${when(l.codeAt)})`) : null] : ["current"])]
         : [el("span", { class: "ua-dot is-dim" }), " workspace not open"];
       facts.push([el("dt", {}, "loaded"), el("dd", {}, ...loaded)]);
       facts.push([el("dt", {}, "service"), el("dd", {}, Array.isArray(p.services) && p.services.includes(name) ? "running in their workspace" : el("span", { class: "text-faint" }, "none from this package"))]);

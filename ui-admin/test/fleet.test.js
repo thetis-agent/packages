@@ -2,7 +2,23 @@
 // into one package's "where it runs", the journal about it, the update and remove paths, and the matrix.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as commands from "../fleet.js";
+
+/** A package directory whose newest file is from `at`: what "older code" is measured against. */
+function rootAt(at) {
+  const dir = mkdtempSync(join(tmpdir(), "thetis-fleet-"));
+  writeFileSync(join(dir, "index.js"), "export {};\n");
+  const when = new Date(at);
+  utimesSync(join(dir, "index.js"), when, when);
+  utimesSync(dir, when, when);
+  return dir;
+}
+// Every copy's files are from 14:00: root's workspace opened at 14:17 (current), bob's at 05:27 (older code).
+const CODE_AT = "2026-09-21T14:00:00.000Z";
+const codeRoot = rootAt(CODE_AT);
 
 const users = [
   { id: "root", role: "admin", status: "active" },
@@ -10,9 +26,9 @@ const users = [
   { id: "sys", role: "system", status: "active" },
 ];
 
-const terminal = { name: "@thetis/terminal", version: "0.1.0", type: "tool", description: "Shells.", everyone: true, source: { kind: "system", ref: "terminal" } };
-const bobFork = { name: "@bob/terminal", version: "0.1.0-fork.1", type: "tool", description: "Shells.", forkedFrom: { name: "@thetis/terminal", version: "0.1.0" }, replaced: "@thetis/terminal", source: { kind: "local", ref: "packages/terminal" } };
-const exa = { name: "@thetis/exa", version: "0.1.0", type: "tool", description: "Search.", everyone: false, source: { kind: "git", ref: "https://x/r.git#exa@0123456789abcdef" } };
+const terminal = { name: "@thetis/terminal", version: "0.1.0", type: "tool", description: "Shells.", everyone: true, root: codeRoot, source: { kind: "system", ref: "terminal" } };
+const bobFork = { name: "@bob/terminal", version: "0.1.0-fork.1", type: "tool", description: "Shells.", forkedFrom: { name: "@thetis/terminal", version: "0.1.0" }, replaced: "@thetis/terminal", root: codeRoot, source: { kind: "local", ref: "packages/terminal" } };
+const exa = { name: "@thetis/exa", version: "0.1.0", type: "tool", description: "Search.", everyone: false, root: codeRoot, source: { kind: "git", ref: "https://x/r.git#exa@0123456789abcdef" } };
 
 /** An env whose operator answers from `answers` by method name and records every call. */
 function fakeEnv(answers = {}, { user = "root", own = [terminal, exa] } = {}) {
@@ -50,14 +66,15 @@ test("package-where: every person's copy, the workspace it runs in, the forks, a
   const out = await commands.packageWhere({ name: "@thetis/terminal" }, env);
   const { people, forks, counts } = out.data;
   assert.deepEqual(people.map((p) => p.user), ["root", "bob"], "the system account has no row");
-  assert.deepEqual(people[0], { user: "root", role: "admin", status: "active", installed: true, version: "0.1.0", forkedFrom: null, replaced: null, source: { kind: "system", ref: "terminal" }, loaded: { openedAt: "2026-09-21T14:17:00Z", codeAt: "2026-09-21T14:00:00Z", stale: false }, services: ["@thetis/terminal"], config: { broken: false, summary: "every key is set" } });
-  assert.equal(people[1].installed, false, "bob runs the fork, not the original");
-  assert.equal(people[1].version, null);
-  assert.equal(people[1].config, null, "no copy, no configuration asked");
-  assert.deepEqual(people[1].loaded, { openedAt: "2026-09-21T05:27:00Z", codeAt: "2026-09-21T14:00:00Z", stale: true });
+  assert.deepEqual(people[0], { user: "root", role: "admin", status: "active", installed: true, version: "0.1.0", forkedFrom: null, replaced: null, source: { kind: "system", ref: "terminal" }, loaded: { openedAt: "2026-09-21T14:17:00Z", codeAt: CODE_AT, stale: false }, services: ["@thetis/terminal"], config: { broken: false, summary: "every key is set" } });
+  assert.equal(people[1].installed, true, "bob has it as the fork that replaced it");
+  assert.equal(people[1].version, "0.1.0-fork.1");
+  assert.deepEqual(people[1].forkedFrom, { name: "@thetis/terminal", version: "0.1.0" });
+  assert.deepEqual(people[1].config, { broken: true, summary: "shell is required and not set" }, "the configuration is asked at bob's layer");
+  assert.deepEqual(people[1].loaded, { openedAt: "2026-09-21T05:27:00Z", codeAt: CODE_AT, stale: true }, "bob's copy is newer on disk than his workspace");
   assert.deepEqual(forks, [{ user: "bob", name: "@bob/terminal", version: "0.1.0-fork.1" }]);
-  assert.deepEqual(counts, { people: 2, installed: 1, stale: 0, forks: 1, broken: 0 });
-  assert.equal(calls.filter((c) => c.method === "config.show").length, 1, "config is read only where the package is installed");
+  assert.deepEqual(counts, { people: 2, installed: 2, stale: 1, forks: 1, broken: 1 }, "bob has it as his fork, on older code, with a broken key");
+  assert.deepEqual(calls.filter((c) => c.method === "config.show").map((c) => c.args), [{ name: "@thetis/terminal", user: "root" }, { name: "@bob/terminal", user: "bob" }], "config is read where the package is installed, under the fork's name for a fork");
   await assert.rejects(commands.packageWhere({ name: "nope" }, env), /looks like @scope\/name/);
 });
 
