@@ -46,7 +46,7 @@ test("catalogue lists one brief per top-level skill, then the universal bodies; 
     const out = await catalogue(ctxOf(h.env));
     assert.equal(
       out.call.system,
-      "BASE\n\n# Skills you can load\nEach line is a pointer, not the content. Call load_skill with the name before relying on a skill; skill_fetch reads a nested skill or a file beside one.\n\n`concise` — Short answers.\n`packages` — Installs packages.\n\n# Skills always in force\n\n## concise\nBe short.\n",
+      "BASE\n\n# Skills you can load\nOne line per skill. load_skill with the name reads one; skill_fetch reads a nested skill or a file beside one.\n\n`concise` — Short answers.\n`packages` — Installs packages.\n\n# Skills always in force\n\n## concise\nBe short.\n",
     );
     const state = out.harness[STATE];
     assert.equal(state.loader, SELF);

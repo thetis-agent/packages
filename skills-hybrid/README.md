@@ -30,7 +30,7 @@ Bench suites: `skill-recall@1` and `assembly-cost@1`, peer group `skills`, corpu
 
 ![assembly-cost@1 comparison](bench/assembly-cost-v1/chart.svg)
 
-On `skill-recall@1` every needed skill is reachable (recall_reach 1, undershoot 0, overshoot 0) at one fetch round, as with `@thetis/skills-l1`, and the ranking it adds is reported under its own arm: nDCG 0.829, hit@1 0.850, mrr 0.890 over the 80 scored tasks. The price is about 2 KB of cards over the catalogue loader (bytes_system 53,229 against 51,085) and a second tool schema (808 bytes against 517), which buys a pin the model does not have to search for; against `@thetis/skills-all` it carries half the system bytes (98,677) and reaches 1 instead of 0.035 with no overshoot instead of 9.5 unneeded bodies, in exchange for one round trip per body. On `assembly-cost@1` it is the dearest of the three by a few hundred bytes per turn (4,670 system, 808 tool) and the same 16 steps.
+On `skill-recall@1` every needed skill is reachable (recall_reach 1, undershoot 0, overshoot 0) at one fetch round, as with `@thetis/skills-l1`, and the ranking it adds is reported under its own arm: nDCG 0.829, hit@1 0.850, mrr 0.890 over the 80 scored tasks. The price is about 2 KB of cards over the catalogue loader (bytes_system 50,391 against 48,559) and a second tool schema (595 bytes against 443), which buys a pin the model does not have to search for; against `@thetis/skills-all` it carries half the system bytes (96,217) and reaches 1 instead of 0.035 with no overshoot instead of 9.5 unneeded bodies, in exchange for one round trip per body. On `assembly-cost@1` it is the dearest of the three by a few hundred bytes per turn (2,163 system over a 2,131 floor, 595 tool) and the same 16 steps.
 
 ## How it works
 

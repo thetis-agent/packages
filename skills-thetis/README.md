@@ -6,11 +6,11 @@ The skills that teach an agent inside Thetis what Thetis is, how to use it, and 
 
 The manifest declares `"thetis": { "type": "skill", "skills": "skills" }`. No steps, no tools, no service, no UI, no bench suites.
 
-Twelve skills under `skills/thetis/`. The first one is universal: its body is in every prompt. The others are fetched by id.
+Twelve skills under `skills/thetis/`. None is universal: the loader puts one brief per top-level skill in the prompt, and a body is fetched by id. The first one, `thetis`, is the index.
 
 | Id | Content |
 |---|---|
-| `thetis` | What Thetis is, the one rule, and which child skill to fetch. Universal. |
+| `thetis` | What Thetis is, the one rule, and which child skill to fetch. The index. |
 | `thetis/using` | Sessions, subagents, `exec`, the file tools, the plan tools, `ask_user`, the home layout, `THETIS.md`. |
 | `thetis/packages` | The manifest, steps, tools, providers, services, install sources, the store, forks, delete, promote, install for everyone. |
 | `thetis/pipeline` | Phases, enumeration, the step contract, the three variables, validation, the turn, the events, the prompt cache rules. |
@@ -31,7 +31,7 @@ Longer reference material sits beside the skill that uses it: `packages/referenc
 
 ## Use
 
-A loader reads the skills from the directory the manifest names. It indexes the `name`, the `description`, and the `metadata.tags` of each `SKILL.md`. It never indexes the body. It puts the body of the universal skill `thetis` in every prompt, and a brief of every other skill. The model fetches a body with `skill_fetch`:
+A loader reads the skills from the directory the manifest names. It indexes the `name`, the `description`, and the `metadata.tags` of each `SKILL.md`. It never indexes the body. It puts a brief of each top-level skill in every prompt. The model fetches a body with `skill_fetch`:
 
 ```
 skill_fetch { id: "thetis/packages" }
@@ -51,7 +51,7 @@ To write a skill of your own, follow `thetis/skills`. Put it under `skills/` in 
 | File | Content |
 |---|---|
 | `package.json` | The manifest: type `skill`, directory `skills`. |
-| `skills/thetis/SKILL.md` | The universal skill. |
+| `skills/thetis/SKILL.md` | The index skill. |
 | `skills/thetis/<name>/SKILL.md` | One child skill per directory. |
 | `skills/thetis/<name>/references/*.md` | Reference tables beside the skill that links them. |
 | `test/skills.test.js` | The checks below. |
@@ -62,7 +62,7 @@ Run `node --test "packages/skills-thetis/test/*.test.js"` from the runtime root.
 
 - The frontmatter is fenced by `---` lines. `name` and `description` are present.
 - `name` equals the directory name. `description` is at most 1,024 bytes.
-- The body is at most 400 lines. The universal body is at most 40 lines. At most one skill is universal.
+- The body is at most 400 lines. A universal body would be at most 40 lines; none is universal.
 - `metadata.tags` are at most 32 lowercase words. Every `metadata.related` id exists.
 - Every relative link target exists inside the package.
 - Every body ends with a `## Sources` list.

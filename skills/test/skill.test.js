@@ -1,7 +1,7 @@
 // parseSkill and lint: every rule of the format, and the three renderings.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseSkill, lint, brief, card, renderBody, contentHashOf, firstSentence, LIMITS } from "../lib/skill.js";
+import { parseSkill, lint, brief, card, renderBody, contentHashOf, firstSentence, LIMITS, CARD_WHEN_LIMIT } from "../lib/skill.js";
 import { skillText } from "./helpers.js";
 
 const errors = (s) => s.problems.filter((p) => p.level === "error").map((p) => p.message);
@@ -108,7 +108,10 @@ test("brief, card and renderBody", () => {
   s.resources = ["references/install.md"];
   s.source = { dir: "/home/skills/packages" };
   assert.equal(brief(s), "`packages` — Installs and forks packages.");
-  assert.equal(card(s), "`packages` — Installs and forks packages.\nUse when: Use when asked to install, fork or promote a package.\nNested: `packages/forks`\nRelated: `projects`");
+  assert.equal(card(s), "`packages` — Installs and forks packages.\nUse when: Use when asked to install, fork or promote a package.\nNested: `packages/forks`", "related ids are not on the card");
+  const long = card(parseSkill(`---\nname: long\ndescription: Does a thing. ${"Use when ".repeat(60).trim()}.\n---\nbody\n`, { id: "long" }));
+  const when = long.split("\n")[1];
+  assert.ok(when.startsWith("Use when: ") && when.endsWith("…") && when.length <= "Use when: ".length + CARD_WHEN_LIMIT, when.length);
   assert.equal(renderBody(s), "The body.\n\nSkill directory: /home/skills/packages\nFiles beside SKILL.md (skill_fetch with file): references/install.md");
   s.title = "Packages";
   assert.equal(brief(s), "`packages` (Packages) — Installs and forks packages.");

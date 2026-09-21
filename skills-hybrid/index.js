@@ -10,8 +10,8 @@ import { DEFAULT_PIN, RANKED } from "./lib/rank.js";
 
 export const SELF = "@thetis/skills-hybrid";
 
-const SHORTS = "# Skills\nOne line per skill: a pointer, not the content. skill_search finds a skill by what you are trying to do; skill_fetch reads one in full. Fetch before relying on a skill.";
-const RETRIEVED = "# Skills retrieved for this conversation\nThese matched the first message. A card is a pointer, not the content: call skill_fetch with the id before relying on a skill.";
+const SHORTS = "# Skills\nOne line per skill. skill_search finds one by what you are trying to do; skill_fetch reads it.";
+const RETRIEVED = "# Skills retrieved for this conversation\nMatched the first message; the list above has the rest.";
 
 const section = (heading, skills) => `${heading}\n\n${skills.map((s) => `## ${s.id}\n${s.body.trimEnd()}\n`).join("\n")}`;
 
@@ -130,7 +130,7 @@ export async function skillSearch(args, env) {
   const byId = new Map(skills.map((s) => [s.id, s]));
   const lines = hits.map((h) => `${brief(byId.get(h.id))} [${h.how}, ${h.score}]`);
   if (!lines.length) return `no skill matched; the universal skills in your prompt are ${[...universalIds].map((id) => `\`${id}\``).join(", ") || "none"}`;
-  return [...lines, "", "Each line is a pointer. skill_fetch with the id reads the skill before you rely on it.", ...(note ? [`Note: ${note}`] : [])].join("\n");
+  return [...lines, "", "skill_fetch with the id reads one.", ...(note ? [`Note: ${note}`] : [])].join("\n");
 }
 
 /** bench: universals (and the pinned bodies) are in hand; every other corpus id is a search away; the top 10 is the ranking. */

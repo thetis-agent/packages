@@ -162,7 +162,7 @@ The fence has no host loopback and, in network mode `none`, no network. An `npm 
   src/<slug>/
 ```
 
-The kernel keeps `$THETIS_HOME/registry.json` in the service plane. You cannot read it from the fence. Each record has `name`, `version`, `type`, `owner`, `source` (`{ kind, ref }` with `kind` `system`, `local`, or `git`), and `userspaces`. A fork's record also has `forkedFrom`, `replaced`, and `replacedSource`. Read your installed packages with `env.kernel.packages.list()`, or in the package list of the system prompt.
+The kernel keeps `$THETIS_HOME/registry.json` in the service plane. You cannot read it from the fence. Each record has `name`, `version`, `type`, `owner`, `source` (`{ kind, ref }` with `kind` `system`, `local`, or `git`), and `userspaces`. A fork's record also has `forkedFrom`, `replaced`, and `replacedSource`. Read your installed packages with `env.kernel.packages.list()`, or with the `list_packages` tool.
 
 ## The cycle from a conversation
 

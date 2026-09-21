@@ -82,7 +82,7 @@ A thrown error in a step fails the turn with the code `package`. The message is 
 
 The variables keep the values from before the step. The step is package code. Read the message, fix the file, and send the next turn. The changed file is a new module on the next load.
 
-A step that never runs: check the phase. A phase that is not in `config.phases` is never scheduled. `bench` is such a phase. Check the export name in `thetis.steps`. Check that the package is installed: read the package list in the system prompt.
+A step that never runs: check the phase. A phase that is not in `config.phases` is never scheduled. `bench` is such a phase. Check the export name in `thetis.steps`. Check that the package is installed: call `list_packages`.
 
 ## A tool is refused or unknown
 
@@ -124,7 +124,7 @@ A package that installed but does not act: the change is live on the next turn, 
 
 | Message | Fix |
 |---|---|
-| `<name> is not installed in your userspace` | Fork only an installed package. Read the package list. |
+| `<name> is not installed in your userspace` | Fork only an installed package. Call `list_packages`. |
 | `as must be a plain directory name: <as>` | Use one path segment: lowercase letters, digits, `.`, `_`, `-`. |
 | A target directory that exists | Delete or rename `packages/<as>` first. |
 
@@ -174,7 +174,7 @@ The provider retries `429`, `408`, `409`, `425`, `5xx`, and a `402` that names `
 | Long tool output | `home/tool-output/<tool>-<time>.txt` | `read_path`, `search_files`. |
 | The agent log | The kernel's `stderr`, each line with the prefix `[<user id>]` | On the host: `thetis chat --verbose`, or the daemon's log. Not readable from the fence. |
 | The journal | `$THETIS_HOME/journal.jsonl` | An admin: `journal.tail` on the control socket, or the Activity section. Not readable from the fence. |
-| The installed packages | The package list in the system prompt, or `env.kernel.packages.list()` | |
+| The installed packages | The `list_packages` tool, or `env.kernel.packages.list()` | |
 | The kernel registry | `$THETIS_HOME/registry.json` | On the host only: `thetis packages list --user <id>`. |
 
 ## Sources

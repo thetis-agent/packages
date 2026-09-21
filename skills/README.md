@@ -24,7 +24,7 @@ The library, from `index.js`:
 | `absorb(skills, ranked)`, `promote(skills, ranked, limit)` | A child whose parent is in the pool is absorbed into the parent; the parent of a lone child is promoted at 0.99 of its score. |
 | `closest(skills, name, n)` | The nearest ids to a misspelt name, for a tool's refusal. |
 | `brief(skill)` | `` `id` (title) — first sentence of the description``, at most 160 characters of description. The title part appears only when `metadata.title` is set. |
-| `card(skill)` | The brief, then `Use when:` the rest of the description, `Nested:` and `Related:`. |
+| `card(skill)` | The brief, then `Use when:` the rest of the description cut to `CARD_WHEN_LIMIT` (240) characters, then `Nested:`. Related ids are not on the card. |
 | `renderBody(skill)` | The body, then `Skill directory:` and the files beside `SKILL.md`. |
 | `fetchSkill(args, env)` | The tool. |
 | `importCorpus(ctx, self)` | The bench importer every loader reuses. See Bench. |
@@ -54,7 +54,7 @@ skills/
 | `metadata.title` | Optional display title. Shown in the brief. |
 | `metadata.tags` | Optional, at most 32 lowercase words. Indexed. |
 | `metadata.universal` | `"true"` puts the body in every prompt. At most 8 per person. |
-| `metadata.related` | Optional ids. Shown on the card, never ranked on. |
+| `metadata.related` | Optional ids. Kept on the parsed skill for a UI; never on the card, never ranked on. |
 | `metadata.version` | Optional integer. |
 
 The body is at most 64 KiB. The id is the path under `skills/` with `/` between levels, at most 3 deep. `references`, `scripts` and `assets` are not skill names. A relative link in the body that leaves the pack is a warning. An unknown key is a warning and is ignored.

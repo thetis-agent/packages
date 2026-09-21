@@ -13,7 +13,7 @@
     "tools": [
       {
         "name": "skill_fetch",
-        "description": "Read the full text of a skill, or one of the files beside it, by id. A brief in the prompt is a pointer, not the content: fetch before relying on a skill. Returns up to 24000 characters per call; a footer says how to read on with offset.",
+        "description": "Read the full text of a skill, or one of the files beside it, by id. Returns up to 24000 characters per call; a footer says how to read on with offset.",
         "parameters": {
           "type": "object",
           "properties": {

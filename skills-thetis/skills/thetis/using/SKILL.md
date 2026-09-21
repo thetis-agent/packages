@@ -31,7 +31,7 @@ You run inside one person's userspace. The fence is the boundary of that userspa
 
 The shared directory `$THETIS_HOME/shared` is read-only for you. The system userspace writes it. Package code sees it as `env.shared`.
 
-The system prompt tells you the user id, the session id, and the home path.
+The system prompt tells you the user id and the home path.
 
 ## Sessions and turns
 

@@ -39,7 +39,7 @@ export async function catalogue(ctx) {
   const blocks = [];
   if (top.length) {
     blocks.push(
-      `# Skills you can load\nEach line is a pointer, not the content. Call load_skill with the name before relying on a skill; skill_fetch reads a nested skill or a file beside one.\n\n${top.map(brief).join("\n")}`,
+      `# Skills you can load\nOne line per skill. load_skill with the name reads one; skill_fetch reads a nested skill or a file beside one.\n\n${top.map(brief).join("\n")}`,
     );
   }
   if (universal.length) blocks.push(section("# Skills always in force", universal));

@@ -28,7 +28,7 @@ Bench suites: `skill-recall@1` and `assembly-cost@1`, peer group `skills`, corpu
 
 ![assembly-cost@1 comparison](bench/assembly-cost-v1/chart.svg)
 
-On `skill-recall@1` the catalogue reaches every needed skill (recall_reach 1, undershoot 0, overshoot 0) at one fetch round for 51,085 bytes of system prompt, the smallest of the three loaders, and 517 bytes of tool schema; `@thetis/skills-all` spends 98,677 bytes to reach 0.035 with 9.5 unneeded bodies and no round trip, and `@thetis/skills-hybrid` spends 53,229 and 808 to reach the same 1 with a pinned set the model does not have to look for. What the catalogue does not do is decide: it has no ranking to report, so a body is always a round trip away, chosen by the model from one line each. On `assembly-cost@1` it costs 4,639 system bytes and 16 steps per turn, between the two siblings.
+On `skill-recall@1` the catalogue reaches every needed skill (recall_reach 1, undershoot 0, overshoot 0) at one fetch round for 48,559 bytes of system prompt, the smallest of the three loaders, and 443 bytes of tool schema; `@thetis/skills-all` spends 96,217 bytes to reach 0.035 with 9.5 unneeded bodies and no round trip, and `@thetis/skills-hybrid` spends 50,391 and 595 to reach the same 1 with a pinned set the model does not have to look for. What the catalogue does not do is decide: it has no ranking to report, so a body is always a round trip away, chosen by the model from one line each. On `assembly-cost@1` it costs 2,155 system bytes over a 2,131 floor, 443 bytes of tool schema, and 16 steps per turn, between the two siblings.
 
 ## How it works
 

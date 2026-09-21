@@ -1,11 +1,10 @@
 ---
 name: thetis
-description: What Thetis is, the one rule of its design, and which child skill to fetch for sessions, tools, packages, the pipeline, skills, projects, the marketplace, the web page, benchmarks, configuration, the fence, and failures. Always in force. Use when you start work inside Thetis, when you must explain Thetis, or when you do not know which thetis/* skill answers a question.
+description: The index of Thetis itself, the service you run inside; the one rule of its design; and which child skill to fetch for tools and sessions, packages, the pipeline, skills, projects, the marketplace, the web page, benchmarks, configuration, the fence, and failures. Use when you work on Thetis, explain Thetis, write or install a package, or do not know which thetis/* skill answers a question.
 metadata:
   title: Thetis
   tags: [thetis, overview, kernel, packages, pipeline, fence, userspace, skills, index]
   related: [thetis/using, thetis/packages, thetis/pipeline, thetis/troubleshooting]
-  universal: "true"
   version: 1
 ---
 # Thetis

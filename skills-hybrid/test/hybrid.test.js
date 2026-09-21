@@ -61,7 +61,7 @@ test("the pin is ranked on the first turn and reused on every later turn, whatev
     assert.ok(!state.pinned.some((p) => p.id === "concise"), "a universal skill is never pinned");
     assert.ok(!state.pinned.some((p) => p.id === "packages/forks"), "the child is absorbed into its parent");
     assert.deepEqual(state.notes, []);
-    assert.match(first.call.system, /^BASE\n\n# Skills\n[^\n]+\n\n`concise` — Short answers\.\n`packages` — Installs packages\.\n`projects` — Workspaces and projects\.\n\n# Skills always in force\n\n## concise\nBe short\.\n\n\n# Skills retrieved for this conversation\n[^\n]+\n\n`packages` — Installs packages\.\nUse when: Use when asked to install a package\.\nNested: `packages\/forks`/);
+    assert.match(first.call.system, /^BASE\n\n# Skills\n[^\n]+\n\n`concise` — Short answers\.\n`packages` — Installs packages\.\n`projects` — Workspaces and projects\.\n\n# Skills always in force\n\n## concise\nBe short\.\n\n\n# Skills retrieved for this conversation\n[^\n]+\n\n`packages` — Installs packages\.\nUse when: Use when asked to install a package\.\nNested: `packages\/forks`\n/);
     assert.ok(!first.call.system.includes("Body of packages"), "cards, not bodies, by default");
     assert.equal(fetch.calls.length, 2, "one batch for the skills, one for the query");
     assert.equal(fetch.calls[0].headers.Authorization, "Bearer test-key");
@@ -128,7 +128,7 @@ test("pinBodies puts the bodies in, and pinLimit and fusionWeight are read", asy
     const out = await withFetch(noNetwork, () => pin(ctxOf(h.env, { config: { pinBodies: true, pinLimit: 1, fusionWeight: 0.5 }, conversation: [{ role: "user", content: "install a package for a project" }] })));
     assert.deepEqual(out.harness[STATE].pinned.map((p) => p.id), ["packages"]);
     assert.equal(out.harness[STATE].pinBodies, true);
-    assert.ok(out.call.system.endsWith("# Skills retrieved for this conversation\nThese matched the first message. A card is a pointer, not the content: call skill_fetch with the id before relying on a skill.\n\n## packages\nBody of packages.\n"));
+    assert.ok(out.call.system.endsWith("# Skills retrieved for this conversation\nMatched the first message; the list above has the rest.\n\n## packages\nBody of packages.\n"));
     const none = await withFetch(noNetwork, () => pin(ctxOf(h.env, { config: { pinLimit: 0 } })));
     assert.deepEqual(none.harness[STATE].pinned, []);
     assert.ok(!none.call.system.includes("retrieved for this conversation"));

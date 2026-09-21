@@ -27,7 +27,7 @@
     "tools": [
       {
         "name": "skill_search",
-        "description": "Search the installed skills by what you are trying to do and get the best matches, one line each with the id. The briefs in your prompt are pointers, not the content, and the cards retrieved at the start of the conversation were chosen from the first message only: search whenever the task at hand is not obviously covered by a skill you can already see, and before answering from memory on anything a skill might teach. Then call skill_fetch with the id before relying on a skill.",
+        "description": "Search the installed skills by what you are trying to do and get the best matches, one line each with the id. The cards in your prompt were chosen from the first message only: search when the task at hand is not covered by a skill you can see, then skill_fetch the id.",
         "parameters": {
           "type": "object",
           "properties": {

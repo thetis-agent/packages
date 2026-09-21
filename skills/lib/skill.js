@@ -177,13 +177,19 @@ export function brief(skill) {
   return `\`${skill.id}\`${title} — ${firstSentence(skill.description)}`;
 }
 
-/** The L1 card: the brief, then when to use it, what is nested under it and what is related. */
+/** The most of a description's "when" part a card carries; the body has the rest. */
+export const CARD_WHEN_LIMIT = 240;
+
+/**
+ * The L1 card: the brief, then when to use it, cut to `CARD_WHEN_LIMIT` characters, then what is nested under it.
+ * Related ids are not on the card: nothing ranks on them and nothing tells the model to act on them, so they
+ * cost prompt bytes for no fetch.
+ */
 export function card(skill) {
   const lines = [brief(skill)];
   const rest = restOfDescription(skill.description);
-  if (rest) lines.push(`Use when: ${rest}`);
+  if (rest) lines.push(`Use when: ${rest.length > CARD_WHEN_LIMIT ? `${rest.slice(0, CARD_WHEN_LIMIT - 1).trimEnd()}…` : rest}`);
   if (skill.children?.length) lines.push(`Nested: ${skill.children.map((c) => `\`${c}\``).join(", ")}`);
-  if (skill.related?.length) lines.push(`Related: ${skill.related.map((r) => `\`${r}\``).join(", ")}`);
   return lines.join("\n");
 }
 

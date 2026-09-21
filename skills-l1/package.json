@@ -21,7 +21,7 @@
     "tools": [
       {
         "name": "load_skill",
-        "description": "Load the full text of one skill from the catalogue in your prompt, by its name. A brief is a pointer, not the content: load a skill before relying on it. Each skill is returned once per conversation and then stays in your prompt; a name that is not in the catalogue is refused with the closest names.",
+        "description": "Load the full text of one skill from the catalogue in your prompt, by its name. Each skill is returned once per conversation and then stays in your prompt; a name that is not in the catalogue is refused with the closest names.",
         "parameters": {
           "type": "object",
           "properties": {

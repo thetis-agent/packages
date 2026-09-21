@@ -33,7 +33,7 @@ skills/
 | `metadata.title` | Optional display title. |
 | `metadata.tags` | Optional. At most 32 lowercase words. Indexed. |
 | `metadata.universal` | `"true"` puts the body in every prompt. At most 8 per person. |
-| `metadata.related` | Optional ids. Shown on the card. Never ranked on. |
+| `metadata.related` | Optional ids. Never ranked on and not on the card; a UI may show them. |
 | `metadata.version` | Optional integer. |
 
 The body is everything after the frontmatter. It is markdown of at most 64 KiB. The id is the path under `skills/` with `/` between levels. The depth is at most 3. A skill may not be named `references`, `scripts`, or `assets`. A relative link in the body must resolve inside the skill's directory or the package.
@@ -79,7 +79,7 @@ A skill with an error is left out and named in the prompt's notes. A warning kee
 
 ## The library and the loaders
 
-One library and three loaders ship: `@thetis/skills` and `skills-all`, `skills-l1`, `skills-hybrid`. Read the installed package list in the system prompt to see which loader is installed.
+One library and three loaders ship: `@thetis/skills` and `skills-all`, `skills-l1`, `skills-hybrid`. Call `list_packages` to see which loader is installed.
 
 The library `@thetis/skills` (type `skill-type`) parses, loads, lints, and ranks skills. It declares one tool that every loader shares:
 

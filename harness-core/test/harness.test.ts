@@ -96,4 +96,14 @@ test("systemPrompt appends to the system prompt, points at list_packages and doe
   assert.match(result.call!.system!, /call list_packages/);
   assert.doesNotMatch(result.call!.system!, /@thetis\/greet@1\.0\.0/, "the package list is a tool's answer, not prompt text");
   assert.match(result.call!.system!, /## Session notes\nremember the cat/);
+  assert.doesNotMatch(result.call!.system!, /subagent\. Your final reply/, "a top-level session gets no subagent line");
+  assert.doesNotMatch(result.call!.system!, /s1/, "the session id is not in the prompt, so a child's prompt can match its parent's");
+});
+
+test("systemPrompt adds one line for a subagent and nothing else changes", async () => {
+  const parent = await systemPrompt(ctxWith({ harness: {} }));
+  const child = await systemPrompt(ctxWith({ harness: {}, session: { id: "s2", user: "alice", parent: "s1" } }));
+  const line = "\n- You are a subagent. Your final reply goes to the agent that spawned you, not to a person: make it complete, with paths, quoted output, and what you could not find.";
+  assert.ok(child.call!.system!.includes(line));
+  assert.equal(child.call!.system!.replace(line, ""), parent.call!.system, "apart from that line the two prompts are byte-identical");
 });

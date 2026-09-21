@@ -99,9 +99,9 @@ for (const s of parsed) {
   });
 }
 
-test("at most one skill is universal, and it is thetis", () => {
+test("no skill in this pack is universal: the harness prompt is the only text paid for on every turn", () => {
   const universal = parsed.filter((s) => s.fm.metadata?.universal === "true").map((s) => s.id);
-  assert.deepEqual(universal, ["thetis"]);
+  assert.deepEqual(universal, []);
 });
 
 /** Every markdown file of the package: the skills, their references, and the README. */
