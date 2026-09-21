@@ -62,7 +62,10 @@ export interface SshAgent extends FenceSsh {
  * `BatchMode` and the two short timeouts are the difference between an error and a hang: without them a
  * missing credential or an unknown host waits on a prompt nobody can answer, and the fence's request timer
  * runs out instead, which reads as "ssh is broken" rather than "this fence has no key for that host".
- * `IdentitiesOnly` keeps ssh from walking through other identities and spending a rate limit on each.
+ * No `IdentitiesOnly`: it would restrict ssh to the identities named by `IdentityFile`, and a fence names
+ * none, so the keys the agent holds would never be offered at all and every far end would refuse the
+ * fence while `ssh-add -l` showed the key loaded. The agent holds only the granted keys, so there is no
+ * walk through unrelated identities to prevent.
  * Host keys: the lines the operator vouched for are the global file, read-only; a host met for the first
  * time is accepted and remembered in the workspace's own `.ssh/known_hosts` under its home (`accept-new`;
  * the path is written out in full, because `~` inside a fence is not the home for every process that runs
@@ -72,7 +75,6 @@ export interface SshAgent extends FenceSsh {
 const CLIENT_CONFIG = `# Written by Thetis for this fence. The agent on the other side of IdentityAgent holds the keys.
 Host *
   IdentityAgent ${FENCE_SSH_AUTH_SOCK}
-  IdentitiesOnly yes
   BatchMode yes
   StrictHostKeyChecking accept-new
   GlobalKnownHostsFile ${FENCE_SSH_KNOWN_HOSTS}

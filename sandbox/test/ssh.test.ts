@@ -51,7 +51,8 @@ test("the client options make ssh fail rather than hang, and keep host checking 
   // Without BatchMode a missing credential waits on a prompt nobody can answer and the fence's request
   // timer runs out instead, which reads as "ssh is broken" rather than "this fence has no key for that".
   assert.match(config, /BatchMode yes/);
-  assert.match(config, /IdentitiesOnly yes/);
+  // IdentitiesOnly would keep ssh to IdentityFile keys, of which a fence has none: the agent's keys would never be offered.
+  assert.doesNotMatch(config, /IdentitiesOnly/);
   // `no` would turn a missing known-hosts entry into silent acceptance of any key: a downgrade, not a fix.
   assert.match(config, /StrictHostKeyChecking accept-new/);
   assert.match(config, /GlobalKnownHostsFile \/etc\/ssh\/ssh_known_hosts/);
