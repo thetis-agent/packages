@@ -257,7 +257,11 @@ function applyTurn(message) {
   const { session, event, parent } = message;
   noteAgent(message);
   applyActivity(session, event, message.startedAt, parent);
-  if (event.type === "turn.start") store.mark("running", session, true);
+  if (event.type === "turn.start") {
+    store.mark("running", session, true);
+    // A turn in a conversation this page has never listed (started from the command line, or made in another tab): list again.
+    if (!parent && !store.session(session)) scheduleList();
+  }
   if (event.type === "turn.end") {
     store.mark("running", session, false);
     scheduleList();
@@ -289,6 +293,7 @@ connect({
     opened = true;
   },
   onTurn: applyTurn,
+  onSessions: scheduleList,
 });
 
 api("/api/me").then((me) => store.set({ user: me })).catch(() => {});

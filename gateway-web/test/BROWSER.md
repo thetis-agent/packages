@@ -82,6 +82,11 @@ press does not): open a new tab on the same URL and close the old one before the
 11. **Close tabs**: click `.tab.is-active .tab-close`. Expect the neighbour tab `.is-active` and its pane
     shown. Close the last one: expect no `.tab`, `.pane.is-empty.is-active`, `document.title` "Thetis",
     and the composer `.picker` hidden.
+11a. **Another tab's changes**: open a second tab on the same login and create a conversation there
+    with `#new-chat`. Expect the first tab's `#session-list` to show the new row within a second (the
+    stream's `sessions` event lists again), and archiving it from the second tab moves it under
+    `details.session-archived` in the first. A turn started outside the page (a `POST …/send` with curl)
+    in a conversation the page never listed shows its row as soon as `turn.start` arrives.
 12. **Reload** the page. Expect the newest unarchived conversation opened as the one `.tab.is-active`
     with its transcript restored (the `.msg`s and the `.msg-usage`). With a transcript taller than the
     window (or after shrinking the window under it), `#tabs` stays 36px tall and `.chat-bar` 42px: the
@@ -504,7 +509,11 @@ the OpenRouter key in the environment of `serve` (steps 43 and 47 send one messa
     workspace answers, a toast, and the row redrawn `li.pj-dir.is-ready` with `.badge.is-ok` "mounted ·
     read-write" and the state line "The file tools can read and write here." `.pj-warn` is gone for that
     row. `<home>/../../mounts.json` holds `{ "alice": [ { "path": "/tmp", "mode": "rw" } ] }`. The unsaved
-    name in `input.pj-name` survived the bind.
+    name in `input.pj-name` survived the bind. **Under a running turn**: send `spawn: slow: w0 … w79` in
+    a conversation and confirm a bind while it streams. The fence drains first (a tool call in flight gets
+    up to 30 s), so the turn ends with the subagent's reply and no "userspace agent … exited" note, the
+    row still turns `.is-ready` a few seconds later, and after the reconnect the conversation keeps its
+    title and its running events (the record is saved at turn start; the watch replays a running turn).
 51. **Unbind, and the prompt**: the row now offers **Make read-only** and **Unbind**. Click **Make
     read-only**, confirm: the badge turns `.badge.is-accent` "mounted · read-only". Click **Save**, then
     send a message in a conversation of this project: the session record's system prompt has the line

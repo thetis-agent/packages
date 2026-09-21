@@ -430,6 +430,18 @@ test("stopping the parent stops its subagent", async () => {
   assert.equal(parent.children[0].id, childId);
 });
 
+test("the stream says `sessions` when a conversation is created or archived through this gateway", async () => {
+  const cookie = await cookieFor("alice", "wonderland");
+  const control = new AbortController();
+  const gen = frames(cookie, control.signal, "/alice/api/events");
+  assert.equal((await gen.next()).value?.event, "snapshot");
+  const { id } = (await (await api(cookie, "/alice/api/sessions", { method: "POST" })).json()) as { id: string };
+  assert.equal((await gen.next()).value?.event, "sessions");
+  await api(cookie, `/alice/api/sessions/${id}/archive`, { method: "POST", body: JSON.stringify({ archived: true }) });
+  assert.equal((await gen.next()).value?.event, "sessions");
+  control.abort();
+});
+
 test("archive and restore", async () => {
   const cookie = await cookieFor("alice", "wonderland");
   const { id } = (await (await api(cookie, "/alice/api/sessions", { method: "POST" })).json()) as { id: string };

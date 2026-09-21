@@ -34,12 +34,16 @@ export async function api(path, { method = "GET", body } = {}) {
   return data;
 }
 
-/** Opens the event stream. The browser reconnects by itself; every connection starts with a snapshot. */
-export function connect({ onSnapshot, onTurn, onStatus }) {
+/**
+ * Opens the event stream. The browser reconnects by itself; every connection starts with a snapshot.
+ * `sessions` says the list changed on the server (another tab created, named or archived a conversation).
+ */
+export function connect({ onSnapshot, onTurn, onSessions, onStatus }) {
   const source = new EventSource("api/events");
   source.addEventListener("open", () => onStatus("online"));
   source.addEventListener("error", () => onStatus(source.readyState === EventSource.CLOSED ? "offline" : "connecting"));
   source.addEventListener("snapshot", (event) => onSnapshot(JSON.parse(event.data)));
   source.addEventListener("turn", (event) => onTurn(JSON.parse(event.data)));
+  source.addEventListener("sessions", () => onSessions?.());
   return source;
 }

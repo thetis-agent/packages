@@ -144,7 +144,11 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     if (await handlePanel(kernel, req, res, who!, seg, method, url)) return;
     if (seg[1] === "sessions") {
       if (seg.length === 2 && method === "GET") return json(res, 200, await listSessions(user));
-      if (seg.length === 2 && method === "POST") return json(res, 201, { id: (await kernel.sessions.create()).id });
+      if (seg.length === 2 && method === "POST") {
+        const { id } = await kernel.sessions.create();
+        listChanged(user);
+        return json(res, 201, { id });
+      }
       const id = seg[2];
       if (!/^s_[a-f0-9]+$/.test(id ?? "")) throw new HttpError(404, "unknown session");
       if (seg.length === 3 && method === "GET") return json(res, 200, await showSession(user, id));
@@ -161,6 +165,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
         const model = typeof body.model === "string" ? body.model.trim() : "";
         if (model.length > 200) throw new HttpError(400, "model id too long");
         store.setModel(user, id, model);
+        listChanged(user);
         return json(res, 200, { id, model: model || null });
       }
       if (seg[3] === "title" && method === "POST") {
@@ -168,6 +173,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
         const body = await readJson(req);
         const title = typeof body.title === "string" ? body.title.replace(/\s+/g, " ").trim().slice(0, 120) : "";
         store.setTitle(user, id, title);
+        listChanged(user);
         return json(res, 200, { id, title: title || null });
       }
       if (seg[3] === "cancel" && method === "POST") {
@@ -178,6 +184,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
         await kernel.sessions.inspect(id);
         const body = await readJson(req);
         store.setArchived(user, id, body.archived !== false);
+        listChanged(user);
         return json(res, 200, { id, archived: body.archived !== false });
       }
     }
@@ -314,16 +321,30 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     if (Object.keys(entries).length) store.setUsage(user, run.session, entries);
   }
 
-  /** Server-Sent Events. First a `snapshot` of the turns in progress, then every event as `turn`. */
+  /** The open streams per user, told `sessions` when this gateway changed the list, so every tab redraws it. */
+  const streams = new Map<string, Set<() => void>>();
+  function listChanged(user: string): void {
+    for (const fn of streams.get(user) ?? []) fn();
+  }
+
+  /**
+   * Server-Sent Events. First a `snapshot` of the turns in progress, then every event as `turn`, and
+   * `sessions` (no body) whenever a conversation was created, named, archived or given a model here.
+   */
   function stream(req: IncomingMessage, res: ServerResponse, user: string): void {
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive", "X-Accel-Buffering": "no" });
     const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     send("snapshot", { user, running: hub.snapshot(user) });
     const unsubscribe = hub.subscribe(user, (message) => send("turn", message));
+    const onList = () => send("sessions", {});
+    let set = streams.get(user);
+    if (!set) streams.set(user, (set = new Set()));
+    set.add(onList);
     const keepAlive = setInterval(() => res.write(": keep-alive\n\n"), 20_000);
     req.on("close", () => {
       clearInterval(keepAlive);
       unsubscribe();
+      set!.delete(onList);
     });
   }
 
