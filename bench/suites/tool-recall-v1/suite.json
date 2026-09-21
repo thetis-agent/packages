@@ -1,7 +1,9 @@
 {
   "id": "tool-recall@1",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "probe": "A",
-  "description": "What share of the tools the model is offered a task actually needed, and what the rest cost. Today every installed tool is attached to every query, so recall is one by construction and the number worth reading is the waste.",
+  "corpus": "tool-groups@1",
+  "description": "Given a request, which tool groups did the harness put in the call, and what did the rest cost? Every arm gets the same corpus of tool groups as installed packages; a routing arm decides which to attach, and is scored on the canaries in the tool segment against the groups the task names.",
+  "base": ["../../fixtures/tool-corpus"],
   "runs": 1
 }

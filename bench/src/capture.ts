@@ -19,6 +19,8 @@ export interface CaptureLine {
   toolIds: string[];
   toolBytes: Record<string, number>;
   canaryDirect: string[];
+  /** Canaries found in the tool schemas: a corpus of tools proves reach here, not in the system prompt. */
+  canaryTools?: string[];
   idsMentioned: string[];
   idsReturned: string[];
   canaryReturned: string[];
@@ -71,6 +73,7 @@ export function reconcile(rounds: readonly CaptureLine[], claims: Readonly<Recor
   const returned = new Set<string>();
   for (const round of rounds) {
     for (const id of round.canaryDirect) canaried.add(id);
+    for (const id of round.canaryTools ?? []) canaried.add(id);
     for (const id of round.idsMentioned) mentioned.add(id);
     for (const id of round.idsReturned ?? []) returned.add(id);
     for (const id of round.canaryReturned ?? []) canaried.add(id);

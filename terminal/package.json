@@ -71,7 +71,9 @@
               "description": "Start it and answer at once. For a build, a test suite or a server whose output you want later."
             }
           },
-          "required": ["cmd"]
+          "required": [
+            "cmd"
+          ]
         },
         "export": "shell"
       },
@@ -112,7 +114,9 @@
               "description": "Append a newline, as pressing Enter would. Default true."
             }
           },
-          "required": ["text"]
+          "required": [
+            "text"
+          ]
         },
         "export": "shellSend"
       },
@@ -156,20 +160,60 @@
           "hint": "The shells this workspace has open"
         }
       ],
-      "chips": [{ "id": "terminal", "order": 50 }],
+      "chips": [
+        {
+          "id": "terminal",
+          "order": 50
+        }
+      ],
       "commands": [
-        { "verb": "sessions", "export": "uiSessions", "label": "List the shell sessions" },
-        { "verb": "open", "export": "uiOpen", "label": "Open a shell session" },
-        { "verb": "write", "export": "uiWrite", "label": "Type into a session" },
-        { "verb": "interrupt", "export": "uiInterrupt", "label": "Interrupt what a session is running" },
-        { "verb": "resize", "export": "uiResize", "label": "Tell a session its size" },
-        { "verb": "close", "export": "uiClose", "label": "Close a session" },
-        { "verb": "rename", "export": "uiRename", "label": "Name a session" },
-        { "verb": "watch", "export": "uiWatch", "label": "Watch every session", "stream": true }
+        {
+          "verb": "sessions",
+          "export": "uiSessions",
+          "label": "List the shell sessions"
+        },
+        {
+          "verb": "open",
+          "export": "uiOpen",
+          "label": "Open a shell session"
+        },
+        {
+          "verb": "write",
+          "export": "uiWrite",
+          "label": "Type into a session"
+        },
+        {
+          "verb": "interrupt",
+          "export": "uiInterrupt",
+          "label": "Interrupt what a session is running"
+        },
+        {
+          "verb": "resize",
+          "export": "uiResize",
+          "label": "Tell a session its size"
+        },
+        {
+          "verb": "close",
+          "export": "uiClose",
+          "label": "Close a session"
+        },
+        {
+          "verb": "rename",
+          "export": "uiRename",
+          "label": "Name a session"
+        },
+        {
+          "verb": "watch",
+          "export": "uiWatch",
+          "label": "Watch every session",
+          "stream": true
+        }
       ]
     },
     "bench": {
-      "suites": ["assembly-cost@1", "tool-recall@1"],
+      "suites": [
+        "assembly-cost@1"
+      ],
       "peerGroup": "tools"
     }
   }

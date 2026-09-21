@@ -97,6 +97,8 @@ export interface BenchDecl {
   importer?: string;
   adapter?: string;
   arms?: string[];
+  /** Per arm in `arms`, the configuration of this package under which that arm runs. An arm without an entry runs on the defaults. */
+  armConfig?: Record<string, Record<string, unknown>>;
   /** Where the generated view goes inside the package. Default `bench`. */
   report?: string;
 }

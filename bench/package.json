@@ -1,6 +1,6 @@
 {
   "name": "@thetis/bench",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "license": "MIT",
   "description": "Measures the harness: what a package makes available for a query, what it costs in bytes and round trips, and how it compares with its peers. Not installable.",
   "type": "module",

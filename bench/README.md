@@ -12,17 +12,17 @@ bench run <suite-id|suite-dir> [--write] [--force] [--out <dir>] [--sandbox auto
 bench verify [<package-dir>]
 ```
 
-`run` measures a floor arm with no participating package, one arm per package that opted into the suite, and, when every participant is a shipped `@thetis/*` package, an `all` arm with all of them. Its exit code is 0 when every arm conformed and 1 when one did not. `verify` checks a package's `thetis.bench` declaration without running anything.
+`run` measures a floor arm with no participating package, one arm per package that opted into the suite, one more arm per name in a package's `thetis.bench.arms` under that arm's `armConfig` (set at the arm's own user layer, so two configurations of one package never share a setting), and, when every participant is a shipped `@thetis/*` package, an `all` arm with all of them. A suite's `base` packages go to every arm, the floor included. Its exit code is 0 when every arm conformed and 1 when one did not. `verify` checks a package's `thetis.bench` declaration without running anything.
 
 Three suites under `suites/`:
 
 | Suite | Needs | Measures |
 |---|---|---|
 | `assembly-cost@1` | nothing | What a package costs the prompt: bytes by segment (`system`, `tools`, `messages`), how much of the prefix survives a turn, how many steps ran. Any package with a step or a tool can opt in. |
-| `tool-recall@1` | authored gold, `suites/tool-recall-v1/GOLD.md` | What share of the offered tools a task needed, and what the rest cost. |
+| `tool-recall@1` | the tool-groups corpus, `suites/tool-recall-v1/corpus.jsonl`, authored (`GOLD.md`) | Which tool groups a request put in the call, and what the rest cost. The corpus reaches every arm as installed packages through `suites/tool-recall-v1/suite.json`'s `base` fixture; a routing package is scored on the canaries in the tool segment: `route_recall`, `route_precision`, `route_f1`, `routed_nothing`, `surface_tools`. |
 | `skill-recall@1` | the capability corpus, imported from SkillRet (`suites/skill-recall-v1/GOLD.md` and `NOTICE.md`) | Which capabilities a request made reachable, how far away they were, and what the rest cost. |
 
-The fixtures under `fixtures/` are the bench's own provider, `@thetis/provider-bench`, which records the `ProviderCall` it was given and answers from a script, and four reference arms for `skill-recall@1`: `skills-flat`, `skills-l1`, `skills-rank`, and `skills-liar`, which exists to be caught. Every run also installs `@thetis/bench-probe` and adds the phase `bench` to the pipeline, which is how a package's bench steps get to run.
+The fixtures under `fixtures/` are the bench's own provider, `@thetis/provider-bench`, which records the `ProviderCall` it was given and answers from a script, four reference arms for `skill-recall@1`: `skills-flat`, `skills-l1`, `skills-rank`, and `skills-liar`, which exists to be caught, and `tool-corpus`, which installs the `tool-recall@1` corpus into every arm as one package per group. Every run also installs `@thetis/bench-probe` and adds the phase `bench` to the pipeline, which is how a package's bench steps get to run.
 
 Claims are checked, not believed: every corpus record carries a canary token, and reach is proved by finding it in the assembled prompt. `adapterLies` fails the run. Units are bytes, not tokens, kept apart by segment, because the repository has no tokeniser.
 
@@ -38,7 +38,7 @@ A package opts in through its own manifest:
 "bench": { "suites": ["assembly-cost@1", "tool-recall@1"], "peerGroup": "tools" }
 ```
 
-A suite that hands out a corpus also needs `corpus`, `importer` and `adapter`; the importer and adapter must also be declared in `thetis.steps` with phase `bench`. `report` names the directory the package's view goes to (default `bench`).
+A suite that hands out a corpus also needs `corpus`, `importer` and `adapter`; the importer and adapter must also be declared in `thetis.steps` with phase `bench`. `report` names the directory the package's view goes to (default `bench`). `arms` names further configurations of the package and `armConfig` gives each its settings: `"arms": ["dense"], "armConfig": { "dense": { "denseMode": "fallback" } }`.
 
 ## Use
 
@@ -74,8 +74,8 @@ Continuous integration regenerates every report and fails on any difference, the
 | `src/report.ts`, `src/peers.ts` | The report, its digest, the package views, the peer rule. |
 | `src/chart.ts` | `chart.svg`: the compared columns of one view as bars, derived from the view alone so a rerun writes the same bytes. `BENCH.md` shows it with a relative image path, and a README can do the same. |
 | `src/suite.ts`, `src/corpus.ts`, `src/manifest.ts` | Suites, corpora, `validateBench`. |
-| `suites/`, `fixtures/`, `scripts/import-skillret.mjs` | The three suites, the provider and reference arms, the corpus importer. |
+| `suites/`, `fixtures/`, `scripts/import-skillret.mjs`, `scripts/author-tool-groups.mjs` | The three suites, the provider and reference arms, the skills corpus importer, the tool-groups corpus author. |
 
 ## Tests
 
-`npm test` from the runtime root. The files are `test/metrics.test.ts`, `test/report.test.ts`, `test/chart.test.ts`, `test/safety.test.ts`, `test/arena.e2e.test.ts`, `test/skills.e2e.test.ts`, `test/provider.test.js` and `test/upstream.test.js`.
+`npm test` from the runtime root. The files are `test/metrics.test.ts`, `test/report.test.ts`, `test/chart.test.ts`, `test/safety.test.ts`, `test/arena.e2e.test.ts`, `test/skills.e2e.test.ts`, `test/provider.test.js`, `test/upstream.test.js` and `test/tool-corpus.test.js`.

@@ -57,14 +57,18 @@ The defaults of the object fields:
 
 ```json
 "systemPackages": {
-  "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache", "@thetis/tools-files", "@thetis/tools-plan", "@thetis/terminal", "@thetis/gateway-web", "@thetis/ui-tools", "@thetis/ui-context", "@thetis/projects", "@thetis/ui-admin", "@thetis/ui-marketplace", "@thetis/skills", "@thetis/skills-thetis", "@thetis/skills-hybrid", "@thetis/ui-skills"],
+  "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache", "@thetis/tools-files", "@thetis/tools-plan", "@thetis/terminal", "@thetis/gateway-web", "@thetis/ui-tools", "@thetis/ui-context", "@thetis/projects", "@thetis/ui-admin", "@thetis/ui-marketplace", "@thetis/skills", "@thetis/skills-thetis", "@thetis/skills-hybrid", "@thetis/tool-groups", "@thetis/ui-skills"],
   "_system": ["@thetis/provider-openrouter", "@thetis/gateway-login", "@thetis/marketplace"]
 },
 "packages": {
   "@thetis/provider-openrouter": { "apiKey": "${OPENROUTER_API_KEY}", "baseUrl": "https://openrouter.ai/api/v1" },
-  "@thetis/marketplace": { "registries": [{ "name": "thetis", "url": "https://github.com/thetis-agent/packages.git" }] }
+  "@thetis/marketplace": { "registries": [{ "name": "thetis", "url": "https://github.com/thetis-agent/packages.git" }] },
+  "@thetis/skills-hybrid": { "embeddings": { "apiKey": "${OPENROUTER_API_KEY}" } },
+  "@thetis/tool-groups": { "embeddings": { "apiKey": "${OPENROUTER_API_KEY}" } }
 }
 ```
+
+An installation made before a package joined `"*"` has its own `systemPackages` in `thetis.config.json`, and the kernel does not rewrite that file: add the package there, or install it for everyone with `thetis packages install @thetis/<name>`.
 
 `"*"` applies to every person's userspace, together with every promoted package. A user id applies to that userspace only. `_system` gets only its own list. An existing userspace gets a new system package with `thetis packages install @thetis/<name> --user <id>`.
 
@@ -111,6 +115,8 @@ Known keys:
 | `@thetis/marketplace` | `registries`, `refreshMinutes`. |
 | `@thetis/gateway-login` | `secure`. |
 | `@thetis/exa` | `apiKey`, `baseUrl`, `timeoutMs`, `defaults`. |
+| `@thetis/skills-hybrid` | `fusionWeight`, `pinLimit`, `pinBodies`, `embeddings`. |
+| `@thetis/tool-groups` | `routeThreshold`, `denseFallback`, `denseMode`, `fusionWeight`, `alwaysOn`, `listAlwaysOn`, `embeddings`. |
 
 `@thetis/gateway-web`, `@thetis/harness-core`, `@thetis/tool-exec`, `@thetis/tools-files`, `@thetis/tools-plan`, and `@thetis/projects` have no keys. `@thetis/terminal` takes `shell`, `sessions`, `bufferBytes`, `idleMinutes` and `waitMs`; see `thetis/using`.
 

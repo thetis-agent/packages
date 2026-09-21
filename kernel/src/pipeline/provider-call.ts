@@ -1,4 +1,4 @@
-import type { Fences, Message, ProviderEvent, StepContext, StepResult, ToolCall, ToolSpec, TurnEvent, Userspace } from "@thetis/contracts";
+import type { Fences, Message, PackageInfo, ProviderEvent, StepContext, StepResult, ToolCall, ToolSpec, TurnEvent, Userspace } from "@thetis/contracts";
 import { CodedError, errorCode, errorMessage } from "@thetis/lib/error";
 import type { ProviderRegistry, ResolvedProvider } from "../providers.js";
 import type { Settings } from "../settings.js";
@@ -19,6 +19,21 @@ export function isCancelled(err: unknown): boolean {
 
 export function checkCancelled(signal?: AbortSignal): void {
   if (signal?.aborted) throw new CodedError("turn cancelled", "cancelled");
+}
+
+/**
+ * A tool a scoping step took out of the call and named in `hints.withheld`, resolved against what the installed
+ * packages declare. Scoping is an attention and token optimisation, never a permission boundary, so a call to
+ * such a tool is honoured; a tool nothing withheld, or no package declares, stays unknown.
+ */
+function withheldTool(call: StepContext["call"], packages: readonly PackageInfo[], name: string): ToolSpec | undefined {
+  const withheld = call.hints?.withheld;
+  if (!Array.isArray(withheld) || !withheld.includes(name)) return undefined;
+  for (const pkg of packages) {
+    const t = pkg.thetis.tools?.find((x) => x.name === name);
+    if (t) return { name, description: t.description, parameters: t.parameters ?? { type: "object", properties: {} }, package: pkg.name, export: t.export };
+  }
+  return undefined;
 }
 
 /**
@@ -99,7 +114,7 @@ export class ProviderCallStep {
   }
 
   private async runTool(us: Userspace, ctx: StepContext, tools: ToolSpec[], tc: ToolCall, emit: Emit, signal?: AbortSignal): Promise<Message> {
-    const spec = tools.find((t) => t.name === tc.name);
+    const spec = tools.find((t) => t.name === tc.name) ?? withheldTool(ctx.call, ctx.packages, tc.name);
     let result: string;
     try {
       if (!spec) throw new CodedError(`unknown tool: ${tc.name}`, "tool");

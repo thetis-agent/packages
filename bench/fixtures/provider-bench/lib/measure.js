@@ -101,6 +101,8 @@ export function measure(call, canaries, previousSystem) {
     toolIds: (call.tools ?? []).map(toolId).sort(),
     toolBytes: toolBytes(call.tools),
     canaryDirect: canariesIn(system, canaries),
+    // A tool group proves it is attached by the canary in one of its tool descriptions.
+    canaryTools: canariesIn(tools, canaries),
     idsMentioned: idsIn(`${system}\n${tools}`, ids),
     // What a round trip actually produced. A mechanism that keeps its corpus behind a search tool can only
     // show it is reachable by returning it; saying so in a claim is not the same thing.

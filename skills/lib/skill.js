@@ -5,7 +5,8 @@ import { posix } from "node:path";
 import { parseFrontmatter, splitDocument } from "./frontmatter.js";
 
 export const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
-export const TAG_RE = /^[a-z0-9][a-z0-9-]{0,47}$/;
+// A colon is allowed once so a tag can point at a tool group: `tool-group:<id>`. See @thetis/tool-groups.
+export const TAG_RE = /^(?=.{1,48}$)[a-z0-9][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)?$/;
 export const RESERVED = new Set(["references", "scripts", "assets"]);
 export const LIMITS = Object.freeze({ description: 1024, body: 64 * 1024, tags: 32, depth: 3, universal: 8, brief: 160 });
 

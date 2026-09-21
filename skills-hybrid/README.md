@@ -77,10 +77,10 @@ The package reads no environment variables itself. It writes `skills-hybrid/vect
 |---|---|
 | `package.json` | The manifest: the three steps, the tool, the bench declaration. |
 | `index.js` | `pin`, `skillSearch`, `importCorpus`, `seedVectors`, `benchReport`, `queryOf`. |
-| `lib/embed.js` | The configuration defaults, the embeddings request, the cache, the cosine. |
+| `lib/embed.js` | This loader's cache path and index text over the shared embeddings library in `@thetis/skills` (the request, the cache format, the cosine). |
 | `lib/rank.js` | The dense list, the fusion with the parent rules, the `how` labels. |
 | `lib/retrieve.js` | One ranking of skills against a query, with the fallback. |
-| `lib/vectors.js` | The bench vector file by corpus digest. |
+| `lib/vectors.js` | The bench vector file by corpus digest, through the shared reader, bound to this package's directory. |
 | `scripts/embed-corpus.mjs` | Writes the bench vector file. Needs `OPENROUTER_API_KEY`. |
 | `bench/vectors/<sha256>.json` | The vectors of `caps@1` and the queries of `skill-recall@1`. |
 | `test/hybrid.test.js` | Fusion determinism, the pin across turns and after a pack update, the fallback, the cache, batching, the bench file, the claim, `skill_search`. |

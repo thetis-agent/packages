@@ -6,6 +6,7 @@ import type { Observation } from "./runner.js";
 import { bootstrap, paired, seedOf, type Interval, type Paired } from "./metrics/stats.js";
 import { bitsOverRandom, score as recallScore, type Gold } from "./metrics/recall.js";
 import { hitAt1, mrr, ndcg } from "./metrics/ranking.js";
+import { routeScore, surfaceTools, type Routing } from "./metrics/routing.js";
 import type { Task } from "./suite.js";
 
 /** A metric that every arm can produce, whatever its mechanism. These are the only ones that may be compared. */
@@ -38,6 +39,11 @@ export const SHARED = [
   "tool_wasted_bytes",
   "tool_needed_bytes",
   "tool_forbidden_hit",
+  "route_recall",
+  "route_precision",
+  "route_f1",
+  "routed_nothing",
+  "surface_tools",
   "cost_usd",
   "prompt_tokens",
   "completion_tokens",
@@ -69,7 +75,7 @@ const goldOf = (task: Task): Gold => ({
 });
 
 /** Every number this observation supports. A metric the arm cannot produce is absent, not zero. */
-export function metricsOf(observation: Observation, task: Task, registrySize: number): Partial<Record<MetricName, number>> {
+export function metricsOf(observation: Observation, task: Task, registrySize: number, routing?: Routing): Partial<Record<MetricName, number>> {
   const b = bytesOf(observation.rounds);
   const available = observation.reconciled.available;
   const gold = goldOf(task);
@@ -128,6 +134,16 @@ export function metricsOf(observation: Observation, task: Task, registrySize: nu
     if (task.forbidden?.length) out.tool_forbidden_hit = task.forbidden.some((id) => offered.has(id)) ? 1 : 0;
   }
 
+  // Tool groups: which corpus groups had a tool schema in the first round, proved by the canary in the tool
+  // segment. Scored against the groups the task names, with the always-on groups left out of precision, since
+  // every arm carries those for every task and counting them would punish all arms alike.
+  if (Array.isArray(task.groups) && routing) {
+    const routed = new Set(observation.rounds[0]?.canaryTools ?? []);
+    out.surface_tools = surfaceTools(routed, routing.toolCount);
+    const r = routeScore(routed, new Set(task.groups), routing.alwaysOn);
+    if (r) Object.assign(out, r);
+  }
+
   // With a model in the loop: when the mechanism asks the model to choose, did it choose correctly? This is
   // a per-arm number, not a shared one. A mechanism that pins what it thinks is right never asks, so it has
   // no selection to score, and scoring its absence as a failure would compare two different acts.
@@ -167,7 +183,7 @@ export interface ArmScore {
 
 type ByTask = Map<string, Partial<Record<MetricName, number>>>;
 
-function collect(observations: readonly Observation[], tasks: readonly Task[], registrySize: number): Map<string, ByTask> {
+function collect(observations: readonly Observation[], tasks: readonly Task[], registrySize: number, routing?: Routing): Map<string, ByTask> {
   const byTask = new Map<string, Task>(tasks.map((t) => [t.id, t]));
   const out = new Map<string, ByTask>();
   for (const o of observations) {
@@ -175,7 +191,7 @@ function collect(observations: readonly Observation[], tasks: readonly Task[], r
     if (!task) continue;
     const arm = out.get(o.arm) ?? new Map();
     // Repeated attempts of a deterministic probe are the same row; the last one wins.
-    arm.set(o.task, metricsOf(o, task, registrySize));
+    arm.set(o.task, metricsOf(o, task, registrySize, routing));
     out.set(o.arm, arm);
   }
   return out;
@@ -189,9 +205,9 @@ function common(a: ByTask, b: ByTask, metric: MetricName): string[] {
 export function summarise(
   observations: readonly Observation[],
   tasks: readonly Task[],
-  opts: { floor: string; suite: string; registrySize?: number },
+  opts: { floor: string; suite: string; registrySize?: number; routing?: Routing },
 ): ArmScore[] {
-  const byArm = collect(observations, tasks, opts.registrySize ?? 0);
+  const byArm = collect(observations, tasks, opts.registrySize ?? 0, opts.routing);
   const floor = byArm.get(opts.floor);
   const out: ArmScore[] = [];
 

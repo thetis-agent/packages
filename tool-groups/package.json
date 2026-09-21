@@ -1,0 +1,120 @@
+{
+  "name": "@thetis/tool-groups",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Scopes the tool list to the groups a conversation looks like it needs: one group per package, routed once on the first message by tags, skill edges and a dense fallback, pinned for the conversation, and tool_search to load the rest.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "@thetis/skills": "^0.1.0"
+  },
+  "thetis": {
+    "type": "loader",
+    "config": {
+      "routeThreshold": {
+        "type": "number",
+        "default": 0.15,
+        "help": "The tag score at which a group is admitted; one distinct tag match scores 0.5, so the default admits on a single match."
+      },
+      "denseFallback": {
+        "type": "number",
+        "default": 2,
+        "help": "How many groups the dense ranking admits when the tags admitted none; 0 turns the fallback off."
+      },
+      "denseMode": {
+        "type": "string",
+        "default": "fallback",
+        "help": "off: tags only. fallback: dense ranking only when the tags admitted nothing. fusion: the lexical and dense lists fused by reciprocal rank, the top denseFallback admitted whatever the tags said."
+      },
+      "fusionWeight": {
+        "type": "number",
+        "default": 0.7,
+        "help": "The dense share in the rank fusion of denseMode fusion and of tool_search: 0 is lexical only, 1 is dense only."
+      },
+      "alwaysOn": {
+        "type": "array",
+        "default": [],
+        "help": "Group ids admitted for every conversation on top of the core: the groups of the packages everyone has, and any package that declares alwaysOn."
+      },
+      "listAlwaysOn": {
+        "type": "boolean",
+        "default": false,
+        "help": "List the always-on groups in the prompt's Tool groups section too. Off by default: they are always there and the line would only cost bytes."
+      },
+      "embeddings": {
+        "type": "object",
+        "help": "The vector source for the dense fallback, an OpenAI-compatible embeddings endpoint: baseUrl (https://openrouter.ai/api/v1), apiKey (without one the routing is lexical), model (openai/text-embedding-3-small) and dimensions (1536)."
+      }
+    },
+    "steps": [
+      {
+        "id": "bench-import",
+        "phase": "bench",
+        "export": "importCorpus"
+      },
+      {
+        "id": "route",
+        "phase": "prompt",
+        "export": "route"
+      },
+      {
+        "id": "scope",
+        "phase": "call",
+        "export": "scope"
+      },
+      {
+        "id": "bench-report",
+        "phase": "bench",
+        "export": "benchReport"
+      }
+    ],
+    "tools": [
+      {
+        "name": "tool_search",
+        "description": "Find and load a group of tools that is not in your tool list. Your list is scoped to what this conversation looks like it needs, so tools you have may not be visible right now. Call this with what you are trying to do, or with group ids to load, and the matching groups are added for the rest of the conversation. Nothing is ever removed. Call it the moment you suspect a tool exists but cannot see it, rather than working around the gap. With no arguments it lists every group.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "What you need to do, in a sentence, or a group id. Omit to list every group without loading anything."
+            },
+            "load": {
+              "type": "array",
+              "description": "Group ids to load outright, skipping the ranking.",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "export": "toolSearch"
+      }
+    ],
+    "bench": {
+      "suites": [
+        "tool-recall@1",
+        "assembly-cost@1"
+      ],
+      "corpus": "tool-groups@1",
+      "peerGroup": "tool-groups",
+      "importer": "importCorpus",
+      "adapter": "benchReport",
+      "arms": [
+        "lexical",
+        "fusion"
+      ],
+      "armConfig": {
+        "lexical": {
+          "denseMode": "off"
+        },
+        "fusion": {
+          "denseMode": "fusion"
+        }
+      }
+    }
+  }
+}

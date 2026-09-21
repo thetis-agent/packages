@@ -115,7 +115,7 @@ The runner checks each result. An invalid result ends the turn with an `error` e
 5. On an error: `error` with the message and the code. The loop stops.
 6. Always: save `conversation` and `harness`. Emit `turn.end`.
 
-The built-in call sends `call` to the provider. It repeats until the model answers without a tool call. Each tool call runs in the fence. The tool message is `{ role: "tool", content, toolCallId, name }`. An unknown tool name gives `error: unknown tool: <name>`. A thrown tool error gives `error: <message>`. Tool results never end the turn.
+The built-in call sends `call` to the provider. It repeats until the model answers without a tool call. Each tool call runs in the fence. The tool message is `{ role: "tool", content, toolCallId, name }`. An unknown tool name gives `error: unknown tool: <name>`, unless the name is in `call.hints.withheld`: a scoping step (`@thetis/tool-groups`) lists there the tools it took out of `call.tools`, and the kernel resolves such a name against the installed packages and runs it. A thrown tool error gives `error: <message>`. Tool results never end the turn.
 
 The built-in call returns `{ conversation, call }` with the reply and the tool rounds appended to both. It does not change `harness`.
 

@@ -37,6 +37,9 @@ export function validateBench(name: string, thetis: ThetisField): string[] {
   if (bench.arms && new Set(bench.arms).size !== bench.arms.length) {
     problems.push(`${name}: thetis.bench.arms repeats a name`);
   }
+  for (const arm of Object.keys(bench.armConfig ?? {})) {
+    if (!bench.arms?.includes(arm)) problems.push(`${name}: thetis.bench.armConfig names "${arm}", which is not in thetis.bench.arms`);
+  }
   for (const step of steps) {
     if (step.phase === BENCH_PHASE && !bench.suites?.length) {
       problems.push(`${name}: step "${step.id}" is declared in the bench phase but the package opts into no suite`);

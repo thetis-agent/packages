@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { bootstrap, mean, normalisedGain, paired, random, seedOf, signFlip } from "../src/metrics/stats.js";
 import { bitsOverRandom, overshootBytes, reachOf, score, type Available, type Gold } from "../src/metrics/recall.js";
 import { hitAt1, invariance, mrr, ndcg } from "../src/metrics/ranking.js";
+import { routeScore, routingOf, surfaceTools } from "../src/metrics/routing.js";
 
 const gold = (required: string[], forbidden: string[] = []): Gold => ({
   required: new Set(required),
@@ -179,4 +180,21 @@ test("invariance catches a matcher that keys on the words a variant rewrites", (
 test("a seed is a pure function of its parts", () => {
   assert.equal(seedOf(["suite", 1]), seedOf(["suite", 1]));
   assert.notEqual(seedOf(["suite", 1]), seedOf(["suite", 2]));
+});
+
+test("route scores are over the routable groups: the always-on core is neither a hit nor a miss", () => {
+  const routing = routingOf([
+    { id: "files", name: "files", description: "", body: "x", tags: [], canary: "x", alwaysOn: true, tools: [1, 2, 3] } as never,
+    { id: "web", name: "web", description: "", body: "x", tags: [], canary: "x", tools: [1, 2] } as never,
+    { id: "moo", name: "moo", description: "", body: "x", tags: [], canary: "x", tools: [1] } as never,
+  ]);
+  assert.deepEqual([...routing.alwaysOn], ["files"]);
+  const routed = new Set(["files", "web", "moo"]);
+  assert.deepEqual(routeScore(routed, new Set(["web"]), routing.alwaysOn), { route_recall: 1, route_precision: 0.5, route_f1: 2 / 3, routed_nothing: 0 });
+  assert.deepEqual(routeScore(new Set(["files"]), new Set(["web"]), routing.alwaysOn), { route_recall: 0, route_precision: 0, route_f1: 0, routed_nothing: 1 });
+  assert.deepEqual(routeScore(new Set(["files", "moo"]), new Set(["web"]), routing.alwaysOn), { route_recall: 0, route_precision: 0, route_f1: 0, routed_nothing: 0 }, "the wrong group is not nothing");
+  assert.equal(routeScore(routed, new Set(["files"]), routing.alwaysOn), null, "a task that needs only the core has no routing to score");
+  assert.equal(routeScore(routed, new Set(), routing.alwaysOn), null);
+  assert.equal(surfaceTools(routed, routing.toolCount), 6);
+  assert.equal(surfaceTools(new Set(["files", "nothing"]), routing.toolCount), 3);
 });

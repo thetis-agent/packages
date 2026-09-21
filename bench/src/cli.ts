@@ -12,6 +12,7 @@ import { loadSuite, visible, type SuiteDef, type Task } from "./suite.js";
 import { hasCorpus, loadCorpus } from "./corpus.js";
 import { validateBench } from "./manifest.js";
 import { seedOf } from "./metrics/stats.js";
+import { routingOf } from "./metrics/routing.js";
 
 export const FLOOR = "none";
 /** Every participating package at once: the harness as installed. */
@@ -62,7 +63,9 @@ export async function run(args: RunArgs): Promise<{ report: ReturnType<typeof bu
   // The floor, then each package alone. A combined arm is added only when the participants are all shipped
   // system packages, because those add up to the harness a person actually runs; competing mechanisms are
   // alternatives to each other, and installing three retrievers at once would measure none of them.
-  const arms: Arm[] = [{ id: FLOOR }, ...all.map((p) => ({ id: armIdFor(p), packages: [p.dir] }))];
+  // A package with `bench.arms` runs once more per named arm, under that arm's configuration of itself.
+  const own = (p: Participant): Arm[] => (p.bench.arms ?? []).map((arm) => ({ id: `${armIdFor(p)}-${arm}`, packages: [p.dir], config: { [p.name]: p.bench.armConfig?.[arm] ?? {} } }));
+  const arms: Arm[] = [{ id: FLOOR }, ...all.flatMap((p) => [{ id: armIdFor(p), packages: [p.dir] }, ...own(p)])];
   const complementary = all.length > 1 && all.every((p) => p.name.startsWith("@thetis/"));
   if (complementary) arms.push({ id: ALL, packages: all.map((p) => p.dir) });
   log(
@@ -74,7 +77,10 @@ export async function run(args: RunArgs): Promise<{ report: ReturnType<typeof bu
     arms,
     sandbox: args.sandbox,
     script: suite.script,
-    ...(corpus ? { corpus: { id: corpus.id, version: corpus.version, records: corpus.records }, canaries: corpus.canaries } : {}),
+    // The harness and the probe, then what the suite says every arm gets: a corpus of tools reaches the floor this way.
+    base: [resolve(args.project, "packages/harness-core"), resolve(args.project, "packages/bench-probe"), ...(suite.base ?? []).map((rel) => resolve(args.suiteDir, rel))],
+    // The digest goes with the records: an importer looks a vector file up by it.
+    ...(corpus ? { corpus: { id: corpus.id, version: corpus.version, sha256: corpus.sha256, records: corpus.records }, canaries: corpus.canaries } : {}),
     ...(args.model
       ? {
           upstream: {
@@ -93,7 +99,7 @@ export async function run(args: RunArgs): Promise<{ report: ReturnType<typeof bu
       warmup: args.model ? 0 : 1,
       onProgress: (line) => log(`    ${line}`),
     });
-    const scores = summarise(observations, tasks, { floor: FLOOR, suite: suite.id, registrySize: corpus?.records.length ?? 0 });
+    const scores = summarise(observations, tasks, { floor: FLOOR, suite: suite.id, registrySize: corpus?.records.length ?? 0, ...(corpus ? { routing: routingOf(corpus.records) } : {}) });
     const inputs: ReportInputs = {
       probe: suite.probe,
       suite: {
@@ -139,7 +145,8 @@ export async function run(args: RunArgs): Promise<{ report: ReturnType<typeof bu
       for (const p of all) {
         const check = comparable(p, all, suite.id, p.bench.corpus);
         const peerArms = check.peers.map((name) => armIdFor(all.find((x) => x.name === name) as Participant));
-        const view = viewFor(report, p.name, armIdFor(p), p.peerGroup, complementary ? [...peerArms, ALL] : peerArms);
+        const ownArms = own(p).map((a) => a.id);
+        const view = viewFor(report, p.name, armIdFor(p), p.peerGroup, [...ownArms, ...peerArms, ...(complementary ? [ALL] : [])]);
         const written = writePackageView(p.dir, view, p.bench.report, args.force);
         // The chart sits beside the view and follows the same rule: rewritten when the view is, never otherwise.
         const chart = writeChart(p.dir, view, p.bench.report, args.force);
@@ -187,9 +194,15 @@ function findings(observations: readonly Observation[], tasks: readonly Task[], 
   }
   const statesCapabilities = tasks.some((t) => (t.required ?? []).length);
   const statesTools = tasks.some((t) => (t.tools ?? []).length);
-  if (!statesCapabilities && !statesTools) {
+  const statesGroups = tasks.some((t) => (t.groups ?? []).length);
+  if (statesGroups) {
+    notes.push(
+      "Tasks name the tool groups they need. route_recall, route_precision and route_f1 are scored from the canaries found in the tool segment of the first round, with the always-on groups left out of precision; routed_nothing is the share of tasks with a need where no routable group was admitted; surface_tools counts the corpus tools attached. The floor attaches everything, so its recall is one by construction and its precision is the base rate.",
+    );
+  }
+  if (!statesCapabilities && !statesTools && !statesGroups) {
     notes.push(`Suite ${suite.id} names nothing a task needed, so recall, overshoot and completeness are not computed — only footprint.`);
-  } else if (!statesCapabilities) {
+  } else if (!statesCapabilities && statesTools) {
     notes.push(
       `Suite ${suite.id} names the tools each task needed but no capabilities, so the capability columns are absent. The tool gold is authored rather than imported; ${"`"}packages/bench/suites/tool-recall-v1/GOLD.md${"`"} says why that is defensible for tools and would not be for skills.`,
     );

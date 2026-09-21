@@ -1,0 +1,15 @@
+{
+  "id": "tool-groups@1",
+  "version": "1.0.0",
+  "sha256": "sha256:b945a3069de23f68b13b82f40e5a170a53fc6342f34a25a053c76623115dc0f4",
+  "records": 21,
+  "file": "corpus.jsonl",
+  "seed": "thetis/bench/tool-groups/v1",
+  "sampling": {
+    "rule": "authored: the predecessor's group table (thetis agents/agent-core/src/groups.rs) with its briefs and tags; tool names are its built-ins and its component naming convention; tool descriptions are authored here; the canary sits in the last tool's description",
+    "routable": 20,
+    "alwaysOn": [
+      "files"
+    ]
+  }
+}

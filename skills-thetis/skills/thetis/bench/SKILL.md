@@ -37,10 +37,10 @@ Reach is proved in three ways. A body in the prompt is proved by its canary. A c
 | Suite | Needs | Measures |
 |---|---|---|
 | `assembly-cost@1` | nothing | Bytes by segment (`system`, `tools`, `messages`), how much of the prefix survives a turn, how many steps run. Any package can opt in. |
-| `tool-recall@1` | authored gold | What share of the offered tools a task needed, and what the rest cost. |
+| `tool-recall@1` | the tool-groups corpus | Which tool groups a request put in the call, and what the rest cost. Every arm gets the corpus as installed packages; a routing package is scored on the canaries in the tool segment. |
 | `skill-recall@1` | the capability corpus | Which capabilities a request made reachable, how far away they were, and what the rest cost. |
 
-A suite lives in `packages/bench/suites/<name>/`: `suite.json`, `tasks.jsonl`, an optional `script.json`, and for `skill-recall@1` a `corpus.json`.
+A suite lives in `packages/bench/suites/<name>/`: `suite.json`, `tasks.jsonl`, an optional `script.json`, and for `skill-recall@1` and `tool-recall@1` a `corpus.json`. `suite.json` may name `fixtures` (reference arms) and `base` (packages every arm gets, the floor included).
 
 ## Opt in
 
@@ -69,7 +69,8 @@ A suite lives in `packages/bench/suites/<name>/`: `suite.json`, `tasks.jsonl`, a
 | `peerGroup` | Which packages this one is compared against. Default: the first suite id. |
 | `importer` | The export that reads the corpus. Must also be a step with phase `bench`. |
 | `adapter` | The export that reports what was surfaced. Must also be a step with phase `bench`. |
-| `arms` | Names of internal configurations, when a package has more than one. |
+| `arms` | Names of internal configurations, when a package has more than one. Each runs as one more arm, `<package>-<arm>`. |
+| `armConfig` | Per arm, the configuration of this package that arm runs under. |
 | `report` | Where the generated view goes inside the package. Default `bench`. |
 
 A tool package needs only `suites` and `peerGroup`. Example: `"bench": { "suites": ["assembly-cost@1", "tool-recall@1"], "peerGroup": "tools" }`. The kernel does not read `thetis.bench`. `thetis bench verify <dir>` validates it.
@@ -120,6 +121,7 @@ There is one report per suite at `<root>/bench/<suite>/report.json`. Each partic
 
 - Units are bytes, not tokens, kept apart by segment. `non_ascii_ratio` is a tripwire.
 - `recall_reach`, `undershoot`, and `overshoot_bytes` are always printed together. A package wins any one of them alone by degenerating.
+- `route_recall`, `route_precision` and `route_f1` are over the routable tool groups only; `routed_nothing` is the share of tasks with a need where nothing was admitted; `surface_tools` counts the corpus tools attached. The floor attaches everything, so its recall is one by construction.
 - `ndcg`, `hit_at_1`, and `mrr` are printed only under the arm that produced them. A mechanism with no order has no ranking.
 - Every comparison is paired by task against the floor. Intervals come from a seeded bootstrap with 2,000 resamples.
 - Absolute milliseconds are not committed.

@@ -1,0 +1,14 @@
+{
+  "name": "@thetis/bench-tool-corpus",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Installs the tool-groups bench corpus into an arm's userspace as ordinary packages, one per group, so every arm, the floor included, has the same tools to attach or withhold.",
+  "type": "module",
+  "main": "index.js",
+  "thetis": {
+    "type": "loader",
+    "steps": [
+      { "id": "import", "phase": "bench", "export": "importCorpus" }
+    ]
+  }
+}

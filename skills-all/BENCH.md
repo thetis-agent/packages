@@ -12,19 +12,19 @@ Suites: [`assembly-cost@1`](#suite-assembly-cost-v1), [`skill-recall@1`](#suite-
 What a package costs the prompt before anything is retrieved: bytes by segment, how much of the prefix survives a turn, and how long assembly takes. No gold, no corpus, no adapter — any package with a step or a tool can opt in.
 
 7 tasks (2 of them controls), probe A.
-Generated 2026-09-21T18:39:22.597Z. Digest `sha256:d06d8080dc33…`.
+Generated 2026-09-21T19:16:32.041Z. Digest `sha256:9fb0931c25e3…`.
 
 ### Compared
 
 Only numbers every arm can produce appear here, and only those on which the arms differ. A mechanism that does not rank cannot have a ranking score, and averaging one in would compare different acts.
 
-| arm | bytes_system | bytes_tools | bytes_turn1 | bytes_last | tools_n | steps_n |
-|---|---|---|---|---|---|---|
-| none | 2131 ±0 | 2 ±0 | 2236.7 ±21 | 2385.4 ±42.3 | 0 ±0 | 12 ±0 |
-| **thetis-skills-all** | 2157 ±0 | 2 ±0 | 2262.7 ±20.7 | 2411.4 ±40.7 | 0 ±0 | 18 ±0 |
-| thetis-skills-hybrid | 2163 ±0 | 595 ±0 | 2861.7 ±19.9 | 3010.4 ±42.4 | 1 ±0 | 18 ±0 |
-| thetis-skills-l1 | 2155 ±0 | 443 ±0 | 2701.7 ±20.9 | 2850.4 ±40 | 1 ±0 | 18 ±0 |
-| all | 2129 ±0 | 29073 ±0 | 31305.7 ±21.6 | 31454.4 ±41.7 | 37 ±0 | 30 ±0 |
+| arm | bytes_system | bytes_tools | bytes_turn1 | bytes_last | tools_n | steps_n | non_ascii_ratio |
+|---|---|---|---|---|---|---|---|
+| none | 2131 ±0 | 2 ±0 | 2236.7 ±21 | 2385.4 ±42.3 | 0 ±0 | 12 ±0 | 0 ±0 |
+| **thetis-skills-all** | 2157 ±0 | 2 ±0 | 2262.7 ±20.7 | 2411.4 ±40.7 | 0 ±0 | 18 ±0 | 0 ±0 |
+| thetis-skills-hybrid | 2163 ±0 | 595 ±0 | 2861.7 ±19.9 | 3010.4 ±42.4 | 1 ±0 | 18 ±0 | 0 ±0 |
+| thetis-skills-l1 | 2155 ±0 | 443 ±0 | 2701.7 ±20.9 | 2850.4 ±40 | 1 ±0 | 18 ±0 | 0 ±0 |
+| all | 3563 ±0 | 825 ±0 | 4491.7 ±21.6 | 4640.4 ±41.7 | 1 ±0 | 38 ±0 | 0.007 ±0 |
 
 ![assembly-cost@1 comparison](bench/assembly-cost-v1/chart.svg)
 
@@ -32,12 +32,12 @@ Only numbers every arm can produce appear here, and only those on which the arms
 
 Paired per task, so the constant cost of the harness cancels. `w/t/l` counts the tasks each arm won, tied and lost, which a mean can hide.
 
-| arm | bytes_system | bytes_tools | bytes_turn1 | bytes_last | tools_n | steps_n |
-|---|---|---|---|---|---|---|
-| thetis-skills-all | 26 [26, 26] 7/0/0 | 0 [0, 0] 0/7/0 | 26 [26, 26] 7/0/0 | 26 [26, 26] 7/0/0 | 0 [0, 0] 0/7/0 | 6 [6, 6] 7/0/0 |
-| thetis-skills-hybrid | 32 [32, 32] 7/0/0 | 593 [593, 593] 7/0/0 | 625 [625, 625] 7/0/0 | 625 [625, 625] 7/0/0 | 1 [1, 1] 7/0/0 | 6 [6, 6] 7/0/0 |
-| thetis-skills-l1 | 24 [24, 24] 7/0/0 | 441 [441, 441] 7/0/0 | 465 [465, 465] 7/0/0 | 465 [465, 465] 7/0/0 | 1 [1, 1] 7/0/0 | 6 [6, 6] 7/0/0 |
-| all | -2 [-2, -2] 0/0/7 | 29071 [29071, 29071] 7/0/0 | 29069 [29069, 29069] 7/0/0 | 29069 [29069, 29069] 7/0/0 | 37 [37, 37] 7/0/0 | 18 [18, 18] 7/0/0 |
+| arm | bytes_system | bytes_tools | bytes_turn1 | bytes_last | tools_n | steps_n | non_ascii_ratio |
+|---|---|---|---|---|---|---|---|
+| thetis-skills-all | 26 [26, 26] 7/0/0 | 0 [0, 0] 0/7/0 | 26 [26, 26] 7/0/0 | 26 [26, 26] 7/0/0 | 0 [0, 0] 0/7/0 | 6 [6, 6] 7/0/0 | 0 [0, 0] 0/7/0 |
+| thetis-skills-hybrid | 32 [32, 32] 7/0/0 | 593 [593, 593] 7/0/0 | 625 [625, 625] 7/0/0 | 625 [625, 625] 7/0/0 | 1 [1, 1] 7/0/0 | 6 [6, 6] 7/0/0 | 0 [0, 0] 0/7/0 |
+| thetis-skills-l1 | 24 [24, 24] 7/0/0 | 441 [441, 441] 7/0/0 | 465 [465, 465] 7/0/0 | 465 [465, 465] 7/0/0 | 1 [1, 1] 7/0/0 | 6 [6, 6] 7/0/0 | 0 [0, 0] 0/7/0 |
+| all | 1432 [1432, 1432] 7/0/0 | 823 [823, 823] 7/0/0 | 2255 [2255, 2255] 7/0/0 | 2255 [2255, 2255] 7/0/0 | 1 [1, 1] 7/0/0 | 26 [26, 26] 7/0/0 | 0.007 [0.007, 0.007] 7/0/0 |
 
 ### Assembly latency
 
@@ -49,7 +49,7 @@ Absolute milliseconds are not committed: the fence opens lazily, the sandbox mod
 | thetis-skills-all | 18 | not measured at 7 tasks |
 | thetis-skills-hybrid | 18 | not measured at 7 tasks |
 | thetis-skills-l1 | 18 | not measured at 7 tasks |
-| all | 30 | not measured at 7 tasks |
+| all | 38 | not measured at 7 tasks |
 
 ### Conformance
 
@@ -69,10 +69,10 @@ Two reports are comparable only when these match.
 |---|---|
 | suite | assembly-cost@1 (sha256:9efc984d505f…) |
 | corpus | none |
-| arms | none; thetis-skills-all (@thetis/skills-all@0.1.0); thetis-skills-hybrid (@thetis/skills-hybrid@0.1.0); thetis-skills-l1 (@thetis/skills-l1@0.1.0); all (@thetis/exa@0.1.0, @thetis/skills-all@0.1.0, @thetis/skills-hybrid@0.1.0, @thetis/skills-l1@0.1.0, @thetis/terminal@0.1.0, @thetis/tool-exec@0.1.0, @thetis/tools-files@0.1.0, @thetis/tools-plan@0.3.0) |
+| arms | none; thetis-skills-all (@thetis/skills-all@0.1.0); thetis-skills-hybrid (@thetis/skills-hybrid@0.1.0); thetis-skills-l1 (@thetis/skills-l1@0.1.0); all (@thetis/exa@0.1.0, @thetis/skills-all@0.1.0, @thetis/skills-hybrid@0.1.0, @thetis/skills-l1@0.1.0, @thetis/terminal@0.1.0, @thetis/tool-exec@0.1.0, @thetis/tool-groups@0.1.0, @thetis/tools-files@0.1.0, @thetis/tools-plan@0.3.0) |
 | model | none — this probe needs no model |
 | sandbox | auto |
-| scorer | @thetis/bench@0.3.0 |
+| scorer | @thetis/bench@0.4.0 |
 
 ### Notes
 

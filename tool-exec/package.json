@@ -105,7 +105,7 @@
       },
       {
         "name": "package_config",
-        "description": "Show what a package installed in your userspace is configured with: every key's state (set, missing or unset), which layer the value comes from and whether a fork inherits it, the value of a non-secret key, and the help of each declared key. A secret is shown as ••• and never its value.",
+        "description": "Show what a package installed in your userspace is configured with: every key's state (set, missing or unset), which layer the value comes from and whether a fork inherits it, the value of a non-secret key, and the help of each declared key. A secret is shown as \u2022\u2022\u2022 and never its value.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -177,8 +177,7 @@
     ],
     "bench": {
       "suites": [
-        "assembly-cost@1",
-        "tool-recall@1"
+        "assembly-cost@1"
       ],
       "peerGroup": "tools"
     }

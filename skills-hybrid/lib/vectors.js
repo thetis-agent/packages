@@ -1,39 +1,18 @@
 // The bench's vectors: one file per corpus under this package, written once by scripts/embed-corpus.mjs, so a
-// bench run ranks densely without a key, a network or a difference between machines.
-import { existsSync, readFileSync } from "node:fs";
+// bench run ranks densely without a key, a network or a difference between machines. The reader is the
+// shared one in @thetis/skills; this binds it to this package's directory and keeps the `skills` name the
+// file has always used for its vector map.
 import { fileURLToPath } from "node:url";
+import { benchVectorsFor as readVectors, benchVectorsPath as pathOf, clearVectorCache, hexOf } from "@thetis/skills";
 
 export const VECTORS_DIR = fileURLToPath(new URL("../bench/vectors/", import.meta.url));
 
-const cache = new Map();
+export { clearVectorCache, hexOf };
 
-/** `sha256:abc…` or `abc…` to the file name the corpus's vectors live under. */
-export const hexOf = (sha) => String(sha ?? "").replace(/^sha256:/, "");
-
-export const benchVectorsPath = (sha, dir = VECTORS_DIR) => `${dir}${hexOf(sha)}.json`;
+export const benchVectorsPath = (sha, dir = VECTORS_DIR) => pathOf(sha, dir);
 
 /** The file for a corpus digest as `{ model, dimensions, corpus, skills, queries }`, or null when there is none. */
 export function benchVectorsFor(sha, dir = VECTORS_DIR) {
-  const hex = hexOf(sha);
-  if (!/^[0-9a-f]{64}$/.test(hex)) return null;
-  const path = benchVectorsPath(hex, dir);
-  if (cache.has(path)) return cache.get(path);
-  let parsed = null;
-  if (existsSync(path)) {
-    try {
-      const raw = JSON.parse(readFileSync(path, "utf8"));
-      if (raw && typeof raw === "object" && raw.skills && typeof raw.skills === "object") {
-        parsed = { model: String(raw.model ?? ""), dimensions: Number(raw.dimensions) || 0, corpus: raw.corpus ?? {}, skills: raw.skills, queries: raw.queries ?? {} };
-      }
-    } catch {
-      parsed = null;
-    }
-  }
-  cache.set(path, parsed);
-  return parsed;
-}
-
-/** Forgets every file read. Tests use it. */
-export function clearVectorCache() {
-  cache.clear();
+  const file = readVectors(sha, dir);
+  return file ? { model: file.model, dimensions: file.dimensions, corpus: file.corpus, skills: file.vectors, queries: file.queries } : null;
 }

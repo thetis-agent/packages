@@ -1,20 +1,75 @@
-{"id": "tr-read", "query": "Show me what src/index.ts exports.", "tools": ["tools-files/read_path"], "forbidden": ["tool-exec/delete_package"], "tags": ["files", "single-capability"], "turns": 1}
-{"id": "tr-grep", "query": "Where is the word enumerator used, and what do those places have in common?", "tools": ["tools-files/search_files", "tools-files/read_path"], "tags": ["files", "multi-capability"], "turns": 1}
-{"id": "tr-rename", "query": "Rename loadConfig to readConfig everywhere and update the tests.", "tools": ["tools-files/search_files", "tools-files/read_path", "tools-files/edit_path"], "tags": ["files", "multi-capability"], "turns": 1}
-{"id": "tr-newfile", "query": "Create docs/21-benchmarks.md with a heading and one paragraph.", "tools": ["tools-files/write_path"], "tags": ["files", "single-capability"], "turns": 1}
-{"id": "tr-walk", "query": "What is in the packages directory?", "tools": ["tools-files/get_directory"], "tags": ["files", "single-capability"], "turns": 1}
-{"id": "tr-find", "query": "Find every package.json under packages that has no description field.", "tools": ["tools-files/find_files", "tools-files/read_path"], "tags": ["files", "multi-capability"], "turns": 1}
-{"id": "tr-build", "query": "Build the project and tell me whether it compiles.", "tools": ["terminal/shell"], "tags": ["exec", "single-capability"], "turns": 1}
-{"id": "tr-install", "query": "Install the package I just wrote in home/packages/hello.", "tools": ["tool-exec/install_package"], "tags": ["exec", "single-capability"], "turns": 1}
-{"id": "tr-fork", "query": "Make me my own copy of the web gateway so I can change it.", "tools": ["tool-exec/fork_package"], "tags": ["exec", "single-capability"], "turns": 1}
-{"id": "tr-subagent", "query": "Have a subagent summarise every doc under docs while I keep working.", "tools": ["tool-exec/spawn_subagent"], "tags": ["exec", "single-capability"], "turns": 1}
-{"id": "tr-plan", "query": "Make a four step plan for this migration and start the first step.", "tools": ["tools-plan/todo_write", "tools-plan/todo_mark"], "tags": ["plan", "multi-capability"], "turns": 1}
-{"id": "tr-planread", "query": "What is left on my plan?", "tools": ["tools-plan/todo_read"], "tags": ["plan", "single-capability"], "turns": 1}
-{"id": "tr-ask", "query": "I want you to pick a database for this, but check with me before you commit to one.", "tools": ["tools-plan/ask_user"], "tags": ["plan", "single-capability"], "turns": 1}
-{"id": "tr-web", "query": "What changed in the most recent release of bubblewrap?", "tools": ["exa/exa_search", "exa/exa_contents"], "tags": ["web", "multi-capability"], "turns": 1}
-{"id": "tr-research", "query": "Research how other agent harnesses measure tool selection and write it up.", "tools": ["exa/exa_research"], "tags": ["web", "single-capability"], "turns": 1}
-{"id": "tr-mixed", "query": "Look up the current bubblewrap flags online and update our fence code to match.", "tools": ["exa/exa_search", "tools-files/read_path", "tools-files/edit_path"], "tags": ["mixed", "multi-capability"], "turns": 1}
-{"id": "tr-explain", "query": "Explain in two sentences why a prompt cache prefix has to stay byte identical.", "tools": [], "control": true, "tags": ["control", "negative"], "turns": 1}
-{"id": "tr-greet", "query": "Say hello.", "tools": [], "control": true, "tags": ["control", "negative"], "turns": 1}
-{"id": "tr-opinion", "query": "Do you think a three level skill cache is worth the complexity?", "tools": [], "control": true, "tags": ["control", "negative"], "turns": 1}
-{"id": "tr-define", "query": "What does the word fence mean in this system?", "tools": [], "control": true, "tags": ["control", "negative"], "turns": 1}
+{"id":"tg-shell-1","query":"Run the test suite and tell me which cases fail.","groups":["shell"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-shell-2","query":"Kick off the release pipeline and watch the output for anything red.","groups":["shell"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-shell-3","query":"Start a long compilation of the kernel and check back on it in a few minutes.","groups":["shell"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-ssh-1","query":"Register the new build server in the ssh registry so I can reach it by name.","groups":["ssh"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-ssh-2","query":"Add the staging appliance to the list of places you can log into, with the alias stage-2.","groups":["ssh"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-ssh-3","query":"Which named boxes do we have on record, and what user do we log in as on each?","groups":["ssh"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-selfmod-1","query":"Recompile your dev kit with the extra crate and restart.","groups":["selfmod"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-selfmod-2","query":"Teach the assistant a fresh capability by writing the Rust for it and putting it into the running binary.","groups":["selfmod"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-selfmod-3","query":"Bump the version of the JSON library the agent is built with and make sure it still links.","groups":["selfmod"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-branch-1","query":"Roll back the last commit on this branch; the change broke the build.","groups":["branch"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-branch-2","query":"Undo everything we did today and bring my working copy back to where the main line is.","groups":["branch"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-branch-3","query":"Show me what has happened on my side since we diverged from the shared line of development.","groups":["branch"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-config-1","query":"Change the setting that controls the model temperature and show me the current configuration.","groups":["config"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-config-2","query":"Turn on the verbose logging switch for this deployment and tell me what else is switchable.","groups":["config"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-config-3","query":"What is the daemon's request timeout right now, and can you raise it to ten minutes?","groups":["config"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-subagents-1","query":"Spawn a subagent to read the logs while you fix the parser.","groups":["subagents"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-subagents-2","query":"Have a helper summarise every doc under docs while you keep working on the migration.","groups":["subagents"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-subagents-3","query":"Split the audit across three workers and collect their findings into one report.","groups":["subagents"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-transcripts-1","query":"What did we decide about the cache layout in an earlier conversation?","groups":["transcripts"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-transcripts-2","query":"Last week you and I settled on a naming scheme for the queues; find it and quote it.","groups":["transcripts"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-transcripts-3","query":"Look through the logs of the helpers you ran yesterday and tell me which one stalled.","groups":["transcripts"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-sandbox-1","query":"Try this snippet in the isolated sandbox before touching the real tree.","groups":["sandbox"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-sandbox-2","query":"Run this untrusted snippet somewhere it cannot damage anything and show me what it prints.","groups":["sandbox"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-sandbox-3","query":"I want a throwaway environment to experiment with the parser; keep it away from my checkout.","groups":["sandbox"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-bigquery-1","query":"Write the SQL to count sign-ups per day from the analytics dataset.","groups":["bigquery"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-bigquery-2","query":"How many people signed up last month? The numbers live in the events table of our cloud data store.","groups":["bigquery"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-bigquery-3","query":"Estimate what it would cost to scan the whole clickstream table before we do anything.","groups":["bigquery"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-miro-1","query":"Put a sticky note on the Miro board for each open question.","groups":["miro"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-miro-2","query":"Lay the roadmap out as cards on the team's shared canvas, one column per quarter.","groups":["miro"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-miro-3","query":"Who has access to the planning canvas, and can you connect the two boxes I drew this morning?","groups":["miro"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-notion-1","query":"Add a page to the Notion wiki describing the release process.","groups":["notion"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-notion-2","query":"Add a row to the team's knowledge base database for the new hire and comment on it.","groups":["notion"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-notion-3","query":"Find the onboarding checklist in our workspace docs and mark the first three items done.","groups":["notion"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-web-1","query":"Search the web for the latest article about bubblewrap and summarise it.","groups":["web"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-web-2","query":"What changed in the most recent release of bubblewrap?","groups":["web"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-web-3","query":"Find out what people are saying about the new Rust edition this week.","groups":["web"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-browser-1","query":"Take a screenshot of the login page at a 375px viewport and check the CSS.","groups":["browser"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-browser-2","query":"Open our staging site, sign in as the trial user, and tell me whether the dashboard loads.","groups":["browser"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-browser-3","query":"Verify that the checkout button works on the mobile layout after the redesign.","groups":["browser"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-moo-1","query":"Add a verb to the lobby object in the Torchship moo.","groups":["moo"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-moo-2","query":"Describe the room the player is standing in and change its exit to lead north.","groups":["moo"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-moo-3","query":"Rename the wizard's staff item in the live game world and check it worked.","groups":["moo"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-github-1","query":"Open a PR against the upstream repo with these changes.","groups":["github"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-github-2","query":"Which pull requests are waiting on my review across our organisation?","groups":["github"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-github-3","query":"File a bug report on the tracker for the flaky login check and assign it to me.","groups":["github"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-rpg-core-1","query":"Roll the dice for a stealth check against the guard.","groups":["rpg-core"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-rpg-core-2","query":"My rogue tries to sneak past the guard; what does she need and did she make it?","groups":["rpg-core"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-rpg-core-3","query":"Add the silver key to my pack and move the calendar forward one day.","groups":["rpg-core"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-rpg-world-1","query":"Tell me about the harbour guild faction and its lore.","groups":["rpg-world"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-rpg-world-2","query":"Who runs the harbour town, and how do they feel about the party after last session?","groups":["rpg-world"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-rpg-world-3","query":"Note that the duke's spy was unmasked and tie that to the coronation storyline.","groups":["rpg-world"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-rpg-scene-1","query":"Narrate the scene as we enter the temple.","groups":["rpg-scene"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-rpg-scene-2","query":"Set the stage: the party arrives at the flooded temple at dusk.","groups":["rpg-scene"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-rpg-scene-3","query":"Wrap up this moment and move us on to the next morning.","groups":["rpg-scene"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-rpg-combat-1","query":"Roll initiative, the goblins attack!","groups":["rpg-combat"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-rpg-combat-2","query":"Three bandits jump us from the ridge; start the turn order.","groups":["rpg-combat"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-rpg-combat-3","query":"I swing my axe at the nearest one; resolve the hit and the damage.","groups":["rpg-combat"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-rpg-shop-1","query":"Open the blacksmith's shop so I can buy a sword.","groups":["rpg-shop"],"family":"direct","tags":["direct","single-group"],"turns":2}
+{"id":"tg-rpg-shop-2","query":"What does the armourer have for sale, and how much for the chain mail?","groups":["rpg-shop"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-rpg-shop-3","query":"Sell my spare dagger to the trader in the square.","groups":["rpg-shop"],"family":"paraphrase","tags":["paraphrase","single-group"],"turns":2}
+{"id":"tg-shell-4","query":"Refactor the parser in src/lib.rs and run the tests","groups":["shell"],"family":"scenario","tags":["scenario","single-group"],"turns":2}
+{"id":"tg-bigquery-4","query":"How many rows are in the events table? Query BigQuery.","groups":["bigquery"],"family":"scenario","tags":["scenario","single-group"],"turns":2}
+{"id":"tg-notion-4","query":"Update the status of the launch page in Notion","groups":["notion"],"family":"scenario","tags":["scenario","single-group"],"turns":2}
+{"id":"tg-selfmod-4","query":"Add a new tool to your own loop and rebuild it","groups":["selfmod"],"family":"scenario","tags":["scenario","single-group"],"turns":2}
+{"id":"tg-web-4","query":"Is there arxiv research on tool retrieval?","groups":["web"],"family":"scenario","tags":["scenario","single-group"],"turns":2}
+{"id":"tg-branch-4","query":"Merge trunk into this branch and resolve the conflicts","groups":["branch"],"family":"scenario","tags":["scenario","single-group"],"turns":2}
+{"id":"tg-ssh+shell-1","query":"Open a shell on the build-box host over ssh","groups":["ssh","shell"],"family":"scenario","tags":["scenario","multi-group"],"turns":2}
+{"id":"tg-web-5","query":"Look up the current bubblewrap flags online and update our fence code to match.","groups":["web"],"family":"mixed","tags":["mixed","single-group"],"turns":2}
+{"id":"tg-subagents+bigquery-1","query":"Spin up a worker to pull the sales numbers from the warehouse while you draft the summary.","groups":["subagents","bigquery"],"family":"mixed","tags":["mixed","multi-group"],"turns":2}
+{"id":"tg-control-1","query":"hi","groups":[],"family":"control","tags":["control","negative"],"control":true,"turns":2}
+{"id":"tg-control-2","query":"Say hello.","groups":[],"family":"control","tags":["control","negative"],"control":true,"turns":2}
+{"id":"tg-control-3","query":"Explain in two sentences why a prompt cache prefix has to stay byte identical.","groups":[],"family":"control","tags":["control","negative"],"control":true,"turns":2}
+{"id":"tg-control-4","query":"What does the word fence mean in this system?","groups":[],"family":"control","tags":["control","negative"],"control":true,"turns":2}
+{"id":"tg-control-5","query":"Do you think a three level skill cache is worth the complexity?","groups":[],"family":"control","tags":["control","negative"],"control":true,"turns":2}
+{"id":"tg-control-6","query":"Thanks, that is all for today.","groups":[],"family":"control","tags":["control","negative"],"control":true,"turns":2}

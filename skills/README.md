@@ -31,6 +31,10 @@ The library, from `index.js`:
 | `claim(ctx, self, importRecord, claim)` | The `harness["@thetis/bench"]` spread of the reference arms. |
 | `readMap(env)`, `corpusIds(map, ids)` | The corpus-to-skill id map the importer left, and skill ids back to corpus ids. |
 | `STATE` | `"@thetis/skills"`, the harness key every loader writes its state under. |
+| `embeddingConfig(config)`, `embed(texts, cfg, fetch)`, `cosine(a, b)` | The shared embeddings library: `config.embeddings` over the defaults (`EMBED_DEFAULTS`), the batched request to an OpenAI-compatible endpoint (64 texts, 20 seconds each), the cosine. Used by `@thetis/skills-hybrid` and `@thetis/tool-groups`. |
+| `readCache(env, path)`, `writeCache(env, cache, live, path)`, `keyOf(model, dimensions, hash)` | A vector cache file under the home, keyed `model|dimensions|contentHash`, pruned to the live hashes on write. Each consumer names its own file. |
+| `queryTextOf(text)`, `queryHashOf(text)` | The query as it is ranked: without the `[Turn context: ...]` line, cut to 2000 characters; and its sha256. |
+| `benchVectorsFor(sha, dir)`, `benchVectorsPath(sha, dir)`, `hexOf(sha)`, `clearVectorCache()` | A bench vector file `<dir>/<corpus sha256>.json` as `{ model, dimensions, corpus, vectors, queries }`. |
 
 ## The format
 
@@ -52,7 +56,7 @@ skills/
 | `name` | Required. Equal to the directory name. `^[a-z0-9][a-z0-9-]{0,63}$`. |
 | `description` | Required. At most 1024 bytes. What it does, then when to use it. This line and the name are all that retrieval sees. |
 | `metadata.title` | Optional display title. Shown in the brief. |
-| `metadata.tags` | Optional, at most 32 lowercase words. Indexed. |
+| `metadata.tags` | Optional, at most 32 lowercase words of at most 48 characters. Indexed. One colon is allowed, so a tag can point at a tool group: `tool-group:web`. |
 | `metadata.universal` | `"true"` puts the body in every prompt. At most 8 per person. |
 | `metadata.related` | Optional ids. Kept on the parsed skill for a UI; never on the card, never ranked on. |
 | `metadata.version` | Optional integer. |

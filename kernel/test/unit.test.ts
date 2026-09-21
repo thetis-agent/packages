@@ -14,6 +14,7 @@ import { UserspaceLayout } from "@thetis/lib/userspace-layout";
 import { UserStore } from "../src/users.js";
 import { AuthService } from "../src/auth.js";
 import { ProviderRegistry } from "../src/providers.js";
+import { ProviderCallStep } from "../src/pipeline/provider-call.js";
 import { ServiceSupervisor } from "../src/services.js";
 import { ConfigService, type ConfigChange } from "../src/settings.js";
 import { PackageManager } from "../src/packages/manager.js";
@@ -606,4 +607,41 @@ test("sessions.watch: every turn of the user reaches the watcher with its sessio
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
+});
+
+test("provider call: a call to a tool the call withheld is resolved against the installed packages and run; an unknown name stays refused", async () => {
+  const requests: { op: string; payload: { package?: string; export?: string; name?: string } }[] = [];
+  const fences = { request: async (_us: Userspace, op: string, payload: { package?: string; export?: string; name?: string }) => (requests.push({ op, payload }), `ran ${payload.name}`) } as unknown as Fences;
+  let round = 0;
+  const providers = {
+    resolve: async () => ({}),
+    call: async (_p: unknown, _call: unknown, onEvent: (e: { type: string; call?: unknown; delta?: string }) => void) => {
+      round++;
+      if (round === 1) onEvent({ type: "tool_call", call: { id: "c1", name: "hidden_tool", args: { a: 1 } } });
+      else if (round === 2) onEvent({ type: "tool_call", call: { id: "c2", name: "never_declared", args: {} } });
+      else onEvent({ type: "text", delta: "done" });
+    },
+  } as unknown as ProviderRegistry;
+  const step = new ProviderCallStep(noSettings, providers, fences);
+  const pkg = { name: "@a/p", version: "1", type: "tool", description: "", root: "", thetis: { type: "tool", tools: [{ name: "hidden_tool", description: "Hidden.", parameters: { type: "object", properties: {} }, export: "run" }] } } as PackageInfo;
+  const ctx = {
+    session: { id: "s", user: "u" },
+    turn: { id: "t", input: [] },
+    conversation: [{ role: "user", content: "go" }] as Message[],
+    call: { model: "m", messages: [], tools: [], params: {}, hints: { withheld: ["hidden_tool"] } },
+    harness: {},
+    packages: [pkg],
+    config: {},
+  };
+  const events: TurnEvent[] = [];
+  const out = await step.run({ id: "u" } as Userspace, ctx, (e) => events.push(e));
+  assert.deepEqual(requests, [{ op: "tool", payload: { package: "@a/p", export: "run", name: "hidden_tool", args: { a: 1 }, session: ctx.session, config: {} } }], "the withheld tool ran in the fence under its own package");
+  const results = (out.conversation ?? []).filter((m) => m.role === "tool").map((m) => [m.name, m.content]);
+  assert.deepEqual(results, [["hidden_tool", "ran hidden_tool"], ["never_declared", "error: unknown tool: never_declared"]]);
+  // The same name with nothing withheld is refused: the hint is the only door, and scoping opens it.
+  round = 0;
+  requests.length = 0;
+  const closed = await step.run({ id: "u" } as Userspace, { ...ctx, conversation: [{ role: "user", content: "go" }], call: { ...ctx.call, hints: {} } }, () => {});
+  assert.deepEqual(requests, []);
+  assert.equal((closed.conversation ?? []).find((m) => m.role === "tool")?.content, "error: unknown tool: hidden_tool");
 });

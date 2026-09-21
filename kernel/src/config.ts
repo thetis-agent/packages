@@ -63,6 +63,7 @@ const DEFAULT_PACKAGES: Record<string, Record<string, unknown>> = {
   "@thetis/provider-openrouter": { apiKey: "${OPENROUTER_API_KEY}", baseUrl: "https://openrouter.ai/api/v1" },
   "@thetis/marketplace": { registries: [{ name: "thetis", url: MARKETPLACE_URL }] },
   "@thetis/skills-hybrid": { embeddings: { apiKey: "${OPENROUTER_API_KEY}" } },
+  "@thetis/tool-groups": { embeddings: { apiKey: "${OPENROUTER_API_KEY}" } },
 };
 
 /** The file layer as it is on disk now: the defaults under what `thetis.config.json` says. `config.reload` reads it again. */
@@ -82,7 +83,7 @@ export function defaultConfig(home: string, projectRoot: string): KernelConfig {
     phases: ["history", "prompt", "tools", "call", "after"],
     callPhase: "call",
     systemPackages: {
-      "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache", "@thetis/tools-files", "@thetis/tools-plan", "@thetis/terminal", "@thetis/gateway-web", "@thetis/ui-tools", "@thetis/ui-context", "@thetis/projects", "@thetis/ui-admin", "@thetis/ui-marketplace", "@thetis/skills", "@thetis/skills-thetis", "@thetis/skills-hybrid", "@thetis/ui-skills"],
+      "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache", "@thetis/tools-files", "@thetis/tools-plan", "@thetis/terminal", "@thetis/gateway-web", "@thetis/ui-tools", "@thetis/ui-context", "@thetis/projects", "@thetis/ui-admin", "@thetis/ui-marketplace", "@thetis/skills", "@thetis/skills-thetis", "@thetis/skills-hybrid", "@thetis/tool-groups", "@thetis/ui-skills"],
       _system: ["@thetis/provider-openrouter", "@thetis/gateway-login", "@thetis/marketplace"],
     },
     packages: structuredClone(DEFAULT_PACKAGES),

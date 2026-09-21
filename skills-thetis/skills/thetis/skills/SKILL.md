@@ -31,7 +31,7 @@ skills/
 | `name` | Required. Equal to the directory name. Pattern `^[a-z0-9][a-z0-9-]{0,63}$`. |
 | `description` | Required. At most 1,024 bytes. What the skill does, then when to use it. |
 | `metadata.title` | Optional display title. |
-| `metadata.tags` | Optional. At most 32 lowercase words. Indexed. |
+| `metadata.tags` | Optional. At most 32 lowercase words. Indexed. A tag `tool-group:<id>` admits that tool group when the skill is pinned or universal; see `thetis/using`. |
 | `metadata.universal` | `"true"` puts the body in every prompt. At most 8 per person. |
 | `metadata.related` | Optional ids. Never ranked on and not on the card; a UI may show them. |
 | `metadata.version` | Optional integer. |

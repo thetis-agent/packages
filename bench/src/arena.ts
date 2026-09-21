@@ -165,6 +165,7 @@ export class Arena {
     const arena = new Arena(home, kernel, config, capture, opts.arms, users, local);
     if (opts.corpus !== undefined) arena.writeCorpus(opts.corpus);
     await arena.installLocal();
+    await arena.configureArms();
     return arena;
   }
 
@@ -186,6 +187,21 @@ export class Arena {
         mkdirSync(join(us.home, "packages"), { recursive: true });
         cpSync(dir, at, { recursive: true, dereference: true });
         await this.kernel.packages.install(us, record, `packages/${basename(dir)}`);
+      }
+    }
+  }
+
+  /**
+   * An arm's own configuration of its packages goes to its user's layer, where only that arm reads it: the
+   * file layer is global to the kernel, and two arms of one package under two configurations must not share it.
+   */
+  private async configureArms(): Promise<void> {
+    for (const arm of this.arms) {
+      if (!arm.config) continue;
+      const user = this.userOf(arm.id);
+      this.kernel.sessions.userspaceFor(this.kernel.users.authorize(user));
+      for (const [name, keys] of Object.entries(arm.config)) {
+        for (const [key, value] of Object.entries(keys)) await this.kernel.settings.set({ user, name }, key, value, "bench");
       }
     }
   }

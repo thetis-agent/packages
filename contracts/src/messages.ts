@@ -43,7 +43,11 @@ export interface ProviderCall {
   messages: Message[];
   tools: ToolSpec[];
   params: Record<string, unknown>;
-  /** Provider hints, keyed by concern (for example `cache`). Never sent to the API; a provider reads the keys it understands. */
+  /**
+   * Provider hints, keyed by concern (for example `cache`). Never sent to the API; a provider reads the keys it
+   * understands. One key the kernel reads: `withheld`, the names of tools a scoping step took out of `tools`,
+   * which the built-in call still honours when the model calls one by name.
+   */
   hints?: Record<string, unknown>;
 }
 

@@ -14,6 +14,10 @@ export interface Task {
   forbidden?: string[];
   /** Tools the task needs, named `package/tool@major` so a rename breaks loudly instead of matching nothing. */
   tools?: string[];
+  /** The tool groups (corpus ids) a routing mechanism should admit for this task. Empty for a control. */
+  groups?: string[];
+  /** A label for the kind of query, so a report can be split by it: `direct`, `paraphrase`, `scenario`, `control`. */
+  family?: string;
   budget?: { k_max?: number; token_max?: number };
   split?: Split;
   tags?: string[];
@@ -37,6 +41,8 @@ export interface SuiteDef {
   runs?: number;
   /** Reference mechanisms the bench ships with the suite, as paths relative to the suite directory. */
   fixtures?: string[];
+  /** Packages every arm gets, the floor included, as paths relative to the suite directory: how a corpus of tools reaches every arm. */
+  base?: string[];
 }
 
 export function loadSuite(dir: string): SuiteDef {

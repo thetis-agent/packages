@@ -1,9 +1,9 @@
 ---
 name: using
-description: How to work inside Thetis day to day. Sessions and turns, subagents with spawn_subagent, the shell session tools shell, shell_read, shell_send, shell_interrupt and shell_sessions, the six file tools read_path, edit_path, write_path, search_files, find_files, and get_directory with their exact arguments and bounds, the plan tools todo_write, todo_add, todo_mark, todo_order, and todo_read, ask_user, restart_daemon and when to prefer a workspace reload, the home directory layout, and the standing notes in THETIS.md. Use when you ask "how do I read or edit a file", "how do I run a command", "how do I answer a command that is asking me something", "how do I hand work to a subagent", "where do my files live", "how do I keep a plan", "how do I ask the person a question", or "how do I restart Thetis".
+description: How to work inside Thetis day to day. Sessions and turns, subagents with spawn_subagent, the shell session tools shell, shell_read, shell_send, shell_interrupt and shell_sessions, the six file tools read_path, edit_path, write_path, search_files, find_files, and get_directory with their exact arguments and bounds, the plan tools todo_write, todo_add, todo_mark, todo_order, and todo_read, ask_user, tool groups and tool_search when a tool you have is not in your list, restart_daemon and when to prefer a workspace reload, the home directory layout, and the standing notes in THETIS.md. Use when you ask "how do I read or edit a file", "how do I run a command", "how do I answer a command that is asking me something", "how do I hand work to a subagent", "where do my files live", "how do I keep a plan", "why is a tool missing from my list", "how do I ask the person a question", or "how do I restart Thetis".
 metadata:
   title: Using Thetis
-  tags: [sessions, turns, subagents, shell, terminal, files, read, edit, write, search, plan, todo, ask, home, notes, tools, restart, reload, daemon]
+  tags: [sessions, turns, subagents, shell, terminal, files, read, edit, write, search, plan, todo, ask, home, notes, tools, groups, scoped, restart, reload, daemon]
   related: [thetis/packages, thetis/fence, thetis/troubleshooting]
   version: 1
 ---
@@ -122,6 +122,22 @@ Keep `THETIS.md` stable inside a session. A change to it changes the system prom
 
 `install_package`, `uninstall_package`, `fork_package`, and `delete_package` come from `@thetis/tool-exec`. See `thetis/packages`.
 
+## Tool groups and tool_search
+
+`@thetis/tool-groups` scopes your tool list to what the conversation looks like it needs. Every package with tools is one group. The groups of the packages everyone has (the file tools, the shell, the plan tools, the package tools, the skills tools) are the core and are always in your list. The rest, your own installs and marketplace installs, are routed once, on the first message of the conversation: a group is admitted when a pinned or universal skill carries a `tool-group:<id>` tag, when one of its tags occurs in the message, or, when nothing matched, by the closest two groups in embedding space. The decision is pinned for the whole conversation and never made again, so the prompt prefix stays cached. Nothing is ever unloaded.
+
+The system prompt tells you what is scoped under `# Tool groups`, one line per routable group, marked `[loaded]` or `[available]`. When you suspect a tool exists but cannot see it, call `tool_search`; do not work around the gap.
+
+| Call | Effect |
+|---|---|
+| `tool_search {}` | The catalogue, with what is loaded. |
+| `tool_search { query }` | Loads every group whose tags match the query, or the best-ranked one when none does, and lists their tools. |
+| `tool_search { load: [ids] }` | Loads those groups. An unknown id is refused by name. |
+
+A loaded group's tools are in your list from the next turn. A call to one of them by name works at once: the kernel resolves a withheld tool against the installed packages and runs it, and its group is loaded for the rest of the conversation. A tool a project switched off stays refused. Scoping is an attention and token optimisation, never a permission boundary.
+
+The pin is in `harness["@thetis/tool-groups"]`: `active`, `why` (`always-on`, `configured`, `skill`, `tag`, `dense`, `fusion`, `search`, `call`), `catalogue`, `mode`, `notes`.
+
 ## Restart the daemon
 
 `restart_daemon` comes from `@thetis/tool-operator`. You have it only when that package is installed for you, and it is installed per admin, never for everyone. It takes one argument, `reason`, which is required: it is shown to everyone waiting and written to the journal, so name what changed and why a workspace reload cannot pick it up.
@@ -143,3 +159,4 @@ Keep `THETIS.md` stable inside a session. A change to it changes the system prom
 - packages/tools-plan/lib/ask-user.js
 - packages/harness-core/src/index.ts
 - packages/tool-operator/package.json
+- packages/tool-groups/README.md

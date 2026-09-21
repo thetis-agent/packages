@@ -216,3 +216,9 @@ test("a bench step with no suite opted into is a mistake worth naming", () => {
   const problems = validateBench("@a/x", { type: "loader", steps: [{ id: "r", phase: "bench", export: "r" }], bench: { suites: [] } });
   assert.ok(problems.some((p) => /opts into no suite/.test(p)));
 });
+
+test("an arm configuration must name an arm the package declares", () => {
+  const thetis = { type: "loader", steps: [], bench: { suites: ["assembly-cost@1"], arms: ["dense"], armConfig: { dense: { denseMode: "fallback" }, fusion: { denseMode: "fusion" } } } };
+  assert.deepEqual(validateBench("@x/y", thetis as never), ['@x/y: thetis.bench.armConfig names "fusion", which is not in thetis.bench.arms']);
+  assert.deepEqual(validateBench("@x/y", { ...thetis, bench: { ...thetis.bench, arms: ["dense", "fusion"] } } as never), []);
+});
