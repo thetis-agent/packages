@@ -111,7 +111,7 @@ export default function install(ext) {
     const share = Math.max(4, Math.round((p.score / (top || p.score || 1)) * 100));
     const fill = el("span", { class: "sk-score-fill" });
     fill.style?.setProperty?.("--share", `${share}%`);
-    return el("span", { class: "sk-score", title: how?.hint ?? null }, el("span", { class: "sk-score-bar" }, fill), el("span", { class: "sk-row-score" }, `score ${p.score}${p.how ? ` · ${p.how}` : ""}`));
+    return el("span", { class: "sk-score", title: how?.hint ?? null }, el("span", { class: "sk-score-bar" }, fill), el("span", { class: "sk-row-score" }, `score ${shortNumber(p.score)}${p.how ? ` · ${how?.label ?? p.how}` : ""}`));
   }
 
   /** What the Details fold of a card holds: everything the head leaves out. */
@@ -336,6 +336,9 @@ export default function install(ext) {
 }
 
 const keyOf = (skill) => `${skill.id}@${skill.contentHash ?? ""}`;
+
+/** A score with two significant figures and no trailing zeros: 0.5 stays 0.5, 0.016393 reads 0.016. */
+const shortNumber = (n) => String(Number(Number(n).toPrecision(2)));
 
 function plural(n, word) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;

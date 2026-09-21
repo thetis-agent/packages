@@ -287,7 +287,7 @@ test("install registers the skills dock; the first draw asks once and the sectio
   assert.deepEqual(ids(find(view.body, "sk-universal")[0]), ["concise"]);
   const pinned = find(view.body, "sk-pinned")[0];
   assert.deepEqual(ids(pinned), ["packages"]);
-  assert.equal(text(find(pinned, "sk-row-score")[0]), "score 0.5 · lexical");
+  assert.equal(text(find(pinned, "sk-row-score")[0]), "score 0.5 · word overlap", "how a skill got there, in words");
   assert.deepEqual(ids(find(view.body, "sk-loaded")[0]), ["mine"]);
   const off = find(view.body, "sk-off")[0];
   assert.deepEqual(ids(off), ["packages", "packages/forks"]);
