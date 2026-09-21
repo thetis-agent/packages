@@ -34,27 +34,33 @@ const text = (x, y, label, { anchor = "middle", cls = "" } = {}) => svg("text", 
 function lineage(info, forks) {
   const reg = info.registry;
   const isSystem = info.source?.kind === "system";
-  const width = 404;
+  // The drawing fills the card: the viewBox is the layout, the CSS makes it as wide as the card. The end
+  // nodes sit in from the edges so their two-line labels have room on both sides.
+  const width = 440;
+  const [xa, xb, xc] = [72, 220, 368];
   const height = 110 + Math.max(0, forks.length - 1) * 18;
-  const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "ua-lineage", role: "img", "aria-label": "Lineage: the registry, this copy, a promoted copy, and the forks" });
+  const root = svg("svg", { viewBox: `0 0 ${width} ${height}`, class: "ua-lineage", role: "img", "aria-label": "Lineage: the registry, this copy, a promoted copy, and the forks" });
   const line = (x1, x2, cls) => svg("line", { x1, y1: 30, x2, y2: 30, class: `ua-lineage-line ${cls}` });
-  root.append(line(40, 180, reg ? "" : "is-dim"), line(220, 360, "is-dim"));
-  root.append(svg("circle", { cx: 24, cy: 30, r: 10, class: `ua-lineage-node is-registry${reg ? "" : " is-none"}` }));
-  root.append(svg("circle", { cx: 200, cy: 30, r: 10, class: "ua-lineage-node is-this" }));
-  root.append(svg("circle", { cx: 380, cy: 30, r: 10, class: `ua-lineage-node is-promoted${isSystem ? "" : " is-none"}` }));
-  root.append(text(24, 58, reg ? `registry ${reg.registry}` : "no registry entry"));
-  root.append(text(24, 72, reg ? `${reg.version} · ${short(reg.commit)}` : "not in the index", { cls: "is-mono" }));
-  root.append(text(200, 58, "this copy", { cls: "is-strong" }));
-  root.append(text(200, 72, `${info.version} · ${info.git?.commit ?? (info.source?.kind ?? "")}`, { cls: "is-mono" }));
-  root.append(text(380, 58, isSystem ? "system copy" : "promoted copy"));
-  root.append(text(380, 72, isSystem ? "this is it" : "none yet", { cls: "is-mono" }));
+  root.append(line(xa + 16, xb - 20, reg ? "" : "is-dim"), line(xb + 20, xc - 16, "is-dim"));
+  root.append(svg("circle", { cx: xa, cy: 30, r: 10, class: `ua-lineage-node is-registry${reg ? "" : " is-none"}` }));
+  root.append(svg("circle", { cx: xb, cy: 30, r: 10, class: "ua-lineage-node is-this" }));
+  root.append(svg("circle", { cx: xc, cy: 30, r: 10, class: `ua-lineage-node is-promoted${isSystem ? "" : " is-none"}` }));
+  root.append(text(xa, 58, reg ? `registry ${reg.registry}` : "no registry entry"));
+  root.append(text(xa, 72, reg ? `${reg.version} · ${short(reg.commit)}` : "not in the index", { cls: "is-mono" }));
+  root.append(text(xb, 58, "this copy", { cls: "is-strong" }));
+  root.append(text(xb, 72, `${info.version} · ${info.git?.commit ?? (info.source?.kind ?? "")}`, { cls: "is-mono" }));
+  root.append(text(xc, 58, isSystem ? "system copy" : "promoted copy"));
+  root.append(text(xc, 72, isSystem ? "this is it" : "none yet", { cls: "is-mono" }));
+  const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
   forks.forEach((f, i) => {
     const y = 96 + i * 18;
-    root.append(svg("path", { d: `M200 42 C200 ${y - 10} 236 ${y - 10} 236 ${y}`, class: "ua-lineage-line is-fork" }));
-    root.append(svg("circle", { cx: 244, cy: y, r: 5, class: "ua-lineage-node is-fork" }));
-    root.append(text(256, y + 4, `${f.name} ${f.version} · ${f.user}`, { anchor: "start", cls: "is-mono is-fork" }));
+    root.append(svg("path", { d: `M${xb} 42 C${xb} ${y - 10} ${xb + 36} ${y - 10} ${xb + 36} ${y}`, class: "ua-lineage-line is-fork" }));
+    root.append(svg("circle", { cx: xb + 44, cy: y, r: 5, class: "ua-lineage-node is-fork" }));
+    const label = text(xb + 56, y + 4, clip(`${f.name} ${f.version} · ${f.user}`, 30), { anchor: "start", cls: "is-mono is-fork" });
+    label.append(svg("title", {}, `${f.name} ${f.version} · ${f.user}`));
+    root.append(label);
   });
-  if (!forks.length) root.append(text(200, 96, "no forks", { cls: "is-dim" }));
+  if (!forks.length) root.append(text(xb, 96, "no forks", { cls: "is-dim" }));
   return root;
 }
 

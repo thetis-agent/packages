@@ -54,7 +54,7 @@
 .ua-pkg-facts dd.is-err { color: var(--err); }
 
 /* Provenance: the lineage drawing. */
-.ua-lineage { display: block; max-width: 100%; }
+.ua-lineage { display: block; width: 100%; height: auto; }
 .ua-lineage-line { stroke: var(--hairline-strong); stroke-width: 1.5; fill: none; }
 .ua-lineage-line.is-dim { stroke-dasharray: 3 3; }
 .ua-lineage-line.is-fork { stroke: var(--warn); }
