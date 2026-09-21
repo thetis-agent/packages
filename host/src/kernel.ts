@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { SYSTEM_USER, type Fence, type KernelRpc, type SessionRecord, type StoreDriver, type Userspace } from "@thetis/contracts";
+import { SYSTEM_USER, type Fence, type KernelRpc, type StoreDriver, type Userspace } from "@thetis/contracts";
 import {
   AuthService, ConfigService, createControlHandler, createRpcHandler, Enumerator, PackageManager, PackageRegistry, PipelineRunner, ProviderCallStep,
   ProviderRegistry, ServiceSupervisor, SessionApi, SESSION_ID, UserStore, type KernelConfig, type KernelServices,
@@ -8,7 +8,7 @@ import {
 import { EnvFile, LayeredConfig, type EnvSource } from "@thetis/lib/config";
 import { Container, token } from "@thetis/lib/container";
 import { Journal } from "@thetis/lib/journal";
-import { JsonDirStore } from "@thetis/lib/json-store";
+import { SessionStore } from "@thetis/lib/session-store";
 import { MountStore } from "@thetis/lib/mounts";
 import { SshStore } from "@thetis/lib/ssh";
 import { RestartLatch } from "@thetis/lib/restart";
@@ -39,7 +39,7 @@ export const T = {
   registry: token<PackageRegistry>("registry"),
   packages: token<PackageManager>("packages"),
   providers: token<ProviderRegistry>("providers"),
-  sessionStore: token<JsonDirStore<SessionRecord>>("sessionStore"),
+  sessionStore: token<SessionStore>("sessionStore"),
   enumerator: token<Enumerator>("enumerator"),
   providerCall: token<ProviderCallStep>("providerCall"),
   runner: token<PipelineRunner>("runner"),
@@ -127,7 +127,7 @@ function bindServices(c: Container, config: KernelConfig): void {
   c.bind(T.registry, (c) => new PackageRegistry(c.get(T.records).registry));
   c.bind(T.packages, (c) => new PackageManager(c.get(T.config), c.get(T.registry), c.get(T.fences)));
   c.bind(T.providers, (c) => new ProviderRegistry(c.get(T.settings), c.get(T.packages), c.get(T.userspaces), c.get(T.fences)));
-  c.bind(T.sessionStore, () => new JsonDirStore<SessionRecord>(SESSION_ID));
+  c.bind(T.sessionStore, () => new SessionStore(SESSION_ID));
   c.bind(T.enumerator, (c) => new Enumerator(c.get(T.config), c.get(T.fences)));
   c.bind(T.providerCall, (c) => new ProviderCallStep(c.get(T.settings), c.get(T.providers), c.get(T.fences)));
   c.bind(T.runner, (c) => {

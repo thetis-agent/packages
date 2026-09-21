@@ -6,8 +6,8 @@ import { dirname, join } from "node:path";
 import type { Fences, Manifest, Message, Mount, PackageInfo, SessionRecord, StoreDriver, TurnEvent, UserRecord, Userspace, WatchedTurnEvent } from "@thetis/contracts";
 import { LayeredConfig } from "@thetis/lib/config";
 import { Journal } from "@thetis/lib/journal";
-import { JsonDirStore } from "@thetis/lib/json-store";
 import { MountStore } from "@thetis/lib/mounts";
+import { SessionStore } from "@thetis/lib/session-store";
 import { RestartLatch, type ArmResult, type FireReport, type RestartState } from "@thetis/lib/restart";
 import { memoryStore, StoreMirror } from "@thetis/lib/store";
 import { UserspaceLayout } from "@thetis/lib/userspace-layout";
@@ -563,9 +563,10 @@ test("sessions.watch: every turn of the user reaches the watcher with its sessio
         return session;
       },
     } as unknown as PipelineRunner;
-    const api = new SessionApi(users, new UserspaceLayout(home), packages, new JsonDirStore<SessionRecord>(SESSION_ID), runner);
+    const api = new SessionApi(users, new UserspaceLayout(home), packages, new SessionStore(SESSION_ID), runner);
     const root = api.create("bob");
     const child = api.create("bob", { parent: root.id });
+    assert.deepEqual(api.list("bob").map((s) => [s.id, s.first, s.running]), [[root.id, "", false], [child.id, "", false]], "a list answers from the index, with what each session first said and whether it is running");
     const seen: WatchedTurnEvent[] = [];
     const control = new AbortController();
     const done = api.watch("bob", (m) => seen.push(m), control.signal);

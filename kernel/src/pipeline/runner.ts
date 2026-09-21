@@ -2,7 +2,7 @@ import type { Fences, Message, SessionRecord, StepContext, StepRef, StepResult, 
 import { CodedError, errorMessage } from "@thetis/lib/error";
 import { newId, now } from "@thetis/lib/ids";
 import type { Journal } from "@thetis/lib/journal";
-import type { JsonDirStore } from "@thetis/lib/json-store";
+import type { SessionStore } from "@thetis/lib/session-store";
 import type { KernelConfig } from "../config.js";
 import type { PackageManager } from "../packages/manager.js";
 import type { Settings } from "../settings.js";
@@ -20,7 +20,7 @@ export class PipelineRunner {
     private readonly providerCall: ProviderCallStep,
     private readonly packages: PackageManager,
     private readonly fences: Fences,
-    private readonly store: JsonDirStore<SessionRecord>,
+    private readonly store: SessionStore,
     private readonly journal: Journal,
   ) {}
 
@@ -49,6 +49,10 @@ export class PipelineRunner {
     };
     emit({ type: "turn.start", turn: turn.id, session: session.id });
     this.journal.append({ kind: "turn.start", actor: session.user, target: session.id, data: { turn: turn.id } });
+    // Written now, with the input, so a turn cut short still leaves what was asked; `turn` marks it in progress.
+    session.turn = { id: turn.id, startedAt: now(), input: input.filter((m) => m.role === "user").map((m) => m.content).join("\n") };
+    session.conversation = ctx.conversation;
+    this.store.save(us.sessions, session);
     try {
       const plan = await this.enumerator.enumerate(us, info, packages);
       for (const step of plan) {
@@ -63,6 +67,7 @@ export class PipelineRunner {
       const code = err instanceof CodedError ? err.code : undefined;
       emit({ type: "error", message: errorMessage(err), code });
     } finally {
+      delete session.turn;
       session.conversation = ctx.conversation;
       session.harness = ctx.harness;
       session.turns += 1;

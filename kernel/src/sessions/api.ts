@@ -1,8 +1,8 @@
-import type { Message, SessionRecord, TurnEvent, TurnOptions, UserRecord, Userspace, WatchedTurnEvent } from "@thetis/contracts";
+import type { Message, SessionRecord, SessionSummaryRef, TurnEvent, TurnOptions, UserRecord, Userspace, WatchedTurnEvent } from "@thetis/contracts";
 import { AsyncQueue } from "@thetis/lib/async";
 import { assert } from "@thetis/lib/error";
 import { newId, now } from "@thetis/lib/ids";
-import type { JsonDirStore } from "@thetis/lib/json-store";
+import { summarize, type SessionStore } from "@thetis/lib/session-store";
 import { TurnTaps } from "@thetis/lib/turn-taps";
 import type { UserspaceLayout } from "@thetis/lib/userspace-layout";
 import type { PackageManager } from "../packages/manager.js";
@@ -12,14 +12,7 @@ import type { UserStore } from "../users.js";
 /** The shape of a session id. The store checks it before an id becomes a file name. */
 export const SESSION_ID = /^s_[a-f0-9]+$/;
 
-export interface SessionRef {
-  id: string;
-  user: string;
-  parent?: string;
-  createdAt: string;
-  updatedAt: string;
-  turns: number;
-}
+export type SessionRef = SessionSummaryRef;
 
 export type TurnInput = string | Message[];
 
@@ -33,7 +26,7 @@ export class SessionApi {
     private readonly users: UserStore,
     private readonly userspaces: UserspaceLayout,
     private readonly packages: PackageManager,
-    private readonly store: JsonDirStore<SessionRecord>,
+    private readonly store: SessionStore,
     private readonly runner: PipelineRunner,
   ) {}
 
@@ -56,7 +49,7 @@ export class SessionApi {
     const stamp = now();
     const rec: SessionRecord = { id: newId("s"), user: us.id, parent: opts.parent, createdAt: stamp, updatedAt: stamp, turns: 0, conversation: [], harness: {} };
     this.store.save(us.sessions, rec);
-    return ref(rec);
+    return { ...summarize(rec), running: false };
   }
 
   /** `opts.model` names the model for this turn; steps may still change `call.model`. Empty means the configured default. */
@@ -109,16 +102,19 @@ export class SessionApi {
     return { ...rec, status: this.running.has(`${userId}/${sessionId}`) ? "running" : "idle" };
   }
 
+  /** Every session, from the index beside the records: no record is opened to draw a list. */
   list(userId: string): SessionRef[] {
     return this.store
-      .list(this.space(userId).sessions)
+      .summaries(this.space(userId).sessions)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-      .map(ref);
+      .map((s) => ({ ...s, running: this.running.has(`${userId}/${s.id}`) }));
   }
 
   /**
    * Every turn event of every session of the user, whoever started the turn, each stamped with its session,
-   * the parent when it is a subagent, and on `turn.start` the text it was sent. Resolves when `signal` aborts.
+   * the parent when it is a subagent, and on `turn.start` the text it was sent and when. A turn already in
+   * progress is delivered from its start first, so a watcher that arrives mid-turn misses nothing. Resolves
+   * when `signal` aborts.
    */
   watch(userId: string, fn: (m: WatchedTurnEvent) => void, signal?: AbortSignal): Promise<void> {
     return this.taps.watch(this.users.authorize(userId).id, fn, signal);
@@ -130,8 +126,4 @@ export class SessionApi {
     assert(rec, `unknown session ${id} for user ${us.id}`, "not-found");
     return rec;
   }
-}
-
-function ref(s: SessionRecord): SessionRef {
-  return { id: s.id, user: s.user, parent: s.parent, createdAt: s.createdAt, updatedAt: s.updatedAt, turns: s.turns };
 }

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Mount, TurnEvent, WatchedTurnEvent } from "@thetis/contracts";
+import type { Mount, SessionRecord, TurnEvent, WatchedTurnEvent } from "@thetis/contracts";
 import { AsyncQueue } from "../src/async.js";
 import { Container, token } from "../src/container.js";
 import { JsonDirStore } from "../src/json-store.js";
@@ -11,6 +11,7 @@ import { MountStore, browseDirectories, parseMountList, withPresence } from "../
 import { findDependency, forkPackage, forkVersion, isGitSource, isInside, splitSource } from "../src/pkg-fs.js";
 import { PendingCalls, callHandler } from "../src/rpc-frames.js";
 import { StoreMirror, memoryStore } from "../src/store.js";
+import { SessionStore, summarize } from "../src/session-store.js";
 import { TurnTaps } from "../src/turn-taps.js";
 
 test("container resolves lazily, caches singletons, and allows rebinding", () => {
@@ -195,7 +196,8 @@ test("turn taps: a watcher gets the user's events stamped with the session, inpu
   emit(start);
   emit(text);
   assert.deepEqual(inner, [start, text], "the inner sink gets every event, before the watchers");
-  assert.deepEqual(seen, [
+  assert.match(String(seen[0].startedAt), /^\d{4}-/, "turn.start carries when the turn started");
+  assert.deepEqual(seen.map(({ startedAt: _, ...m }) => m), [
     { session: "s_1", parent: "s_0", input: "hi", event: start },
     { session: "s_1", parent: "s_0", event: text },
   ]);
@@ -210,9 +212,60 @@ test("turn taps: a watcher gets the user's events stamped with the session, inpu
   const plain: WatchedTurnEvent[] = [];
   taps.watch("alice", (m) => plain.push(m));
   taps.emitter("alice", { session: "s_2" }, () => {})({ type: "turn.start", turn: "t2", session: "s_2" });
-  assert.deepEqual(plain, [{ session: "s_2", event: { type: "turn.start", turn: "t2", session: "s_2" } }], "no parent and no input: the fields are absent, not undefined");
+  assert.deepEqual(plain.map(({ startedAt: _, ...m }) => m), [{ session: "s_2", event: { type: "turn.start", turn: "t2", session: "s_2" } }], "no parent and no input: the fields are absent, not undefined");
   const already = new AbortController();
   already.abort();
   await taps.watch("carol", () => {}, already.signal);
   assert.equal(taps.count("carol"), 0, "a signal that is already aborted registers nothing and resolves at once");
+});
+
+test("turn taps: a watcher arriving mid-turn is handed the turn so far, stamped as the live events were, then follows it; an ended turn is not kept", () => {
+  const taps = new TurnTaps();
+  const emit = taps.emitter("alice", { session: "s_2", input: "go" }, () => {});
+  const start: TurnEvent = { type: "turn.start", turn: "t2", session: "s_2" };
+  const text: TurnEvent = { type: "text", delta: "a" };
+  emit(start);
+  emit(text);
+  const late: WatchedTurnEvent[] = [];
+  taps.watch("alice", (m) => late.push(m));
+  assert.equal(late.length, 2, "the two events so far arrive before watch returns");
+  assert.equal(late[0].input, "go");
+  assert.equal(typeof late[0].startedAt, "string");
+  assert.equal(late[1].startedAt, undefined, "only turn.start says when the turn started");
+  assert.deepEqual(late.map((m) => m.event), [start, text]);
+  const end: TurnEvent = { type: "turn.end", turn: "t2", session: "s_2" };
+  emit(end);
+  assert.deepEqual(late.map((m) => m.event), [start, text, end], "and then the live events");
+  const later: WatchedTurnEvent[] = [];
+  taps.watch("alice", (m) => later.push(m));
+  assert.deepEqual(later, [], "a turn that ended is not replayed");
+  taps.watch("bob", () => assert.fail("bob is handed alice's turn"));
+});
+
+test("session store: the index beside the records answers a list without opening them, is built once from records that predate it, and follows every save", () => {
+  const dir = mkdtempSync(join(tmpdir(), "thetis-sessions-"));
+  const base = { user: "alice", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", harness: {} };
+  const old: SessionRecord = { ...base, id: "s_aaaa", turns: 1, conversation: [{ role: "user", content: "  first\n question  " }, { role: "assistant", content: "" }, { role: "assistant", content: "the answer" }] };
+  writeFileSync(join(dir, "s_aaaa.json"), JSON.stringify(old));
+  const store = new SessionStore(/^s_[a-f0-9]+$/);
+  assert.deepEqual(store.summaries(dir), [{ id: "s_aaaa", user: "alice", createdAt: base.createdAt, updatedAt: base.updatedAt, turns: 1, first: "first question", last: "the answer" }]);
+  assert.ok(existsSync(join(dir, "index.json")), "built from the records the first time");
+  const fresh: SessionRecord = { ...base, id: "s_bbbb", parent: "s_aaaa", turns: 0, conversation: [] };
+  store.save(dir, fresh);
+  const long = "x".repeat(300);
+  store.save(dir, { ...fresh, turns: 1, turn: { id: "t1", startedAt: base.createdAt, input: long }, conversation: [{ role: "user", content: long }] });
+  const listed = store.summaries(dir).sort((a, b) => a.id.localeCompare(b.id));
+  assert.equal(listed.length, 2);
+  assert.equal(listed[1].parent, "s_aaaa");
+  assert.equal(listed[1].first.length, 200, "clipped to 200 characters");
+  assert.equal(listed[1].last, listed[1].first, "the user message is the last thing said");
+  const again = new SessionStore(/^s_[a-f0-9]+$/);
+  assert.equal(again.summaries(dir).length, 2, "another process reads the index file, not the records");
+  assert.equal(again.load(dir, "s_bbbb")?.turn?.id, "t1", "the record itself keeps the turn in progress");
+  store.remove(dir, "s_bbbb");
+  assert.equal(store.summaries(dir).length, 1);
+  assert.equal(store.load(dir, "s_bbbb"), undefined);
+  assert.deepEqual(new JsonDirStore<SessionRecord>(/^s_[a-f0-9]+$/).list(dir).map((r) => r.id), ["s_aaaa"], "the index file is not a record");
+  assert.equal(summarize({ ...base, id: "s_cccc", turns: 0, conversation: [] }).first, "");
+  rmSync(dir, { recursive: true, force: true });
 });

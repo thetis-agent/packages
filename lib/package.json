@@ -37,6 +37,10 @@
       "types": "./dist/src/rpc-frames.d.ts",
       "default": "./dist/src/rpc-frames.js"
     },
+    "./session-store": {
+      "types": "./dist/src/session-store.d.ts",
+      "default": "./dist/src/session-store.js"
+    },
     "./turn-taps": {
       "types": "./dist/src/turn-taps.d.ts",
       "default": "./dist/src/turn-taps.js"

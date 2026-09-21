@@ -59,5 +59,7 @@ export interface WatchedTurnEvent {
   parent?: string;
   /** On `turn.start` only: the text the turn was sent, when it was sent as text. */
   input?: string;
+  /** On `turn.start` only: when the turn started. */
+  startedAt?: string;
   event: TurnEvent;
 }

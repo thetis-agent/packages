@@ -22,7 +22,7 @@ export class JsonDirStore<T extends { id: string }> {
   list(dir: string): T[] {
     if (!existsSync(dir)) return [];
     return readdirSync(dir)
-      .filter((f) => f.endsWith(".json"))
+      .filter((f) => f.endsWith(".json") && this.idPattern.test(f.slice(0, -5)))
       .map((f) => readJson<T>(resolve(dir, f), undefined as never));
   }
 
