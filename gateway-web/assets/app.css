@@ -564,8 +564,10 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 
 .main { min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; }
 
-/* The tab strip: one tab per open conversation, then +. The active tab is underlined in the accent. */
+/* The tab strip: one tab per open conversation, then +. The active tab is underlined in the accent.
+ * `flex: none`: it is a row in `.main`'s column and must never give up its height. */
 .tabs {
+  flex: none;
   display: flex;
   align-items: stretch;
   gap: 2px;
@@ -635,13 +637,16 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .tab-note { flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .tab-note:empty { display: none; }
 
-/* Panes stack in one cell; only the active one is visible. Hidden panes keep their scroll position. */
-.panes { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); }
+/* Panes stack in one cell; only the active one is visible. Hidden panes keep their scroll position.
+ * The basis is 0, not auto: with auto a long transcript's content height becomes the basis, the column
+ * overflows, and the tab strip above shrinks in proportion to almost nothing. */
+.panes { flex: 1 1 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); }
 .pane { grid-area: 1 / 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; position: relative; visibility: hidden; pointer-events: none; }
 .pane.is-active { visibility: visible; pointer-events: auto; }
 .chips { display: contents; }
 
 .chat-bar {
+  flex: none;
   display: flex;
   align-items: center;
   gap: var(--gap-2);
@@ -699,7 +704,7 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 /* --- transcript ----------------------------------------------------------- */
 
 .transcript {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
   min-height: 0;
   overflow-y: auto;

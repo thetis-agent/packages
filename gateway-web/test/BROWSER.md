@@ -74,7 +74,9 @@ press does not): open a new tab on the same URL and close the old one before the
     shown. Close the last one: expect no `.tab`, `.pane.is-empty.is-active`, `document.title` "Thetis",
     and the composer `.picker` hidden.
 12. **Reload** the page. Expect the newest unarchived conversation opened as the one `.tab.is-active`
-    with its transcript restored (the `.msg`s and the `.msg-usage`).
+    with its transcript restored (the `.msg`s and the `.msg-usage`). With a transcript taller than the
+    window (or after shrinking the window under it), `#tabs` stays 36px tall and `.chat-bar` 42px: the
+    transcript scrolls inside its pane, the rows above it never shrink.
 13. **Narrow screen** (resize to 700px): `#toggle-sidebar` in `#tabs` is displayed; clicking it adds
     `.sidebar.is-open` and shows `#sidebar-veil`; clicking the veil closes it.
 14. **The todo chip** stays hidden unless the conversation has a plan (a `todo_*` result); with a plan it
