@@ -5,6 +5,9 @@
   "description": "A Context dock for the web gateway: what the model received on the last call of the open conversation.",
   "type": "module",
   "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
   "thetis": {
     "type": "ui",
     "ui": {

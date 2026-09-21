@@ -18,10 +18,18 @@
  * check. A spinner that never resolves is the failure this project keeps deleting, so the deadline is real and
  * the sentence after it names the command that finds the answer.
  *
+ * The poll runs only for a page somebody can see. A tab in the background asks nothing, and asks once the
+ * moment it is in front again; the same for the page's first poll, which waits for the page to be seen. With
+ * nothing armed the idle rate is slow, because nearly every answer is "nothing", and the way a restart gets
+ * armed is a tool call in one of this person's own turns: the end of any of their turns asks at once, so an
+ * arming is seen when it happens, not fifteen seconds later. Only a restart armed by another admin waits
+ * for the timer. Once something is pending the poll is fast, because the countdown on screen is redrawn
+ * from the poll and must not be visibly wrong, and that state lasts two minutes at the most.
+ *
  * Nothing runs at import; `install(ext)` starts the poll. No inline styles anywhere: the page's Content
  * Security Policy allows none, and everything this draws is a class in index.css. */
 
-const IDLE_MS = 3_000;      // nothing pending: often enough that an armed restart is seen in the first countdown
+const IDLE_MS = 15_000;     // nothing pending: the answer is nearly always "nothing", and a turn's end asks sooner
 const PENDING_MS = 700;     // something pending: the countdown on screen must not be visibly wrong
 const SETTLE_MS = 90_000;   // how long the page waits for the daemon to come back before it says it has not
 
@@ -35,16 +43,22 @@ export default function install(ext) {
   let goneAt = 0;
   let timer = null;
   let closed = false;
+  let busy = false;
+
+  /** Whether anybody can see the page. A test runs without a document; that counts as seen. */
+  const seen = () => typeof document === "undefined" || document.visibilityState !== "hidden";
 
   function schedule() {
     clearTimeout(timer);
     // "lost" stops: the page said what to check, and a poll that has failed for ninety seconds will not start
     // telling the truth on its own. The chip is a button then, so a person can ask again once they have looked.
-    if (closed || phase === "lost") return;
+    // A hidden page stops too; `visibilitychange` starts it again.
+    if (closed || phase === "lost" || !seen()) return;
     timer = setTimeout(() => void poll(), phase === "idle" ? IDLE_MS : PENDING_MS);
   }
 
   async function poll() {
+    busy = true;
     try {
       const out = await ext.request("restart-status");
       if (phase === "gone" || phase === "lost") ext.toast("Thetis is back.", { tone: "good" });
@@ -64,8 +78,16 @@ export default function install(ext) {
         pending = null;
       }
     }
+    busy = false;
     ext.redraw("restart");
     schedule();
+  }
+
+  /** A poll now unless one is running, which answers soon enough and schedules the next itself. */
+  function pollSoon() {
+    if (closed || !seen() || busy) return;
+    clearTimeout(timer);
+    void poll();
   }
 
   async function cancel(anchor) {
@@ -113,7 +135,19 @@ export default function install(ext) {
     },
   });
 
-  void poll();
+  if (seen()) void poll();
+  // A restart is armed from inside a turn and the turn ends before anything happens, so the end of any turn of
+  // this person is the moment an arming becomes visible; asking then is what lets the idle rate be slow. The
+  // seam always has `events`; the chip's test seam does not, and the chip is not what that test is about.
+  ext.events?.watch?.((message) => {
+    if (message?.event?.type === "turn.end") pollSoon();
+  });
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", () => {
+      if (seen()) pollSoon();
+      else clearTimeout(timer);
+    });
+  }
   // The poll lives as long as the page. This only spares a gateway a request nobody will read.
   addEventListener("pagehide", () => {
     closed = true;

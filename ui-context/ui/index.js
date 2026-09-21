@@ -2,10 +2,17 @@
  * `@thetis/harness-core` recorded it. Two tabs: Request lists the scalars (model, when, the tools offered,
  * the messages in the exchange) with the tool names as pills; Prompt shows the system prompt as rendered
  * markdown in a scrolling block with a Copy button. The data comes from the package's `context` command.
- * It is requested when the page opens, when the open conversation changes and when a turn of that
- * conversation ends; never from `draw`, which only renders what was last received. One request is in
- * flight at a time; a trigger during one queues a single follow-up, and an answer for a conversation no
- * longer open is dropped. The module defines `install` and does nothing else at import time. */
+ *
+ * The command reads the whole session record on the server, so it is only sent for a dock somebody is
+ * looking at. A conversation change or the end of a turn in the open conversation asks again while the
+ * dock is open; while it is closed they only mark what was shown as stale, and the next `draw` — the
+ * dock calls it only for the entry it is showing — sends the one request that brings it up to date.
+ * Nothing is requested when the page opens: the dock is closed then. `draw` otherwise renders what was
+ * last received. One request is in flight at a time; a trigger during one queues a single follow-up,
+ * and an answer for a conversation no longer open is dropped. Whether the dock is open is read off the
+ * DOM, since the seam does not say: the body node the last draw answered stays connected exactly as long
+ * as the dock shows it, because the dock clears its body when it closes or shows another entry. The
+ * module defines `install` and does nothing else at import time. */
 
 const NOTHING_YET = "Nothing has been sent in this conversation yet.";
 const TABS = [
@@ -19,6 +26,10 @@ export default function install(ext) {
   let tab = "request";
   let inFlight = null;
   let again = false;
+  let stale = true; // what `state` holds may be behind the open conversation; the next draw asks
+  let body = null; // the node the last draw answered; connected while the dock shows it
+
+  const visible = () => Boolean(body?.isConnected);
 
   // --- data ---
 
@@ -28,6 +39,7 @@ export default function install(ext) {
       again = true;
       return inFlight;
     }
+    stale = false;
     const session = ext.conversation.current;
     if (!session) {
       Object.assign(state, { session: null, loaded: false, turns: 0, lastCall: null, error: null });
@@ -60,12 +72,15 @@ export default function install(ext) {
     return inFlight;
   }
 
-  ext.conversation.watch(() => {
-    Object.assign(state, { loaded: false, error: null });
-    refresh();
-  });
+  /** A reason to ask again: asks now for an open dock, and leaves it to the next draw for a closed one. */
+  function invalidate() {
+    stale = true;
+    if (visible()) refresh();
+  }
+
+  ext.conversation.watch(invalidate);
   ext.events.watch((message) => {
-    if (message.event?.type === "turn.end" && message.session === ext.conversation.current) refresh();
+    if (message.event?.type === "turn.end" && message.session === ext.conversation.current) invalidate();
   });
 
   // --- drawing ---
@@ -73,8 +88,11 @@ export default function install(ext) {
   function draw() {
     const current = ext.conversation.current;
     const fresh = state.loaded && state.session === current;
+    // Being drawn is the one sure sign the dock is open on this entry, so this is where a stale record is
+    // brought up to date. A request already running answers this draw through its own redraw.
+    if (current && (stale || !fresh) && !inFlight) refresh();
     const call = fresh ? state.lastCall : null;
-    const body = el("div", { class: "ui-context" }, tabs(), pane(current, fresh, call));
+    body = el("div", { class: "ui-context" }, tabs(), pane(current, fresh, call));
     return { title: "Context", subtitle: subtitle(fresh ? state : null, call), body, actions: call && tab === "prompt" ? [copyButton(call.system, body)] : [] };
   }
 
@@ -165,7 +183,6 @@ export default function install(ext) {
   }
 
   ext.dock("context", { draw });
-  refresh();
 }
 
 /** "turn N · model · N chars" when there is a call; the turn count alone before one; nothing without a conversation. */

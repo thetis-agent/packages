@@ -1,4 +1,5 @@
-// The `context` command over a fake kernel, and the manifest's agreement with the files it names: the
+// The `context` command over a fake kernel, the browser module over a fake seam (when it asks, and when it
+// must not), and the manifest's agreement with the files it names: the
 // browser module defines `install` and nothing else at import time, the dock id it registers is the one
 // declared, and the command's export exists.
 import { test } from "node:test";
@@ -76,7 +77,7 @@ test("the browser module parses, and defines install without doing anything at i
 // ---- the browser module over a fake ext ----
 
 function node(tag, props = {}) {
-  const n = { tag, props, children: [] };
+  const n = { tag, props, children: [], isConnected: false };
   n.append = (...items) => n.children.push(...items.flat().filter((c) => c != null && c !== false));
   n.querySelector = () => null;
   return n;
@@ -95,7 +96,11 @@ const find = (n, cls, out = []) => {
 };
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-/** An ext whose `request` answers only when the test says so, in order, so timing is under the test's control. */
+/**
+ * An ext whose `request` answers only when the test says so, in order, so timing is under the test's control.
+ * `draw` stands for the dock showing the entry: as the real dock does, it drops the body of the previous draw
+ * and holds the new one, so the module sees an open dock through the body's `isConnected`. `close` drops it.
+ */
 function fakeExt(current = "s_1") {
   const log = { docks: {}, requests: [], redraws: 0, watchers: [], turnWatchers: [], pending: [] };
   const ext = {
@@ -126,20 +131,34 @@ function fakeExt(current = "s_1") {
   const end = (session) => {
     for (const fn of log.turnWatchers) fn({ session, event: { type: "turn.end" } });
   };
-  const draw = () => log.docks.context.draw();
-  return { ext, log, answer, refuse, go, end, draw };
+  let shown = null;
+  const close = () => {
+    if (shown) shown.isConnected = false;
+    shown = null;
+  };
+  const draw = () => {
+    close();
+    const view = log.docks.context.draw();
+    shown = view.body;
+    shown.isConnected = true;
+    return view;
+  };
+  return { ext, log, answer, refuse, go, end, draw, close };
 }
 
 const install = (await import("../ui/index.js")).default;
 
-test("install registers the context dock and asks once for the open conversation; draw never asks", async () => {
+test("install registers the context dock and asks nothing; the first draw asks once for the open conversation, later draws never", async () => {
   const { ext, log, answer, draw } = fakeExt();
   install(ext);
   assert.deepEqual(Object.keys(log.docks), ["context"]);
-  assert.deepEqual(log.requests, [{ verb: "context", session: "s_1" }]);
+  assert.deepEqual(log.requests, [], "the dock is closed when the page opens, so nothing is asked");
   let view = draw();
+  assert.deepEqual(log.requests, [{ verb: "context", session: "s_1" }], "opening the dock asks");
   assert.equal(view.title, "Context");
   assert.match(text(view.body), /Loading/);
+  draw();
+  assert.equal(log.requests.length, 1, "a draw during the request does not ask again");
   answer({ turns: 0, lastCall: null });
   await tick();
   view = draw();
@@ -147,12 +166,13 @@ test("install registers the context dock and asks once for the open conversation
   assert.equal(view.subtitle, "turn 0");
   assert.match(text(view.body), /Nothing has been sent in this conversation yet\./);
   assert.deepEqual(view.actions, []);
-  assert.equal(log.requests.length, 1, "drawing sends nothing");
+  assert.equal(log.requests.length, 1, "drawing what was received sends nothing");
 });
 
 test("a call draws the Request tab with the scalars and the tool pills, and the Prompt tab with the markdown and Copy", async () => {
   const { ext, log, answer, draw } = fakeExt();
   install(ext);
+  draw();
   answer({ turns: 3, lastCall: LAST_CALL });
   await tick();
   let view = draw();
@@ -173,9 +193,10 @@ test("a call draws the Request tab with the scalars and the tool pills, and the 
   assert.equal(log.requests.length, 1);
 });
 
-test("a turn's end in the open conversation asks again; one in another does not; triggers during a request coalesce", async () => {
+test("with the dock open, a turn's end in the open conversation asks again; one in another does not; triggers during a request coalesce", async () => {
   const { ext, log, answer, end, draw } = fakeExt();
   install(ext);
+  draw();
   answer({ turns: 1, lastCall: null });
   await tick();
   end("s_other");
@@ -194,9 +215,10 @@ test("a turn's end in the open conversation asks again; one in another does not;
   assert.equal(draw().subtitle, "turn 3 · echo/echo-1 · 19 chars");
 });
 
-test("a conversation change asks for the new one, and an answer for the old one is dropped", async () => {
+test("with the dock open, a conversation change asks for the new one, and an answer for the old one is dropped", async () => {
   const { ext, log, answer, go, draw } = fakeExt();
   install(ext);
+  draw();
   go("s_2");
   assert.equal(log.requests.length, 1, "the change waits for the request in flight");
   assert.match(text(draw().body), /Loading/);
@@ -211,18 +233,62 @@ test("a conversation change asks for the new one, and an answer for the old one 
   assert.match(text(view.body), /Nothing has been sent/);
 });
 
-test("a refused request shows its sentence in the body, and no conversation shows a hint", async () => {
-  const { ext, refuse, draw } = fakeExt();
+test("with the dock closed, conversation changes ask nothing; opening it asks once, for the conversation open then", async () => {
+  const { ext, log, answer, go, draw, close } = fakeExt();
   install(ext);
+  draw();
+  answer({ turns: 1, lastCall: LAST_CALL });
+  await tick();
+  close();
+  go("s_2");
+  go("s_3");
+  go("s_4");
+  assert.equal(log.requests.length, 1, "nobody is looking, so the server is not asked to read three records");
+  const view = draw();
+  assert.deepEqual(log.requests.map((r) => r.session), ["s_1", "s_4"], "opening asks once, for the open conversation");
+  assert.match(text(view.body), /Loading/, "s_1's record is not shown for s_4");
+  answer({ turns: 2, lastCall: null });
+  await tick();
+  assert.equal(draw().subtitle, "turn 2");
+  assert.equal(log.requests.length, 2);
+});
+
+test("with the dock closed, a turn's end marks the record stale: nothing is asked until the dock opens, and then once", async () => {
+  const { ext, log, answer, end, draw, close } = fakeExt();
+  install(ext);
+  draw();
+  answer({ turns: 1, lastCall: LAST_CALL });
+  await tick();
+  close();
+  end("s_1");
+  end("s_1");
+  assert.equal(log.requests.length, 1);
+  const view = draw();
+  assert.equal(log.requests.length, 2, "the dock opens on a stale record and asks once");
+  assert.equal(view.subtitle, "turn 1 · echo/echo-1 · 19 chars", "what was shown stays up while the answer comes: it is the same conversation");
+  draw();
+  assert.equal(log.requests.length, 2);
+  answer({ turns: 2, lastCall: LAST_CALL });
+  await tick();
+  assert.equal(draw().subtitle, "turn 2 · echo/echo-1 · 19 chars");
+  assert.equal(log.requests.length, 2);
+});
+
+test("a refused request shows its sentence in the body and is not asked again by drawing; no conversation shows a hint", async () => {
+  const { ext, log, refuse, draw } = fakeExt();
+  install(ext);
+  draw();
   refuse("dev may not send context.");
   await tick();
   const view = draw();
   assert.equal(text(find(view.body, "ui-context-note")[0]), "dev may not send context.");
   assert.equal(find(view.body, "ui-context-note")[0].props.class, "ui-context-note is-error");
+  assert.equal(log.requests.length, 1, "a refusal is an answer; redrawing does not ask again");
 
   const none = fakeExt(null);
   install(none.ext);
   assert.equal(none.log.requests.length, 0);
   assert.match(text(none.draw().body), /Open a conversation/);
   assert.equal(none.draw().subtitle, "");
+  assert.equal(none.log.requests.length, 0, "no conversation, nothing to ask for");
 });
