@@ -211,19 +211,52 @@ pid on `.devhome3/thetis.sock` (`ss -lxp`). Run 2026-09-15: every step below pas
     and Up move the focus, Left on an open Packages closes it, Left on a child moves to Packages, Home and
     End jump, Enter selects. `head` holds a `link[href$="ext/@thetis/ui-admin/index.css"]`; no console
     errors. `api/ui` for dev lists the `panel` entries with `configuration` carrying `under: "packages"`.
-21a. **A package's settings**: click a child row under Packages (`.is-selected` moves to it, Packages
-    stays open). Expect `.panel-note` "What this package is
-    configured with, and what is missing.", the toolbar heading with the package name and its description,
-    the layer select, **Reload the file**, then the `.ua-pkg-card` (one `POST …/package-info`): a `.badge`
-    Everyone or Only me, `dl.ua-pkg-facts` with the rows version, scope, source ("shipped with Thetis" for
-    a system package), registry ("not in the marketplace index" without one), checkout (the branch and
-    commit of the runtime checkout, "in step with origin/main" or how many commits are not pushed, files of
-    this package changed) and files (the root in `code`); a fork shows the fork row and a `fork` badge, an
-    update on offer the `update to` badge. Then one `.cf-card[data-package]` for that package only, and the
-    `.panel-hint`. Set a
-    key and **Save**: one `config-set`, the card redrawn, and the nav's mark for that package following the
-    kernel's summary. Switch the layer select to a person: one `config-show` with `user`, and a `scope:
-    "system"` key read-only. Clicking the Packages row again shows the table and re-reads the children.
+    Under Packages the first row is `.tree-item.is-page` "All workspaces"; each package row may carry
+    `.tree-marks` with `.tree-glyph.is-warn` (`↑`, `Y`, `◐`) or `.tree-glyph.is-err` (`!`), the sentence in
+    `title`; the Packages row shows `.tree-count` "n" and, when any child has a warn or err mark,
+    `.tree-count-look` "· k need a look". The nav's `.panel-nav-foot` holds a `.tree-legend` with one entry
+    per glyph in use and `label.tree-focus` with a checkbox: tick it and the rows without a mark are gone,
+    replaced by one `.tree-hidden` row "n without a look" under Packages, while the selected row stays;
+    reload: still ticked (`localStorage` `thetis.panel.tree` has `"$focus": true`).
+21a. **All workspaces**: click the first child under Packages. Expect `.ua-fleet` with `.toolbar` "All
+    workspaces · *n* packages across *m* workspaces", six `.ua-fl-tile`s, the `.ua-fl-filters` row
+    (`input.ua-fl-search`, `.ua-fl-chip.is-on` on "all types", "everything" and "scope"), and
+    `table.ua-fl-table` with one `th.ua-fl-user` per person, `tr.ua-fl-group` rows "Everyone · n", "System
+    · n", "Only some people · n", and per row a `.ua-fl-cell.is-current|is-stale|is-fork|is-broken|is-none`
+    per person with a `title`. Typing in the search narrows rows without a request; "drift only" keeps only
+    rows with an update, a broken config, a stale or a forked cell; "type" regroups. Clicking a row opens
+    that package's page and selects it in the tree.
+21b. **A package's page**: click a package under Packages (`.is-selected` moves to it, Packages stays
+    open). Expect `.ua-pkg` with `.ua-pkg-crumb` ending in `code` = the name, `h2.ua-pkg-name`,
+    `.ua-pkg-version`, `.badge`s (Everyone or Only me; `config whole` or a red `config: …`),
+    `.ua-pkg-actions .btn` with `.ua-tag.is-admin` on Remove and `.ua-tag.is-yours` on Fork, the
+    `.ua-pkg-legend`, and `.ua-pkg-tabs .ua-pkg-tab` ×6 with Overview `.is-on`; requests `package-info`,
+    `package-where`, `config-show`. Overview: `.ua-pkg-grid` with `.ua-provenance` (an `svg.ua-lineage`,
+    `dl.ua-pkg-facts` rows source / registry / pinned to / forks / depends on / used by), `.ua-checkout`
+    (`.ua-sync-line`, up to five `.ua-mini-graph .ua-mini-row` after one `package-log`, `.ua-legend`),
+    `.ua-where` (`select.ua-person[aria-label=Person]` with one option per person, `dl.ua-person-facts`,
+    `.ua-person-actions .btn`, `.ua-where-foot`), then `.ua-files-card`. `[data-tab=configuration]`: the
+    `.ua-configuration .cf-card` at full width with `.cf-row`s as grid rows. "Open their layer" in the
+    where card lands on that tab with `select[aria-label=Layer]` set to the person and one `config-show`
+    with `user`. `[data-tab=where]`: `.ua-where.is-full` and `.ua-where-table .table` with a row per
+    person. `[data-tab=activity]`: one `package-activity`, `.ua-activity .ua-chip` kinds and ranges, the
+    table; "Their activity" from the card lands here with a `<user> ×` chip on. `[data-tab=readme]`: one
+    `package-readme`, `.ua-readme-body .md`. Remove opens a confirm naming the package; Fork opens
+    "Fork this package?" naming `@<user>/<name>`; cancel each.
+21c. **History**: `[data-tab=history]`. Expect `.uh-head` with `code` = the package name, `on main at
+    <7 hex>`, and badges among `N not pushed` (warn), `in step with origin/main` (ok) or `N behind`,
+    `registry <v>`, `pinned to <7 hex>`; `.uh-actions` with Compare pin ↔ HEAD (`[disabled]` without a
+    pin), Compare with working tree, and Push (`[disabled]` at 0 ahead). `.uh-controls` holds the lane
+    chips, range chips with `30 d` `.is-on`, and `input.uh-search`. `.uh-list` has `svg` in `.uh-graph`
+    with one `circle.uh-node` per `.uh-row`, the first row `.is-selected[aria-selected=true]`, `.uh-hash`
+    in the accent for pushed rows and warn on `.is-local` rows with a `not pushed` badge; the pinned row
+    carries `pinned`. The inspector `.uh-inspector` shows `.uh-insp-hash`, the `kv` rows author / on / in
+    registry / pinned, `.uh-file` rows with `.uh-bar`, and Show diff / Copy hash; clicking another row or
+    ArrowDown with `.uh-list` focused sends one `package-commit` and moves `.is-selected`. `7 d` narrows
+    without a request; `all` sends one `package-log` with `limit: 200`. Compare with working tree sends
+    `package-diff {from: "HEAD", to: "WORKTREE"}` and the inspector shows "Comparison" with a summary and
+    a "Back to the commit" button. On a package outside a git checkout (a fork in the home) the rows area
+    shows the command's sentence and the actions are disabled.
 22. **People**: click the second nav item. Expect `.panel-note` "Who can sign in, and what they may do.",
     a `.ua-people .table` with one row per person (`dev (me)`, `bob`), and the `.ua-add` card. Type `carol`
     and `carolpass1`, click **Add person**: one `POST api/ext/@thetis/ui-admin/user-create`, the row

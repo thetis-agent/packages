@@ -8,8 +8,15 @@
  * parent is how the reader finds what is under it. Which nodes are open is remembered under `storageKey`
  * when one is given, so the tree comes back the way it was left.
  *
- * `nodes` are `{ key, label, title?, mark?, children?, data? }`; `mark` is `err` or `warn` for a dot before
- * the label. `update(nodes, selected)` redraws from new nodes, keeping what is open and where the focus is. */
+ * `nodes` are `{ key, label, title?, kind?, mark?, marks?, count?, children?, data? }`. `mark` is `err` or
+ * `warn` for a dot before the label; `marks` is a list of `{ glyph, tone, title }` drawn after it, each a
+ * small square with the glyph in it and its sentence as the tooltip. A node with a `warn` or `err` mark
+ * "needs a look", and the tree can be narrowed to those (`setFocus`): a parent whose children were hidden
+ * says how many, in a faint row nobody can select; the selected node is never hidden. `count` is
+ * `{ total, look }` the owner worked out for a parent, drawn after its label as "28 · 6 need a look": the
+ * tree draws what it is handed and knows nothing of what a mark means. `kind: "page"` marks a child that
+ * is a page rather than a thing named in code, drawn in the sans face. `update(nodes, selected)` redraws
+ * from new nodes, keeping what is open and where the focus is. */
 
 import { el, icon } from "./dom.js";
 
@@ -22,9 +29,16 @@ export function createTree(host, { nodes = [], selected = null, onSelect, storag
   let current = selected;
   let focused = null; // the key that holds the tab stop
   let list = nodes;
+  let only = false; // narrowed to what needs a look
+  const FOCUS = "$focus"; // the storage entry that is not a node's
 
   try {
-    if (storageKey) for (const [key, on] of Object.entries(JSON.parse(localStorage.getItem(storageKey) || "{}"))) open.set(key, Boolean(on));
+    if (storageKey) {
+      for (const [key, on] of Object.entries(JSON.parse(localStorage.getItem(storageKey) || "{}"))) {
+        if (key === FOCUS) only = Boolean(on);
+        else open.set(key, Boolean(on));
+      }
+    }
   } catch {
     /* no storage: the tree opens by default */
   }
@@ -32,7 +46,7 @@ export function createTree(host, { nodes = [], selected = null, onSelect, storag
   function remember() {
     if (!storageKey) return;
     try {
-      localStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(open)));
+      localStorage.setItem(storageKey, JSON.stringify({ ...Object.fromEntries(open), [FOCUS]: only }));
     } catch {
       /* no storage */
     }
@@ -40,10 +54,14 @@ export function createTree(host, { nodes = [], selected = null, onSelect, storag
 
   const isOpen = (node) => (open.has(node.key) ? open.get(node.key) : openByDefault);
   const hasKids = (node) => Array.isArray(node.children) && node.children.length > 0;
+  const needsLook = (node) => node.mark === "warn" || node.mark === "err" || (Array.isArray(node.marks) && node.marks.some((m) => m && (m.tone === "warn" || m.tone === "err")));
+  /** A child stays in view when it needs a look, is selected, is a page, or has a child that stays. */
+  const shown = (node, level) => !only || level === 1 || node.key === current || node.kind === "page" || needsLook(node) || (hasKids(node) && node.children.some((c) => shown(c, level + 1)));
 
   /** The rows that are showing, in reading order, each with its node, its level and its parent. */
   function visible(from = list, level = 1, parent = null, out = []) {
     for (const node of from) {
+      if (!shown(node, level)) continue;
       out.push({ node, level, parent });
       if (hasKids(node) && isOpen(node)) visible(node.children, level + 1, node, out);
     }
@@ -66,10 +84,11 @@ export function createTree(host, { nodes = [], selected = null, onSelect, storag
 
   function row(node, level) {
     const kids = hasKids(node);
+    const marks = (Array.isArray(node.marks) ? node.marks : []).filter((m) => m && typeof m.glyph === "string");
     const item = el(
       "div",
       {
-        class: `tree-item${node.key === current ? " is-selected" : ""}${kids ? " has-children" : ""}`,
+        class: `tree-item${node.key === current ? " is-selected" : ""}${kids ? " has-children" : ""}${node.kind === "page" ? " is-page" : ""}`,
         role: "treeitem",
         "aria-level": String(level),
         "aria-selected": node.key === current ? "true" : "false",
@@ -84,14 +103,27 @@ export function createTree(host, { nodes = [], selected = null, onSelect, storag
         ? el("span", { class: `tree-toggle${isOpen(node) ? " is-open" : ""}`, "aria-hidden": "true", onClick: (event) => { event.stopPropagation(); setOpen(node, !isOpen(node)); } }, icon(CHEVRON, { size: 12, width: 1.8 }))
         : el("span", { class: "tree-toggle is-leaf", "aria-hidden": "true" }),
       node.mark ? el("span", { class: `tree-mark is-${node.mark}`, "aria-hidden": "true" }) : null,
-      el("span", { class: "tree-label" }, node.label ?? node.key)
+      el("span", { class: "tree-label" }, node.label ?? node.key),
+      node.count && typeof node.count === "object"
+        ? el("span", { class: "tree-count" }, String(node.count.total ?? ""), node.count.look ? el("span", { class: "tree-count-look" }, ` · ${node.count.look} need${node.count.look === 1 ? "s" : ""} a look`) : null)
+        : null,
+      marks.length ? el("span", { class: "tree-marks" }, ...marks.map((m) => el("span", { class: `tree-glyph is-${m.tone || "dim"}`, title: m.title ?? null, "aria-label": m.title ?? null }, m.glyph))) : null
     );
     item.style.setProperty("--depth", String(level - 1));
     return item;
   }
 
+  /** The faint row that stands for the children the narrowing hid: a count, nothing to select. */
+  function hiddenRow(n, level) {
+    const r = el("div", { class: "tree-hidden", "aria-hidden": "true" }, el("span", { class: "tree-toggle is-leaf" }), el("span", { class: "tree-label" }, `${n} without a look`));
+    r.style.setProperty("--depth", String(level - 1));
+    return r;
+  }
+
   function group(node, level) {
-    const g = el("div", { class: "tree-group", role: "group" }, ...branch(node.children, level + 1));
+    const kids = node.children.filter((c) => shown(c, level + 1));
+    const hidden = node.children.length - kids.length;
+    const g = el("div", { class: "tree-group", role: "group" }, ...branch(kids, level + 1), hidden ? hiddenRow(hidden, level + 1) : null);
     g.style.setProperty("--depth", String(level - 1)); // the guide line hangs from the parent's toggle
     return g;
   }
@@ -154,6 +186,15 @@ export function createTree(host, { nodes = [], selected = null, onSelect, storag
     select(key) {
       current = key;
       draw();
+    },
+    /** Narrows the tree to the nodes that need a look (and their parents), or shows everything again. Remembered. */
+    setFocus(on) {
+      only = Boolean(on);
+      remember();
+      draw();
+    },
+    get focus() {
+      return only;
     },
     /** Opens every node on the way to `key`, so a selected page is never hidden under a closed parent. */
     reveal(key) {

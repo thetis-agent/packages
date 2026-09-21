@@ -46,7 +46,9 @@ const nodeKey = (entryKey, child) => (child ? `${entryKey}:${child}` : entryKey)
 
 /** Draws the panel into a place's body. `params.section` names the entry key to show first, `params.child` a page under it. */
 function openPanel(root, params) {
-  const nav = el("nav", { class: "panel-nav", "aria-label": "Control panel sections" });
+  const treeHost = el("div", { class: "panel-tree" });
+  const foot = el("div", { class: "panel-nav-foot" });
+  const nav = el("nav", { class: "panel-nav", "aria-label": "Control panel sections" }, treeHost, foot);
   const main = el("div", { class: "panel-main" });
   root.append(el("div", { class: "panel-shell" }, nav, main));
   let sections = [];            // the nav's own items, in order
@@ -56,23 +58,47 @@ function openPanel(root, params) {
   let role = null;
   let unmount = null;
   let closed = false;
-  const tree = createTree(nav, { storageKey: TREE_STATE, onSelect: (node) => show(node.data.entryKey, node.data.child) });
+  const tree = createTree(treeHost, { storageKey: TREE_STATE, onSelect: (node) => show(node.data.entryKey, node.data.child) });
 
-  /** The pages a hung entry answered, as tree nodes, to any depth. */
+  /** The pages a hung entry answered, as tree nodes, to any depth. A page's marks travel as the module gave them. */
   function pages(entry, list) {
     return (Array.isArray(list) ? list : [])
       .filter((k) => k && typeof k.id === "string")
-      .map((k) => ({ key: nodeKey(entry.key, k.id), label: k.label || k.id, title: k.note ?? null, mark: k.mark ?? null, data: { entryKey: entry.key, child: k.id }, children: pages(entry, k.children) }));
+      .map((k) => ({ key: nodeKey(entry.key, k.id), label: k.label || k.id, title: k.note ?? null, kind: k.kind === "page" ? "page" : null, mark: k.mark ?? null, marks: Array.isArray(k.marks) ? k.marks : [], data: { entryKey: entry.key, child: k.id }, children: pages(entry, k.children) }));
   }
 
+  /** A node needs a look when a package said so with a warn or err mark. The count on a section is of its pages, not of pages of pages. */
+  const looks = (node) => node.mark === "warn" || node.mark === "err" || node.marks.some((m) => m && (m.tone === "warn" || m.tone === "err"));
+
+  /** The legend at the foot: every glyph in use, once, with the first sentence it came with. */
+  function drawFoot(nodes) {
+    clear(foot);
+    const seen = new Map();
+    const walk = (list) => { for (const n of list) { for (const m of n.marks ?? []) if (m?.glyph && !seen.has(m.glyph)) seen.set(m.glyph, m); walk(n.children ?? []); } };
+    walk(nodes);
+    if (!seen.size) return;
+    const legend = el("div", { class: "tree-legend" }, ...[...seen.values()].map((m) => el("span", { class: "tree-legend-item" }, el("span", { class: `tree-glyph is-${m.tone || "dim"}`, "aria-hidden": "true" }, m.glyph), el("span", {}, legendWord(m)))));
+    const box = el("input", { type: "checkbox", checked: tree.focus ? "" : null, onChange: () => tree.setFocus(box.checked) });
+    foot.append(legend, el("label", { class: "tree-focus" }, box, "only what needs a look"));
+  }
+
+  /** The legend's word for a mark: the sentence's first clause, so "update 0.2.0 on offer" reads "update on offer". */
+  const legendWord = (m) => String(m.title || "").replace(/\s+\S*\d\S*/g, "").split(/[:;,(]/)[0].trim().toLowerCase() || m.glyph;
+
   function drawNav() {
-    const nodes = sections.map((section) => ({
-      key: section.key,
-      label: section.decl.label || section.id,
-      data: { entryKey: section.key, child: null },
-      children: hung.filter((e) => hangsUnder(e, section)).flatMap((e) => pages(e, children.get(e.key))),
-    }));
+    const nodes = sections.map((section) => {
+      const kids = hung.filter((e) => hangsUnder(e, section)).flatMap((e) => pages(e, children.get(e.key)));
+      const counted = kids.filter((k) => k.kind !== "page");
+      return {
+        key: section.key,
+        label: section.decl.label || section.id,
+        data: { entryKey: section.key, child: null },
+        count: counted.length ? { total: counted.length, look: counted.filter(looks).length } : null,
+        children: kids,
+      };
+    });
     tree.update(nodes, nodeKey(current.key, current.child));
+    drawFoot(nodes);
   }
 
   /** Asks every hung entry (or the ones under `section`) for its children again, and redraws the nav. */
@@ -106,7 +132,8 @@ function openPanel(root, params) {
     }
     if (entry.decl.note) main.append(el("p", { class: "panel-note" }, entry.decl.note));
     if (!entry.impl?.mount) return main.append(registry.failureOf(entry.package) ? registry.broken(entry.package) : el("div", { class: "panel-empty" }, "Loading…"));
-    const who = { role, user: store.get("user")?.user, child, refresh: () => void refreshChildren() };
+    // `open(child)` lets a page of a hung entry send the reader to a sibling page (a fleet row to its package).
+    const who = { role, user: store.get("user")?.user, child, refresh: () => void refreshChildren(), open: (next) => { show(key, next); tree.reveal(nodeKey(key, next)); } };
     const out = registry.guard(entry.package, "panel", entry.impl.mount, main, who);
     if (!out.ok) return main.append(registry.broken(entry.package));
     unmount = typeof out.value === "function" ? out.value : null;

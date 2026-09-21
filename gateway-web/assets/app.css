@@ -1446,6 +1446,25 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .tree-mark { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--text-faint); }
 .tree-mark.is-err { background: var(--err); }
 .tree-mark.is-warn { background: var(--warn); }
+.tree-item.is-page .tree-label { font-family: var(--font); font-size: var(--text-sm); }
+.tree-count { flex: none; margin-left: auto; padding-left: 8px; font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); white-space: nowrap; }
+.tree-count-look { color: var(--warn); }
+.tree-marks { flex: none; margin-left: auto; padding-left: 6px; display: inline-flex; gap: 3px; }
+.tree-count + .tree-marks { margin-left: 0; }
+.tree-glyph { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 4px; font-family: var(--font); font-size: 10px; font-weight: 700; line-height: 1; color: var(--text-dim); background: var(--surface-3); }
+.tree-glyph.is-warn { color: var(--warn); background: var(--warn-wash); }
+.tree-glyph.is-err { color: var(--err); background: var(--err-wash); }
+.tree-glyph.is-accent { color: var(--accent); background: var(--accent-wash); }
+.tree-glyph.is-ok { color: var(--ok); background: var(--ok-wash); }
+.tree-hidden { display: flex; align-items: center; gap: 4px; padding: 4px 8px 4px calc(var(--depth, 0) * 16px + 6px); color: var(--text-faint); font-size: var(--text-xs); font-style: italic; }
+/* The nav is the tree above a foot: the legend of the glyphs in use and the narrowing toggle. */
+.panel-nav { display: flex; flex-direction: column; gap: var(--gap-3); }
+.panel-tree { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.panel-nav-foot { flex: none; display: flex; flex-direction: column; gap: 8px; padding: var(--gap-2) var(--gap-2) 0; border-top: 1px solid var(--hairline); font-size: var(--text-xs); color: var(--text-faint); }
+.panel-nav-foot:empty { display: none; }
+.tree-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.tree-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.tree-focus { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-dim); }
 .panel-main { flex: 1; min-width: 0; overflow: auto; padding: var(--gap-4) var(--gap-5); }
 .panel-cols { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: var(--gap-5); align-items: start; }
 .panel-col { min-width: 0; display: flex; flex-direction: column; gap: var(--gap-3); position: relative; }
