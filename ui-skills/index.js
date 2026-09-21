@@ -35,7 +35,7 @@ const underAny = (id, set) => {
   return false;
 };
 
-function row(skill, errors) {
+function row(skill, errors, problems) {
   return {
     id: skill.id,
     name: skill.name,
@@ -44,10 +44,14 @@ function row(skill, errors) {
     short: firstSentence(skill.description),
     description: skill.description,
     tags: skill.tags ?? [],
+    related: skill.related ?? [],
+    version: typeof skill.version === "string" ? skill.version : "",
     universal: Boolean(skill.universal),
     package: skill.source?.package ?? null,
     contentHash: skill.contentHash,
     children: skill.children ?? [],
+    resources: skill.resources ?? [],
+    problems: problems.get(skill.id) ?? [],
     error: errors.get(skill.id) ?? null,
   };
 }
@@ -61,13 +65,17 @@ export async function uiSkills(_args, env) {
   const packages = await env.kernel.packages.list();
   const all = loadSkills(env, packages);
   const errors = new Map();
-  for (const p of lint(all)) if (p.level === "error" && !errors.has(p.id)) errors.set(p.id, p.message);
+  const problems = new Map(); // every level, per skill, so the dock can show what lint said and not only that it did
+  for (const p of lint(all)) {
+    if (p.level === "error" && !errors.has(p.id)) errors.set(p.id, p.message);
+    if (typeof p.id === "string") problems.set(p.id, [...(problems.get(p.id) ?? []), { level: p.level, message: p.message }]);
+  }
   const record = env.session ? await env.kernel.sessions.inspect(env.session) : null;
   const state = stateOf(record?.harness);
   const off = env.session ? await excludedFor(env, env.session) : new Set();
   const excluded = all.filter((s) => underAny(s.id, off)).map((s) => s.id);
   const loaders = packages.map((p) => p?.name).filter((name) => LOADERS.includes(name));
-  return { data: { ...state, loaders, excluded, skills: all.map((s) => row(s, errors)) } };
+  return { data: { ...state, loaders, excluded, skills: all.map((s) => row(s, errors, problems)) } };
 }
 
 /** `skill { id }`: the text `renderBody` makes of one skill, with the facts a header shows. */

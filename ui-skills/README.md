@@ -12,27 +12,29 @@ The manifest declares `type: "ui"` and a `ui` block with `dir: "ui"`, `entry: "i
 
 | Verb | Export | Who may send it | What it does |
 |---|---|---|---|
-| `skills` | `uiSkills` | any signed-in person | `{ loader, loaders, universal, pinned, loaded, catalogue, dropped, notes, excluded, skills }`. The first block is the state the loader in force wrote for the conversation under `harness["@thetis/skills"]` (packages/skills/README.md), read through `env.kernel.sessions.inspect(env.session)`; `loaders` names the installed loader packages; `excluded` is what the conversation's project switched off, from `excludedFor`, so a switch flipped in the project place shows at once; `skills` is the catalogue from `loadSkills(env, env.kernel.packages.list())`, one row per skill: `id`, `name`, `title`, `brief`, `short` (the first sentence), `description`, `tags`, `universal`, `package` (null for a skill under the home), `contentHash`, `children`, and `error` when `lint` would leave it out. Without a session, the catalogue alone. |
+| `skills` | `uiSkills` | any signed-in person | `{ loader, loaders, universal, pinned, loaded, catalogue, dropped, notes, excluded, skills }`. The first block is the state the loader in force wrote for the conversation under `harness["@thetis/skills"]` (packages/skills/README.md), read through `env.kernel.sessions.inspect(env.session)`; `loaders` names the installed loader packages; `excluded` is what the conversation's project switched off, from `excludedFor`, so a switch flipped in the project place shows at once; `skills` is the catalogue from `loadSkills(env, env.kernel.packages.list())`, one row per skill: `id`, `name`, `title`, `brief`, `short` (the first sentence), `description`, `tags`, `related`, `version`, `universal`, `package` (null for a skill under the home), `contentHash`, `children`, `resources` (the files beside the body), `problems` (what `lint` said about it, every level), and `error` when `lint` would leave it out. Without a session, the catalogue alone. |
 | `skill` | `uiSkill` | any signed-in person | `{ id }` to `{ id, title, brief, package, contentHash, universal, excluded, children, resources, text }`, where `text` is what `renderBody` makes: the body, the skill directory, and the files beside `SKILL.md`. A missing or unknown id is refused. |
 
 Neither command reads a configuration; a UI command gets none (packages/gateway-web/README.md).
 
 ## Use
 
-The **Skills** button in the rail opens the dock. The subtitle counts the skills and names the loader. The sections, in order:
+The **Skills** button in the rail opens the dock. The subtitle counts the skills, how many are always in force, how many were retrieved, and names the loader. Every group below folds behind its heading, which carries a count and a sentence saying what the group means; which groups are folded is remembered in the browser (`localStorage` `thetis.skills.folds`). The groups, in order:
 
-| Section | Content |
+| Group | Content |
 |---|---|
+| How skills reach the prompt | A legend of the four disclosure levels (brief, card, body, files), folded by default. |
 | Loader | The package that wrote the prompt of the last turn. Before the first turn: the installed loader and a note that it writes its state on the first turn. With none installed: "No skill loader is installed. Install one of @thetis/skills-hybrid, @thetis/skills-l1 or @thetis/skills-all." Without a conversation: a note to open one. |
-| Always in force | The universal skills, from the loader's state; before a loader has run, the skills declared universal. |
-| Retrieved for this conversation | The pinned set with `score` and `how`. Only when the loader pinned something. |
+| Problems | What `lint` said, per skill, errors first and edge-coloured: an error means the skill is left out entirely. Only when there are any. |
+| Always in force | The universal skills, from the loader's state; before a loader has run, the skills declared universal. A universal skill that also ranked carries its score. |
+| Retrieved for this conversation | The pinned set that is not already universal, each with its score drawn as a bar against the best in the group, the number, and how it got there in words (semantic match, word overlap, parent of a match, everything included), with the longer reading on hover. When retrieval added nothing beyond the universal set, or has not run yet, the group says which. |
 | Loaded in this conversation | The bodies the model asked for with `load_skill`. Only when there are any. |
-| Switched off by the project | What the project's `skills.disable` leaves out, nested skills included; otherwise "Nothing is switched off by a project." |
-| Left out for the budget | `dropped`, only when the loader dropped something. |
-| Notes | The loader's notes, only when there are any. |
-| Catalogue | Every skill, by id, with a search box. The search ranks the rows by BM25 over name, description and tags in the page (`ui/rank.js`, the same algorithm as the library's, held to it by a test) and shows the score; no keystroke sends a request. |
+| Switched off by the project | What the project's `skills.disable` leaves out, nested skills included; folded by default. |
+| Left out for the budget | `dropped`, only when the loader dropped something; folded by default. |
+| Notes | The loader's notes, only when there are any; folded by default. |
+| Catalogue | Every skill, grouped by family (the first segment of the id), each family its own fold with its count, where its skills come from and how many are in this prompt; nested skills indented under their parent. The search box above ranks the whole catalogue by BM25 over name, description and tags in the page (`ui/rank.js`, the same algorithm as the library's, held to it by a test) and shows the score; a query flattens the families to a ranked list; no keystroke sends a request. |
 
-A row shows the id, the title, badges (`always`, `pinned`, `loaded`, `switched off`, `dropped`, `left out`), where the skill comes from, and its first sentence. Clicking a row opens the skill's text in the dock, rendered through `ext.markdown`, with a `← Skills` button back to the list; the text is asked for once per skill and content hash. A new conversation returns the dock to the list.
+A card shows the skill's name, its id, the badges (`always`, `pinned`, `loaded`, `switched off`, `dropped`, `left out`), quiet pills for what is nested under it, the files beside its body and its version, where it comes from, and its first sentence; a **Details** fold on the card holds the whole description, the nested ids, the files, the tags, the related skills, any lint problem and the source. Clicking the card's head opens the skill's text in the dock, rendered through `ext.markdown`, with a `← Skills` button back to the list; the text is asked for once per skill and content hash. A new conversation returns the dock to the list.
 
 The dock asks once per conversation, once more when a turn of the open conversation ends, and never while drawing. A refused request shows its sentence in the body.
 

@@ -275,9 +275,14 @@ test("install registers the skills dock; the first draw asks once and the sectio
   assert.equal(log.redraws, 1);
 
   const view = log.docks.skills.draw();
-  assert.equal(view.subtitle, "5 skills · @thetis/skills-l1");
+  assert.equal(view.subtitle, "5 skills · 1 always · 1 retrieved · @thetis/skills-l1");
   const sections = find(view.body, "sk-section").map((s) => s.props.class.split(" ")[1]);
-  assert.deepEqual(sections, ["sk-loader", "sk-universal", "sk-pinned", "sk-loaded", "sk-off", "sk-notes", "sk-catalogue"]);
+  assert.deepEqual(sections, ["sk-loader", "sk-problems", "sk-universal", "sk-pinned", "sk-loaded", "sk-off", "sk-notes", "sk-catalogue"]);
+  assert.equal(find(view.body, "sk-legend").length, 1, "the legend explains the four disclosure levels");
+  for (const s of find(view.body, "sk-section").slice(1)) assert.equal(s.tag, "details", `${s.props.class} folds`);
+  assert.equal(find(view.body, "sk-off")[0].props.open, null, "switched off starts folded");
+  assert.equal(find(view.body, "sk-universal")[0].props.open, "", "always in force starts open");
+  assert.match(text(find(view.body, "sk-problems")[0]), /bad/);
   assert.equal(text(find(view.body, "sk-loader-name")[0]), "@thetis/skills-l1");
   assert.deepEqual(ids(find(view.body, "sk-universal")[0]), ["concise"]);
   const pinned = find(view.body, "sk-pinned")[0];
@@ -291,6 +296,12 @@ test("install registers the skills dock; the first draw asks once and the sectio
   const catalogue = find(view.body, "sk-catalogue")[0];
   assert.deepEqual(ids(catalogue), ["bad", "concise", "mine", "packages", "packages/forks"]);
   assert.match(text(catalogue), /5 skills from 2 sources/);
+  const families = find(catalogue, "sk-family");
+  assert.deepEqual(families.map((f) => text(find(f, "section-label")[0])), ["bad", "concise", "mine", "packages"], "the catalogue is grouped by family, each a fold");
+  assert.deepEqual(ids(families[3]), ["packages", "packages/forks"]);
+  assert.equal(families[3].props.open, null, "families start folded");
+  assert.equal(find(find(catalogue, "sk-row")[3], "sk-pill").map(text)[0], "1 nested");
+  assert.equal(find(find(catalogue, "sk-row")[3], "sk-more").length, 1, "a card has a details fold");
   const badges = find(find(catalogue, "sk-row")[1], "badge").map(text);
   assert.deepEqual(badges, ["always"]);
   assert.deepEqual(find(find(catalogue, "sk-row")[3], "badge").map(text), ["pinned", "switched off"]);
@@ -342,8 +353,8 @@ test("the search ranks the catalogue in the page without a request; a row opens 
 
   input.props.onInput({ target: { value: "" } });
   find(view.body, "sk-catalogue")[0];
-  const row = find(view.body, "sk-row").find((r) => r.props["data-skill"] === "packages" && r.props.onClick);
-  row.props.onClick();
+  const row = find(view.body, "sk-row").find((r) => r.props["data-skill"] === "packages");
+  find(row, "sk-row-open")[0].props.onClick();
   assert.equal(log.redraws, 2);
   let opened = log.docks.skills.draw();
   assert.equal(opened.title, "packages");
@@ -388,7 +399,7 @@ test("a turn.end of the open conversation asks once more; another conversation's
   assert.equal(log.requests.length, 3, "one request per turn: the turn that ended mid-request queued a single follow-up");
   assert.deepEqual(ids(find(log.docks.skills.draw().body, "sk-loaded")[0]), ["mine", "concise"]);
 
-  find(log.docks.skills.draw().body, "sk-row").find((r) => r.props["data-skill"] === "mine").props.onClick();
+  find(find(log.docks.skills.draw().body, "sk-row").find((r) => r.props["data-skill"] === "mine"), "sk-row-open")[0].props.onClick();
   assert.equal(log.docks.skills.draw().title, "mine");
   ext.conversation.set("s_2");
   log.watchers[0]("s_2");
