@@ -107,7 +107,7 @@ export function openPlace(ext, state, root, params) {
     const ok = await confirm(anchor, {
       title: verb,
       lines: [["Directory", path], ["Mode", mode === null ? "none" : mode === "ro" ? "read-only" : "read-write"]],
-      note: "Your workspace closes and opens again with the change, and its services restart. This page reconnects on its own. Nothing on disk is touched.",
+      note: "Your workspace closes and opens again with the change, and its services restart. A tool call in flight is given up to half a minute to finish first; a turn carries on across the change. This page reconnects on its own. Nothing on disk is touched.",
       confirmLabel: mode === null ? "Unbind" : "Bind",
       tone: mode === null ? "warn" : "primary",
     });
@@ -126,7 +126,7 @@ export function openPlace(ext, state, root, params) {
     } finally {
       if (alive) anchor.disabled = false;
     }
-    await checkStates({ wait: 30_000 });
+    await checkStates({ wait: 75_000 }); // the drain (up to 30 s), then the close and the reopen
     if (!said && alive) ext.toast(mode === null ? `${path} is no longer bound.` : "The workspace reopened with the change.", { tone: "ok" });
   }
 
