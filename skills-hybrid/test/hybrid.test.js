@@ -13,7 +13,8 @@ import { benchVectorsFor, clearVectorCache, hexOf } from "../lib/vectors.js";
 import { retrieve } from "../lib/retrieve.js";
 import { home, ctxOf, toolEnv, session, fakeFetch, fakeVector, withFetch, corpus } from "./helpers.js";
 
-const withKey = { embeddings: { apiKey: "test-key", model: "fake", dimensions: 8 } };
+// The fake vectors are 8 hashed numbers, not embeddings, so their cosines sit below any real floor: off unless a test sets it.
+const withKey = { embeddings: { apiKey: "test-key", model: "fake", dimensions: 8 }, denseThreshold: 0 };
 const noNetwork = async () => {
   throw new Error("the network was touched");
 };
@@ -328,3 +329,26 @@ function require_(rel) {
   return readFileSync_(new URL(rel, import.meta.url));
 }
 import { readFileSync as readFileSync_ } from "node:fs";
+
+test("denseThreshold: a cosine below it is not a dense hit; the pin turns lexical with a note; 0 keeps every hit", async () => {
+  const h = home();
+  try {
+    clearCache();
+    h.skill("packages", "Installs packages. Use when asked to install a package.");
+    h.skill("projects", "Workspaces and projects. Use when a project is mentioned.");
+    const conversation = [{ role: "user", content: "install a package for a project" }];
+    const high = await withFetch(fakeFetch(), () => pin(ctxOf(h.env, { config: { ...withKey, denseThreshold: 1.01 }, conversation })));
+    assert.equal(high.harness[STATE].mode, "lexical");
+    assert.ok(high.harness[STATE].pinned.every((p) => p.how !== "dense"), JSON.stringify(high.harness[STATE].pinned));
+    assert.deepEqual(high.harness[STATE].notes, ["no skill is within the dense threshold (1.01); the ranking is lexical"]);
+    const low = await withFetch(fakeFetch(), () => pin(ctxOf(h.env, { config: { ...withKey, denseThreshold: 0 }, conversation })));
+    assert.equal(low.harness[STATE].mode, "dense");
+    assert.deepEqual(low.harness[STATE].notes, []);
+    // The search ignores the floor: it asks for the closest thing whatever its distance.
+    const found = await withFetch(fakeFetch(), () => skillSearch({ query: "install a package" }, toolEnv(h.env, { ...withKey, denseThreshold: 1.01 })));
+    assert.match(found, /`packages`/);
+    assert.ok(!found.includes("dense threshold"), found);
+  } finally {
+    h.rm();
+  }
+});

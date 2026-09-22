@@ -4,7 +4,7 @@
 <style>.t{fill:#3a3a48}.f{fill:#8b8b9e}@media (prefers-color-scheme:dark){.t{fill:#d2d2dc}.f{fill:#9a9aae}}</style>
 <defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#6e6e82" fill-opacity="0.22"/><line x1="0" y1="0" x2="0" y2="6" stroke="#6e6e82" stroke-width="2"/></pattern></defs>
 <text class="t" x="16" y="20" font-size="14" font-weight="600">@l1/skills on skill-recall@1</text>
-<text class="f" x="16" y="38" font-size="11">skill-recall@1 · sha256:b2706a4975f5… · 90 tasks · each bar is a share of its metric's largest mean · mean ±half-width</text>
+<text class="f" x="16" y="38" font-size="11">skill-recall@1 · sha256:c4dd26db3851… · 90 tasks · each bar is a share of its metric's largest mean · mean ±half-width</text>
 <rect x="653" y="11" width="10" height="10" rx="2" fill="#6e6e82"/>
 <text class="f" x="667" y="20" font-size="11">peers</text>
 <rect x="565.6" y="11" width="10" height="10" rx="2" fill="#7c9cff"/>
@@ -14,26 +14,26 @@
 <text class="t" x="16" y="66" font-size="12" font-weight="600">bytes_system</text>
 <line x1="192" y1="70" x2="566" y2="70" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="86" font-size="11" text-anchor="end">none</text>
-<rect x="192" y="77" width="8.28" height="10" rx="2" fill="url(#hatch)"/>
-<text class="t" x="206.28" y="86" font-size="11">2131<tspan class="f" font-size="9"> ±0</tspan></text>
+<rect x="192" y="77" width="8.45" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="206.45" y="86" font-size="11">2174<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="102" font-size="11" text-anchor="end" font-weight="600">l1-skills</text>
-<rect x="192" y="93" width="315.72" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="513.72" y="102" font-size="11">81223<tspan class="f" font-size="9"> ±0</tspan></text>
+<rect x="192" y="93" width="315.74" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="513.74" y="102" font-size="11">81266<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="118" font-size="11" text-anchor="end">flat-skills</text>
 <rect x="192" y="109" width="362.11" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="560.11" y="118" font-size="11">93158<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="560.11" y="118" font-size="11">93201<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="134" font-size="11" text-anchor="end">rank-skills</text>
-<rect x="192" y="125" width="101.04" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="299.04" y="134" font-size="11">25993.5<tspan class="f" font-size="9"> ±2309.5</tspan></text>
+<rect x="192" y="125" width="101.16" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="299.16" y="134" font-size="11">26036.5<tspan class="f" font-size="9"> ±2309.5</tspan></text>
 <text class="t" x="184" y="150" font-size="11" text-anchor="end">thetis-skills-all</text>
 <rect x="192" y="141" width="374" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="572" y="150" font-size="11">96217<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="572" y="150" font-size="11">96260<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="166" font-size="11" text-anchor="end">thetis-skills-hybrid</text>
-<rect x="192" y="157" width="195.87" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="393.87" y="166" font-size="11">50390.7<tspan class="f" font-size="9"> ±67.5</tspan></text>
+<rect x="192" y="157" width="195.63" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="393.63" y="166" font-size="11">50351.9<tspan class="f" font-size="9"> ±62.6</tspan></text>
 <text class="t" x="184" y="182" font-size="11" text-anchor="end">thetis-skills-l1</text>
-<rect x="192" y="173" width="188.75" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="386.75" y="182" font-size="11">48559<tspan class="f" font-size="9"> ±0</tspan></text>
+<rect x="192" y="173" width="188.83" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="386.83" y="182" font-size="11">48602<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="16" y="208" font-size="12" font-weight="600">bytes_tools</text>
 <line x1="192" y1="212" x2="566" y2="212" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="228" font-size="11" text-anchor="end">none</text>
@@ -75,57 +75,57 @@
 <rect x="192" y="425" width="80.56" height="10" rx="2" fill="#6e6e82"/>
 <text class="t" x="278.56" y="434" font-size="11">1070.1<tspan class="f" font-size="9"> ±106.6</tspan></text>
 <text class="t" x="184" y="450" font-size="11" text-anchor="end">thetis-skills-hybrid</text>
-<rect x="192" y="441" width="314.73" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="512.73" y="450" font-size="11">4180.3<tspan class="f" font-size="9"> ±254.9</tspan></text>
+<rect x="192" y="441" width="313.74" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="511.74" y="450" font-size="11">4167.1<tspan class="f" font-size="9"> ±232.7</tspan></text>
 <text class="t" x="184" y="466" font-size="11" text-anchor="end">thetis-skills-l1</text>
 <rect x="192" y="457" width="80.56" height="10" rx="2" fill="#6e6e82"/>
 <text class="t" x="278.56" y="466" font-size="11">1070.1<tspan class="f" font-size="9"> ±104.3</tspan></text>
 <text class="t" x="16" y="492" font-size="12" font-weight="600">bytes_turn1</text>
 <line x1="192" y1="496" x2="566" y2="496" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="512" font-size="11" text-anchor="end">none</text>
-<rect x="192" y="503" width="12.31" height="10" rx="2" fill="url(#hatch)"/>
-<text class="t" x="210.31" y="512" font-size="11">3203.1<tspan class="f" font-size="9"> ±112.8</tspan></text>
+<rect x="192" y="503" width="12.47" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="210.47" y="512" font-size="11">3246.1<tspan class="f" font-size="9"> ±112.8</tspan></text>
 <text class="t" x="184" y="528" font-size="11" text-anchor="end" font-weight="600">l1-skills</text>
-<rect x="192" y="519" width="317.09" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="515.09" y="528" font-size="11">82486.1<tspan class="f" font-size="9"> ±105.7</tspan></text>
+<rect x="192" y="519" width="317.12" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="515.12" y="528" font-size="11">82529.1<tspan class="f" font-size="9"> ±105.7</tspan></text>
 <text class="t" x="184" y="544" font-size="11" text-anchor="end">flat-skills</text>
-<rect x="192" y="535" width="362.24" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="560.24" y="544" font-size="11">94230.1<tspan class="f" font-size="9"> ±106.6</tspan></text>
+<rect x="192" y="535" width="362.25" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="560.25" y="544" font-size="11">94273.1<tspan class="f" font-size="9"> ±106.6</tspan></text>
 <text class="t" x="184" y="560" font-size="11" text-anchor="end">rank-skills</text>
-<rect x="192" y="551" width="104.91" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="302.91" y="560" font-size="11">27289.6<tspan class="f" font-size="9"> ±2362.5</tspan></text>
+<rect x="192" y="551" width="105.03" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="303.03" y="560" font-size="11">27332.6<tspan class="f" font-size="9"> ±2362.5</tspan></text>
 <text class="t" x="184" y="576" font-size="11" text-anchor="end">thetis-skills-all</text>
 <rect x="192" y="567" width="374" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="572" y="576" font-size="11">97289.1<tspan class="f" font-size="9"> ±110.4</tspan></text>
+<text class="t" x="572" y="576" font-size="11">97332.1<tspan class="f" font-size="9"> ±110.4</tspan></text>
 <text class="t" x="184" y="592" font-size="11" text-anchor="end">thetis-skills-hybrid</text>
-<rect x="192" y="583" width="200.11" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="398.11" y="592" font-size="11">52055.8<tspan class="f" font-size="9"> ±142.8</tspan></text>
+<rect x="192" y="583" width="199.88" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="397.88" y="592" font-size="11">52017<tspan class="f" font-size="9"> ±141.3</tspan></text>
 <text class="t" x="184" y="608" font-size="11" text-anchor="end">thetis-skills-l1</text>
-<rect x="192" y="599" width="192.49" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="390.49" y="608" font-size="11">50072.1<tspan class="f" font-size="9"> ±107.9</tspan></text>
+<rect x="192" y="599" width="192.57" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="390.57" y="608" font-size="11">50115.1<tspan class="f" font-size="9"> ±107.9</tspan></text>
 <text class="t" x="16" y="634" font-size="12" font-weight="600">bytes_last</text>
 <line x1="192" y1="638" x2="566" y2="638" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="654" font-size="11" text-anchor="end">none</text>
-<rect x="192" y="645" width="12.31" height="10" rx="2" fill="url(#hatch)"/>
-<text class="t" x="210.31" y="654" font-size="11">3203.1<tspan class="f" font-size="9"> ±108.8</tspan></text>
+<rect x="192" y="645" width="12.47" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="210.47" y="654" font-size="11">3246.1<tspan class="f" font-size="9"> ±108.8</tspan></text>
 <text class="t" x="184" y="670" font-size="11" text-anchor="end" font-weight="600">l1-skills</text>
-<rect x="192" y="661" width="317.09" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="515.09" y="670" font-size="11">82486.1<tspan class="f" font-size="9"> ±109.8</tspan></text>
+<rect x="192" y="661" width="317.12" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="515.12" y="670" font-size="11">82529.1<tspan class="f" font-size="9"> ±109.8</tspan></text>
 <text class="t" x="184" y="686" font-size="11" text-anchor="end">flat-skills</text>
-<rect x="192" y="677" width="362.24" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="560.24" y="686" font-size="11">94230.1<tspan class="f" font-size="9"> ±109.9</tspan></text>
+<rect x="192" y="677" width="362.25" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="560.25" y="686" font-size="11">94273.1<tspan class="f" font-size="9"> ±109.9</tspan></text>
 <text class="t" x="184" y="702" font-size="11" text-anchor="end">rank-skills</text>
-<rect x="192" y="693" width="119.89" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="317.89" y="702" font-size="11">31187.1<tspan class="f" font-size="9"> ±2426.1</tspan></text>
+<rect x="192" y="693" width="120" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="318" y="702" font-size="11">31230.1<tspan class="f" font-size="9"> ±2426.1</tspan></text>
 <text class="t" x="184" y="718" font-size="11" text-anchor="end">thetis-skills-all</text>
 <rect x="192" y="709" width="374" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="572" y="718" font-size="11">97289.1<tspan class="f" font-size="9"> ±111.4</tspan></text>
+<text class="t" x="572" y="718" font-size="11">97332.1<tspan class="f" font-size="9"> ±111.4</tspan></text>
 <text class="t" x="184" y="734" font-size="11" text-anchor="end">thetis-skills-hybrid</text>
-<rect x="192" y="725" width="212.07" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="410.07" y="734" font-size="11">55166.0<tspan class="f" font-size="9"> ±275.6</tspan></text>
+<rect x="192" y="725" width="211.78" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="409.78" y="734" font-size="11">55114.1<tspan class="f" font-size="9"> ±244.3</tspan></text>
 <text class="t" x="184" y="750" font-size="11" text-anchor="end">thetis-skills-l1</text>
-<rect x="192" y="741" width="192.49" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="390.49" y="750" font-size="11">50072.1<tspan class="f" font-size="9"> ±104.2</tspan></text>
+<rect x="192" y="741" width="192.57" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="390.57" y="750" font-size="11">50115.1<tspan class="f" font-size="9"> ±104.2</tspan></text>
 <text class="t" x="16" y="776" font-size="12" font-weight="600">tools_n</text>
 <line x1="192" y1="780" x2="566" y2="780" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="796" font-size="11" text-anchor="end">none</text>
@@ -184,14 +184,14 @@
 <rect x="192" y="1103" width="245.03" height="10" rx="2" fill="#6e6e82"/>
 <text class="t" x="443.03" y="1112" font-size="11">0.019<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="1128" font-size="11" text-anchor="end">rank-skills</text>
-<rect x="192" y="1119" width="152.32" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="350.32" y="1128" font-size="11">0.012<tspan class="f" font-size="9"> ±0.004</tspan></text>
+<rect x="192" y="1119" width="152.04" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="350.04" y="1128" font-size="11">0.012<tspan class="f" font-size="9"> ±0.004</tspan></text>
 <text class="t" x="184" y="1144" font-size="11" text-anchor="end">thetis-skills-all</text>
 <rect x="192" y="1135" width="180.55" height="10" rx="2" fill="#6e6e82"/>
 <text class="t" x="378.55" y="1144" font-size="11">0.014<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="1160" font-size="11" text-anchor="end">thetis-skills-hybrid</text>
-<rect x="192" y="1151" width="362.11" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="560.11" y="1160" font-size="11">0.028<tspan class="f" font-size="9"> ±0.000</tspan></text>
+<rect x="192" y="1151" width="361.96" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="559.96" y="1160" font-size="11">0.028<tspan class="f" font-size="9"> ±0.000</tspan></text>
 <text class="t" x="184" y="1176" font-size="11" text-anchor="end">thetis-skills-l1</text>
 <rect x="192" y="1167" width="374" height="10" rx="2" fill="#6e6e82"/>
 <text class="t" x="572" y="1176" font-size="11">0.029<tspan class="f" font-size="9"> ±0</tspan></text>

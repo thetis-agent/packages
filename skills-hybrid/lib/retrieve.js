@@ -4,7 +4,7 @@
 import { readMap } from "@thetis/skills";
 import { embed, embeddingConfig, indexTextOf, keyOf, queryHashOf, queryTextOf, readCache, writeCache } from "./embed.js";
 import { benchVectorsFor } from "./vectors.js";
-import { denseRank, hybridRank, lexicalRank, POOL, DEFAULT_WEIGHT } from "./rank.js";
+import { denseRank, hybridRank, lexicalRank, POOL, DEFAULT_WEIGHT, DEFAULT_THRESHOLD } from "./rank.js";
 
 /**
  * Vectors for every skill as a map of id to vector, embedding what the cache lacks when there is a key.
@@ -54,9 +54,16 @@ export async function queryVectorFor(env, query, cfg, deps = {}) {
 
 /**
  * Ranks `skills` for `query`: `{ hits: [{ id, score, how }], mode: "dense" | "lexical", note }`. `mode` is
- * dense when a fused list was possible. The result is deterministic for the same skills, vectors and query.
+ * dense when a fused list was possible. `threshold` is the cosine a dense hit must reach (the pin passes
+ * `config.denseThreshold`; an explicit search passes 0, because a search is a request for the closest thing
+ * whatever its distance). The result is deterministic for the same skills, vectors and query.
  */
-export async function retrieve(env, skills, query, config, { limit, universal = new Set(), deps = {} } = {}) {
+export function thresholdOf(config) {
+  const v = Number(config?.denseThreshold);
+  return Number.isFinite(v) ? v : DEFAULT_THRESHOLD;
+}
+
+export async function retrieve(env, skills, query, config, { limit, universal = new Set(), deps = {}, threshold = 0 } = {}) {
   const cfg = embeddingConfig(config);
   const weight = Number.isFinite(Number(config?.fusionWeight)) ? Number(config.fusionWeight) : DEFAULT_WEIGHT;
   const q = queryTextOf(query);
@@ -69,8 +76,10 @@ export async function retrieve(env, skills, query, config, { limit, universal = 
     if (got.vectors) {
       const qv = await queryVectorFor(env, q, cfg, deps);
       if (qv.vector) {
-        dense = denseRank(skills, got.vectors, qv.vector, POOL);
-        mode = "dense";
+        const all = denseRank(skills, got.vectors, qv.vector, POOL);
+        dense = threshold > 0 ? all.filter((h) => h.score >= threshold) : all;
+        if (dense.length) mode = "dense";
+        else if (all.length) note = `no skill is within the dense threshold (${threshold}); the ranking is lexical`;
       } else note = qv.note;
     } else note = got.note;
   }

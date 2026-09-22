@@ -1,6 +1,6 @@
 {
   "name": "@thetis/tool-groups",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "Scopes the tool list to the groups a conversation looks like it needs: one group per package, routed once on the first message by tags, skill edges and a dense fallback, pinned for the conversation, and tool_search to load the rest.",
   "type": "module",
@@ -28,6 +28,11 @@
         "type": "string",
         "default": "fallback",
         "help": "off: tags only. fallback: dense ranking only when the tags admitted nothing. fusion: the lexical and dense lists fused by reciprocal rank, the top denseFallback admitted whatever the tags said."
+      },
+      "denseThreshold": {
+        "type": "number",
+        "default": 0.25,
+        "help": "The cosine a group's vector must reach against the query's before the dense ranking may admit it; below it nothing is routed beyond the core and a note says so. 0 keeps every dense hit. tool_search ignores it."
       },
       "fusionWeight": {
         "type": "number",

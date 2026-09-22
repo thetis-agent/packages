@@ -1,6 +1,6 @@
 {
   "name": "@thetis/skills-hybrid",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "One brief per skill always in the prompt, a few cards retrieved for the conversation by dense and lexical ranking fused, pinned once, and skill_search for the rest.",
   "type": "module",
@@ -14,15 +14,47 @@
   "thetis": {
     "type": "loader",
     "config": {
-      "fusionWeight": { "type": "number", "default": 0.7, "help": "The dense share in the rank fusion: 0 is lexical only, 1 is dense only." },
-      "pinLimit": { "type": "number", "default": 6, "help": "How many retrieved skills are pinned for the conversation; 0 pins nothing." },
-      "pinBodies": { "type": "boolean", "default": false, "help": "Pin the bodies of the retrieved skills instead of their cards; costs bytes, saves a round trip." },
-      "embeddings": { "type": "object", "help": "The vector source, an OpenAI-compatible embeddings endpoint: baseUrl (https://openrouter.ai/api/v1), apiKey (without one the ranking is lexical), model (openai/text-embedding-3-small) and dimensions (1536)." }
+      "fusionWeight": {
+        "type": "number",
+        "default": 0.7,
+        "help": "The dense share in the rank fusion: 0 is lexical only, 1 is dense only."
+      },
+      "denseThreshold": {
+        "type": "number",
+        "default": 0.3,
+        "help": "The cosine a skill's vector must reach against the query's before the dense list counts it; below it a skill is pinned only when the words match. 0 keeps every dense hit. skill_search ignores it."
+      },
+      "pinLimit": {
+        "type": "number",
+        "default": 6,
+        "help": "How many retrieved skills are pinned for the conversation; 0 pins nothing."
+      },
+      "pinBodies": {
+        "type": "boolean",
+        "default": false,
+        "help": "Pin the bodies of the retrieved skills instead of their cards; costs bytes, saves a round trip."
+      },
+      "embeddings": {
+        "type": "object",
+        "help": "The vector source, an OpenAI-compatible embeddings endpoint: baseUrl (https://openrouter.ai/api/v1), apiKey (without one the ranking is lexical), model (openai/text-embedding-3-small) and dimensions (1536)."
+      }
     },
     "steps": [
-      { "id": "bench-import", "phase": "bench", "export": "importCorpus" },
-      { "id": "pin", "phase": "prompt", "export": "pin" },
-      { "id": "bench-report", "phase": "bench", "export": "benchReport" }
+      {
+        "id": "bench-import",
+        "phase": "bench",
+        "export": "importCorpus"
+      },
+      {
+        "id": "pin",
+        "phase": "prompt",
+        "export": "pin"
+      },
+      {
+        "id": "bench-report",
+        "phase": "bench",
+        "export": "benchReport"
+      }
     ],
     "tools": [
       {
@@ -31,16 +63,27 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "query": { "type": "string", "description": "What you are trying to do, in a sentence: the words a person would use to ask for it." },
-            "k": { "type": "integer", "description": "How many matches to return. Default 5, at most 20." }
+            "query": {
+              "type": "string",
+              "description": "What you are trying to do, in a sentence: the words a person would use to ask for it."
+            },
+            "k": {
+              "type": "integer",
+              "description": "How many matches to return. Default 5, at most 20."
+            }
           },
-          "required": ["query"]
+          "required": [
+            "query"
+          ]
         },
         "export": "skillSearch"
       }
     ],
     "bench": {
-      "suites": ["skill-recall@1", "assembly-cost@1"],
+      "suites": [
+        "skill-recall@1",
+        "assembly-cost@1"
+      ],
       "corpus": "caps@1",
       "peerGroup": "skills",
       "importer": "importCorpus",

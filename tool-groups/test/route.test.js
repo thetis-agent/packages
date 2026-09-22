@@ -10,7 +10,8 @@ import { routeOnce, section, strayCalls, HEADING, INTRO } from "../lib/route.js"
 import { CACHE_PATH } from "../lib/dense.js";
 import { home, ctxOf, table, pkg, attached, fakeFetch, fakeVector, noNetwork } from "./helpers.js";
 
-const withKey = { embeddings: { apiKey: "test-key", model: "fake", dimensions: 8 } };
+// The fake vectors are 8 hashed numbers, not embeddings, so their cosines sit below any real floor: off unless a test sets it.
+const withKey = { embeddings: { apiKey: "test-key", model: "fake", dimensions: 8 }, denseThreshold: 0 };
 const groupsOf = () => deriveGroups(table()).groups;
 
 /** A fetch stub for the whole call, since the step reads globalThis.fetch. */
@@ -286,3 +287,23 @@ async function benchDir(query) {
   writeFileSync(`${dir}${"0".repeat(64)}.json`, JSON.stringify({ model: "fake", dimensions: 8, vectors: {}, queries: { [queryHashOf(query)]: fakeVector(query) } }));
   return dir;
 }
+
+test("denseThreshold: a cosine below it admits nothing and says so; 0 admits the top two; fusion needs the floor or a tag", async () => {
+  const h = home();
+  try {
+    const query = "Describe the room the player is standing in and change its exit";
+    const high = await withFetch(fakeFetch(), () => route(ctxOf(h.env, { config: { ...withKey, denseThreshold: 1.01 }, conversation: [{ role: "user", content: query }] })));
+    assert.equal(high.harness[STATE].mode, "fallback");
+    assert.deepEqual(high.harness[STATE].active, ["tool-groups", "files"], "nothing beyond the core");
+    assert.deepEqual(high.harness[STATE].notes, ["no group is within the dense threshold (1.01); nothing is routed beyond the core"]);
+    const low = await withFetch(fakeFetch(), () => route(ctxOf(h.env, { config: { ...withKey, denseThreshold: 0 }, conversation: [{ role: "user", content: query }] })));
+    assert.equal(low.harness[STATE].active.filter((id) => low.harness[STATE].why[id] === "dense").length, 2);
+    assert.deepEqual(low.harness[STATE].notes, []);
+    const fusion = await withFetch(fakeFetch(), () => route(ctxOf(h.env, { config: { ...withKey, denseMode: "fusion", denseFallback: 3, denseThreshold: 1.01 }, conversation: [{ role: "user", content: "run the tests on the remote host" }] })));
+    // The tags admitted shell and ssh before the fusion ran; with a floor nothing reaches, the fusion adds no third group.
+    assert.deepEqual(fusion.harness[STATE].active, ["tool-groups", "files", "shell", "ssh"], JSON.stringify(fusion.harness[STATE].why));
+    assert.ok(!Object.values(fusion.harness[STATE].why).includes("fusion"));
+  } finally {
+    h.rm();
+  }
+});

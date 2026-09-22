@@ -8,7 +8,13 @@ import { lexicalRank, orderIds, routable, SKILL_TAG_PREFIX } from "./groups.js";
 
 export const REASON = Object.freeze({ alwaysOn: "always-on", configured: "configured", skill: "skill", tag: "tag", dense: "dense", fusion: "fusion", search: "search", call: "call" });
 
-const DEFAULTS = Object.freeze({ routeThreshold: 0.15, denseFallback: 2, denseMode: "fallback", fusionWeight: 0.7, listAlwaysOn: false });
+/**
+ * `denseThreshold` measured on tool-recall@1 (21 groups, 75 tasks, text-embedding-3-small): the gold groups' cosine against
+ * their query has median 0.337 and 10th percentile 0.20; the controls' best group never exceeds 0.253. At 0.25, 80% of the
+ * gold groups pass and 5 of the 6 controls get nothing; at 0.3 it is 58% and all 6. A group wrongly withheld costs a
+ * capability and one admitted needlessly costs tokens, so the floor sits low.
+ */
+const DEFAULTS = Object.freeze({ routeThreshold: 0.15, denseFallback: 2, denseMode: "fallback", denseThreshold: 0.25, fusionWeight: 0.7, listAlwaysOn: false });
 const MODES = new Set(["off", "fallback", "fusion"]);
 
 /** The package's configuration with the defaults filled in and the types checked. */
@@ -18,6 +24,7 @@ export function configOf(config = {}) {
     routeThreshold: num(config.routeThreshold, DEFAULTS.routeThreshold),
     denseFallback: Math.floor(num(config.denseFallback, DEFAULTS.denseFallback)),
     denseMode: MODES.has(config.denseMode) ? config.denseMode : DEFAULTS.denseMode,
+    denseThreshold: Number.isFinite(Number(config.denseThreshold)) ? Number(config.denseThreshold) : DEFAULTS.denseThreshold,
     fusionWeight: Math.min(1, num(config.fusionWeight, DEFAULTS.fusionWeight)),
     alwaysOn: Array.isArray(config.alwaysOn) ? config.alwaysOn.filter((id) => typeof id === "string") : [],
     listAlwaysOn: config.listAlwaysOn === true,
@@ -89,14 +96,18 @@ export async function routeOnce({ groups, query, skillIds = [], config = {}, den
     if (got?.hits) {
       mode = cfg.denseMode;
       if (got.note) notes.push(got.note);
+      // A cosine below the floor is not evidence: a greeting is closest to some group too.
+      const near = new Set(got.hits.filter((h) => cfg.denseThreshold <= 0 || h.score >= cfg.denseThreshold).map((h) => h.id));
       if (cfg.denseMode === "fusion") {
+        const matched = new Set(lexical.filter((h) => h.score > 0).map((h) => h.id));
         const fused = fuse(got.hits, lexical.filter((h) => h.score > 0), cfg.fusionWeight);
-        for (const h of fused.slice(0, cfg.denseFallback)) admit(h.id, REASON.fusion);
+        for (const h of fused.slice(0, cfg.denseFallback)) if (near.has(h.id) || matched.has(h.id)) admit(h.id, REASON.fusion);
         ranked.splice(0, ranked.length, ...fused);
       } else {
-        for (const h of got.hits.slice(0, cfg.denseFallback)) admit(h.id, REASON.dense);
+        for (const h of got.hits.filter((h) => near.has(h.id)).slice(0, cfg.denseFallback)) admit(h.id, REASON.dense);
         ranked.splice(0, ranked.length, ...got.hits);
       }
+      if (got.hits.length && !near.size) notes.push(`no group is within the dense threshold (${cfg.denseThreshold}); nothing is routed beyond the core`);
     } else if (got?.note) notes.push(got.note);
   } else if (cfg.denseMode === "off" && !routedByEvidence && candidates.length) notes.push("the tags admitted no group and the dense fallback is off");
 

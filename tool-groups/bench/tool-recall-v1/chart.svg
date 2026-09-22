@@ -4,7 +4,7 @@
 <style>.t{fill:#3a3a48}.f{fill:#8b8b9e}@media (prefers-color-scheme:dark){.t{fill:#d2d2dc}.f{fill:#9a9aae}}</style>
 <defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#6e6e82" fill-opacity="0.22"/><line x1="0" y1="0" x2="0" y2="6" stroke="#6e6e82" stroke-width="2"/></pattern></defs>
 <text class="t" x="16" y="20" font-size="14" font-weight="600">@thetis/tool-groups on tool-recall@1</text>
-<text class="f" x="16" y="38" font-size="11">tool-recall@1 · sha256:b3d7e86efc39… · 75 tasks · each bar is a share of its metric's largest mean · mean ±half-width</text>
+<text class="f" x="16" y="38" font-size="11">tool-recall@1 · sha256:8b219c56bf47… · 75 tasks · each bar is a share of its metric's largest mean · mean ±half-width</text>
 <rect x="653" y="11" width="10" height="10" rx="2" fill="#6e6e82"/>
 <text class="f" x="667" y="20" font-size="11">peers</text>
 <rect x="506.2" y="11" width="10" height="10" rx="2" fill="#7c9cff"/>
@@ -14,73 +14,73 @@
 <text class="t" x="16" y="66" font-size="12" font-weight="600">bytes_system</text>
 <line x1="192" y1="70" x2="566" y2="70" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="86" font-size="11" text-anchor="end">none</text>
-<rect x="192" y="77" width="185.24" height="10" rx="2" fill="url(#hatch)"/>
-<text class="t" x="383.24" y="86" font-size="11">2131<tspan class="f" font-size="9"> ±0</tspan></text>
+<rect x="192" y="77" width="187.1" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="385.1" y="86" font-size="11">2174<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="102" font-size="11" text-anchor="end" font-weight="600">thetis-tool-groups</text>
-<rect x="192" y="93" width="372.3" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="570.3" y="102" font-size="11">4283.0<tspan class="f" font-size="9"> ±0.320</tspan></text>
+<rect x="192" y="93" width="372.46" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="570.46" y="102" font-size="11">4327.6<tspan class="f" font-size="9"> ±0.420</tspan></text>
 <text class="t" x="184" y="118" font-size="11" text-anchor="end">thetis-tool-groups-lexical</text>
 <rect x="192" y="109" width="374" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="572" y="118" font-size="11">4302.6<tspan class="f" font-size="9"> ±0.420</tspan></text>
+<text class="t" x="572" y="118" font-size="11">4345.6<tspan class="f" font-size="9"> ±0.420</tspan></text>
 <text class="t" x="184" y="134" font-size="11" text-anchor="end">thetis-tool-groups-fusion</text>
-<rect x="192" y="125" width="373.43" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="571.43" y="134" font-size="11">4296.0<tspan class="f" font-size="9"> ±0.060</tspan></text>
+<rect x="192" y="125" width="373.62" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="571.62" y="134" font-size="11">4341.1<tspan class="f" font-size="9"> ±0.480</tspan></text>
 <text class="t" x="16" y="160" font-size="12" font-weight="600">bytes_tools</text>
 <line x1="192" y1="164" x2="566" y2="164" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="180" font-size="11" text-anchor="end">none</text>
 <rect x="192" y="171" width="374" height="10" rx="2" fill="url(#hatch)"/>
 <text class="t" x="572" y="180" font-size="11">15106<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="196" font-size="11" text-anchor="end" font-weight="600">thetis-tool-groups</text>
-<rect x="192" y="187" width="75.44" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="273.44" y="196" font-size="11">3047.1<tspan class="f" font-size="9"> ±122.6</tspan></text>
+<rect x="192" y="187" width="66.2" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="264.2" y="196" font-size="11">2673.7<tspan class="f" font-size="9"> ±138.9</tspan></text>
 <text class="t" x="184" y="212" font-size="11" text-anchor="end">thetis-tool-groups-lexical</text>
 <rect x="192" y="203" width="53.84" height="10" rx="2" fill="#6e6e82"/>
 <text class="t" x="251.84" y="212" font-size="11">2174.5<tspan class="f" font-size="9"> ±122.9</tspan></text>
 <text class="t" x="184" y="228" font-size="11" text-anchor="end">thetis-tool-groups-fusion</text>
-<rect x="192" y="219" width="81.31" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="279.31" y="228" font-size="11">3284.2<tspan class="f" font-size="9"> ±94</tspan></text>
+<rect x="192" y="219" width="69.62" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="267.62" y="228" font-size="11">2812.1<tspan class="f" font-size="9"> ±156.6</tspan></text>
 <text class="t" x="16" y="254" font-size="12" font-weight="600">bytes_turn1</text>
 <line x1="192" y1="258" x2="566" y2="258" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="274" font-size="11" text-anchor="end">none</text>
 <rect x="192" y="265" width="374" height="10" rx="2" fill="url(#hatch)"/>
-<text class="t" x="572" y="274" font-size="11">17335.1<tspan class="f" font-size="9"> ±4.400</tspan></text>
+<text class="t" x="572" y="274" font-size="11">17378.1<tspan class="f" font-size="9"> ±4.400</tspan></text>
 <text class="t" x="184" y="290" font-size="11" text-anchor="end" font-weight="600">thetis-tool-groups</text>
-<rect x="192" y="281" width="160.26" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="358.26" y="290" font-size="11">7428.3<tspan class="f" font-size="9"> ±116.5</tspan></text>
+<rect x="192" y="281" width="152.79" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="350.79" y="290" font-size="11">7099.5<tspan class="f" font-size="9"> ±143.3</tspan></text>
 <text class="t" x="184" y="306" font-size="11" text-anchor="end">thetis-tool-groups-lexical</text>
-<rect x="192" y="297" width="141.86" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="339.86" y="306" font-size="11">6575.3<tspan class="f" font-size="9"> ±125.6</tspan></text>
+<rect x="192" y="297" width="142.43" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="340.43" y="306" font-size="11">6618.3<tspan class="f" font-size="9"> ±125.6</tspan></text>
 <text class="t" x="184" y="322" font-size="11" text-anchor="end">thetis-tool-groups-fusion</text>
-<rect x="192" y="313" width="165.66" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="363.66" y="322" font-size="11">7678.4<tspan class="f" font-size="9"> ±96.1</tspan></text>
+<rect x="192" y="313" width="156.06" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="354.06" y="322" font-size="11">7251.3<tspan class="f" font-size="9"> ±156.2</tspan></text>
 <text class="t" x="16" y="348" font-size="12" font-weight="600">bytes_last</text>
 <line x1="192" y1="352" x2="566" y2="352" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="368" font-size="11" text-anchor="end">none</text>
 <rect x="192" y="359" width="374" height="10" rx="2" fill="url(#hatch)"/>
-<text class="t" x="572" y="368" font-size="11">17478.3<tspan class="f" font-size="9"> ±8.880</tspan></text>
+<text class="t" x="572" y="368" font-size="11">17521.3<tspan class="f" font-size="9"> ±8.880</tspan></text>
 <text class="t" x="184" y="384" font-size="11" text-anchor="end" font-weight="600">thetis-tool-groups</text>
-<rect x="192" y="375" width="162.01" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="360.01" y="384" font-size="11">7571.5<tspan class="f" font-size="9"> ±123.0</tspan></text>
+<rect x="192" y="375" width="154.6" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="352.6" y="384" font-size="11">7242.6<tspan class="f" font-size="9"> ±150.8</tspan></text>
 <text class="t" x="184" y="400" font-size="11" text-anchor="end">thetis-tool-groups-lexical</text>
-<rect x="192" y="391" width="143.76" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="341.76" y="400" font-size="11">6718.4<tspan class="f" font-size="9"> ±113.7</tspan></text>
+<rect x="192" y="391" width="144.33" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="342.33" y="400" font-size="11">6761.4<tspan class="f" font-size="9"> ±113.7</tspan></text>
 <text class="t" x="184" y="416" font-size="11" text-anchor="end">thetis-tool-groups-fusion</text>
-<rect x="192" y="407" width="167.36" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="365.36" y="416" font-size="11">7821.5<tspan class="f" font-size="9"> ±95.9</tspan></text>
+<rect x="192" y="407" width="157.84" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="355.84" y="416" font-size="11">7394.5<tspan class="f" font-size="9"> ±163.4</tspan></text>
 <text class="t" x="16" y="442" font-size="12" font-weight="600">tools_n</text>
 <line x1="192" y1="446" x2="566" y2="446" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="462" font-size="11" text-anchor="end">none</text>
 <rect x="192" y="453" width="374" height="10" rx="2" fill="url(#hatch)"/>
 <text class="t" x="572" y="462" font-size="11">110<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="478" font-size="11" text-anchor="end" font-weight="600">thetis-tool-groups</text>
-<rect x="192" y="469" width="57.85" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="255.85" y="478" font-size="11">17.0<tspan class="f" font-size="9"> ±0.880</tspan></text>
+<rect x="192" y="469" width="48.64" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="246.64" y="478" font-size="11">14.3<tspan class="f" font-size="9"> ±1.007</tspan></text>
 <text class="t" x="184" y="494" font-size="11" text-anchor="end">thetis-tool-groups-lexical</text>
 <rect x="192" y="485" width="36.4" height="10" rx="2" fill="#6e6e82"/>
 <text class="t" x="234.4" y="494" font-size="11">10.7<tspan class="f" font-size="9"> ±0.847</tspan></text>
 <text class="t" x="184" y="510" font-size="11" text-anchor="end">thetis-tool-groups-fusion</text>
-<rect x="192" y="501" width="63.78" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="261.78" y="510" font-size="11">18.8<tspan class="f" font-size="9"> ±0.660</tspan></text>
+<rect x="192" y="501" width="52.13" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="250.13" y="510" font-size="11">15.3<tspan class="f" font-size="9"> ±1.113</tspan></text>
 <text class="t" x="16" y="536" font-size="12" font-weight="600">steps_n</text>
 <line x1="192" y1="540" x2="566" y2="540" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="556" font-size="11" text-anchor="end">none</text>
@@ -115,82 +115,82 @@
 <rect x="192" y="735" width="374" height="10" rx="2" fill="url(#hatch)"/>
 <text class="t" x="572" y="744" font-size="11">21<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="760" font-size="11" text-anchor="end" font-weight="600">thetis-tool-groups</text>
-<rect x="192" y="751" width="47.25" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="245.25" y="760" font-size="11">2.653<tspan class="f" font-size="9"> ±0.107</tspan></text>
+<rect x="192" y="751" width="37.76" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="235.76" y="760" font-size="11">2.120<tspan class="f" font-size="9"> ±0.140</tspan></text>
 <text class="t" x="184" y="776" font-size="11" text-anchor="end">thetis-tool-groups-lexical</text>
 <rect x="192" y="767" width="26.36" height="10" rx="2" fill="#6e6e82"/>
 <text class="t" x="224.36" y="776" font-size="11">1.480<tspan class="f" font-size="9"> ±0.140</tspan></text>
 <text class="t" x="184" y="792" font-size="11" text-anchor="end">thetis-tool-groups-fusion</text>
-<rect x="192" y="783" width="53.19" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="251.19" y="792" font-size="11">2.987<tspan class="f" font-size="9"> ±0.020</tspan></text>
+<rect x="192" y="783" width="40.84" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="238.84" y="792" font-size="11">2.293<tspan class="f" font-size="9"> ±0.160</tspan></text>
 <text class="t" x="16" y="818" font-size="12" font-weight="600">route_recall</text>
 <line x1="192" y1="822" x2="566" y2="822" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="838" font-size="11" text-anchor="end">none</text>
 <rect x="192" y="829" width="374" height="10" rx="2" fill="url(#hatch)"/>
 <text class="t" x="572" y="838" font-size="11">1<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="854" font-size="11" text-anchor="end" font-weight="600">thetis-tool-groups</text>
-<rect x="192" y="845" width="327.93" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="525.93" y="854" font-size="11">0.877<tspan class="f" font-size="9"> ±0.072</tspan></text>
+<rect x="192" y="845" width="295.41" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="493.41" y="854" font-size="11">0.790<tspan class="f" font-size="9"> ±0.091</tspan></text>
 <text class="t" x="184" y="870" font-size="11" text-anchor="end">thetis-tool-groups-lexical</text>
 <rect x="192" y="861" width="154.48" height="10" rx="2" fill="#6e6e82"/>
 <text class="t" x="352.48" y="870" font-size="11">0.413<tspan class="f" font-size="9"> ±0.109</tspan></text>
 <text class="t" x="184" y="886" font-size="11" text-anchor="end">thetis-tool-groups-fusion</text>
-<rect x="192" y="877" width="338.77" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="536.77" y="886" font-size="11">0.906<tspan class="f" font-size="9"> ±0.069</tspan></text>
+<rect x="192" y="877" width="306.25" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="504.25" y="886" font-size="11">0.819<tspan class="f" font-size="9"> ±0.087</tspan></text>
 <text class="t" x="16" y="912" font-size="12" font-weight="600">route_precision</text>
 <line x1="192" y1="916" x2="566" y2="916" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="932" font-size="11" text-anchor="end">none</text>
-<rect x="192" y="923" width="30.88" height="10" rx="2" fill="url(#hatch)"/>
-<text class="t" x="228.88" y="932" font-size="11">0.051<tspan class="f" font-size="9"> ±0.002</tspan></text>
+<rect x="192" y="923" width="27.95" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="225.95" y="932" font-size="11">0.051<tspan class="f" font-size="9"> ±0.002</tspan></text>
 <text class="t" x="184" y="948" font-size="11" text-anchor="end" font-weight="600">thetis-tool-groups</text>
 <rect x="192" y="939" width="374" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="572" y="948" font-size="11">0.623<tspan class="f" font-size="9"> ±0.076</tspan></text>
+<text class="t" x="572" y="948" font-size="11">0.688<tspan class="f" font-size="9"> ±0.091</tspan></text>
 <text class="t" x="184" y="964" font-size="11" text-anchor="end">thetis-tool-groups-lexical</text>
-<rect x="192" y="955" width="234.84" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="432.84" y="964" font-size="11">0.391<tspan class="f" font-size="9"> ±0.109</tspan></text>
+<rect x="192" y="955" width="212.59" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="410.59" y="964" font-size="11">0.391<tspan class="f" font-size="9"> ±0.109</tspan></text>
 <text class="t" x="184" y="980" font-size="11" text-anchor="end">thetis-tool-groups-fusion</text>
-<rect x="192" y="971" width="282.67" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="480.67" y="980" font-size="11">0.471<tspan class="f" font-size="9"> ±0.040</tspan></text>
+<rect x="192" y="971" width="338.57" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="536.57" y="980" font-size="11">0.623<tspan class="f" font-size="9"> ±0.087</tspan></text>
 <text class="t" x="16" y="1006" font-size="12" font-weight="600">route_f1</text>
 <line x1="192" y1="1010" x2="566" y2="1010" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="1026" font-size="11" text-anchor="end">none</text>
-<rect x="192" y="1017" width="51.83" height="10" rx="2" fill="url(#hatch)"/>
-<text class="t" x="249.83" y="1026" font-size="11">0.098<tspan class="f" font-size="9"> ±0.003</tspan></text>
+<rect x="192" y="1017" width="50.79" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="248.79" y="1026" font-size="11">0.098<tspan class="f" font-size="9"> ±0.003</tspan></text>
 <text class="t" x="184" y="1042" font-size="11" text-anchor="end" font-weight="600">thetis-tool-groups</text>
 <rect x="192" y="1033" width="374" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="572" y="1042" font-size="11">0.705<tspan class="f" font-size="9"> ±0.072</tspan></text>
+<text class="t" x="572" y="1042" font-size="11">0.720<tspan class="f" font-size="9"> ±0.089</tspan></text>
 <text class="t" x="184" y="1058" font-size="11" text-anchor="end">thetis-tool-groups-lexical</text>
-<rect x="192" y="1049" width="210.05" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="408.05" y="1058" font-size="11">0.396<tspan class="f" font-size="9"> ±0.106</tspan></text>
+<rect x="192" y="1049" width="205.83" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="403.83" y="1058" font-size="11">0.396<tspan class="f" font-size="9"> ±0.106</tspan></text>
 <text class="t" x="184" y="1074" font-size="11" text-anchor="end">thetis-tool-groups-fusion</text>
-<rect x="192" y="1065" width="326.61" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="524.61" y="1074" font-size="11">0.616<tspan class="f" font-size="9"> ±0.047</tspan></text>
+<rect x="192" y="1065" width="357.68" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="555.68" y="1074" font-size="11">0.688<tspan class="f" font-size="9"> ±0.082</tspan></text>
 <text class="t" x="16" y="1100" font-size="12" font-weight="600">routed_nothing</text>
 <line x1="192" y1="1104" x2="566" y2="1104" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="1120" font-size="11" text-anchor="end">none</text>
 <rect x="192" y="1111" width="0" height="10" rx="2" fill="url(#hatch)"/>
 <text class="t" x="198" y="1120" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="1136" font-size="11" text-anchor="end" font-weight="600">thetis-tool-groups</text>
-<rect x="192" y="1127" width="0" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="198" y="1136" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
+<rect x="192" y="1127" width="59.05" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="257.05" y="1136" font-size="11">0.087<tspan class="f" font-size="9"> ±0.065</tspan></text>
 <text class="t" x="184" y="1152" font-size="11" text-anchor="end">thetis-tool-groups-lexical</text>
 <rect x="192" y="1143" width="374" height="10" rx="2" fill="#6e6e82"/>
 <text class="t" x="572" y="1152" font-size="11">0.551<tspan class="f" font-size="9"> ±0.116</tspan></text>
 <text class="t" x="184" y="1168" font-size="11" text-anchor="end">thetis-tool-groups-fusion</text>
-<rect x="192" y="1159" width="0" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="198" y="1168" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
+<rect x="192" y="1159" width="59.05" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="257.05" y="1168" font-size="11">0.087<tspan class="f" font-size="9"> ±0.065</tspan></text>
 <text class="t" x="16" y="1194" font-size="12" font-weight="600">surface_tools</text>
 <line x1="192" y1="1198" x2="566" y2="1198" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="1214" font-size="11" text-anchor="end">none</text>
 <rect x="192" y="1205" width="374" height="10" rx="2" fill="url(#hatch)"/>
 <text class="t" x="572" y="1214" font-size="11">110<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="1230" font-size="11" text-anchor="end" font-weight="600">thetis-tool-groups</text>
-<rect x="192" y="1221" width="54.45" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="252.45" y="1230" font-size="11">16.0<tspan class="f" font-size="9"> ±0.873</tspan></text>
+<rect x="192" y="1221" width="45.24" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="243.24" y="1230" font-size="11">13.3<tspan class="f" font-size="9"> ±1.067</tspan></text>
 <text class="t" x="184" y="1246" font-size="11" text-anchor="end">thetis-tool-groups-lexical</text>
 <rect x="192" y="1237" width="33" height="10" rx="2" fill="#6e6e82"/>
 <text class="t" x="231" y="1246" font-size="11">9.707<tspan class="f" font-size="9"> ±0.853</tspan></text>
 <text class="t" x="184" y="1262" font-size="11" text-anchor="end">thetis-tool-groups-fusion</text>
-<rect x="192" y="1253" width="60.38" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="258.38" y="1262" font-size="11">17.8<tspan class="f" font-size="9"> ±0.693</tspan></text>
+<rect x="192" y="1253" width="48.73" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="246.73" y="1262" font-size="11">14.3<tspan class="f" font-size="9"> ±1.120</tspan></text>
 </svg>

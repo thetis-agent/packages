@@ -30,11 +30,13 @@ Bench suites: `skill-recall@1` and `assembly-cost@1`, peer group `skills`, corpu
 
 ![assembly-cost@1 comparison](bench/assembly-cost-v1/chart.svg)
 
-On `skill-recall@1` every needed skill is reachable (recall_reach 1, undershoot 0, overshoot 0) at one fetch round, as with `@thetis/skills-l1`, and the ranking it adds is reported under its own arm: nDCG 0.829, hit@1 0.850, mrr 0.890 over the 80 scored tasks. The price is about 2 KB of cards over the catalogue loader (bytes_system 50,391 against 48,559) and a second tool schema (595 bytes against 443), which buys a pin the model does not have to search for; against `@thetis/skills-all` it carries half the system bytes (96,217) and reaches 1 instead of 0.035 with no overshoot instead of 9.5 unneeded bodies, in exchange for one round trip per body. On `assembly-cost@1` it is the dearest of the three by a few hundred bytes per turn (2,163 system over a 2,131 floor, 595 tool) and the same 16 steps.
+On `skill-recall@1` every needed skill is reachable (recall_reach 1, undershoot 0, overshoot 0) at one fetch round, as with `@thetis/skills-l1`, and the ranking it adds is reported under its own arm: nDCG 0.850, hit@1 0.863, mrr 0.913 over the 80 scored tasks (0.829, 0.850 and 0.890 before `denseThreshold`: the floor cut noise, not hits). The price is about 2 KB of cards over the catalogue loader (bytes_system 50,352 against 48,602) and a second tool schema (595 bytes against 443), which buys a pin the model does not have to search for; against `@thetis/skills-all` it carries half the system bytes (96,260) and reaches 1 instead of 0.035 with no overshoot instead of 9.5 unneeded bodies, in exchange for one round trip per body. On `assembly-cost@1` it is the dearest of the three by a few hundred bytes per turn (2,206 system over a 2,174 floor, 595 tool) and the same 18 steps.
 
 ## How it works
 
 The query is the first user message, cut to 2000 characters. The dense list is the cosine between the query's vector and each skill's vector, where the text embedded is the name, the description and the tags, never the body. The lexical list is BM25 from `@thetis/skills`. Each list is 50 deep. They are fused by weighted reciprocal rank fusion (K 60) with `fusionWeight` as the dense share; a child whose parent is in the pool is absorbed into the parent; the parent of a lone child is promoted at 0.99 of its score; the first `pinLimit` are pinned, universal skills excluded. The legacy measurement behind the default weight: on 9.5k documents, dense beat BM25 by 0.078 nDCG and fusion at 0.7 beat dense by 0.023.
+
+A dense hit below `denseThreshold` is not a hit: a greeting is closest to some card, and without a floor that card would be pinned. The default comes from `skill-recall@1` (287 cards, 90 tasks, `openai/text-embedding-3-small`): the gold cards' cosine against their query has median 0.475 and a 5th percentile of 0.28, and the controls' best card has median 0.28. At 0.3, 94% of the gold cards pass and 7 of the 10 controls get no dense hit at all; at 0.35 it is 87% and 9 of 10. When the floor cuts every dense hit the pin is lexical and a note says so. Another embedding model moves the whole scale, so the key is per installation.
 
 The pin is kept in the harness by id and content hash. On later turns the step renders the same ids without ranking again. A skill whose content hash changed (its name, description or tags) is rendered from its new text in the same place, with a note; one that vanished is dropped, with a note. A body edit does not move the hash.
 
@@ -55,6 +57,7 @@ The script imports the corpus through the same `importCorpus` the bench uses, so
 | Key | Default | Effect |
 |---|---|---|
 | `fusionWeight` | `0.7` | The dense share in the fusion. 0 is lexical only, 1 is dense only. |
+| `denseThreshold` | `0.3` | The cosine a skill must reach against the query before the dense list counts it. Below it a skill is pinned only when the words match. `0` keeps every dense hit. `skill_search` ignores it: a search asks for the closest thing whatever its distance. |
 | `pinLimit` | `6` | How many skills are pinned for the conversation. 0 pins nothing. |
 | `pinBodies` | `false` | Pin bodies instead of cards. Costs bytes, saves a round trip. |
 | `embeddings.baseUrl` | `https://openrouter.ai/api/v1` | An OpenAI-compatible endpoint. |
@@ -70,6 +73,7 @@ The package reads no environment variables itself. It writes `skills-hybrid/vect
 - The pin is decided by the first message alone. A conversation that turns to another subject relies on `skill_search`, and the tool description says so.
 - One cache file per home, rewritten whole. A pack of thousands of skills embeds once per skill and then costs nothing until a description changes.
 - The bench file is 5 MB of numbers. A new corpus needs the script run again.
+- `denseThreshold` is a number for one embedding model. A change of model wants a new measurement, and the bench vectors file with it.
 
 ## Files
 

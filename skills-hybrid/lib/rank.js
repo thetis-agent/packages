@@ -7,6 +7,12 @@ export const POOL = 50;
 export const RANKED = 10;
 export const DEFAULT_WEIGHT = 0.7;
 export const DEFAULT_PIN = 6;
+/**
+ * The cosine below which a dense hit is not a hit. Measured on skill-recall@1 (287 cards, 90 tasks, text-embedding-3-small):
+ * the gold cards' cosine has median 0.475 and 5th percentile 0.28; the controls' best card has median 0.28. At 0.3, 94% of
+ * gold cards pass and 7 of the 10 controls get no dense hit at all.
+ */
+export const DEFAULT_THRESHOLD = 0.3;
 
 const round = (x) => Math.round(x * 1e6) / 1e6;
 
