@@ -12,7 +12,7 @@
 import { splitSource } from "@thetis/lib/pkg-fs";
 import type { ForkStatus } from "@thetis/contracts";
 import type { IndexedPackage, MarketplaceIndex } from "./index-file.js";
-import { compareVersions, isNewer } from "./versions.js";
+import { compareVersions, isNewer } from "@thetis/lib/versions";
 
 /** The part of an installed package this needs: its name, its version, where it came from, and what is running. */
 export interface InstalledRef {

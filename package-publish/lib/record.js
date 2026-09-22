@@ -90,6 +90,62 @@ export async function recordUnpublish(env, answer) {
   return docs;
 }
 
+/**
+ * What this person's record says about **one package** at one target: the last time they published it from
+ * here, the last time they took it out, and which of the two is the later.
+ *
+ * This is not the same question as `lastPublish`, and the difference is the whole reason it exists. A
+ * target's last publish is what last happened *there*, which is what a target card wants; a page drawing a
+ * *package* card needs first-hand evidence about *that package*, because the record is the only thing that
+ * knows a package was published to a registry this installation does not mirror. Reading the per-target key
+ * for it worked until the next publish of anything else overwrote it, and then the badge that had been
+ * telling the truth quietly went back to saying the package was never published. A badge that stops being
+ * right is worse than one that never was, because nothing tells the person to look again.
+ *
+ * It is answered from the dated rows, which are the record, rather than from a summary key kept beside
+ * them. A derived key would be a second thing to keep in step, and the one being fixed here is what
+ * happens when a derived key and the truth part company. The cost is one `list` and, all but always, one
+ * `get`: the keys sort by time because they begin with the timestamp, so the newest match is the last one.
+ */
+export async function packageRecord(env, targetName, name) {
+  const answer = { published: null, publishedAt: null, removed: null, removedAt: null, latest: null, commit: null };
+  if (!name) return answer;
+  try {
+    const store = env.storage?.(NAMESPACE);
+    if (!store) return answer;
+    // The key is `<stamp>_<target>_<name>`, all three written by the functions above, so the tail is an
+    // exact string and not a guess: a target whose name contains an underscore cannot be mistaken for
+    // another one. `last_` and `lastRemoval_` are excluded by the stamp the dated rows start with.
+    const tail = `_${safeName(targetName)}_${safeName(name.replace("/", "-"))}`;
+    const keys = (await store.list())
+      .filter((k) => /^\d+_/.test(k) && k.slice(k.indexOf("_")) === tail)
+      .sort();
+    let published = null;
+    let removed = null;
+    for (let i = keys.length - 1; i >= 0 && !(published && removed); i--) {
+      const doc = await store.get(keys[i]);
+      if (!doc) continue;
+      if (doc.removed) removed ??= doc;
+      else published ??= doc;
+    }
+    // A tie goes to the removal. It cannot happen in practice -- one act never both publishes and removes
+    // the same package -- and if it ever did, not claiming a package is published is the safer of the two.
+    const latest = published && removed ? (published.at > removed.at ? "published" : "removed") : published ? "published" : removed ? "removed" : null;
+    const winner = latest === "removed" ? removed : published;
+    return {
+      published: published?.version ?? null,
+      publishedAt: published?.at ?? null,
+      removed: removed?.version ?? null,
+      removedAt: removed?.at ?? null,
+      /** `published`, `removed`, or null when this person has done neither to this package here. */
+      latest,
+      commit: winner?.commit || null,
+    };
+  } catch {
+    return answer;
+  }
+}
+
 /** The last removal from one target, or null. The other half of what `publish_targets` shows per target. */
 export async function lastRemoval(env, targetName) {
   try {

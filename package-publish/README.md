@@ -2,7 +2,7 @@
 
 Publishing a package is its own act and not a side effect of saving one. A registry is a git repository, each package a directory in it with a `package.json` that has a `thetis` field, and `@thetis/marketplace` pins what it finds as `<url>#<dir>@<commit>`. So publishing is exactly: put the package's directory in the registry repository at a new version, commit, push. Nothing else makes a new version visible to anybody, and a version that does not move past what the registry already holds is invisible to every update check there is. Removal is the same sentence backwards: delete the directory, commit, push.
 
-It is a `tool` package, so it runs in the person's own fence with the person's own agent-held ssh key: the registry's own authentication decides who may publish, and this package decides nothing about that. It is plain ECMAScript with no build step and no dependencies.
+It is a `tool` package, so it runs in the person's own fence with the person's own agent-held ssh key: the registry's own authentication decides who may publish, and this package decides nothing about that. It is plain ECMAScript with no build step, and it has one dependency: `@thetis/lib/versions`, the single comparison it and `@thetis/marketplace` both decide "is this newer" with. Nothing is fetched into a fence to satisfy it -- a shipped package is linked into a userspace rather than installed with npm, which is the same arrangement `@thetis/tool-exec` already has with `@thetis/lib`.
 
 ## What it provides
 
@@ -12,7 +12,7 @@ Three tools, declared in `thetis.tools`, all answering an object:
 |---|---|---|
 | `publish_package` | `package` (required, an installed name or a path), `to`, `version` or `bump` (`patch`, `minor`, `major`), `as` (`origin` or `itself`, for a fork), `with` (names of other packages riding on the branch that you mean to publish too), `message`, `dryRun` | The whole act as fields: `package`, `target`, `url`, `branch`, `directory`, `mode`, `as`, `forkedFrom`, `fork`, `was`, `now`, `first`, `files`, `commit`, `committed`, `pushed`, `author`, `verify`, `source`, `indexed`, `others`, `nameable`, `with`, `summary`, `journals`, `records`, and on a dry run `ok` and `blockers`. |
 | `unpublish_package` | `package` (required, the name a registry holds it under or the directory it keeps it in), `to`, `with`, `message`, `dryRun` | The same fields where they mean the same thing, `removed: true`, and `held` (the version the registry was carrying) in place of `was`, `now` and `first`. |
-| `publish_targets` | `package` (optional) | `workDir`, `defaultTarget`, `package` (with its `problem` when the manifest is unsound), and `targets[]`: `name`, `url`, `branch`, `repo`, `cloned`, `lastPublish`, `lastRemoval`, and with a package `directory`, `holds`, `first`, `ahead`, `error`. |
+| `publish_targets` | `package` (optional) | `workDir`, `defaultTarget`, `package` (with its `problem` when the manifest is unsound), and `targets[]`: `name`, `url`, `branch`, `repo`, `cloned`, `lastPublish`, `lastRemoval`, and with a package `directory`, `holds`, `first`, `ahead`, `record`, `error`. |
 
 The mechanism is the library under `lib/`, as plain functions over `(args, env)`; the tool exports are thin wrappers that coerce what a model sends. Both halves are exported from `index.js`, so a caller in the same fence can reach `publish` and `targets` directly instead of going through `env.invokeTool`:
 
@@ -21,9 +21,11 @@ The mechanism is the library under `lib/`, as plain functions over `(args, env)`
 | `publish(args, env)`, `unpublish(args, env)`, `targets(args, env)` | The library. The tool exports call these and add nothing. **Another package should still come through `env.invokeTool`**: `env.storage` is namespaced by the kernel under the *calling* package's name, so a direct import would look for this package's records under that package's namespace and quietly find an empty store. The direct import is for code in this package's own fence context. |
 | `publishPackage(args, env)`, `unpublishPackage(args, env)`, `publishTargets(args, env)` | The tool exports the manifest names. |
 | `sameRepository(a, b)`, `repoKey(url)` | Two git urls compared as repositories. |
-| `compareVersions(a, b)`, `bumpVersion(v, how)`, `isVersion(v)` | The version rules, written out because a fence installs no dependencies. |
+| `bumpVersion(v, how)`, `isVersion(v)` | What this package may publish, and the next version along. Strict: a version it writes goes into a registry every other installation compares against. |
+| `compareVersions(a, b)`, `isNewer(a, b)` | Re-exported from `@thetis/lib/versions`, the same function `@thetis/marketplace` uses. Lenient and total: the version a publish is measured against comes out of somebody else's manifest in a registry and is ordered rather than refused. |
 | `pickTarget(config, to)`, `targetsOf(config)`, `workDirOf(env, config)` | The configuration, as the rest of the package reads it. |
 | `lastPublish(env, target)`, `lastRemoval(env, target)` | The last publish to, and the last removal from, one target, out of the package's own store. Two keys and not one with a flag on it: a card that drew a version from both would report a package's removal as its current version. |
+| `packageRecord(env, target, name)` | What the record says about **one package** at one target, which is a different question: see *What the record answers, and for whom*. |
 | `forkedFrom(manifest)` | The origin a manifest names, or null. |
 | `Refusal` | Every refusal this package throws. `err.code` is the machine-readable half. |
 
@@ -100,7 +102,7 @@ Each refuses with one sentence that names what to do, and carries a code:
 
 | `err.code` | Refused when |
 |---|---|
-| `not-newer` | The version does not move past what the target already holds for that package. This is the central rule: a publish nobody's update check can see is not a publish. What the target holds is read from the registry's own branch, not from the working tree. A package the target does not hold at all is a first publish and passes. |
+| `not-newer` | The version does not move past what the target already holds for that package. This is the central rule: a publish nobody's update check can see is not a publish. What the target holds is read from the registry's own branch, not from the working tree. A package the target does not hold at all is a first publish and passes. A registry holding something there is no step from, such as a hand-written `1.2`, still orders, so a publish above it goes; the refusal's closing says what is in the way instead of naming a version it would have had to invent. |
 | `manifest` | No `name`, no `version`, no `thetis`, a `main` that is not there, or a version that is not semantic. The kernel's install checks, made before the push instead of after it. |
 | `name-mismatch` | The directory in the registry already holds a different package, so the copy would replace it. Measured against the name the publish carries, which for a fork going out as its origin is the origin's; on a removal, that the directory holds the package that was named. |
 | `ambiguous-fork` | The package carries `thetis.forkedFrom`, the target holds that origin, and the target does not yet hold this fork, so the publish could be two things and `as` did not say which. `err.details` is `{ origin, fork }`. Reported on a dry run rather than thrown. |
@@ -208,6 +210,19 @@ in its turn. Once they are off the branch, @thetis/skills 0.3.0 here, 0.2.0 in t
 with it.
 ```
 
+## What the record answers, and for whom
+
+`publish_targets` answers two different questions about a target and it is worth being clear which is which, because reading one for the other is a bug that looks right for a while.
+
+| Field | Scope | What it is for |
+|---|---|---|
+| `lastPublish`, `lastRemoval` | The **target** | What last happened here, whatever package it was. A target card wants exactly this. |
+| `record` | The **package** asked about, at this target | `{ published, publishedAt, removed, removedAt, latest, commit }`. First-hand evidence about one package: the version last published from here, the version last taken out, when each was, and which of the two is the later. |
+
+The distinction earns its keep in one place. A package's card says *never published* when no registry this installation mirrors lists it, which is right nearly always and wrong for a package that was published to a registry this installation does not mirror. The record is the only thing that knows otherwise, because the person did it from here. Drawing that from `lastPublish` worked until the next publish of anything else overwrote the key, and then a badge that had been telling the truth quietly went back to the lie. A badge that stops being right is worse than one that never was: nothing tells the person to look again.
+
+`record` is read out of the dated documents, which are the record, rather than from a summary key kept beside them. A derived key is a second thing to keep in step, and what happens when a derived key and the truth part company is the bug being fixed. `latest` is `published`, `removed` or null, so a caller never has to compare two timestamps to know what a package is now.
+
 ## The journal, and what is written instead
 
 A publish is exactly the kind of act the kernel's journal is for, and there is no seam for it. A tool runs inside a fence with a `ToolEnv`, which carries no journal; the only interface that does is `HostEnv`, which a host package on the service plane receives and a fence never does, and the operator channel has `journal.tail` and nothing that appends. So the rows are not written and not faked: `publish_package` returns them, in `answer.journals`, each `{ kind: "package.publish", target: <package>, data: { name, was, version, target, url, branch, commit, first } }`, for a caller that does have the seam. `was` is absent on a first publish. It is a **list**, primary first, because one act publishes one package plus whatever it was told to take with it, and a field that could only ever hold one of them would be a lie the moment `with` is used.
@@ -234,7 +249,7 @@ What is written is the package's own record, through `env.storage("publishes")`:
 | `lib/locate.js` | Resolving a package by name or path, and the checkout case against the copy case. |
 | `lib/git.js` | Every git command, quoted, with the environment that stops it waiting at a prompt. |
 | `lib/git-url.js` | `repoKey` and `sameRepository`: two git urls compared as repositories. |
-| `lib/semver.js` | The version rules. |
+| `lib/semver.js` | What may be published and the next version along. The ordering is `@thetis/lib/versions`, re-exported. |
 | `lib/manifest.js` | The manifest gate, and the version write that leaves the rest of the file alone. |
 | `lib/config.js` | `targets`, `verify` and `workDir`, read into the shapes the rest uses. |
 | `lib/record.js` | The package's own record, and what the kernel's journal has no seam for. |
@@ -242,8 +257,8 @@ What is written is the package's own record, through `env.storage("publishes")`:
 
 ## Tests
 
-`npm test` from the runtime root, or `node --test "packages/package-publish/test/*.test.js"`. Plain `node --test` over temporary directories and local bare repositories reached with `file://`, which is a real remote as far as git is concerned: the clone, the commit and the push all take the same paths they would against github, and nothing in the tests can reach a network.
+`npm test` from the runtime root, or `node --test "packages/package-publish/test/*.test.js"` once `npm run build` has been run at least once, because the version comparison this package imports is TypeScript in `@thetis/lib` and the cross-check imports `@thetis/marketplace`. Plain `node --test` over temporary directories and local bare repositories reached with `file://`, which is a real remote as far as git is concerned: the clone, the commit and the push all take the same paths they would against github, and nothing in the tests can reach a network.
 
-`test/publish.test.js` covers both sources end to end, the first publish, a version that does not move, a file that leaves the package, `node_modules` never travelling, a checkout that is behind the registry, both dry runs, and the journal row. `test/gates.test.js` covers every refusal and the sentence it makes, including a sibling package in each of the three states it can be in (unstaged, staged, committed) against one registry and one publish; a publishable sibling waiting to be named and then riding as a publish of its own, with its own journal row and record; a sibling that cannot be published being refused even when it is named; a name that is not riding; a rider whose `verify` fails; and the copy case proving that a local commit planted in the clone is reset away rather than pushed. `test/targets.test.js` covers `publish_targets` with and without a package, an unsound package reported instead of thrown, one unreachable registry among two, the record read back, and the coercion the tool wrappers do. `test/git-url.test.js` and `test/semver.test.js` are the two rules on their own.
+`test/publish.test.js` covers both sources end to end, the first publish, a version that does not move, a file that leaves the package, `node_modules` never travelling, a checkout that is behind the registry, both dry runs, and the journal row. `test/gates.test.js` covers every refusal and the sentence it makes, including a sibling package in each of the three states it can be in (unstaged, staged, committed) against one registry and one publish; a publishable sibling waiting to be named and then riding as a publish of its own, with its own journal row and record; a sibling that cannot be published being refused even when it is named; a name that is not riding; a rider whose `verify` fails; and the copy case proving that a local commit planted in the clone is reset away rather than pushed. `test/targets.test.js` covers `publish_targets` with and without a package, an unsound package reported instead of thrown, one unreachable registry among two, the record read back, and the coercion the tool wrappers do. `test/git-url.test.js` and `test/semver.test.js` are the two rules on their own. The semver cases now run against `@thetis/lib/versions` and assert that the function is the very object `@thetis/marketplace` exports, so the two can never drift apart again; the case that used to expect null for a string this package would not publish now expects an order, which is the half of that merge that changed and the one that was refusing every publish over a registry holding `1.2`.
 
 `test/lifecycle.test.js` is worth more than the rest of them put together, because it is the only one that could have caught either of the holes the others were written around. It walks the whole loop in the order a person walks it -- create a package, publish it, fork it, change the fork, publish the change as the origin, go back to the origin, remove the package -- and asserts what the registry holds after every step. Every single step passed on its own while the loop did not close. `test/fork.test.js` is the corners of the fork gate: when the question is asked and when it is not, what `as` refuses, and where an as-origin version comes from. `test/unpublish.test.js` is the removal: by name with nothing local, by the directory a registry keeps it in, both sources, every refusal, and the branch gates a removal meets because it pushes too.

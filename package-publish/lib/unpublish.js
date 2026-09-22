@@ -24,7 +24,7 @@ import { pickTarget, workDirOf } from "./config.js";
 import { unscoped } from "./fork.js";
 import { asIdentity, FALLBACK_IDENTITY, git, gitSays, headCommit, identityOf, lines, mustGit } from "./git.js";
 import { locate, locateInClone, resolvePackage } from "./locate.js";
-import { cannotRide, journalRow, notNamed, rider, sortPassengers } from "./passengers.js";
+import { cannotRide, journalRow, notNamed, rider, setAside, sortPassengers } from "./passengers.js";
 import { recordUnpublish } from "./record.js";
 import { runVerify } from "./publish.js";
 
@@ -54,7 +54,15 @@ export async function unpublish(args = {}, env) {
 
   const name = where.holdsName;
   const held = where.holds;
-  const about = { act: "removal", command: `thetis unpublish ${asked} --to ${target.name}`, then: `remove ${where.dir}/` };
+  // The removal's half of the two branch sentences. It leads with the procedure rather than with a word to
+  // say, because the place this refusal is most often read is a browser that deliberately offers no tick
+  // beside a removal: publishing somebody's work under a button marked "take out" is the wrong offer. The
+  // command line can still do it, and is told so, plainly and second.
+  const about = {
+    act: "removal",
+    after: `remove ${where.dir}/, and deal with the others in their turn`,
+    consent: (names) => `Taking a package out of a registry is not a reason to publish anybody's work, so nothing goes that was not asked for. Move them off this branch first: ${setAside(where)}. From a terminal they can also go deliberately, each as a publish of its own: thetis unpublish ${asked} --to ${target.name} ${names.map((n) => `--with ${n}`).join(" ")}.`,
+  };
 
   const blockers = [];
   const stop = (code, message, details) => {

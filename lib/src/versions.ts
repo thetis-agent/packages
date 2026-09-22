@@ -3,6 +3,12 @@
 // numbers and starts trusting the badge. There is no semver dependency in this repository and there is not
 // going to be one for a function this size, so the rule is written here and tested here.
 //
+// It lives in `lib` rather than beside either of its callers because it had two homes and they disagreed.
+// `@thetis/marketplace` decides whether a badge says a package is ahead of the registry, and
+// `@thetis/package-publish` decides whether a publish is allowed at all. Those are the same question asked
+// twice, and two implementations of it meant a badge could say a package was ahead while the publish refused
+// it, months later, for a version neither author had thought about. One function, two callers.
+//
 // The rule is semver's, kept to what versions in this repository actually look like:
 //   - the core is dot-separated, compared part by part as numbers, a missing part counting as 0, so
 //     `1.2` and `1.2.0` are the same version;
@@ -14,6 +20,19 @@
 //     It does not. A fork's rewritten version is not unpublished work.
 //   - prerelease identifiers are compared one by one: numeric ones numerically, and a numeric one is lower
 //     than a text one; a prerelease that runs out of identifiers first is lower.
+//
+// **It is total: every pair of strings has an order, and nothing here answers "I cannot say".** That is the
+// half of the merge that changed, and it changed deliberately. The publishing side used to answer null for
+// anything its own `isVersion` rejected, which was defensible until you look at where the two sides get
+// their input: a publish's own version is checked before it is written, but the version it is measured
+// against is read out of somebody else's manifest in a registry, and a registry holding `1.2` is not this
+// code's to reject. Null there fell through a `<= 0` test as though it meant "not newer", so a registry with
+// one hand-written version in it refused every publish of that package for a reason the sentence got wrong.
+// Ordering it is both the honest answer and the one that keeps the two callers saying the same thing.
+//
+// What this does *not* do is decide what a package may be published at. That is a stricter question with a
+// stricter answer, and `@thetis/package-publish` keeps it: a version it writes must be a real semantic
+// version. Lenient about what it reads, strict about what it writes.
 
 /** The numeric value of an identifier, or undefined when it is not a plain run of digits. */
 const numeric = (part: string): number | undefined => (/^\d+$/.test(part) ? Number(part) : undefined);
@@ -54,7 +73,7 @@ function comparePre(a: string[], b: string[]): number {
   return 0;
 }
 
-/** -1 when `a` is older than `b`, 1 when it is newer, 0 when the two name the same version. */
+/** -1 when `a` is older than `b`, 1 when it is newer, 0 when the two name the same version. Never null. */
 export function compareVersions(a: string, b: string): number {
   const left = parts(a);
   const right = parts(b);

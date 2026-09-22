@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { publish } from "../lib/publish.js";
+import { unpublish } from "../lib/unpublish.js";
 import { targets } from "../lib/targets.js";
 import { publishPackage, publishTargets, unpublishPackage } from "../index.js";
 import { makeEnv, makePackage, makeRegistry, manifest, seedRegistry, temp } from "./helpers.js";
@@ -124,4 +125,48 @@ test("a fence with no store loses the record and nothing else", async (t) => {
   const r = await publish({ package: "packages/hello" }, env);
   assert.equal(r.pushed, true);
   assert.equal(r.records, null);
+});
+
+test("the record answers per package, so a later publish of something else does not erase the evidence", async (t) => {
+  // The per-target keys say what last happened at a target. A page drawing a *package* card needs what
+  // last happened to that package, because the record is the only first-hand evidence that a package was
+  // published to a registry this installation does not mirror. Reading the per-target key for it worked
+  // until the next publish of anything else overwrote it, and the badge that had been telling the truth
+  // went quietly back to saying the package had never been published.
+  const fx = await temp();
+  t.after(fx.cleanup);
+  const bare = await makeRegistry(fx.root, "reg");
+  await makePackage(join(fx.home, "packages", "alpha"), manifest("@alice/alpha", "0.1.0"));
+  await makePackage(join(fx.home, "packages", "beta"), manifest("@alice/beta", "0.1.0"));
+  const env = makeEnv(fx.home, { config: { targets: [{ name: "reg", url: `file://${bare}`, branch: "main" }] } });
+
+  const before = (await targets({ package: "packages/alpha" }, env)).targets[0];
+  assert.deepEqual(before.record, { published: null, publishedAt: null, removed: null, removedAt: null, latest: null, commit: null }, "nothing has happened to it yet, and the record says so rather than guessing");
+
+  await publish({ package: "packages/alpha" }, env);
+  await publish({ package: "packages/beta" }, env);
+
+  const alpha = (await targets({ package: "packages/alpha" }, env)).targets[0];
+  assert.equal(alpha.lastPublish.name, "@alice/beta", "the target's own last publish is still beta, which is what that field means");
+  assert.equal(alpha.record.published, "0.1.0", "and alpha's evidence survived beta going out after it");
+  assert.equal(alpha.record.latest, "published");
+  assert.match(alpha.record.publishedAt, /^\d{4}-/);
+  assert.match(alpha.record.commit, /^[0-9a-f]{40}$/);
+  assert.equal(alpha.record.removed, null);
+
+  // A removal is the other half, and which of the two is later is answered rather than left to be worked out.
+  await unpublish({ package: "@alice/alpha", to: "reg" }, env);
+  const gone = (await targets({ package: "packages/alpha" }, env)).targets[0];
+  assert.equal(gone.record.published, "0.1.0", "the publish is still on the record; it happened");
+  assert.equal(gone.record.removed, "0.1.0");
+  assert.equal(gone.record.latest, "removed", "and the later of the two is what the package is now");
+  assert.equal(gone.holds, null);
+
+  // Published again after the removal, and the record turns back over.
+  const again = await publish({ package: "packages/alpha", bump: "patch" }, env);
+  assert.equal(again.now, "0.1.1");
+  const back = (await targets({ package: "packages/alpha" }, env)).targets[0];
+  assert.equal(back.record.published, "0.1.1");
+  assert.equal(back.record.removed, "0.1.0", "what was taken out is still remembered, at the version it was");
+  assert.equal(back.record.latest, "published");
 });

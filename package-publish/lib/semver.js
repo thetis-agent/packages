@@ -1,10 +1,24 @@
-// Semantic versions, only as far as this package needs them: whether a string is one, which of two is
-// newer, and what the next patch, minor or major is. It is written out rather than depended on because the
-// package ships no node_modules into the fence, and because the comparison here is the gate the whole
-// package exists for: a publish that does not move past what the registry holds is invisible to every
-// update check, so the rule that decides it should be readable in one file.
+// Versions, only as far as this package needs them: whether a string is one this package may publish, what
+// the next patch, minor or major is, and which of two is newer.
+//
+// The last of those is **not written here**, and used to be. `@thetis/marketplace` decides whether a badge
+// says a package is ahead of the registry and this package decides whether the publish is allowed at all,
+// which is the same question asked twice; two implementations of it meant a badge could say a package was
+// ahead while the publish refused it. So the ordering has one home, `@thetis/lib/versions`, and both sides
+// import it. That is the one dependency this package has, and it is the same arrangement `@thetis/tool-exec`
+// already has with `@thetis/lib`: a shipped package is linked into a userspace rather than installed with
+// npm, so nothing is fetched into a fence to satisfy it.
+//
+// The split that remains is deliberate and is the whole rule: **lenient about what it reads, strict about
+// what it writes.** A version this package is about to publish has to be a real semantic version, because
+// it is going into a registry every other installation compares against, and that is `isVersion`. A version
+// it is measured *against* comes out of somebody else's manifest in a registry, is not this package's to
+// reject, and is ordered rather than refused.
+export { compareVersions, isNewer } from "@thetis/lib/versions";
+
 const RE = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+([0-9A-Za-z.-]+))?$/;
 
+/** Whether this is a version this package may publish. Strict on purpose: see the head of this file. */
 export function isVersion(value) {
   return RE.test(String(value ?? ""));
 }
@@ -17,40 +31,14 @@ export function parseVersion(value) {
   return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]), pre: m[4] ? m[4].split(".") : [] };
 }
 
-/** -1, 0 or 1, the way a comparator answers. Null when either side is not a version. */
-export function compareVersions(a, b) {
-  const x = parseVersion(a);
-  const y = parseVersion(b);
-  if (!x || !y) return null;
-  for (const key of ["major", "minor", "patch"]) {
-    if (x[key] !== y[key]) return x[key] < y[key] ? -1 : 1;
-  }
-  // A release outranks any prerelease of the same numbers: 1.0.0 is newer than 1.0.0-rc.1, which is the
-  // one rule here that is not simply "bigger wins" and the one a hand-rolled compare usually gets wrong.
-  if (!x.pre.length && !y.pre.length) return 0;
-  if (!x.pre.length) return 1;
-  if (!y.pre.length) return -1;
-  for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i++) {
-    const a1 = x.pre[i];
-    const b1 = y.pre[i];
-    if (a1 === undefined) return -1;
-    if (b1 === undefined) return 1;
-    const na = /^\d+$/.test(a1);
-    const nb = /^\d+$/.test(b1);
-    if (na && nb) {
-      if (Number(a1) !== Number(b1)) return Number(a1) < Number(b1) ? -1 : 1;
-    } else if (na !== nb) {
-      return na ? -1 : 1; // numeric identifiers sort below alphanumeric ones
-    } else if (a1 !== b1) {
-      return a1 < b1 ? -1 : 1;
-    }
-  }
-  return 0;
-}
-
 /**
- * The next version one step along. A prerelease is dropped rather than carried: bumping 1.2.0-rc.1 by a
- * patch gives 1.2.0, because the release the prerelease was leading up to is what comes next.
+ * The next version one step along, or null when there is no step to take from this one. A prerelease is
+ * dropped rather than carried: bumping 1.2.0-rc.1 by a patch gives 1.2.0, because the release the
+ * prerelease was leading up to is what comes next.
+ *
+ * Null is a real answer and not a failure. A registry may hold a package at `1.2`, which orders perfectly
+ * well and is still not a version this package can name the successor of without inventing one; the
+ * refusal that would have suggested it says what is in the way instead.
  */
 export function bumpVersion(value, how) {
   const v = parseVersion(value);

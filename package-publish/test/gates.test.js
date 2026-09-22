@@ -340,3 +340,32 @@ test("the copy case carries no passengers: a local commit in the clone is reset 
   assert.equal(versionIn(bare, "main", "alpha"), "0.2.0");
   assert.equal(show(bare, "main", "beta/index.js"), UNTOUCHED, "and the planted commit went nowhere");
 });
+
+test("a registry holding a version this package would not write still lets a publish past it", async (t) => {
+  // The live edge of the two version comparisons disagreeing. `1.2` is not a version `isVersion` accepts,
+  // but it is not this package's to reject either: it came out of somebody else's manifest in the registry.
+  // When the comparison answered null for it, `null <= 0` read as "not newer" and every publish of that
+  // package was refused, with a sentence that was wrong about the reason and nothing a person could do.
+  const fx = await temp();
+  t.after(fx.cleanup);
+  const bare = await makeRegistry(fx.root, "reg");
+  await seedRegistry(fx.root, bare, { hello: manifest("@alice/hello", "1.2"), same: manifest("@alice/same", "1.2") });
+  await makePackage(join(fx.home, "packages", "hello"), manifest("@alice/hello", "1.2.1"));
+  const env = makeEnv(fx.home, { config: oneTarget(bare) });
+
+  const r = await publish({ package: "packages/hello" }, env);
+  assert.equal(r.was, "1.2");
+  assert.equal(r.now, "1.2.1");
+  assert.equal(r.pushed, true);
+  assert.equal(versionIn(bare, "main", "hello"), "1.2.1");
+
+  // And the other side of it: a version that does not move past `1.2` is still refused, and the sentence
+  // says what is in the way rather than naming a next version it would have had to invent. The package
+  // being published is a sound one, because what this package writes is still held to `isVersion`; it is
+  // only what it reads out of the registry that is ordered rather than rejected.
+  await makePackage(join(fx.home, "packages", "same"), manifest("@alice/same", "1.1.0"));
+  const err = await refusal(publish({ package: "packages/same" }, env));
+  assert.equal(err.code, "not-newer");
+  assert.match(err.message, /@alice\/same 1\.1\.0 does not move past 1\.2, which reg already holds/);
+  assert.match(err.message, /1\.2 is not a semantic version like 1\.2\.0, so there is no next one to name: pick a version above it, and put a sound one in reg's own copy of the manifest while you are there\./);
+});

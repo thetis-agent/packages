@@ -115,7 +115,11 @@ test("a removal pushes the branch too, so it meets the same gates about what els
   const err = await refusal(unpublish({ package: "@dev/widget", to: "reg" }, env));
   assert.equal(err.code, "unnamed-others");
   assert.match(err.message, /and a removal pushes the branch, so they would go with it: @dev\/beta 0\.2\.0 here, 0\.1\.0 in reg\./, "the sentence is about the act being refused, not about a publish");
-  assert.match(err.message, /thetis unpublish @dev\/widget --to reg --with @dev\/beta/, "and it prints the command that says the word");
+  // Read in a browser toast, where there is deliberately no tick beside a removal, the first thing offered
+  // has to be something the reader can actually do. The flag comes after, and says it is a terminal's.
+  assert.match(err.message, /Taking a package out of a registry is not a reason to publish anybody's work, so nothing goes that was not asked for\. Move them off this branch first: git branch keep;/, "the procedure leads");
+  assert.ok(err.message.indexOf("Move them off this branch first") < err.message.indexOf("--with"), "and the flag never comes before it");
+  assert.match(err.message, /From a terminal they can also go deliberately, each as a publish of its own: thetis unpublish @dev\/widget --to reg --with @dev\/beta\./, "which still works, and is still said");
   assert.deepEqual(held(bare), { widget: "@dev/widget@0.3.0", beta: "@dev/beta@0.1.0" });
 
   // Named, it rides, and it is a publish in its own right alongside the removal.

@@ -17,7 +17,7 @@ export { Refusal } from "./lib/refuse.js";
 export { bumpVersion, compareVersions, isVersion } from "./lib/semver.js";
 export { repoKey, sameRepository } from "./lib/git-url.js";
 export { pickTarget, targetsOf, workDirOf } from "./lib/config.js";
-export { lastPublish, lastRemoval } from "./lib/record.js";
+export { lastPublish, lastRemoval, packageRecord } from "./lib/record.js";
 export { forkedFrom } from "./lib/fork.js";
 
 const text = (v) => (typeof v === "string" && v.trim() ? v.trim() : undefined);

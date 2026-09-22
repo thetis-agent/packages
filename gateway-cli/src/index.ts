@@ -48,7 +48,7 @@ usage: thetis <command> [options]
   packages list [--user <id>] | install <source> [--user <id>] | uninstall <name> [--user <id>] | promote <name> --user <id>
   packages outdated [--user <id>]      what is behind the registry it was installed from, the code on disk, or the
                                        package it was forked from, and what is ahead: newer here than the registry
-                                       holds, or never published at all
+                                       holds, or listed by no registry here
   packages update [<name>] [--user <id>]  reinstall those packages at the registry's current commit
   packages unfork <name> [--user <id>] [--delete-files]  go back to the package this fork was copied from
   mounts list [--user <id>]            host paths bound into each person's fence, and whether each is there
@@ -877,7 +877,10 @@ async function standingIn(call: Call, target: string, shared: string): Promise<{
 /** Unpublished work, in one clause, wherever a package is named. Empty for a package the registries have caught up with. */
 const aheadNote = (a: Ahead | undefined): string => {
   if (!a) return "";
-  return a.state === "unpublished" ? "\tnever published" : `\t${a.version} here, ${a.published} published in ${a.registry}`;
+  // Not "never published": the index is built only from the registries this installation mirrors, so its
+  // silence is a fact about what is mirrored here and not a claim about the world. A package can be in a
+  // registry nobody here trusts, and saying otherwise sends someone looking for a mistake that is not there.
+  return a.state === "unpublished" ? "\tno registry here lists it" : `\t${a.version} here, ${a.published} published in ${a.registry}`;
 };
 
 /**
@@ -951,7 +954,7 @@ async function packagesCmd(call: Call, args: Args, user: string | undefined, sha
       // apply here -- the change is already in service; what is missing is that anyone else can have it.
       // The line under them names the one command that closes the gap.
       if (unshared.length) {
-        print(`\n${unshared.length} package${unshared.length === 1 ? " is" : "s are"} newer in ${target} than the registries hold, or not published at all:`);
+        print(`\n${unshared.length} package${unshared.length === 1 ? " is" : "s are"} newer in ${target} than the registries here hold, or are not listed by any of them:`);
         for (const a of unshared) print(`${a.name}${aheadNote(a)}`);
         print(`\nrun: thetis publish <package> [--to <target>] [--bump patch|minor|major], or use Publish on the package's page in the Marketplace`);
       }

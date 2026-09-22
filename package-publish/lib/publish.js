@@ -68,9 +68,16 @@ export async function publish(args = {}, env) {
   // The central rule. A version that does not move past what the registry holds is a publish nobody's
   // update check can see: the marketplace index would carry the same version it carried before, every
   // installation would go on believing it is current, and the work would be invisible.
+  //
+  // The comparison is `@thetis/lib/versions`, the same function the marketplace badges use, and it orders
+  // every pair of strings rather than answering "I cannot say" about the ones this package would not let
+  // anybody publish. That matters here and nowhere else: `now` was checked by `isVersion` before we got
+  // this far, but `where.holds` comes out of somebody else's manifest in the registry and is not ours to
+  // reject. When it answered null, `null <= 0` was true, and a registry holding one hand-written `1.2`
+  // refused every publish of that package with a sentence that was wrong about the reason.
   const first = where.holds === null;
   if (!first && compareVersions(now, where.holds) <= 0) {
-    refuse("not-newer", `${name} ${now} does not move past ${where.holds}, which ${target.name} already holds, so no update check anywhere would see this publish. Raise the version to ${bumpVersion(where.holds, "patch") ?? "something higher"} or later, then publish it.`);
+    refuse("not-newer", `${name} ${now} does not move past ${where.holds}, which ${target.name} already holds, so no update check anywhere would see this publish. ${getPast(where.holds, target)}`);
   }
 
   const { named: riders, unnamed, blocked } = sortPassengers(where, target, args.with);
@@ -191,6 +198,18 @@ function summarise(answer, blockers) {
     return `dry run: ${answer.package} ${moved} would go to ${answer.target} (${answer.branch})${from}: ${answer.files.length} file(s)${refused}.${along}${outOf} Nothing was committed or pushed.`;
   }
   return `${answer.package} ${moved} published to ${answer.target} (${answer.branch})${from} as ${answer.shortCommit}: ${answer.files.length} file(s).${along}${outOf} The marketplace index catches up on its next refresh.`;
+}
+
+/**
+ * How to get past what the registry holds, as the closing of that refusal. Usually the next patch. When the
+ * registry holds something there is no step from -- `1.2`, a date, anything hand-written -- the sentence
+ * says that instead of naming a version it would have had to invent, because "raise it to something higher"
+ * with no reason given is the kind of advice a person follows once and then distrusts.
+ */
+function getPast(holds, target) {
+  const next = bumpVersion(holds, "patch");
+  if (next) return `Raise the version to ${next} or later, then publish it.`;
+  return `${holds} is not a semantic version like 1.2.0, so there is no next one to name: pick a version above it, and put a sound one in ${target.name}'s own copy of the manifest while you are there.`;
 }
 
 /** The version this publish sets: named, one step along, or the one the manifest already carries. */

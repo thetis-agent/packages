@@ -227,6 +227,8 @@ A registry is a git repository. Each package is a directory in it holding a `pac
 
 `@thetis/package-publish` is the package that does it. It is a `tool` package, so it runs in the person's own fence with their own agent-held ssh key. The registry's own authentication decides who may publish; Thetis decides nothing about that.
 
+Versions are compared with one function for the whole system, `@thetis/lib/versions`, which the marketplace's badges also use, so "is this newer" cannot be answered one way on a card and another way by the publish. It is lenient: every pair of strings has an order, including a hand-written `1.2`, which a registry is free to hold and this package is not free to reject. What a package may be published *at* is the stricter question and is separate: that has to be a real semantic version.
+
 The rule the whole thing turns on: the version has to move past what the registry already holds for that package. A publish at a version the registry has is invisible to every update check there is, because the index carries the version it carried before and every installation goes on believing it is current. A package the registry does not hold yet is a first publish and passes.
 
 Two sources, told apart by looking, not by being told:
@@ -240,7 +242,7 @@ The second is the case of whoever maintains the shipped packages: one checkout t
 
 | Tool | Arguments | Answers |
 |---|---|---|
-| `publish_targets` | `package` (optional) | The configured targets. With a package: what each one holds for it, the directory it holds it in, and whether what is here is in front of that. Also `lastPublish` and `lastRemoval` per target, out of this person's own record. |
+| `publish_targets` | `package` (optional) | The configured targets. With a package: what each one holds for it, the directory it holds it in, and whether what is here is in front of that. `lastPublish` and `lastRemoval` say what last happened at the target, whatever the package was. With a package there is also `record`, which says what happened to *that* package here: `{ published, publishedAt, removed, removedAt, latest }`. Use `record` when the question is about one package, because the per-target keys are overwritten by the next publish of anything else. |
 | `publish_package` | `package` (required), `to`, `version` or `bump` (`patch`, `minor`, `major`), `as` (`origin` or `itself`, for a fork), `with`, `message`, `dryRun` | The package, the target, `was` and `now`, whether it was a first publish, the files, the commit and the branch, plus `source` (the pin the marketplace will carry) and `indexed: false`. |
 | `unpublish_package` | `package` (required), `to`, `with`, `message`, `dryRun` | `removed: true`, the package, the target, `held` (the version the registry was carrying), the directory, the files and the commit. |
 

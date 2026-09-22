@@ -10,7 +10,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { safeName, targetsOf, workDirOf } from "./config.js";
 import { locate, resolvePackage } from "./locate.js";
-import { lastPublish, lastRemoval } from "./record.js";
+import { lastPublish, lastRemoval, packageRecord } from "./record.js";
 import { compareVersions } from "./semver.js";
 
 export async function targets(args = {}, env) {
@@ -37,6 +37,11 @@ export async function targets(args = {}, env) {
       lastRemoval: await lastRemoval(env, target.name),
     };
     if (pkg) {
+      // What this person's own record says about *this* package here, as opposed to the two fields above,
+      // which say what last happened at this target whatever the package was. A page needs the first to
+      // stop saying a package was never published once it has first-hand evidence that it was, and the
+      // per-target keys cannot carry that: the next publish of anything else overwrites them.
+      row.record = await packageRecord(env, target.name, pkg.name);
       try {
         const where = await locate(env, pkg, target, workDir);
         row.mode = where.mode;

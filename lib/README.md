@@ -27,6 +27,7 @@ The layering rule: `lib` imports only `@thetis/contracts`. `sandbox`, `kernel`, 
 | `restart` | `RestartLatch`, `isSupervised`. The latch reads `control` through the configuration reference on each use, so a reloaded `control.*` is what it sees. |
 | `store` | `assertStoreId`, `storeId`, `assertStoreDoc`, `assertJsonValue`: the shared checks every driver runs. `memoryStore()`: a Map-backed driver for tests and the bench. `StoreMirror`: one namespace held in memory and written through in order, so the kernel's records stay synchronous; `flush()` on shutdown. |
 | `store-conformance` | `storeConformance(name, open, close?)`: the `node:test` cases a storage driver passes. |
+| `versions` | `compareVersions(a, b)`, `isNewer(a, b)`: two version strings compared as versions, because `0.10.0` sorts before `0.9.0` as text. It is here rather than beside a caller because it had two homes and they disagreed: `@thetis/marketplace` decides whether a badge says a package is ahead of a registry and `@thetis/package-publish` decides whether the publish is allowed, which is one question asked twice. It is total, so every pair of strings has an order and nothing answers "I cannot say"; deciding what a package *may* be published at is a stricter question and stays with the publisher. |
 | `config` | `validateDecls`, `forkChain`, `mergedDecls`, `defaultsOf`, `isSecretKey`, `checkValue`, `mergeDocs`, `findRefs`, `resolveRefs`, `describe`, `changedPackages`, `parseDotEnv`, `EnvFile` (the `.env` file re-read on change, a shell value winning over the file's), `LayeredConfig` (the four layers over a driver in `config/*` and `secrets/*`, layer-major along a fork chain). |
 
 The mount and ssh mechanism that used to be here (`mounts`, `ssh`) is the lib of `@thetis/host-grants`, the host package that answers `host.grants.*`: it needs the host, not the daemon, and moving it out is what made the daemon's last restart the last one.
@@ -99,6 +100,7 @@ assertUserIdFitsSockets(home, id);      // throws with the home, the socket, its
 | `src/restart.ts` | The restart latch. |
 | `src/store.ts` | Store ids and documents, the memory driver, the mirror. |
 | `src/store-conformance.ts` | The driver test suite. |
+| `src/versions.ts` | The one version comparison, and the rule written out. |
 | `src/config.ts` | Declarations, chains, layers, references, the env file. |
 
 ## Tests

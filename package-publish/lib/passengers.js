@@ -99,12 +99,26 @@ const listed = (parts) => (parts.length <= 3 ? parts.join("; ") : `${parts.slice
 
 const carries = (where, target, about) => `Commits on this branch touch more than ${where.dir}/ and are not in ${target.name} yet, and a ${about.act} pushes the branch, so they would go with it`;
 
+/** Moving the passengers off the branch, which is the way out of both refusals and of neither act's making. */
+export const setAside = (where) => `git branch keep; git reset --hard origin/${where.branch}; git checkout keep -- ${where.dir}`;
+
 /**
  * What act these sentences are about. A removal pushes a branch exactly as a publish does, so it meets the
- * same two refusals, but it is not a publish and the way out of each one is spelled differently: the
- * command to type again, and what to do once the branch is clear.
+ * same two refusals, but it is not a publish and the way out of each one is spelled differently.
+ *
+ * `consent` is the whole clause and not just a command, because the two acts do not offer the same thing.
+ * A publish asks for one word: the passengers are publishes like the one being made, and naming them is
+ * cheap and obvious. A removal cannot ask for that where its refusal is usually read. The browser never
+ * offers a tick beside a removal, and it is right not to: a checkbox that publishes somebody's work under
+ * a button marked "take out" is the wrong offer whatever it is labelled. So the removal's sentence leads
+ * with the procedure, which works everywhere, and mentions `--with` afterwards and plainly as a thing a
+ * terminal can do, rather than pointing a person in a toast at a flag they have no way to type.
  */
-export const aPublish = (where) => ({ act: "publish", command: `thetis publish ${where.dir}`, then: `publish ${where.dir}/` });
+export const aPublish = (where) => ({
+  act: "publish",
+  after: `publish ${where.dir}/, and each of the others in its turn`,
+  consent: (names) => `Each of those can be published in its own right, but a version having moved is not the same as meaning to ship it, so nothing goes that you did not ask for. Publish them deliberately alongside this one (thetis publish ${where.dir} ${names.map((n) => `--with ${n}`).join(" ")}), or move them off this branch first: ${setAside(where)}.`,
+});
 
 /**
  * The refusal when something riding cannot be published. This one is absolute, so the sentence does not
@@ -113,7 +127,7 @@ export const aPublish = (where) => ({ act: "publish", command: `thetis publish $
  */
 export function cannotRide(blocked, nameable, target, where, about = aPublish(where)) {
   const also = nameable.length ? ` Once they are off the branch, ${listed(nameable.map((p) => offer(p, target)))} could go along with it.` : "";
-  return `${carries(where, target, about)}. These cannot be published, and saying you want them anyway will not change that: ${listed(blocked.map((p) => why(p, target)))}. Put them aside and bring things back one at a time: git branch keep; git reset --hard origin/${where.branch}; git checkout keep -- ${where.dir}; then ${about.then}, and each of the others in its turn.${also}`;
+  return `${carries(where, target, about)}. These cannot be published, and saying you want them anyway will not change that: ${listed(blocked.map((p) => why(p, target)))}. Put them aside and bring things back one at a time: ${setAside(where)}; then ${about.after}.${also}`;
 }
 
 /**
@@ -122,6 +136,5 @@ export function cannotRide(blocked, nameable, target, where, about = aPublish(wh
  * try something as readily as to ship it, so the act is the moment to say which it was.
  */
 export function notNamed(nameable, target, where, about = aPublish(where)) {
-  const names = nameable.map((p) => p.package);
-  return `${carries(where, target, about)}: ${listed(nameable.map((p) => offer(p, target)))}. Each of those can be published in its own right, but a version having moved is not the same as meaning to ship it, so nothing goes that you did not ask for. Publish them deliberately alongside this one (${about.command} ${names.map((n) => `--with ${n}`).join(" ")}), or move them off this branch first: git branch keep; git reset --hard origin/${where.branch}; git checkout keep -- ${where.dir}.`;
+  return `${carries(where, target, about)}: ${listed(nameable.map((p) => offer(p, target)))}. ${about.consent(nameable.map((p) => p.package))}`;
 }
