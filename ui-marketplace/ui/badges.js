@@ -44,27 +44,34 @@ export function updateBadge(badge, r) {
 }
 
 /**
- * This package's own record of the last act against one of the publish targets, or null. Two lists are in
- * play and nothing reconciles them: `ahead` reads the marketplace *index*, which covers the registries
- * `@thetis/marketplace` mirrors, while a publish goes to one of `@thetis/package-publish`'s *targets*. They
- * need not overlap, and where they do not a publish leaves no mark on the index at all -- which is how a
- * package read `never published` for ever, immediately after a successful publish of it.
+ * What this workspace's own record says about **one package** at whichever target it last touched, or null.
  *
- * So when the two disagree, the record wins: it is first-hand knowledge that a publish happened, while the
- * index's silence only ever means that no mirrored registry lists the package. The record is thin on
- * purpose -- `publish_targets` carries the last publish and the last removal per target, so a package
- * published before something else went to the same target leaves no trace here and reads as it did before.
- * That is a floor under the truth, not a claim to the whole of it.
+ * Two lists are in play and nothing reconciles them: `ahead` reads the marketplace *index*, which covers the
+ * registries `@thetis/marketplace` mirrors, while a publish goes to one of `@thetis/package-publish`'s
+ * *targets*. They need not overlap, and where they do not a publish leaves no mark on the index at all. The
+ * index's silence is therefore a fact about what is mirrored here and never evidence that nothing was
+ * published; the record is the only thing that knows otherwise, because the person did it from here.
+ *
+ * It reads `record`, which `publish_targets` answers only when it is asked **about a package** and which is
+ * about that package: `{ published, publishedAt, removed, removedAt, latest, commit }`, with `latest` saying
+ * which of the two acts is the later one, or null for a package this person has done neither to here. The
+ * per-target `lastPublish` and `lastRemoval` answer a different question -- what last happened at this
+ * target, whatever package it was of -- and reading one for the other is the bug this replaced: the next
+ * publish of anything else overwrote the key, and a row that had been telling the truth quietly stopped.
  */
 export function publishRecord(publish, name) {
+  // The cheap call carries no `record` at all and the expensive one carries somebody else's unless it was
+  // asked about this package, so the answer has to say whose it is before any of it is read.
+  if (!publish || !name || publish.package?.name !== name) return null;
   let best = null;
-  for (const t of publish?.targets ?? []) {
-    for (const doc of [t.lastPublish, t.lastRemoval]) {
-      if (!doc || doc.name !== name || !doc.at) continue;
-      // The two keys are kept apart by the publishing package precisely so that this comparison can be
-      // made: a package taken out of a target after it was published to it is not published there.
-      if (!best || String(doc.at) > String(best.at)) best = { target: t.name, version: doc.version ?? "", at: doc.at, removed: !!doc.removed };
-    }
+  for (const t of publish.targets ?? []) {
+    const r = t.record;
+    if (!r?.latest) continue;
+    const removed = r.latest === "removed";
+    const at = removed ? r.removedAt : r.publishedAt;
+    if (!at) continue;
+    const found = { target: t.name, version: (removed ? r.removed : r.published) ?? "", at, removed, commit: r.commit ?? null };
+    if (!best || String(found.at) > String(best.at)) best = found;
   }
   return best;
 }
@@ -79,22 +86,21 @@ export function publishRecord(publish, name) {
  * Kept short on purpose. This badge rides on a gallery card beside the package's name, where `.mk-card-head`
  * wraps and a long badge takes the name's line away from it.
  */
-export function aheadBadge(badge, r, record = null) {
+export function aheadBadge(badge, r) {
   const a = r.ahead;
-  // The record is not about the index, so it never contradicts `ahead` where `ahead` has something to say:
-  // a registry holding an older version is a true sentence about that registry, and the badge goes on
-  // saying it. It answers the one case where the index's silence was read as a fact about the package.
-  if (a?.state === "unpublished" && record) {
-    return record.removed ? badge(`taken out of ${record.target}`, "dim") : badge(`published to ${record.target} · not in the index`, "dim");
-  }
   if (!a) return null;
-  // Two tones, because the two cases are not the same size. A package no registry has ever listed is a
-  // quiet fact and very often the right state -- on the machine of whoever maintains these packages it is
-  // true of nearly all of them at once, and a gallery of amber says nothing at all. A version here that is
-  // past what a registry holds is a gap between what this installation runs and what anybody else can get,
-  // and that is the one worth standing out. "never published" rather than "unpublished": the first is a
-  // fact about the registries, the second reads like a judgement on the package.
-  if (a.state === "unpublished") return badge("never published", "dim");
+  // Two tones, because the two cases are not the same size. A package the index does not carry is a quiet
+  // fact and very often the right state -- on the machine of whoever maintains these packages it is true of
+  // nearly all of them at once, and a gallery of amber says nothing at all. A version here that is past
+  // what a registry holds is a gap between what this installation runs and what anybody else can get, and
+  // that is the one worth standing out.
+  //
+  // Not "never published", which is a claim the index cannot support: it is built only from the registries
+  // this installation mirrors, so its silence is a fact about what is mirrored here and not about the
+  // world. A package can sit in a registry nobody here trusts, and saying otherwise sends somebody looking
+  // for a mistake that is not there. This is the sentence `thetis packages outdated` prints, word for word,
+  // and the one the page and the control panel say, so one package does not read two ways in three places.
+  if (a.state === "unpublished") return badge("no registry here lists it", "dim");
   return badge(`${a.version} here, ${a.published} published`, "warn");
 }
 
@@ -113,9 +119,15 @@ export function benchBadge(badge, r) {
 }
 
 /**
- * The badges a package page carries. A fork that is behind its origin would otherwise say so twice, once as
+ * The badges a package page carries, and the same ones a gallery card carries: a badge is a summary of
+ * state, so it has to mean the same thing wherever it is read. What a surface knows and the others do not
+ * -- this workspace's own record of a publish, which only a page asking about one package can afford to
+ * fetch -- belongs in that page's facts, under it, and not in a badge that would then disagree with the
+ * card the person clicked to get there.
+ *
+ * A fork that is behind its origin would otherwise say so twice, once as
  * the fork badge and once as the update badge, which are the same sentence at two lengths; the fork badge
  * is the longer and the truer of the two, so the update badge stands down for it here. The gallery, which
  * draws no fork badge, keeps the terse one.
  */
-export const stateBadges = (badge, r, record = null) => [stateBadge(badge, r), forkBadge(badge, r), r.update?.apply === "unfork" ? null : updateBadge(badge, r), aheadBadge(badge, r, record), benchBadge(badge, r)].filter(Boolean);
+export const stateBadges = (badge, r) => [stateBadge(badge, r), forkBadge(badge, r), r.update?.apply === "unfork" ? null : updateBadge(badge, r), aheadBadge(badge, r), benchBadge(badge, r)].filter(Boolean);

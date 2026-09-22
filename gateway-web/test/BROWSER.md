@@ -920,22 +920,27 @@ From the shell, before the browser: `thetis packages outdated --user dev` ends w
 here, 0.0.9 published in thetis` under a paragraph headed "17 packages are newer in dev than the registries
 hold, or not published at all" and a closing line naming `thetis publish`, and `thetis packages list --user
 dev` shows `@thetis/terminal@0.1.0 …` with no clause at all, because the registry has caught up with that
-one, while every other row ends `never published`.
+one, while every other row ends `no registry here lists it` — the index is built from the registries this
+installation mirrors, so its silence is a fact about what is mirrored here, and the badge, the page, the
+control panel and this listing all say that one sentence.
 
 88. **The gallery**: sign in at `http://127.0.0.1:8809/login` as `dev` / `devpass123` at 1440px, open `#menu`
     and click `.menu-item[data-place="@thetis/ui-marketplace#marketplace"]`. Expect `.mk-card[data-name=
     "@thetis/exa"]` whose `.mk-card-head .tags` holds `Only me` **and** a `.badge.is-warn` reading
     `0.1.0 here, 0.0.9 published`; `.mk-card[data-name="@thetis/terminal"]` with the state badge and no
     second badge at all; and every other installed card, `@thetis/ui-marketplace` among them, carrying a
-    `.badge.is-dim` reading `never published` — dim, because on this machine that is true of nearly every
-    package at once and a gallery of amber would say nothing. At 700px the head wraps and the name stays
+    `.badge.is-dim` reading `no registry here lists it` — dim, because on this machine that is true of
+    nearly every package at once and a gallery of amber would say nothing. At 700px the head wraps and the name stays
     readable: no `.mk-card` scrolls horizontally and the document does not scroll sideways. No console errors.
 89. **A page, ahead**: click the exa card. Expect `.mk-crumb` reading "Marketplace › @thetis/exa", the side
     card's `.tags` with `Only me` and the warn `0.1.0 here, 0.0.9 published`, and in the `.kv` an
     **installed** row `0.1.0`, a **registry** row `0.0.9 in thetis`, and a **published** row reading
     `0.0.9 in thetis — 0.1.0 is what is here`.
-90. **A page, never published**: go back and open `@thetis/ui-marketplace`. Expect the dim badge
-    `never published` and a **published** row reading `nowhere: no registry lists this package`.
+90. **A page the index does not carry**: go back and open `@thetis/ui-marketplace`. Expect the dim badge
+    `no registry here lists it` and a **published** row saying the same thing. With `@thetis/package-publish`
+    installed and a target configured, a second `POST …/publish-targets` goes out after the page is drawn,
+    this one carrying `package`, and the row becomes `no registry here lists it, and nothing has gone from
+    here to a target yet` — asked and answered with nothing, which is not the same as not having asked.
 91. **The Publish block**: on either page, expect in the side card, under the actions,
     `.mk-picker.mk-publish` holding `select.mk-bump` — first option `as it is — <version>`, then a patch, a
     minor and a major bump — and a button reading **Publish to thetis**. With one target configured there is
@@ -969,8 +974,9 @@ one, while every other row ends `never published`.
     the console; that one is the refusal being shown, not a fault.
 95. **The built-in Packages table**: open `#menu`, click **Control panel**, and stay on **Packages**. Expect
     one `POST api/ext/@thetis/ui-marketplace/search` *after* the table was drawn, then the Scope cell of
-    `@thetis/exa` holding `Only me` and the warn `0.1.0 here, 0.0.9 published`, and every unpublished row
-    holding a dim `never published`. Click the exa row: the detail card's `.kv` carries a **published** row
+    `@thetis/exa` holding `Only me` and the warn `0.1.0 here, 0.0.9 published`, and every row the index does
+    not carry holding a dim `no registry here lists it`, word for word what the card and the command line
+    say. Click the exa row: the detail card's `.kv` carries a **published** row
     reading `0.0.9 in thetis — 0.1.0 is what is here`, and a `.panel-hint` under it says `0.1.0 is here and
     0.0.9 is what thetis holds. Publish is on its page in the marketplace.` — the section names the gap and
     points at the one place that can close it. With `@thetis/ui-marketplace` removed
@@ -1029,8 +1035,10 @@ Three things the section above could not reach. A fork whose origin the registry
 Removal is the other half of publishing and had no surface at all. And `ahead` reads the marketplace
 **index**, which covers the registries `@thetis/marketplace` mirrors, while a publish goes to one of
 `@thetis/package-publish`'s **targets** — two lists nothing reconciled, so a package published to a
-target this installation does not mirror read `never published` for ever, immediately after a successful
-publish of it.
+target this installation does not mirror left no trace anywhere a person looks. The index's silence is now
+said as what it is (`no registry here lists it`, the sentence the badge, the page, the control panel and
+`thetis packages outdated` all use), and the page asks the one question that can say more: what this
+workspace's own record holds about *that package*, which `publish_targets` answers per package.
 
 The fixture is two bare repositories: `registry.git`, which the marketplace mirrors and the publishing
 package may publish to, and `solo.git`, which only the publishing package knows about. Two targets, so
@@ -1073,10 +1081,10 @@ run — which is the point, and what the record has to say instead.
 98. **The gallery, with nothing published**: sign in at `http://127.0.0.1:8810/login` as `dev` /
     `devpass123` at 1440px, open `#menu`, click `.menu-item[data-place="@thetis/ui-marketplace#marketplace"]`.
     Expect `.mk-card[data-name="@dev/widget"]` and `.mk-card[data-name="@dev/hello"]` each with `Only me`
-    and a `.badge.is-dim` reading `never published`, and every shipped card carrying the same dim badge.
-    One `POST api/ext/@thetis/ui-marketplace/publish-targets` is sent after the rows, alongside
-    `config-list`; it answers `available: true` here and `{"available": false, "targets": []}` on any
-    installation without the publishing package, where nothing about the cards changes. No console errors.
+    and a `.badge.is-dim` reading `no registry here lists it`, and every shipped card carrying the same dim
+    badge. The gallery sends `search` and `config-list` and **no** `publish-targets`: what this workspace
+    published is answered per package, one clone or fetch of every target per package asked about, which is
+    not a question a card can ask. No console errors.
 99. **Seeding the origin, and the second version control**: open the `@dev/widget` card. Expect in the side
     card a `.mk-picker.mk-publish` holding `select.mk-target` with `thetis` and `solo`, `select.mk-bump` at
     `""` (*as it is — 0.1.0*, because the package is ahead), a **Publish to thetis** button, and under it a
@@ -1084,15 +1092,20 @@ run — which is the point, and what the record has to say instead.
     never beside the one it undoes. Publish it as it is and confirm: `.toast.is-good` reading
     `@dev/widget@0.1.0 is in thetis (<short commit>).`, and `git --git-dir=$H/shared/registry.git ls-tree
     --name-only main` now lists `widget`.
-100. **A publish to a target this installation does not mirror**: open `@dev/hello`, set `select.mk-target`
-    to `solo` (the Publish and Take out buttons both follow: **Publish to solo**, **Take out of solo**),
+100. **A publish to a target this installation does not mirror**: open `@dev/hello`. Expect two
+    `POST …/publish-targets`: the first with no arguments, which draws the block, and then a second
+    carrying `{"package": "@dev/hello"}` *after* the page is drawn — the expensive one, which clones or
+    fetches every target and fills one line in when it lands. Before the publish that line reads `no
+    registry here lists it, and nothing has gone from here to a target yet`. Now set `select.mk-target` to
+    `solo` (the Publish and Take out buttons both follow: **Publish to solo**, **Take out of solo**),
     publish it as it is and confirm. Expect `.toast.is-good` `@dev/hello@0.2.0 is in solo (<short commit>).`
-    and then, in the redrawn page, the badge **`published to solo · not in the index`** in place of
-    `never published`, and a **published** row reading `0.2.0 to solo · just now, by this workspace's own
-    record. The index does not list it: no registry here mirrors that target, or it has not refreshed
-    since.` Go back to the gallery: the card says the same short thing, dim. This is the case that read
-    `never published` for ever before — the index covers `thetis` and knows nothing of `solo`, and the
-    package's own record is the only witness there is that the publish happened.
+    and then, in the redrawn page, a **published** row reading `0.2.0 to solo · just now, by this
+    workspace's own record. No registry here lists it.` The badge does **not** change: it is the index's
+    statement, it is read on a gallery card too, and a badge that means one thing on the card and another
+    on the page is two badges. Go back to the gallery and return: the card still reads `no registry here
+    lists it`, and the page still says what the record knows. This is the case that read `never published`
+    for ever before — the index covers `thetis` and knows nothing of `solo`, and the record is the only
+    witness there is that the publish happened.
 101. **Taking it back out**: on the same page, with `solo` chosen, click **Take out of solo**. Expect one
     `POST …/unpublish` carrying `dryRun: true` and then a `.popover` titled "Take @dev/hello out of solo?"
     with the rows `package @dev/hello@0.2.0`, `out of solo · file://…/solo.git`, `deletes hello/ · 2
@@ -1157,15 +1170,16 @@ run — which is the point, and what the record has to say instead.
     **Take out of solo** — a different registry is a different question.
 
 106. **The built-in Packages table says the same thing**: open `#menu`, click **Control panel**, stay on
-    **Packages**. Expect one `POST …/search` *and* one `POST …/publish-targets` after the table is drawn,
-    the `@dev/hello` row's Scope cell holding `Only me` and the dim `published to solo · not in the index`,
-    and every other installed row still holding a dim `never published`. Click the row: the detail card's
-    `.kv` carries a **published** row reading `0.2.0 to solo, by this workspace's own record. The index
-    does not list it: no registry here mirrors that target, or it has not refreshed since.`, and the hint
-    under it points at the one place that can publish. With `@thetis/ui-marketplace` removed
+    **Packages**. Expect one `POST …/search` after the table is drawn and **no** `publish-targets` — the
+    table cannot spend a fetch of every registry per row — and the `@dev/hello` row's Scope cell holding
+    `Only me` and the dim `no registry here lists it`, the same sentence its marketplace card carries.
+    Click the row: the detail card's `.kv` carries a **published** row saying the same thing, and a
+    `.panel-hint` reading `No registry here lists @dev/hello. Its page in the marketplace says whether it
+    went to a registry this installation does not mirror, and is where Publish is.` — the section says what
+    the index says and points at the place that knows more. With `@thetis/ui-marketplace` removed
     (`thetis packages uninstall @thetis/ui-marketplace --user dev`, then reload) expect the table to draw
-    with neither badge, no `published` row, no hint and neither request: `src/panel.ts` never learns any of
-    this, and the section is the bootstrap either way.
+    with neither badge, no `published` row, no hint and no `search` at all: `src/panel.ts` never learns any
+    of this, and the section is the bootstrap either way.
 
 Stop the daemon by the pid on `.devhome-fork/thetis.sock`, release `/tmp/thetis-browser.lock`, and delete
 `.devhome-fork`.

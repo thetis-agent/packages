@@ -1,6 +1,6 @@
 {
   "name": "@thetis/ui-marketplace",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "license": "MIT",
   "description": "The marketplace place of the web gateway: a gallery of what the registries offer and what is installed, and one page per package.",
   "type": "module",

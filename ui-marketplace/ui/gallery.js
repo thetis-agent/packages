@@ -2,15 +2,16 @@
  * package (its name, the state badge, an update on offer and unpublished work, two lines of description,
  * then version · type · registry; the fork and bench badges wait for the page). An installed package whose configuration is missing something
  * carries the kernel's one sentence about it, from one `config-list` call after the rows, so a card that
- * cannot work says so before its page is opened. One `publish-targets` call after the rows carries the
- * publishing package's own record of what went where, which is what keeps a card from calling something
- * never published minutes after it was published to a target this installation does not mirror.
+ * cannot work says so before its page is opened. A card says nothing here that a package's own page does
+ * not also say: `publish_targets` answers what this workspace published only when it is asked about one
+ * package, and one such question per card would reach every registry once per card. The badge is the
+ * index's own statement instead, which is true of every row at once and costs nothing.
  * Installed packages come first, then what the registries offer. The search runs on the server through
  * the `search` command, because the index and its ranking live there; the page only keeps the last query
  * so coming back from a package page shows the same list. Clicking a card re-opens the place with the
  * package's name. */
 
-import { aheadBadge, publishRecord, stateBadge, updateBadge } from "./badges.js";
+import { aheadBadge, stateBadge, updateBadge } from "./badges.js";
 
 /** Kept across opens: the query a person came back to. */
 const last = { q: "", type: "" };
@@ -21,7 +22,6 @@ export function openGallery(ext, root) {
   let alive = true;
   let rows = [];
   let summaries = new Map(); // package -> { summary, broken }, for installed packages
-  let records = null; // what `publish-targets` last recorded, or null where nothing here can publish
   let facts = { indexed: false, updatedAt: null, registries: [], total: 0 };
   const types = new Set();
   let timer = null;
@@ -55,29 +55,7 @@ export function openGallery(ext, root) {
       stop();
     }
     if (alive) draw();
-    if (alive && rows.some((r) => r.installed)) await Promise.all([loadSummaries(), loadRecords()]);
-  }
-
-  /**
-   * The publishing package's own record of what went to each target, which is the only thing here that
-   * knows a publish happened at all. The `ahead` badge is read off the marketplace *index*, and the index
-   * covers the registries this installation mirrors -- not the targets a publish goes to. Publishing to a
-   * target nothing here mirrors therefore leaves the index silent for ever, and a card that read that
-   * silence as "never published" was saying something false about a package published minutes earlier.
-   *
-   * Asked without a package name, which is the cheap question: the configured targets and their records,
-   * no registry reached. It answers `available: false` on every installation without the publishing
-   * package, which is most of them, and then nothing is drawn differently and nothing was paid for asking.
-   */
-  async function loadRecords() {
-    try {
-      const out = await ext.request("publish-targets");
-      if (!alive || !out?.data?.available) return;
-      records = out.data;
-    } catch {
-      return;
-    }
-    if (alive) draw();
+    if (alive && rows.some((r) => r.installed)) await loadSummaries();
   }
 
   /** The one sentence per installed package. Drawn after the rows, so the gallery never waits on it; a failure leaves the cards as they are. */
@@ -117,7 +95,7 @@ export function openGallery(ext, root) {
     return el(
       "button",
       { type: "button", class: `mk-card${r.installed ? " is-installed" : ""}`, "data-name": r.name, onClick: () => ext.open.place("marketplace", { name: r.name }) },
-      el("div", { class: "mk-card-head" }, el("code", { class: "mk-card-name" }, r.name), el("div", { class: "tags" }, stateBadge(badge, r), updateBadge(badge, r), aheadBadge(badge, r, publishRecord(records, r.name)))),
+      el("div", { class: "mk-card-head" }, el("code", { class: "mk-card-name" }, r.name), el("div", { class: "tags" }, stateBadge(badge, r), updateBadge(badge, r), aheadBadge(badge, r))),
       el("p", { class: "mk-card-desc" }, r.description || "No description."),
       r.installed && summaries.get(r.name)?.broken ? el("span", { class: "mk-card-broken" }, summaries.get(r.name).summary) : null,
       el("span", { class: "mk-card-meta" }, [r.version, r.type, r.registry].filter(Boolean).join(" · "))

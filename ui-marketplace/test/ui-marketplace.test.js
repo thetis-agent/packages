@@ -355,11 +355,12 @@ test("rows: a version newer here than the registry holds is unpublished work, an
   const rows = mergeRows([{ ...shipped("@thetis/exa"), version: "0.3.0" }], index.packages, index);
   assert.deepEqual(rows[0].ahead, { state: "ahead", version: "0.3.0", published: "0.2.0", registry: "thetis" });
   assert.deepEqual(aheadBadge(badge, rows[0]), { text: "0.3.0 here, 0.2.0 published", tone: "warn" }, "a gap between what runs here and what anybody else can get");
-  // Nobody has it at all. Said as a fact about the registries rather than as a verdict on the package:
-  // a package of one's own that has never been shared is not a thing that has gone wrong.
+  // The index does not carry it. Said as the fact about the index that it is, and not as "never
+  // published", which is a claim about the world the index cannot make: it is built from the registries
+  // this installation mirrors, and a package can sit in one nobody here trusts.
   const mine = mergeRows([shipped("@thetis/package-publish")], index.packages, index);
   assert.deepEqual(mine[0].ahead, { state: "unpublished", version: "0.1.0", published: "", registry: "" });
-  assert.deepEqual(aheadBadge(badge, mine[0]), { text: "never published", tone: "dim" }, "quiet: on a maintainer's machine this is true of nearly every package at once");
+  assert.deepEqual(aheadBadge(badge, mine[0]), { text: "no registry here lists it", tone: "dim" }, "quiet: on a maintainer's machine this is true of nearly every package at once");
   // Caught up, and a row the index only offers: nothing to say either way.
   const level = mergeRows([{ ...shipped("@thetis/exa"), version: "0.2.0" }], index.packages, index);
   assert.equal(level[0].ahead, null);
@@ -637,31 +638,35 @@ test("unpublish: without the publishing package the verb refuses in one sentence
 });
 
 /**
- * The two lists nothing reconciled. `ahead` reads the marketplace index, which covers the registries this
+ * The two lists nothing reconciles. `ahead` reads the marketplace index, which covers the registries this
  * installation mirrors; a publish goes to one of the publishing package's targets. Publish to a target
- * nothing here mirrors and the index stays silent for ever, and the badge read that silence out as "never
- * published" about a package published a minute earlier -- which is simply false to the person who
- * published it. The package's own record is first-hand and wins; the index's silence is not evidence.
+ * nothing here mirrors and the index stays silent for ever, so the index's silence is said as what it is
+ * -- a fact about what is mirrored here -- and the one thing that knows better is this workspace's own
+ * record, which `publish_targets` answers per package and which the page says under the badge.
  */
-test("badges: a record of a publish outranks the index's silence, and a removal outranks the record", () => {
+test("badges: the record answers about one package at one target, and says nothing about anybody else's", () => {
   const badge = (text, tone) => ({ text, tone });
   const row = { name: "@dev/hello", version: "0.2.0", ahead: { state: "unpublished", version: "0.2.0", published: "", registry: "" } };
-  const targets = (...docs) => ({ targets: [{ name: "solo", lastPublish: docs[0] ?? null, lastRemoval: docs[1] ?? null }] });
-  assert.deepEqual(aheadBadge(badge, row), { text: "never published", tone: "dim" }, "nothing recorded: the index is all there is, and it says nothing");
-  const published = targets({ name: "@dev/hello", version: "0.2.0", at: "2026-09-22T10:00:00.000Z", target: "solo" });
-  assert.deepEqual(publishRecord(published, "@dev/hello"), { target: "solo", version: "0.2.0", at: "2026-09-22T10:00:00.000Z", removed: false });
-  assert.deepEqual(aheadBadge(badge, row, publishRecord(published, "@dev/hello")), { text: "published to solo · not in the index", tone: "dim" }, "dim: it is a fact about the index, not a gap to close");
-  assert.equal(publishRecord(published, "@dev/other"), null, "the record is the last act to a target, whatever it was of: it says nothing about another package");
-  assert.deepEqual(aheadBadge(badge, row, publishRecord(published, "@dev/other")), { text: "never published", tone: "dim" });
-  // Two keys and not one: a removal after a publish means the registry does not hold it, and a card that
-  // read both out of the same key would report a package's removal as its current version.
-  const gone = targets(published.targets[0].lastPublish, { name: "@dev/hello", version: "0.2.0", at: "2026-09-22T11:00:00.000Z", removed: true, target: "solo" });
-  assert.equal(publishRecord(gone, "@dev/hello").removed, true, "the later of the two wins");
-  assert.deepEqual(aheadBadge(badge, row, publishRecord(gone, "@dev/hello")), { text: "taken out of solo", tone: "dim" });
-  // And the record never contradicts `ahead` where `ahead` has something to say: a registry holding an
-  // older version is a true sentence about that registry, and it goes on being said.
-  const behindRow = { ...row, ahead: { state: "ahead", version: "0.2.0", published: "0.1.0", registry: "thetis" } };
-  assert.deepEqual(aheadBadge(badge, behindRow, publishRecord(published, "@dev/hello")), { text: "0.2.0 here, 0.1.0 published", tone: "warn" });
+  const at = (name, record) => ({ package: { name }, targets: [{ name: "solo", record }] });
+  const blank = { published: null, publishedAt: null, removed: null, removedAt: null, latest: null, commit: null };
+  // The badge is the index's statement in every case: it is read on a gallery card too, where the record
+  // cannot be had, and a badge that means one thing on the card and another on the page is two badges.
+  assert.deepEqual(aheadBadge(badge, row), { text: "no registry here lists it", tone: "dim" });
+  assert.equal(publishRecord(at("@dev/hello", blank), "@dev/hello"), null, "asked and answered with nothing: this person has done neither act here");
+  const published = at("@dev/hello", { ...blank, published: "0.2.0", publishedAt: "2026-09-22T10:00:00.000Z", latest: "published", commit: "abc1234" });
+  assert.deepEqual(publishRecord(published, "@dev/hello"), { target: "solo", version: "0.2.0", at: "2026-09-22T10:00:00.000Z", removed: false, commit: "abc1234" });
+  // `latest` is the field to read: it survives any number of later publishes of anything else to the same
+  // target, which the per-target `lastPublish` did not, and it saves comparing two timestamps here.
+  const gone = at("@dev/hello", { published: "0.2.0", publishedAt: "2026-09-22T10:00:00.000Z", removed: "0.2.0", removedAt: "2026-09-22T11:00:00.000Z", latest: "removed", commit: "fed4321" });
+  assert.deepEqual(publishRecord(gone, "@dev/hello"), { target: "solo", version: "0.2.0", at: "2026-09-22T11:00:00.000Z", removed: true, commit: "fed4321" });
+  // `record` is only there when the tool was asked about a package, and it is about *that* package: the
+  // cheap call carries none, and an answer fetched for another package must not be read as this one's.
+  assert.equal(publishRecord(published, "@dev/other"), null, "an answer about @dev/hello says nothing about @dev/other");
+  assert.equal(publishRecord({ targets: [{ name: "solo", lastPublish: { name: "@dev/hello", version: "0.2.0", at: "2026-09-22T10:00:00.000Z" } }] }, "@dev/hello"), null, "the cheap call's per-target keys are a different question and are not read as this one");
   assert.equal(publishRecord(null, "@dev/hello"), null, "no publishing package, no record, no difference");
-  assert.equal(publishRecord({ targets: [{ name: "solo", lastPublish: { name: "@dev/hello", version: "0.2.0" } }] }, "@dev/hello"), null, "a record with no time cannot be ranked against another, so it is not one");
+  assert.equal(publishRecord(at("@dev/hello", { ...blank, latest: "published" }), "@dev/hello"), null, "a record with no time cannot be ranked against another, so it is not one");
+  // The record never contradicts `ahead` where `ahead` has something to say: a registry holding an older
+  // version is a true sentence about that registry, and the badge goes on saying it.
+  const behindRow = { ...row, ahead: { state: "ahead", version: "0.2.0", published: "0.1.0", registry: "thetis" } };
+  assert.deepEqual(aheadBadge(badge, behindRow), { text: "0.2.0 here, 0.1.0 published", tone: "warn" });
 });

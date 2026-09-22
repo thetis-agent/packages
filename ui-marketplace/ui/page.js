@@ -9,10 +9,12 @@
  * the row for each key says its state and offers the fix. It also asks `publish-targets` where this
  * workspace may publish, which carries the last publish to each target from that package's own store;
  * that answer is `available: false` on every installation without @thetis/package-publish, which is most
- * of them, and then no Publish block and no record row is drawn and nothing throws. Those records are
- * also the only first-hand account of a publish there is, so they are what keeps the page from reading
- * the marketplace index's silence out as "never published" about a package published minutes ago to a
- * target this installation does not mirror. `open` returns an unmount that stops a late
+ * of them, and then no Publish block and no record row is drawn and nothing throws. It is asked twice:
+ * once without a package, which costs nothing and is what the block is drawn from, and then -- only where
+ * the index says nothing about this package -- once about the package, which reaches every registry and so
+ * goes out after the page is drawn and fills in one line. That second answer is the only first-hand
+ * account of a publish there is, and it is what lets the page say a package went to a target this
+ * installation does not mirror instead of leaving the index's silence to speak for it. `open` returns an unmount that stops a late
  * answer from drawing into a closed page. */
 
 import { actionsFor } from "./actions.js";
@@ -127,7 +129,7 @@ export function openPage(ext, root, params) {
   }
 
   /** The version facts: what is installed here and at which commit, against what the registry holds. */
-  function versionRows(r, record) {
+  function versionRows(r, publishedLine) {
     const rows = [];
     if (r.installed) rows.push(["installed", el("code", {}, r.pin ? `${r.version} at ${r.pin}` : r.version)]);
     if (r.available) rows.push(["registry", el("span", {}, el("code", {}, r.tip || r.version), r.registry ? el("span", { class: "text-dim" }, ` in ${r.registry}`) : null)]);
@@ -140,15 +142,59 @@ export function openPage(ext, root, params) {
     // other installation can reach, or no registry holds this package at all. Said in full here, where
     // there is room for it; the badge says it short.
     if (r.ahead?.state === "ahead") rows.push(["published", el("span", {}, el("code", {}, r.ahead.published), ` in ${r.ahead.registry} — ${r.ahead.version} is what is here`)]);
-    // "No registry lists this" is a fact about the *index*, and the index covers the registries this
-    // installation mirrors. A publish goes to a *target*, and the two lists need not overlap at all, so
-    // the index's silence was being read out as "never published" about packages published minutes
-    // earlier. The package's own record is the better witness of its own act, and it says which target and
-    // when; what it cannot say is that any registry carries it, and the row does not pretend otherwise.
-    else if (r.ahead && record?.removed) rows.push(["published", el("span", { class: "text-dim" }, el("code", {}, record.version || r.version), ` taken out of ${record.target} · ${when(record.at)}, by this workspace's own record. The index does not list it.`)]);
-    else if (r.ahead && record) rows.push(["published", el("span", {}, el("code", {}, record.version || r.version), ` to ${record.target} · ${when(record.at)}, by this workspace's own record. The index does not list it: no registry here mirrors that target, or it has not refreshed since.`)]);
-    else if (r.ahead) rows.push(["published", el("span", { class: "text-dim" }, "nowhere: no registry lists this package")]);
+    // The index's own statement, in the words the badge and the command line both use, and then whatever
+    // this workspace's own record adds to it once it has been asked. The line is a node the enrichment
+    // fills in later rather than a redraw, because a redraw here would take the publish panel with it.
+    else if (r.ahead) rows.push(["published", publishedLine]);
     return rows;
+  }
+
+  /**
+   * What is known about this package being published, in the order the two witnesses can be trusted.
+   *
+   * The index is the first and it is the one every surface has: it lists the registries this installation
+   * mirrors, so when it does not carry a package the honest thing to say is exactly that -- not that the
+   * package was never published, which is a claim about the world the index cannot make. `thetis packages
+   * outdated` prints that sentence, the gallery card carries it as a badge, and this row says it too.
+   *
+   * The second is this workspace's own record, which only a page asking about one package can afford to
+   * fetch. It is first-hand: the person published it from here, to a target that need not be mirrored here
+   * at all, and nothing else in the product knows. It is said here rather than in the badge because a badge
+   * has to mean the same thing on the card the person clicked to get here, where the record cannot be had.
+   */
+  function sayPublished(r, answer) {
+    const record = publishRecord(answer, r.name);
+    if (record) {
+      const act = record.removed ? `taken out of ${record.target}` : `to ${record.target}`;
+      return { dim: record.removed, nodes: [el("code", {}, record.version || r.version), ` ${act} · ${when(record.at)}, by this workspace's own record. No registry here lists it.`] };
+    }
+    // Asked and answered with nothing, which is not the same as not having asked: this person has neither
+    // published this package from here nor taken it out, and the row is allowed to say so.
+    if (answer) return { dim: true, nodes: ["no registry here lists it, and nothing has gone from here to a target yet"] };
+    return { dim: true, nodes: ["no registry here lists it"] };
+  }
+
+  /** Fills the published line, which starts as the index's sentence and never ends up empty. */
+  function fillPublished(line, r, answer) {
+    const said = sayPublished(r, answer);
+    line.className = said.dim ? "text-dim" : "";
+    line.replaceChildren(...said.nodes);
+  }
+
+  /**
+   * The expensive half of `publish-targets`, asked about one package and only where it could change what
+   * the row says: the index is silent about this package, and something here can publish. It clones or
+   * fetches every target, so it goes out after the page is drawn and updates one line when it lands --
+   * the page never waits on it, and a failure leaves the index's own sentence standing, which is true.
+   */
+  async function enrich(view, line) {
+    try {
+      const out = await ext.request("publish-targets", { args: { package: name } });
+      if (!alive || !out?.data?.available) return;
+      fillPublished(line, view.row, out.data);
+    } catch {
+      return;
+    }
   }
 
   /**
@@ -202,8 +248,8 @@ export function openPage(ext, root, params) {
 
   function draw(view) {
     const r = view.row;
-    // What this workspace itself recorded about this package, against what the index says about it.
-    const record = publishRecord(view.publish, r.name);
+    const publishedLine = el("span");
+    if (r.ahead) fillPublished(publishedLine, r, null);
     clear(body);
     const side = el("aside", { class: "mk-side" });
     const { buttons, hints, picker, publish } = actionsFor(ext, view, side);
@@ -216,11 +262,11 @@ export function openPage(ext, root, params) {
     put(
       side,
       card(
-        el("div", { class: "tags" }, ...stateBadges(badge, r, record)),
+        el("div", { class: "tags" }, ...stateBadges(badge, r)),
         r.description && el("p", { class: "mk-desc" }, r.description),
         view.config ? sentence : null,
         kv([
-          ...versionRows(r, record),
+          ...versionRows(r, publishedLine),
           !r.installed && !r.available && ["state", el("span", { class: "text-faint" }, "not installed")],
           ["type", r.type],
           r.license && ["license", r.license],
@@ -241,6 +287,7 @@ export function openPage(ext, root, params) {
       ...hints.map((h) => el("p", { class: "panel-hint" }, h))
     );
     body.append(el("section", { class: "mk-readme", "aria-label": "README" }, readme(view.readme, view.assets)), side);
+    if (r.installed && r.ahead?.state === "unpublished" && view.publish?.available) void enrich(view, publishedLine);
   }
 
   void load();
