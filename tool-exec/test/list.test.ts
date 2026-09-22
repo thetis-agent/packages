@@ -30,3 +30,13 @@ test("type narrows the list, and an empty list says so", async () => {
   assert.equal(await listPackages({ type: "provider" }, envWith(installed)), "no provider packages are installed in your userspace");
   assert.equal(await listPackages({}, envWith([])), "no packages are installed in your userspace");
 });
+
+test("a copy the open fence read at an older version says so: the version on the line is the one on disk", async () => {
+  const stale = [{ ...installed[1], version: "0.2.2", loadedVersion: "0.2.1" }] as unknown as PackageInfo[];
+  assert.match(
+    String(await listPackages({}, envWith(stale))),
+    /- @thetis\/tools-files@0\.2\.2 \(tool\).*\(loaded 0\.2\.1, 0\.2\.2 on disk: a workspace reload applies it\)$/,
+  );
+  const current = [{ ...installed[1], loadedVersion: "0.2.0" }] as unknown as PackageInfo[];
+  assert.doesNotMatch(String(await listPackages({}, envWith(current))), /loaded/, "what the fence read is what is on disk");
+});

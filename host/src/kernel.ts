@@ -122,7 +122,13 @@ function bindServices(c: Container, config: KernelConfig): void {
   });
   c.bind(T.cgroups, (c) => (c.get(T.config).fence.sandbox === "none" ? undefined : Cgroups.detect(c.get(T.log))));
   c.bind(T.fence, (c) => processFence(c));
-  c.bind(T.fences, (c) => new FencePool(c.get(T.fence), (us) => rpcFor(c, us), (us, h) => c.get(T.services).opened(us, h), (us) => c.get(T.userspaces).pathFor(us.id)));
+  // The last reader is what makes a shipped package's version bump visible: the pool stamps each fence it
+  // opens with the versions installed at that moment, and the kernel's lists say which of them the code on
+  // disk has since left behind.
+  c.bind(T.fences, (c) => new FencePool(
+    c.get(T.fence), (us) => rpcFor(c, us), (us, h) => c.get(T.services).opened(us, h), (us) => c.get(T.userspaces).pathFor(us.id),
+    (us) => Object.fromEntries(c.get(T.packages).installed(us).map((p) => [p.name, p.version])),
+  ));
   c.bind(T.services, (c) => {
     return new ServiceSupervisor(c.get(T.settings), c.get(T.users), c.get(T.userspaces), c.get(T.packages), c.get(T.fences), c.get(T.log), c.get(T.journal));
   });

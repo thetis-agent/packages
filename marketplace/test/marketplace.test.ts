@@ -296,7 +296,38 @@ test("a package pinned behind the index is listed, with what to install to catch
     version: "0.2.0",
     registry: "thetis",
     source: `${URL_A}#tools-files@${NEW}`,
+    apply: "install",
   });
+});
+
+test("a shipped package whose fence loaded an older version is behind its own disk, and a reload applies it", () => {
+  const index = indexOf([{ name: "@thetis/skills-hybrid", version: "0.2.2", commit: NEW, source: `${URL_A}#skills-hybrid@${NEW}` }]);
+  const record = { name: "@thetis/skills-hybrid", version: "0.2.2", loadedVersion: "0.2.1", source: { kind: "system", ref: "/srv/thetis/runtime/packages/skills-hybrid" } };
+  assert.deepEqual(behind([record], index), [
+    { name: "@thetis/skills-hybrid", installed: "0.2.1", available: "0.2.2", version: "0.2.2", registry: "thetis", source: `${URL_A}#skills-hybrid@${NEW}`, apply: "reload" },
+  ]);
+});
+
+test("a copy behind its disk is listed with no index at all: it is behind whether or not a registry carries it", () => {
+  const record = { name: "@thetis/skills-hybrid", version: "0.2.2", loadedVersion: "0.2.1", source: { kind: "system", ref: "/srv/thetis/runtime/packages/skills-hybrid" } };
+  const expected = [{ name: "@thetis/skills-hybrid", installed: "0.2.1", available: "0.2.2", version: "0.2.2", registry: "on disk", source: "", apply: "reload" }];
+  assert.deepEqual(behind([record], undefined), expected, "no index");
+  assert.deepEqual(behind([record], indexOf([])), expected, "an index that does not carry it");
+});
+
+test("a stale pin and a different loaded version is one thing, an install: it brings the new pin and reopens", () => {
+  const index = indexOf([{ name: "@thetis/tools-files", version: "0.3.0", commit: NEW, source: `${URL_A}#tools-files@${NEW}` }]);
+  const record = { name: "@thetis/tools-files", version: "0.2.0", loadedVersion: "0.1.0", source: { kind: "git", ref: `${URL_A}#tools-files@${OLD}` } };
+  const out = behind([record], index);
+  assert.equal(out.length, 1, "one row, not two");
+  assert.equal(out[0].apply, "install");
+  assert.equal(out[0].installed, OLD);
+});
+
+test("a fence running the version on disk is not behind", () => {
+  const record = { name: "@thetis/skills-hybrid", version: "0.2.2", loadedVersion: "0.2.2", source: { kind: "system", ref: "/srv/thetis/runtime/packages/skills-hybrid" } };
+  assert.deepEqual(behind([record], undefined), []);
+  assert.deepEqual(behind([{ ...record, loadedVersion: undefined }], undefined), [], "no fence open, so nothing to say");
 });
 
 test("a package already on the indexed commit is not listed", () => {

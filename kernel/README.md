@@ -85,7 +85,9 @@ await kernel.shutdown();
 
 `SessionApi`: `create(userId, { parent? })`, `send(userId, sessionId, input)` as an `AsyncIterable<TurnEvent>`, `ask` for the final text, `cancel`, `delete`, `inspect`, `list`. A session runs one turn at a time; a second `send` fails with the code `busy`. A session is found only in the caller's own userspace.
 
-The rules the kernel enforces on every call: an unknown or suspended user is rejected; RPC from a fence acts as the fence's own user and no argument can name another; `auth.login` is answered only for the system userspace; a user installs only into `@<own id>/*` and only admins install `@thetis/*`; an operator method from a fence needs an admin; a `host.*` call needs an admin or the control socket and is journalled without its arguments.
+The rules the kernel enforces on every call: an unknown or suspended user is rejected; RPC from a fence acts as the fence's own user and no argument can name another; `auth.login` is answered only for the system userspace; a user installs only into `@<own id>/*` and only admins install `@thetis/*`; an operator method from a fence needs an admin, except `fence.reload` naming the caller's own id, which anyone may ask for; a `host.*` call needs an admin or the control socket and is journalled without its arguments.
+
+`status` answers `{ daemon, restart, workspaces }`. A workspace entry is `{ user, openedAt, codeAt, stale, services, changed }`, and `changed` is `[{ name, loaded, onDisk }]`: every installed package whose open fence read a version other than the one on disk now. It is empty when none differ and when no fence is open. The same fact rides on each package a caller is listed (`packages.list`, from the control socket or from a fence) as `PackageInfo.loadedVersion`, which the pool records when a fence opens and forgets when it closes, and which is never set on the system-wide registry record. This is what makes a change to a package shipped with the service visible: its files are installed the moment they land, so nothing is behind a registry, and what puts the new version into service is a workspace reload.
 
 ## Files
 

@@ -247,10 +247,31 @@ function commonVersion(versions) {
   return best;
 }
 
+/** One person's copy in the matrix: what they run, what their fence loaded, and what is worth a look. */
+function copyCell(p, space, reports, { fork = false, forkOf = null } = {}) {
+  const loaded = typeof p.loadedVersion === "string" ? p.loadedVersion : null;
+  return {
+    version: p.version,
+    fork,
+    forkOf: forkOf ?? p.forkedFrom?.name ?? null,
+    stale: freshness(p, space).stale,
+    broken: Boolean(reports.get(p.name)?.broken),
+    loaded,
+    // The fence read one version when it opened and the files have moved on since: a reload applies it.
+    behindDisk: Boolean(loaded && loaded !== p.version),
+  };
+}
+
 /**
- * fleet: every package in every workspace, one row per name, with each person's copy (version, whether a
- * fork stands in for it, whether that workspace runs older code, whether the configuration is broken
- * there), the registry's word, and the counts the tiles show. No git here: that is one package's page.
+ * fleet: every package in every workspace, one row per name, with each person's copy (version, what that
+ * workspace loaded and whether the disk has moved past it, whether a fork stands in for it, whether that
+ * workspace runs older code, whether the configuration is broken there), the registry's word, and the
+ * counts the tiles show. No git here: that is one package's page.
+ *
+ * `registry.update` is `{ apply, version }` or null, the two kinds of behind the marketplace library
+ * names: `install` when the pin is older than the index, `reload` when a workspace is holding a version
+ * the disk has moved past. A package no registry lists still gets a row with a `reload` update, because a
+ * package shipped with the service is behind its own disk whether or not an index carries it.
  */
 export async function fleet(_args, env) {
   const [everyone, spaces, own, systemList, system] = await Promise.all([people(env), workspaces(env), env.kernel.packages.list(), installedFor(env, SYSTEM), reportsAt(env, null)]);
@@ -264,10 +285,7 @@ export async function fleet(_args, env) {
   const rows = new Map();
   const row = (p) => {
     let r = rows.get(p.name);
-    if (!r) {
-      const entry = indexed.get(p.name);
-      rows.set(p.name, (r = { name: p.name, type: p.type, description: p.description ?? "", scope: "some", version: null, versions: [], registry: entry ? { version: entry.version, update: behind.has(p.name) } : null, config: null, byUser: {}, git: null }));
-    }
+    if (!r) rows.set(p.name, (r = { name: p.name, type: p.type, description: p.description ?? "", scope: "some", version: null, versions: [], entry: indexed.get(p.name) ?? null, config: null, byUser: {}, git: null }));
     return r;
   };
   for (const { person, list, reports } of perPerson) {
@@ -275,39 +293,45 @@ export async function fleet(_args, env) {
     for (const p of list) {
       const r = row(p);
       r.versions.push(p.version);
-      const { stale } = freshness(p, space);
-      r.byUser[person.id] = { version: p.version, fork: false, forkOf: p.forkedFrom?.name ?? null, stale, broken: Boolean(reports.get(p.name)?.broken) };
+      r.byUser[person.id] = copyCell(p, space, reports);
       // The original this fork replaced is not in the person's list any more: its row says a fork stands in.
       if (p.forkedFrom && p.replaced) {
         const original = row({ name: p.replaced, type: p.type, description: ownByName.get(p.replaced)?.description ?? "" });
-        original.byUser[person.id] = { version: p.version, fork: true, forkOf: p.name, stale, broken: Boolean(reports.get(p.name)?.broken) };
+        original.byUser[person.id] = copyCell(p, space, reports, { fork: true, forkOf: p.name });
       }
     }
   }
   for (const p of systemList) {
     const r = row(p);
     r.versions.push(p.version);
-    r.byUser[SYSTEM] = { version: p.version, fork: false, forkOf: null, stale: freshness(p, spaces.get(SYSTEM) ?? null).stale, broken: Boolean(system.get(p.name)?.broken) };
+    r.byUser[SYSTEM] = copyCell(p, spaces.get(SYSTEM) ?? null, system);
   }
   const packages = [...rows.values()].map((r) => {
     const mine = ownByName.get(r.name);
     const onlySystem = Object.keys(r.byUser).every((u) => u === SYSTEM);
     const report = system.get(r.name);
+    const version = commonVersion(r.versions);
+    // An install wins over a reload, as the library says: an install brings the new pin and reopens the fence.
+    const found = behind.get(r.name);
+    const update = found ? { apply: found.apply, version: found.version } : Object.values(r.byUser).some((c) => c.behindDisk) ? { apply: "reload", version } : null;
     return {
       name: r.name,
       type: r.type,
       description: r.description,
       scope: mine?.everyone ? "everyone" : onlySystem ? "system" : "some",
-      version: commonVersion(r.versions),
-      registry: r.registry,
+      version,
+      registry: r.entry ? { version: r.entry.version, update } : update ? { version, update } : null,
       config: report ? { broken: Boolean(report.broken), keys: report.keys?.length ?? 0 } : null,
       byUser: r.byUser,
       git: null,
     };
   }).sort((a, b) => a.name.localeCompare(b.name));
+  // A workspace counts once however many of its copies the disk has moved past; `_system` is one too.
+  const behindDisk = new Set(packages.flatMap((p) => Object.entries(p.byUser).filter(([, c]) => c.behindDisk).map(([who]) => who)));
   const stats = {
     current: packages.filter((p) => p.registry && !p.registry.update).length,
-    updates: packages.filter((p) => p.registry?.update).length,
+    updates: packages.filter((p) => p.registry?.update?.apply === "install").length,
+    reloads: behindDisk.size,
     forks: packages.filter((p) => Object.values(p.byUser).some((c) => c.fork || c.forkOf)).length,
     broken: packages.filter((p) => p.config?.broken).length,
     stale: everyone.filter((person) => packages.some((r) => r.byUser[person.id]?.stale)).length,

@@ -133,6 +133,12 @@ export interface PackageInfo {
   replaced?: string;
   /** Where this copy came from. A git source carries its pin, which is what tells you it is behind. */
   source?: PackageSource;
+  /**
+   * The version this package was at when the workspace's fence opened and read it. Absent when no fence is
+   * open for that workspace, and never set on the system-wide registry record. `version` is what is on disk
+   * now, so the two differing is a workspace that has not loaded the change: a reload applies it.
+   */
+  loadedVersion?: string;
 }
 
 export interface PackageRecord {

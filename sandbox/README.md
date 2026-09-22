@@ -25,6 +25,8 @@ The agent gets this environment and nothing else: `PATH`, `HOME`, `LANG`, `THETI
 
 Each request has a timer of `requestTimeoutMs` milliseconds. On timeout the request fails with the code `fence`, the pool drops the handle, and the next request opens a new agent.
 
+The pool stamps every fence it opens with the moment it opened (`openedAt()`) and with the package versions of that userspace at that moment (`loadedVersions()`, `{ userId: { name: version } }`), read through the `versionsOf(us)` reader the host passes at construction. Both are dropped when the handle is forgotten, so a userspace with no fence open reports nothing. The pool never interprets either: the kernel compares what a fence loaded with what is on disk now.
+
 ## Configuration
 
 `config.fence` holds `sandbox`, `network`, `limits`, `readOnly`, `hidden`, `docker`, and `dockerSocket`; `config.agentPath` names the agent the fence starts; `config.requestTimeoutMs` is the request timer. The host passes them to `ProcessFence`.

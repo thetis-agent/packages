@@ -32,11 +32,14 @@ export function realRoot(root) {
   }
 }
 
-/** The installed record of one package, refused in one sentence when it is not here. */
+/**
+ * The installed record of one package, refused in one sentence when it is not here. `loadedIn` says whose
+ * workspace the record came from, because `loadedVersion` on it is that workspace's word and no other's.
+ */
 export async function installedPackage(env, name) {
   const installed = await env.kernel.packages.list();
   const own = installed.find((p) => p.name === name);
-  if (own) return own;
+  if (own) return { ...own, loadedIn: env.user };
   // The admin's own list is not the whole story: a fork the admin runs replaces the original there, and a
   // package another person has may be one the admin never installed. Any workspace that holds the package
   // knows its record, and the operator channel reads every list, so the page of the original still opens.
@@ -57,7 +60,7 @@ async function anyoneHas(env, name) {
   for (const who of [...people.map((u) => u.id), "_system"]) {
     const list = await operator.call("packages.list", { user: who }).catch(() => []);
     const found = (Array.isArray(list) ? list : []).find((p) => p.name === name);
-    if (found) return found;
+    if (found) return { ...found, loadedIn: who };
   }
   return null;
 }

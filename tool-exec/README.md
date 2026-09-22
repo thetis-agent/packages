@@ -8,7 +8,7 @@ Eight tools, declared in `thetis.tools`:
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `list_packages` | `type` (optional: only packages of that type) | `N packages installed in your userspace:` then one line per package: `- <name>@<version> (<type>): <description> steps[phase:export, …] tools[…] bench[…] service fork of <name>@<version>`. This is the list the system prompt used to carry on every call; the prompt now points here instead. |
+| `list_packages` | `type` (optional: only packages of that type) | `N packages installed in your userspace:` then one line per package: `- <name>@<version> (<type>): <description> steps[phase:export, …] tools[…] bench[…] service fork of <name>@<version>`. The version is the one on disk; when the fence this turn runs in read an older one, the line ends `(loaded 0.2.1, 0.2.2 on disk: a workspace reload applies it)`. This is the list the system prompt used to carry on every call; the prompt now points here instead. |
 | `install_package` | `source` (required): a path relative to home, a git URL, or `url#dir` | `installed <name>@<version> (<type>); steps: ...; tools: ...; replaced <name>. Live on the next turn.` |
 | `uninstall_package` | `name` (required) | `uninstalled <name>`. The files stay. When the package was a fork, the original comes back. |
 | `fork_package` | `name` (required, an installed package), `as` (directory under `packages/`; default the unscoped name) | `forked <name>@<version> to packages/<as> as @<you>/<as>@<version>-fork.N ...` and the next step. Does not install. |

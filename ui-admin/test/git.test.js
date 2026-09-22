@@ -165,7 +165,8 @@ test("a package the admin's own list lacks (a fork replaced it, or another perso
       operator: { async call(method, args) { if (!this) throw new Error("unbound"); calls.push(method + ":" + (args?.user ?? "")); if (method === "users.list") return [{ id: "alice" }, { id: "bob" }]; return args.user === "bob" ? [other] : []; } },
     },
   };
-  assert.deepEqual(await installedPackage(env, "@thetis/probe"), other);
+  // `loadedIn` says whose list the record came from, because `loadedVersion` on it is that workspace's word.
+  assert.deepEqual(await installedPackage(env, "@thetis/probe"), { ...other, loadedIn: "bob" });
   assert.deepEqual(calls, ["users.list:", "packages.list:alice", "packages.list:bob"]);
   await assert.rejects(installedPackage(env, "@thetis/nope"), /not installed in any workspace/);
   await assert.rejects(installedPackage({ kernel: { packages: { list: async () => [] } } }, "@thetis/nope"), /not installed in any workspace/);

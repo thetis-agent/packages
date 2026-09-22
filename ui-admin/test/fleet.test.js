@@ -136,14 +136,39 @@ test("fleet: one row per package with each person's copy, a fork standing in for
   assert.equal(term.scope, "everyone");
   assert.equal(term.version, "0.1.0");
   assert.deepEqual(term.config, { broken: false, keys: 1 });
-  assert.deepEqual(term.byUser.root, { version: "0.1.0", fork: false, forkOf: null, stale: false, broken: false });
-  assert.deepEqual(term.byUser.bob, { version: "0.1.0-fork.1", fork: true, forkOf: "@bob/terminal", stale: true, broken: true }, "bob's fork stands in for the original");
+  assert.deepEqual(term.byUser.root, { version: "0.1.0", fork: false, forkOf: null, stale: false, broken: false, loaded: null, behindDisk: false });
+  assert.deepEqual(term.byUser.bob, { version: "0.1.0-fork.1", fork: true, forkOf: "@bob/terminal", stale: true, broken: true, loaded: null, behindDisk: false }, "bob's fork stands in for the original");
   const fork = packages.find((p) => p.name === "@bob/terminal");
   assert.equal(fork.scope, "some");
-  assert.deepEqual(fork.byUser.bob, { version: "0.1.0-fork.1", fork: false, forkOf: "@thetis/terminal", stale: true, broken: true });
+  assert.deepEqual(fork.byUser.bob, { version: "0.1.0-fork.1", fork: false, forkOf: "@thetis/terminal", stale: true, broken: true, loaded: null, behindDisk: false });
   const login = packages.find((p) => p.name === "@thetis/gateway-login");
   assert.equal(login.scope, "system");
   assert.deepEqual(Object.keys(login.byUser), ["_system"]);
   assert.equal(packages.find((p) => p.name === "@thetis/exa").registry, null, "no index here");
-  assert.deepEqual(stats, { current: 0, updates: 0, forks: 2, broken: 1, stale: 1, unpushed: 0 });
+  assert.deepEqual(term.byUser.root.loaded, null, "no fence loaded a version here, so nothing is behind the disk");
+  assert.equal(term.byUser.root.behindDisk, false);
+  assert.deepEqual(stats, { current: 0, updates: 0, reloads: 0, forks: 2, broken: 1, stale: 1, unpushed: 0 });
+});
+
+test("fleet: a workspace holding a version the disk has moved past is marked, counted, and given a reload row", async () => {
+  // root's fence read 0.2.1 of skills-hybrid and 0.2.2 is on disk; bob's fence read the version it runs.
+  const hybrid = (loadedVersion) => ({ name: "@thetis/skills-hybrid", version: "0.2.2", type: "loader", description: "Skills.", everyone: true, root: codeRoot, source: { kind: "system", ref: "skills-hybrid" }, ...(loadedVersion ? { loadedVersion } : {}) });
+  const own = [hybrid("0.2.1")];
+  const { env } = fakeEnv(
+    {
+      "users.list": users,
+      "packages.list": (a) => (a.user === "root" ? own : a.user === "bob" ? [hybrid("0.2.2")] : []),
+      status,
+      "config.list": () => [],
+    },
+    { own }
+  );
+  const { packages, stats } = (await commands.fleet({}, env)).data;
+  const row = packages.find((p) => p.name === "@thetis/skills-hybrid");
+  assert.deepEqual(row.byUser.root, { version: "0.2.2", fork: false, forkOf: null, stale: false, broken: false, loaded: "0.2.1", behindDisk: true });
+  assert.deepEqual(row.byUser.bob.loaded, "0.2.2");
+  assert.equal(row.byUser.bob.behindDisk, false, "bob's fence read what is on disk");
+  assert.deepEqual(row.registry, { version: "0.2.2", update: { apply: "reload", version: "0.2.2" } }, "no index carries it, and it is still behind its own disk");
+  assert.equal(stats.reloads, 1, "one workspace has not loaded what is on disk");
+  assert.equal(stats.updates, 0, "nothing is behind a registry");
 });

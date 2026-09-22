@@ -1,8 +1,36 @@
-/* The actions a package page offers, and the confirm popover in front of each: Install for me, Update,
- * Remove, Delete (a package of one's own, with its files), and for an admin Install for everyone, Make
- * it the default for everyone, and Install for a person. Every popover states the facts a person should
+/* The actions a package page offers, and the confirm popover in front of each: Install for me, Update or
+ * Reload my workspace, Remove, Delete (a package of one's own, with its files), and for an admin Install
+ * for everyone, Make it the default for everyone, and Install for a person. Update and Reload are the two
+ * kinds of behind: a registry holding a newer commit is installed, while files on disk the workspace has
+ * not read are already installed and are put into service by reloading the workspace. Every popover states the facts a person should
  * read first and one sentence on what happens next; nothing is sent until they confirm. After an action
  * the place is re-opened on the page, or on the gallery when the package is gone from here. */
+
+/** How long the page waits for its own workspace to answer again after it was reloaded. */
+const SETTLE_MS = 30_000;
+
+/**
+ * A request that lost its gateway, as against one a gateway refused with a sentence. Reloading your own
+ * workspace closes the fence answering the page, which leaves either no answer at all (status 0) or the
+ * door's own 502/503 while the socket is gone; anything else came from a gateway that is still there.
+ */
+const lostGateway = (err) => {
+  const status = Number(err?.status);
+  return !Number.isFinite(status) || status === 0 || status >= 502;
+};
+
+/** Asks the new workspace for this page until it answers, or until the deadline passes. */
+async function settle(ext, name, deadline = Date.now() + SETTLE_MS) {
+  for (;;) {
+    try {
+      await ext.request("show", { args: { name } });
+      return true;
+    } catch {
+      if (Date.now() >= deadline) return false;
+      await new Promise((done) => setTimeout(done, 700));
+    }
+  }
+}
 
 /** A shipped @thetis package installs by name, already built; anything else by its registry source. */
 const sourceOf = (row) => (row.name.startsWith("@thetis/") ? row.name : row.source);
@@ -46,6 +74,44 @@ export function actionsFor(ext, view, host) {
         go(r.name);
       }
     );
+  }
+
+  /**
+   * Reloads the person's own workspace, which is what puts a version the fence has not read into service.
+   * The popover says the cost plainly: the fence closes for a second, so every open shell session in it
+   * ends and this page loses its gateway. It does not go through `run`, because the request that closes the
+   * fence answering it is expected to be lost: that is the success, and the page waits for the new
+   * workspace rather than reporting a failure. After the deadline it says what to do instead.
+   */
+  async function reloadMe(anchor) {
+    const ok = await confirm(anchor, {
+      title: "Reload your workspace?",
+      lines: [["package", row.name], ["loaded", `${row.update.installed} in your workspace`], ["on disk", row.update.available]],
+      note: "Your workspace closes and opens again on the code on disk, so its services, its provider and the agent itself are the new ones. The fence is gone for a second: every open shell session in it ends, and this page reconnects on its own. Conversations and files are untouched.",
+      confirmLabel: "Reload",
+      tone: "warn",
+    });
+    if (!ok) return;
+    const stop = busy(host, "Reloading your workspace… the page reconnects when it answers.");
+    try {
+      let services = [];
+      try {
+        const out = await ext.request("fence-reload");
+        services = out?.data?.services ?? [];
+      } catch (err) {
+        if (!lostGateway(err)) throw err;
+        if (!(await settle(ext, row.name))) {
+          ext.toast(`Your workspace has not answered for ${SETTLE_MS / 1000} seconds. Reload this page, or ask an admin to reload the workspace.`, { tone: "error" });
+          return;
+        }
+      }
+      ext.toast(services.length ? `Your workspace was reloaded: ${services.join(", ")} restarted.` : "Your workspace was reloaded.", { tone: "good" });
+      go(row.name);
+    } catch (err) {
+      ext.toast(err?.message || "That did not work.", { tone: "error" });
+    } finally {
+      stop();
+    }
   }
 
   function updateMe(anchor) {
@@ -144,7 +210,10 @@ export function actionsFor(ext, view, host) {
     add("Install for me", "primary", installMe);
     hints.push(row.name.startsWith("@thetis/") ? "A shipped package is linked already built. It is live on the next turn." : "The package is cloned from its registry and built in your own space. It is live on your next turn.");
   }
-  if (row.update) {
+  if (row.update?.apply === "reload") {
+    add("Reload my workspace", "primary", reloadMe);
+    hints.push(`Your workspace loaded ${row.update.installed} when it opened; ${row.update.available} is on disk. The files are installed already, so nothing is fetched or built: reloading the workspace is what puts them into service.`);
+  } else if (row.update) {
     add(`Update to ${row.update.version}`, "primary", updateMe);
     hints.push(`The registry holds a newer commit (${row.update.from} → ${row.update.to}). Nothing changes until you take it, and the copy you have keeps working if the new one fails to build.`);
   }

@@ -51,7 +51,7 @@ A TypeScript package has to be built first. A reload and a restart both put `dis
 
 **A new daemon process** is the daemon's own doing: `thetis restart` on the host, `restart_daemon` when you have that tool (see `thetis/using`), or the control panel. The daemon waits for every turn to end, counts down where everyone can see it, and exits so systemd starts it again; no sudo. It ends every open shell session anywhere, so it is the last resort, not the first try, and the only reason for it is a bug in the daemon's own code. A feature that seems to need one is in the wrong package: it belongs in a step, a tool, a service, or a host package.
 
-On the host, `thetis status` compares what is on disk against what each part loaded and names anything running older code. A workspace with no fence open is never stale: the next request opens it on whatever is there then.
+On the host, `thetis status` compares what is on disk against what each part loaded and names anything running older code. A workspace with no fence open is never stale: the next request opens it on whatever is there then. The control panel and `thetis status` also name the packages a workspace has not loaded yet, each one from the version it read to the version on disk, so a change to a package shipped with the service is visible even though its files were installed the moment they landed.
 
 ## The restart was refused
 

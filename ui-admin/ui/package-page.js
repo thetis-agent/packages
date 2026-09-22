@@ -134,7 +134,8 @@ export function mountPackagePage(ext, root, { name, refresh, user = me() }) {
   function actions() {
     const out = [];
     const reg = info?.registry;
-    if (reg?.update) {
+    // A reload has nothing to install: the copy on disk is already installed, and Reload workspace is what applies it.
+    if (reg?.update && reg.update.apply !== "reload") {
       const b = button(`Update to ${reg.update.version}`, { tone: "primary" });
       b.append(tag(ext, "admin"));
       b.addEventListener("click", () => void act(b, { verb: "package-update", args: {}, title: "Update this package?", lines: [["from", `${info.version} · ${shortHash(reg.update.installed)}`], ["to", `${reg.update.version} · ${shortHash(reg.update.available)}`], ["registry", reg.registry]], note: "The registry's copy replaces this one for everyone who has it; a service it runs restarts.", confirmLabel: "Update" }));
@@ -154,7 +155,9 @@ export function mountPackagePage(ext, root, { name, refresh, user = me() }) {
     if (user) {
       const reload = button("Reload workspace");
       reload.append(tag(ext, "yours"));
-      reload.addEventListener("click", () => void act(reload, { verb: "fence-reload", args: { user }, title: "Reload your workspace?", lines: [["workspace", user]], note: "Your fence closes and opens again on the code on disk. A turn in flight finishes its current tool call first; the services restart.", confirmLabel: "Reload", said: `${user}'s workspace reloaded.` }));
+      // What the reload would apply, when this workspace is holding a version the disk has moved past.
+      const applies = info?.loaded?.behindDisk && info.loaded.user === user ? [["applies", `${name} ${info.loaded.version} → ${info.version}`]] : [];
+      reload.addEventListener("click", () => void act(reload, { verb: "fence-reload", args: { user }, title: "Reload your workspace?", lines: [["workspace", user], ...applies], note: "Your fence closes and opens again on the code on disk. A turn in flight finishes its current tool call first; the services restart.", confirmLabel: "Reload", said: `${user}'s workspace reloaded.` }));
       out.push(reload);
     }
     const remove = button("Remove", { tone: "warn" });
@@ -171,7 +174,9 @@ export function mountPackagePage(ext, root, { name, refresh, user = me() }) {
     const out = [badge(info?.type ?? "package", "dim"), info?.everyone ? badge("Everyone", "accent") : badge("Only me", "dim")];
     if (config) out.push(config.broken ? badge(`config: ${config.summary}`, "err") : badge("config whole", "ok"));
     if (info?.forkedFrom) out.push(badge(`fork of ${info.forkedFrom.name} ${info.forkedFrom.version}`, "warn"));
-    if (info?.registry?.update) out.push(badge(`update ${info.registry.update.version} on offer`, "warn"));
+    // The two kinds of behind: a newer commit in a registry, and a version on disk this workspace has not read.
+    if (info?.loaded?.behindDisk) out.push(badge(`reload to ${info.version}`, "warn"));
+    else if (info?.registry?.update) out.push(badge(info.registry.update.apply === "reload" ? `reload to ${info.registry.update.version}` : `update ${info.registry.update.version} on offer`, "warn"));
     if (info?.git?.ahead) out.push(badge(`${info.git.ahead} commit${info.git.ahead === 1 ? "" : "s"} not pushed`, "warn"));
     if (info?.git?.changed) out.push(badge(`${info.git.changed} file${info.git.changed === 1 ? "" : "s"} uncommitted`, "warn"));
     return out;

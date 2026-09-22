@@ -86,9 +86,22 @@ thetis packages update --user alice
 thetis packages update @thetis/exa --user alice
 ```
 
-An update is an install of the newer pinned source. The old link stands until the new copy is cloned, validated, and built. A shipped package has no pin and is never behind.
+There are two kinds of behind, and `outdated` reports both.
 
-From package code, `behind(installed, index)` in the library lists the installed packages whose pin is older than the index.
+| Kind | What is behind | What applies it |
+|---|---|---|
+| Install | The installation is pinned to a commit older than the one the index holds. | `thetis packages update`, which installs the newer pinned source. |
+| Reload | The version the workspace's fence loaded is not the version on disk. | `thetis reload --user <id>`, which closes that fence and opens it again. |
+
+An update is an install of the newer pinned source. The old link stands until the new copy is cloned, validated, and built.
+
+A package shipped with the service is a link into the checkout. It has no pin, so it is never behind a registry, but a version bump on disk is installed the moment it lands while the workspace keeps running the copy its fence read when it opened. That is the reload kind. `outdated` prints it as:
+
+```
+@thetis/skills-hybrid	loaded 0.2.1, 0.2.2 on disk	thetis reload --user alice
+```
+
+From package code, `behind(installed, index)` in the library lists both kinds, each row carrying `apply: "install" | "reload"`. A package is only ever one of the two, and install wins when both hold, because an install reopens the fence anyway. The reload kind needs no index. A package with no fence open has no loaded version and is not listed.
 
 ## The Marketplace place
 
@@ -108,7 +121,7 @@ The place is the item **Marketplace** in the sidebar's menu. The gallery shows a
 
 ## The library
 
-Readers import from `@thetis/marketplace`: `readIndex(env)`, `search(index, query, opts)`, `readReadme(env, entry)`, and `behind(installed, index)`. `env` needs `shared`, `readFile`, and `writeFile`. The agent's `StepEnv` has them. Only the system userspace can write the shared directory.
+Readers import from `@thetis/marketplace`: `readIndex(env)`, `search(index, query, opts)`, `readReadme(env, entry)`, and `behind(installed, index)`, which takes `undefined` for the index. `env` needs `shared`, `readFile`, and `writeFile`. The agent's `StepEnv` has them. Only the system userspace can write the shared directory.
 
 ## Sources
 

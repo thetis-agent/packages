@@ -26,7 +26,10 @@ export const listPackages: Tool = async (args, env) => {
       const tools = (p.thetis.tools ?? []).map((t) => t.name).join(", ");
       const bench = (p.thetis.bench?.suites ?? []).join(", ");
       const fork = p.forkedFrom ? ` fork of ${p.forkedFrom.name}@${p.forkedFrom.version}` : "";
-      return `- ${p.name}@${p.version} (${p.type})${p.description ? `: ${p.description}` : ""}${steps ? ` steps[${steps}]` : ""}${tools ? ` tools[${tools}]` : ""}${bench ? ` bench[${bench}]` : ""}${p.thetis.service ? " service" : ""}${fork}`;
+      // The fence read its version when it opened; the files have moved on since. Said here because the
+      // version on the line is the one on disk, which is not the one this turn is running.
+      const loaded = p.loadedVersion && p.loadedVersion !== p.version ? ` (loaded ${p.loadedVersion}, ${p.version} on disk: a workspace reload applies it)` : "";
+      return `- ${p.name}@${p.version} (${p.type})${p.description ? `: ${p.description}` : ""}${steps ? ` steps[${steps}]` : ""}${tools ? ` tools[${tools}]` : ""}${bench ? ` bench[${bench}]` : ""}${p.thetis.service ? " service" : ""}${fork}${loaded}`;
     });
   if (!lines.length) return wanted ? `no ${wanted} packages are installed in your userspace` : "no packages are installed in your userspace";
   return `${lines.length} ${wanted ? `${wanted} ` : ""}package${lines.length === 1 ? "" : "s"} installed in your userspace:\n${lines.join("\n")}`;

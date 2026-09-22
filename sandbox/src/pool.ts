@@ -17,6 +17,8 @@ export class FencePool implements Fences {
   private readonly handles = new Map<string, Promise<FenceHandle>>();
   /** When each open fence opened, for the reader that asks what code a running fence is holding. */
   private readonly opened = new Map<string, number>();
+  /** What each open fence read when it opened: version by package name. The versions a reload would replace. */
+  private readonly loaded = new Map<string, Record<string, string>>();
   /** The requests in flight per userspace, so a close can wait for a quiet moment. */
   private readonly inflight = new Map<string, Set<Promise<unknown>>>();
   /** A close in progress per userspace; a second close joins it. */
@@ -27,6 +29,8 @@ export class FencePool implements Fences {
     private readonly rpcFor: (us: Userspace) => KernelRpc,
     private readonly onOpen?: (us: Userspace, handle: FenceHandle) => Promise<void>,
     private readonly refresh: (us: Userspace) => Userspace = (us) => us,
+    /** What the userspace's packages are at this moment, by name. Read once per open; the pool never interprets it. */
+    private readonly versionsOf: (us: Userspace) => Record<string, string> = () => ({}),
   ) {}
 
   /** The handle for a userspace, opening the fence on first use. `onOpen` runs on the new handle before anyone else uses it. */
@@ -42,6 +46,8 @@ export class FencePool implements Fences {
         // The fence stamps the handle with the moment its agent was spawned, which is when its modules were
         // read; a fence that stamps nothing is taken to have opened now.
         this.opened.set(us.id, sandboxed.openedAt ?? Date.now());
+        // Read here, beside the moment: what the agent inside this fence has in hand until the fence is replaced.
+        this.loaded.set(us.id, this.versionsOf(us));
         // A dead agent is forgotten as soon as it dies, not when something next fails on it: a corpse in the
         // map is a userspace nothing can reopen, because whoever asks for a handle is handed the corpse.
         void sandboxed.gone?.then(() => {
@@ -110,8 +116,14 @@ export class FencePool implements Fences {
     return Object.fromEntries(this.opened);
   }
 
+  /** What each open fence read when it opened, by userspace. A userspace with no fence open is absent. */
+  loadedVersions(): Record<string, Record<string, string>> {
+    return Object.fromEntries(this.loaded);
+  }
+
   private forget(id: string): void {
     this.handles.delete(id);
     this.opened.delete(id);
+    this.loaded.delete(id);
   }
 }

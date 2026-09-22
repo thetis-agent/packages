@@ -219,13 +219,18 @@ test("package-info: the record, the registry's word and the checkout, each said 
     },
   };
   const out = await commands.packageInfo({ name: "@alice/hello" }, env);
-  assert.deepEqual(out.data, { name: "@alice/hello", version: "0.1.0-fork.1", type: "loader", description: "Says hello.", root: "/home/alice/packages/hello", everyone: false, forkedFrom: { name: "@thetis/hello", version: "0.1.0" }, replaced: "@thetis/hello", source: { kind: "local", ref: "packages/hello" }, registry: null, git: { branch: "main", upstream: "origin/main", ahead: 2, behind: 1, changed: 2, commit: "abc1234" }, dependencies: [], dependents: [] });
+  assert.deepEqual(out.data, { name: "@alice/hello", version: "0.1.0-fork.1", type: "loader", description: "Says hello.", root: "/home/alice/packages/hello", everyone: false, forkedFrom: { name: "@thetis/hello", version: "0.1.0" }, replaced: "@thetis/hello", source: { kind: "local", ref: "packages/hello" }, loaded: null, registry: null, git: { branch: "main", upstream: "origin/main", ahead: 2, behind: 1, changed: 2, commit: "abc1234" }, dependencies: [], dependents: [] });
   assert.ok(execs[0].includes("'/home/alice/packages/hello'") && execs[0].endsWith("-- ."), "git is asked about this package's files only");
   const bare = await commands.packageInfo({ name: "@alice/hello" }, { ...env, exec: async () => ({ code: 128, stdout: "", stderr: "not a git repository" }) });
   assert.equal(bare.data.git, null);
   // No tracking upstream: the remote's branch of the same name is what the push goes to, so it is what the count is against.
   const untracked = await commands.packageInfo({ name: "@alice/hello" }, { ...env, exec: async (cmd) => (cmd.includes("status") ? { code: 0, stdout: "## main\n", stderr: "" } : cmd.includes("rev-list") ? { code: 0, stdout: "3\t0\n", stderr: "" } : { code: 0, stdout: "abc1234\n", stderr: "" }) });
   assert.deepEqual(untracked.data.git, { branch: "main", upstream: "origin/main", ahead: 3, behind: 0, changed: 0, commit: "abc1234" });
+  // What the workspace read when its fence opened, and whose workspace that is: absent when no fence is open.
+  const held = await commands.packageInfo({ name: "@alice/hello" }, { ...env, kernel: { ...env.kernel, packages: { list: async () => [{ ...info, loadedVersion: "0.1.0" }] } } });
+  assert.deepEqual(held.data.loaded, { version: "0.1.0", user: "alice", behindDisk: true }, "the fence is running 0.1.0 and 0.1.0-fork.1 is on disk");
+  const current = await commands.packageInfo({ name: "@alice/hello" }, { ...env, kernel: { ...env.kernel, packages: { list: async () => [{ ...info, loadedVersion: info.version }] } } });
+  assert.equal(current.data.loaded.behindDisk, false, "the fence read what is on disk");
   await refuses(commands.packageInfo, { name: "@alice/nope" }, env, /is not installed/);
   await refuses(commands.packageInfo, { name: "hello" }, env, /looks like @scope\/name/);
 });
@@ -244,6 +249,32 @@ test("the package card's facts: source, fork, registry and checkout in words", a
   assert.equal(fork.fork, "forked from @thetis/exa 0.1.0, replacing @thetis/exa [warn]");
   assert.equal(fork.source, "a directory: packages/exa");
   assert.equal(fork.checkout, "detached · at abc1234 · no upstream branch tracked · 3 files of this package changed and not committed [warn]");
+  // The reload case: the files here are installed already, and only a workspace reload puts them into service.
+  const held = words({ ...base, version: "0.2.2", loaded: { version: "0.2.1", user: "bitmuse", behindDisk: true } });
+  assert.equal(held.workspace, "loaded 0.2.1 in bitmuse's workspace, 0.2.2 on disk: a reload applies it [warn]");
+  assert.equal(words({ ...base, loaded: { version: "0.1.0", user: "bitmuse", behindDisk: false } }).workspace, undefined, "a workspace running what is on disk says nothing");
+  const reload = words({ ...base, version: "0.2.2", loaded: { version: "0.2.1", user: "bitmuse", behindDisk: true }, registry: { registry: "main", version: "0.2.2", commit: "fedcba9876543210", update: { apply: "reload", version: "0.2.2", installed: "0.2.1", available: "0.2.2", source: "" } } });
+  assert.equal(reload.registry, "main holds 0.2.2; the copy here is 0.2.2 and is installed already: a workspace reload puts it into service [warn]");
+});
+
+test("the fleet matrix's pure helpers: what a cell says, and which workspaces a reload is for", async () => {
+  const { cellState, drifts, workspacesBehind } = await import("../ui/fleet.js");
+  assert.equal(cellState(null), "none");
+  assert.equal(cellState({ version: "0.2.2", loaded: "0.2.2" }), "current");
+  assert.equal(cellState({ version: "0.2.2", loaded: "0.2.1", behindDisk: true }), "reload");
+  assert.equal(cellState({ version: "0.2.2", loaded: "0.2.1", behindDisk: true, broken: true }), "broken", "a broken key is the louder fact");
+  assert.equal(drifts({ registry: null, byUser: { dev: { behindDisk: true } } }), true, "a workspace behind the disk is drift");
+  const packages = [
+    { name: "@thetis/skills-hybrid", byUser: { dev: { version: "0.2.2", loaded: "0.2.1", behindDisk: true }, root: { version: "0.2.2", loaded: "0.2.1", behindDisk: true }, bob: { version: "0.2.2", loaded: "0.2.2" } } },
+    { name: "@thetis/tool-groups", byUser: { dev: { version: "0.2.0", loaded: "0.1.0", behindDisk: true } } },
+    // A fork's cell in its original's row is the same copy under another name: it is listed once, as the fork.
+    { name: "@thetis/terminal", byUser: { dev: { version: "0.3.0", loaded: "0.2.0", behindDisk: true, fork: true, forkOf: "@dev/terminal" } } },
+  ];
+  assert.deepEqual(workspacesBehind(packages, "root"), [
+    { user: "dev", changed: [{ name: "@thetis/skills-hybrid", loaded: "0.2.1", onDisk: "0.2.2" }, { name: "@thetis/tool-groups", loaded: "0.1.0", onDisk: "0.2.0" }] },
+    { user: "root", changed: [{ name: "@thetis/skills-hybrid", loaded: "0.2.1", onDisk: "0.2.2" }] },
+  ], "the admin's own workspace is last, because reloading it closes the fence serving the page");
+  assert.deepEqual(workspacesBehind([{ name: "@thetis/exa", byUser: { dev: { version: "0.1.0", loaded: "0.1.0" } } }], "root"), []);
 });
 
 test("the configuration form's pure helpers: the control per key, what counts as a change, the words for a source", async () => {
@@ -328,18 +359,20 @@ test("configurationChildren: the fleet page first, then the packages with keys o
     { name: "@thetis/terminal", registry: { update: { version: "0.2.0" } }, config: { broken: false }, byUser: { bitmuse: { fork: true, stale: true, broken: false }, dev: { fork: false, stale: false, broken: false } } },
     { name: "@thetis/tools-files", registry: null, config: { broken: false }, byUser: { dev: { fork: false, stale: true, broken: false } } },
     { name: "@bitmuse/moo", registry: null, config: { broken: false }, byUser: { bitmuse: { fork: false, stale: false, broken: true } } },
+    { name: "@thetis/skills-hybrid", registry: { version: "0.2.2", update: { apply: "reload", version: "0.2.2" } }, config: { broken: false }, byUser: { dev: { fork: false, stale: false, broken: false, behindDisk: true } } },
   ] };
   const request = async (verb) => (verb === "config-list" ? { data: reports } : verb === "fleet" ? { data: fleet } : { data: null });
   const kids = await configurationChildren({ request });
   assert.equal(FLEET, "*");
   assert.deepEqual(kids[0], { id: "*", label: "All workspaces", kind: "page", note: "Every package in every workspace" });
-  assert.deepEqual(kids.slice(1).map((k) => k.id), ["@bitmuse/moo", "@thetis/exa", "@thetis/terminal", "@thetis/tools-files"], "sorted; tools-files has no keys but someone runs it on older code");
+  assert.deepEqual(kids.slice(1).map((k) => k.id), ["@bitmuse/moo", "@thetis/exa", "@thetis/skills-hybrid", "@thetis/terminal", "@thetis/tools-files"], "sorted; tools-files has no keys but someone runs it on older code");
   const by = Object.fromEntries(kids.slice(1).map((k) => [k.id, k]));
   assert.deepEqual(by["@thetis/exa"].marks, [{ glyph: "!", tone: "err", title: "config broken: apiKey is required and not set" }]);
   assert.deepEqual(by["@thetis/terminal"].marks.map((m) => [m.glyph, m.tone]), [["↑", "warn"], ["Y", "warn"], ["◐", "warn"]]);
   assert.equal(by["@thetis/terminal"].marks[1].title, "fork in use: bitmuse");
   assert.deepEqual(by["@bitmuse/moo"].marks, [{ glyph: "!", tone: "err", title: "config broken for bitmuse: every key is set" }]);
   assert.deepEqual(by["@thetis/tools-files"].marks, [{ glyph: "◐", tone: "warn", title: "older code running: dev" }]);
+  assert.deepEqual(by["@thetis/skills-hybrid"].marks, [{ glyph: "↻", tone: "warn", title: "reload to 0.2.2: a workspace is running an older version than the disk" }], "the other kind of behind has its own glyph and sentence");
   // Without the fleet command (an older installation) the packages with keys are still listed, unmarked but for a broken one.
   const bare = await configurationChildren({ request: async (verb) => (verb === "config-list" ? { data: reports } : Promise.reject(new Error("no fleet"))) });
   assert.deepEqual(bare.slice(1).map((k) => [k.id, k.marks.map((m) => m.glyph)]), [["@bitmuse/moo", []], ["@thetis/exa", ["!"]], ["@thetis/terminal", []]]);

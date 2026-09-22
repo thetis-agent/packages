@@ -36,7 +36,10 @@ export async function configurationChildren(ext) {
     const p = known.get(name);
     const people = Object.entries(p?.byUser ?? {});
     const marks = [];
-    if (p?.registry?.update) marks.push({ glyph: "↑", tone: "warn", title: `update ${p.registry.update.version || ""} on offer in the marketplace`.replace(/\s+/g, " ") });
+    const update = p?.registry?.update;
+    // The two kinds of behind: a newer commit in the registry, and a version on disk no workspace has loaded.
+    if (update?.apply === "reload") marks.push({ glyph: "↻", tone: "warn", title: `reload to ${update.version}: a workspace is running an older version than the disk` });
+    else if (update) marks.push({ glyph: "↑", tone: "warn", title: `update ${update.version || ""} on offer in the marketplace`.replace(/\s+/g, " ") });
     const forks = people.filter(([, u]) => u?.fork || u?.forkOf);
     if (forks.length) marks.push({ glyph: "Y", tone: "warn", title: `fork in use: ${forks.map(([who]) => who).join(", ")}` });
     const stale = people.filter(([, u]) => u?.stale);
@@ -60,7 +63,7 @@ export async function configurationChildren(ext) {
 
 /** The page under Packages: the fleet matrix for the first child (`*`), else one package's page. */
 export function mountConfiguration(ext, root, { child, refresh, user, open } = {}) {
-  if (child === FLEET) return mountFleet(ext, root, { refresh, onOpen: (name) => open?.(name) });
+  if (child === FLEET) return mountFleet(ext, root, { refresh, onOpen: (name) => open?.(name), ...(user ? { user } : {}) });
   if (child) return mountPackagePage(ext, root, { name: child, refresh, ...(user ? { user } : {}) });
   const { el } = ext.dom;
   root.append(el("div", { class: "panel-cols" }, el("div", { class: "panel-col" }, el("p", { class: "panel-hint" }, "Choose a package under Packages."))));

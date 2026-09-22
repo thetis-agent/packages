@@ -109,7 +109,9 @@ export function openPage(ext, root, params) {
     const rows = [];
     if (r.installed) rows.push(["installed", el("code", {}, r.pin ? `${r.version} at ${r.pin}` : r.version)]);
     if (r.available) rows.push(["registry", el("span", {}, el("code", {}, r.tip || r.version), r.registry ? el("span", { class: "text-dim" }, ` in ${r.registry}`) : null)]);
-    if (r.update) rows.push(["update", el("span", {}, `${r.update.version} is in ${r.update.registry} (${r.update.from} → ${r.update.to})`)]);
+    // The two kinds of behind read differently: a registry's newer commit, or a version this workspace has not loaded.
+    if (r.update?.apply === "reload") rows.push(["loaded", el("span", {}, `${r.update.installed} in your workspace, ${r.update.available} on disk: a reload applies it`)]);
+    else if (r.update) rows.push(["update", el("span", {}, `${r.update.version} is in ${r.update.registry} (${r.update.from} → ${r.update.to})`)]);
     return rows;
   }
 

@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { SYSTEM_USER, type Fences, type KernelRpc, type PackageInfo, type UserRecord, type UserRole, type UserStatus } from "@thetis/contracts";
+import { SYSTEM_USER, type KernelRpc, type PackageInfo, type UserRecord, type UserRole, type UserStatus } from "@thetis/contracts";
 import { assert, CodedError } from "@thetis/lib/error";
 import { newestMtime } from "@thetis/lib/freshness";
 import { isSupervised } from "@thetis/lib/restart";
@@ -54,7 +54,7 @@ export function createControlHandler(k: KernelServices): KernelRpc {
         journal("user.password", String(a.id));
         return null;
       case "packages.list":
-        return k.packages.installed(us());
+        return k.packages.listFor(us());
       case "packages.install": {
         const info = await k.packages.install(us(), actor(), String(a.source));
         journal("package.install", user(), { name: info.name, version: info.version, source: String(a.source) });
@@ -78,6 +78,9 @@ export function createControlHandler(k: KernelServices): KernelRpc {
         // `_system` is a legal target, unlike a grant: the providers and the sign-in page live in it,
         // and are otherwise out of reach without a new daemon. `authorize` refuses the unknown and the suspended.
         const target = k.users.authorize(user());
+        // A person may put their own workspace back on the code that is on disk; anyone else's is an admin's
+        // call. A call with no named actor came over the control socket, whose 0600 holder is the operator.
+        assert(actor().role !== "user" || actor().id === target.id, "a person may reload only their own workspace", "unauthorized");
         journal("fence.reload", target.id);
         k.providers.forget(target.id);
         await k.services.reload(target.id);
@@ -177,11 +180,11 @@ type JournalFn = (kind: string, target: string, data?: Record<string, unknown>) 
 /** The daemon's own code. A change to any of it needs a new process; a reload would not pick it up. */
 const DAEMON_PACKAGES = ["kernel", "host", "sandbox", "door", "lib", "contracts", "gateway-cli"];
 
-/** What the pool reports beyond the fence contract: when each open fence opened. One that does not keep the
- *  times (an in-process double) reports nothing open, and every row then says nothing rather than guessing. */
-type OpenFences = Fences & { openedAt?(): Record<string, number> };
+const installedIn = (k: KernelServices, id: string): PackageInfo[] => k.packages.listFor(k.userspaces.pathFor(id));
 
-const installedIn = (k: KernelServices, id: string): PackageInfo[] => k.packages.installed(k.userspaces.pathFor(id));
+/** What an open fence is holding that the disk has moved past: the packages a reload would bring up to date. */
+const changedIn = (installed: PackageInfo[]): { name: string; loaded: string; onDisk: string }[] =>
+  installed.flatMap((p) => (p.loadedVersion && p.loadedVersion !== p.version ? [{ name: p.name, loaded: p.loadedVersion, onDisk: p.version }] : []));
 
 /** The installed packages that declare a service: what a reload takes down and brings back up. */
 const serviceNames = (list: PackageInfo[]): string[] => list.filter((p) => p.thetis.service).map((p) => p.name);
@@ -197,7 +200,7 @@ const moment = (ms: number): string | null => (ms > 0 ? new Date(ms).toISOString
 function status(k: KernelServices): unknown {
   const startedAt = Date.now() - Math.round(process.uptime() * 1000);
   const codeAt = newestMtime(DAEMON_PACKAGES.map((name) => resolve(k.config.systemPackagesDir, name, "dist/src")));
-  const opened = (k.fences as OpenFences).openedAt?.() ?? {};
+  const opened = k.fences.openedAt?.() ?? {};
   return {
     // Supervision is read here and never inside a fence: the fence hands package code an env allowlist, so a
     // tool would see no INVOCATION_ID and wrongly conclude that nothing would restart the daemon.
@@ -214,7 +217,7 @@ function status(k: KernelServices): unknown {
         const openedAt = opened[u.id] ?? 0;
         const code = newestMtime(installed.map((p) => p.root));
         // A workspace with no fence open is never stale: the next request opens it on the code that is there then.
-        return { user: u.id, openedAt: moment(openedAt), codeAt: moment(code), stale: openedAt > 0 && code > openedAt, services: serviceNames(installed) };
+        return { user: u.id, openedAt: moment(openedAt), codeAt: moment(code), stale: openedAt > 0 && code > openedAt, services: serviceNames(installed), changed: changedIn(installed) };
       }),
   };
 }

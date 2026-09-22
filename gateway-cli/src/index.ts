@@ -44,7 +44,7 @@ usage: thetis <command> [options]
   install <source> [--user <id>]       install a package (system userspace without --user)
   uninstall <name> [--user <id>]
   packages list [--user <id>] | install <source> [--user <id>] | uninstall <name> [--user <id>] | promote <name> --user <id>
-  packages outdated [--user <id>]      what is behind the registry it was installed from
+  packages outdated [--user <id>]      what is behind the registry it was installed from, or behind the code on disk
   packages update [<name>] [--user <id>]  reinstall those packages at the registry's current commit
   mounts list [--user <id>]            host paths bound into each person's fence, and whether each is there
   mounts add <user> <path> [--ro]      bind a host directory into that person's fence at the same path (read-write unless --ro)
@@ -289,7 +289,7 @@ async function dispatch(call: Call, cmd: string, args: Args, shared: string): Pr
 interface StatusReport {
   daemon: { startedAt: string | null; uptimeSecs: number; supervised: boolean; restartPolicy: string | null; codeAt: string | null; stale: boolean };
   restart: Pending | null;
-  workspaces: { user: string; openedAt: string | null; codeAt: string | null; stale: boolean; services: string[] }[];
+  workspaces: { user: string; openedAt: string | null; codeAt: string | null; stale: boolean; services: string[]; changed?: { name: string; loaded: string; onDisk: string }[] }[];
 }
 
 /**
@@ -306,7 +306,10 @@ async function statusCmd(call: Call, args: Args): Promise<void> {
   print(`daemon	up ${duration(daemon.uptimeSecs)} since ${daemon.startedAt ?? "unknown"}	${supervised}	${freshness(daemon.codeAt, daemon.stale)}`);
   for (const w of workspaces) {
     const fence = w.openedAt ? `open since ${w.openedAt}` : "no fence open";
-    print(`${w.user}	${fence}	${w.services.join(" ") || "no services"}	${freshness(w.codeAt, w.stale)}`);
+    // Which packages, and from which version to which: "older than the code on disk" names neither, and a
+    // package shipped with the service is installed the moment its files land, so nothing else would say it.
+    const changed = w.changed?.length ? `	${w.changed.length} package${w.changed.length === 1 ? "" : "s"} changed: ${w.changed.map((c) => `${c.name} ${c.loaded} -> ${c.onDisk}`).join(", ")}` : "";
+    print(`${w.user}	${fence}	${w.services.join(" ") || "no services"}	${freshness(w.codeAt, w.stale)}${changed}`);
   }
   // Said in the same words here, in `thetis restart status` and on the page: one armed restart, one sentence.
   if (restart) print(`\n${pendingLine(restart)}`);
@@ -671,14 +674,22 @@ async function packagesCmd(call: Call, args: Args, user: string | undefined, sha
     }
     case "outdated": {
       const out = await outdatedIn(call, target, shared);
-      if (!out.length) return print(`nothing in ${target} is behind its registry`);
-      for (const b of out) print(`${b.name}\t${b.version}\t${shortCommit(b.installed)} -> ${shortCommit(b.available)}\t${b.registry}`);
-      return print(`\nrun: thetis packages update${user ? ` --user ${user}` : ""} [<name>]`);
+      if (!out.length) return print(`nothing in ${target} is behind its registry or the code on disk`);
+      for (const b of out) {
+        if (b.apply === "reload") print(`${b.name}\tloaded ${b.installed}, ${b.available} on disk\tthetis reload --user ${target}`);
+        else print(`${b.name}\t${b.version}\t${shortCommit(b.installed)} -> ${shortCommit(b.available)}\t${b.registry}`);
+      }
+      if (out.some((b) => b.apply === "install")) print(`\nrun: thetis packages update${user ? ` --user ${user}` : ""} [<name>]`);
+      return;
     }
     case "update": {
-      const out = await outdatedIn(call, target, shared);
+      const all = await outdatedIn(call, target, shared);
+      // A reload row has nothing to install: the code on disk is already the installed copy, and only a
+      // reload of the workspace puts it into service.
+      const out = all.filter((b) => b.apply === "install");
       const wanted = source ? out.filter((b) => b.name === source) : out;
       if (source && !wanted.length) {
+        if (all.some((b) => b.name === source)) throw new Error(`${source} is not behind its registry in ${target}: it is behind the code on disk, so run thetis reload --user ${target}`);
         const known = out.length ? `; behind: ${out.map((b) => b.name).join(", ")}` : "; nothing is behind";
         throw new Error(`${source} is not behind its registry in ${target}${known}`);
       }

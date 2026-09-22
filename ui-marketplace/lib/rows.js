@@ -15,10 +15,16 @@ export function pinOf(info) {
   return m ? shortCommit(m[1]) : null;
 }
 
-/** Folds "there is a newer one" onto a row in the short form a person reads. */
+/**
+ * Folds "there is a newer one" onto a row in the short form a person reads. `apply` says what catches it
+ * up: an `install` of the newer commit the registry holds, or a `reload` of the workspace, which is what a
+ * package shipped with the service needs, its files being installed the moment they land. A reload row
+ * carries versions rather than commits, because that is what differs.
+ */
 export function withUpdate(row, found) {
   if (!found) return row;
-  return { ...row, update: { version: found.version, from: shortCommit(found.installed), to: shortCommit(found.available), source: found.source, registry: found.registry } };
+  if (found.apply === "reload") return { ...row, update: { apply: "reload", version: found.version, installed: found.installed, available: found.available } };
+  return { ...row, update: { apply: "install", version: found.version, from: shortCommit(found.installed), to: shortCommit(found.available), source: found.source, registry: found.registry } };
 }
 
 /**
@@ -117,12 +123,15 @@ export function indexRow(entry) {
 /**
  * Installed rows first, then what the registries offer that is not installed; one row per name. An
  * installed row that the index also carries learns its registry, its source and the registry's tip, and
- * whether the commit it is pinned to is behind.
+ * whether the commit it is pinned to is behind; one whose workspace is running an older version than the
+ * files on disk is behind its own disk, index or no index.
  */
 export function mergeRows(installed, entries, index) {
   const byName = new Map();
-  for (const info of installed) byName.set(info.name, installedRow(info));
   const newer = new Map(behind(installed, index).map((b) => [b.name, b]));
+  // An installed row learns what is behind before the index is consulted: a copy whose workspace loaded an
+  // older version than the one on disk is behind whether or not any registry carries the package.
+  for (const info of installed) byName.set(info.name, withUpdate(installedRow(info), newer.get(info.name)));
   for (const entry of entries) {
     const have = byName.get(entry.name);
     if (!have) {

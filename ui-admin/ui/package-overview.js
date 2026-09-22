@@ -75,7 +75,9 @@ function provenanceCard(ext, ctx) {
   const rows = [
     ...row("source", facts.source),
     ...row("registry", facts.registry),
-    ...row("pinned to", reg?.update ? `${short(reg.update.installed)} · ${reg.registry} now at ${short(reg.update.available)}` : info.source?.kind === "git" ? short(/@([0-9a-f]{7,40})$/.exec(info.source.ref)?.[1] ?? "") || "no pin" : "not pinned: not a registry install"),
+    // A reload's "installed" and "available" are versions, not commits: only the install kind has a pin to say.
+    ...row("pinned to", reg?.update && reg.update.apply !== "reload" ? `${short(reg.update.installed)} · ${reg.registry} now at ${short(reg.update.available)}` : info.source?.kind === "git" ? short(/@([0-9a-f]{7,40})$/.exec(info.source.ref)?.[1] ?? "") || "no pin" : "not pinned: not a registry install"),
+    ...(facts.workspace ? row("loaded", facts.workspace) : []),
     ...(facts.fork ? row("fork", facts.fork) : []),
     ...row("forks", forks.length ? el("span", {}, ...forks.flatMap((f, i) => [i ? ", " : null, el("code", {}, f.name), ` (${f.user})`]).filter(Boolean)) : "none"),
     ...row("depends on", info.dependencies?.length ? el("code", {}, info.dependencies.join(", ")) : "nothing"),

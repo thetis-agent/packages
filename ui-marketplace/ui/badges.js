@@ -1,5 +1,5 @@
 /* The badges a row carries, the same on a card and on a page: its state (Only me, Everyone, Available),
- * a fork's origin, an update on offer, and what the benchmarks say. `badge` is the shell's, handed in so
+ * a fork's origin, an update or a reload on offer, and what the benchmarks say. `badge` is the shell's, handed in so
  * this module needs nothing of the seam. */
 
 export function stateBadge(badge, r) {
@@ -10,8 +10,12 @@ export function stateBadge(badge, r) {
 
 export const forkBadge = (badge, r) => (r.forkedFrom ? badge(`fork of ${r.forkedFrom.name} ${r.forkedFrom.version}`, "warn") : null);
 
-/** A newer commit exists in the registry this came from. Nothing has been changed; this is an offer. */
-export const updateBadge = (badge, r) => (r.update ? badge(`update to ${r.update.version}`, "warn") : null);
+/**
+ * Something newer than what is in service. Two kinds: the registry this came from holds a newer commit, and
+ * an install takes it; or the files on disk have moved past the version this workspace loaded, and a reload
+ * of the workspace is what puts them into service. Nothing has been changed either way; this is an offer.
+ */
+export const updateBadge = (badge, r) => (r.update ? badge(`${r.update.apply === "reload" ? "reload" : "update"} to ${r.update.version}`, "warn") : null);
 
 /**
  * What the benchmarks say. A package that opts in but has never been run says so, because "not measured"

@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as commands from "../index.js";
 import { mergeRows, withUpdate } from "../lib/rows.js";
+import { updateBadge } from "../ui/badges.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
@@ -85,13 +86,33 @@ test("rows: installed first, then the registry's; a shared name learns its regis
   assert.equal(exa.pin, "1111111");
   assert.equal(exa.tip, "0.2.0");
   assert.equal(exa.registry, "thetis");
-  assert.deepEqual(exa.update, { version: "0.2.0", from: "1111111", to: "2222222", registry: "thetis", source: `${REPO}#exa@${NEW}` }, "short commits, because a person reads them");
+  assert.deepEqual(exa.update, { apply: "install", version: "0.2.0", from: "1111111", to: "2222222", registry: "thetis", source: `${REPO}#exa@${NEW}` }, "short commits, because a person reads them");
   assert.equal(exa.description, "@thetis/exa from the registry", "the registry's description fills an empty one");
   assert.equal(rows[0].update, null, "a shipped package has no pin and is never behind");
   assert.equal(rows[0].license, "MIT", "the installed copy's package.json says the license");
   assert.deepEqual(rows[0].tools, [{ name: "t", description: "a tool" }]);
   assert.deepEqual(rows[2].tools, [{ name: "t", description: "" }], "the index knows names only");
   assert.equal(withUpdate({ name: "x" }, undefined).update, undefined, "nothing newer says nothing");
+});
+
+test("rows: a copy the workspace has not loaded is behind its own disk, index or no index, and the badge says reload", () => {
+  const badge = (text, tone) => ({ text, tone });
+  // The fence read 0.2.1 when it opened; the files on disk are 0.2.2. Nothing is fetched: a reload applies it.
+  const loaded = { ...shipped("@thetis/skills-hybrid"), version: "0.2.2", loadedVersion: "0.2.1" };
+  const bare = mergeRows([loaded], [], undefined);
+  assert.deepEqual(bare[0].update, { apply: "reload", version: "0.2.2", installed: "0.2.1", available: "0.2.2" }, "no index is needed: a shipped package is behind its own disk");
+  assert.deepEqual(updateBadge(badge, bare[0]), { text: "reload to 0.2.2", tone: "warn" });
+  const index = { version: 1, updatedAt: "2026-09-21T00:00:00.000Z", registries: [{ name: "thetis", url: REPO }], packages: [entry("@thetis/skills-hybrid", "0.2.2", NEW)] };
+  const listed = mergeRows([loaded], index.packages, index);
+  assert.deepEqual(listed[0].update, { apply: "reload", version: "0.2.2", installed: "0.2.1", available: "0.2.2" }, "an index entry does not change what applies it");
+  assert.equal(listed[0].registry, "thetis", "the row still learns the registry's word");
+  // A stale pin and a different loaded version at once: the install wins, because it brings the pin and reopens.
+  const both = mergeRows([{ ...fromRegistry("@thetis/exa", OLD), version: "0.2.0", loadedVersion: "0.1.0" }], [entry("@thetis/exa", "0.2.0", NEW)], { ...index, packages: [entry("@thetis/exa", "0.2.0", NEW)] });
+  assert.equal(both[0].update.apply, "install");
+  assert.deepEqual(updateBadge(badge, both[0]), { text: "update to 0.2.0", tone: "warn" });
+  const current = mergeRows([{ ...shipped("@thetis/terminal"), loadedVersion: "0.1.0" }], [], undefined);
+  assert.equal(current[0].update, null, "the version it loaded is the version on disk: nothing is behind");
+  assert.equal(updateBadge(badge, current[0]), null);
 });
 
 test("search: no index answers the installed rows and says so; a query narrows through the index and the installed names", async () => {
@@ -166,6 +187,21 @@ test("install, remove, delete and update go through the person's own packages; u
       ["install:@thetis/exa", "uninstall:@thetis/exa", "delete:@alice/mine", `install:${REPO}#exa@${NEW}`],
       "an update is an install of the newer pinned source"
     );
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("fence-reload names the person who sent it and nobody else", async () => {
+  const t = fakeEnv({ user: "alice", answers: { "fence.reload": (a) => ({ user: a.user, services: ["@thetis/gateway-web"] }) } });
+  try {
+    assert.deepEqual((await commands.fenceReload({}, t.env)).data, { user: "alice", services: ["@thetis/gateway-web"] });
+    // The browser cannot ask for anyone else's: the id comes from the fence, so an argument is ignored.
+    await commands.fenceReload({ user: "bob" }, t.env);
+    assert.deepEqual(t.calls, [
+      { method: "fence.reload", args: { user: "alice" } },
+      { method: "fence.reload", args: { user: "alice" } },
+    ]);
   } finally {
     t.cleanup();
   }

@@ -98,12 +98,13 @@ const layerOf = (args, rest) => (args.user === undefined || args.user === "" ? r
 /** Every package's report: at the system layer, or at one person's when `user` is given. */
 /**
  * package-info: what one installed package is and where it stands. The record from the kernel (version,
- * type, scope, source, what it forked from and replaces), the registry's word on it when the marketplace
- * index is here (the version it holds, and whether this copy is behind it), and the git checkout the files
- * live in when there is one: the branch, how far ahead of or behind its upstream, and how many files of
- * this package are changed and not committed; and what it depends on and what installed here depends
- * on it, from the package.json files. The marketplace library is imported when asked, so an installation
- * without it still answers with the record and the checkout.
+ * type, scope, source, what it forked from and replaces), what the workspace the record came from loaded
+ * and whether the disk has moved past it, the registry's word on it when the marketplace index is here
+ * (the version it holds, and whether this copy is behind it), and the git checkout the files live in when
+ * there is one: the branch, how far ahead of or behind its upstream, and how many files of this package
+ * are changed and not committed; and what it depends on and what installed here depends on it, from the
+ * package.json files. The marketplace library is imported when asked, so an installation without it still
+ * answers with the record and the checkout.
  */
 export async function packageInfo(args, env) {
   const name = packageName(args.name);
@@ -115,7 +116,17 @@ export async function packageInfo(args, env) {
   const dependencies = dependenciesOf(root);
   // What else installed here names this package: read from each one's package.json, the way node resolves it.
   const dependents = installed.filter((p) => p.name !== name && dependenciesOf(realRoot(p.root)).includes(name)).map((p) => p.name);
-  return { data: { name, version, type, description, root, everyone: Boolean(everyone), forkedFrom: forkedFrom ?? null, replaced: replaced ?? null, source: source ?? null, registry, git, dependencies, dependents } };
+  return { data: { name, version, type, description, root, everyone: Boolean(everyone), forkedFrom: forkedFrom ?? null, replaced: replaced ?? null, source: source ?? null, loaded: loadedWord(info, version), registry, git, dependencies, dependents } };
+}
+
+/**
+ * What the workspace this record came from read when its fence opened: the version, whose workspace it is,
+ * and whether the disk has moved past it. Null when no fence is open there, because a version nobody has
+ * loaded is not a fact about a running system.
+ */
+function loadedWord(info, version) {
+  const loaded = typeof info.loadedVersion === "string" ? info.loadedVersion : null;
+  return loaded ? { version: loaded, user: info.loadedIn, behindDisk: loaded !== version } : null;
 }
 
 /** The marketplace index's entry for the package and whether this copy is behind it, or null without an index. */
@@ -130,7 +141,8 @@ async function registryWord(env, info) {
   const entry = index?.packages.find((e) => e.name === info.name);
   if (!entry) return null;
   const update = lib.behind([info], index)[0] ?? null;
-  return { registry: entry.registry, version: entry.version, commit: entry.commit, update: update ? { version: update.version, installed: update.installed, available: update.available, source: update.source } : null };
+  // `apply` says which kind of behind this is: an install of the newer pin, or a reload of the workspace.
+  return { registry: entry.registry, version: entry.version, commit: entry.commit, update: update ? { apply: update.apply, version: update.version, installed: update.installed, available: update.available, source: update.source } : null };
 }
 
 export async function configList(args, env) {

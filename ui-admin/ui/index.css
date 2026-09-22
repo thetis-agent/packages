@@ -16,6 +16,8 @@
 .ua-line { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ua-code { display: flex; flex-direction: column; gap: 4px; }
 .ua-lost, .ua-refused { color: var(--err); }
+/* What a workspace has not loaded yet, under the line that says what it is running. */
+.ua-changed { font-family: var(--mono); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .ua-reason { width: 100%; box-sizing: border-box; }
 .ua-configuration .toolbar .input { min-width: 220px; }
 .ua-broken { margin: 0; color: var(--err); font-size: var(--text-sm); }

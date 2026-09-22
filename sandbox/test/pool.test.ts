@@ -69,3 +69,20 @@ test("a close with nothing in flight is immediate, and a second close joins the 
   assert.equal(opened.length, 1);
   assert.equal(opened[0].closed, true);
 });
+
+test("the pool stamps each fence it opens with the versions it read, and forgets them with the handle", async () => {
+  const { fence, opened } = fakeFence();
+  let versions: Record<string, string> = { "@thetis/skills-hybrid": "0.2.1" };
+  const pool = new FencePool(fence, () => ({}) as never, undefined, undefined, () => ({ ...versions }));
+  assert.deepEqual(pool.loadedVersions(), {}, "nothing is open, so nothing is loaded");
+  await pool.handle(us);
+  assert.deepEqual(pool.loadedVersions(), { alice: { "@thetis/skills-hybrid": "0.2.1" } });
+  versions = { "@thetis/skills-hybrid": "0.2.2" };
+  await pool.handle(us);
+  assert.deepEqual(pool.loadedVersions(), { alice: { "@thetis/skills-hybrid": "0.2.1" } }, "the open fence still holds what it read");
+  await pool.close(us.id);
+  assert.deepEqual(pool.loadedVersions(), {}, "a closed fence loaded nothing");
+  await pool.handle(us);
+  assert.deepEqual(pool.loadedVersions(), { alice: { "@thetis/skills-hybrid": "0.2.2" } }, "the fence opened next reads the disk as it is now");
+  assert.equal(opened.length, 2);
+});

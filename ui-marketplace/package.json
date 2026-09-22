@@ -37,6 +37,7 @@
         { "verb": "config-list", "export": "configList", "label": "Whether each of my packages is configured" },
         { "verb": "config-set", "export": "configSet", "label": "Set one configuration key for me" },
         { "verb": "config-unset", "export": "configUnset", "label": "Clear one configuration key for me" },
+        { "verb": "fence-reload", "export": "fenceReload", "label": "Reload my workspace" },
         { "verb": "install-everyone", "export": "installEveryone", "label": "Install for everyone", "role": "admin" },
         { "verb": "install-for", "export": "installFor", "label": "Install for a person", "role": "admin" },
         { "verb": "remove-for", "export": "removeFor", "label": "Remove from a person's setup", "role": "admin" },

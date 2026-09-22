@@ -23,9 +23,14 @@ export function createRpcHandler(us: Userspace, k: RpcServices, operator?: Kerne
     const args = (raw ?? {}) as Args;
     const actor = k.users.authorize(us.id);
     if (method.startsWith(OPERATOR)) {
+      const op = method.slice(OPERATOR.length);
       assert(operator, "no operator channel is configured", "rpc");
-      assert(actor.role !== "user", "only an admin may use operator methods", "unauthorized");
-      return operator(method.slice(OPERATOR.length), { ...args, actor: us.id }, emit);
+      // One exception to the role: a person may reload their own workspace, because the code it is holding is
+      // theirs to put right. Their own id, named: the control table reads no `user` as the system userspace,
+      // which is nobody's own. It checks the target again, so this opens nothing wider.
+      const own = op === "fence.reload" && args.user === us.id;
+      assert(own || actor.role !== "user", "only an admin may use operator methods", "unauthorized");
+      return operator(op, { ...args, actor: us.id }, emit);
     }
     // The fence names its package and a sub-namespace; the prefix is the kernel's, so nothing a fence sends can leave its own tree.
     const space = () => k.store.open(storeId("userspaces", us.id, String(args.package ?? ""), args.namespace ?? "default"));
@@ -43,7 +48,7 @@ export function createRpcHandler(us: Userspace, k: RpcServices, operator?: Kerne
       case "packages.delete":
         return k.packages.delete(us, String(args.name));
       case "packages.list":
-        return k.packages.installed(us);
+        return k.packages.listFor(us);
       case "sessions.create":
         return k.sessions.create(us.id, { parent: args.parent });
       case "sessions.ask":

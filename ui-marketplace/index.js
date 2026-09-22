@@ -142,6 +142,16 @@ export async function configUnset(args, env) {
 
 const call = (env, method, a = {}) => env.kernel.operator.call(method, a);
 
+/**
+ * Reloads the person's own workspace: the fence closes and opens again on the code on disk now, which is
+ * what puts a package shipped with the service into service after its files change. The id is `env.user`
+ * and never an argument, so this verb can only ever name the person who sent it; the kernel allows anyone
+ * `fence.reload` for their own id and an admin for anyone's, and the operator channel is where it lives.
+ */
+export async function fenceReload(_args, env) {
+  return { data: await call(env, "fence.reload", { user: env.user }) };
+}
+
 /** A shipped `@thetis/<name>` is marked for everyone and linked into every person; anything else is installed for the admin and promoted. */
 export async function installEveryone(args, env) {
   return { data: await call(env, "packages.installEveryone", { source: sourceOf(args.source) }) };

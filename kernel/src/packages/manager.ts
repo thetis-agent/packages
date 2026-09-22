@@ -95,6 +95,16 @@ export class PackageManager {
   }
 
   /**
+   * Installed packages as a caller outside the kernel sees them: each one also carries the version the
+   * userspace's open fence read when it opened, when that is known. The two differing is the whole point:
+   * the files on disk changed under a running fence, and only a reload puts them into service.
+   */
+  listFor(us: Userspace): PackageInfo[] {
+    const loaded = (this.fences.loadedVersions?.() ?? {})[us.id] ?? {};
+    return this.installed(us).map((p) => (loaded[p.name] ? { ...p, loadedVersion: loaded[p.name] } : p));
+  }
+
+  /**
    * Links the system packages into a fresh userspace: for a person, the `"*"` list, every promoted
    * package, and every package an admin marked for everyone; the userspace's own list always. The
    * system userspace is not a person. Idempotent.

@@ -26,7 +26,7 @@ The library, for readers in any fence (`@thetis/ui-marketplace` is the one today
 | `search(index, query, { type?, limit? })` | Every word of the query must match. A match on the name scores 100, a keyword 10, the type 5, the description 1. |
 | `readReadme(env, entry)` | The README copy of an index entry, or `undefined`. |
 | `readReadmeAsset(env, entry, path)` | One image the README shows, as `{ type, data }` (SVG text or PNG base64), or `undefined` when the entry does not list it. |
-| `behind(installed, index)` | Installed packages whose pin is older than the index, each with the `source` to install to catch up. A package with no pin is never listed. |
+| `behind(installed, index)` | Installed packages that are behind, each with `apply`: `"install"` when the pin is older than the index, and the `source` to install to catch up; `"reload"` when the fence loaded a different version than the one on disk. `index` may be `undefined`, which leaves only the reload case. |
 | `refresh(env, registries)`, `registriesOf(config)` | What the service runs. |
 
 No steps, no tools, no UI, no bench suites.
@@ -69,6 +69,19 @@ thetis packages update @thetis/exa --user alice
 
 Nothing updates on its own: the index says what is latest, the registry record says what is installed, and a person decides. An update is an install of the newer pinned source.
 
+### The two kinds of behind
+
+`behind` reports both, and `apply` says which:
+
+| `apply` | What is behind | What catches it up |
+|---|---|---|
+| `install` | The installation is pinned to a commit older than the one the index holds. | An install of the newer pinned source: `thetis packages update`. |
+| `reload` | The package's `loadedVersion`, the version the workspace's fence read when it opened, is not the `version` on disk. | A reload of that workspace: `thetis reload --user <id>`. |
+
+A package shipped with the service is a link into the checkout, so a version bump on disk is installed the moment it lands and has no pin to compare. What the workspace still runs is the copy its fence read when it opened, so the change is real and only a reload applies it. `thetis packages outdated` prints such a row as `@thetis/skills-hybrid  loaded 0.2.1, 0.2.2 on disk  thetis reload --user <id>`.
+
+A package is only ever one of the two. The install case wins when both hold, because an install brings the new pin and reopens the fence anyway. `loadedVersion` is absent when no fence is open for the workspace, and then there is nothing to say.
+
 ## Files
 
 | File | Content |
@@ -82,4 +95,4 @@ Nothing updates on its own: the index says what is latest, the registry record s
 
 ## Tests
 
-`npm test` from the runtime root. `test/marketplace.test.ts` builds a git registry in a temporary directory, refreshes it with a real `exec`, and checks the index, a failed registry, the README copies and their cap, the image copies and their rules, the search ranking, the configuration parsing, the pinned sources, and what `behind` lists.
+`npm test` from the runtime root. `test/marketplace.test.ts` builds a git registry in a temporary directory, refreshes it with a real `exec`, and checks the index, a failed registry, the README copies and their cap, the image copies and their rules, the search ranking, the configuration parsing, the pinned sources, and what `behind` lists, of both kinds.

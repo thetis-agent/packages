@@ -147,7 +147,7 @@ The shell draws the header and the close button. `open` returns an unmount funct
 | `@thetis/ui-tools` | The Tools dock. Command `tools`. |
 | `@thetis/ui-context` | The Context dock. Command `context`. |
 | `@thetis/ui-admin` | The People, Models, Mounts, Activity, and Overview panel sections, and eleven admin commands. |
-| `@thetis/ui-marketplace` | The Marketplace place and eleven commands. |
+| `@thetis/ui-marketplace` | The Marketplace place and sixteen commands, `fence-reload` (a person reloading their own workspace) among them. |
 | `@thetis/projects` | The sidebar head switcher and the Project place. Seven commands. |
 
 ## Sources

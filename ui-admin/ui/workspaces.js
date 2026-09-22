@@ -23,7 +23,53 @@
  * sentence about the outcome is the latch's own, passed through without a word added. */
 
 const SYSTEM = "_system";
-const SETTLE_MS = 30_000;
+export const SETTLE_MS = 30_000;
+
+/**
+ * A request that lost its gateway, as against one a gateway refused with a sentence. Closing the fence that
+ * is answering leaves either no answer at all (status 0) or the door's own 502/503 while the socket is gone;
+ * anything else came from the kernel through a gateway that is still there, and is worth reading.
+ */
+export function isLost(err) {
+  const status = Number(err?.status);
+  return !Number.isFinite(status) || status === 0 || status >= 502;
+}
+
+/**
+ * Waits for the gateway to answer after its own fence was closed, up to half a minute, and says whether it
+ * did. The boolean is the point: the caller has a remedy to offer once the deadline passes.
+ */
+export async function settle(ext, deadline = Date.now() + SETTLE_MS) {
+  for (;;) {
+    try {
+      await ext.request("status");
+      return true;
+    } catch {
+      if (Date.now() >= deadline) return false;
+      await new Promise((done) => setTimeout(done, 700));
+    }
+  }
+}
+
+/**
+ * Sends one reload and says what became of it, in four words a caller can act on: `done` with the services
+ * that restarted, `refused` with the kernel's own sentence, `returned` when the fence it closed was the one
+ * answering and the new one came back, and `silent` with the remedy when it never did. A lost request is the
+ * expected success, not a failure, so `onLost` is called once the waiting starts. The fleet page reloads
+ * several workspaces through this same function, so both places wait the same way.
+ */
+export async function reloadWorkspace(ext, target, { onLost } = {}) {
+  try {
+    const out = await ext.request("fence-reload", { args: { user: target } });
+    return { state: "done", services: out?.data?.services ?? [] };
+  } catch (err) {
+    // A refused verb answers at once and names its reason; a closed gateway never answers at all.
+    if (!isLost(err)) return { state: "refused", message: err.message };
+    onLost?.();
+    if (await settle(ext)) return { state: "returned", services: [] };
+    return { state: "silent", message: `It has not answered for ${SETTLE_MS / 1000} seconds. On the host: thetis reload --user ${target}` };
+  }
+}
 
 export function mountWorkspaces(ext, root, { user }) {
   const { el, clear } = ext.dom;
@@ -54,62 +100,34 @@ export function mountWorkspaces(ext, root, { user }) {
   }
 
   /**
-   * Sends the reload. The fence it closes may be the one answering this request, so a lost request is the
-   * expected success, not a failure: the page then polls until the new workspace answers. `settle` says
-   * whether it did, because a spinner that never resolves tells nobody anything — after the deadline the row
-   * says what to run on the host.
+   * Sends the reload through `reloadWorkspace` and says what it answered. The fence it closes may be the one
+   * answering this request, so a lost request is the expected success, not a failure: the page then waits
+   * until the new workspace answers, and after the deadline the row says what to run on the host.
    */
   async function reload(target) {
     lost.delete(target);
-    try {
-      const out = await ext.request("fence-reload", { args: { user: target } });
-      const services = out?.data?.services ?? [];
-      ext.toast(services.length ? `${target} was reloaded: ${services.join(", ")} restarted.` : `${target} was reloaded. Nobody runs a service there, so it reopens on the next request.`, { tone: "good" });
-    } catch (err) {
-      // A refused verb answers at once and names its reason; a closed gateway never answers at all.
-      if (!isLost(err)) {
-        ext.toast(err.message, { tone: "error" });
-        return void (await load());
-      }
-      ext.toast(`${target} is reloading. Waiting for the workspace to answer again…`, { tone: "good" });
-      if (await settle()) ext.toast(`${target} answered again.`, { tone: "good" });
-      else {
-        lost.set(target, `It has not answered for ${SETTLE_MS / 1000} seconds. On the host: thetis reload --user ${target}`);
-        ext.toast(`${target} has not answered for ${SETTLE_MS / 1000} seconds. On the host: thetis reload --user ${target}`, { tone: "error" });
-      }
+    const out = await reloadWorkspace(ext, target, { onLost: () => ext.toast(`${target} is reloading. Waiting for the workspace to answer again…`, { tone: "good" }) });
+    if (out.state === "done") ext.toast(out.services.length ? `${target} was reloaded: ${out.services.join(", ")} restarted.` : `${target} was reloaded. Nobody runs a service there, so it reopens on the next request.`, { tone: "good" });
+    else if (out.state === "refused") {
+      ext.toast(out.message, { tone: "error" });
+      return void (await load());
+    } else if (out.state === "returned") ext.toast(`${target} answered again.`, { tone: "good" });
+    else {
+      lost.set(target, out.message);
+      ext.toast(`${target} has not answered for ${SETTLE_MS / 1000} seconds. On the host: thetis reload --user ${target}`, { tone: "error" });
     }
     await load();
   }
 
-  /**
-   * Waits for the gateway to answer after its own fence was closed, up to half a minute, and says whether it
-   * did. The boolean is the point: the caller has a remedy to offer once the deadline passes.
-   */
-  async function settle(deadline = Date.now() + SETTLE_MS) {
-    for (;;) {
-      try {
-        await ext.request("status");
-        return true;
-      } catch {
-        if (Date.now() >= deadline) return false;
-        await new Promise((done) => setTimeout(done, 700));
-      }
-    }
-  }
-
-  /**
-   * A request that lost its gateway, as against one a gateway refused with a sentence. Closing the fence that
-   * is answering leaves either no answer at all (status 0) or the door's own 502/503 while the socket is gone;
-   * anything else came from the kernel through a gateway that is still there, and is worth reading.
-   */
-  function isLost(err) {
-    const status = Number(err?.status);
-    return !Number.isFinite(status) || status === 0 || status >= 502;
-  }
-
   async function ask(anchor, row) {
     const me = row.user === user;
-    const lines = [["workspace", row.user], ["restarts", "the gateway, the terminal, every service"], ["keeps", "conversations and files"]];
+    const changed = Array.isArray(row.changed) ? row.changed : [];
+    const lines = [
+      ["workspace", row.user],
+      ...(changed.length ? [["applies", changed.map((c) => `${c.name} ${c.loaded} → ${c.onDisk}`).join(", ")]] : []),
+      ["restarts", "the gateway, the terminal, every service"],
+      ["keeps", "conversations and files"],
+    ];
     const note = [
       row.user === SYSTEM
         ? "The providers and the sign-in page restart on the code that is on disk now."
@@ -192,11 +210,24 @@ export function mountWorkspaces(ext, root, { user }) {
   /** What a fence or the daemon is running, in the same words for both. */
   const running = (from, codeAt, stale) => (stale ? `running code from ${clock(from)} · newer on disk since ${clock(codeAt)}` : "running the code on disk");
 
+  /**
+   * The packages this workspace has not loaded, from `status`: name, the version its fence read and the one
+   * on disk. "Running older code" names neither the package nor the version, and a package shipped with the
+   * service is installed the moment its files land, so nothing else on this page would say it. The scope is
+   * dropped for reading; the whole names are in the title.
+   */
+  function changedLine(row) {
+    const changed = Array.isArray(row.changed) ? row.changed : [];
+    if (!changed.length) return null;
+    const say = (c, name) => `${name} ${c.loaded} → ${c.onDisk}`;
+    return el("span", { class: "text-dim ua-changed", title: changed.map((c) => say(c, c.name)).join(", ") }, changed.map((c) => say(c, c.name.slice(c.name.indexOf("/") + 1))).join(", "));
+  }
+
   function codeCell(row) {
     const note = lost.get(row.user);
     // No fence open is not staleness: the next request opens the workspace on whatever is on disk then.
     const line = row.openedAt ? el("span", {}, running(row.openedAt, row.codeAt, row.stale)) : el("span", { class: "text-faint" }, "not running · opens on the next request");
-    return el("div", { class: "ua-code" }, el("span", { class: "ua-line" }, line, row.stale ? badge("newer code on disk", "warn") : null), note ? el("code", { class: "ua-wrap ua-lost" }, note) : null);
+    return el("div", { class: "ua-code" }, el("span", { class: "ua-line" }, line, row.stale ? badge("newer code on disk", "warn") : null), changedLine(row), note ? el("code", { class: "ua-wrap ua-lost" }, note) : null);
   }
 
   function daemonCard() {

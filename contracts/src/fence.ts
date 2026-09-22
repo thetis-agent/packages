@@ -29,6 +29,10 @@ export interface Fences {
   request(us: Userspace, op: string, payload: unknown, onEvent?: EventSink, signal?: AbortSignal): Promise<unknown>;
   /** Closes one fence, or every fence when no id is given. */
   close(id?: string): Promise<void>;
+  /** When each open fence opened, by userspace. A pool that keeps no times reports nothing open, and a reader then says nothing rather than guessing. */
+  openedAt?(): Record<string, number>;
+  /** What each open fence read when it opened: version by package name, by userspace. A userspace with no fence open is absent. */
+  loadedVersions?(): Record<string, Record<string, string>>;
 }
 
 export interface ExecResult {

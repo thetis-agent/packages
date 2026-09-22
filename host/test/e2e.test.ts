@@ -10,7 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createConnection } from "node:net";
 import { createInterface } from "node:readline";
-import type { ConfigReport, TurnEvent } from "@thetis/contracts";
+import type { ConfigReport, PackageInfo, TurnEvent } from "@thetis/contracts";
 import { createControlHandler, createRpcHandler, defaultConfig } from "@thetis/kernel";
 import { memoryStore } from "@thetis/lib/store";
 import type { ProcessFence } from "@thetis/sandbox";
@@ -542,6 +542,53 @@ test("fence.reload: a service's module graph is read again, which a modification
     await kernel.packages.uninstall(us, "@alice/probe");
     rmSync(dir, { recursive: true, force: true });
     rmSync(join(us.home, "probe.log"), { force: true });
+  }
+});
+
+test("loaded versions: a list says what the open fence read, status names what a workspace has not loaded, and a person reloads only their own", async () => {
+  const us = kernel.userspaces.pathFor("alice");
+  const dir = join(us.home, "packages", "loaded");
+  mkdirSync(dir, { recursive: true });
+  const onDisk = (version: string) =>
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "@alice/loaded", version, type: "module", main: "index.js", thetis: { type: "tool" } }));
+  writeFileSync(join(dir, "index.js"), "export const nothing = 1;\n");
+  onDisk("0.1.0");
+  const control = createControlHandler(kernel);
+  const copy = async () => ((await control("packages.list", { user: "alice" })) as PackageInfo[]).find((p) => p.name === "@alice/loaded");
+  const changed = async () =>
+    ((await control("status", {})) as { workspaces: { user: string; changed: { name: string; loaded: string; onDisk: string }[] }[] }).workspaces.find((w) => w.user === "alice")?.changed;
+  const unauthorized = (e: { code?: string }) => e.code === "unauthorized";
+  try {
+    await kernel.packages.install(us, kernel.users.authorize("alice"), "packages/loaded");
+    // The fence that is open read alice's packages before this one existed, so a reload is what makes it one of them.
+    await control("fence.reload", { user: "alice" });
+    assert.equal((await copy())?.loadedVersion, "0.1.0", "the open fence read the version that was on disk");
+    assert.deepEqual(await changed(), [], "nothing has moved under it yet");
+
+    // A version bump on disk and nothing else: no install, no build, no new process.
+    onDisk("0.2.0");
+    assert.equal((await copy())?.version, "0.2.0", "the list is the disk as it is now");
+    assert.equal((await copy())?.loadedVersion, "0.1.0", "and what the fence is holding is what it read");
+    assert.deepEqual(await changed(), [{ name: "@alice/loaded", loaded: "0.1.0", onDisk: "0.2.0" }]);
+
+    const forAlice = createRpcHandler(us, kernel, control);
+    await assert.rejects(control("fence.reload", { user: "alice", actor: "bob" }), unauthorized, "another person's workspace is an admin's call");
+    await assert.rejects(forAlice("operator.fence.reload", { user: "bob" }), /only an admin/, "and a fence cannot ask for one either");
+    await assert.rejects(forAlice("operator.users.list", {}), /only an admin/, "the rest of the operator table is unchanged");
+
+    await assert.rejects(forAlice("operator.fence.reload", {}), /only an admin/, "a reload with nobody named is the system fence's, which is nobody's own");
+    await forAlice("operator.fence.reload", { user: "alice" });
+    assert.equal((await copy())?.loadedVersion, "0.2.0", "a person put their own workspace on the code that is on disk");
+    assert.deepEqual(await changed(), []);
+
+    await kernel.fences.close("alice");
+    assert.equal((await copy())?.loadedVersion, undefined, "no fence open, so nothing is loaded and nothing is behind");
+    assert.deepEqual(await changed(), []);
+  } finally {
+    await kernel.packages.uninstall(us, "@alice/loaded");
+    rmSync(dir, { recursive: true, force: true });
+    // Left as this file found it: alice's fence was open when the test started, and tests after it say so.
+    await kernel.fences.handle(us);
   }
 });
 
