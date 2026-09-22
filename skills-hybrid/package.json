@@ -1,6 +1,6 @@
 {
   "name": "@thetis/skills-hybrid",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "MIT",
   "description": "One brief per skill always in the prompt, a few cards retrieved for the conversation by dense and lexical ranking fused, pinned once, and skill_search for the rest.",
   "type": "module",
@@ -23,6 +23,11 @@
         "type": "number",
         "default": 0.3,
         "help": "The cosine a skill's vector must reach against the query's before the dense list counts it; below it a skill is pinned only when the words match. 0 keeps every dense hit. skill_search ignores it."
+      },
+      "minTerms": {
+        "type": "number",
+        "default": 2,
+        "help": "How many distinct words of the first message a skill's text must carry before the words alone pin it; one word in its name or a tag is enough on its own. skill_search ignores it."
       },
       "pinLimit": {
         "type": "number",

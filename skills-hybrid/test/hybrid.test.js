@@ -352,3 +352,26 @@ test("denseThreshold: a cosine below it is not a dense hit; the pin turns lexica
     h.rm();
   }
 });
+
+test("minTerms: a stray one-word overlap pins nothing and says so; a name or tag word, or two words, is evidence", async () => {
+  const h = home();
+  try {
+    clearCache();
+    h.skill("parser", "How a line a player types becomes a verb call: word splitting, prepositions, matching. Use when working on command handling.", "Body.\n", ["tags: [moo, parser]"]);
+    h.skill("packages", "Installs packages. Use when asked to install a package.");
+    const nothing = await withFetch(noNetwork, () => pin(ctxOf(h.env, { conversation: [{ role: "user", content: "Reply with the single word ok." }] })));
+    assert.deepEqual(nothing.harness[STATE].pinned, [], JSON.stringify(nothing.harness[STATE].ranked));
+    assert.ok(nothing.harness[STATE].notes.includes("no skill matched the first message; nothing is pinned"), JSON.stringify(nothing.harness[STATE].notes));
+    assert.ok(!nothing.call.system.includes("# Skills retrieved for this conversation"), "no section for an empty pin");
+    const tag = await withFetch(noNetwork, () => pin(ctxOf(h.env, { conversation: [{ role: "user", content: "fix the moo login" }] })));
+    assert.deepEqual(tag.harness[STATE].pinned.map((p) => p.id), ["parser"], "one tag word is evidence");
+    const two = await withFetch(noNetwork, () => pin(ctxOf(h.env, { conversation: [{ role: "user", content: "install this package" }] })));
+    assert.deepEqual(two.harness[STATE].pinned.map((p) => p.id), ["packages"], "two description words are evidence");
+    const one = await withFetch(noNetwork, () => pin(ctxOf(h.env, { config: { minTerms: 1 }, conversation: [{ role: "user", content: "Reply with the single word ok." }] })));
+    assert.deepEqual(one.harness[STATE].pinned.map((p) => p.id), ["parser"], "minTerms 1 is the old behaviour");
+    const found = await withFetch(noNetwork, () => skillSearch({ query: "the single word" }, toolEnv(h.env)));
+    assert.match(found, /`parser`/, "the search keeps every hit");
+  } finally {
+    h.rm();
+  }
+});

@@ -12,7 +12,7 @@ Suites: [`assembly-cost@1`](#suite-assembly-cost-v1), [`skill-recall@1`](#suite-
 What a package costs the prompt before anything is retrieved: bytes by segment, how much of the prefix survives a turn, and how long assembly takes. No gold, no corpus, no adapter — any package with a step or a tool can opt in.
 
 7 tasks (2 of them controls), probe A.
-Generated 2026-09-22T08:10:08.242Z. Digest `sha256:dacededd0e40…`.
+Generated 2026-09-22T09:29:07.040Z. Digest `sha256:019fb1aad5b4…`.
 
 ### Compared
 
@@ -24,7 +24,7 @@ Only numbers every arm can produce appear here, and only those on which the arms
 | **thetis-skills-all** | 1053 ±0 | 2 ±0 | 1158.7 ±20.7 | 1307.4 ±40.7 | 1.001 ±0 | 0 ±0 | 18 ±0 | 0 ±0 |
 | thetis-skills-hybrid | 1059 ±0 | 595 ±0 | 1757.7 ±19.9 | 1906.4 ±42.4 | 1.001 ±0 | 1 ±0 | 18 ±0 | 0 ±0 |
 | thetis-skills-l1 | 1051 ±0 | 443 ±0 | 1597.7 ±20.9 | 1746.4 ±40 | 1.001 ±0 | 1 ±0 | 18 ±0 | 0 ±0 |
-| all | 2459 ±0 | 825 ±0 | 3387.7 ±21.6 | 3536.4 ±41.7 | 1 ±0 | 1 ±0 | 38 ±0 | 0.010 ±0 |
+| all | 2456.9 ±1.929 | 4243.1 ±2904.2 | 6803.7 ±2926.7 | 6952.4 ±2941.1 | 1 ±0 | 5.857 ±4.571 | 38 ±0 | 0.010 ±0 |
 
 ![assembly-cost@1 comparison](bench/assembly-cost-v1/chart.svg)
 
@@ -37,7 +37,7 @@ Paired per task, so the constant cost of the harness cancels. `w/t/l` counts the
 | thetis-skills-all | 26 [26, 26] 7/0/0 | 0 [0, 0] 0/7/0 | 26 [26, 26] 7/0/0 | 26 [26, 26] 7/0/0 | 0 [0, 0] 0/7/0 | 0 [0, 0] 0/7/0 | 6 [6, 6] 7/0/0 | 0 [0, 0] 0/7/0 |
 | thetis-skills-hybrid | 32 [32, 32] 7/0/0 | 593 [593, 593] 7/0/0 | 625 [625, 625] 7/0/0 | 625 [625, 625] 7/0/0 | 0 [0, 0] 0/7/0 | 1 [1, 1] 7/0/0 | 6 [6, 6] 7/0/0 | 0 [0, 0] 0/7/0 |
 | thetis-skills-l1 | 24 [24, 24] 7/0/0 | 441 [441, 441] 7/0/0 | 465 [465, 465] 7/0/0 | 465 [465, 465] 7/0/0 | 0 [0, 0] 0/7/0 | 1 [1, 1] 7/0/0 | 6 [6, 6] 7/0/0 | 0 [0, 0] 0/7/0 |
-| all | 1432 [1432, 1432] 7/0/0 | 823 [823, 823] 7/0/0 | 2255 [2255, 2255] 7/0/0 | 2255 [2255, 2255] 7/0/0 | -0.001 [-0.001, -0.001] 0/0/7 | 1 [1, 1] 7/0/0 | 26 [26, 26] 7/0/0 | 0.010 [0.010, 0.010] 7/0/0 |
+| all | 1429.9 [1427.7, 1431.6] 7/0/0 | 4241.1 [1629.1, 7437.6] 7/0/0 | 5671 [3060.7, 8696.1] 7/0/0 | 5671 [3060.7, 8865.3] 7/0/0 | -0.001 [-0.001, -0.001] 0/0/7 | 5.857 [1.857, 11] 7/0/0 | 26 [26, 26] 7/0/0 | 0.010 [0.010, 0.010] 7/0/0 |
 
 ### Assembly latency
 
@@ -69,14 +69,13 @@ Two reports are comparable only when these match.
 |---|---|
 | suite | assembly-cost@1 (sha256:9efc984d505f…) |
 | corpus | none |
-| arms | none; thetis-skills-all (@thetis/skills-all@0.1.0); thetis-skills-hybrid (@thetis/skills-hybrid@0.2.0); thetis-skills-l1 (@thetis/skills-l1@0.1.0); all (@thetis/exa@0.1.0, @thetis/skills-all@0.1.0, @thetis/skills-hybrid@0.2.0, @thetis/skills-l1@0.1.0, @thetis/terminal@0.1.0, @thetis/tool-exec@0.1.0, @thetis/tool-groups@0.2.0, @thetis/tools-files@0.1.0, @thetis/tools-plan@0.3.0) |
+| arms | none; thetis-skills-all (@thetis/skills-all@0.1.0); thetis-skills-hybrid (@thetis/skills-hybrid@0.2.1); thetis-skills-l1 (@thetis/skills-l1@0.1.0); all (@thetis/exa@0.1.0, @thetis/skills-all@0.1.0, @thetis/skills-hybrid@0.2.1, @thetis/skills-l1@0.1.0, @thetis/terminal@0.1.0, @thetis/tool-exec@0.1.0, @thetis/tool-groups@0.2.0, @thetis/tools-files@0.1.0, @thetis/tools-plan@0.3.0) |
 | model | none — this probe needs no model |
 | sandbox | auto |
 | scorer | @thetis/bench@0.4.0 |
 
 ### Notes
 
-- Every task received the same tools, because nothing installed here decides what to attach per query. So recall is one by construction and means nothing; precision and the wasted bytes are the real figures, and they are the headroom a tool-attention package would have.
 - Suite assembly-cost@1 names nothing a task needed, so recall, overshoot and completeness are not computed — only footprint.
 - Only 2 control tasks. An arm that bloats the prompt is best caught on tasks no capability should help with; this suite has few.
 - 7 tasks is below the 50 at which a percentage is worth quoting. Read the win/tie/loss counts, not the means.
@@ -92,7 +91,7 @@ Regenerate with `npm run bench -- run assembly-cost@1`. This section is rewritte
 Given a request, which capabilities did the harness make reachable, how far away were they, and what did the rest cost? Every arm imports the same corpus into whatever shape it likes, and is scored only on what reached the assembled call.
 
 90 tasks (10 of them controls), probe A.
-Generated 2026-09-22T08:10:03.948Z. Digest `sha256:c4dd26db3851…`.
+Generated 2026-09-22T09:28:57.712Z. Digest `sha256:17190840fce6…`.
 
 ### Compared
 
@@ -105,7 +104,7 @@ Only numbers every arm can produce appear here, and only those on which the arms
 | flat-skills | 92054 ±0 | 2 ±0 | 1070.1 ±109.0 | 93126.1 ±106.6 | 93126.1 ±109.9 | 0 ±0 | 9 ±0 | 0.020 ±0 | 0.050 ±0.041 | 0.050 ±0.044 | 0.007 ±0.006 | 0.193 ±0.007 | 0.037 ±0.044 | 0.950 ±0.044 | 6.550 ±0.544 | 0 ±0 | 9 ±0 | 4.595 ±0.400 |
 | l1-skills | 80119 ±0 | 193 ±0 | 1070.1 ±110.0 | 81382.1 ±105.7 | 81382.1 ±109.8 | 1 ±0 | 9 ±0 | 0.019 ±0 | 1 ±0 | 0 ±0 | — | — | 1 ±0 | 0 ±0 | 0 ±0 | 1 ±0 | 0 ±0 | 0 ±0 |
 | rank-skills | 24889.5 ±2309.5 | 226 ±0 | 4967.6 ±287.1 | 26185.6 ±2362.5 | 30083.1 ±2426.1 | 1 ±0 | 9 ±0 | 0.012 ±0.004 | 0.946 ±0.036 | 0.863 ±0.057 | 0.446 ±0.042 | 0.597 ±0.034 | 0.887 ±0.069 | 0.054 ±0.036 | 1.337 ±0.179 | 0.138 ±0.075 | 2.933 ±0.083 | 4.759 ±0.055 |
-| thetis-skills-hybrid | 49098.5 ±54.5 | 595 ±0 | 4167.1 ±232.7 | 50763.5 ±135.0 | 53860.6 ±243.6 | 1 ±0 | 9 ±0 | 0.029 ±0.000 | 1 ±0 | 0 ±0 | — | — | 1 ±0 | 0 ±0 | 0 ±0 | 1 ±0 | 0 ±0 | 0 ±0 |
+| thetis-skills-hybrid | 49039.9 ±82.9 | 595 ±0 | 4167.1 ±232.7 | 50704.9 ±169.6 | 53802.0 ±273.8 | 1 ±0 | 9 ±0 | 0.029 ±0.000 | 1 ±0 | 0 ±0 | — | — | 1 ±0 | 0 ±0 | 0 ±0 | 1 ±0 | 0 ±0 | 0 ±0 |
 | thetis-skills-l1 | 47455 ±0 | 443 ±0 | 1070.1 ±104.3 | 48968.1 ±107.9 | 48968.1 ±104.2 | 1 ±0 | 9 ±0 | 0.029 ±0 | 1 ±0 | 0 ±0 | — | — | 1 ±0 | 0 ±0 | 0 ±0 | 1 ±0 | 0 ±0 | 0 ±0 |
 
 ![skill-recall@1 comparison](bench/skill-recall-v1/chart.svg)
@@ -120,7 +119,7 @@ Paired per task, so the constant cost of the harness cancels. `w/t/l` counts the
 | flat-skills | 91027 [91027, 91027] 90/0/0 | 0 [0, 0] 0/90/0 | 0 [0, 0] 0/90/0 | 91027 [91027, 91027] 90/0/0 | 91027 [91027, 91027] 90/0/0 | 0 [0, 0] 0/90/0 | 0 [0, 0] 0/90/0 | 3 [3, 3] 90/0/0 | 0.020 [0.020, 0.020] 90/0/0 | 0.050 [0.013, 0.100] 5/75/0 | 0.050 [0.013, 0.100] 5/75/0 | 0.037 [0, 0.087] 3/77/0 | -0.050 [-0.100, -0.013] 0/75/5 | 6.550 [6.025, 7.075] 80/0/0 | 0 [0, 0] 0/80/0 | 9 [9, 9] 90/0/0 |
 | l1-skills | 79092 [79092, 79092] 90/0/0 | 191 [191, 191] 90/0/0 | 0 [0, 0] 0/90/0 | 79283 [79283, 79283] 90/0/0 | 79283 [79283, 79283] 90/0/0 | 0 [0, 0] 0/90/0 | 1 [1, 1] 90/0/0 | 3 [3, 3] 90/0/0 | 0.019 [0.019, 0.019] 90/0/0 | 1 [1, 1] 80/0/0 | 0 [0, 0] 0/80/0 | 1 [1, 1] 80/0/0 | -1 [-1, -1] 0/0/80 | 0 [0, 0] 0/80/0 | 1 [1, 1] 80/0/0 | 0 [0, 0] 0/90/0 |
 | rank-skills | 23862.5 [21632.3, 26247.2] 88/0/2 | 224 [224, 224] 90/0/0 | 3897.5 [3684.6, 4094.7] 90/0/0 | 24086.5 [21793.4, 26308.1] 90/0/0 | 27984.0 [25639.7, 30365.7] 90/0/0 | 0.000 [0, 0.000] 2/88/0 | 1 [1, 1] 90/0/0 | 3 [3, 3] 90/0/0 | 0.012 [0.009, 0.017] 88/2/0 | 0.946 [0.906, 0.979] 79/1/0 | 0.863 [0.802, 0.919] 76/4/0 | 0.887 [0.813, 0.950] 71/9/0 | -0.946 [-0.977, -0.908] 0/1/79 | 1.337 [1.150, 1.508] 80/0/0 | 0.138 [0.063, 0.212] 11/69/0 | 2.933 [2.833, 3] 88/2/0 |
-| thetis-skills-hybrid | 48071.5 [48019.4, 48120.4] 90/0/0 | 593 [593, 593] 90/0/0 | 3097.1 [2971.6, 3219.3] 90/0/0 | 48664.5 [48607.9, 48713.3] 90/0/0 | 51761.5 [51610.0, 51907.2] 90/0/0 | 0 [0, 0] 0/90/0 | 1 [1, 1] 90/0/0 | 3 [3, 3] 90/0/0 | 0.029 [0.029, 0.029] 90/0/0 | 1 [1, 1] 80/0/0 | 0 [0, 0] 0/80/0 | 1 [1, 1] 80/0/0 | -1 [-1, -1] 0/0/80 | 0 [0, 0] 0/80/0 | 1 [1, 1] 80/0/0 | 0 [0, 0] 0/90/0 |
+| thetis-skills-hybrid | 48012.9 [47922.5, 48087.6] 90/0/0 | 593 [593, 593] 90/0/0 | 3097.1 [2971.6, 3219.3] 90/0/0 | 48605.9 [48520.7, 48686.2] 90/0/0 | 51702.9 [51518.1, 51877.1] 90/0/0 | 0 [0, 0] 0/90/0 | 1 [1, 1] 90/0/0 | 3 [3, 3] 90/0/0 | 0.029 [0.029, 0.029] 90/0/0 | 1 [1, 1] 80/0/0 | 0 [0, 0] 0/80/0 | 1 [1, 1] 80/0/0 | -1 [-1, -1] 0/0/80 | 0 [0, 0] 0/80/0 | 1 [1, 1] 80/0/0 | 0 [0, 0] 0/90/0 |
 | thetis-skills-l1 | 46428 [46428, 46428] 90/0/0 | 441 [441, 441] 90/0/0 | 0 [0, 0] 0/90/0 | 46869 [46869, 46869] 90/0/0 | 46869 [46869, 46869] 90/0/0 | 0 [0, 0] 0/90/0 | 1 [1, 1] 90/0/0 | 3 [3, 3] 90/0/0 | 0.029 [0.029, 0.029] 90/0/0 | 1 [1, 1] 80/0/0 | 0 [0, 0] 0/80/0 | 1 [1, 1] 80/0/0 | -1 [-1, -1] 0/0/80 | 0 [0, 0] 0/80/0 | 1 [1, 1] 80/0/0 | 0 [0, 0] 0/90/0 |
 
 ### Per arm, not compared
@@ -137,12 +136,12 @@ Absolute milliseconds are not committed: the fence opens lazily, the sandbox mod
 | arm | steps | assembly vs floor |
 |---|---|---|
 | none | 6 | floor |
-| thetis-skills-all | 9 | 14.7× |
-| flat-skills | 9 | 5.7× |
-| l1-skills | 9 | 5.6× |
-| rank-skills | 9 | 3.6× |
-| thetis-skills-hybrid | 9 | 29.1× |
-| thetis-skills-l1 | 9 | 10.8× |
+| thetis-skills-all | 9 | 13.6× |
+| flat-skills | 9 | 5.6× |
+| l1-skills | 9 | 5.5× |
+| rank-skills | 9 | 3.8× |
+| thetis-skills-hybrid | 9 | 31.1× |
+| thetis-skills-l1 | 9 | 11.6× |
 
 ### Conformance
 
@@ -164,7 +163,7 @@ Two reports are comparable only when these match.
 |---|---|
 | suite | skill-recall@1 (sha256:08430bfd7dbd…) |
 | corpus | caps@1, 287 records |
-| arms | none; thetis-skills-all (@thetis/skills-all@0.1.0); thetis-skills-hybrid (@thetis/skills-hybrid@0.2.0); thetis-skills-l1 (@thetis/skills-l1@0.1.0); flat-skills (@flat/skills@1.0.0); l1-skills (@l1/skills@1.0.0); rank-skills (@rank/skills@1.0.0) |
+| arms | none; thetis-skills-all (@thetis/skills-all@0.1.0); thetis-skills-hybrid (@thetis/skills-hybrid@0.2.1); thetis-skills-l1 (@thetis/skills-l1@0.1.0); flat-skills (@flat/skills@1.0.0); l1-skills (@l1/skills@1.0.0); rank-skills (@rank/skills@1.0.0) |
 | model | none — this probe needs no model |
 | sandbox | auto |
 | scorer | @thetis/bench@0.4.0 |

@@ -1,6 +1,6 @@
 // The hybrid ranking, pure: a dense list from cosine, a lexical list from BM25, fused by weighted reciprocal
 // rank fusion, the parent rules, and a `how` per hit that says which list put it there.
-import { bm25Index, bm25Search, fuse, absorb, promote } from "@thetis/skills";
+import { bm25Index, bm25Search, fuse, absorb, promote, tokens } from "@thetis/skills";
 import { cosine } from "./embed.js";
 
 export const POOL = 50;
@@ -13,6 +13,27 @@ export const DEFAULT_PIN = 6;
  * gold cards pass and 7 of the 10 controls get no dense hit at all.
  */
 export const DEFAULT_THRESHOLD = 0.3;
+/**
+ * How many distinct words of the query a skill's text must carry before the words alone are evidence. One word in the
+ * name or a tag is enough on its own: those are curated. A word in the description is not: "word" in "word splitting"
+ * pinned a MOO parser for "Reply with the single word ok."
+ */
+export const DEFAULT_MIN_TERMS = 2;
+
+/** Whether the words of `query` are evidence for `skill`: a name or tag word, or `minTerms` words anywhere in its text. */
+export function lexicalEvidence(skill, query, minTerms = DEFAULT_MIN_TERMS) {
+  const q = new Set(tokens(query));
+  if (!q.size) return false;
+  const strong = new Set(tokens(`${skill.name ?? ""} ${String(skill.id ?? "").split("/").pop()} ${(skill.tags ?? []).join(" ")}`));
+  const weak = new Set(tokens(skill.description ?? ""));
+  let s = 0;
+  let w = 0;
+  for (const t of q) {
+    if (strong.has(t)) s++;
+    else if (weak.has(t)) w++;
+  }
+  return s >= 1 || s + w >= minTerms;
+}
 
 const round = (x) => Math.round(x * 1e6) / 1e6;
 

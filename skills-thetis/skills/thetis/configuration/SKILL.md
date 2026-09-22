@@ -107,7 +107,7 @@ Known keys:
 | `@thetis/marketplace` | `registries`, `refreshMinutes`. |
 | `@thetis/gateway-login` | `secure`. |
 | `@thetis/exa` | `apiKey`, `baseUrl`, `timeoutMs`, `defaults`. |
-| `@thetis/skills-hybrid` | `fusionWeight`, `denseThreshold`, `pinLimit`, `pinBodies`, `embeddings`. |
+| `@thetis/skills-hybrid` | `fusionWeight`, `denseThreshold`, `minTerms`, `pinLimit`, `pinBodies`, `embeddings`. |
 | `@thetis/tool-groups` | `routeThreshold`, `denseFallback`, `denseMode`, `denseThreshold`, `fusionWeight`, `alwaysOn`, `listAlwaysOn`, `embeddings`. |
 
 `@thetis/gateway-web`, `@thetis/harness-core`, `@thetis/tool-exec`, `@thetis/tools-files`, `@thetis/tools-plan`, and `@thetis/projects` have no keys. `@thetis/terminal` takes `shell`, `sessions`, `bufferBytes`, `idleMinutes` and `waitMs`; see `thetis/using`.

@@ -4,7 +4,7 @@
 import { readMap } from "@thetis/skills";
 import { embed, embeddingConfig, indexTextOf, keyOf, queryHashOf, queryTextOf, readCache, writeCache } from "./embed.js";
 import { benchVectorsFor } from "./vectors.js";
-import { denseRank, hybridRank, lexicalRank, POOL, DEFAULT_WEIGHT, DEFAULT_THRESHOLD } from "./rank.js";
+import { denseRank, hybridRank, lexicalRank, lexicalEvidence, POOL, DEFAULT_WEIGHT, DEFAULT_THRESHOLD, DEFAULT_MIN_TERMS } from "./rank.js";
 
 /**
  * Vectors for every skill as a map of id to vector, embedding what the cache lacks when there is a key.
@@ -63,11 +63,22 @@ export function thresholdOf(config) {
   return Number.isFinite(v) ? v : DEFAULT_THRESHOLD;
 }
 
-export async function retrieve(env, skills, query, config, { limit, universal = new Set(), deps = {}, threshold = 0 } = {}) {
+export function minTermsOf(config) {
+  const v = Math.floor(Number(config?.minTerms));
+  return Number.isFinite(v) && v >= 1 ? v : DEFAULT_MIN_TERMS;
+}
+
+/**
+ * `evidence` is the number of query words a lexical hit must carry to count (the pin passes `config.minTerms`; an
+ * explicit search passes 0 and keeps every BM25 hit). Without it, a rank is a rank: the top six of a list of stray
+ * one-word overlaps got pinned for a greeting.
+ */
+export async function retrieve(env, skills, query, config, { limit, universal = new Set(), deps = {}, threshold = 0, evidence = 0 } = {}) {
   const cfg = embeddingConfig(config);
   const weight = Number.isFinite(Number(config?.fusionWeight)) ? Number(config.fusionWeight) : DEFAULT_WEIGHT;
   const q = queryTextOf(query);
-  const lexical = lexicalRank(skills, q, POOL);
+  const byId = new Map(skills.map((s) => [s.id, s]));
+  const lexical = lexicalRank(skills, q, POOL).filter((h) => evidence <= 0 || lexicalEvidence(byId.get(h.id), q, evidence));
   let dense = [];
   let note = null;
   let mode = "lexical";

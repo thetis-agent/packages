@@ -5,7 +5,7 @@
 import { selectSkills, brief, card, renderBody, packagesOf, loadSkills, STATE, importCorpus as importShared, claim, readMap, corpusIds } from "@thetis/skills";
 import { embeddingConfig, keyOf, queryTextOf, readCache, writeCache } from "./lib/embed.js";
 import { benchVectorsFor, VECTORS_DIR } from "./lib/vectors.js";
-import { retrieve, thresholdOf } from "./lib/retrieve.js";
+import { retrieve, thresholdOf, minTermsOf } from "./lib/retrieve.js";
 import { DEFAULT_PIN, RANKED } from "./lib/rank.js";
 
 export const SELF = "@thetis/skills-hybrid";
@@ -84,8 +84,9 @@ export async function pin(ctx) {
     mode = prev.mode ?? "pinned";
   } else {
     const query = queryOf(ctx);
-    const result = query.trim() && skills.length ? await retrieve(ctx.env, skills, query, config, { limit: RANKED, universal: universalIds, threshold: thresholdOf(config) }) : { hits: [], mode: "lexical", note: null };
+    const result = query.trim() && skills.length ? await retrieve(ctx.env, skills, query, config, { limit: RANKED, universal: universalIds, threshold: thresholdOf(config), evidence: minTermsOf(config) }) : { hits: [], mode: "lexical", note: null };
     if (result.note) notes.push(result.note);
+    if (!result.hits.length && query.trim() && skills.length) notes.push("no skill matched the first message; nothing is pinned");
     ranked = result.hits.map((h) => ({ id: h.id, score: h.score, how: h.how }));
     pinned = ranked.slice(0, pinLimit).map((h) => ({ id: h.id, contentHash: byId.get(h.id).contentHash, score: h.score, how: h.how }));
     mode = result.mode;
