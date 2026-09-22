@@ -58,14 +58,23 @@ export function writeControlToken(log: (line: string) => void): string | undefin
   }
 }
 
-/** The running daemon's token, for the command line. Undefined when there is none to read. */
+/**
+ * The running daemon's token, for the command line. Undefined when there is none to read.
+ *
+ * The command line is not run by systemd, so it never has RUNTIME_DIRECTORY; and in a login session it does
+ * have XDG_RUNTIME_DIR, which is where a *user* unit's daemon would have written, not a system unit's. So
+ * the system unit's directory is tried first, then the user's: whichever holds a token is the daemon's,
+ * and finding neither means this daemon requires none.
+ */
 export function readControlToken(): string | undefined {
-  // The command line is not run by systemd, so it never has RUNTIME_DIRECTORY: it looks where the unit
-  // would have put it, and finding nothing simply means this daemon requires no token.
-  const path = controlTokenPath() ?? "/run/thetis/control.token";
-  try {
-    return existsSync(path) ? readFileSync(path, "utf8").trim() || undefined : undefined;
-  } catch {
-    return undefined;
+  const candidates = [process.env.RUNTIME_DIRECTORY?.split(":")[0], "/run/thetis", process.env.XDG_RUNTIME_DIR].filter((d): d is string => !!d);
+  for (const dir of candidates) {
+    const path = resolve(dir, "control.token");
+    try {
+      if (existsSync(path)) return readFileSync(path, "utf8").trim() || undefined;
+    } catch {
+      continue;
+    }
   }
+  return undefined;
 }
