@@ -126,7 +126,7 @@ A cancelled turn ends with an `error` event of code `cancelled`. Streamed text s
 | Package | Step | Phase | Effect |
 |---|---|---|---|
 | `@thetis/harness-core` | `turnContext` | `history` | Ends the input message with `[Turn context: <weekday> <date> <time> <zone>]`. |
-| `@thetis/harness-core` | `systemPrompt` | `prompt` | Appends the guide (where you are, tool policy, working style), `home/THETIS.md`, and `harness.notes` to `call.system`. The installed packages are not in it: `list_packages` is. |
+| `@thetis/harness-core` | `systemPrompt` | `prompt` | Appends the guide (where you are, working style, the skills rule) to `call.system`. No file of the person's and no package list: a universal skill, a project's instructions and `list_packages` carry those. |
 | `@thetis/harness-core` | `attachTools` | `tools` | Adds every declared tool of every package to `call.tools`. The first package with a name wins. |
 | `@thetis/prompt-cache` | `cacheHints` | `call` | Sets `call.hints.cache` and records prefix fingerprints in `harness`. |
 | `@thetis/projects` | `projectPrompt`, `projectTools` | `prompt`, `call` | Adds the project section. Drops switched-off tools. |

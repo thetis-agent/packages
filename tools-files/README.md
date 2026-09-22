@@ -39,7 +39,7 @@ Tool calls as the model makes them:
 ```
 read_path { path: "packages/hello/index.js", offset: 1, limit: 200 }
 search_files { pattern: "export async function", path: "packages", glob: "*.js", mode: "files" }
-edit_path { path: "THETIS.md", old_text: "## Notes\n", new_text: "## Notes\n- Prefer short answers.\n" }
+edit_path { path: "notes.md", old_text: "## Notes\n", new_text: "## Notes\n- Prefer short answers.\n" }
 write_path { path: "packages/hello/index.js", contents: "export async function greet(args) { return `hi ${args.name}`; }\n" }
 ```
 

@@ -88,14 +88,14 @@ test("attachTools adds each installed tool once, after whatever is already attac
   assert.deepEqual(twice.call!.tools.map((t) => t.name), ["first", "greet"], "the first package with a name wins; nothing is attached twice");
 });
 
-test("systemPrompt appends to the system prompt, points at list_packages and does not list the packages itself", async () => {
+test("systemPrompt appends the guide and nothing of the person's: no package list, no notes, no session id", async () => {
   const ctx = ctxWith({ harness: { notes: "remember the cat" } });
   const result = await systemPrompt(ctx);
   assert.deepEqual(Object.keys(result), ["call"]);
   assert.ok(result.call!.system!.startsWith("You are Thetis.\n\n"), "what was there stays first");
-  assert.match(result.call!.system!, /call list_packages/);
   assert.doesNotMatch(result.call!.system!, /@thetis\/greet@1\.0\.0/, "the package list is a tool's answer, not prompt text");
-  assert.match(result.call!.system!, /## Session notes\nremember the cat/);
+  assert.doesNotMatch(result.call!.system!, /remember the cat|Session notes|standing notes/, "harness.notes and THETIS.md are not prompt text");
+  assert.match(result.call!.system!, /## Working style/);
   assert.doesNotMatch(result.call!.system!, /subagent\. Your final reply/, "a top-level session gets no subagent line");
   assert.doesNotMatch(result.call!.system!, /s1/, "the session id is not in the prompt, so a child's prompt can match its parent's");
 });

@@ -11,7 +11,7 @@ Twelve skills under `skills/thetis/`. None is universal: the loader puts one bri
 | Id | Content |
 |---|---|
 | `thetis` | What Thetis is, the one rule, and which child skill to fetch. The index. |
-| `thetis/using` | Sessions, subagents, `exec`, the file tools, the plan tools, `ask_user`, the home layout, `THETIS.md`. |
+| `thetis/using` | Sessions, subagents, `exec`, the file tools, the plan tools, `ask_user`, the home layout, standing notes. |
 | `thetis/packages` | The manifest, steps, tools, providers, services, install sources, the store, forks, delete, promote, install for everyone. |
 | `thetis/pipeline` | Phases, enumeration, the step contract, the three variables, validation, the turn, the events, the prompt cache rules. |
 | `thetis/skills` | The skill format, the sources, the loaders and their tools, how to write a description, the lint rules. |

@@ -9,7 +9,7 @@ Four pipeline steps, declared in `thetis.steps`:
 | Step id | Phase | Export | What it does |
 |---|---|---|---|
 | `turn-context` | `history` | `turnContext` | Ends the turn's input message with `[Turn context: Monday 2026-09-21 20:40 Europe/Berlin]`, once. The line is saved with the conversation, so a later turn re-sends the message byte for byte and the prefix stays cached; the system prompt carries no clock. The web transcript hides the line; `skill_search` and the loader's ranking strip it from the query. |
-| `system-prompt` | `prompt` | `systemPrompt` | Appends to `call.system`: the guide (the user and the home, what is reachable, the tool policy, the working style, one sentence on skills, two on packages; one extra line when the session has a parent), the content of `home/THETIS.md` when it exists, and `harness.notes` when it is a string. The installed packages and the session id are not written into the prompt. |
+| `system-prompt` | `prompt` | `systemPrompt` | Appends the guide to `call.system`: the user and the home, what is reachable, file tools against shell, the working style, one sentence on skills; one extra line when the session has a parent. Nothing of the person's: no `THETIS.md`, no `harness.notes`, no package list, no session id. |
 | `attach-tools` | `tools` | `attachTools` | Adds every tool declared by every installed package to `call.tools`. The first package with a given tool name wins. A tool with no `parameters` gets `{ type: "object", properties: {} }`. |
 | `record-call` | `after` | `recordCall` | Writes `{ model, system, systemChars, tools, messages, at }` to `harness["@thetis/harness-core"].lastCall`, keeps the other fields under that key, and returns only `harness`. |
 
@@ -28,31 +28,18 @@ Steps declared with phase `bench` never run on an ordinary turn; `list_packages`
 | `turnContext` | `true` | Append the turn context line. `false` appends nothing. |
 | `timeZone` | the daemon's zone | The IANA zone the line is written in, for example `Europe/Berlin`. An unknown zone falls back to `UTC`. |
 
-The package reads no environment variables.
-
-Two things under the person's control shape the prompt:
-
-- `THETIS.md` in the home: standing notes, included in every prompt under *Your standing notes (home/THETIS.md)*.
-- `harness.notes`: a string another package may put in the harness state, included under *Session notes*.
+The package reads no environment variables and no file in the home. Text a person wants in every prompt is a universal skill under `home/skills/` (linted, at most eight, shown in the skills dock); text for one project is that project's instructions. Both are shown and capped where they live, which a file read into the prompt was not.
 
 ## Use
 
-The package is installed for everyone by default. The prompt names no packages: the model calls `list_packages` (from `@thetis/tool-exec`) when it needs to know what is installed, so the list is paid for when it is wanted and not on every call. It names no session id either, so a subagent's prompt differs from its parent's by one line and the provider cache the parent warmed serves the child.
+The package is installed for everyone by default. The prompt names no package and no tool: `list_packages` (from `@thetis/tool-exec`) says in its own description that the prompt does not carry the list, and every tool's description says when to use it, so nothing is paid for on every call that a description already carries. It names no session id either, so a subagent's prompt differs from its parent's by one line and the provider cache the parent warmed serves the child.
 
-The guide is about 2,250 characters. What a person adds through `THETIS.md`, a project's instructions, and the skills a loader pins is theirs to size.
+The guide is about 1,300 characters, the turn context line included. What a person adds through a project's instructions and the skills a loader pins is theirs to size.
 
 Read what the last call received, after a turn:
 
 ```sh
 thetis sessions show --user alice --session <id>
-```
-
-A package that wants a per-session note in the prompt sets it from a step; the harness picks it up on the next turn:
-
-```js
-export async function remember(ctx) {
-  return { harness: { ...ctx.harness, notes: "The person prefers short answers." } };
-}
 ```
 
 ## Files

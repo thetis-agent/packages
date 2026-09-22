@@ -1,6 +1,6 @@
 ---
 name: using
-description: How to work inside Thetis day to day. Sessions and turns, subagents with spawn_subagent, the shell session tools shell, shell_read, shell_send, shell_interrupt and shell_sessions, the six file tools read_path, edit_path, write_path, search_files, find_files, and get_directory with their exact arguments and bounds, the plan tools todo_write, todo_add, todo_mark, todo_order, and todo_read, ask_user, tool groups and tool_search when a tool you have is not in your list, restart_daemon and when to prefer a workspace reload, the home directory layout, and the standing notes in THETIS.md. Use when you ask "how do I read or edit a file", "how do I run a command", "how do I answer a command that is asking me something", "how do I hand work to a subagent", "where do my files live", "how do I keep a plan", "why is a tool missing from my list", "how do I ask the person a question", or "how do I restart Thetis".
+description: How to work inside Thetis day to day. Sessions and turns, subagents with spawn_subagent, the shell session tools shell, shell_read, shell_send, shell_interrupt and shell_sessions, the six file tools read_path, edit_path, write_path, search_files, find_files, and get_directory with their exact arguments and bounds, the plan tools todo_write, todo_add, todo_mark, todo_order, and todo_read, ask_user, tool groups and tool_search when a tool you have is not in your list, restart_daemon and when to prefer a workspace reload, the home directory layout, and where standing notes go. Use when you ask "how do I read or edit a file", "how do I run a command", "how do I answer a command that is asking me something", "how do I hand work to a subagent", "where do my files live", "how do I keep a plan", "why is a tool missing from my list", "how do I ask the person a question", or "how do I restart Thetis".
 metadata:
   title: Using Thetis
   tags: [sessions, turns, subagents, shell, terminal, files, read, edit, write, search, plan, todo, ask, home, notes, tools, groups, scoped, restart, reload, daemon]
@@ -18,7 +18,6 @@ You run inside one person's userspace. The fence is the boundary of that userspa
 | `$THETIS_HOME/userspaces/<user>/` | The userspace root. Package code sees it as `env.root`. |
 | `home/` | Your working directory. Package code sees it as `env.cwd`. Relative paths resolve against it. |
 | `home/packages/<name>/` | The packages you write. |
-| `home/THETIS.md` | Your standing notes. See below. |
 | `home/plans/<session id>.json` | The plan of one conversation. |
 | `home/questions/<session id>.json` | The questions you asked the person. |
 | `home/tool-output/` | Long tool results that did not fit in a reply. |
@@ -114,9 +113,7 @@ Use `ask_user` when a task is ambiguous and a guess would waste work. Decide the
 
 ## Standing notes
 
-Write instructions to yourself in `home/THETIS.md`. The default harness puts its content in every system prompt under the heading *Your standing notes (home/THETIS.md)*. A package can also set `harness.notes` to a string. It appears under *Session notes*.
-
-Keep `THETIS.md` stable inside a session. A change to it changes the system prompt and breaks the prompt cache prefix. See `thetis/pipeline`.
+Text you want in every prompt is a skill under `home/skills/` with `metadata.universal: "true"`; see `thetis/skills`. Text for one project is that project's instructions; see `thetis/projects`. The harness reads no file of yours into the prompt. Keep a universal skill stable inside a session: a change to it changes the system prompt and breaks the prompt cache prefix. See `thetis/pipeline`.
 
 ## The package tools
 

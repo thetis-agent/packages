@@ -97,7 +97,8 @@ test("harness steps build the system prompt and attach tools", async () => {
   const s = kernel.sessions.create("alice");
   const sys = await collect(kernel.sessions.send("alice", s.id, "system?"));
   assert.match(sys.text, /You are Thetis/);
-  assert.match(sys.text, /call list_packages/, "the prompt points at the tool instead of carrying the list");
+  assert.match(sys.text, /## Working style/);
+  assert.doesNotMatch(sys.text, /list_packages/, "the prompt names no tool: a tool's description is its contract");
   assert.doesNotMatch(sys.text, /@thetis\/tool-exec@/);
   const tools = await collect(kernel.sessions.send("alice", s.id, "tools?"));
   for (const t of ["shell", "list_packages", "install_package", "spawn_subagent"]) assert.ok(tools.text.split(",").includes(t), `missing tool ${t}`);
