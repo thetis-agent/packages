@@ -183,7 +183,9 @@ export function openPlace(ext, state, root, params) {
     const ok = await confirm(anchor, {
       title: verb,
       lines: [["Directory", path], ["Mode", mode === null ? "none" : mode === "ro" ? "read-only" : "read-write"]],
-      note: "Your workspace closes and opens again with the change, and its services restart. A tool call in flight is given up to half a minute to finish first; a turn carries on across the change. This page reconnects on its own. Nothing on disk is touched.",
+      // A bind belongs to the workspace, not to the project, and it outlives the form it was made from.
+      // Said plainly here, because a new project that is never created still leaves its binds behind.
+      note: `Your workspace closes and opens again with the change, and its services restart. A tool call in flight is given up to half a minute to finish first; a turn carries on across the change. This page reconnects on its own. Nothing on disk is touched.${id ? "" : " This project does not exist yet, and the bind is a change to your workspace either way: it stays even if you never create it."}`,
       confirmLabel: mode === null ? "Unbind" : "Bind",
       tone: mode === null ? "warn" : "primary",
     });
