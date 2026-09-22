@@ -91,6 +91,12 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
         if (typeof chunk.choices?.[0]?.finish_reason === "string") finish = chunk.choices[0].finish_reason;
         const delta = chunk.choices?.[0]?.delta;
         if (delta?.content) yield { type: "text", delta: String(delta.content) };
+        // A reasoning model sends its thinking beside the answer, and two spellings are in the wild:
+        // `reasoning`, which is OpenRouter's normalization, and `reasoning_content`, which is what DeepSeek
+        // and llama.cpp emit and OpenRouter passes through for some upstreams. Take whichever came. It is
+        // yielded as its own kind and never folded into the text: the thinking is not the reply.
+        const thought = delta?.reasoning ?? delta?.reasoning_content;
+        if (thought) yield { type: "reasoning", delta: String(thought) };
         for (const tc of delta?.tool_calls ?? []) {
           const slot = pending.get(tc.index ?? 0) ?? { id: "", name: "", args: "" };
           if (tc.id) slot.id = tc.id;

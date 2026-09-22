@@ -44,7 +44,18 @@
 
     <footer class="sidebar-foot">
       <div class="foot-row foot-identity">
-        <span id="user-face" class="foot-face"></span>
+        <!-- The face is the control that changes it: a real button, so the keyboard and a screen reader
+             reach it the way the mouse does. The file input is the browser's own chooser, kept out of the
+             layout and opened by that button; `accept` only narrows what the chooser offers, and the
+             server decides what a file really is from its bytes. The × appears once there is a picture:
+             an avatar you cannot take off again from where you put it on is only half a feature. -->
+        <button type="button" id="user-face" class="foot-face" title="Change your avatar" aria-label="Change your avatar"></button>
+        <button type="button" id="user-face-clear" class="quiet-link foot-face-clear" title="Remove your avatar" aria-label="Remove your avatar" hidden>
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M6 6l8 8M14 6l-8 8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <input id="avatar-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
         <span id="user-name" class="foot-name" title="Signed in as"></span>
         <span id="status" class="status is-offline">connecting</span>
       </div>

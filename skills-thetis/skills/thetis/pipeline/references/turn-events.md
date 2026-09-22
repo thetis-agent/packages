@@ -8,6 +8,7 @@
 | `step.start` | `step` | Before each step. |
 | `step.end` | `step`, `ms` | After each step. |
 | `text` | `delta` | For each text chunk from the provider. |
+| `reasoning` | `delta` | For each chunk of a reasoning model's thinking. Transient: it is in no message and in no saved conversation, so nothing replays it. |
 | `tool.call` | `call: { id, name, args }` | When the provider emits a tool call. |
 | `tool.result` | `id`, `name`, `result` | After the tool ran. |
 | `message` | `message`, `usage?` | After each assistant message is complete. `usage` repeats the last usage the provider reported. |
@@ -47,6 +48,7 @@ interface ToolSpec {
 
 type ProviderEvent =
   | { type: "text"; delta: string }
+  | { type: "reasoning"; delta: string }
   | { type: "tool_call"; call: { id: string; name: string; args: Record<string, unknown> } }
   | { type: "usage"; usage: Record<string, number> }
   | { type: "error"; message: string };

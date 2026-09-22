@@ -786,3 +786,92 @@ runs for four seconds. The echo provider reports no usage, so every meta line an
     `.msg-usage` is absent here by design; `#statusbar` is shown because `@thetis/terminal` is installed).
 
 Stop the daemon by the pid on `.devhome3/thetis.sock`, release `/tmp/thetis-browser.lock`, and delete `.devhome3`.
+
+## Thinking on the page (2026-09-22)
+
+This pass needs a real model that thinks out loud, so it runs against OpenRouter rather than the echo
+fixture. `.devhome-reasoning` on door port 8801: after `init`, set in `.devhome-reasoning/thetis.config.json`
+`"door": {"host": "127.0.0.1", "port": 8801}`, `packages["@thetis/gateway-login"] = {"secure": false}`,
+`packages["@thetis/provider-openrouter"].apiKey` to a key, `"model": "anthropic/claude-sonnet-4.5"`, and
+`packages["@thetis/provider-openrouter"].defaults = {"max_tokens": 4096, "reasoning": {"max_tokens": 1024}}`.
+Without the `reasoning` default the model answers without thinking and there is nothing to see: that is the
+first thing to check when a step here finds no block.
+
+77. **The block appears while the model thinks**: sign in at `http://127.0.0.1:8801/login` at 1440px, open a
+    conversation, and send a question worth thinking about ("How many keystrokes does it take to type the
+    numbers 1 to 100, and why?"). Within a few seconds, before any answer text, expect at the root of the
+    transcript a `.msg.is-assistant` holding `details.reasoning[open]` with `summary` reading `Thinking…` and
+    a `.reasoning-text` whose `textContent` grows between two reads a second apart. It is the model's
+    thinking, not the reply: there is no `.msg-text.is-live` yet. The sidebar's active row reads `Thinking`.
+78. **It folds when the answer starts**: keep watching. On the first token of the answer expect the same
+    `details.reasoning` without `open`, its `summary` reading `Thought for a moment`, and a
+    `.msg-text.is-live` in a **later** `.msg.is-assistant` — the thinking stays above the reply and nothing
+    of it is in the reply's text. The sidebar's row turns to `Writing a reply`. After `turn.end` the block is
+    still there, still folded, with the `.msg-usage` footnote under the reply below it.
+79. **The fold opens and closes by hand**: click the `summary`. Expect `open` and the whole think readable,
+    scrolling inside `.reasoning-text` past 14em rather than pushing the reply down. Click again to fold it.
+80. **Nothing replays it**: reload the page. Expect the conversation restored with the reply and its
+    footnote and **no** `details.reasoning` anywhere: the thinking is transient, it is in no saved message,
+    and a record has none to redraw. Send a second question in the same conversation: a new block appears
+    above the new reply and the old reply still has none.
+81. **A model that does not think**: set `packages["@thetis/provider-openrouter"].defaults` back to
+    `{"max_tokens": 4096}` and run `THETIS_HOME=.devhome-reasoning node bin/thetis.js config reload`, which
+    prints `live now: packages.@thetis/provider-openrouter.defaults.reasoning`. Send one more question.
+    Expect a reply with no `details.reasoning` at all and no console error: a provider that yields nothing
+    yields nothing.
+
+Stop the daemon by the pid on `.devhome-reasoning/thetis.sock`, release `/tmp/thetis-browser.lock`, and
+delete `.devhome-reasoning`.
+
+## The avatar you upload (2026-09-22)
+
+A throwaway home of its own, because this pass writes a file into it: `.devhome-avatar` on door port 8802,
+one person `dev`, no extra packages. Setup, after `init`, is only `"door": {"host":"127.0.0.1","port":8802}`
+and `packages["@thetis/gateway-login"] = {"secure": false}` in `.devhome-avatar/thetis.config.json`; nothing
+here needs a model, so a provider key is optional — it only decides whether the message of step 79 gets a
+reply. Make the files the steps upload before you start, in `/tmp`: a small real PNG (`face.png`), a text
+file (`notes.txt`), a PNG far over the limit (`huge.png`, 1200×1200 of noise, a few megabytes), and an
+**animated** GIF far over the limit (`big.gif`, a handful of 700×700 noise frames). The last two are not
+the same case: the page shrinks the PNG and sends it, and leaves the animated GIF alone, which is what
+makes the limit speak.
+
+Two things about driving a file input through the MCP browser. `browser_file_upload` only takes paths under
+its own allowed roots (the directory it was started in and its `.playwright-mcp`), so either copy the
+fixtures there or drive the input directly — `page.locator('#avatar-file').setInputFiles(<path>)` through
+`browser_run_code_unsafe`, which reaches the same `change` handler and has no such restriction. And check at
+least once per pass that a real click still lands: `browser_click` on `#user-face` must open the chooser, and
+`browser_click` on `#user-face-clear` must remove the picture. A tab that has stopped delivering real input
+events does neither, and every step after it will look broken for the wrong reason (open a new tab, as the
+preamble says).
+
+82. **Before anything**: sign in at `http://127.0.0.1:8802/login` at 1440px. Expect in the footer
+    `button#user-face.foot-face` holding `.turn-avatar.is-person` with a `.turn-initial` reading `D`, a tint
+    set on the tile, `#user-face-clear` carrying `hidden`, and `input#avatar-file[type=file][hidden]` with
+    `accept` naming the four types. `GET api/me` answers `avatar: null`.
+83. **Upload one**: set `#avatar-file` to `/tmp/face.png` (`browser_file_upload` after clicking `#user-face`,
+    or assign the file and dispatch `change`). Expect one `PUT api/me/avatar` answering 200 with
+    `{"avatar":"/api/me/avatar?v=…"}`, a `.toast.is-good` "That is your avatar now.", the footer tile now
+    holding `img.turn-img` at that URL instead of `.turn-initial`, and `#user-face-clear` no longer hidden.
+84. **Beside your own turns**: send a message in a conversation before step 83 and another after it — what
+    the reply says does not matter here, only the rows. Expect both `.msg.is-user > .turn-avatar.is-person`
+    to hold the same `img.turn-img`: the row drawn before the upload is repainted where it stands, and the
+    one drawn after is built with the picture already.
+85. **It survives a reload**: reload the page. Expect `GET api/me` to answer the same `avatar` URL, the
+    footer and the user rows to draw the image again, and `GET api/me/avatar` to answer 200 with
+    `content-type: image/png`, `cache-control: no-store` and `x-content-type-options: nosniff`.
+86. **What is refused says why**: set `#avatar-file` to `/tmp/notes.txt`. Expect `PUT api/me/avatar` → 415
+    and a `.toast.is-error` reading "That file is not a PNG, JPEG, WebP or GIF image." — the page does not
+    judge the file, it sends it and shows what the server said. Then `/tmp/huge.png`: expect that one to be
+    *accepted*, with a new `?v=`, and the file on disk to be 256 pixels square and a fraction of what was
+    chosen (`avatars/dev.png` under `.devhome-avatar/userspaces/dev/home/gateway-web/`). Then `/tmp/big.gif`,
+    which the page will not shrink: expect **no** request at all and a `.toast.is-error` reading "That image
+    is 3953 KB, and the limit is 512 KB. Pick a smaller one." The server's own half of that guard is worth a
+    line from the shell: `curl -X PUT --data-binary @/tmp/huge.png -b <the login cookie>
+    http://127.0.0.1:8802/dev/api/me/avatar` answers 413 `{"error":"That image is larger than 512 KB."}`.
+    After all three, the avatar on the page is still the one step 78 put there.
+87. **Take it off**: click `#user-face-clear`. Expect `DELETE api/me/avatar` → 200, a `.toast.is-good`
+    "Your avatar is your initials again.", the footer tile back to `.turn-initial` `D`, the user rows in the
+    transcript back to initials too, `#user-face-clear` hidden, and `GET api/me/avatar` → 404 after a reload.
+
+Stop the daemon by the pid on `.devhome-avatar/thetis.sock`, release `/tmp/thetis-browser.lock`, and delete
+`.devhome-avatar`.

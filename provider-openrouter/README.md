@@ -8,7 +8,7 @@ One provider export, declared as `"thetis": { "type": "provider", "export": "cre
 
 | Export | Use |
 |---|---|
-| `createProvider(config)` | Returns `{ models(), call(call) }`. `models()` calls `GET /models` and returns every id, so the kernel resolves any OpenRouter model id to this provider. `call()` posts to `/chat/completions` with `stream: true` and `usage: { include: true }` and yields `text`, `tool_call`, `usage` and `error` events. |
+| `createProvider(config)` | Returns `{ models(), call(call) }`. `models()` calls `GET /models` and returns every id, so the kernel resolves any OpenRouter model id to this provider. `call()` posts to `/chat/completions` with `stream: true` and `usage: { include: true }` and yields `text`, `reasoning`, `tool_call`, `usage` and `error` events. |
 
 No steps, no tools, no service, no UI, no bench suites.
 
@@ -16,6 +16,7 @@ What `call()` does with a `ProviderCall`:
 
 - `call.system` becomes the first message with role `system`; an assistant message with `toolCalls` becomes `tool_calls` with JSON-encoded arguments; a `tool` message becomes `{ role: "tool", tool_call_id, name, content }`; `call.tools` become `function` tools.
 - The body is `{ model, messages, tools, stream, usage, ...defaults, ...call.params }`. The cache policy from `cache` is combined with `call.hints.cache` and `cache_control` markers are written by `applyOpenAiCompatible` from `@thetis/prompt-cache`. The hint's affinity token becomes the `user` field when the body has none.
+- A reasoning model's thinking arrives on the same deltas as the answer, under `reasoning` (OpenRouter's normalization) or `reasoning_content` (DeepSeek, llama.cpp, and upstreams OpenRouter passes through); whichever came becomes a `reasoning` event. It is never folded into `text`: the thinking is not the reply, and nothing downstream keeps it.
 - Streamed tool call fragments are joined by index and emitted after the stream ends. Invalid JSON in arguments becomes `{ _raw: "<text>" }`.
 - Every usage chunk passes through `normalizeUsage`: `prompt_tokens`, `completion_tokens`, `total_tokens`, `cost`, `cache_read_tokens`, `cache_write_tokens`, `cache_read_ratio`, `reasoning_tokens`.
 - A transient refusal (`408`, `409`, `425`, `429`, `5xx`, or a `402` whose body names `in_flight_budget`) is tried again up to `retries` times, waiting for the `Retry-After` header, else the hint in the body, else 1, 2, 4 seconds, capped at 120 seconds. A final refusal (`401`, an empty account) becomes an `error` event at once, as `openrouter <status>: <message> (<reason>)`.
@@ -30,7 +31,7 @@ What `call()` does with a `ProviderCall`:
 | `apiKey` | `${OPENROUTER_API_KEY}` | The OpenRouter key. The manifest's default is the reference; put the key in `.env` and the config service resolves it at read time. |
 | `baseUrl` | `https://openrouter.ai/api/v1` | The API root. |
 | `headers` | `{}` | Extra request headers, merged over `Authorization`, `HTTP-Referer` and `X-Title`. |
-| `defaults` | `{}` | Request fields sent with every call, under `call.params`. Set `max_tokens` here. |
+| `defaults` | `{}` | Request fields sent with every call, under `call.params`. Set `max_tokens` here, and whatever turns reasoning on. |
 | `cache` | `{}` | The prompt caching policy: `enabled`, `ttl`, `systemTtl`, `anchorStride`, `maxBreakpoints`, `explicitVendors`, `overrides`, `hints` (`ignore`, `tune` or `override`), `affinity`. See `@thetis/prompt-cache`. |
 | `retries` | `3` | How many times a transient refusal is tried again. |
 
@@ -61,6 +62,20 @@ thetis send --user alice "hello"
 ```
 
 The model of a turn is `config.model` (`anthropic/claude-sonnet-5` by default), the one a person picked in the web gateway, or whatever a step sets in `call.model`. Model ids are OpenRouter ids. `thetis send` and `thetis chat` print the usage line with `cache_read_tokens` and `cache_write_tokens` under each reply.
+
+## Reasoning
+
+Nothing in the request code asks a model to think: `defaults` is spread into the body as it is, so the deployment decides. `"defaults": { "reasoning": {} }` asks OpenRouter for the model's default effort, `{ "reasoning": { "effort": "high" } }` or `{ "reasoning": { "max_tokens": 4096 } }` sizes it, and `{ "include_reasoning": true }` is the older spelling that some upstreams still answer to. A model with no reasoning to report simply sends none, and the provider yields nothing.
+
+Reasoning tokens are output tokens: they count against `defaults.max_tokens` and against the bill, and `normalizeUsage` reports them separately as `reasoning_tokens` when the model says how many it spent.
+
+```json
+"packages": {
+  "@thetis/provider-openrouter": {
+    "defaults": { "max_tokens": 32768, "reasoning": { "effort": "medium" } }
+  }
+}
+```
 
 ## Files
 

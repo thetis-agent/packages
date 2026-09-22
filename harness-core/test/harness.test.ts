@@ -334,6 +334,20 @@ test("callModel: a tool that throws yields error: <message>, emitted as its resu
   assert.equal(out.conversation!.at(-1)!.content, "after");
 });
 
+test("callModel: reasoning is forwarded as its own event and is in no message", async () => {
+  const script: Script = async (_round, _call, onEvent) => {
+    onEvent({ type: "reasoning", delta: "let me " });
+    onEvent({ type: "reasoning", delta: "think" });
+    onEvent({ type: "text", delta: "the answer" });
+  };
+  const { ctx, events } = loopCtx(script);
+  const out = await callModel(ctx);
+  assert.deepEqual(events.map((e) => e.type), ["reasoning", "reasoning", "text", "message"], "each chunk is relayed as it arrives, in order");
+  assert.deepEqual(events.filter((e) => e.type === "reasoning").map((e) => (e as { delta: string }).delta), ["let me ", "think"]);
+  assert.equal(out.conversation!.at(-1)!.content, "the answer", "the thinking is not part of the reply");
+  assert.ok(!JSON.stringify(out.conversation).includes("think"), "and nothing of it is kept in the conversation");
+});
+
 test("callModel: usage rides on the message event and is emitted on its own; a call with messages already shaped is sent as it is", async () => {
   const script: Script = async (_round, call, onEvent) => {
     onEvent({ type: "text", delta: `saw ${call.messages.length}` });

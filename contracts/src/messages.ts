@@ -41,8 +41,15 @@ export interface ProviderCall {
   hints?: Record<string, unknown>;
 }
 
+/**
+ * What a provider streams. `reasoning` is a reasoning model's thinking, and it is a kind of its own rather
+ * than more `text`: it is not the answer, it is not sent back on the next turn, and mixing it into the reply
+ * would put a wall of deliberation above every sentence the model meant to say. A provider that has no such
+ * thing simply never yields it.
+ */
 export type ProviderEvent =
   | { type: "text"; delta: string }
+  | { type: "reasoning"; delta: string }
   | { type: "tool_call"; call: ToolCall }
   | { type: "usage"; usage: Record<string, number> }
   | { type: "error"; message: string };

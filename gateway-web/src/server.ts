@@ -5,15 +5,16 @@
 // answers only when the token names this fence's user. What installed packages add to the page (their
 // browser files and commands) is composed and checked in ui.ts and mounted here under `ext/` and `api/`.
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { KernelClient, Message, ModelChoices, SessionRecord, SessionSummaryRef, StepEnv, UserRole } from "@thetis/contracts";
 import { withoutTurnContext } from "@thetis/harness-core";
-import { HttpError, json, readJson } from "./http.js";
+import { HttpError, json, readBytes, readJson } from "./http.js";
 import { handlePanel } from "./panel.js";
 import { serveFile } from "./static.js";
-import type { GatewayStore, SessionUsage } from "./store.js";
+import { sniffImage, type GatewayStore, type SessionUsage } from "./store.js";
 import { TurnHub, type RunningTurn } from "./turns.js";
 import { composeUi, openStream, runCommand, serveExt } from "./ui.js";
 
@@ -35,6 +36,13 @@ export interface GatewayOptions {
 
 const COOKIE = "thetis_web";
 const MODELS_TTL_MS = 60_000;
+/**
+ * How large an uploaded avatar may be. It is a 22-pixel tile in the footer and a 34-pixel one in the
+ * gutter, so half a megabyte is already far more than the picture can ever show; the number is here to
+ * bound what an authenticated person can make the gateway hold in memory and write into their home, not
+ * to be generous. The page shrinks anything bigger before it sends, so the limit rarely reaches anyone.
+ */
+const AVATAR_LIMIT = 512 * 1024;
 
 export interface SessionSummary {
   id: string;
@@ -139,7 +147,24 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       req.on("close", () => abort.abort());
       return pump(res, await openStream(ctx, who!, seg[2], seg[3], seg[4], url.searchParams, abort.signal), abort.signal);
     }
-    if (seg[1] === "me" && method === "GET") return json(res, 200, { user, role: who!.role });
+    if (seg[1] === "me" && seg.length === 2 && method === "GET") return json(res, 200, { user, role: who!.role, avatar: avatarUrl(user) });
+    if (seg[1] === "me" && seg[2] === "avatar" && seg.length === 3) {
+      if (method === "GET") return sendAvatar(res, user);
+      if (method === "PUT") {
+        // The page sends the `File` itself as the body: raw bytes, no multipart, and so no parser to get
+        // wrong. The declared type travels only so a refusal can quote it back — what the file is, is read
+        // off its first bytes, here and again in the store. `checkSameSite` above has already run, so a
+        // page on another origin cannot post here with this person's cookie.
+        const bytes = await readBytes(req, AVATAR_LIMIT, "That image");
+        if (!sniffImage(bytes)) throw new HttpError(415, "That file is not a PNG, JPEG, WebP or GIF image.");
+        store.setAvatar(user, bytes, String(req.headers["content-type"] ?? ""));
+        return json(res, 200, { avatar: avatarUrl(user) });
+      }
+      if (method === "DELETE") {
+        store.deleteAvatar(user);
+        return json(res, 200, { avatar: null });
+      }
+    }
     if (seg[1] === "events" && method === "GET") return stream(req, res, user);
     if (seg[1] === "models" && seg.length === 2 && method === "GET") return json(res, 200, await modelChoices());
     if (await handlePanel(kernel, req, res, who!, seg, method, url)) return;
@@ -202,6 +227,38 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     if (!token || !/^[a-f0-9]{64}$/.test(token)) return undefined;
     const who = await kernel.auth.authenticate(token);
     return who && who.id === opts.user ? who : undefined;
+  }
+
+  /**
+   * The URL of the person's own picture, or null. The `v` is when the picture was written: the response
+   * says `no-store`, so this is not about caches but about the `<img>` element, which does not fetch a
+   * `src` that did not change — without it the person who just replaced their picture would keep seeing
+   * the old one until the next reload.
+   */
+  function avatarUrl(user: string): string | null {
+    const held = store.getAvatar(user);
+    return held ? `${base}/api/me/avatar?v=${Math.round(held.at)}` : null;
+  }
+
+  /**
+   * Sends the picture with the type its own bytes said it was, never one the uploader named. Every response
+   * from this server already carries `X-Content-Type-Options: nosniff`, so a browser will treat it as that
+   * type and nothing else; together with the four types the store accepts — SVG deliberately not among them
+   * — there is no way for an uploaded file to become a document running on this person's origin. `no-store`
+   * because the URL is the same after a replacement and a stale copy would outlive the picture it shows.
+   * A file gone between the store's map and this read is simply a 404: the person removed it mid-request.
+   */
+  function sendAvatar(res: ServerResponse, user: string): void {
+    const held = store.getAvatar(user);
+    let bytes: Buffer | undefined;
+    try {
+      if (held) bytes = readFileSync(held.path);
+    } catch {
+      bytes = undefined;
+    }
+    if (!held || !bytes) throw new HttpError(404, "no avatar");
+    res.writeHead(200, { "Content-Type": held.mime, "Content-Length": bytes.length, "Cache-Control": "no-store" });
+    res.end(bytes);
   }
 
   async function modelChoices(): Promise<ModelChoices> {

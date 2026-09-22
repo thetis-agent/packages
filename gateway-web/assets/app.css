@@ -175,6 +175,16 @@ body { display: flex; flex-direction: column; }
 .foot-identity { --avatar-lg: 22px; }
 .foot-identity .turn-initial { font-size: 10px; }
 .foot-identity .status { margin-left: auto; flex: none; }
+/* The footer face is the control that changes it, so it is a button with nothing of a button about it:
+   the tile is the whole target, and the ring on hover and on keyboard focus is what says it can be used. */
+.foot-face { appearance: none; flex: none; padding: 0; border: 0; background: none; line-height: 0; border-radius: var(--r-md); cursor: pointer; }
+.foot-face:focus-visible { outline: none; }
+.foot-face:hover .turn-avatar, .foot-face:focus-visible .turn-avatar { box-shadow: inset 0 0 0 1px var(--hairline-strong), 0 0 0 2px var(--accent-edge); }
+/* Shown only while there is a picture to take off. Small and beside the face, because that is where the
+   picture was put on and undoing it anywhere else would be a thing to go and look for. */
+.foot-face-clear { display: grid; place-items: center; flex: none; width: 16px; height: 16px; margin-left: -2px; align-self: flex-start; border-radius: 50%; }
+.foot-face-clear svg { width: 10px; height: 10px; }
+.foot-face-clear:hover, .foot-face-clear:focus-visible { color: var(--text); background: var(--surface-3); outline: none; }
 .foot-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); color: var(--text); }
 .foot-actions form { display: inline-flex; margin: 0; }
 .foot-action {
@@ -800,6 +810,9 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .msg > .turn-avatar { position: absolute; right: calc(100% + var(--gap-3)); top: 2px; }
 .msg > .turn-avatar.is-person { right: auto; left: calc(100% + var(--gap-3)); }
 .turn-initial { font-size: var(--text-sm); font-weight: 650; letter-spacing: .01em; color: #ffffff; }
+/* An uploaded picture fills the tile and is clipped by it: `cover` centres and crops a photo of any shape
+   rather than squashing it, and `inherit` takes whatever corner the tile has at the size it is drawn. */
+.turn-avatar .turn-img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
 .turn-avatar.is-agent { background: var(--accent-wash); box-shadow: inset 0 0 0 1px var(--accent-edge); }
 .turn-avatar.is-agent .turn-initial { color: var(--accent); }
 
@@ -1565,4 +1578,42 @@ select.input { padding-right: 24px; }
   .panel-nav { width: auto; max-height: 40vh; border-right: 0; border-bottom: 1px solid var(--hairline); }
   .panel-main { padding: var(--gap-3); }
   .input[type="search"] { width: 100%; }
+}
+
+/* Reasoning: a model's thinking, which is not its answer. Deliberately quieter than the reply — dim, smaller,
+ * monospaced — so a long think reads as machinery rather than as content. Open while it streams, folded and
+ * relabelled once the answer arrives. Nothing persists it, so it is only ever seen live. */
+.reasoning {
+  border-left: 2px solid var(--hairline-strong);
+  padding-left: 10px;
+  margin: 2px 0;
+}
+.reasoning > summary {
+  cursor: pointer;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  letter-spacing: .02em;
+  list-style: none;
+  user-select: none;
+}
+.reasoning > summary::-webkit-details-marker { display: none; }
+.reasoning > summary::before {
+  content: "\25B8";
+  display: inline-block;
+  width: 1em;
+  transition: transform var(--fast) var(--ease);
+}
+.reasoning[open] > summary::before { transform: rotate(90deg); }
+.reasoning > summary:hover { color: var(--text-dim); }
+.reasoning-text {
+  margin-top: 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  /* A very long think must not push the answer off-screen. */
+  max-height: 14em;
+  overflow-y: auto;
 }

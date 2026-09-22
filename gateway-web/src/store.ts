@@ -1,10 +1,11 @@
 // UI state the gateway owns: which conversations each user archived, the name and the model each
-// person chose for a conversation, and the accounting reported for each reply so a reopened
-// transcript can show it. Kept in the gateway's own directory inside the userspace home, one small
-// file per conversation, so a change to one conversation rewrites that file and nothing else; the whole
-// set is read once at start and served from memory. Identity lives in the kernel, not here.
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+// person chose for a conversation, the accounting reported for each reply so a reopened transcript can
+// show it, and the picture a person uploaded for themselves. Kept in the gateway's own directory inside
+// the userspace home, one small file per conversation, so a change to one conversation rewrites that file
+// and nothing else; the whole set is read once at start and served from memory. Identity lives in the
+// kernel, not here — an avatar is decoration, which is why it may live in the gateway's own directory.
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { extname, resolve } from "node:path";
 
 /** Usage by conversation index of the assistant message it belongs to. */
 export type SessionUsage = Record<string, Record<string, number | string>>;
@@ -31,17 +32,69 @@ interface Prefs {
   model?: string;
 }
 
+/**
+ * The picture types a person may upload, each named by the bytes an image of that type begins with. The
+ * list is short on purpose. SVG is not on it: an SVG is a document that can carry script, and it would be
+ * served from this person's own origin, so an uploaded one would be a way to run code as them. The check
+ * is on the bytes and never on the `Content-Type` the browser declared, because the browser's word about a
+ * file it was handed is the uploader's word, and the uploader is the one we are guarding against.
+ */
+const IMAGE_TYPES: { mime: string; ext: string; looksLike: (bytes: Buffer) => boolean }[] = [
+  { mime: "image/png", ext: ".png", looksLike: (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) },
+  { mime: "image/jpeg", ext: ".jpg", looksLike: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
+  { mime: "image/gif", ext: ".gif", looksLike: (b) => b.subarray(0, 6).toString("latin1") === "GIF87a" || b.subarray(0, 6).toString("latin1") === "GIF89a" },
+  // A WebP is a RIFF container whose form type sits four bytes past the length, so both markers are read.
+  { mime: "image/webp", ext: ".webp", looksLike: (b) => b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WEBP" },
+];
+
+/** The type a file on disk holds, by its extension: the reverse of `IMAGE_TYPES`, for the read at start. */
+const MIME_BY_EXT = Object.fromEntries(IMAGE_TYPES.map((t) => [t.ext, t.mime]));
+
+/** The type these bytes really are, or undefined when they are not one of the four. */
+export function sniffImage(bytes: Buffer): { mime: string; ext: string } | undefined {
+  const match = bytes.length >= 12 ? IMAGE_TYPES.find((t) => t.looksLike(bytes)) : undefined;
+  return match ? { mime: match.mime, ext: match.ext } : undefined;
+}
+
+/** A person's uploaded picture, as the route that serves it needs it. */
+export interface StoredAvatar {
+  path: string;
+  mime: string;
+  /**
+   * When the file was written, in milliseconds. It is the `v` of the URL the page draws: the response
+   * carries `Cache-Control: no-store`, so this is not about caching but about the `<img>` element — a `src`
+   * that did not change is not fetched again, and the person who just replaced their picture would go on
+   * seeing the old one until the next reload.
+   */
+  at: number;
+}
+
+/**
+ * A file name is built from a user id here, so the id has to be a name and never a path. The kernel already
+ * refuses anything else (`[a-z][a-z0-9-]{0,31}`) and this gateway only ever serves the one person it was
+ * started for, but the check belongs at the line where a name becomes a path: a `..` that reached it would
+ * write outside the directory, and nothing downstream would notice.
+ */
+function fileNameOf(user: string): string {
+  if (!/^[a-z][a-z0-9-]{0,31}$/.test(user)) throw new Error(`invalid user id: ${user}`);
+  return user;
+}
+
 export class GatewayStore {
   private readonly dir: string;
   private readonly prefsDir: string;
+  private readonly avatarsDir: string;
   private readonly entries = new Map<string, Entry>(); // "user/session" -> what is kept about it
   private readonly prefs = new Map<string, Prefs>(); // user -> what is kept about the person
+  private readonly avatars = new Map<string, { ext: string; mime: string; at: number }>(); // user -> the picture on disk
 
   constructor(dir: string) {
     this.dir = resolve(dir, "sessions");
     this.prefsDir = resolve(dir, "prefs");
+    this.avatarsDir = resolve(dir, "avatars");
     mkdirSync(this.dir, { recursive: true });
     mkdirSync(this.prefsDir, { recursive: true });
+    mkdirSync(this.avatarsDir, { recursive: true });
     this.migrate(resolve(dir, "state.json"));
     for (const user of readdirSync(this.dir)) {
       for (const file of readdirSync(resolve(this.dir, user))) {
@@ -52,6 +105,15 @@ export class GatewayStore {
     for (const file of readdirSync(this.prefsDir)) {
       if (!file.endsWith(".json")) continue;
       this.prefs.set(file.slice(0, -5), JSON.parse(readFileSync(resolve(this.prefsDir, file), "utf8")) as Prefs);
+    }
+    // Which picture each person has, and how old it is, read once. A name with any other extension is
+    // skipped rather than cleaned up: a `.tmp` left by a machine that died mid-write is the only thing
+    // that can be there, it is harmless, and the next upload of that type renames over it anyway.
+    for (const file of readdirSync(this.avatarsDir)) {
+      const ext = extname(file);
+      const mime = MIME_BY_EXT[ext];
+      if (!mime) continue;
+      this.avatars.set(file.slice(0, -ext.length), { ext, mime, at: statSync(resolve(this.avatarsDir, file)).mtimeMs });
     }
   }
 
@@ -74,6 +136,54 @@ export class GatewayStore {
     const tmp = `${file}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify(next));
     renameSync(tmp, file);
+  }
+
+  /**
+   * Where a person's picture of a given type lives. The extension is part of the name so the bytes on disk
+   * and the type served with them can never drift apart: there is no sidecar to fall out of step with, and
+   * a directory listing says what each file is. With no extension given, it answers the path of the picture
+   * the person has now, and an empty-ish path (no extension at all) when they have none.
+   */
+  avatarPath(user: string, ext = this.avatars.get(user)?.ext ?? ""): string {
+    return resolve(this.avatarsDir, `${fileNameOf(user)}${ext}`);
+  }
+
+  /** The picture the person has, or undefined. The file is not read here; the route sends it. */
+  getAvatar(user: string): StoredAvatar | undefined {
+    const held = this.avatars.get(user);
+    return held ? { path: this.avatarPath(user, held.ext), mime: held.mime, at: held.at } : undefined;
+  }
+
+  /**
+   * Keeps `bytes` as the person's picture and answers what it turned out to be. The type is decided here,
+   * from the bytes, and the caller's opinion of it is not consulted: an upload is whatever it is, not
+   * whatever it claims. Bytes that are none of the four are refused rather than kept as some default,
+   * because a file the page will later hand a browser as an image has to actually be one.
+   *
+   * The write goes to a temp file and is renamed into place, so a reader either sees the whole old picture
+   * or the whole new one and never a half-written file. Two uploads racing is two of these calls, and each
+   * is synchronous from the temp write to the map: they cannot interleave, so the second simply wins, whole.
+   * The rename comes before the removal of a picture of some other type, so no instant has two files for
+   * one person — the order matters, because the reverse would leave the person with no picture if the
+   * process died between the two steps.
+   */
+  setAvatar(user: string, bytes: Buffer, mime?: string): StoredAvatar {
+    const kind = sniffImage(bytes);
+    if (!kind) throw new Error(`that file is not a PNG, JPEG, WebP or GIF image${mime ? ` (it was sent as ${mime})` : ""}`);
+    const file = this.avatarPath(user, kind.ext);
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, bytes);
+    renameSync(tmp, file);
+    for (const other of IMAGE_TYPES) if (other.ext !== kind.ext) rmSync(this.avatarPath(user, other.ext), { force: true });
+    const at = Date.now();
+    this.avatars.set(user, { ext: kind.ext, mime: kind.mime, at });
+    return { path: file, mime: kind.mime, at };
+  }
+
+  /** Removes the person's picture, whatever type it was. Removing one they never had is not an error. */
+  deleteAvatar(user: string): void {
+    for (const type of IMAGE_TYPES) rmSync(this.avatarPath(user, type.ext), { force: true });
+    this.avatars.delete(user);
   }
 
   archived(user: string): Set<string> {

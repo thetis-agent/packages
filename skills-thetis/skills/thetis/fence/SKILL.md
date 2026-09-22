@@ -13,7 +13,7 @@ The fence is the boundary around one userspace. All package code runs inside a f
 
 ## What you see
 
-In mode `bwrap` the fence binds, in this order:
+In mode `bwrap` the fence binds these, ordered by path depth so that a parent is always mounted before anything inside it and nothing can land on top of anything else:
 
 1. `/dev`, `/proc`, and an empty `/tmp`.
 2. An empty tmpfs over each hidden path. The default hides `$THETIS_HOME`.
@@ -22,7 +22,7 @@ In mode `bwrap` the fence binds, in this order:
 5. In network mode `egress`, a resolver file at `/etc/resolv.conf`.
 6. The host's Docker socket at `/var/run/docker.sock`, read-only, when this installation gives fences Docker.
 7. Read-write: the userspace root. The working directory is `home`.
-8. Each mount of the user, at its host path, `rw` or `ro` as granted. A mount comes after the binds above, so it wins over a read-only parent.
+8. Each mount of the user, at its host path, `rw` or `ro` as granted. A mount is a grant, and a grant is not taken back: it wins over a read-only bind of the same path, and a read-only bind of a host path *inside* an `rw` mount is bound read-write instead of eating a hole in it. The two exceptions are policy rather than convenience: anything behind a hidden tmpfs inside the mount (so a mount over `$THETIS_HOME`'s parent still cannot write the shared directory or the promoted packages), and a bind whose source is some other host path (the resolver, the ssh files, the cgroup).
 
 You do not see `$THETIS_HOME`, other userspaces, `/home`, or the host `/tmp`. You have no capabilities. You cannot make a nested user namespace. The process dies with the kernel.
 
@@ -31,7 +31,7 @@ You do not see `$THETIS_HOME`, other userspaces, `/home`, or the host `/tmp`. Yo
 | `<userspace>/home`, `store`, `sessions`, `run` | Read and write. |
 | `$THETIS_HOME/shared` | Read only. The system userspace writes it. |
 | `$THETIS_HOME/packages` | Read only. |
-| `<root>/packages`, `<root>/node_modules` | Read only. The shipped code. |
+| `<root>/packages`, `<root>/node_modules` | Read only. The shipped code — unless one of your `rw` mounts covers the checkout, in which case it is read and write, because the grant says so. |
 | The operating system | Read only. |
 | A mount with mode `rw` | Read and write. |
 | A mount with mode `ro` | Read only. |

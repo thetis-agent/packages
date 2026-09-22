@@ -176,6 +176,12 @@ async function callOnce(ctx: PackageStepContext, call: ProviderCall, partial: { 
     if (e.type === "text") {
       partial.text += e.delta;
       ctx.emit({ type: "text", delta: e.delta });
+    } else if (e.type === "reasoning") {
+      // Forwarded and then forgotten. A reasoning model's thinking is worth watching while it happens, so a
+      // long wait is visibly a model working rather than a stall, but it is not the answer: it never joins
+      // `partial.text`, so it is in no assistant message, in no saved conversation and in nothing sent back
+      // on the next turn. A gateway that redraws a record therefore redraws no thinking, which is right.
+      ctx.emit({ type: "reasoning", delta: e.delta });
     } else if (e.type === "tool_call") {
       round.toolCalls.push(e.call);
       ctx.emit({ type: "tool.call", call: e.call });

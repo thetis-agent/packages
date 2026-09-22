@@ -251,10 +251,49 @@ test("login: a wrong password is refused; success sets the cookie and lands on t
   const cookie = setCookie.split(";")[0];
   const me = await api(cookie, "/alice/api/me");
   assert.equal(me.status, 200);
-  assert.deepEqual(await me.json(), { user: "alice", role: "user" });
+  assert.deepEqual(await me.json(), { user: "alice", role: "user", avatar: null }, "nobody has uploaded a picture yet");
   const home = await fetch(`${base}/`, { headers: { cookie }, redirect: "manual" });
   assert.equal(home.headers.get("location"), "/alice/", "the root sends a signed-in person home");
   assert.equal((await api(cookie, "/alice/")).status, 200);
+});
+
+test("an avatar is the bytes it really is, is served back with that type, and can be taken off again", async () => {
+  const cookie = await cookieFor("alice", "wonderland");
+  const at = "/alice/api/me/avatar";
+  assert.equal((await api(cookie, at)).status, 404, "nobody has one to begin with");
+  // A one-pixel PNG, offered as something else entirely: what a browser calls a file it was handed is the
+  // uploader's word for it, so the gateway reads the first bytes and believes those instead.
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+  const put = await api(cookie, at, { method: "PUT", body: png, headers: { "content-type": "text/plain" } });
+  assert.equal(put.status, 200);
+  const { avatar } = (await put.json()) as { avatar: string };
+  assert.match(avatar, /^\/alice\/api\/me\/avatar\?v=\d+$/, "the URL carries when the picture was written");
+  const shown = await api(cookie, at);
+  assert.equal(shown.status, 200);
+  assert.equal(shown.headers.get("content-type"), "image/png");
+  assert.equal(shown.headers.get("cache-control"), "no-store");
+  assert.equal(shown.headers.get("x-content-type-options"), "nosniff", "the browser may not guess a type of its own");
+  assert.deepEqual(Buffer.from(await shown.arrayBuffer()), png);
+  assert.equal(((await (await api(cookie, "/alice/api/me")).json()) as { avatar: string }).avatar, avatar);
+  // A picture of another type replaces the first one, file and all: one person has one picture.
+  const gif = Buffer.concat([Buffer.from("GIF89a", "latin1"), Buffer.alloc(12, 1)]);
+  assert.equal((await api(cookie, at, { method: "PUT", body: gif })).status, 200);
+  assert.equal((await api(cookie, at)).headers.get("content-type"), "image/gif");
+  const store = new GatewayStore(join(home, "store", "alice"));
+  assert.equal(store.getAvatar("alice")?.mime, "image/gif");
+  assert.ok(!existsSync(store.avatarPath("alice", ".png")), "the picture it replaced is gone, not left beside it");
+  // Something that is not a picture at all, and something far too large, are both refused in words.
+  const notAnImage = await api(cookie, at, { method: "PUT", body: Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'/>") });
+  assert.equal(notAnImage.status, 415);
+  assert.equal(((await notAnImage.json()) as { error: string }).error, "That file is not a PNG, JPEG, WebP or GIF image.");
+  const tooBig = await api(cookie, at, { method: "PUT", body: Buffer.concat([png, Buffer.alloc(512 * 1024)]) });
+  assert.equal(tooBig.status, 413);
+  assert.equal(((await tooBig.json()) as { error: string }).error, "That image is larger than 512 KB.");
+  assert.equal((await api(cookie, at)).headers.get("content-type"), "image/gif", "a refused upload left the old picture alone");
+  assert.equal((await api(cookie, at, { method: "DELETE" })).status, 200);
+  assert.equal((await api(cookie, at)).status, 404);
+  assert.equal(((await (await api(cookie, "/alice/api/me")).json()) as { avatar: null }).avatar, null);
+  assert.equal((await api(cookie, at, { method: "DELETE" })).status, 200, "taking off one that is not there is not an error");
 });
 
 test("the page carries a style nonce, the policy names that same nonce, and a second visit gets another", async () => {

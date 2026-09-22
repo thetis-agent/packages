@@ -44,12 +44,18 @@ export interface TurnOptions {
  * What a turn streams. The kernel emits the six about the turn and its steps; a step emits the rest through
  * `ctx.emit` and the kernel relays them as they are. `usage` is summed into the journal; the first `error`
  * is the turn's failure.
+ *
+ * `text` and `reasoning` are transient: they are what the answer looked like while it arrived, and the
+ * `message` event carries the answer itself. `reasoning` is transient twice over, because nothing keeps it at
+ * all — a reasoning model's thinking is not part of the message, so a gateway redrawing a saved conversation
+ * has no thinking to redraw, and a gateway that does not know the kind can ignore it.
  */
 export type TurnEvent =
   | { type: "turn.start"; turn: string; session: string }
   | { type: "step.start"; step: StepRef }
   | { type: "step.end"; step: StepRef; ms: number }
   | { type: "text"; delta: string }
+  | { type: "reasoning"; delta: string }
   | { type: "tool.call"; call: ToolCall }
   | { type: "tool.result"; id: string; name: string; result: string }
   | { type: "message"; message: Message; usage?: Record<string, number> }

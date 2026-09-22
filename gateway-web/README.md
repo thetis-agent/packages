@@ -14,7 +14,10 @@ All relative to `/<user>`. Every `/api/*` and `/ext/*` route needs the cookie; a
 |---|---|
 | `GET /` | The app page. Redirects to `/login` without a valid cookie. |
 | `GET /assets/<file>` | The gateway's own browser files. |
-| `GET /api/me` | `{ user, role }`. |
+| `GET /api/me` | `{ user, role, avatar }`. `avatar` is the URL of the picture the person uploaded, or `null`. |
+| `GET /api/me/avatar` | That picture, with the type its own bytes say it is, `no-store`; 404 when there is none. |
+| `PUT /api/me/avatar` | Replaces it. The body is the file itself — raw bytes, no multipart — up to 512 KB. The type is read off the first bytes and never from `Content-Type`: PNG, JPEG, WebP and GIF, and nothing else (an SVG is a document that can carry script, so it is not on the list). Answers `{ avatar }` with a fresh `?v=`. |
+| `DELETE /api/me/avatar` | Takes it off again. Removing one that is not there is not an error. |
 | `GET /api/sessions`, `POST /api/sessions` | The person's conversations, newest first; create one. A new conversation starts with the model the person chose last (`prefs/<user>.json`); the answer carries it as `model`. |
 | `GET /api/sessions/<id>` | The record with `status`, `archived`, `turn`, `usage`, `model` and `title`. |
 | `POST /api/sessions/<id>/send`, `/cancel`, `/archive`, `/model`, `/title` | Start a turn, stop it, archive or restore, choose the model, name the conversation. |
@@ -72,7 +75,7 @@ The panel's navigation is a tree view (`assets/lib/tree.js`: `role="tree"`, disc
 
 ## Use
 
-A person opens `/login`, signs in, and lands on `/<person>/`. The sidebar lists their conversations grouped by day, with a search box and a `+` button. The ≡ menu in its head opens the places: **Control panel**, and whatever installed packages add (**Marketplace** from `@thetis/ui-marketplace`, **Project** from `@thetis/projects`). The footer shows who is signed in and **Log out**. The composer sends on Enter; the model pill chooses a model per conversation. The transcript streams the reply, folds tool calls into runs, and puts a footnote with the model, cache share, tokens and cost under each reply. The rail holds one button per registered dock. The control panel takes over the main pane; Escape or its close button returns to the conversation. Its Packages section is built in; every other section, dock, place and chip comes from an installed package.
+A person opens `/login`, signs in, and lands on `/<person>/`. The sidebar lists their conversations grouped by day, with a search box and a `+` button. The ≡ menu in its head opens the places: **Control panel**, and whatever installed packages add (**Marketplace** from `@thetis/ui-marketplace`, **Project** from `@thetis/projects`). The footer shows who is signed in and **Log out**; clicking the face there chooses an image from the machine — the page shrinks anything larger than 256 pixels before it sends — and the × beside it goes back to the initials. The composer sends on Enter; the model pill chooses a model per conversation. The transcript streams the reply, shows a reasoning model's thinking in a fold above it that closes when the answer starts, folds tool calls into runs, and puts a footnote with the model, cache share, tokens and cost under each reply. The thinking is live only: nothing saves it, so a reload shows the conversation without it. The rail holds one button per registered dock. The control panel takes over the main pane; Escape or its close button returns to the conversation. Its Packages section is built in; every other section, dock, place and chip comes from an installed package.
 
 ## Files
 
@@ -84,7 +87,7 @@ A person opens `/login`, signs in, and lands on `/<person>/`. The sidebar lists 
 | `src/panel.ts`, `src/http.ts` | The Packages routes and the HTTP helpers. |
 | `src/static.ts` | `serveFile` and the table of file types the page may load. |
 | `src/turns.ts` | `TurnHub`: runs turns in the background and feeds the event streams. |
-| `src/store.ts` | `GatewayStore`: archive flags, names, chosen models and per-reply usage, one file per conversation under `home/gateway-web/sessions/<user>/`; an older `state.json` is migrated on first start and kept as `state.json.migrated`. |
+| `src/store.ts` | `GatewayStore`: archive flags, names, chosen models and per-reply usage, one file per conversation under `home/gateway-web/sessions/<user>/`; an older `state.json` is migrated on first start and kept as `state.json.migrated`. Uploaded avatars live beside them in `avatars/<user>.<ext>`, the extension naming the type so the bytes and the type served with them cannot drift apart. |
 | `src/client.ts` | `clientFromRpc(rpc)`: a `KernelClient` over a raw RPC function. |
 | `assets/` | The browser code: plain ES modules, no build step. `lib/ext.js` is the browser side of the seam. |
 

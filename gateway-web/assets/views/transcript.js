@@ -101,6 +101,8 @@ function agentsOfRecord(record) {
  */
 export function mountTranscript(root, { session, nested = false, brief = false, catchUp: outerCatchUp, onOpenAgent } = {}) {
   let live = null;        // { node, textEl, text }
+  let thinking = null;    // { node, textNode } collecting streamed reasoning, or null. Per instance, not per module:
+                          // a nested agent block has its own instance, and its child's thinking is not this one's.
   let settled = null;     // the last settled bubble: { node, text }, so the message event can add its usage
   let pendingRow = null;  // the reader's own message awaiting the server's echo
   let run = null;         // the open run of tool cards, or null
@@ -167,6 +169,7 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   function reset() {
     clear(root);
     live = null;
+    thinking = null;
     settled = null;
     pendingRow = null;
     run = null;
@@ -186,7 +189,8 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
 
   function face(kind) {
     if (kind === "assistant") return avatarFor("agent", "Thetis");
-    return kind === "user" && !brief ? avatarFor("person", store.get("user")?.user || "You") : null;
+    const me = store.get("user");
+    return kind === "user" && !brief ? avatarFor("person", me?.user || "You", me?.avatar) : null;
   }
 
   function row(kind, ...children) {
@@ -223,6 +227,30 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     run = null; // a renderer's row is message-level, like a bubble, not part of a tool run
     if (out instanceof Node) place(out);
     return true;
+  }
+
+  /**
+   * The open thinking block, made on the first chunk. A reasoning model can spend most of a turn here, so the
+   * wait is shown as work rather than as a stall — but quietly and in its own fold, because it is not the
+   * answer and must never read as one.
+   */
+  function openThinking() {
+    if (thinking) return thinking;
+    const textNode = document.createTextNode("");
+    const box = el("details", { class: "reasoning", open: "" }, el("summary", {}, "Thinking\u2026"), el("div", { class: "reasoning-text" }, textNode));
+    thinking = { node: row("assistant", box), textNode };
+    return thinking;
+  }
+
+  /** Folds the thinking away and says it is over. Called wherever the turn moves on, so it absorbs nothing later. */
+  function settleThinking() {
+    if (!thinking) return;
+    const box = thinking.node.querySelector("details.reasoning");
+    thinking = null;
+    if (!box) return;
+    box.removeAttribute("open");
+    const label = box.querySelector("summary");
+    if (label) label.textContent = "Thought for a moment";
   }
 
   function openLive() {
@@ -692,6 +720,8 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
         else if (input) userRow(input);
         break;
       case "text": {
+        // The answer has begun, so the thinking is done: fold it rather than leave a wall of it above the reply.
+        settleThinking();
         const bubble = openLive();
         const delta = event.delta || "";
         bubble.text += delta;
@@ -699,7 +729,14 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
         catchUp();
         break;
       }
+      case "reasoning": {
+        const box = openThinking();
+        box.textNode.appendData(event.delta || ""); // grown in place, like the live bubble: a long think is many chunks
+        catchUp();
+        break;
+      }
       case "tool.call":
+        settleThinking();
         settleLive();
         if (event.call?.name === SPAWN_TOOL) {
           agentBlock({ callId: event.call.id, task: event.call.args?.task, label: event.call.args?.label });
@@ -714,16 +751,19 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
         toolResult(event.id, event.name, event.result);
         break;
       case "message":
+        settleThinking();
         if (event.message?.role !== "assistant") break;
         assistantMessage(event.message.content, event.usage);
         break;
       case "error":
+        settleThinking();
         settleLive();
         settleTools(event.code === "cancelled" ? "stopped" : "no result");
         if (event.code === "cancelled") note("Stopped.", "quiet");
         else note(`The turn failed: ${event.message || "no reason given"}`, "error");
         break;
       case "turn.end":
+        settleThinking();
         settleLive();
         settleTools();
         failLocal();

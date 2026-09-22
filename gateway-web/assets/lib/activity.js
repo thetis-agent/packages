@@ -27,6 +27,13 @@ export function applyActivity(session, event, startedAt, parent) {
       const builtin = event.step?.package === "@thetis/kernel";
       return store.setActivity(session, { ...record, step: builtin ? "Thinking" : stepName(event.step), tool: false });
     }
+    case "reasoning": {
+      // The model is thinking out loud. Worth a step of its own: on a reasoning model this is where most of
+      // a turn goes, and a row that said nothing until the first token would read as a stall.
+      if (had?.state !== "working") return;
+      if (had.step === "Thinking") return;
+      return store.setActivity(session, { ...had, step: "Thinking", tool: false });
+    }
     case "text": {
       if (had?.state !== "working") return;
       if (had.step === "Writing a reply") return;

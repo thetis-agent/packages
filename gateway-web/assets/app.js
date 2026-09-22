@@ -3,8 +3,8 @@
  * package uses. Everything that draws lives in views/; this file only connects them. */
 
 import { applyActivity, countWorking } from "./lib/activity.js";
-import { api, connect } from "./lib/api.js";
-import { avatarFor } from "./lib/avatar.js";
+import { api, apiBytes, connect } from "./lib/api.js";
+import { avatarFor, repaintPersonAvatars } from "./lib/avatar.js";
 import { $, clear, setHidden } from "./lib/dom.js";
 import { bindShell, broadcastTurn, createExt } from "./lib/ext.js";
 import { loadExtensions } from "./lib/loader.js";
@@ -212,13 +212,96 @@ function drawFavicon(working) {
 }
 store.watch("activity", () => drawFavicon(countWorking()));
 
-// --- identity ---
+// --- identity, and the picture the person chose for themselves ---
+
+/** What the server accepts. The page holds the same number, so a file it would only refuse is never sent. */
+const AVATAR_LIMIT = 512 * 1024;
+/** The longest side a stored picture needs: the tile is 22 or 34 pixels, and this leaves room for a dense screen. */
+const AVATAR_SIDE = 256;
+
+const faceButton = $("user-face");
+const faceInput = $("avatar-file");
+const faceClear = $("user-face-clear");
 
 store.watch("user", (user) => {
   $("user-name").textContent = user?.user || "";
-  const face = clear($("user-face"));
-  if (user?.user) face.append(avatarFor("person", user.user));
+  const face = clear(faceButton);
+  if (user?.user) face.append(avatarFor("person", user.user, user.avatar));
+  setHidden(faceClear, !user?.avatar);
 });
+
+/**
+ * Shrinks the chosen picture when it is larger than it will ever be drawn. A photo off a phone is several
+ * megabytes of pixels nobody will see; doing this here means the size limit almost never reaches anyone,
+ * and what ends up in the person's home is close to what the page actually uses. Answers null — keep the
+ * file as it is — in the three cases where redrawing it would be wrong or pointless: an animated GIF, which
+ * a canvas would silently reduce to one frame; a picture already small enough; and a file this browser
+ * cannot decode, which is sent untouched so that the server's own look at the bytes is what refuses it.
+ */
+async function shrink(file) {
+  if (file.type === "image/gif" || typeof createImageBitmap !== "function") return null;
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    return null;
+  }
+  const scale = Math.min(1, AVATAR_SIDE / Math.max(bitmap.width, bitmap.height));
+  if (scale === 1 && file.size <= AVATAR_LIMIT) {
+    bitmap.close?.();
+    return null;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close?.();
+  // A photograph re-encoded as PNG can come out larger than it went in, so a JPEG stays a JPEG; everything
+  // else becomes a PNG, which keeps whatever transparency the picture had.
+  const type = file.type === "image/jpeg" ? "image/jpeg" : "image/png";
+  return new Promise((done) => canvas.toBlob(done, type, 0.9));
+}
+
+async function uploadAvatar(file) {
+  const body = (await shrink(file)) || file;
+  if (body.size > AVATAR_LIMIT) {
+    toast(`That image is ${Math.round(body.size / 1024)} KB, and the limit is ${AVATAR_LIMIT / 1024} KB. Pick a smaller one.`, { tone: "error" });
+    return;
+  }
+  try {
+    const { avatar } = await apiBytes("/api/me/avatar", body);
+    showAvatar(avatar);
+    toast("That is your avatar now.", { tone: "good" });
+  } catch (err) {
+    toast(err.message, { tone: "error" });
+  }
+}
+
+async function removeAvatar() {
+  try {
+    await api("/api/me/avatar", { method: "DELETE" });
+    showAvatar(null);
+    toast("Your avatar is your initials again.", { tone: "good" });
+  } catch (err) {
+    toast(err.message, { tone: "error" });
+  }
+}
+
+/** The store carries it, so the footer redraws and every later transcript row is built with it; the rows
+ *  already on screen were built once and are repainted where they stand, because the person who just chose
+ *  a picture is looking straight at their own turns. */
+function showAvatar(avatar) {
+  store.set({ user: { ...store.get("user"), avatar: avatar || null } });
+  repaintPersonAvatars(avatar || null);
+}
+
+faceButton.addEventListener("click", () => faceInput.click());
+faceInput.addEventListener("change", () => {
+  const file = faceInput.files?.[0];
+  faceInput.value = ""; // so that choosing the same file a second time is still a change the page hears
+  if (file) void uploadAvatar(file);
+});
+faceClear.addEventListener("click", () => void removeAvatar());
 
 // --- the narrow-screen sidebar ---
 

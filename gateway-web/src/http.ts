@@ -17,15 +17,26 @@ export function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-export async function readBody(req: IncomingMessage): Promise<string> {
+/**
+ * The body as it arrived, byte for byte. `readBody` decodes to UTF-8, which is right for JSON and ruinous
+ * for anything else: an uploaded image would come back as replacement characters and be corrupt before any
+ * route saw it. The size is counted as the chunks arrive and the read is abandoned the moment it is over
+ * `limit`, so a body nobody asked for is never held in memory whole. `what` names the thing in the refusal,
+ * because the sentence is shown to the person who chose the file.
+ */
+export async function readBytes(req: IncomingMessage, limit = BODY_LIMIT, what = "the body"): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     size += (chunk as Buffer).length;
-    if (size > BODY_LIMIT) throw new HttpError(413, "body too large");
+    if (size > limit) throw new HttpError(413, `${what} is larger than ${Math.round(limit / 1024)} KB.`);
     chunks.push(chunk as Buffer);
   }
-  return Buffer.concat(chunks).toString("utf8");
+  return Buffer.concat(chunks);
+}
+
+export async function readBody(req: IncomingMessage): Promise<string> {
+  return (await readBytes(req)).toString("utf8");
 }
 
 export async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
