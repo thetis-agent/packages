@@ -166,6 +166,10 @@ test("auth: passwords, tokens, expiry, and revocation", async () => {
   const reopened = new AuthService(await mirror(driver, "auth/credentials"), await mirror(driver, "auth/tokens"), users);
   assert.equal(reopened.authenticate(login!.token)?.id, "alice", "tokens persist");
   users.setStatus("alice", "suspended");
+  // A suspension is a gate, not a revocation: the tokens stay, and `authorize` -- which both `authenticate`
+  // and `login` go through -- refuses them for as long as it lasts. Lifting the suspension is meant to give
+  // the person back exactly what they had, so nothing here destroys anything. Removal is the opposite: see
+  // `forget` below, and `removeUser` in packages/host/src/kernel.ts.
   assert.equal(auth.authenticate(login!.token), undefined, "a suspended user's token is refused");
   assert.equal(await auth.login("alice", "secret"), undefined);
   users.setStatus("alice", "active");
@@ -177,6 +181,14 @@ test("auth: passwords, tokens, expiry, and revocation", async () => {
   const last = (await auth.login("alice", "other"))!;
   auth.logout(last.token);
   assert.equal(auth.authenticate(last.token), undefined);
+
+  // What the host does on `users remove`: nothing keyed to the id may outlive it, because the id can be added back.
+  const live = (await auth.login("alice", "other"))!;
+  auth.forget("alice");
+  assert.equal(auth.hasPassword("alice"), false, "forget takes the password");
+  assert.equal(auth.authenticate(live.token), undefined, "and the sessions it had issued");
+  assert.equal(await auth.login("alice", "other"), undefined, "so the old password signs nobody in");
+  assert.deepEqual(tokens.all().filter(([, rec]) => rec.user === "alice"), [], "and no record in the namespace still names the user");
 });
 
 test("config: the promoted packages directory is derived and secrets are redacted for display", () => {

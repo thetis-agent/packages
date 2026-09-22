@@ -18,6 +18,8 @@ Every export is `(args, env) => Promise<unknown>`, with `env` the `HostEnv` of `
 | `sshImport` | `user`, `name`, `privateKey`, `hosts?` | `{ key, publicKey, fingerprint }`: the material written once as `fence-keys/<user>/<name>`, proved a key by ssh-keygen, granted; never overwritten, never journalled |
 | `sshSet` | `user`, `ssh: [{ key, hosts? }]` | the list as written, with presence; at most 16 keys, each an absolute normalized path |
 
+A key kept for a person outlives every call here but not the person: `removeUser` in `@thetis/host` deletes `fence-keys/<user>` with the rest of what is keyed to the id, so a removed id that is added again is a person with no key rather than one silently holding the last occupant's.
+
 The journal rows are `mounts` (`{ mounts: [{ path, mode }] }`) and `ssh` (`{ ssh: [key paths] }`), with the admin as `actor` when the call came through a fence. Key material is never in an answer, a refusal, a log line or the journal.
 
 ## Callers

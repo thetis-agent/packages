@@ -1,6 +1,6 @@
 {
   "name": "@thetis/kernel",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "The trusted service plane: who may do what. Users, identity, sessions, the pipeline, package ownership, providers, and the operator table. Not installable.",
   "type": "module",

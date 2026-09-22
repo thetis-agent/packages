@@ -676,6 +676,36 @@ test("storage: a tool keeps a document through env.storage(); another person rea
   assert.equal(kernel.users.get("carol"), undefined);
 });
 
+test("removeUser forgets the password and the tokens, so the id comes back as an account with no password", async () => {
+  kernel.users.create("dave");
+  await kernel.auth.setPassword("dave", "hunter2");
+  const session = (await kernel.auth.login("dave", "hunter2"))!;
+  assert.equal(kernel.auth.authenticate(session.token)?.id, "dave", "signed in");
+  const records = kernel.container.get(T.records);
+  assert.equal(records.credentials.has("dave"), true);
+  assert.equal(records.tokens.all().filter(([, rec]) => rec.user === "dave").length, 1);
+  // What `ssh.keygen` would have left on the host for them, which no store namespace knows about.
+  const keys = join(kernel.config.home, "fence-keys", "dave");
+  mkdirSync(keys, { recursive: true });
+  writeFileSync(join(keys, "id_ed25519"), "stand-in for the private half\n");
+
+  await kernel.removeUser("dave");
+  assert.equal(existsSync(keys), false, "the keys the host held for them went with them, so a re-added id is not handed one");
+  assert.equal(records.credentials.has("dave"), false, "removeUser took the password with the user");
+  assert.deepEqual(records.tokens.all().filter(([, rec]) => rec.user === "dave"), [], "and every token naming them");
+  await records.credentials.flush();
+  await records.tokens.flush();
+  assert.equal(await kernel.store.open("auth/credentials", { private: true }).get("dave"), undefined, "the deletions reached the store, not only the mirror");
+  assert.equal(await kernel.store.open("auth/tokens", { private: true }).get(session.token), undefined, "no orphan token document is left behind");
+
+  // The reason this matters: the id is free again, and whoever is given it next is a different person.
+  kernel.users.create("dave");
+  assert.equal(kernel.auth.hasPassword("dave"), false, "the new account has no password, which is what the sign-in page tells them");
+  assert.equal(await kernel.auth.login("dave", "hunter2"), undefined, "the old password does not open it");
+  assert.equal(kernel.auth.authenticate(session.token), undefined, "and the old token is not a live session again");
+  await kernel.removeUser("dave");
+});
+
 test("a secret set over RPC reaches the tool and nothing else: not the reply, not config.show, not the journal", async () => {
   const us = kernel.userspaces.pathFor("alice");
   const rpc = createRpcHandler(us, kernel);

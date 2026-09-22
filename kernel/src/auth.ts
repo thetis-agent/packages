@@ -36,13 +36,26 @@ export class AuthService {
     return this.credentials.has(id);
   }
 
-  /** Sets a password and revokes every token of the user. */
+  /** Sets a password. Everything the old password stood for goes first, so the tokens it issued do not outlive it. */
   async setPassword(id: string, password: string): Promise<void> {
     assert(this.users.get(id), `unknown user: ${id}`);
     assert(id !== SYSTEM_USER, "the system user cannot sign in");
     assert(password.length > 0, "password must not be empty");
     const salt = randomHex(16);
+    this.forget(id);
     this.credentials.set(id, { salt, hash: await scryptHex(password, salt) });
+  }
+
+  /**
+   * Forgets everything this service holds for one id: the password and every token issued against it.
+   * The host calls it when a user is removed. Until it did, the records outlived the user and the id was
+   * a loaded gun: `authorize` refuses an id with no user record, so nothing could use them -- but adding
+   * the id back made the old password work again and turned the old tokens back into live sessions,
+   * under an admin who had just been told the account has no password yet. A removed user's credentials
+   * must not survive them. It is also the honest way to change a password: forget, then set.
+   */
+  forget(id: string): void {
+    if (this.credentials.has(id)) this.credentials.delete(id);
     for (const [token, rec] of this.tokens.all()) if (rec.user === id) this.tokens.delete(token);
   }
 

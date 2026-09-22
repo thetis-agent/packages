@@ -48,7 +48,7 @@ The layering rule: `kernel` imports `@thetis/contracts` and `@thetis/lib`, never
 | Class or export | Responsibility |
 |---|---|
 | `UserStore` | User records in the store namespace `users`, and `authorize`. |
-| `AuthService` | Passwords (scrypt) and login tokens in the private store namespaces `auth/credentials` and `auth/tokens`. |
+| `AuthService` | Passwords (scrypt) and login tokens in the private store namespaces `auth/credentials` and `auth/tokens`. `forget(id)` drops both for one id: `setPassword` uses it, and the host calls it when a user is removed, because an id that comes back must come back with nothing. A suspension revokes nothing -- `authorize` refuses the tokens while it lasts, and lifting it gives the person back what they had. |
 | `ConfigService`, `Settings` | Per-package configuration: the four layers along the fork chain, who may set what, secrets, the journal rows, and which fences a change reaches. `Settings` is the one method a dispatch site needs, `effective`. |
 | `ServiceSupervisor` | Starts, stops, and restarts in place the services that packages declare. |
 | `PackageRegistry`, `PackageManager`, `readManifest`, `validateManifest` | Package records, ownership and peer checks, seeding, promotion, install and uninstall, forks. |

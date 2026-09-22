@@ -1,6 +1,6 @@
 {
   "name": "@thetis/host",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "The composition root: wires the kernel to the sandbox and the control socket into one running service plane. Not installable.",
   "type": "module",

@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { SYSTEM_USER, type Fence, type HostEnv, type KernelRpc, type StoreDriver, type Userspace } from "@thetis/contracts";
 import {
@@ -220,6 +220,11 @@ function kernelOf(c: Container): KernelServices {
     restartPolicy: deployedRestartPolicy,
     async removeUser(id) {
       c.get(T.users).remove(id);
+      // Before anything else that is keyed by the id, because the id can come back: `users add qa` after a
+      // `users remove qa` is a new account to everyone who sees it, and it must not inherit the password or
+      // the live sessions of the person who had that id before. `remove` above threw if there was no user,
+      // so a mistyped id never reaches this and never costs anyone their password.
+      c.get(T.auth).forget(id);
       await c.get(T.fences).close(id);
       c.get(T.registry).forgetUserspace(id);
       c.get(T.mounts).set(id, []);
@@ -227,6 +232,17 @@ function kernelOf(c: Container): KernelServices {
       await c.get(T.settings).forgetUser(id);
       await c.get(T.store).open(storeId("userspaces", id)).clear();
       c.get(T.userspaces).remove(id);
+      // The two directories the service plane keeps per person outside any store namespace: the ssh files
+      // `ProcessFence` writes for the fence (`fence-ssh/<id>`), and the private keys the host holds for them
+      // (`fence-keys/<id>`, written by `ssh.keygen` and `ssh.import` in @thetis/host-grants). The grants
+      // above are gone, so nothing loads these again -- but they are key material, and `ssh.keygen` keeps
+      // an existing key rather than replacing it, so a re-added id would be handed the previous person's
+      // private key and told it is their own. The id is a validated user id: `users.remove` above proved
+      // there was a record, and a record only exists for an id that matched `USER_ID`.
+      for (const dir of ["fence-ssh", "fence-keys"]) rmSync(resolve(c.get(T.config).home, dir, id), { recursive: true, force: true });
+      // The model list this process cached for the userspace, which would otherwise be served to whoever
+      // is given the id next, for as long as it stays warm.
+      c.get(T.providers).forget(id);
     },
     async shutdown() {
       await c.get(T.fences).close();

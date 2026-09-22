@@ -52,7 +52,7 @@ export interface KernelServices {
   restart: RestartLatch;
   /** What the deployed systemd unit says a clean exit means, or null when that could not be read. A host fact, injected. */
   restartPolicy(): string | null;
-  /** Removes the user, closes its fence, forgets its packages, and deletes its userspace directory. */
+  /** Removes the user: its password and sessions, its fence, its packages, its grants, its settings and its userspace. */
   removeUser(id: string): Promise<void>;
   /** Closes every fence, writes out every record, and closes the store. */
   shutdown(): Promise<void>;
