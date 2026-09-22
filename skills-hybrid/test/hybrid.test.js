@@ -371,7 +371,7 @@ test("minTerms: a stray one-word overlap pins nothing and says so; a name or tag
     const two = await withFetch(noNetwork, () => pin(ctxOf(h.env, { conversation: [{ role: "user", content: "install this package" }] })));
     assert.deepEqual(two.harness[STATE].pinned.map((p) => p.id), ["packages"], "two description words are evidence");
     const one = await withFetch(noNetwork, () => pin(ctxOf(h.env, { config: { minTerms: 1 }, conversation: [{ role: "user", content: "Reply with the single word ok." }] })));
-    assert.deepEqual(one.harness[STATE].pinned.map((p) => p.id), ["parser"], "minTerms 1 is the old behaviour");
+    assert.deepEqual(one.harness[STATE].pinned.map((p) => p.id).sort(), ["hosts", "parser"], "minTerms 1 is the old behaviour: one word anywhere, a tag word included");
     const found = await withFetch(noNetwork, () => skillSearch({ query: "the single word" }, toolEnv(h.env)));
     assert.match(found, /`parser`/, "the search keeps every hit");
   } finally {
