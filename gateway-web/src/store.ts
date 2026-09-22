@@ -25,13 +25,23 @@ interface LegacyState {
   titles?: Record<string, string>;
 }
 
+/** What the gateway keeps about one person across conversations. A key left undefined is not written. */
+interface Prefs {
+  /** The model the person chose most recently, in any conversation; a new conversation starts with it. */
+  model?: string;
+}
+
 export class GatewayStore {
   private readonly dir: string;
+  private readonly prefsDir: string;
   private readonly entries = new Map<string, Entry>(); // "user/session" -> what is kept about it
+  private readonly prefs = new Map<string, Prefs>(); // user -> what is kept about the person
 
   constructor(dir: string) {
     this.dir = resolve(dir, "sessions");
+    this.prefsDir = resolve(dir, "prefs");
     mkdirSync(this.dir, { recursive: true });
+    mkdirSync(this.prefsDir, { recursive: true });
     this.migrate(resolve(dir, "state.json"));
     for (const user of readdirSync(this.dir)) {
       for (const file of readdirSync(resolve(this.dir, user))) {
@@ -39,6 +49,31 @@ export class GatewayStore {
         this.entries.set(`${user}/${file.slice(0, -5)}`, JSON.parse(readFileSync(resolve(this.dir, user, file), "utf8")) as Entry);
       }
     }
+    for (const file of readdirSync(this.prefsDir)) {
+      if (!file.endsWith(".json")) continue;
+      this.prefs.set(file.slice(0, -5), JSON.parse(readFileSync(resolve(this.prefsDir, file), "utf8")) as Prefs);
+    }
+  }
+
+  /** The model the person chose last, in any conversation: what a new conversation starts with. Undefined means the default. */
+  lastModel(user: string): string | undefined {
+    return this.prefs.get(user)?.model;
+  }
+
+  /** Remembers the person's latest choice. An empty model means new conversations start with the default again. */
+  setLastModel(user: string, model: string): void {
+    const next: Prefs = { ...this.prefs.get(user), model: model || undefined };
+    for (const key of Object.keys(next) as (keyof Prefs)[]) if (next[key] === undefined) delete next[key];
+    const file = resolve(this.prefsDir, `${user}.json`);
+    if (!Object.keys(next).length) {
+      this.prefs.delete(user);
+      rmSync(file, { force: true });
+      return;
+    }
+    this.prefs.set(user, next);
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(next));
+    renameSync(tmp, file);
   }
 
   archived(user: string): Set<string> {

@@ -15,7 +15,7 @@ All relative to `/<user>`. Every `/api/*` and `/ext/*` route needs the cookie; a
 | `GET /` | The app page. Redirects to `/login` without a valid cookie. |
 | `GET /assets/<file>` | The gateway's own browser files. |
 | `GET /api/me` | `{ user, role }`. |
-| `GET /api/sessions`, `POST /api/sessions` | The person's conversations, newest first; create one. |
+| `GET /api/sessions`, `POST /api/sessions` | The person's conversations, newest first; create one. A new conversation starts with the model the person chose last (`prefs/<user>.json`); the answer carries it as `model`. |
 | `GET /api/sessions/<id>` | The record with `status`, `archived`, `turn`, `usage`, `model` and `title`. |
 | `POST /api/sessions/<id>/send`, `/cancel`, `/archive`, `/model`, `/title` | Start a turn, stop it, archive or restore, choose the model, name the conversation. |
 | `GET /api/models` | The default model and the models the person's providers serve (`id`, `name`, `provider` only), cached in the gateway for a minute. |

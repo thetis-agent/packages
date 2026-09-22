@@ -491,6 +491,25 @@ test("model and name: the models list, a chosen model rides with the turn and it
   assert.equal(row.named, false);
 });
 
+test("a chosen model sticks: a new conversation starts with the person's last choice, and choosing the default forgets it", async () => {
+  const cookie = await cookieFor("alice", "wonderland");
+  const create = async () => (await (await api(cookie, "/alice/api/sessions", { method: "POST" })).json()) as { id: string; model: string | null };
+  const first = await create();
+  assert.equal((await api(cookie, `/alice/api/sessions/${first.id}/model`, { method: "POST", body: JSON.stringify({ model: "echo" }) })).status, 200);
+  const second = await create();
+  assert.equal(second.model, "echo", "the new conversation is created with the remembered model");
+  const shown = (await (await api(cookie, `/alice/api/sessions/${second.id}`)).json()) as { model: string | null };
+  assert.equal(shown.model, "echo");
+  const row = ((await (await api(cookie, "/alice/api/sessions")).json()) as { id: string; model?: string }[]).find((s) => s.id === second.id)!;
+  assert.equal(row.model, "echo", "the list shows it too, so the pill reads it");
+  assert.equal((await api(cookie, `/alice/api/sessions/${second.id}/model`, { method: "POST", body: JSON.stringify({ model: "" }) })).status, 200);
+  const third = await create();
+  assert.equal(third.model, null, "back to the default once the person chose it");
+  const bob = await cookieFor("bob", "builder");
+  assert.equal((await api(bob, "/bob/api/sessions", { method: "POST" })).status, 201);
+  assert.equal(((await (await api(bob, "/bob/api/sessions", { method: "POST" })).json()) as { model: string | null }).model, null, "one person's choice is not another's");
+});
+
 test("isolation: bob's cookie is refused at alice's gateway, and alice's session is unknown at bob's", async () => {
   const alice = await cookieFor("alice", "wonderland");
   const bob = await cookieFor("bob", "builder");

@@ -147,8 +147,11 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       if (seg.length === 2 && method === "GET") return json(res, 200, await listSessions(user));
       if (seg.length === 2 && method === "POST") {
         const { id } = await kernel.sessions.create();
+        // A new conversation starts with the model the person chose last, so a choice sticks across conversations.
+        const remembered = store.lastModel(user);
+        if (remembered) store.setModel(user, id, remembered);
         listChanged(user);
-        return json(res, 201, { id });
+        return json(res, 201, { id, model: remembered ?? null });
       }
       const id = seg[2];
       if (!/^s_[a-f0-9]+$/.test(id ?? "")) throw new HttpError(404, "unknown session");
@@ -166,6 +169,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
         const model = typeof body.model === "string" ? body.model.trim() : "";
         if (model.length > 200) throw new HttpError(400, "model id too long");
         store.setModel(user, id, model);
+        store.setLastModel(user, model);
         listChanged(user);
         return json(res, 200, { id, model: model || null });
       }
