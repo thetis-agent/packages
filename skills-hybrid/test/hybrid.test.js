@@ -359,8 +359,11 @@ test("minTerms: a stray one-word overlap pins nothing and says so; a name or tag
     clearCache();
     h.skill("parser", "How a line a player types becomes a verb call: word splitting, prepositions, matching. Use when working on command handling.", "Body.\n", ["tags: [moo, parser]"]);
     h.skill("packages", "Installs packages. Use when asked to install a package.");
+    h.skill("hosts", "What each host owns. Use when working on a connection endpoint.", "Body.\n", ["tags: [moor-web-host, single-process, output-ordering]"]);
     const nothing = await withFetch(noNetwork, () => pin(ctxOf(h.env, { conversation: [{ role: "user", content: "Reply with the single word ok." }] })));
-    assert.deepEqual(nothing.harness[STATE].pinned, [], JSON.stringify(nothing.harness[STATE].ranked));
+    assert.deepEqual(nothing.harness[STATE].pinned, [], `a hyphenated tag matches whole or not at all: ${JSON.stringify(nothing.harness[STATE].ranked)}`);
+    const whole = await withFetch(noNetwork, () => pin(ctxOf(h.env, { conversation: [{ role: "user", content: "the single process binary hangs" }] })));
+    assert.deepEqual(whole.harness[STATE].pinned.map((p) => p.id), ["hosts"], "the tag single-process, present whole, is evidence");
     assert.ok(nothing.harness[STATE].notes.includes("no skill matched the first message; nothing is pinned"), JSON.stringify(nothing.harness[STATE].notes));
     assert.ok(!nothing.call.system.includes("# Skills retrieved for this conversation"), "no section for an empty pin");
     const tag = await withFetch(noNetwork, () => pin(ctxOf(h.env, { conversation: [{ role: "user", content: "fix the moo login" }] })));

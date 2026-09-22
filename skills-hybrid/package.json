@@ -1,6 +1,6 @@
 {
   "name": "@thetis/skills-hybrid",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "license": "MIT",
   "description": "One brief per skill always in the prompt, a few cards retrieved for the conversation by dense and lexical ranking fused, pinned once, and skill_search for the rest.",
   "type": "module",
@@ -27,7 +27,7 @@
       "minTerms": {
         "type": "number",
         "default": 2,
-        "help": "How many distinct words of the first message a skill's text must carry before the words alone pin it; one word in its name or a tag is enough on its own. skill_search ignores it."
+        "help": "How many distinct words of the first message a skill's text must carry before the words alone pin it; its name or a tag present whole is enough on its own. skill_search ignores it."
       },
       "pinLimit": {
         "type": "number",

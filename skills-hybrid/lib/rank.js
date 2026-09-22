@@ -20,19 +20,25 @@ export const DEFAULT_THRESHOLD = 0.3;
  */
 export const DEFAULT_MIN_TERMS = 2;
 
-/** Whether the words of `query` are evidence for `skill`: a name or tag word, or `minTerms` words anywhere in its text. */
+/** Whether `phrase` (a tag or a name, possibly hyphenated) occurs whole in the query's token sequence: `single-process` is not `single`. */
+function phrasePresent(phrase, queryTokens) {
+  const parts = tokens(phrase);
+  if (!parts.length) return false;
+  for (let i = 0; i + parts.length <= queryTokens.length; i++) if (parts.every((p, j) => queryTokens[i + j] === p)) return true;
+  return false;
+}
+
+/**
+ * Whether the words of `query` are evidence for `skill`: its name or one of its tags present whole, or `minTerms` distinct
+ * words of the query anywhere in its text. Tags are the curated signal, so one is enough; but only as a whole phrase.
+ */
 export function lexicalEvidence(skill, query, minTerms = DEFAULT_MIN_TERMS) {
-  const q = new Set(tokens(query));
-  if (!q.size) return false;
-  const strong = new Set(tokens(`${skill.name ?? ""} ${String(skill.id ?? "").split("/").pop()} ${(skill.tags ?? []).join(" ")}`));
-  const weak = new Set(tokens(skill.description ?? ""));
-  let s = 0;
-  let w = 0;
-  for (const t of q) {
-    if (strong.has(t)) s++;
-    else if (weak.has(t)) w++;
-  }
-  return s >= 1 || s + w >= minTerms;
+  const seq = tokens(query);
+  if (!seq.length) return false;
+  const phrases = [skill.name ?? "", String(skill.id ?? "").split("/").pop(), ...(skill.tags ?? [])];
+  if (phrases.some((p) => phrasePresent(p, seq))) return true;
+  const text = new Set(tokens(`${skill.description ?? ""} ${(skill.tags ?? []).join(" ")}`));
+  return new Set(seq).values().filter((t) => text.has(t)).toArray().length >= minTerms;
 }
 
 const round = (x) => Math.round(x * 1e6) / 1e6;

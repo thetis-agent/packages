@@ -38,7 +38,7 @@ The query is the first user message, cut to 2000 characters. The dense list is t
 
 A dense hit below `denseThreshold` is not a hit: a greeting is closest to some card, and without a floor that card would be pinned. The default comes from `skill-recall@1` (287 cards, 90 tasks, `openai/text-embedding-3-small`): the gold cards' cosine against their query has median 0.475 and a 5th percentile of 0.28, and the controls' best card has median 0.28. At 0.3, 94% of the gold cards pass and 7 of the 10 controls get no dense hit at all; at 0.35 it is 87% and 9 of 10. When the floor cuts every dense hit the pin is lexical and a note says so.
 
-The lexical list has a floor of its own, `minTerms`: a BM25 hit counts for the pin only when the skill's name or a tag carries a word of the message, or its text carries at least two distinct words of it. A rank is not evidence: for "Reply with the single word ok." the top of the list was a MOO command parser, pinned on the word "word", with five more behind it at scores of 0.005. When neither list has a hit the pin is empty, the section is absent, and a note says nothing matched. Another embedding model moves the whole scale, so the key is per installation.
+The lexical list has a floor of its own, `minTerms`: a BM25 hit counts for the pin only when the skill's name or one of its tags occurs whole in the message (`single-process` is not `single`), or its text carries at least two distinct words of it. A rank is not evidence: for "Reply with the single word ok." the top of the list was a MOO command parser, pinned on the word "word", with five more behind it at scores of 0.005. When neither list has a hit the pin is empty, the section is absent, and a note says nothing matched. Another embedding model moves the whole scale, so the key is per installation.
 
 The pin is kept in the harness by id and content hash. On later turns the step renders the same ids without ranking again. A skill whose content hash changed (its name, description or tags) is rendered from its new text in the same place, with a note; one that vanished is dropped, with a note. A body edit does not move the hash.
 
@@ -59,7 +59,7 @@ The script imports the corpus through the same `importCorpus` the bench uses, so
 | Key | Default | Effect |
 |---|---|---|
 | `fusionWeight` | `0.7` | The dense share in the fusion. 0 is lexical only, 1 is dense only. |
-| `minTerms` | `2` | How many distinct words of the first message a skill's name, description or tags must carry before the words alone pin it. One word in the name or a tag is enough on its own: those are curated. `skill_search` ignores it. |
+| `minTerms` | `2` | How many distinct words of the first message a skill's text must carry before the words alone pin it. The name or a tag present whole is enough on its own: those are curated. `skill_search` ignores it. |
 | `denseThreshold` | `0.3` | The cosine a skill must reach against the query before the dense list counts it. Below it a skill is pinned only when the words match. `0` keeps every dense hit. `skill_search` ignores it: a search asks for the closest thing whatever its distance. |
 | `pinLimit` | `6` | How many skills are pinned for the conversation. 0 pins nothing. |
 | `pinBodies` | `false` | Pin bodies instead of cards. Costs bytes, saves a round trip. |
