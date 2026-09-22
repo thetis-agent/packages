@@ -9,11 +9,14 @@
  * the row for each key says its state and offers the fix. It also asks `publish-targets` where this
  * workspace may publish, which carries the last publish to each target from that package's own store;
  * that answer is `available: false` on every installation without @thetis/package-publish, which is most
- * of them, and then no Publish block and no last-publish row is drawn and nothing throws. `open` returns an unmount that stops a late
+ * of them, and then no Publish block and no record row is drawn and nothing throws. Those records are
+ * also the only first-hand account of a publish there is, so they are what keeps the page from reading
+ * the marketplace index's silence out as "never published" about a package published minutes ago to a
+ * target this installation does not mirror. `open` returns an unmount that stops a late
  * answer from drawing into a closed page. */
 
 import { actionsFor } from "./actions.js";
-import { stateBadges } from "./badges.js";
+import { publishRecord, stateBadges } from "./badges.js";
 import { configCard, summaryLine } from "./config-form.js";
 
 export function openPage(ext, root, params) {
@@ -124,7 +127,7 @@ export function openPage(ext, root, params) {
   }
 
   /** The version facts: what is installed here and at which commit, against what the registry holds. */
-  function versionRows(r) {
+  function versionRows(r, record) {
     const rows = [];
     if (r.installed) rows.push(["installed", el("code", {}, r.pin ? `${r.version} at ${r.pin}` : r.version)]);
     if (r.available) rows.push(["registry", el("span", {}, el("code", {}, r.tip || r.version), r.registry ? el("span", { class: "text-dim" }, ` in ${r.registry}`) : null)]);
@@ -137,6 +140,13 @@ export function openPage(ext, root, params) {
     // other installation can reach, or no registry holds this package at all. Said in full here, where
     // there is room for it; the badge says it short.
     if (r.ahead?.state === "ahead") rows.push(["published", el("span", {}, el("code", {}, r.ahead.published), ` in ${r.ahead.registry} — ${r.ahead.version} is what is here`)]);
+    // "No registry lists this" is a fact about the *index*, and the index covers the registries this
+    // installation mirrors. A publish goes to a *target*, and the two lists need not overlap at all, so
+    // the index's silence was being read out as "never published" about packages published minutes
+    // earlier. The package's own record is the better witness of its own act, and it says which target and
+    // when; what it cannot say is that any registry carries it, and the row does not pretend otherwise.
+    else if (r.ahead && record?.removed) rows.push(["published", el("span", { class: "text-dim" }, el("code", {}, record.version || r.version), ` taken out of ${record.target} · ${when(record.at)}, by this workspace's own record. The index does not list it.`)]);
+    else if (r.ahead && record) rows.push(["published", el("span", {}, el("code", {}, record.version || r.version), ` to ${record.target} · ${when(record.at)}, by this workspace's own record. The index does not list it: no registry here mirrors that target, or it has not refreshed since.`)]);
     else if (r.ahead) rows.push(["published", el("span", { class: "text-dim" }, "nowhere: no registry lists this package")]);
     return rows;
   }
@@ -152,12 +162,20 @@ export function openPage(ext, root, params) {
    * of, and on this page that is very often some other package. Absent without a word when there is none.
    */
   function publishRows(view) {
-    const targets = (view.publish?.targets ?? []).filter((t) => t.lastPublish);
-    return targets.map((t) => {
-      const last = t.lastPublish;
-      const label = targets.length > 1 ? `last to ${t.name}` : "last publish";
-      return [label, el("span", {}, el("code", {}, `${last.name}@${last.version}`), ` to ${last.target}`, last.at ? el("span", { class: "text-dim" }, ` · ${when(last.at)}`) : null)];
-    });
+    const targets = view.publish?.targets ?? [];
+    const many = targets.filter((t) => t.lastPublish || t.lastRemoval).length > 1;
+    return targets.flatMap((t) => [
+      t.lastPublish && [many ? `last publish to ${t.name}` : "last publish", act(t.lastPublish, `to ${t.lastPublish.target}`)],
+      // The other act against the same registry, shown in its own right rather than folded into the one
+      // above. A target whose last act was a removal would otherwise read as though it last saw a publish,
+      // which is the one thing a person must not have to work out from a version they half remember.
+      t.lastRemoval && [many ? `last removal from ${t.name}` : "last removal", act(t.lastRemoval, `out of ${t.lastRemoval.target}`)],
+    ].filter(Boolean));
+  }
+
+  /** One record as a line: what it was of, where it went, and when. */
+  function act(doc, where) {
+    return el("span", {}, el("code", {}, doc.version ? `${doc.name}@${doc.version}` : doc.name), ` ${where}`, doc.at ? el("span", { class: "text-dim" }, ` · ${when(doc.at)}`) : null);
   }
 
   function benchRows(r) {
@@ -184,6 +202,8 @@ export function openPage(ext, root, params) {
 
   function draw(view) {
     const r = view.row;
+    // What this workspace itself recorded about this package, against what the index says about it.
+    const record = publishRecord(view.publish, r.name);
     clear(body);
     const side = el("aside", { class: "mk-side" });
     const { buttons, hints, picker, publish } = actionsFor(ext, view, side);
@@ -196,11 +216,11 @@ export function openPage(ext, root, params) {
     put(
       side,
       card(
-        el("div", { class: "tags" }, ...stateBadges(badge, r)),
+        el("div", { class: "tags" }, ...stateBadges(badge, r, record)),
         r.description && el("p", { class: "mk-desc" }, r.description),
         view.config ? sentence : null,
         kv([
-          ...versionRows(r),
+          ...versionRows(r, record),
           !r.installed && !r.available && ["state", el("span", { class: "text-faint" }, "not installed")],
           ["type", r.type],
           r.license && ["license", r.license],

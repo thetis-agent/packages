@@ -1,6 +1,6 @@
 {
   "name": "@thetis/ui-marketplace",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "license": "MIT",
   "description": "The marketplace place of the web gateway: a gallery of what the registries offer and what is installed, and one page per package.",
   "type": "module",
@@ -36,6 +36,7 @@
         { "verb": "unfork", "export": "unfork", "label": "Go back to the package this was forked from" },
         { "verb": "publish-targets", "export": "publishTargets", "label": "Where this workspace may publish" },
         { "verb": "publish", "export": "publish", "label": "Publish a package to a registry" },
+        { "verb": "unpublish", "export": "unpublish", "label": "Take a package out of a registry" },
         { "verb": "config-show", "export": "configShow", "label": "What one of my packages is configured with" },
         { "verb": "config-list", "export": "configList", "label": "Whether each of my packages is configured" },
         { "verb": "config-set", "export": "configSet", "label": "Set one configuration key for me" },

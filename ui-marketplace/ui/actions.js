@@ -1,8 +1,10 @@
 /* The actions a package page offers, and the confirm popover in front of each: Install for me, Update or
  * Reload my workspace or Go back to the package this was forked from, Remove, Delete (a package of one's
  * own, with its files), Publish to a registry -- with the packages already on the branch that a push would
- * carry with it, ticked one by one or named as the reason it cannot go -- and for an admin Install for
- * everyone, Make it the default for everyone, and Install for a person. Update, Reload and Go back are the three kinds of behind: a
+ * carry with it, ticked one by one or named as the reason it cannot go, and, for a fork whose origin the
+ * registry already holds, the two publishes it could be, each with the version control that belongs to it
+ * -- Take out of a registry, which is the one act here that takes something away from everybody else, and
+ * for an admin Install for everyone, Make it the default for everyone, and Install for a person. Update, Reload and Go back are the three kinds of behind: a
  * registry holding a newer commit is installed, files on disk the workspace has not read are already installed and are put
  * into service by reloading the workspace, and a fork's origin has moved on without it, which going back
  * to that origin takes. Every popover states the facts a person should read first and one sentence on what
@@ -369,9 +371,15 @@ export function actionsFor(ext, view, host) {
    * target would hold -- and a refusal (a version that does not move past the target, a package that will
    * not build) arrives as a toast before the person has agreed to anything. This is the one action in the
    * product that changes what other installations receive, so it is the one that has earned a round trip.
+   *
+   * `choice` is `{ to, bump, as }`: which registry, which version step, and -- only ever for a fork whose
+   * origin the target already holds -- which of the two publishes this one is. `as` is never guessed at
+   * and never held on to: each press carries its own, and the dry run is run again for it, because the two
+   * are measured against different versions and only the publishing package knows which.
    */
-  async function publishNow(anchor, to, bump, panel) {
-    const args = { name: row.name, ...(to ? { to } : {}), ...(bump ? { bump } : {}), ...(panel.chosen().length ? { with: panel.chosen() } : {}) };
+  async function publishNow(anchor, choice, panel, fork) {
+    const { to, bump, as } = choice;
+    const args = { name: row.name, ...(to ? { to } : {}), ...(bump ? { bump } : {}), ...(as ? { as } : {}), ...(panel.chosen().length ? { with: panel.chosen() } : {}) };
     let preview;
     const checking = busy(host, "Checking what would be published…");
     try {
@@ -390,23 +398,38 @@ export function actionsFor(ext, view, host) {
     // ticks what is meant to ride along and presses Publish again; what cannot ride along is a reason, not
     // a choice, and is drawn as one. Nothing is ever ticked on their behalf.
     if (preview.ok === false || preview.blockers?.length) {
+      // One of them is not something to go away and fix. A fork whose origin the registry already holds
+      // could be two publishes, and the refusal exists to ask which -- so it is drawn as the two acts it
+      // is choosing between, each with the version control that belongs to it, and the rest ride under it
+      // as sentences until an answer is given and the dry run is run again.
+      const asking = (preview.blockers ?? []).find((b) => b.code === "ambiguous-fork");
+      if (asking) {
+        panel.clear();
+        return fork.ask(asking, target, blockerLines((preview.blockers ?? []).filter((b) => b !== asking)));
+      }
       panel.draw(preview.blockers ?? [], target);
       return;
     }
     panel.clear();
     const also = args.with ?? [];
+    // A fork going out as its origin publishes the origin: the origin's name, the origin's next version,
+    // no fork mark on what lands. The person's own copy is not rewritten and stays a fork, which is the
+    // one thing somebody would reasonably assume otherwise -- so it is said before they agree and again
+    // after it is done.
+    const copy = preview.as === "origin" ? preview.fork : null;
     const ok = await confirm(anchor, {
-      title: `Publish ${row.name}?`,
+      title: copy ? `Publish ${copy.name} as ${preview.package}?` : `Publish ${row.name}?`,
       lines: [
         ["package", `${preview.package ?? row.name}@${now}`],
         ["to", preview.url ? `${target} · ${preview.url}` : target || "the configured registry"],
         ["version", first ? `${now}, the first version ${target || "that registry"} would hold of it` : `${was} → ${now}`],
         preview.branch && ["branch", preview.branch],
+        copy && ["your copy", `${copy.name}@${copy.version}, still a fork`],
         // Never a count. A person agreeing to publish somebody else's work alongside their own reads the
         // names or they have not agreed to anything.
         also.length && ["also publishing", also.join(", ")],
       ].filter(Boolean),
-      note: `This pushes to a registry other installations read: everyone mirroring ${target || "it"} gets ${now} on their next refresh, and a version once published is not taken back.${also.length ? ` ${also.length === 1 ? "The package" : "The packages"} above ${also.length === 1 ? "is" : "are"} published in ${also.length === 1 ? "its" : "their"} own right, each one checked the same way.` : " Only this package's own directory is committed."}`,
+      note: `${copy ? `What lands in ${target || "the registry"} is ${preview.package} itself, under its own name; ${copy.name} stays here exactly as it is, a fork at ${copy.version}. ` : ""}This pushes to a registry other installations read: everyone mirroring ${target || "it"} gets ${now} on their next refresh, and a version once published is not taken back.${also.length ? ` ${also.length === 1 ? "The package" : "The packages"} above ${also.length === 1 ? "is" : "are"} published in ${also.length === 1 ? "its" : "their"} own right, each one checked the same way.` : " Only this package's own directory is committed."}`,
       confirmLabel: `Publish ${now}`,
       tone: "warn",
     });
@@ -416,7 +439,65 @@ export function actionsFor(ext, view, host) {
       const out = (await ext.request("publish", { args }))?.data ?? {};
       const at = out.commit ? ` (${String(out.commit).slice(0, 7)})` : "";
       const rode = also.length ? ` ${also.join(", ")} went with it.` : "";
-      ext.toast(`${out.package ?? row.name}@${out.now ?? now} is in ${out.target ?? target}${at}.${rode}`, { tone: "good" });
+      // Beside the result, because believing this wrongly means believing your own workspace moved when it
+      // did not. `fork` is set by the publishing package only when the origin is what was published.
+      const mine = out.fork ? ` Your copy is still ${out.fork.name} ${out.fork.version}, a fork.` : "";
+      ext.toast(`${out.package ?? row.name}@${out.now ?? now} is in ${out.target ?? target}${at}.${rode}${mine}`, { tone: "good" });
+      go(row.name);
+    } catch (err) {
+      ext.toast(err?.message || "That did not work.", { tone: "error" });
+    } finally {
+      stop();
+    }
+  }
+
+  /**
+   * Taking this package back out of a registry, which is the other half of publishing and the only act in
+   * the product that takes something away from everybody else. It is reached the same way a publish is,
+   * from the page of the package it is about, and it runs the same dry run first: the confirm has to name
+   * the version the registry is actually holding, and a removal of something no registry holds should be a
+   * sentence read before anything is agreed rather than after.
+   *
+   * The confirm says what the answer says, and it does not paraphrase the second half away. A removal is
+   * not a recall: the package leaves the index, so nobody installs it again, and every installation that
+   * already has it keeps it, goes on running it, and is never told. That is the part people get wrong, and
+   * from inside the product there is nothing that undoes it.
+   */
+  async function removeFromRegistry(anchor, to, panel) {
+    let preview;
+    const checking = busy(host, "Checking what would be taken out…");
+    try {
+      preview = (await ext.request("unpublish", { args: { name: row.name, ...(to ? { to } : {}), dryRun: true } }))?.data ?? {};
+    } catch (err) {
+      return ext.toast(err?.message || "That did not work.", { tone: "error" });
+    } finally {
+      checking();
+    }
+    const target = preview.target ?? to ?? "";
+    // A removal pushes a branch too, so it meets the same gates about what else that branch is carrying.
+    // They are reasons and not choices here: nothing rides along with a removal from this page.
+    if (preview.ok === false || preview.blockers?.length) return panel.reason(preview.blockers ?? []);
+    const held = preview.held ?? "";
+    const gone = `${preview.directory ?? ""}/`;
+    const ok = await confirm(anchor, {
+      title: `Take ${preview.package ?? row.name} out of ${target}?`,
+      lines: [
+        ["package", held ? `${preview.package ?? row.name}@${held}` : (preview.package ?? row.name)],
+        ["out of", preview.url ? `${target} · ${preview.url}` : target || "the configured registry"],
+        ["deletes", `${gone} · ${preview.files?.length ?? 0} file(s)`],
+        preview.branch && ["branch", preview.branch],
+      ].filter(Boolean),
+      note: `It leaves the marketplace index at the next refresh, so nobody installs it again. Every installation that already has it keeps it, goes on running it, and is not told.${preview.mode === "checkout" ? ` ${gone} goes from ${preview.repo} as well, because that checkout is the registry; git has the history.` : ""} Nothing in the product puts it back.`,
+      confirmLabel: `Take it out of ${target}`,
+      tone: "warn",
+    });
+    if (!ok) return;
+    const stop = busy(host, `Taking ${row.name} out of ${target || "the registry"}…`);
+    try {
+      const out = (await ext.request("unpublish", { args: { name: row.name, ...(to ? { to } : {}) } }))?.data ?? {};
+      const at = out.commit ? ` (${String(out.commit).slice(0, 7)})` : "";
+      // Warn and not good: it worked, and the sentence it worked into is one that has to be read.
+      ext.toast(`${out.package ?? row.name} ${out.held ?? held} is out of ${out.target ?? target}${at}. Every installation that already has it keeps it, goes on running it, and is not told.`, { tone: "warn" });
       go(row.name);
     } catch (err) {
       ext.toast(err?.message || "That did not work.", { tone: "error" });
@@ -429,25 +510,24 @@ export function actionsFor(ext, view, host) {
    * The panel under the Publish row: what else is on this branch and would be pushed with the publish.
    * It holds its own ticks between one dry run and the next, so a person who ticks two of three and
    * presses Publish again does not lose the ticks to the redraw. `blocked` is what can never be named;
-   * while there is one of those the button is off, because no amount of ticking makes that publish go.
+   * while there is one of those the publish is off, because no amount of ticking makes that publish go.
+   * `gate` is how it says so, because by then there may be more than one button that would publish.
    */
-  function publishPanel(button) {
+  function publishPanel(gate) {
     const node = el("div", { class: "mk-passengers", hidden: true });
     const ticked = new Set();
-    let blocked = 0;
 
     const clear = () => {
       node.hidden = true;
-      blocked = 0;
       ext.dom.clear(node);
-      button.disabled = false;
+      gate(false);
     };
 
     function draw(blockers, target) {
       const rows = passengersOf(blockers);
       const others = blockerLines(blockers);
       ext.dom.clear(node);
-      blocked = rows.filter((r) => !canRide(r)).length;
+      const blocked = rows.filter((r) => !canRide(r)).length;
       for (const line of others) node.append(el("p", { class: "mk-passengers-why" }, line));
       for (const r of rows) {
         if (canRide(r)) {
@@ -470,7 +550,7 @@ export function actionsFor(ext, view, host) {
       }
       // A tick that is no longer offered is a tick nobody meant: drop it rather than send it.
       for (const name of [...ticked]) if (!rows.some((r) => canRide(r) && r.package === name)) ticked.delete(name);
-      button.disabled = blocked > 0;
+      gate(blocked > 0);
       node.append(
         el(
           "p",
@@ -486,7 +566,104 @@ export function actionsFor(ext, view, host) {
       node.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
 
-    return { node, draw, clear, chosen: () => [...ticked] };
+    /**
+     * The same rows with nothing to tick: what a removal's dry run reported. Nothing rides along with a
+     * removal from this page, so every row here is a reason, and a tick beside one would be an offer to
+     * publish somebody's work under a button that says it takes a package away.
+     */
+    function reason(blockers) {
+      ext.dom.clear(node);
+      for (const line of blockerLines(blockers)) node.append(el("p", { class: "mk-passengers-why" }, line));
+      for (const r of passengersOf(blockers)) node.append(el("p", { class: "mk-passenger is-blocked" }, el("code", {}, r.package), el("span", {}, ` ${r.version ?? ""}`)));
+      node.append(el("p", { class: "panel-hint" }, "The branch has to be dealt with first: a removal commits one directory and pushes the branch, exactly as a publish does."));
+      node.hidden = false;
+      node.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    return { node, draw, reason, clear, chosen: () => [...ticked] };
+  }
+
+  /**
+   * The question a fork's publish raises, and the two answers to it.
+   *
+   * `fork_package` writes `thetis.forkedFrom` into a copy, so "publish my change" over a fork is two
+   * entirely different acts wearing one set of words: the change becomes the next version of the package
+   * it came from, or this becomes a package of its own, apart from that one from here on. Both are
+   * legitimate, so nothing here picks one. The publishing package refuses with `ambiguous-fork` and its
+   * `details` carry `{ origin, fork }` -- the origin's directory, name and the version the target holds
+   * for it, and the fork's own name and version -- so the two acts can be drawn without reading the prose.
+   *
+   * Each is an action worded as what it does, not as the flag it sends, and each carries its own version
+   * control, because the versions are not the same question: as its origin, the version is the origin's
+   * next one, measured against what the target holds for the origin, and the fork's own `0.1.0-fork.1` is
+   * never a candidate; as itself, the version is the fork's own line, the one on disk included. The
+   * numbers are never worked out here -- a step is asked for and the dry run comes back with the versions.
+   *
+   * It is asked once. The gate fires while the target holds the origin and not this fork, so the registry
+   * is what remembers the answer; nothing is kept here, and the panel goes when the page is redrawn.
+   */
+  function forkPanel(run, changed) {
+    const node = el("div", { class: "mk-fork", hidden: true });
+    let asked = null;
+
+    const clear = () => {
+      asked = null;
+      node.hidden = true;
+      ext.dom.clear(node);
+      changed();
+    };
+
+    const steps = (...first) =>
+      el(
+        "select",
+        { class: "input mk-bump", "aria-label": "Version to publish" },
+        ...first,
+        el("option", { value: "patch" }, "a patch bump"),
+        el("option", { value: "minor" }, "a minor bump"),
+        el("option", { value: "major" }, "a major bump")
+      );
+
+    /** One of the two acts: a sentence about what it does, the version control it owns, and the button. */
+    function act(label, note, select, as) {
+      const b = button(label, { tone: "quiet" });
+      b.addEventListener("click", () => void run(b, { bump: select.value, as }));
+      asked.buttons.push(b);
+      return el("div", { class: "mk-fork-act" }, el("p", { class: "mk-fork-note" }, note), el("div", { class: "mk-fork-row" }, select, b));
+    }
+
+    function ask(blocker, target, others) {
+      const origin = blocker.details?.origin ?? {};
+      const fork = blocker.details?.fork ?? { name: row.name, version: row.version };
+      const where = target || "the registry";
+      asked = { buttons: [] };
+      ext.dom.clear(node);
+      // The refusal's own sentence first, whole: it is one paragraph and it says the thing both buttons
+      // are answers to. The other blockers stand under it; they are about the branch and come back when
+      // the question has been answered and the dry run is run again.
+      node.append(el("p", { class: "mk-fork-why" }, blocker.message));
+      for (const line of others ?? []) node.append(el("p", { class: "mk-passengers-why" }, line));
+      node.append(
+        act(
+          `Make it the next version of ${origin.name ?? "its origin"}`,
+          `${where} holds ${origin.name ?? "the origin"} ${origin.version ?? ""} in ${origin.dir ?? ""}/. The change goes out as the next version of it, under its own name, and your copy stays ${fork.name} ${fork.version} here, a fork. The version is a step from ${origin.version ?? "what the registry holds"}, never from ${fork.version}.`,
+          steps(),
+          "origin"
+        ),
+        act(
+          "Make it a package of its own",
+          `${fork.name} goes into ${where} under its own name, at its own version, apart from ${origin.name ?? "the origin"} from here on. Once ${where} holds it there is only one reading of a publish left, and this is not asked again.`,
+          steps(el("option", { value: "" }, `as it is — ${row.version}`)),
+          "itself"
+        )
+      );
+      node.hidden = false;
+      node.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      // The plain Publish row above is not the question any more: the version belongs to whichever of the
+      // two is chosen, so it stands down until one of them is pressed or the target changes.
+      changed();
+    }
+
+    return { node, ask, clear, open: () => !!asked, disable: (off) => (asked?.buttons ?? []).forEach((b) => (b.disabled = off)) };
   }
 
   /**
@@ -514,13 +691,37 @@ export function actionsFor(ext, view, host) {
     step.value = row.ahead ? "" : "patch";
     const chosen = () => (target ? target.value : only);
     const b = button(chosen() ? `Publish to ${chosen()}` : "Publish", { tone: "quiet" });
-    const panel = publishPanel(b);
-    // A different target or a different version is a different question, so the passengers are asked
-    // again rather than carried over from the answer to the last one.
-    if (target) target.addEventListener("change", () => { b.textContent = `Publish to ${target.value}`; panel.clear(); });
-    step.addEventListener("change", () => panel.clear());
-    b.addEventListener("click", () => void publishNow(b, chosen(), step.value, panel));
-    publish = el("div", { class: "mk-publish-block" }, el("div", { class: "mk-picker mk-publish" }, target, step, b), panel.node);
+    // The other act against the same registry, kept off the publish row: it is destructive, it is not
+    // undoable from in here, and it must not sit one button-width from the thing it is the opposite of by
+    // accident. `canRemove` is read off the publishing package's manifest, so an older one draws nothing.
+    const takeOut = offer.canRemove ? button(`Take out of ${chosen()}`, { tone: "warn" }) : null;
+    // While the fork question is up, the version above is not the question: each answer carries its own,
+    // and pressing the plain Publish would be pressing it without having answered.
+    const fork = forkPanel((anchor, choice) => publishNow(anchor, { ...choice, to: chosen() }, panel, fork), () => gate(false));
+    const gate = (blocked) => {
+      b.disabled = blocked || fork.open();
+      step.disabled = fork.open();
+      fork.disable(blocked);
+    };
+    const panel = publishPanel(gate);
+    const clearAll = () => {
+      fork.clear();
+      panel.clear();
+    };
+    // A different target or a different version is a different question, so the passengers and the fork
+    // choice are both asked again rather than carried over from the answer to the last one.
+    if (target) target.addEventListener("change", () => { b.textContent = `Publish to ${target.value}`; if (takeOut) takeOut.textContent = `Take out of ${target.value}`; clearAll(); });
+    step.addEventListener("change", () => clearAll());
+    b.addEventListener("click", () => void publishNow(b, { to: chosen(), bump: step.value }, panel, fork));
+    if (takeOut) takeOut.addEventListener("click", () => void removeFromRegistry(takeOut, chosen(), panel));
+    publish = el(
+      "div",
+      { class: "mk-publish-block" },
+      el("div", { class: "mk-picker mk-publish" }, target, step, b),
+      fork.node,
+      panel.node,
+      takeOut ? el("div", { class: "mk-picker mk-unpublish" }, takeOut) : null
+    );
     hints.push(
       row.ahead?.state === "unpublished"
         ? `No registry lists ${row.name}. Publishing pushes this package's own directory to ${chosen() || "the configured registry"}, where every installation that mirrors it can reach it.`
@@ -528,6 +729,7 @@ export function actionsFor(ext, view, host) {
           ? `${row.ahead.version} is here and ${row.ahead.published} is what ${row.ahead.registry} holds. Publishing is what closes that gap; nothing else in the product does.`
           : `Publishing pushes this package's own directory to ${chosen() || "the configured registry"}. The version has to move past what that registry already holds, so pick a bump unless you have already moved it here.`
     );
+    if (takeOut) hints.push(`Take out of ${chosen() || "the registry"} deletes this package's directory from it and pushes that. The package leaves the marketplace index at the next refresh, and every installation that already has it keeps it, goes on running it, and is not told: it is not a recall, and nothing in the product puts it back.`);
     if (offer.error) hints.push(`The registries could not be read just now (${offer.error}), so the versions above may be missing. Publish checks again before it asks you to confirm.`);
   }
 

@@ -44,6 +44,32 @@ export function updateBadge(badge, r) {
 }
 
 /**
+ * This package's own record of the last act against one of the publish targets, or null. Two lists are in
+ * play and nothing reconciles them: `ahead` reads the marketplace *index*, which covers the registries
+ * `@thetis/marketplace` mirrors, while a publish goes to one of `@thetis/package-publish`'s *targets*. They
+ * need not overlap, and where they do not a publish leaves no mark on the index at all -- which is how a
+ * package read `never published` for ever, immediately after a successful publish of it.
+ *
+ * So when the two disagree, the record wins: it is first-hand knowledge that a publish happened, while the
+ * index's silence only ever means that no mirrored registry lists the package. The record is thin on
+ * purpose -- `publish_targets` carries the last publish and the last removal per target, so a package
+ * published before something else went to the same target leaves no trace here and reads as it did before.
+ * That is a floor under the truth, not a claim to the whole of it.
+ */
+export function publishRecord(publish, name) {
+  let best = null;
+  for (const t of publish?.targets ?? []) {
+    for (const doc of [t.lastPublish, t.lastRemoval]) {
+      if (!doc || doc.name !== name || !doc.at) continue;
+      // The two keys are kept apart by the publishing package precisely so that this comparison can be
+      // made: a package taken out of a target after it was published to it is not published there.
+      if (!best || String(doc.at) > String(best.at)) best = { target: t.name, version: doc.version ?? "", at: doc.at, removed: !!doc.removed };
+    }
+  }
+  return best;
+}
+
+/**
  * The other direction from `updateBadge`: not something newer than what is here, but something here that is
  * newer than anywhere else. Whoever maintains a package runs it from the same checkout every fence loads, so
  * a version bump is live for them the moment it lands while the registry every other installation reads is
@@ -53,8 +79,14 @@ export function updateBadge(badge, r) {
  * Kept short on purpose. This badge rides on a gallery card beside the package's name, where `.mk-card-head`
  * wraps and a long badge takes the name's line away from it.
  */
-export function aheadBadge(badge, r) {
+export function aheadBadge(badge, r, record = null) {
   const a = r.ahead;
+  // The record is not about the index, so it never contradicts `ahead` where `ahead` has something to say:
+  // a registry holding an older version is a true sentence about that registry, and the badge goes on
+  // saying it. It answers the one case where the index's silence was read as a fact about the package.
+  if (a?.state === "unpublished" && record) {
+    return record.removed ? badge(`taken out of ${record.target}`, "dim") : badge(`published to ${record.target} · not in the index`, "dim");
+  }
   if (!a) return null;
   // Two tones, because the two cases are not the same size. A package no registry has ever listed is a
   // quiet fact and very often the right state -- on the machine of whoever maintains these packages it is
@@ -86,4 +118,4 @@ export function benchBadge(badge, r) {
  * is the longer and the truer of the two, so the update badge stands down for it here. The gallery, which
  * draws no fork badge, keeps the terse one.
  */
-export const stateBadges = (badge, r) => [stateBadge(badge, r), forkBadge(badge, r), r.update?.apply === "unfork" ? null : updateBadge(badge, r), aheadBadge(badge, r), benchBadge(badge, r)].filter(Boolean);
+export const stateBadges = (badge, r, record = null) => [stateBadge(badge, r), forkBadge(badge, r), r.update?.apply === "unfork" ? null : updateBadge(badge, r), aheadBadge(badge, r, record), benchBadge(badge, r)].filter(Boolean);

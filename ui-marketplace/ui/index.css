@@ -89,6 +89,20 @@
 .mk-passenger .mk-passenger-tick { margin: 0; flex: none; }
 .mk-passenger:not(.is-blocked) { cursor: pointer; }
 .mk-passenger.is-blocked { color: var(--warn); }
+/* The two publishes a fork's could be. Each is a paragraph saying what it does and a row of its own
+   holding the version control that belongs to it, because the versions are different questions and a
+   single control above them would belong to neither. The button takes a line: its label is the
+   consequence, not a flag, and a consequence does not fit beside a select in a 340px card. */
+.mk-fork { display: flex; flex-direction: column; gap: var(--gap-2); font-size: var(--text-sm); }
+.mk-fork-why { margin: 0; color: var(--text-dim); }
+.mk-fork-act { display: flex; flex-direction: column; gap: 6px; padding: var(--gap-2); border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface-1); }
+.mk-fork-note { margin: 0; font-size: var(--text-xs); line-height: 1.5; color: var(--text-dim); }
+.mk-fork-row { display: flex; flex-wrap: wrap; gap: var(--gap-2); align-items: center; }
+.mk-fork-row .mk-bump { flex: 1 1 140px; min-width: 0; }
+.mk-fork-row .btn { flex: 1 1 100%; }
+/* Taking a package out of a registry sits under the publish row and not in it: it is the opposite act,
+   and the one thing here nothing in the product undoes. */
+.mk-unpublish { justify-content: flex-start; }
 
 .mk-config-line { margin: 0; font-size: var(--text-sm); }
 .mk-card-broken { font-size: var(--text-xs); color: var(--err); }

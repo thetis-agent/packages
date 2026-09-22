@@ -13,7 +13,10 @@
  * meant to be. So it is asked for, softly, from the marketplace package's own `search` verb, the same
  * soft link this file already makes for the place: when `@thetis/ui-marketplace` is not installed, or has
  * not declared that verb, nothing is asked and nothing is drawn. The request goes out after the table, so
- * the section never waits on it, and a failure leaves the rows exactly as they are. */
+ * the section never waits on it, and a failure leaves the rows exactly as they are. `publish-targets` goes
+ * out beside it for the same reason and on the same terms: the index covers the registries this
+ * installation mirrors, a publish goes to a target, and where those are not the same thing the index's
+ * silence is not evidence that nothing was published. */
 
 import { api } from "../lib/api.js";
 import { clear, el } from "../lib/dom.js";
@@ -58,6 +61,7 @@ export function mountPackages(root, { user }, shell) {
   let query = "";
   let selected = null;
   let ahead = new Map(); // package name -> { state, version, published, registry }, when the marketplace can say
+  let records = new Map(); // package name -> { target, version, at, removed }, what this workspace itself recorded
 
   const filter = el("input", { class: "input", type: "search", placeholder: "Filter packages", "aria-label": "Filter packages", onInput: (e) => { query = e.target.value.trim().toLowerCase(); drawList(); } });
   const listEl = el("div", { class: "panel-col" });
@@ -78,7 +82,7 @@ export function mountPackages(root, { user }, shell) {
     if (selected && !installed.some((r) => r.name === selected)) selected = null;
     drawList();
     drawDetail();
-    await loadAhead();
+    await Promise.all([loadAhead(), loadRecords()]);
   }
 
   /**
@@ -92,6 +96,38 @@ export function mountPackages(root, { user }, shell) {
       const out = await api(`/api/ext/${MARKETPLACE_PKG}/search`, { method: "POST", body: { args: {} } });
       const rows = Array.isArray(out?.data?.rows) ? out.data.rows : [];
       ahead = new Map(rows.filter((r) => r.installed && r.ahead).map((r) => [r.name, r.ahead]));
+    } catch {
+      return;
+    }
+    drawList();
+    drawDetail();
+  }
+
+  /**
+   * The other half of that answer, and the half the index cannot give. `ahead` is read off the marketplace
+   * *index*, which covers the registries this installation mirrors; a publish goes to one of the publishing
+   * package's *targets*, and nothing says the two overlap. Where they do not the index stays silent for
+   * ever, and this table called a package published minutes earlier "never published". `publish-targets`
+   * carries this workspace's own record of what went where, which is first-hand knowledge that a publish
+   * happened, so where the two disagree it wins. Soft the same way: the verb is only sent when the
+   * marketplace package declared it, `available: false` is the ordinary answer, and nothing here throws.
+   */
+  async function loadRecords() {
+    if (!(registry.declared(MARKETPLACE_PKG)?.commands ?? []).includes("publish-targets")) return;
+    try {
+      const out = await api(`/api/ext/${MARKETPLACE_PKG}/publish-targets`, { method: "POST", body: { args: {} } });
+      if (!out?.data?.available) return;
+      const latest = new Map();
+      for (const t of out.data.targets ?? []) {
+        for (const doc of [t.lastPublish, t.lastRemoval]) {
+          if (!doc?.name || !doc.at) continue;
+          // The publishing package keeps publishes and removals under two keys precisely so that this
+          // comparison can be made: a package taken out of a target after it went there is not in it.
+          const had = latest.get(doc.name);
+          if (!had || String(doc.at) > String(had.at)) latest.set(doc.name, { target: t.name, version: doc.version ?? "", at: doc.at, removed: !!doc.removed });
+        }
+      }
+      records = latest;
     } catch {
       return;
     }
@@ -125,6 +161,11 @@ export function mountPackages(root, { user }, shell) {
    * because it sits in a cell beside two other badges. */
   const aheadBadge = (r) => {
     const a = ahead.get(r.name);
+    // The record never contradicts the index where the index has something to say: a registry holding an
+    // older version is a true sentence about that registry. It answers the one case where the index's
+    // silence was being read out as a fact about the package. See `aheadBadge` in ui-marketplace.
+    const mine = records.get(r.name);
+    if (a?.state === "unpublished" && mine) return mine.removed ? badge(`taken out of ${mine.target}`, "dim") : badge(`published to ${mine.target} · not in the index`, "dim");
     if (!a) return null;
     // Dim for a package no registry ever listed, which is a quiet fact and true of most of them at once on
     // a maintainer's machine; warn for a version here that is past what a registry holds, which is a gap
@@ -214,7 +255,7 @@ export function mountPackages(root, { user }, shell) {
     // Publishing is the marketplace package's action, in its own page, where the registry picker, the
     // version choice and the dry run in front of the confirm live. This section says the gap exists and
     // points at the one place that can close it; it does not grow a second half of that flow.
-    if (ahead.get(row.name) && open) hints.push(ahead.get(row.name).state === "unpublished" ? `No registry lists ${row.name}. Publish is on its page in the marketplace.` : `${ahead.get(row.name).version} is here and ${ahead.get(row.name).published} is what ${ahead.get(row.name).registry} holds. Publish is on its page in the marketplace.`);
+    if (ahead.get(row.name) && open) hints.push(ahead.get(row.name).state === "unpublished" ? (records.get(row.name) ? `${row.name} went to ${records.get(row.name).target}, by this workspace's own record, and the index here does not list it. Publish is on its page in the marketplace.` : `No registry lists ${row.name}. Publish is on its page in the marketplace.`) : `${ahead.get(row.name).version} is here and ${ahead.get(row.name).published} is what ${ahead.get(row.name).registry} holds. Publish is on its page in the marketplace.`);
     put(
       detailEl,
       card(
@@ -226,7 +267,10 @@ export function mountPackages(root, { user }, shell) {
           ["scope", el("div", { class: "tags" }, scopeBadge(row), forkBadge(row), aheadBadge(row))],
           // Said in full here, where there is room for it, and only when the marketplace could answer.
           ahead.get(row.name)?.state === "ahead" && ["published", el("span", {}, el("code", {}, ahead.get(row.name).published), ` in ${ahead.get(row.name).registry} — ${row.version} is what is here`)],
-          ahead.get(row.name)?.state === "unpublished" && ["published", el("span", { class: "text-faint" }, "nowhere: no registry lists this package")],
+          // The index's silence, or this workspace's own record of a publish the index cannot see.
+          ahead.get(row.name)?.state === "unpublished" && records.get(row.name)?.removed && ["published", el("span", { class: "text-faint" }, `${records.get(row.name).version} taken out of ${records.get(row.name).target}, by this workspace's own record. The index does not list it.`)],
+          ahead.get(row.name)?.state === "unpublished" && records.get(row.name) && !records.get(row.name).removed && ["published", el("span", {}, el("code", {}, records.get(row.name).version), ` to ${records.get(row.name).target}, by this workspace's own record. The index does not list it: no registry here mirrors that target, or it has not refreshed since.`)],
+          ahead.get(row.name)?.state === "unpublished" && !records.get(row.name) && ["published", el("span", { class: "text-faint" }, "nowhere: no registry lists this package")],
           row.forkedFrom && ["forked from", el("code", {}, `${row.forkedFrom.name}@${row.forkedFrom.version}`)],
           row.fork && ["shipped now", row.fork.shipped ? el("code", {}, `${row.fork.name}@${row.fork.shipped}${row.fork.identical ? " — the same files as this fork" : ""}`) : el("span", { class: "text-faint" }, "not here any more")],
           row.replaced && ["replaces", el("code", {}, row.replaced)],

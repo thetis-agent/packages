@@ -1021,3 +1021,151 @@ one, while every other row ends `never published`.
 
 Stop the daemon by the pid on `.devhome-ahead/thetis.sock`, release `/tmp/thetis-browser.lock`, and delete
 `.devhome-ahead`.
+
+## A fork's two publishes, taking a package back out, and the two lists (2026-09-22)
+
+Three things the section above could not reach. A fork whose origin the registry already holds makes
+"publish my change" two entirely different acts, so the page has to offer both rather than pick one.
+Removal is the other half of publishing and had no surface at all. And `ahead` reads the marketplace
+**index**, which covers the registries `@thetis/marketplace` mirrors, while a publish goes to one of
+`@thetis/package-publish`'s **targets** — two lists nothing reconciled, so a package published to a
+target this installation does not mirror read `never published` for ever, immediately after a successful
+publish of it.
+
+The fixture is two bare repositories: `registry.git`, which the marketplace mirrors and the publishing
+package may publish to, and `solo.git`, which only the publishing package knows about. Two targets, so
+the Publish row carries a `select.mk-target`. `file://` userspace packages are copy mode, which is where
+the fork question is raised; the versions it offers come from what the target holds for the origin, so
+the origin has to be in the registry at a real version before anything is forked — which is what step 99
+is for.
+
+```sh
+H=$PWD/.devhome-fork
+THETIS_HOME=$H node bin/thetis.js init
+# $H/thetis.config.json: "door": {"host":"127.0.0.1","port":8810}, "envFile": ".env",
+#   packages["@thetis/gateway-login"] = {"secure": false},
+#   systemPackages["*"] += "@thetis/package-publish",
+#   packages["@thetis/marketplace"].registries = [{ "name":"thetis", "url":"file://$H/shared/registry.git" }],
+#   packages["@thetis/package-publish"].targets = [
+#     { "name":"thetis", "url":"file://$H/shared/registry.git", "branch":"main" },
+#     { "name":"solo",   "url":"file://$H/shared/solo.git",     "branch":"main" }]
+: > $H/.env                       # so this daemon cannot spend the real provider key
+git init --bare -q $H/shared/registry.git
+git init --bare -q $H/shared/solo.git
+# seed each on main from a scratch clone: registry.git with exa/package.json at @thetis/exa 0.0.9 and a
+# README, solo.git with a README of its own. A target whose repository has no branch has nothing to clone.
+THETIS_HOME=$H node bin/thetis.js users add dev --admin
+echo devpass123 | THETIS_HOME=$H node bin/thetis.js users passwd dev
+THETIS_HOME=$H nohup node bin/thetis.js serve > $H/serve.log 2>&1 &
+THETIS_HOME=$H node bin/thetis.js mounts add dev $H/shared/registry.git
+THETIS_HOME=$H node bin/thetis.js mounts add dev $H/shared/solo.git
+# two packages of dev's own, written into dev's home so they are userspace packages and so copy mode:
+# packages/widget (@dev/widget 0.1.0) and packages/hello (@dev/hello 0.2.0), each a package.json with a
+# thetis field, an index.js and a README.
+for p in widget hello; do THETIS_HOME=$H node bin/thetis.js packages install packages/$p --user dev; done
+```
+
+`[@thetis/marketplace] indexed 1 packages from 1 registries` in `$H/serve.log` is the index reading
+`registry.git`: it holds `@thetis/exa` and neither of dev's packages, and it does not know `solo.git`
+exists at all. **The index refreshes every 30 minutes**, so nothing published below reaches it during the
+run — which is the point, and what the record has to say instead.
+
+98. **The gallery, with nothing published**: sign in at `http://127.0.0.1:8810/login` as `dev` /
+    `devpass123` at 1440px, open `#menu`, click `.menu-item[data-place="@thetis/ui-marketplace#marketplace"]`.
+    Expect `.mk-card[data-name="@dev/widget"]` and `.mk-card[data-name="@dev/hello"]` each with `Only me`
+    and a `.badge.is-dim` reading `never published`, and every shipped card carrying the same dim badge.
+    One `POST api/ext/@thetis/ui-marketplace/publish-targets` is sent after the rows, alongside
+    `config-list`; it answers `available: true` here and `{"available": false, "targets": []}` on any
+    installation without the publishing package, where nothing about the cards changes. No console errors.
+99. **Seeding the origin, and the second version control**: open the `@dev/widget` card. Expect in the side
+    card a `.mk-picker.mk-publish` holding `select.mk-target` with `thetis` and `solo`, `select.mk-bump` at
+    `""` (*as it is — 0.1.0*, because the package is ahead), a **Publish to thetis** button, and under it a
+    `.mk-picker.mk-unpublish` with a warn **Take out of thetis** — the destructive act is on its own row and
+    never beside the one it undoes. Publish it as it is and confirm: `.toast.is-good` reading
+    `@dev/widget@0.1.0 is in thetis (<short commit>).`, and `git --git-dir=$H/shared/registry.git ls-tree
+    --name-only main` now lists `widget`.
+100. **A publish to a target this installation does not mirror**: open `@dev/hello`, set `select.mk-target`
+    to `solo` (the Publish and Take out buttons both follow: **Publish to solo**, **Take out of solo**),
+    publish it as it is and confirm. Expect `.toast.is-good` `@dev/hello@0.2.0 is in solo (<short commit>).`
+    and then, in the redrawn page, the badge **`published to solo · not in the index`** in place of
+    `never published`, and a **published** row reading `0.2.0 to solo · just now, by this workspace's own
+    record. The index does not list it: no registry here mirrors that target, or it has not refreshed
+    since.` Go back to the gallery: the card says the same short thing, dim. This is the case that read
+    `never published` for ever before — the index covers `thetis` and knows nothing of `solo`, and the
+    package's own record is the only witness there is that the publish happened.
+101. **Taking it back out**: on the same page, with `solo` chosen, click **Take out of solo**. Expect one
+    `POST …/unpublish` carrying `dryRun: true` and then a `.popover` titled "Take @dev/hello out of solo?"
+    with the rows `package @dev/hello@0.2.0`, `out of solo · file://…/solo.git`, `deletes hello/ · 2
+    file(s)` and `branch main`, and the note, whole: *It leaves the marketplace index at the next refresh,
+    so nobody installs it again. Every installation that already has it keeps it, goes on running it, and
+    is not told. Nothing in the product puts it back.* — the second sentence is the part people get wrong
+    and it is not paraphrased away. The confirm button reads **Take it out of solo**. Escape closes it and
+    `git --git-dir=$H/shared/solo.git ls-tree -r --name-only main` still holds `hello/package.json`.
+    Click it again and confirm: a `.toast.is-warn` — warn, not good: it worked, and the sentence it worked
+    into has to be read — reading `@dev/hello 0.2.0 is out of solo (<short commit>). Every installation
+    that already has it keeps it, goes on running it, and is not told.`, the bare repository down to its
+    README, the badge now `taken out of solo`, and in the `.kv` **both** a **last publish to solo** row and
+    a **last removal from solo** row: the two are kept apart, so a target whose last act was a removal
+    cannot read as though it last saw a publish. Press **Take out of solo** once more: the dry run answers
+    400, a `.toast.is-error` says `solo does not hold @dev/hello on main, so there is nothing to take out
+    of it. …` and **no popover opens at all** — a removal of something no registry holds is a sentence read
+    before anything is agreed to. The 400 in the console is that refusal being shown, not a fault.
+102. **The fork question**: make a fork of `@dev/widget` by hand, which is what `fork_package` writes —
+    `cp -r $H/userspaces/dev/home/packages/widget $H/…/packages/widget-mine`, then its `package.json` at
+    name `@dev/widget-mine`, version `0.1.0-fork.1` and `thetis.forkedFrom {"name":"@dev/widget",
+    "version":"0.1.0"}` — and `packages install packages/widget-mine --user dev`. Reload, open the
+    `@dev/widget-mine` card (installing a fork replaces the origin, so `@dev/widget` is no longer in the
+    gallery), and click **Publish to thetis**. Expect **no popover**. Expect instead `.mk-fork` shown,
+    holding `.mk-fork-why` with the publishing package's whole refusal sentence (`@dev/widget-mine is a
+    fork of @dev/widget, and thetis already holds @dev/widget in widget/, …`) and then two
+    `.mk-fork-act`s, each a sentence, its own `select.mk-bump` and its own button:
+    - **Make it the next version of @dev/widget**, over *thetis holds @dev/widget 0.1.0 in widget/. The
+      change goes out as the next version of it, under its own name, and your copy stays @dev/widget-mine
+      0.1.0-fork.1 here, a fork. The version is a step from 0.1.0, never from 0.1.0-fork.1.* Its select
+      offers a patch, a minor and a major bump and **no "as it is"**: the fork's own version is never one
+      of the origin's.
+    - **Make it a package of its own**, over *@dev/widget-mine goes into thetis under its own name, at its
+      own version, apart from @dev/widget from here on. Once thetis holds it there is only one reading of
+      a publish left, and this is not asked again.* Its select does offer `as it is — 0.1.0-fork.1`, and
+      starts there: that is the fork's own version line.
+
+    The plain Publish row stands down while the question is up — `.mk-publish .btn` and `.mk-publish
+    .mk-bump` are both `disabled`, because the version above belongs to neither answer. At 760px nothing
+    in `.mk-fork` overflows and the document does not scroll sideways.
+103. **As its origin**: with *a patch bump* chosen, click **Make it the next version of @dev/widget**.
+    Expect a second dry run (`as: "origin"`, `bump: "patch"`) and then a `.popover` titled "Publish
+    @dev/widget-mine as @dev/widget?" with `package @dev/widget@0.1.1`, `version 0.1.0 → 0.1.1` — the
+    origin's line, not the fork's — `branch main`, and a **your copy** row reading `@dev/widget-mine@0.1.0-
+    fork.1, still a fork`. Confirm: `.toast.is-good` reading `@dev/widget@0.1.1 is in thetis (<short
+    commit>). Your copy is still @dev/widget-mine 0.1.0-fork.1, a fork.` — the one thing somebody would
+    otherwise assume moved. Check all three: `git --git-dir=$H/shared/registry.git show
+    main:widget/package.json` is `@dev/widget` at `0.1.1` with the fork's own code and **no** `forkedFrom`;
+    `packages/widget-mine/package.json` is untouched at `0.1.0-fork.1` with its `forkedFrom`; and
+    `packages/widget/package.json` is still `0.1.0`, because the origin here was not what was published.
+104. **Asked again, then not asked again**: press **Publish to thetis** once more. The question comes back —
+    the registry holds the origin and still not the fork — and the first act's sentence now reads *thetis
+    holds @dev/widget 0.1.1*, from the new dry run rather than from arithmetic of the page's own. Click
+    **Make it a package of its own** with *as it is — 0.1.0-fork.1*: the popover is the ordinary one,
+    "Publish @dev/widget-mine?" with `0.1.0-fork.1, the first version thetis would hold of it`. Confirm,
+    then press **Publish to thetis** again: **no `.mk-fork` at all** and the popover opens straight away.
+    The registry is what remembers the answer, nothing is cached in the page, and a fork the registry holds
+    under its own name has only one reading of a publish left.
+105. **And the state, not the setting**: click **Take out of thetis** on `@dev/widget-mine` and confirm
+    (`deletes widget-mine/ · 3 file(s)`). Press **Publish to thetis**: the fork question is asked again,
+    because the registry no longer holds the fork. Change `select.mk-target` to `solo`: `.mk-fork` is
+    hidden, `.mk-publish .btn` and `.mk-publish .mk-bump` are live again and read **Publish to solo** and
+    **Take out of solo** — a different registry is a different question.
+
+106. **The built-in Packages table says the same thing**: open `#menu`, click **Control panel**, stay on
+    **Packages**. Expect one `POST …/search` *and* one `POST …/publish-targets` after the table is drawn,
+    the `@dev/hello` row's Scope cell holding `Only me` and the dim `published to solo · not in the index`,
+    and every other installed row still holding a dim `never published`. Click the row: the detail card's
+    `.kv` carries a **published** row reading `0.2.0 to solo, by this workspace's own record. The index
+    does not list it: no registry here mirrors that target, or it has not refreshed since.`, and the hint
+    under it points at the one place that can publish. With `@thetis/ui-marketplace` removed
+    (`thetis packages uninstall @thetis/ui-marketplace --user dev`, then reload) expect the table to draw
+    with neither badge, no `published` row, no hint and neither request: `src/panel.ts` never learns any of
+    this, and the section is the bootstrap either way.
+
+Stop the daemon by the pid on `.devhome-fork/thetis.sock`, release `/tmp/thetis-browser.lock`, and delete
+`.devhome-fork`.

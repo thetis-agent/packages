@@ -198,6 +198,7 @@ export async function people(_args, env) {
 
 const PUBLISH = "@thetis/package-publish";
 const BUMPS = new Set(["patch", "minor", "major"]);
+const AS = new Set(["origin", "itself"]);
 const VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)*$/;
 
 /**
@@ -258,15 +259,29 @@ export async function publishTargets(args, env) {
   const ref = await publishTool(env, "publish_targets");
   const targets = ref ? await publishTargetList(env) : [];
   if (!ref || !targets.length) return { data: { available: false, targets } };
+  // Whether the same package also offers the removal verb, decided the same way the publish verb is: off
+  // the installed manifest. A page that draws a destructive button for a tool that is not there would be
+  // offering an act nothing can carry out, and an older publishing package is exactly that case.
+  const canRemove = !!(await publishTool(env, "unpublish_package"));
   const name = typeof args.package === "string" && args.package ? packageName(args.package) : null;
   try {
     const out = await invokePublish(env, "publish_targets", name ? { package: name } : {});
-    return { data: { available: true, ...out, targets: Array.isArray(out.targets) && out.targets.length ? out.targets : targets } };
+    return { data: { available: true, canRemove, ...out, targets: Array.isArray(out.targets) && out.targets.length ? out.targets : targets } };
   } catch (err) {
     // The tool reaching its targets can fail for every reason a network can. The configured names are still
     // true and still worth offering: the dry run in front of the publish is where the real answer comes from.
-    return { data: { available: true, targets, error: err?.message || String(err) } };
+    return { data: { available: true, canRemove, targets, error: err?.message || String(err) } };
   }
+}
+
+/** The packages named as riding along, checked before anything is sent: a mistyped name is a sentence here. */
+function passengers(value, name) {
+  const also = value === undefined || value === null ? [] : value;
+  if (!Array.isArray(also)) fail("with is a list of package names");
+  const named = also.map((n) => packageName(n));
+  if (named.includes(name)) fail(`${name} is what this act is about; it does not go in with as well`);
+  if (new Set(named).size !== named.length) fail("with names the same package twice");
+  return named;
 }
 
 /**
@@ -279,30 +294,61 @@ export async function publishTargets(args, env) {
  * `with` names the packages being published deliberately alongside this one. A dry run answers
  * `ok: false` with `blockers[]` instead of refusing, each blocker carrying `details` rows about the
  * passengers, which is what lets the page draw them and let the person choose rather than guess.
+ *
+ * `as` is the other thing a dry run can come back asking for, and only ever for a fork: `origin` makes the
+ * change the next version of the package this one was forked from, `itself` makes it a package of its own.
+ * It is passed through and never guessed at, and never remembered either -- the registry is what remembers,
+ * and once it holds the fork under its own name the question is not asked again.
  */
 export async function publish(args, env) {
   const name = packageName(args.name);
   const to = args.to === undefined || args.to === null || args.to === "" ? undefined : String(args.to);
   const bump = args.bump === undefined || args.bump === null || args.bump === "" ? undefined : String(args.bump);
   const version = args.version === undefined || args.version === null || args.version === "" ? undefined : String(args.version);
+  const as = args.as === undefined || args.as === null || args.as === "" ? undefined : String(args.as);
   if (bump !== undefined && !BUMPS.has(bump)) fail("bump is patch, minor or major");
   if (version !== undefined && !VERSION.test(version)) fail("a version looks like 1.2.0");
   if (bump !== undefined && version !== undefined) fail("give a bump or a version, not both");
+  if (as !== undefined && !AS.has(as)) fail("as is origin or itself: the next version of the package this was forked from, or a package of its own");
   // The passengers, named one by one and never filled in by anybody but the person. A publish in a
   // checkout that is itself the registry pushes the branch, so a commit already on that branch rides
   // along whether or not it is wanted; `with` is how the publishing package is told which of those are
   // deliberate. It is a list of names and nothing else, checked here so a mistyped one is a sentence
   // rather than something silently published.
-  const also = args.with === undefined || args.with === null ? [] : args.with;
-  if (!Array.isArray(also)) fail("with is a list of package names");
-  const named = also.map((n) => packageName(n));
-  if (named.includes(name)) fail(`${name} is what is being published; it does not go in with as well`);
-  if (new Set(named).size !== named.length) fail("with names the same package twice");
+  const named = passengers(args.with, name);
   const out = await invokePublish(env, "publish_package", {
     package: name,
     ...(to ? { to } : {}),
     ...(bump ? { bump } : {}),
     ...(version ? { version } : {}),
+    ...(as ? { as } : {}),
+    ...(named.length ? { with: named } : {}),
+    ...(args.dryRun ? { dryRun: true } : {}),
+  });
+  return { data: { ...out, dryRun: !!args.dryRun, with: named } };
+}
+
+/**
+ * Takes one package out of one registry: the directory is deleted, committed and pushed. It is the other
+ * half of `publish` and a verb of its own for the same reason the tool is -- an argument that inverts what
+ * a command does is how people delete things by accident.
+ *
+ * The page runs it with `dryRun` first, exactly as it does a publish, and for a stronger reason: the
+ * confirm has to say what the registry actually holds, and a removal of something no registry holds is a
+ * refusal a person should read before they have agreed to anything rather than after. What it cannot say,
+ * and what the page says instead, is the half people get wrong: every installation that already has the
+ * package keeps it, goes on running it, and is not told.
+ *
+ * The name is the one the registry holds, which is why it is not required to be installed here: a package
+ * published by mistake is often one nobody kept.
+ */
+export async function unpublish(args, env) {
+  const name = packageName(args.name);
+  const to = args.to === undefined || args.to === null || args.to === "" ? undefined : String(args.to);
+  const named = passengers(args.with, name);
+  const out = await invokePublish(env, "unpublish_package", {
+    package: name,
+    ...(to ? { to } : {}),
     ...(named.length ? { with: named } : {}),
     ...(args.dryRun ? { dryRun: true } : {}),
   });

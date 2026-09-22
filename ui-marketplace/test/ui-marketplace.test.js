@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as commands from "../index.js";
 import { mergeRows, withAhead, withUpdate } from "../lib/rows.js";
-import { aheadBadge, forkBadge, updateBadge } from "../ui/badges.js";
+import { aheadBadge, forkBadge, publishRecord, updateBadge } from "../ui/badges.js";
 import { blockerLines, passengersOf } from "../ui/actions.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -381,7 +381,7 @@ test("rows: 0.10.0 is ahead of 0.9.0, and a fork is never listed as unpublished"
 
 // ---- publishing: a soft dependency on @thetis/package-publish ----
 
-/** The publishing package as the kernel lists it, with the two tools its manifest declares. */
+/** The publishing package as the kernel lists it, with the three tools its manifest declares. */
 const publisher = () => ({
   name: "@thetis/package-publish",
   version: "0.1.0",
@@ -395,9 +395,16 @@ const publisher = () => ({
     tools: [
       { name: "publish_targets", description: "where this workspace may publish", export: "publishTargets" },
       { name: "publish_package", description: "publish one package", export: "publishPackage" },
+      { name: "unpublish_package", description: "take one package out of a registry", export: "unpublishPackage" },
     ],
   },
 });
+
+/** The same package before removal was a verb: the page must draw no button for a tool that is not there. */
+const olderPublisher = () => {
+  const p = publisher();
+  return { ...p, thetis: { ...p.thetis, tools: p.thetis.tools.filter((t) => t.name !== "unpublish_package") } };
+};
 
 const TARGETS = [{ name: "thetis", url: "git@github.com:thetis-agent/packages.git" }];
 
@@ -549,4 +556,112 @@ test("publish: the dry run's blockers separate what can be ticked from what is a
   assert.deepEqual(passengersOf([{ details: [{ dir: "beta", package: "@dev/beta", version: "0.2.0", holds: "0.1.0", moved: true }] }]).map((r) => r.package), ["@dev/beta"]);
   assert.deepEqual(passengersOf([{ code: "verify-failed", message: "verify refused" }]), [], "a blocker with no rows has no passengers");
   assert.deepEqual(passengersOf(undefined), [], "and neither has a dry run that had nothing to report");
+});
+
+/**
+ * A fork's publish is two acts wearing one set of words, so the page asks which and passes the answer
+ * through. It is never guessed at here and never remembered: `as` arrives with the press that carries it.
+ */
+test("publish: as says which of the two publishes a fork's is, and a word that is neither never reaches the tool", async () => {
+  const t = fakeEnv({
+    installed: [shipped("@dev/exa-mine"), publisher()],
+    effective: { "@thetis/package-publish": { targets: TARGETS } },
+    tools: { publish_package: (args) => ({ package: args.as === "origin" ? "@thetis/exa" : "@dev/exa-mine", as: args.as ?? "itself", fork: args.as === "origin" ? { name: "@dev/exa-mine", version: "0.0.9-fork.1" } : null, was: "0.0.9", now: "0.0.10", first: false, branch: "main", ok: true }) },
+  });
+  try {
+    const origin = await commands.publish({ name: "@dev/exa-mine", to: "thetis", as: "origin", bump: "patch", dryRun: true }, t.env);
+    assert.deepEqual(t.calls.find((c) => c.method === "invokeTool").args, { package: "@dev/exa-mine", to: "thetis", bump: "patch", as: "origin", dryRun: true });
+    assert.equal(origin.data.package, "@thetis/exa", "what lands is the origin, and the popover says so from the answer");
+    assert.deepEqual(origin.data.fork, { name: "@dev/exa-mine", version: "0.0.9-fork.1" }, "the copy that is not rewritten, shown beside the result");
+    await commands.publish({ name: "@dev/exa-mine", as: "itself" }, t.env);
+    assert.equal(t.calls.filter((c) => c.method === "invokeTool")[1].args.as, "itself");
+    await commands.publish({ name: "@dev/exa-mine" }, t.env);
+    assert.equal("as" in t.calls.filter((c) => c.method === "invokeTool")[2].args, false, "no answer is no key at all: the question is the publishing package's to ask");
+    await assert.rejects(commands.publish({ name: "@dev/exa-mine", as: "upstream" }, t.env), /as is origin or itself/);
+    assert.equal(t.calls.filter((c) => c.method === "invokeTool").length, 3, "a word that is neither never reaches the tool");
+  } finally {
+    t.cleanup();
+  }
+});
+
+/**
+ * Removal is a verb of its own, for the reason the tool is one: an argument that inverts what a command
+ * does is how people delete things by accident. The page runs it with `dryRun` first exactly as it does a
+ * publish, because the confirm has to name the version the registry is actually holding.
+ */
+test("unpublish: the dry run and the removal are the same call, and it is reached through the tool like everything else", async () => {
+  const t = fakeEnv({
+    installed: [shipped("@dev/hello"), publisher()],
+    effective: { "@thetis/package-publish": { targets: TARGETS } },
+    tools: { unpublish_package: (args) => ({ package: args.package, target: args.to ?? "thetis", removed: true, held: "0.2.0", directory: "hello", files: ["hello/package.json"], branch: "main", commit: "fed4321", ok: true }) },
+  });
+  try {
+    const dry = await commands.unpublish({ name: "@dev/hello", to: "thetis", dryRun: true }, t.env);
+    assert.equal(dry.data.dryRun, true);
+    assert.equal(dry.data.held, "0.2.0", "the version the registry was carrying, which the confirm names");
+    const invoked = t.calls.find((c) => c.method === "invokeTool");
+    assert.deepEqual(invoked.ref, { package: "@thetis/package-publish", export: "unpublishPackage", name: "unpublish_package" }, "the export comes off the installed manifest");
+    assert.deepEqual(invoked.args, { package: "@dev/hello", to: "thetis", dryRun: true });
+    const real = await commands.unpublish({ name: "@dev/hello", to: "thetis" }, t.env);
+    assert.equal(real.data.removed, true);
+    assert.equal("dryRun" in t.calls.filter((c) => c.method === "invokeTool")[1].args, false, "the real one carries no dryRun key at all");
+    await assert.rejects(commands.unpublish({ name: "hello" }, t.env), /looks like @scope\/name/);
+    await assert.rejects(commands.unpublish({ name: "@dev/hello", with: ["@dev/hello"] }, t.env), /it does not go in with as well/);
+    assert.equal(t.calls.filter((c) => c.method === "invokeTool").length, 2, "a refused call never reaches the tool");
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("unpublish: without the publishing package the verb refuses in one sentence, and an older one offers no removal at all", async () => {
+  const t = fakeEnv({ installed: [shipped("@dev/hello")] });
+  try {
+    await assert.rejects(commands.unpublish({ name: "@dev/hello" }, t.env), /package-publish is not installed in your workspace/);
+  } finally {
+    t.cleanup();
+  }
+  // `canRemove` is read off the installed manifest, not written down here: a publishing package from
+  // before removal existed draws no button, rather than a button for a tool nothing can carry out.
+  const older = fakeEnv({ installed: [shipped("@dev/hello"), olderPublisher()], effective: { "@thetis/package-publish": { targets: TARGETS } }, tools: { publish_targets: { targets: [] } } });
+  try {
+    assert.equal((await commands.publishTargets({}, older.env)).data.canRemove, false);
+  } finally {
+    older.cleanup();
+  }
+  const now = fakeEnv({ installed: [shipped("@dev/hello"), publisher()], effective: { "@thetis/package-publish": { targets: TARGETS } }, tools: { publish_targets: { targets: [] } } });
+  try {
+    assert.equal((await commands.publishTargets({}, now.env)).data.canRemove, true);
+  } finally {
+    now.cleanup();
+  }
+});
+
+/**
+ * The two lists nothing reconciled. `ahead` reads the marketplace index, which covers the registries this
+ * installation mirrors; a publish goes to one of the publishing package's targets. Publish to a target
+ * nothing here mirrors and the index stays silent for ever, and the badge read that silence out as "never
+ * published" about a package published a minute earlier -- which is simply false to the person who
+ * published it. The package's own record is first-hand and wins; the index's silence is not evidence.
+ */
+test("badges: a record of a publish outranks the index's silence, and a removal outranks the record", () => {
+  const badge = (text, tone) => ({ text, tone });
+  const row = { name: "@dev/hello", version: "0.2.0", ahead: { state: "unpublished", version: "0.2.0", published: "", registry: "" } };
+  const targets = (...docs) => ({ targets: [{ name: "solo", lastPublish: docs[0] ?? null, lastRemoval: docs[1] ?? null }] });
+  assert.deepEqual(aheadBadge(badge, row), { text: "never published", tone: "dim" }, "nothing recorded: the index is all there is, and it says nothing");
+  const published = targets({ name: "@dev/hello", version: "0.2.0", at: "2026-09-22T10:00:00.000Z", target: "solo" });
+  assert.deepEqual(publishRecord(published, "@dev/hello"), { target: "solo", version: "0.2.0", at: "2026-09-22T10:00:00.000Z", removed: false });
+  assert.deepEqual(aheadBadge(badge, row, publishRecord(published, "@dev/hello")), { text: "published to solo · not in the index", tone: "dim" }, "dim: it is a fact about the index, not a gap to close");
+  assert.equal(publishRecord(published, "@dev/other"), null, "the record is the last act to a target, whatever it was of: it says nothing about another package");
+  assert.deepEqual(aheadBadge(badge, row, publishRecord(published, "@dev/other")), { text: "never published", tone: "dim" });
+  // Two keys and not one: a removal after a publish means the registry does not hold it, and a card that
+  // read both out of the same key would report a package's removal as its current version.
+  const gone = targets(published.targets[0].lastPublish, { name: "@dev/hello", version: "0.2.0", at: "2026-09-22T11:00:00.000Z", removed: true, target: "solo" });
+  assert.equal(publishRecord(gone, "@dev/hello").removed, true, "the later of the two wins");
+  assert.deepEqual(aheadBadge(badge, row, publishRecord(gone, "@dev/hello")), { text: "taken out of solo", tone: "dim" });
+  // And the record never contradicts `ahead` where `ahead` has something to say: a registry holding an
+  // older version is a true sentence about that registry, and it goes on being said.
+  const behindRow = { ...row, ahead: { state: "ahead", version: "0.2.0", published: "0.1.0", registry: "thetis" } };
+  assert.deepEqual(aheadBadge(badge, behindRow, publishRecord(published, "@dev/hello")), { text: "0.2.0 here, 0.1.0 published", tone: "warn" });
+  assert.equal(publishRecord(null, "@dev/hello"), null, "no publishing package, no record, no difference");
+  assert.equal(publishRecord({ targets: [{ name: "solo", lastPublish: { name: "@dev/hello", version: "0.2.0" } }] }, "@dev/hello"), null, "a record with no time cannot be ranked against another, so it is not one");
 });
