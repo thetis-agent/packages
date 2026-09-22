@@ -1,6 +1,6 @@
 ---
 name: bench
-description: The Thetis benchmarks. What they measure (the harness, not the model), the three suites assembly-cost@1, tool-recall@1, and skill-recall@1, how a package opts in through thetis.bench with suites, corpus, peerGroup, importer, and adapter, the two seams (the corpus file in, the claim in harness out), how claims are checked against canaries, how to run with thetis bench run and verify, the report and BENCH.md, and what the numbers do not say. Use when you ask "how do I benchmark my package", "what is a bench step", "why is my arm marked as lying", "how do I run a suite", or "what does recall_reach mean".
+description: The Thetis benchmarks: the three suites, how a package opts in through thetis.bench, canaries and claims, thetis bench run, the reports. Use when you benchmark a package, write a bench step, run a suite, read a report, or an arm is marked as lying.
 metadata:
   title: Benchmarks
   tags: [bench, benchmark, suite, arm, corpus, canary, claim, importer, adapter, peer, report, recall, bytes, floor]

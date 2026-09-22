@@ -1,6 +1,6 @@
 ---
 name: projects
-description: Projects in Thetis. A named workspace with project directories, standing instructions, and tools switched off, kept by @thetis/projects under projects/ in the home. Covers the files, the two steps that add the project section to the prompt and drop the switched-off tools, the seven commands of the web page, the switcher and the settings place, why a project directory is not mounted until an admin runs thetis mounts add, and the limits. Use when you ask "which project is this conversation in", "why is this tool missing", "why can I not read this directory", "how do I add instructions for a project", or "where are the project files".
+description: Projects: named workspaces with directories, instructions and switched-off tools, kept by @thetis/projects; the files, the two steps, the page commands, mounts. Use when you ask which project a conversation is in, why a tool or directory is missing, or how to add project instructions.
 metadata:
   title: Projects
   tags: [projects, project, workspace, directories, instructions, mounts, tools, disable, switcher, place, sessions]

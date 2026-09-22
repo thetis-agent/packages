@@ -1,6 +1,6 @@
 ---
 name: persistence
-description: "Orleans 10 grain persistence: IPersistentState<T> injected with [PersistentState(name, storeName)], ReadStateAsync, WriteStateAsync, ClearStateAsync, RecordExists, Etag and InconsistentStateException, the legacy Grain<TState> base with [StorageProvider], several named state objects per grain, storage providers and how to register them (AddMemoryGrainStorage, AddMemoryGrainStorageAsDefault, AddAdoNetGrainStorage, AddAzureBlobGrainStorage, AddAzureTableGrainStorage, AddCosmosGrainStorage, AddDynamoDBGrainStorage, AddRedisGrainStorage), IGrainStorageSerializer and the Newtonsoft.Json default, writing a custom IGrainStorage provider, state versioning, and the failure modes of read and write. Use when a grain must keep state across activations, when choosing or configuring a storage provider, when a write throws InconsistentStateException, or when state types must evolve without losing stored data."
+description: "Orleans grain persistence: IPersistentState<T>, read, write and clear, ETags, the legacy Grain<TState>, the storage providers, serializers, state versioning. Use when a grain keeps state across activations, you choose or configure storage, a write throws, or stored types must evolve."
 metadata:
   title: Orleans grain persistence
   tags: [orleans, dotnet, csharp, persistence, state, ipersistentstate, storage, grainstorage, etag, adonet, azure, cosmos, dynamodb, redis, serialization]

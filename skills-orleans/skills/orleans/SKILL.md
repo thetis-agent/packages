@@ -1,11 +1,10 @@
 ---
 name: orleans
-description: "Microsoft Orleans, the .NET framework for distributed virtual actors (grains) hosted in silos: what a grain and a silo are, the runtime guarantees, the NuGet packages, and an index of the child skills that cover grains, hosting, clustering, placement, persistence, timers and reminders, streams, observers, serialization, transactions, testing, deployment, migration and best practices. Use when you write, review or design any C# code that uses Orleans 7 to 10, or when you need to know which orleans/* skill to fetch for a detail."
+description: "Microsoft Orleans, the .NET framework for virtual actors (grains) in silos: the runtime guarantees, the packages, the index of the orleans/* child skills. Use when you write, review or design C# code on Orleans 7 to 10, or need to know which child skill covers a detail."
 metadata:
   title: Microsoft Orleans
   tags: [orleans, dotnet, csharp, actor, grain, silo, cluster, distributed, framework, index]
   related: [orleans/grains, orleans/hosting, orleans/clustering, orleans/placement, orleans/persistence, orleans/timers-reminders, orleans/streams, orleans/observers, orleans/serialization, orleans/transactions, orleans/testing, orleans/deployment, orleans/migration, orleans/best-practices]
-  universal: "true"
   version: 1
 ---
 

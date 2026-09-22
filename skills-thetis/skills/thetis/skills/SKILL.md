@@ -1,6 +1,6 @@
 ---
 name: skills
-description: The skill format Thetis uses (a directory with SKILL.md, YAML frontmatter with name, description, and metadata, a markdown body, references beside it, child skills below it), where skills come from (packages that declare thetis.skills, and the skills/ directory under your home), the loaders and their tools skill_fetch, load_skill, and skill_search, how to write a description that retrieval finds, the lint rules, and how a project switches a skill off. Use when you ask "how do I write a skill", "where do I put my own skill", "why is my skill not found", "what does skill_fetch return", or "what are the frontmatter fields".
+description: The skill format, where skills come from, the loaders and skill_fetch, load_skill and skill_search, the lint rules. Use when you write a skill, or ask why one is not found, what skill_fetch returns, or what the frontmatter fields are.
 metadata:
   title: Skills
   tags: [skills, skill, frontmatter, description, tags, universal, related, loader, fetch, search, retrieval, lint, references]
@@ -29,7 +29,7 @@ skills/
 | Field | Rule |
 |---|---|
 | `name` | Required. Equal to the directory name. Pattern `^[a-z0-9][a-z0-9-]{0,63}$`. |
-| `description` | Required. At most 1,024 bytes. What the skill does, then when to use it. |
+| `description` | Required. What the skill does in one sentence of at most 160 characters, then when to use it; at most 400 characters in all is the guideline, 1,024 bytes the limit. |
 | `metadata.title` | Optional display title. |
 | `metadata.tags` | Optional. At most 32 lowercase words. Indexed. A tag `tool-group:<id>` admits that tool group when the skill is pinned or universal; see `thetis/using`. |
 | `metadata.universal` | `"true"` puts the body in every prompt. At most 8 per person. |
@@ -42,9 +42,9 @@ The body is everything after the frontmatter. It is markdown of at most 64 KiB. 
 
 Retrieval indexes the name, the description, and the tags. It never indexes the body. Nothing in the body can make a skill retrievable. When a skill is not found, fix the frontmatter.
 
-Write the description in two parts. First say what the skill covers. Then say when to use it, in the words a person or a model would use to ask. Name the questions it answers. Keep it under 1,024 bytes.
+Write the description in two parts, terse. First say what the skill covers, in one sentence of at most 160 characters: that sentence is the brief, the one line every prompt carries. Then say when to use it, in the words a person or a model would use to ask; the card shows the first 160 characters of it, cut at a sentence end. Keep the whole description at or under 400 characters. Lists of names belong in the tags, which retrieval indexes and no prompt shows.
 
-A brief is the id and the first sentence of the description, at most 160 characters. Put the most important words in the first sentence.
+A card is three lines at most: the brief, `Use when:` cut to 160 characters, and `Nested:` with the last id segment of at most 8 children and a count of the rest.
 
 ## Sources of skills
 
@@ -70,7 +70,7 @@ A skill with an error is left out and named in the prompt's notes. A warning kee
 
 - The frontmatter must be fenced by `---` lines and must have `name` and `description`.
 - `name` must equal the directory name and match the pattern.
-- `description` must be at most 1,024 bytes.
+- `description` must be at most 1,024 bytes. A first sentence over 160 characters, or a description over 400, is a warning.
 - The body must be at most 64 KiB.
 - `metadata.tags` must be at most 32 lowercase words.
 - The id depth must be at most 3. A reserved directory name is not a skill.

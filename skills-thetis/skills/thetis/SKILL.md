@@ -1,6 +1,6 @@
 ---
 name: thetis
-description: The index of Thetis itself, the service you run inside; the one rule of its design; and which child skill to fetch for tools and sessions, packages, the pipeline, skills, projects, the marketplace, the web page, benchmarks, configuration, the fence, and failures. Use when you work on Thetis, explain Thetis, write or install a package, or do not know which thetis/* skill answers a question.
+description: The index of Thetis, the service you run inside: its one rule and which thetis/* child skill to fetch. Use when you work on or explain Thetis, write or install a package, or do not know which child skill answers a question.
 metadata:
   title: Thetis
   tags: [thetis, overview, kernel, packages, pipeline, fence, userspace, skills, index]

@@ -1,6 +1,6 @@
 ---
 name: migration
-description: "Migrating a Microsoft Orleans application from 3.x to 7.0 and on to 8, 9, and 10 on .NET: package renames (Microsoft.Orleans.Core, OrleansRuntime, OrleansCodeGenerator to Server, Client, Sdk), ISiloHostBuilder and ClientBuilder replaced by UseOrleans and UseOrleansClient, ConfigureApplicationParts removed, the version-tolerant serializer with [GenerateSerializer], [Id], [Alias], GrainId changes, POCO grains and IGrainBase, OnActivateAsync signatures, Grain<T> persistence, StreamId and BroadcastChannel replacing SimpleMessageStreams, ITransactionClient, call chain reentrancy, OpenTelemetry replacing telemetry consumers, RegisterTimer to RegisterGrainTimer and its Interleave default, CancellationToken support, ADO.NET scripts and Microsoft.Data.SqlClient, AddIncomingGrainCallFilter, LoadSheddingOptions.CpuThreshold, CancelRequestOnTimeout default, ResourceOptimizedPlacement default, analyzers, .NET targets per release. Use when upgrading Orleans across major versions or reading old Orleans code."
+description: "Migrating Orleans from 3.x through 7, 8, 9 and 10: package renames, the new builders, the version-tolerant serializer, POCO grains, stream and timer changes. Use when you upgrade Orleans across major versions or read old Orleans code."
 metadata:
   title: Orleans migration
   tags: [orleans, dotnet, csharp, migration, upgrade, breaking-changes, serialization, generateserializer, hosting, timers, streams, adonet, orleans7, orleans8, orleans9, orleans10, release-notes]

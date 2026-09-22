@@ -26,7 +26,7 @@ Bench suites: `skill-recall@1` and `assembly-cost@1`, peer group `skills`, corpu
 
 ![assembly-cost@1 comparison](bench/assembly-cost-v1/chart.svg)
 
-On `skill-recall@1` this loader puts 13 whole bodies in the prompt for 95,296 bytes of system prompt on every turn and needs no fetch round (fetch_rounds 0), but the corpus is 287 skills and the budget holds the first 13 by id, so recall_reach is 0.035, undershoot 0.965 and overshoot 9.5 unneeded bodies per task. `@thetis/skills-l1` and `@thetis/skills-hybrid` reach every needed skill (recall_reach 1, undershoot 0, overshoot 0) for 47,638 and 49,388 bytes, at the price of one round trip per body. On `assembly-cost@1`, where nothing is installed but the loader, it is the cheapest of the three at 1,236 system bytes over a 1,210 floor and 2 bytes of tool schema per turn, with the same 18 steps.
+On `skill-recall@1` this loader puts 13 whole bodies in the prompt for 95,296 bytes of system prompt on every turn and needs no fetch round (fetch_rounds 0), but the corpus is 287 skills and the budget holds the first 13 by id, so recall_reach is 0.035, undershoot 0.965 and overshoot 9.5 unneeded bodies per task. `@thetis/skills-l1` and `@thetis/skills-hybrid` reach every needed skill (recall_reach 1, undershoot 0, overshoot 0) for 47,638 and 49,099 bytes, at the price of one round trip per body. On `assembly-cost@1`, where nothing is installed but the loader, it is the cheapest of the three at 1,053 system bytes over a 1,027 floor and 2 bytes of tool schema per turn, with the same 18 steps.
 
 ## Configuration
 

@@ -99,7 +99,8 @@ test("convertLegacy converts a tree, warns on what it changed, and the result pa
     clearCache();
     const skills = loadSkills(fakeEnv(out), [packInfo("@test/converted", out, ".")]);
     assert.deepEqual(skills.map((s) => s.id), ["alpha", "alpha/child", "beta"]);
-    assert.deepEqual(lint(skills), []);
+    // The fixture's beta carries a 979-character description on purpose (the cut rule): the only finding is the terse guideline, a warning.
+    assert.deepEqual(lint(skills).map((p) => [p.id, p.level, p.message.replace(/\d+/, "N")]), [["beta", "warning", "description is N characters, over the 400 guideline"]]);
     assert.equal(skills[0].title, "Alpha skill");
     assert.deepEqual(skills[0].related, ["beta"]);
     assert.equal(skills[1].universal, true);

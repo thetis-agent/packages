@@ -1,6 +1,6 @@
 ---
 name: fence
-description: The Thetis fence around your userspace. What bubblewrap binds read-only and read-write, the hidden paths, the environment variables the agent gets, the mounts an admin grants, the network modes egress, none, and host, Docker through the host's socket and why a container it starts may be unreachable, the cgroup limits on memory, processes, and CPU, the request timeout, the cap on what one shell answer carries, and what fails inside the fence and why. Use when you ask "why is this path read-only", "why can I not see /home or $THETIS_HOME", "can I reach the network", "can I use docker or docker compose", "why can my tests not connect to the container I just started", "why did npm install fail", "why was my process killed", "what is THETIS_MOUNTS", or "what can package code reach".
+description: The fence around your userspace: what bubblewrap binds and hides, mounts, network modes, Docker, cgroup limits, timeouts, and what fails inside it. Use when a path is read-only or missing, the network or a container is unreachable, npm install fails, a process was killed, or you ask what package code can reach.
 metadata:
   title: The fence
   tags: [fence, sandbox, bwrap, bubblewrap, mounts, readonly, hidden, egress, network, docker, compose, containers, limits, cgroup, timeout, environment, isolation, security]

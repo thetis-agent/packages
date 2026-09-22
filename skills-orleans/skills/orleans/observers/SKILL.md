@@ -1,6 +1,6 @@
 ---
 name: observers
-description: "Orleans 10 grain observers: push notifications from a grain to a client or another grain with IGrainObserver interfaces, IGrainFactory.CreateObjectReference and DeleteObjectReference on the client, Subscribe and Unsubscribe methods on the grain, ObserverManager<TObserver> from Orleans.Utilities with its expiry and Notify and NotifyAsync, the re-subscription timer that keeps a subscription alive, [OneWay] fire-and-forget methods, the non-reentrant execution model of observers, CancellationToken support since Orleans 9, grain-to-grain observers with AsReference, and observers versus streams versus polling, including bridging to browsers with SignalR. Use when a client must receive events from a grain without polling, when a subscription silently stops after a few minutes, when a client process leaks memory from object references, or when choosing between observers, streams and polling."
+description: "Orleans grain observers: push from a grain to a client or grain with IGrainObserver, object references, ObserverManager, re-subscription, one-way calls. Use when a client must receive events without polling, a subscription silently stops, object references leak, or you choose between observers, streams and polling."
 metadata:
   title: Orleans grain observers
   tags: [orleans, dotnet, csharp, observers, igrainobserver, observermanager, notifications, pubsub, client, signalr, oneway, createobjectreference]

@@ -80,7 +80,9 @@ for (const s of parsed) {
     assert.equal(s.fm.name, s.id.split("/").at(-1), "name must equal the directory name");
     assert.match(s.fm.name, NAME);
     assert.equal(typeof s.fm.description, "string", "description is required");
-    assert.ok(Buffer.byteLength(s.fm.description) <= 1024, `description is ${Buffer.byteLength(s.fm.description)} bytes`);
+    assert.ok(s.fm.description.length <= 400, `description is ${s.fm.description.length} characters; the guideline is 400`);
+    const first = /^(.*?[.!?])(?:\s|$)/.exec(s.fm.description.replace(/\s+/g, " "))?.[1] ?? s.fm.description;
+    assert.ok(first.length <= 160, `the first sentence is ${first.length} characters; the brief shows 160`);
     assert.ok(/\bUse when\b/.test(s.fm.description), "description must say when to use the skill");
     assert.ok(s.id.split("/").length <= 3, "depth at most 3");
     const meta = s.fm.metadata ?? {};

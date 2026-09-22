@@ -1,6 +1,6 @@
 ---
 name: deployment
-description: "Production deployment of a Microsoft Orleans 10 cluster on .NET: choosing a clustering provider (Azure Table, ADO.NET, Redis, Cosmos DB, Cassandra, ZooKeeper, Consul, DynamoDB), ClusterOptions ClusterId and ServiceId, rolling upgrades and blue/green with grain interface versioning ([Version], BackwardCompatible, AllVersionsCompatible, StrictVersionCompatible, AllCompatibleVersions, LatestVersion, MinimumVersion, GrainVersioningOptions), heterogeneous silos, Kubernetes (UseKubernetesHosting, POD_NAME, POD_IP, ORLEANS_SERVICE_ID, ORLEANS_CLUSTER_ID, RBAC, probes), Docker, Azure App Service, Azure Container Apps, Service Fabric, ports (SiloPort 11111, GatewayPort 30000, AdvertisedIPAddress, ConfigureEndpoints), graceful shutdown, scaling, LoadSheddingOptions, activation repartitioning and rebalancing, grain directory, OpenTelemetry metrics and tracing, the Orleans Dashboard, multi-cluster removal. Use when deploying, upgrading, scaling, or monitoring an Orleans cluster in production."
+description: "Deploying an Orleans cluster in production: providers, rolling upgrades with interface versioning, Kubernetes, Docker, Azure, ports, shutdown, scaling. Use when you deploy, upgrade, scale or monitor an Orleans cluster."
 metadata:
   title: Orleans deployment
   tags: [orleans, dotnet, csharp, deployment, kubernetes, docker, azure, clustering, versioning, rolling-upgrade, monitoring, opentelemetry, dashboard, scaling, networking, shutdown]

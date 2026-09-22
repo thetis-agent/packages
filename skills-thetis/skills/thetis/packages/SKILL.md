@@ -1,6 +1,6 @@
 ---
 name: packages
-description: How a Thetis package is built and managed. The package.json manifest and its thetis field, steps, tools, providers, services, the install sources (a path under home, a git URL with #dir and @commit, a system name), the install procedure and build rules, the store and the kernel registry paths, forks with fork_package and the replace and restore rules, delete_package, promote, install for everyone, and uninstall. Use when you ask "how do I write a package", "what goes in the thetis field", "how do I install this", "how do I change a shipped package", "how do I make a package the default for everyone", or "why was my install refused".
+description: How a Thetis package is built and managed: the manifest and its thetis field, install sources and procedure, the store, forks, delete, promote, uninstall. Use when you write, install, fork or remove a package, change a shipped one, make one the default for everyone, or an install was refused.
 metadata:
   title: Packages
   tags: [packages, manifest, install, uninstall, fork, delete, promote, everyone, steps, tools, provider, service, store, registry, scope, owner]

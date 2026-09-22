@@ -1,6 +1,6 @@
 ---
 name: configuration
-description: The Thetis configuration. The data directory $THETIS_HOME and its files, thetis.config.json and every field with its default (model, phases, callPhase, enumerator, systemPackages, packages, fence, door, requestTimeoutMs), the derived fields the file never holds, per-package configuration and where it reaches, why a provider's secret stays in the system fence, ${VAR} interpolation from .env, and how to change the configuration. Use when you ask "where is the config", "how do I set the model", "how do I give my package a setting", "why is my API key empty", "how do I add a system package", or "what are the defaults".
+description: The Thetis configuration: $THETIS_HOME, every field of thetis.config.json with its default, per-package settings and secrets, ${VAR} interpolation. Use when you ask where the config is, how to set the model or a package setting, why an API key is empty, or how to add a system package.
 metadata:
   title: Configuration
   tags: [configuration, config, model, phases, packages, systempackages, fence, door, env, secrets, apikey, interpolation, defaults, home]

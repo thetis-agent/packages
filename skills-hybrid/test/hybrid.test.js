@@ -62,7 +62,7 @@ test("the pin is ranked on the first turn and reused on every later turn, whatev
     assert.ok(!state.pinned.some((p) => p.id === "concise"), "a universal skill is never pinned");
     assert.ok(!state.pinned.some((p) => p.id === "packages/forks"), "the child is absorbed into its parent");
     assert.deepEqual(state.notes, []);
-    assert.match(first.call.system, /^BASE\n\n# Skills\n[^\n]+\n\n`concise` — Short answers\.\n`packages` — Installs packages\.\n`projects` — Workspaces and projects\.\n\n# Skills always in force\n\n## concise\nBe short\.\n\n\n# Skills retrieved for this conversation\n[^\n]+\n\n`packages` — Installs packages\.\nUse when: Use when asked to install a package\.\nNested: `packages\/forks`\n/);
+    assert.match(first.call.system, /^BASE\n\n# Skills\n[^\n]+\n\n`concise` — Short answers\.\n`packages` — Installs packages\.\n`projects` — Workspaces and projects\.\n\n# Skills always in force\n\n## concise\nBe short\.\n\n\n# Skills retrieved for this conversation\n[^\n]+\n\n`packages` — Installs packages\.\nUse when: asked to install a package\.\nNested: forks\n/);
     assert.ok(!first.call.system.includes("Body of packages"), "cards, not bodies, by default");
     assert.equal(fetch.calls.length, 2, "one batch for the skills, one for the query");
     assert.equal(fetch.calls[0].headers.Authorization, "Bearer test-key");

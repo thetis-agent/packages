@@ -10,7 +10,7 @@ import { DEFAULT_PIN, RANKED } from "./lib/rank.js";
 
 export const SELF = "@thetis/skills-hybrid";
 
-const SHORTS = "# Skills\nOne line per skill. skill_search finds one by what you are trying to do; skill_fetch reads it.";
+const SHORTS = "# Skills\nOne line each, a pointer and not the content: skill_fetch reads one before you rely on it; skill_search finds one the list does not name.";
 const RETRIEVED = "# Skills retrieved for this conversation\nMatched the first message; the list above has the rest.";
 
 const section = (heading, skills) => `${heading}\n\n${skills.map((s) => `## ${s.id}\n${s.body.trimEnd()}\n`).join("\n")}`;

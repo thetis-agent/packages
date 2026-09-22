@@ -23,8 +23,8 @@ The library, from `index.js`:
 | `fuse(dense, lexical, weight)` | Weighted reciprocal rank fusion, K 60, `weight` the dense share. |
 | `absorb(skills, ranked)`, `promote(skills, ranked, limit)` | A child whose parent is in the pool is absorbed into the parent; the parent of a lone child is promoted at 0.99 of its score. |
 | `closest(skills, name, n)` | The nearest ids to a misspelt name, for a tool's refusal. |
-| `brief(skill)` | `` `id` (title) — first sentence of the description``, at most 160 characters of description. The title part appears only when `metadata.title` is set. |
-| `card(skill)` | The brief, then `Use when:` the rest of the description cut to `CARD_WHEN_LIMIT` (240) characters, then `Nested:`. Related ids are not on the card. |
+| `brief(skill)` | `` `id` (title) — first sentence of the description``, at most 160 characters of description. The title part appears only when `metadata.title` says more than the id's last segment. |
+| `card(skill)` | Three lines at most: the brief; `Use when:` the rest of the description cut to `LIMITS.whenOnCard` (160) characters at a sentence end; `Nested:` the last id segment of at most `LIMITS.nestedOnCard` (8) children and a count of the rest. Related ids are not on the card. |
 | `renderBody(skill)` | The body, then `Skill directory:` and the files beside `SKILL.md`. |
 | `fetchSkill(args, env)` | The tool. |
 | `importCorpus(ctx, self)` | The bench importer every loader reuses. See Bench. |

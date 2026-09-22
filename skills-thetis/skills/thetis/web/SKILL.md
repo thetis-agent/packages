@@ -1,6 +1,6 @@
 ---
 name: web
-description: How a package adds to the Thetis web page. The thetis.ui field of the manifest with dir, entry, and style, the slots dock, panel, places, sidebar, chips, composer, shelf, and statusbar, the commands a page may send and how the gateway runs them as (args, env), the composition rules of GET /api/ui, the file route /ext/<scope>/<name>/<path>, the browser seam ext with its registration functions, and worked examples for a dock and a place. Use when you ask "how do I add a dock", "how do I add a place or a panel section", "how does my page call my package", "why was my ui refused", or "what does ext offer".
+description: How a package adds to the web page: the thetis.ui field, the slots, the commands a page sends, GET /api/ui, the /ext route, the ext seam. Use when you add a dock, a place or a panel section, call your package from a page, or a ui was refused.
 metadata:
   title: The web page
   tags: [web, gateway, ui, dock, place, panel, chip, sidebar, shelf, statusbar, command, verb, ext, browser, extension, seam]

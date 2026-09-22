@@ -1,6 +1,6 @@
 ---
 name: testing
-description: "Testing Orleans grains on Orleans 7 through 10: the Microsoft.Orleans.TestingHost package, InProcessTestCluster and InProcessTestClusterBuilder (recommended since Orleans 9) with ConfigureSilo, ConfigureClient and ConfigureHost delegates, the older TestCluster and TestClusterBuilder with ISiloConfigurator, IClientBuilderConfigurator and IHostConfigurator, TestClusterOptions (InitialSilosCount, GatewayPerSilo), sharing one cluster across xUnit tests with IClassFixture or ICollectionFixture, Cluster.Client.GetGrain, in-memory providers for tests (AddMemoryGrainStorage, AddMemoryStreams, UseInMemoryReminderService, AddFaultInjectionMemoryStorage), stopping and killing silos to test failover, grain call filters in tests, unit testing grains without a cluster using IGrainBase and IGrainContext or Moq, the OrleansTestKit package, and debugging tips such as ResponseTimeoutWithDebugger. Use when writing grain tests, building a test fixture, simulating silo failures, or isolating a grain from the runtime."
+description: "Testing Orleans grains: TestingHost, InProcessTestCluster and TestCluster, one cluster across xUnit tests, in-memory providers, silo failover, OrleansTestKit. Use when you write grain tests, build a test fixture, simulate silo failures, or isolate a grain from the runtime."
 metadata:
   title: Orleans testing
   tags: [orleans, dotnet, csharp, testing, unit-test, xunit, testcluster, inprocesstestcluster, testinghost, fixture, moq, testkit, memory-storage, failover, debugging]

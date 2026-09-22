@@ -1,6 +1,6 @@
 ---
 name: streams
-description: "Orleans 10 streams: virtual streams identified by StreamId (namespace plus key), IStreamProvider and GetStreamProvider, IAsyncStream<T> for producing with OnNextAsync and consuming with SubscribeAsync, IAsyncObserver<T>, StreamSubscriptionHandle<T>, ResumeAsync and GetAllSubscriptionHandles, implicit subscriptions with [ImplicitStreamSubscription] and IStreamSubscriptionObserver, stream providers (AddMemoryStreams, Azure Event Hubs, Azure Queue, AWS SQS, AddPersistentStreams with queue adapters), pulling agents, queue cache and backpressure, the PubSubStore grain storage, StreamSequenceToken and rewindable streams, delivery order and guarantees, broadcast channels, and when to use streams instead of grain calls or observers. Use when grains or clients must publish events to unknown consumers, when a subscription stops delivering after reactivation, when configuring Microsoft.Orleans.Streaming providers, or when choosing between streams, broadcast channels, observers and direct calls."
+description: "Orleans streams: StreamId, providers, IAsyncStream<T>, subscription handles, implicit subscriptions, backpressure, delivery guarantees, broadcast channels. Use when grains or clients publish events to unknown consumers, a subscription stops after reactivation, or you configure a streaming provider."
 metadata:
   title: Orleans streams
   tags: [orleans, dotnet, csharp, streams, streaming, pubsub, eventhubs, azurequeue, sqs, memorystreams, implicitsubscription, streamid, broadcastchannel, backpressure]

@@ -1,6 +1,6 @@
 ---
 name: marketplace
-description: The Thetis marketplace. The registries an installation trusts (git repositories of packages), the @thetis/marketplace service that mirrors them, the index at <shared>/marketplace/index.json and the README copies beside it, search, pinned sources of the form url#dir@commit, install, update with thetis packages outdated and update, remove, and the Marketplace place of the web page with its commands. Use when you ask "what packages can I install", "how do I install from the registry", "is this package behind", "how do I update", "where is the index", or "how do I add a registry".
+description: The Thetis marketplace: trusted registries, the mirrored index and READMEs, search, pinned sources, install, update, remove, the Marketplace place. Use when you ask what you can install, how to install or update from a registry, whether a package is behind, or how to add a registry.
 metadata:
   title: Marketplace
   tags: [marketplace, registry, registries, index, search, install, update, outdated, pin, commit, readme, shared, gallery]

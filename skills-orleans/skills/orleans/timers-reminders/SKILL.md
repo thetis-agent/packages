@@ -1,6 +1,6 @@
 ---
 name: timers-reminders
-description: "Orleans 10 timers and reminders: in-memory grain timers via RegisterGrainTimer with GrainTimerCreationOptions (DueTime, Period, Interleave, KeepAlive) and IGrainTimer, the obsolete RegisterTimer and how to migrate, persistent reminders via IRemindable, RegisterOrUpdateReminder, UnregisterReminder, GetReminder, ReceiveReminder and TickStatus, the one-minute minimum period in ReminderOptions, reminder table providers (UseInMemoryReminderService, UseAdoNetReminderService, UseAzureTableReminderService, UseRedisReminderService, UseCosmosReminderService, UseDynamoDBReminderService), timer ticks and the single-threaded turn model, and pitfalls such as deactivation, missed ticks and duplicate delivery. Use when a grain needs periodic or delayed work, when deciding between a timer and a reminder, when a timer stops after deactivation, or when configuring reminder storage."
+description: "Orleans timers and reminders: RegisterGrainTimer, the obsolete RegisterTimer, IRemindable, the one-minute minimum, reminder providers, deactivation pitfalls. Use when a grain needs periodic or delayed work, you choose between a timer and a reminder, a timer stops, or you configure reminder storage."
 metadata:
   title: Orleans timers and reminders
   tags: [orleans, dotnet, csharp, timers, reminders, scheduling, periodic, iremindable, registergraintimer, graintimer, reminderoptions, tickstatus]

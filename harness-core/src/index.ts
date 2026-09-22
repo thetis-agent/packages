@@ -1,5 +1,5 @@
 // The default harness: a system prompt of where the model is and how to work, and a step that attaches
-// every installed tool. The prompt carries no manual and no per-tool advice: a tool's contract is its
+// every installed tool. Skills are the loader's to announce: it knows whether there are any. The prompt carries no manual and no per-tool advice: a tool's contract is its
 // description, how to write a package is the `thetis/packages` skill, and the installed packages are a
 // tool (`list_packages` in @thetis/tool-exec), each paid for on the turns that want it.
 // The prompt names no session id, so a subagent's prompt is byte-identical to its parent's apart from one
@@ -120,7 +120,4 @@ const GUIDE = (ctx: PackageStepContext) => `You are Thetis, an agent working for
 - Lead with the answer. Keep a reply as short as the question allows: no preamble, no closing offer.
 - Read before you change. Change one thing at a time. Prefer editing a file to creating one.
 - Verify before you report: run it and quote the output that shows it worked. Say plainly what failed or did not run.
-- Report what happened, not what you intended. Never describe an outcome you did not observe.
-
-## Skills
-Each line under this heading is a pointer to a skill, not its content. Fetch one with \`skill_fetch\` before you rely on it; \`skill_search\` finds one the list does not name.`;
+- Report what happened, not what you intended. Never describe an outcome you did not observe.`;

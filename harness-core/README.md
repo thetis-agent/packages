@@ -9,7 +9,7 @@ Four pipeline steps, declared in `thetis.steps`:
 | Step id | Phase | Export | What it does |
 |---|---|---|---|
 | `turn-context` | `history` | `turnContext` | Ends the turn's input message with `[Turn context: Monday 2026-09-21 20:40 Europe/Berlin]`, once. The line is saved with the conversation, so a later turn re-sends the message byte for byte and the prefix stays cached; the system prompt carries no clock. The web transcript hides the line; `skill_search` and the loader's ranking strip it from the query. |
-| `system-prompt` | `prompt` | `systemPrompt` | Appends the guide to `call.system`: the user and the home, what is reachable, file tools against shell, the working style, one sentence on skills; one extra line when the session has a parent. Nothing of the person's: no `THETIS.md`, no `harness.notes`, no package list, no session id. |
+| `system-prompt` | `prompt` | `systemPrompt` | Appends the guide to `call.system`: the user and the home, what is reachable, file tools against shell, the working style; one extra line when the session has a parent. The skills loader announces the skills, since it knows whether there are any. Nothing of the person's: no `THETIS.md`, no `harness.notes`, no package list, no session id. |
 | `attach-tools` | `tools` | `attachTools` | Adds every tool declared by every installed package to `call.tools`. The first package with a given tool name wins. A tool with no `parameters` gets `{ type: "object", properties: {} }`. |
 | `record-call` | `after` | `recordCall` | Writes `{ model, system, systemChars, tools, messages, at }` to `harness["@thetis/harness-core"].lastCall`, keeps the other fields under that key, and returns only `harness`. |
 
@@ -34,7 +34,7 @@ The package reads no environment variables and no file in the home. Text a perso
 
 The package is installed for everyone by default. The prompt names no package and no tool: `list_packages` (from `@thetis/tool-exec`) says in its own description that the prompt does not carry the list, and every tool's description says when to use it, so nothing is paid for on every call that a description already carries. It names no session id either, so a subagent's prompt differs from its parent's by one line and the provider cache the parent warmed serves the child.
 
-The guide is about 1,300 characters, the turn context line included. What a person adds through a project's instructions and the skills a loader pins is theirs to size.
+The guide is about 1,100 characters, the turn context line included. What a person adds through a project's instructions and the skills a loader pins is theirs to size.
 
 Read what the last call received, after a turn:
 

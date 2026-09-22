@@ -1,6 +1,6 @@
 ---
 name: pipeline
-description: How one turn runs in Thetis. The phases history, prompt, tools, call, and after, the default enumeration and a package enumerator, the step contract, the three variables conversation, call, and harness, why a returned variable replaces the old one and is never merged, the validation of step results, the built-in provider call and the tool loop, the turn events, the default harness steps, per-package keys in harness, and the prompt cache rules that keep the prefix byte-stable. Use when you ask "how do I write a step", "which phase", "why did my harness state vanish", "why is the cache cold", "what does ctx contain", or "what events does a turn emit".
+description: How one turn runs: the phases, the step contract, the three variables, validation, the provider call and tool loop, turn events, the prompt cache rules. Use when you write a step or enumerator, keep state in harness, or ask which phase, why state vanished, why the cache is cold, or what ctx holds.
 metadata:
   title: The pipeline
   tags: [pipeline, turn, phases, steps, enumerator, conversation, call, harness, variables, mutations, events, prompt, cache, prefix, provider]
@@ -126,7 +126,7 @@ A cancelled turn ends with an `error` event of code `cancelled`. Streamed text s
 | Package | Step | Phase | Effect |
 |---|---|---|---|
 | `@thetis/harness-core` | `turnContext` | `history` | Ends the input message with `[Turn context: <weekday> <date> <time> <zone>]`. |
-| `@thetis/harness-core` | `systemPrompt` | `prompt` | Appends the guide (where you are, working style, the skills rule) to `call.system`. No file of the person's and no package list: a universal skill, a project's instructions and `list_packages` carry those. |
+| `@thetis/harness-core` | `systemPrompt` | `prompt` | Appends the guide (where you are, working style) to `call.system`. No file of the person's and no package list: a universal skill, a project's instructions and `list_packages` carry those. |
 | `@thetis/harness-core` | `attachTools` | `tools` | Adds every declared tool of every package to `call.tools`. The first package with a name wins. |
 | `@thetis/prompt-cache` | `cacheHints` | `call` | Sets `call.hints.cache` and records prefix fingerprints in `harness`. |
 | `@thetis/projects` | `projectPrompt`, `projectTools` | `prompt`, `call` | Adds the project section. Drops switched-off tools. |

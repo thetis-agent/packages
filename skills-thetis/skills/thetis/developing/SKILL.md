@@ -1,6 +1,6 @@
 ---
 name: developing
-description: Changing Thetis's own source on the host, as opposed to writing a package inside a fence. The build and test commands, the two git repositories and the order you commit them in, the three guards that reject a change and how to satisfy them, where a new thing belongs (mechanism, authority, type, capability), adding a TypeScript package to the runtime, what CI checks beyond the suite, the end-to-end fixture's trigger words, and the files that have to move together when the fence protocol changes. Use when you ask "how do I build and test the runtime", "why was my change rejected", "where does this code belong", "the kernel is too many lines", "I added a package and nothing compiled it", "how do I commit a change to packages", "why is my change not live", or "how do I test something that crosses the fence".
+description: Changing Thetis's own source on the host: build and test commands, the two git repositories, the three guards, where new code belongs, the end-to-end fixture. Use when you build or test the runtime, a change was rejected or is not live, you add a package to the runtime, or you cross the fence protocol.
 metadata:
   title: Changing Thetis itself
   tags: [development, build, test, guards, loc, boundaries, layering, submodule, git, tsconfig, ci, fixtures, rpc, self-modification]

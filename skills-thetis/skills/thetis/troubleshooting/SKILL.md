@@ -1,6 +1,6 @@
 ---
 name: troubleshooting
-description: The failures a model meets inside Thetis and what to do. A change that is not live and whether it needs a workspace reload or a daemon restart, a restart that was refused and the five reasons off, unsupervised, no-listener, young and policy, a step that throws or returns an invalid result, a tool that is refused or unknown, a package that will not install (scope, peer, build, path, manifest), a fork that is refused, a service that does not start, a provider error, a cancelled or timed out turn, a cold prompt cache, and where the logs, the session records, the journal, and the harness records are. Use when you ask "why is my change not live", "do I need a reload or a restart", "why was restart_daemon refused", "why did my turn end with an error", "why was install_package refused", "why did the tool return error:", "where are the logs", "why is my service not running", or "what does code fence mean".
+description: The failures a model meets inside Thetis and what to do: changes not live, refused restarts, failing steps, refused tools and installs, providers, the logs. Use when a turn ends with an error, a tool returns error:, an install or restart was refused, a change is not live, or you need the logs.
 metadata:
   title: Troubleshooting
   tags: [troubleshooting, errors, codes, stale, reload, restart, daemon, step, tool, install, build, peer, unauthorized, service, provider, timeout, cancelled, logs, journal, sessions]

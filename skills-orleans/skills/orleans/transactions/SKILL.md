@@ -1,6 +1,6 @@
 ---
 name: transactions
-description: "Orleans distributed ACID transactions for Orleans 7 through 10: the Microsoft.Orleans.Transactions package, UseTransactions on silo and client, [Transaction(TransactionOption.X)] on grain interface methods with Create, Join, CreateOrJoin, Suppress, Supported and NotAllowed, ITransactionalState<T> injected with [TransactionalState(name, store)], PerformRead and PerformUpdate, the [Reentrant] requirement, ITransactionClient.RunTransaction from clients, transactional state storage (AddAzureTableTransactionalStateStorage, the IGrainStorage bridge and memory storage for tests), OrleansTransactionException, OrleansTransactionAbortedException and retry rules, TransactionalStateOptions timeouts, limits on timers, reminders, streams and OnActivateAsync, and the ATM transfer example. Use when a grain call must update state in several grains atomically, when wiring transactional storage, or when handling transaction aborts."
+description: "Orleans distributed ACID transactions: TransactionOption on interface methods, ITransactionalState<T>, ITransactionClient, transactional storage, aborts. Use when a call must update several grains atomically, you wire transactional storage, or you handle transaction aborts."
 metadata:
   title: Orleans transactions
   tags: [orleans, dotnet, csharp, transactions, acid, transactionoption, transactionalstate, performupdate, performread, transactionclient, azure-table, abort, retry, reentrant]

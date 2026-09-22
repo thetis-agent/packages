@@ -108,13 +108,19 @@ test("brief, card and renderBody", () => {
   s.resources = ["references/install.md"];
   s.source = { dir: "/home/skills/packages" };
   assert.equal(brief(s), "`packages` — Installs and forks packages.");
-  assert.equal(card(s), "`packages` — Installs and forks packages.\nUse when: Use when asked to install, fork or promote a package.\nNested: `packages/forks`", "related ids are not on the card");
+  assert.equal(card(s), "`packages` — Installs and forks packages.\nUse when: asked to install, fork or promote a package.\nNested: forks", "related ids are not on the card; a child is its last segment");
+  const many = { ...s, children: Array.from({ length: 11 }, (_, i) => `packages/child-${i}`) };
+  assert.equal(card(many).split("\n")[2], `Nested: ${Array.from({ length: 8 }, (_, i) => `child-${i}`).join(", ")}, +3 more`);
+  const sentences = card(parseSkill("---\nname: cut\ndescription: Does a thing. Use when the first case comes up and it is long enough to matter here. Use also when a second case comes up, one that pushes the whole text well past the one hundred and sixty character limit of the card.\n---\nbody\n", { id: "cut" }));
+  assert.equal(sentences.split("\n")[1], "Use when: the first case comes up and it is long enough to matter here.", "cut at a sentence end inside the limit");
   const long = card(parseSkill(`---\nname: long\ndescription: Does a thing. ${"Use when ".repeat(60).trim()}.\n---\nbody\n`, { id: "long" }));
   const when = long.split("\n")[1];
   assert.ok(when.startsWith("Use when: ") && when.endsWith("…") && when.length <= "Use when: ".length + CARD_WHEN_LIMIT, when.length);
   assert.equal(renderBody(s), "The body.\n\nSkill directory: /home/skills/packages\nFiles beside SKILL.md (skill_fetch with file): references/install.md");
   s.title = "Packages";
-  assert.equal(brief(s), "`packages` (Packages) — Installs and forks packages.");
+  assert.equal(brief(s), "`packages` — Installs and forks packages.", "a title that only repeats the id is not shown");
+  s.title = "Package tools";
+  assert.equal(brief(s), "`packages` (Package tools) — Installs and forks packages.");
 });
 
 test("the brief is cut at 160 characters and at the first sentence end", () => {
@@ -124,4 +130,13 @@ test("the brief is cut at 160 characters and at the first sentence end", () => {
   const long = firstSentence(`${"word ".repeat(50)}end.`);
   assert.equal(long.length, 160);
   assert.ok(long.endsWith("…"));
+});
+
+test("a long first sentence or a long description is a warning, and the skill stays", () => {
+  const long = parseSkill(`---\nname: long\ndescription: ${"word ".repeat(40).trim()} and more words to pass one hundred and sixty. Use when ${"asked ".repeat(50).trim()}.\n---\nbody\n`, { id: "long" });
+  assert.ok(long.problems.every((p) => p.level === "warning"), JSON.stringify(long.problems));
+  assert.ok(long.problems.some((p) => /first sentence is \d+ characters; the brief shows 160/.test(p.message)));
+  assert.ok(long.problems.some((p) => /description is \d+ characters, over the 400 guideline/.test(p.message)));
+  const short = parseSkill("---\nname: short\ndescription: Does a thing. Use when asked.\n---\nbody\n", { id: "short" });
+  assert.deepEqual(short.problems, []);
 });

@@ -14,20 +14,20 @@
 <text class="t" x="16" y="66" font-size="12" font-weight="600">bytes_system</text>
 <line x1="192" y1="70" x2="566" y2="70" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="86" font-size="11" text-anchor="end">none</text>
-<rect x="192" y="77" width="171.29" height="10" rx="2" fill="url(#hatch)"/>
-<text class="t" x="369.29" y="86" font-size="11">1210<tspan class="f" font-size="9"> ±0</tspan></text>
+<rect x="192" y="77" width="156.2" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="354.2" y="86" font-size="11">1027<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="102" font-size="11" text-anchor="end" font-weight="600">thetis-skills-all</text>
-<rect x="192" y="93" width="174.97" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="372.97" y="102" font-size="11">1236<tspan class="f" font-size="9"> ±0</tspan></text>
+<rect x="192" y="93" width="160.16" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="358.16" y="102" font-size="11">1053<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="118" font-size="11" text-anchor="end">thetis-skills-hybrid</text>
-<rect x="192" y="109" width="175.82" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="373.82" y="118" font-size="11">1242<tspan class="f" font-size="9"> ±0</tspan></text>
+<rect x="192" y="109" width="161.07" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="359.07" y="118" font-size="11">1059<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="134" font-size="11" text-anchor="end">thetis-skills-l1</text>
-<rect x="192" y="125" width="174.68" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="372.68" y="134" font-size="11">1234<tspan class="f" font-size="9"> ±0</tspan></text>
+<rect x="192" y="125" width="159.85" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="357.85" y="134" font-size="11">1051<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="150" font-size="11" text-anchor="end">all</text>
 <rect x="192" y="141" width="374" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="572" y="150" font-size="11">2642<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="572" y="150" font-size="11">2459<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="16" y="176" font-size="12" font-weight="600">bytes_tools</text>
 <line x1="192" y1="180" x2="566" y2="180" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="196" font-size="11" text-anchor="end">none</text>
@@ -48,37 +48,37 @@
 <text class="t" x="16" y="286" font-size="12" font-weight="600">bytes_turn1</text>
 <line x1="192" y1="290" x2="566" y2="290" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="306" font-size="11" text-anchor="end">none</text>
-<rect x="192" y="297" width="137.81" height="10" rx="2" fill="url(#hatch)"/>
-<text class="t" x="335.81" y="306" font-size="11">1315.7<tspan class="f" font-size="9"> ±21</tspan></text>
+<rect x="192" y="297" width="125.05" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="323.05" y="306" font-size="11">1132.7<tspan class="f" font-size="9"> ±21</tspan></text>
 <text class="t" x="184" y="322" font-size="11" text-anchor="end" font-weight="600">thetis-skills-all</text>
-<rect x="192" y="313" width="140.53" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="338.53" y="322" font-size="11">1341.7<tspan class="f" font-size="9"> ±20.7</tspan></text>
+<rect x="192" y="313" width="127.92" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="325.92" y="322" font-size="11">1158.7<tspan class="f" font-size="9"> ±20.7</tspan></text>
 <text class="t" x="184" y="338" font-size="11" text-anchor="end">thetis-skills-hybrid</text>
-<rect x="192" y="329" width="203.27" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="401.27" y="338" font-size="11">1940.7<tspan class="f" font-size="9"> ±19.9</tspan></text>
+<rect x="192" y="329" width="194.05" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="392.05" y="338" font-size="11">1757.7<tspan class="f" font-size="9"> ±19.9</tspan></text>
 <text class="t" x="184" y="354" font-size="11" text-anchor="end">thetis-skills-l1</text>
-<rect x="192" y="345" width="186.51" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="384.51" y="354" font-size="11">1780.7<tspan class="f" font-size="9"> ±20.9</tspan></text>
+<rect x="192" y="345" width="176.39" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="374.39" y="354" font-size="11">1597.7<tspan class="f" font-size="9"> ±20.9</tspan></text>
 <text class="t" x="184" y="370" font-size="11" text-anchor="end">all</text>
 <rect x="192" y="361" width="374" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="572" y="370" font-size="11">3570.7<tspan class="f" font-size="9"> ±21.6</tspan></text>
+<text class="t" x="572" y="370" font-size="11">3387.7<tspan class="f" font-size="9"> ±21.6</tspan></text>
 <text class="t" x="16" y="396" font-size="12" font-weight="600">bytes_last</text>
 <line x1="192" y1="400" x2="566" y2="400" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="416" font-size="11" text-anchor="end">none</text>
-<rect x="192" y="407" width="147.25" height="10" rx="2" fill="url(#hatch)"/>
-<text class="t" x="345.25" y="416" font-size="11">1464.4<tspan class="f" font-size="9"> ±42.3</tspan></text>
+<rect x="192" y="407" width="135.52" height="10" rx="2" fill="url(#hatch)"/>
+<text class="t" x="333.52" y="416" font-size="11">1281.4<tspan class="f" font-size="9"> ±42.3</tspan></text>
 <text class="t" x="184" y="432" font-size="11" text-anchor="end" font-weight="600">thetis-skills-all</text>
-<rect x="192" y="423" width="149.87" height="10" rx="2" fill="#7c9cff"/>
-<text class="t" x="347.87" y="432" font-size="11">1490.4<tspan class="f" font-size="9"> ±40.7</tspan></text>
+<rect x="192" y="423" width="138.27" height="10" rx="2" fill="#7c9cff"/>
+<text class="t" x="336.27" y="432" font-size="11">1307.4<tspan class="f" font-size="9"> ±40.7</tspan></text>
 <text class="t" x="184" y="448" font-size="11" text-anchor="end">thetis-skills-hybrid</text>
-<rect x="192" y="439" width="210.1" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="408.1" y="448" font-size="11">2089.4<tspan class="f" font-size="9"> ±42.4</tspan></text>
+<rect x="192" y="439" width="201.62" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="399.62" y="448" font-size="11">1906.4<tspan class="f" font-size="9"> ±42.4</tspan></text>
 <text class="t" x="184" y="464" font-size="11" text-anchor="end">thetis-skills-l1</text>
-<rect x="192" y="455" width="194.01" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="392.01" y="464" font-size="11">1929.4<tspan class="f" font-size="9"> ±40</tspan></text>
+<rect x="192" y="455" width="184.7" height="10" rx="2" fill="#6e6e82"/>
+<text class="t" x="382.7" y="464" font-size="11">1746.4<tspan class="f" font-size="9"> ±40</tspan></text>
 <text class="t" x="184" y="480" font-size="11" text-anchor="end">all</text>
 <rect x="192" y="471" width="374" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="572" y="480" font-size="11">3719.4<tspan class="f" font-size="9"> ±41.7</tspan></text>
+<text class="t" x="572" y="480" font-size="11">3536.4<tspan class="f" font-size="9"> ±41.7</tspan></text>
 <text class="t" x="16" y="506" font-size="12" font-weight="600">prefix_stable</text>
 <line x1="192" y1="510" x2="566" y2="510" stroke="#6e6e82" stroke-opacity="0.35" stroke-width="1"/>
 <text class="t" x="184" y="526" font-size="11" text-anchor="end">none</text>
@@ -146,5 +146,5 @@
 <text class="t" x="198" y="904" font-size="11">0<tspan class="f" font-size="9"> ±0</tspan></text>
 <text class="t" x="184" y="920" font-size="11" text-anchor="end">all</text>
 <rect x="192" y="911" width="374" height="10" rx="2" fill="#6e6e82"/>
-<text class="t" x="572" y="920" font-size="11">0.009<tspan class="f" font-size="9"> ±0</tspan></text>
+<text class="t" x="572" y="920" font-size="11">0.010<tspan class="f" font-size="9"> ±0</tspan></text>
 </svg>

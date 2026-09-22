@@ -8,11 +8,11 @@ The subject is the framework as the official documentation at https://learn.micr
 
 The manifest declares `"thetis": { "type": "skill", "skills": "skills" }`. No steps, no tools, no service, no UI, no bench suites.
 
-Fifteen skills under `skills/orleans/`. The first one is universal: its body is in every prompt. The others are fetched by id.
+Fifteen skills under `skills/orleans/`. None is universal: the loader puts one brief per top-level skill in the prompt, and a body is fetched by id. The first one, `orleans`, is the index.
 
 | Id | Content |
 |---|---|
-| `orleans` | What a grain, a silo and a cluster are, the rules that always hold, and which child skill to fetch. Universal. |
+| `orleans` | What a grain, a silo and a cluster are, the runtime guarantees, and which child skill to fetch. The index. |
 | `orleans/grains` | Grain classes and interfaces, keys, references, lifecycle, reentrancy, one-way calls, stateless workers, call filters, RequestContext. |
 | `orleans/hosting` | Silo and client builders, options, endpoints, local development, co-hosting with ASP.NET Core, startup tasks. |
 | `orleans/clustering` | Membership providers, ClusterId and ServiceId, liveness options, gateways, the grain directory. |
