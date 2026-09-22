@@ -257,6 +257,17 @@ test("login: a wrong password is refused; success sets the cookie and lands on t
   assert.equal((await api(cookie, "/alice/")).status, 200);
 });
 
+test("a route matches its own path and nothing below it", async () => {
+  // A predicate that looks at one segment matches everything under it as well. `GET /api/me` did, and it
+  // came within a length check of swallowing `GET /api/me/avatar` whole, answering identity where a picture
+  // was asked for. Every route pins its length now, so anything deeper is a 404 rather than a near miss.
+  const cookie = await cookieFor("alice", "wonderland");
+  for (const at of ["/alice/api/me/nonsense", "/alice/api/me/avatar/nonsense", "/alice/api/events/nonsense", "/alice/api/models/nonsense"]) {
+    assert.equal((await api(cookie, at)).status, 404, `${at} should not be matched by the route above it`);
+  }
+  assert.equal((await api(cookie, "/alice/api/me")).status, 200, "and the route itself still answers");
+});
+
 test("an avatar is the bytes it really is, is served back with that type, and can be taken off again", async () => {
   const cookie = await cookieFor("alice", "wonderland");
   const at = "/alice/api/me/avatar";

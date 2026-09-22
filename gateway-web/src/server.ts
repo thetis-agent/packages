@@ -165,7 +165,9 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
         return json(res, 200, { avatar: null });
       }
     }
-    if (seg[1] === "events" && method === "GET") return stream(req, res, user);
+    // Every route pins its length. A predicate that only looks at one segment matches everything below it
+    // too, which is how `GET /api/me/avatar` was very nearly swallowed whole by the handler for `/api/me`.
+    if (seg[1] === "events" && seg.length === 2 && method === "GET") return stream(req, res, user);
     if (seg[1] === "models" && seg.length === 2 && method === "GET") return json(res, 200, await modelChoices());
     if (await handlePanel(kernel, req, res, who!, seg, method, url)) return;
     if (seg[1] === "sessions") {
@@ -181,14 +183,14 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       const id = seg[2];
       if (!/^s_[a-f0-9]+$/.test(id ?? "")) throw new HttpError(404, "unknown session");
       if (seg.length === 3 && method === "GET") return json(res, 200, await showSession(user, id));
-      if (seg[3] === "send" && method === "POST") {
+      if (seg[3] === "send" && seg.length === 4 && method === "POST") {
         const body = await readJson(req);
         const text = typeof body.text === "string" ? body.text.trim() : "";
         if (!text) throw new HttpError(400, "text is required");
         const run = await hub.start(user, id, text, store.model(user, id));
         return json(res, 202, { session: id, startedAt: run.startedAt, model: run.model ?? null });
       }
-      if (seg[3] === "model" && method === "POST") {
+      if (seg[3] === "model" && seg.length === 4 && method === "POST") {
         await kernel.sessions.inspect(id);
         const body = await readJson(req);
         const model = typeof body.model === "string" ? body.model.trim() : "";
@@ -198,7 +200,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
         listChanged(user);
         return json(res, 200, { id, model: model || null });
       }
-      if (seg[3] === "title" && method === "POST") {
+      if (seg[3] === "title" && seg.length === 4 && method === "POST") {
         await kernel.sessions.inspect(id);
         const body = await readJson(req);
         const title = typeof body.title === "string" ? body.title.replace(/\s+/g, " ").trim().slice(0, 120) : "";
@@ -206,11 +208,11 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
         listChanged(user);
         return json(res, 200, { id, title: title || null });
       }
-      if (seg[3] === "cancel" && method === "POST") {
+      if (seg[3] === "cancel" && seg.length === 4 && method === "POST") {
         await kernel.sessions.inspect(id);
         return json(res, 200, { cancelled: await hub.cancel(user, id) });
       }
-      if (seg[3] === "archive" && method === "POST") {
+      if (seg[3] === "archive" && seg.length === 4 && method === "POST") {
         await kernel.sessions.inspect(id);
         const body = await readJson(req);
         store.setArchived(user, id, body.archived !== false);

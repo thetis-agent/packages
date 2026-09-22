@@ -23,6 +23,8 @@ All relative to `/<user>`. Every `/api/*` and `/ext/*` route needs the cookie; a
 | `POST /api/sessions/<id>/send`, `/cancel`, `/archive`, `/model`, `/title` | Start a turn, stop it, archive or restore, choose the model, name the conversation. |
 | `GET /api/models` | The default model and the models the person's providers serve (`id`, `name`, `provider` only), cached in the gateway for a minute. |
 | `GET /api/events` | The Server-Sent Events stream: every turn event of the person, opened with a snapshot of the turns in progress. |
+
+Every route matches its own path and nothing beneath it. A predicate that reads one segment matches everything below it too, and `GET /api/me` came within a length check of answering identity for `GET /api/me/avatar`, so each one pins its segment count and anything deeper is a 404.
 | `GET /api/panel`, `GET` and `POST /api/packages`, `DELETE /api/packages/<name>` (`?files=1` deletes the directory too, `?unfork=1` puts the package this fork was copied from back in its place) | The built-in Packages section of the control panel. |
 | `GET /api/ui` | What installed packages add to the page, for the person's role. |
 | `GET /ext/<scope>/<name>/<path>` | A browser file of an installed package, from under its declared `dir`. |
