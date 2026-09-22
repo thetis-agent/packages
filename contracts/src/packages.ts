@@ -25,6 +25,23 @@ export interface ForkOrigin {
   version: string;
 }
 
+/**
+ * A fork measured against the package it was copied from, as things stand now. `name` and `version` are the
+ * origin as it was at the time of the copy, which is all a manifest records; the rest is what the kernel
+ * can see by looking at the origin on disk. A fork that says nothing about its origin is a fork nobody can
+ * leave: every later fix to the shipped package is invisible to whoever is holding it, and nothing says so.
+ *
+ * "Behind" is `shipped` differing from `version`: the origin has moved past the copy. `identical` is the
+ * stronger case, and the one worth acting on -- the fork's files are the origin's files, so it is carrying
+ * no change at all and is costing its owner every fix, past and future, for nothing.
+ */
+export interface ForkStatus extends ForkOrigin {
+  /** The version of the origin on disk here now. Absent when the origin is not here any more. */
+  shipped?: string;
+  /** True when the fork's files are the origin's files, apart from the name and version a fork rewrites. */
+  identical?: boolean;
+}
+
 export interface PackageSource {
   kind: "system" | "local" | "git";
   ref: string;
@@ -129,6 +146,8 @@ export interface PackageInfo {
   /** True when every person gets this package: it is in `systemPackages["*"]`, promoted, or marked for everyone. */
   everyone?: boolean;
   forkedFrom?: ForkOrigin;
+  /** A fork, against its origin as it stands now. Set by `packages.list` only; the plain `installed` list does not pay for it. */
+  fork?: ForkStatus;
   /** The package this fork displaced in the userspace. An uninstall of the fork puts it back. */
   replaced?: string;
   /** Where this copy came from. A git source carries its pin, which is what tells you it is behind. */

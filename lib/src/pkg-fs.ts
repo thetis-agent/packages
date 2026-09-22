@@ -1,6 +1,7 @@
 // File and shell mechanics of package installation: sources, clones, builds, links, and copies.
 // Who may install what, and where, is decided by the caller.
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash, type Hash } from "node:crypto";
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 
 const GIT_URL = /^(https?:\/\/|git@|git:\/\/|ssh:\/\/|file:\/\/).+|\.git$/;
@@ -27,6 +28,21 @@ export function splitSource(source: string): { url: string; sub?: string; ref?: 
 /** `<url>#<dir>@<commit>`, the form the marketplace hands to install. */
 export function pinnedSource(url: string, sub: string | undefined, ref: string): string {
   return `${url}${sub ? `#${sub}` : ""}@${ref}`;
+}
+
+/** The clone directory name a source wants, pin and all: `splitSource` then `cloneSlug`, which every caller pairs. */
+export function cloneSlugOf(source: string): string {
+  const { url, ref } = splitSource(source);
+  return cloneSlug(url, ref);
+}
+
+/**
+ * Where a clone of this source lives under a userspace's store. The pin is part of the directory name, so
+ * anything that looks for a clone -- taking one, repairing a link to one, pruning the ones nothing uses --
+ * has to spell it the same way, and spelling it in one place is how they do.
+ */
+export function cloneDirFor(store: string, source: string): string {
+  return resolve(store, "src", cloneSlugOf(source));
 }
 
 export function isGitSource(source: string): boolean {
@@ -126,6 +142,16 @@ export function removeLink(link: string): void {
   if (existsSync(link) || isLink(link)) rmSync(link, { recursive: true, force: true });
 }
 
+/**
+ * Removes every entry of a directory whose name is not in `keep`. A directory that is not there is already
+ * in that state, so there is nothing to do and nothing to report: the caller prunes what an install left
+ * behind, and an installation that has never cloned anything has no `src` directory at all.
+ */
+export function keepOnly(base: string, keep: ReadonlySet<string>): void {
+  if (!existsSync(base)) return;
+  for (const entry of readdirSync(base)) if (!keep.has(entry)) rmSync(resolve(base, entry), { recursive: true, force: true });
+}
+
 export function hasPackageJson(dir: string): boolean {
   return existsSync(resolve(dir, "package.json"));
 }
@@ -215,4 +241,96 @@ export function forkPackage(spec: ForkSpec): ForkResult {
   manifest.thetis = { ...manifest.thetis, forkedFrom: { ...spec.origin } };
   writeFileSync(file, JSON.stringify(manifest, null, 2) + "\n");
   return { manifest, linked };
+}
+
+/**
+ * The packages sitting directly under a directory: one entry per subdirectory whose manifest `read` accepts.
+ * The walk, the missing-package.json guard and the swallowed error are mechanism; what counts as a readable
+ * manifest is the caller's, which is why `read` is handed in rather than assumed. A directory that does not
+ * exist has no packages in it, which is the same answer as an empty one and saves every caller a guard.
+ */
+export function packagesIn<T extends { name: string }>(base: string, read: (dir: string) => T): { dir: string; manifest: T }[] {
+  if (!existsSync(base)) return [];
+  const out: { dir: string; manifest: T }[] = [];
+  for (const entry of readdirSync(base)) {
+    const dir = resolve(base, entry);
+    if (!hasPackageJson(dir)) continue;
+    try {
+      out.push({ dir, manifest: read(dir) });
+    } catch {
+      continue;
+    }
+  }
+  return out;
+}
+
+/** Directories a package digest never looks at: what a package installs into, and what its own history is. */
+const DIGEST_SKIP = new Set(["node_modules", ".git"]);
+
+/** The fields `forkPackage` rewrites. Two packages that differ only in these are the same package under two names. */
+const FORK_FIELDS = ["name", "version", "scripts", "dependencies", "devDependencies"];
+
+/**
+ * The package.json a digest sees: the copy with everything a fork rewrites taken out. A fork gets its own
+ * name and version, loses `scripts` and `devDependencies` (it cannot rebuild inside a fence), and has the
+ * dependencies it could link dropped in favour of links under its own `node_modules`. Comparing any of
+ * those would say "different" about every fork ever made, including one that changed nothing at all, which
+ * is the one case this exists to catch.
+ */
+function forkNeutralManifest(file: string): string {
+  const manifest = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown> & { thetis?: Record<string, unknown> };
+  for (const field of FORK_FIELDS) delete manifest[field];
+  if (manifest.thetis && typeof manifest.thetis === "object") {
+    const { forkedFrom, ...rest } = manifest.thetis;
+    manifest.thetis = rest;
+  }
+  return JSON.stringify(manifest);
+}
+
+function digestInto(dir: string, base: string, hash: Hash): void {
+  for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    if (DIGEST_SKIP.has(entry.name)) continue;
+    const path = resolve(dir, entry.name);
+    if (entry.isDirectory()) {
+      digestInto(path, base, hash);
+      continue;
+    }
+    // The path goes in as well as the contents: two trees holding the same bytes under different names are
+    // not the same package, and hashing contents alone would say they were.
+    hash.update(relative(base, path));
+    hash.update("\0");
+    if (entry.isSymbolicLink()) hash.update(`L${readlinkSync(path)}`);
+    else if (path === resolve(base, "package.json")) hash.update(`F${forkNeutralManifest(path)}`);
+    else {
+      hash.update("F");
+      hash.update(readFileSync(path));
+    }
+    hash.update("\0");
+  }
+}
+
+/**
+ * A content digest of a package directory, blind to the name and version a fork carries. `node_modules` is
+ * left out because it is what an install put there rather than what the author wrote, and `.git` because a
+ * clone's history is not the package. Reading the whole tree costs a few milliseconds for the largest
+ * package there is, so a caller computes it when a person is about to be told something, not on every list.
+ */
+export function packageDigest(dir: string): string {
+  const hash = createHash("sha256");
+  digestInto(resolve(dir), resolve(dir), hash);
+  return hash.digest("hex");
+}
+
+/**
+ * True when two package directories hold the same package under two names: the same files, byte for byte,
+ * with only the fields a fork rewrites allowed to differ. This is what turns "a fork" into "a fork that is
+ * carrying no change at all", which is a thing a person wants to be told, because it means they are holding
+ * a copy of the shipped package that will never see another fix.
+ */
+export function samePackage(a: string, b: string): boolean {
+  try {
+    return packageDigest(a) === packageDigest(b);
+  } catch {
+    return false;
+  }
 }

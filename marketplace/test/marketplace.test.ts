@@ -350,6 +350,37 @@ test("the same name from a different repository is a different package, not an u
   assert.deepEqual(behind([elsewhere], index), [], "a fork of the name from another registry is left alone");
 });
 
+test("a fork whose origin has moved on is behind it, and going back is what takes the difference", () => {
+  const record = { name: "@alice/gateway-web", version: "0.1.1-fork.1", source: { kind: "local" as const, ref: "packages/gateway-web" }, fork: { name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.2.0" } };
+  assert.deepEqual(behind([record], undefined), [
+    { name: "@alice/gateway-web", installed: "0.1.1", available: "0.2.0", version: "0.2.0", registry: "@thetis/gateway-web", source: "", apply: "unfork", origin: "@thetis/gateway-web" },
+  ]);
+});
+
+test("a fork that is the shipped package's own files is behind it even when the version has not moved: it is carrying no change at all", () => {
+  const same = { name: "@alice/gateway-web", version: "0.1.1-fork.1", fork: { name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.1.1", identical: true } };
+  assert.deepEqual(behind([same], undefined), [
+    { name: "@alice/gateway-web", installed: "0.1.1", available: "0.1.1", version: "0.1.1", registry: "@thetis/gateway-web", source: "", apply: "unfork", origin: "@thetis/gateway-web", identical: true },
+  ]);
+  // The same fork with one byte changed is a fork doing its job, and nothing to nag about.
+  const changed = { ...same, fork: { ...same.fork, identical: false } };
+  assert.deepEqual(behind([changed], undefined), []);
+});
+
+test("a fork whose origin is not on disk any more is left alone: there is nothing here to go back to", () => {
+  const gone = { name: "@alice/gateway-web", version: "0.1.1-fork.1", fork: { name: "@thetis/gateway-web", version: "0.1.1" } };
+  assert.deepEqual(behind([gone], undefined), []);
+  assert.deepEqual(behind([{ name: "@alice/plain", version: "0.1.0" }], undefined), [], "a package that is no fork says nothing about forks");
+});
+
+test("a fork that is also behind its own registry is told the one thing it can act on first", () => {
+  const index = indexOf([{ name: "@alice/thing", version: "0.3.0", commit: NEW, source: `${URL_A}#thing@${NEW}` }]);
+  const record = { name: "@alice/thing", version: "0.2.0", source: { kind: "git" as const, ref: `${URL_A}#thing@${OLD}` }, fork: { name: "@thetis/thing", version: "0.1.0", shipped: "0.9.0" } };
+  const out = behind([record], index);
+  assert.equal(out.length, 1, "one row, not two");
+  assert.equal(out[0].apply, "install", "the update it can take now wins over the fork it could leave");
+});
+
 test("a package the index no longer carries is left alone, not reported as behind", () => {
   assert.deepEqual(behind([{ name: "@thetis/gone", source: { kind: "git", ref: `${URL_A}#gone@${OLD}` } }], indexOf([])), []);
   assert.deepEqual(behind([{ name: "@thetis/gone", source: { kind: "git", ref: `${URL_A}#gone@${OLD}` } }], undefined), []);

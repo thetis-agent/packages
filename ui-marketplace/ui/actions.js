@@ -1,10 +1,12 @@
 /* The actions a package page offers, and the confirm popover in front of each: Install for me, Update or
- * Reload my workspace, Remove, Delete (a package of one's own, with its files), and for an admin Install
- * for everyone, Make it the default for everyone, and Install for a person. Update and Reload are the two
- * kinds of behind: a registry holding a newer commit is installed, while files on disk the workspace has
- * not read are already installed and are put into service by reloading the workspace. Every popover states the facts a person should
- * read first and one sentence on what happens next; nothing is sent until they confirm. After an action
- * the place is re-opened on the page, or on the gallery when the package is gone from here. */
+ * Reload my workspace or Go back to the package this was forked from, Remove, Delete (a package of one's
+ * own, with its files), and for an admin Install for everyone, Make it the default for everyone, and
+ * Install for a person. Update, Reload and Go back are the three kinds of behind: a registry holding a
+ * newer commit is installed, files on disk the workspace has not read are already installed and are put
+ * into service by reloading the workspace, and a fork's origin has moved on without it, which going back
+ * to that origin takes. Every popover states the facts a person should read first and one sentence on what
+ * happens next; nothing is sent until they confirm. After an action the place is re-opened on the page, or
+ * on the gallery when the package is gone from here. */
 
 /** How long the page waits for its own workspace to answer again after it was reloaded. */
 const SETTLE_MS = 30_000;
@@ -114,6 +116,52 @@ export function actionsFor(ext, view, host) {
     }
   }
 
+  /**
+   * Goes back to the package this fork was copied from. It is the inverse of forking, and the way out of a
+   * fork that has stopped earning its keep: the shipped package goes on being fixed, and a person holding a
+   * copy of it sees none of that.
+   *
+   * It does not go through `run`, for the same reason `reloadMe` does not. The package a person is most
+   * likely to have forked is the web gateway, and this page is being served by it, so stopping it is the
+   * first thing that happens and the request carrying the click dies with it. That lost answer is the
+   * success, not a failure, so the page waits for the package that replaced it to answer instead. When the
+   * fork is not a gateway the request simply returns and the wait never begins.
+   *
+   * The files stay. They are the person's own work and this page will not be the thing that throws them
+   * away; Delete, which they can reach once the shipped package is back, is what removes them.
+   */
+  async function unforkMe(anchor) {
+    const origin = row.update?.origin ?? row.fork?.name ?? row.forkedFrom?.name;
+    const shipped = row.update?.available ?? row.fork?.shipped ?? "";
+    const ok = await confirm(anchor, {
+      title: `Go back to ${origin}?`,
+      lines: [["fork", `${row.name}@${row.version}`], ["goes back to", `${origin}@${shipped}`], ["your files", "kept where they are"]],
+      note: `${row.name} is removed from your setup and ${origin} takes its place, with every change it has had since you forked it.${row.type === "gateway" ? " This page is served by the package being replaced, so it will go quiet for a second and come back on its own." : ""} Your copy stays under packages/; Delete is what removes it.`,
+      confirmLabel: `Go back to ${origin}`,
+      tone: "warn",
+    });
+    if (!ok) return;
+    const stop = busy(host, `Going back to ${origin}…`);
+    try {
+      let back = null;
+      try {
+        back = (await ext.request("unfork", { args: { name: row.name } }))?.data ?? null;
+      } catch (err) {
+        if (!lostGateway(err)) throw err;
+        if (!(await settle(ext, origin))) {
+          ext.toast(`${origin} has not answered for ${SETTLE_MS / 1000} seconds. Reload this page, or ask an admin to run thetis packages unfork ${row.name}.`, { tone: "error" });
+          return;
+        }
+      }
+      ext.toast(`${back?.name ?? origin}${back?.version ? `@${back.version}` : ""} is back in place. Your fork's files are still under packages/.`, { tone: "good" });
+      go(back?.name ?? origin);
+    } catch (err) {
+      ext.toast(err?.message || "That did not work.", { tone: "error" });
+    } finally {
+      stop();
+    }
+  }
+
   function updateMe(anchor) {
     return run(
       anchor,
@@ -210,7 +258,14 @@ export function actionsFor(ext, view, host) {
     add("Install for me", "primary", installMe);
     hints.push(row.name.startsWith("@thetis/") ? "A shipped package is linked already built. It is live on the next turn." : "The package is cloned from its registry and built in your own space. It is live on your next turn.");
   }
-  if (row.update?.apply === "reload") {
+  if (row.update?.apply === "unfork") {
+    add(`Go back to ${row.update.origin}`, "primary", unforkMe);
+    hints.push(
+      row.update.identical
+        ? `Your fork is the same files as ${row.update.origin}@${row.update.available}, which is shipped here. It is changing nothing and it will never see another fix to ${row.update.origin}. Going back costs you nothing: your files stay where they are.`
+        : `You forked ${row.update.origin} at ${row.update.installed}; ${row.update.available} is shipped now, and everything between the two is missing from your copy. Going back keeps your files, so you can fork again from the new one.`
+    );
+  } else if (row.update?.apply === "reload") {
     add("Reload my workspace", "primary", reloadMe);
     hints.push(`Your workspace loaded ${row.update.installed} when it opened; ${row.update.available} is on disk. The files are installed already, so nothing is fetched or built: reloading the workspace is what puts them into service.`);
   } else if (row.update) {

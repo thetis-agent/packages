@@ -15,6 +15,7 @@ The command line talks to a running kernel through the control socket `$THETIS_H
 | `packages.install` | `user`, `source`, `actor` | Installs into that user's userspace. `actor` names who installs. The ownership rules use the actor's role. |
 | `packages.uninstall` | `user`, `name` | Removes the package from that user's userspace. |
 | `packages.promote` | `user`, `name` | Makes the package the default for everyone. Returns `{ name, userspaces }`. |
+| `packages.unfork` | `user`, `name`, `deleteFiles` | Puts the package this fork was copied from back in its place, at the version it is at now. Refused when that package is not on disk here, before anything is removed. `deleteFiles` defaults to false. Returns the `PackageInfo` of the package that came back. |
 | `packages.installEveryone` | `source`, `actor` | Installs a package for every person, now and later. Returns `{ name, userspaces }`. |
 | `sessions.delete` | `user`, `session` | Removes the session record; a running turn is cancelled first. |
 | `fence.reload` | `user` | Closes that person's fence and opens it again on the code on disk. |

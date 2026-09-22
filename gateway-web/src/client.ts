@@ -9,6 +9,7 @@ export function clientFromRpc(rpc: KernelRpc): KernelClient {
       install: (source) => call("packages.install", { source }),
       uninstall: (name) => call("packages.uninstall", { name }),
       delete: (name) => call("packages.delete", { name }),
+      unfork: (name, deleteFiles) => call("packages.unfork", { name, deleteFiles }),
       list: () => call("packages.list", {}),
     },
     operator: {

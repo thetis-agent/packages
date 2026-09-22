@@ -27,6 +27,8 @@ export interface PackageRow {
   service: boolean;
   /** Set on a fork: what it was copied from, and what it displaced in this person's setup. */
   forkedFrom?: { name: string; version: string };
+  /** Set on a fork: the same origin, plus what that origin is at on disk now and whether this copy differs from it at all. */
+  fork?: { name: string; version: string; shipped?: string; identical?: boolean };
   replaced?: string;
 }
 
@@ -41,6 +43,7 @@ export function toRow(p: PackageInfo): PackageRow {
     tools: (p.thetis.tools ?? []).map((t) => t.name),
     service: !!p.thetis.service,
     ...(p.forkedFrom ? { forkedFrom: { name: p.forkedFrom.name, version: p.forkedFrom.version } } : {}),
+    ...(p.fork ? { fork: { name: p.fork.name, version: p.fork.version, ...(p.fork.shipped ? { shipped: p.fork.shipped } : {}), ...(p.fork.identical ? { identical: true } : {}) } } : {}),
     ...(p.replaced ? { replaced: p.replaced } : {}),
   };
 }
@@ -60,6 +63,12 @@ export async function handlePanel(kernel: KernelClient, req: IncomingMessage, re
     return json(res, 201, toRow(info)), true;
   }
   if (seg.length === 3 && method === "DELETE") {
+    // `?unfork=1` is a removal that names what takes the package's place rather than hoping something does.
+    // A plain removal puts back whatever the registry recorded this package as having displaced, and a fork
+    // installed where its origin was not has no such record: the person loses the package and gets nothing,
+    // which for a gateway means losing the browser. An un-fork reads the origin off the fork's own manifest
+    // and refuses before it removes anything when that origin is not on disk here.
+    if (url.searchParams.get("unfork") === "1") return json(res, 200, toRow(await kernel.packages.unfork(packageName(seg[2])))), true;
     // `?files=1` deletes the directory too; the kernel allows that only for the person's own scope under their home.
     if (url.searchParams.get("files") === "1") return json(res, 200, await kernel.packages.delete(packageName(seg[2]))), true;
     await kernel.packages.uninstall(packageName(seg[2]));

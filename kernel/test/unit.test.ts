@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Fences, Manifest, Message, PackageInfo, SessionRecord, StoreDriver, TurnEvent, UserRecord, Userspace, WatchedTurnEvent } from "@thetis/contracts";
@@ -8,6 +8,7 @@ import { LayeredConfig } from "@thetis/lib/config";
 import { Journal } from "@thetis/lib/journal";
 import { SessionStore } from "@thetis/lib/session-store";
 import { RestartLatch, type ArmResult, type FireReport, type RestartState } from "@thetis/lib/restart";
+import { forkPackage } from "@thetis/lib/pkg-fs";
 import { memoryStore, StoreMirror } from "@thetis/lib/store";
 import { UserspaceLayout } from "@thetis/lib/userspace-layout";
 import { UserStore } from "../src/users.js";
@@ -403,7 +404,7 @@ test("providers.forget drops one userspace's cached model list, so a reloaded pr
  * and for bob, and alice's fork of it, which declares a service. The manifests are a table; the package
  * manager is the one method the service asks of it.
  */
-async function configFixture(home: string) {
+async function configFixture(home: string, filePackages: Record<string, Record<string, unknown>> = { "@thetis/prov": { apiKey: "${PROV_KEY}" } }) {
   const driver = memoryStore();
   const registry = new PackageRegistry(await mirror(driver, "registry"));
   const manifests: Record<string, Manifest> = {
@@ -420,11 +421,36 @@ async function configFixture(home: string) {
   const env = { snapshot: () => ({ PROV_KEY: "from-env" }) };
   let settings!: ConfigService;
   const layers = new LayeredConfig(driver, () => settings.filePackages);
-  settings = new ConfigService({ "@thetis/prov": { apiKey: "${PROV_KEY}" } }, layers, env, packages, registry, userspaces, journal);
+  settings = new ConfigService(filePackages, layers, env, packages, registry, userspaces, journal);
   const changes: ConfigChange[] = [];
   settings.onChange(async (c) => void changes.push(c));
   return { driver, registry, settings, journal, userspaces, changes };
 }
+
+test("config service: reload sees a file layer that was rewritten in place, and still says what changed", async () => {
+  // `config.reload` writes the newly read file into the very configuration object the service was given,
+  // so that every holder of it sees the new values. The service therefore has to hold a copy: holding the
+  // reference meant diffing the object against itself, finding no package changed, and restarting no
+  // service on a configuration change -- while printing "nothing changed in the file" beside the list of
+  // keys it had just applied.
+  const home = tmp();
+  try {
+    const live: Record<string, Record<string, unknown>> = { "@thetis/prov": { baseUrl: "https://one" } };
+    const { settings } = await configFixture(home, live);
+    assert.equal(settings.filePackages, live, "the layer is held by reference, so a key written into it is live");
+
+    // What config.reload does: snapshot the layer, let applyInPlace rewrite that very object, then ask.
+    const was = structuredClone(live);
+    live["@thetis/prov"].baseUrl = "https://two";
+    assert.deepEqual((await settings.reload(live, was)).changed, ["@thetis/prov"], "a key that moved is a package that changed");
+
+    const was2 = structuredClone(live);
+    assert.deepEqual((await settings.reload(live, was2)).changed, [], "and a reload that moves nothing says nothing moved");
+    assert.deepEqual((await settings.reload(live)).changed, [], "without a snapshot it can only compare the object with itself, which is why the caller keeps one");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
 
 test("config service: who may set what, where a secret lands, what the journal keeps, and who is told", async () => {
   const home = tmp();
@@ -553,6 +579,75 @@ test("packages: a storage driver is refused an install, and manifestOf reads the
     assert.equal(manager.manifestOf(us, "@thetis/shipped")?.name, "@thetis/shipped");
     assert.equal(registry.get("@thetis/shipped")?.forkedFrom, undefined);
     assert.ok(!("forkedFrom" in registry.get("@thetis/shipped")!), "a record holds no undefined: the store would refuse it");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+/**
+ * The fork round trip, against real directories: a shipped package, a fork of it, the fork installed, and
+ * the way back. Two things are being held to account here. The listing has to say what the fork is missing,
+ * because a fork that says only "forked from X@0.1.1" is a copy nobody knows to leave. And the way back has
+ * to work when the registry recorded nothing about what the fork displaced, which is the case that leaves a
+ * person with no gateway at all if the only way out is `uninstall`.
+ */
+test("packages: a fork says what it was forked from and how far that has moved, and unfork is the way back whether or not anything was recorded as displaced", async () => {
+  const home = tmp();
+  try {
+    const registry = new PackageRegistry(await mirror(memoryStore(), "registry"));
+    const config = defaultConfig(home, "/proj");
+    config.systemPackagesDir = join(home, "system");
+    const shipped = join(config.systemPackagesDir, "gw");
+    mkdirSync(shipped, { recursive: true });
+    const manifest = (version: string) => JSON.stringify({ name: "@thetis/gw", version, main: "index.js", thetis: { type: "gateway" } });
+    writeFileSync(join(shipped, "package.json"), manifest("0.1.1"));
+    writeFileSync(join(shipped, "index.js"), "export const x = 1;\n");
+    const manager = new PackageManager(config, registry, {} as Fences);
+    const us = new UserspaceLayout(home).ensure("alice");
+    const alice = { id: "alice", role: "user", status: "active", createdAt: "" } as const;
+
+    manager.installSystem(us, "@thetis/gw");
+    const to = join(us.home, "packages", "gw");
+    forkPackage({ from: join(us.store, "node_modules", "@thetis", "gw"), to, name: "@alice/gw", version: "0.1.1-fork.1", origin: { name: "@thetis/gw", version: "0.1.1" }, root: us.root });
+    await manager.install(us, alice, "packages/gw");
+    assert.deepEqual(manager.listFor(us).map((p) => p.name), ["@alice/gw"], "the fork displaced its origin");
+
+    const forkOf = (name: string) => manager.listFor(us).find((p) => p.name === name)?.fork;
+    assert.deepEqual(forkOf("@alice/gw"), { name: "@thetis/gw", version: "0.1.1", shipped: "0.1.1", identical: true }, "a fresh fork is the shipped package under another name, and the listing says so");
+
+    // Upstream ships the change the fork was made for. The fork is now identical to nothing in particular
+    // and behind by one version, and both facts have to reach the listing without anything being installed.
+    writeFileSync(join(shipped, "index.js"), "export const x = 2;\n");
+    writeFileSync(join(shipped, "package.json"), manifest("0.2.0"));
+    assert.deepEqual(forkOf("@alice/gw"), { name: "@thetis/gw", version: "0.1.1", shipped: "0.2.0" }, "the origin moved on; the fork's own version says nothing about that");
+
+    const back = await manager.unfork(us, "@alice/gw");
+    assert.equal(back.name, "@thetis/gw");
+    assert.equal(back.version, "0.2.0", "the way back lands on what is shipped now, not on what was forked");
+    assert.deepEqual(manager.listFor(us).map((p) => p.name), ["@thetis/gw"]);
+    assert.ok(existsSync(to), "the fork's files are kept: they are the person's own work");
+    assert.equal(registry.get("@alice/gw"), undefined);
+
+    // The case that makes this a safety feature rather than a convenience. A fork installed where its
+    // origin was not has no `replaced` record, so `uninstall` puts nothing back -- for a gateway that is
+    // the person locked out of their own browser. `unfork` reads the origin off the fork's manifest.
+    await manager.uninstall(us, "@thetis/gw");
+    await manager.install(us, alice, "packages/gw");
+    assert.equal(registry.get("@alice/gw")?.replaced, undefined, "nothing was displaced, so nothing was recorded");
+    assert.equal((await manager.unfork(us, "@alice/gw", true)).name, "@thetis/gw", "the origin comes back on its name alone");
+    assert.deepEqual(manager.listFor(us).map((p) => p.name), ["@thetis/gw"]);
+    assert.ok(!existsSync(to), "asked for, so the files went too");
+
+    // Nothing to go back to is refused before anything is removed, rather than after.
+    await manager.install(us, alice, "packages/gw").catch(() => {});
+    rmSync(shipped, { recursive: true, force: true });
+    mkdirSync(to, { recursive: true });
+    writeFileSync(join(to, "package.json"), JSON.stringify({ name: "@alice/gw", version: "0.1.1-fork.1", thetis: { type: "gateway", forkedFrom: { name: "@thetis/gw", version: "0.1.1" } } }));
+    await manager.install(us, alice, "packages/gw");
+    await assert.rejects(manager.unfork(us, "@alice/gw"), (e: { code: string; message: string }) => e.code === "not-found" && /not here to go back to/.test(e.message));
+    assert.deepEqual(manager.listFor(us).map((p) => p.name), ["@alice/gw"], "a refusal removes nothing");
+    assert.deepEqual(manager.listFor(us)[0].fork, { name: "@thetis/gw", version: "0.1.1" }, "an origin that is gone has no shipped version to report");
+    await assert.rejects(manager.unfork(us, "@thetis/nothing"), (e: { code: string }) => e.code === "invalid");
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

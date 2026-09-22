@@ -45,6 +45,11 @@ export function createRpcHandler(us: Userspace, k: RpcServices, operator?: Kerne
         return k.packages.install(us, actor, String(args.source));
       case "packages.uninstall":
         return k.packages.uninstall(us, String(args.name));
+      // A fence un-forks only its own userspace, which is what it is: the person clicking "go back to the
+      // shipped package" in their own marketplace page. The gateway serving that click is very often the
+      // package being replaced, so the answer to this call is routinely lost; see `PackageManager.unfork`.
+      case "packages.unfork":
+        return k.packages.unfork(us, String(args.name), Boolean(args.deleteFiles));
       case "packages.delete":
         return k.packages.delete(us, String(args.name));
       case "packages.list":

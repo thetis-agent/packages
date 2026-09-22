@@ -1,6 +1,6 @@
 {
   "name": "@thetis/tool-exec",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "Tools for the model: install, fork, remove, delete and configure packages, and spawn subagents in your own space. Running commands is @thetis/terminal.",
   "type": "module",
@@ -86,6 +86,27 @@
           ]
         },
         "export": "forkPackage"
+      },
+      {
+        "name": "unfork_package",
+        "description": "The inverse of fork_package: uninstall a fork and put the package it was copied from back in its place, with every change that package has had since. The fork's files under packages/ are kept unless deleteFiles says otherwise. Refuses when the original is not on disk here, so it is safe to run on a forked gateway.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "The installed fork, such as @you/gateway-web"
+            },
+            "deleteFiles": {
+              "type": "boolean",
+              "description": "Delete the fork's directory under packages/ as well. Default false: the files are kept."
+            }
+          },
+          "required": [
+            "name"
+          ]
+        },
+        "export": "unforkPackage"
       },
       {
         "name": "delete_package",

@@ -36,6 +36,7 @@ export class ConfigService {
   private readonly listeners: ((change: ConfigChange) => Promise<void>)[] = [];
 
   constructor(
+    /** The file layer, always a copy: see `reload`. The constructor's caller passes the live object. */
     public filePackages: Record<string, Record<string, unknown>>,
     private readonly layers: LayeredConfig,
     private readonly env: EnvSource,
@@ -82,9 +83,20 @@ export class ConfigService {
     return this.done("config.unset", target, key, actor, secret);
   }
 
-  /** Takes a new file layer: says which packages it changed, tells the listeners, and names the services that restarted. */
-  async reload(next: Record<string, Record<string, unknown>>): Promise<{ changed: string[]; restarted: Affected[] }> {
-    const changed = changedPackages(this.filePackages, next);
+  /**
+   * Takes a new file layer: says which packages it changed, tells the listeners, and names the services that
+   * restarted.
+   *
+   * `previous` exists because the layer is held by reference on purpose: `config.packages` is the live file
+   * layer, and writing a key straight into it is how the kernel and its tests set one without a reload. So
+   * `config.reload` cannot be answered by diffing what this service holds -- `applyInPlace` has already
+   * rewritten that very object, and the diff would be against itself. It was, and the result was that no
+   * package ever counted as changed, no service ever restarted on a configuration change, and the command
+   * line said "nothing changed in the file" in the same breath as naming the keys it had just applied.
+   * The caller snapshots the layer before rewriting it and passes the snapshot here.
+   */
+  async reload(next: Record<string, Record<string, unknown>>, previous: Record<string, Record<string, unknown>> = this.filePackages): Promise<{ changed: string[]; restarted: Affected[] }> {
+    const changed = changedPackages(previous, next);
     this.filePackages = next;
     this.layers.invalidate();
     const restarted: Affected[] = [];

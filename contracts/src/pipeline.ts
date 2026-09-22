@@ -41,7 +41,8 @@ export interface TurnOptions {
 }
 
 /**
- * What a turn streams. The kernel emits the six about the turn and its steps; a step emits the rest through
+ * What a turn streams. The kernel emits the five about the turn and its steps -- `turn.start`, `step.start`,
+ * `step.end`, `error` and `turn.end`; a step emits the rest through
  * `ctx.emit` and the kernel relays them as they are. `usage` is summed into the journal; the first `error`
  * is the turn's failure.
  *

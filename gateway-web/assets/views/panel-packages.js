@@ -14,6 +14,32 @@ import { toast } from "../lib/toast.js";
 
 const enc = (name) => encodeURIComponent(name);
 
+/** How long the page waits for the package that replaced a forked gateway to answer in its place. */
+const SETTLE_MS = 30_000;
+
+/**
+ * A request that lost its gateway, as against one a gateway refused with a sentence. Replacing a forked
+ * gateway stops the service answering this page, which leaves either no answer at all (status 0) or the
+ * door's own 502/503 while the socket is gone; anything else came from a gateway that is still there.
+ */
+const lostGateway = (err) => {
+  const status = Number(err?.status);
+  return !Number.isFinite(status) || status === 0 || status >= 502;
+};
+
+/** Asks the new gateway for the package list until it answers, or until the deadline passes. */
+async function settle(deadline = Date.now() + SETTLE_MS) {
+  for (;;) {
+    try {
+      await api("/api/packages");
+      return true;
+    } catch {
+      if (Date.now() >= deadline) return false;
+      await new Promise((done) => setTimeout(done, 700));
+    }
+  }
+}
+
 /** The place a row links to: the marketplace package's, when it is installed and has loaded. */
 export const MARKETPLACE_PLACE = "@thetis/ui-marketplace#marketplace";
 
@@ -46,7 +72,17 @@ export function mountPackages(root, { user }, shell) {
   const visible = () => installed.filter((r) => !query || r.name.toLowerCase().includes(query) || r.type.toLowerCase().includes(query) || (r.description || "").toLowerCase().includes(query));
 
   const scopeBadge = (r) => (r.scope === "everyone" ? badge("Everyone", "accent") : badge("Only me", "dim"));
-  const forkBadge = (r) => (r.forkedFrom ? badge(`fork of ${r.forkedFrom.name} ${r.forkedFrom.version}`, "warn") : null);
+
+  /* A fork, said against the package it was copied from as that package stands now. "fork of X 0.1.1" on
+   * its own is the sentence that lets a fork sit for months missing every fix to X, because it is equally
+   * true the day the fork is made and a year later. The strongest true form wins. */
+  const forkBadge = (r) => {
+    const fork = r.fork;
+    if (!fork) return r.forkedFrom ? badge(`fork of ${r.forkedFrom.name} ${r.forkedFrom.version}`, "warn") : null;
+    if (fork.identical && fork.shipped) return badge(`identical to ${fork.name} ${fork.shipped}, which is shipped`, "warn");
+    if (fork.shipped && fork.shipped !== fork.version) return badge(`fork of ${fork.name} ${fork.version} · ${fork.shipped} is shipped now`, "warn");
+    return badge(`fork of ${fork.name} ${fork.version}`, "warn");
+  };
 
   /** A package the person can delete with its files: one of their own. */
   const ownRow = (r) => r.name.startsWith(`@${user}/`);
@@ -113,6 +149,14 @@ export function mountPackages(root, { user }, shell) {
     if (!row) return put(detailEl, el("div", { class: "panel-hint" }, "Select a package to see what it brings and what you can do with it."));
     const actions = [button("Remove", { tone: "warn", onClick: (e) => void removeRow(row, e.currentTarget) })];
     const hints = [];
+    if (row.fork?.shipped) {
+      actions.unshift(button(`Go back to ${row.fork.name}`, { tone: "primary", onClick: (e) => void unforkRow(row, e.currentTarget) }));
+      hints.push(
+        row.fork.identical
+          ? `Your fork holds the same files as ${row.fork.name}@${row.fork.shipped}, which is shipped here: it is changing nothing, and it will never see another fix. Going back keeps your files under packages/.`
+          : `You forked ${row.fork.name} at ${row.fork.version}; ${row.fork.shipped} is shipped now. Going back keeps your files under packages/, so you can fork again from the new one.`
+      );
+    }
     if (ownRow(row)) {
       actions.push(button("Delete", { tone: "warn", onClick: (e) => void deleteRow(row, e.currentTarget) }));
       hints.push(row.replaced ? `Remove or Delete puts ${row.replaced} back in place.` : "Delete removes the package and its files under packages/.");
@@ -129,6 +173,7 @@ export function mountPackages(root, { user }, shell) {
           ["type", row.type],
           ["scope", el("div", { class: "tags" }, scopeBadge(row), forkBadge(row))],
           row.forkedFrom && ["forked from", el("code", {}, `${row.forkedFrom.name}@${row.forkedFrom.version}`)],
+          row.fork && ["shipped now", row.fork.shipped ? el("code", {}, `${row.fork.name}@${row.fork.shipped}${row.fork.identical ? " — the same files as this fork" : ""}`) : el("span", { class: "text-faint" }, "not here any more")],
           row.replaced && ["replaces", el("code", {}, row.replaced)],
         ].filter(Boolean)),
         heading("What it brings"),
@@ -156,6 +201,42 @@ export function mountPackages(root, { user }, shell) {
     try {
       await api(`/api/packages/${enc(row.name)}`, { method: "DELETE" });
       toast(`${row.name} was removed.`, { tone: "good" });
+      await load();
+    } catch (err) {
+      toast(err.message, { tone: "error" });
+    } finally {
+      stop();
+    }
+  }
+
+  /* Goes back to the package this fork was copied from. The forked package is very often this gateway --
+   * it is the one a person looks at their own setup through -- so the request carrying the click dies with
+   * the service it stops. That is the success: the kernel has already checked the origin is on disk before
+   * removing anything, and the origin's service binds the same socket a moment later, so the page is asked
+   * again until it answers. The fork's files are kept; Delete is what removes them. */
+  async function unforkRow(row, anchor) {
+    const ok = await confirm(anchor, {
+      title: `Go back to ${row.fork.name}?`,
+      lines: [["fork", `${row.name}@${row.version}`], ["goes back to", `${row.fork.name}@${row.fork.shipped}`], ["your files", "kept where they are"]],
+      note: `${row.name} is removed from your setup and ${row.fork.name} takes its place, with every change it has had since you forked it.${row.type === "gateway" ? " This page is served by the package being replaced, so it will go quiet for a second and come back on its own." : ""} Your copy stays under packages/.`,
+      confirmLabel: `Go back to ${row.fork.name}`,
+      tone: "warn",
+    });
+    if (!ok) return;
+    const stop = busy(detailEl, `Going back to ${row.fork.name}…`);
+    try {
+      let back = null;
+      try {
+        back = await api(`/api/packages/${enc(row.name)}?unfork=1`, { method: "DELETE" });
+      } catch (err) {
+        if (!lostGateway(err)) throw err;
+        if (!(await settle())) {
+          toast(`${row.fork.name} has not answered for 30 seconds. Reload this page, or ask an admin to run thetis packages unfork ${row.name}.`, { tone: "error" });
+          return;
+        }
+      }
+      toast(`${back?.name ?? row.fork.name} is back in place. Your fork's files are still under packages/.`, { tone: "good" });
+      selected = back?.name ?? row.fork.name;
       await load();
     } catch (err) {
       toast(err.message, { tone: "error" });

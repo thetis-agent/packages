@@ -1,6 +1,6 @@
 # @thetis/lib
 
-Mechanism with no policy: ids, JSON files, queues, the container, the journal, the RPC framing, the socket server and client, the userspace layout, package file operations, scrypt, the store checks and mirror, the storage conformance suite, and the configuration layers. Nothing here decides who may do what; the kernel decides, with these parts. The package runs in the host process, where the kernel, the sandbox, the host, and the command line import it, and inside each fence, where the userspace agent imports the RPC framing.
+Mechanism with no policy: ids, JSON files, queues, the container, the journal, the RPC framing, the socket server and client, the unix socket path limit, the userspace layout, package file operations, scrypt, the store checks and mirror, the storage conformance suite, and the configuration layers. Nothing here decides who may do what; the kernel decides, with these parts. The package runs in the host process, where the kernel, the sandbox, the host, and the command line import it, and inside each fence, where the userspace agent imports the RPC framing.
 
 ## What it provides
 
@@ -19,8 +19,9 @@ The layering rule: `lib` imports only `@thetis/contracts`. `sandbox`, `kernel`, 
 | `json-store` | `JsonDirStore`: one JSON file per record, ids checked before they become paths. |
 | `rpc-frames` | `PendingCalls`, `callHandler`, `readFrames`, `encodeFrame`: the `{ id, method, args }` framing. |
 | `ndjson-socket` | `RpcSocketServer`, `connectRpcSocket`: the framing over a Unix socket. |
+| `socket-paths` | `MAX_SOCKET_PATH`, `MAX_USER_ID`, `HOME_SOCKETS`, `longestHomeSocket`, `longestForIdLength`, `maxUserIdLength`, `maxHomeLength`, `homeSocketProblem`, `homeSocketWarning`, `userIdProblem`, `assertHomeFitsSockets`, `assertUserIdFitsSockets`: how long `$THETIS_HOME` and a user id may be, given every Unix socket that hangs off the home. |
 | `userspace-layout` | `UserspaceLayout`: `pathFor`, `exists`, `ensure`, `remove`. |
-| `pkg-fs` | `splitSource`, `isGitSource`, `cloneCommand`, `buildCommand`, `isInside`, `linkDir`, `removeLink`, `copyPackageAs`, `findDependency`, `forkVersion`, `forkPackage`, and the other package file operations. |
+| `pkg-fs` | `splitSource`, `isGitSource`, `cloneSlugOf`, `cloneDirFor`, `cloneCommand`, `buildCommand`, `isInside`, `linkDir`, `removeLink`, `keepOnly`, `copyPackageAs`, `findDependency`, `forkVersion`, `forkPackage`, `packagesIn`, `packageDigest`, `samePackage`, and the other package file operations. |
 | `crypto` | `randomHex`, `scryptHex`. |
 | `freshness` | `newestMtime`. |
 | `restart` | `RestartLatch`, `isSupervised`. The latch reads `control` through the configuration reference on each use, so a reloaded `control.*` is what it sees. |
@@ -64,6 +65,19 @@ if (remote) {
 }
 ```
 
+The socket path limit. A Unix socket path has to fit in `sun_path`, and the sockets of one installation all hang off `$THETIS_HOME`, so the data directory has a maximum length — but not one length, because the longest of those sockets is per-person: `userspaces/<id>/run/term.sock` is 26 bytes plus the id. A home and an id decide it together, so the module answers three different questions and each caller asks the one it can.
+
+`homeSocketProblem` answers only what is true of a home alone: over **73 bytes** even a one-character id overflows, and that is a refusal `thetis init` and `thetis serve` both make. `homeSocketWarning` answers what a working home costs: over **49 bytes** it cannot carry all 32 characters the kernel allows, which is a note at `init` and no verdict at all. `userIdProblem` answers the pair, at `users.create`, where a shorter id can still be chosen. An id longer than `MAX_USER_ID` is left alone: that is a malformed id and the kernel has its own sentence for it.
+
+```ts
+import { assertHomeFitsSockets, assertUserIdFitsSockets, homeSocketWarning, maxUserIdLength } from "@thetis/lib/socket-paths";
+
+assertHomeFitsSockets(home);            // throws only when no id at all would fit
+homeSocketWarning(home);                // a note, or undefined when the home costs nothing
+maxUserIdLength("/opt/zero/data");      // 32
+assertUserIdFitsSockets(home, id);      // throws with the home, the socket, its length and the limit
+```
+
 ## Files
 
 | File | Content |
@@ -77,8 +91,9 @@ if (remote) {
 | `src/json-store.ts` | One JSON file per record. |
 | `src/rpc-frames.ts` | Pending calls, frame encoding, line reading. |
 | `src/ndjson-socket.ts` | The Unix socket server (mode `0600`) and client. |
+| `src/socket-paths.ts` | The `sun_path` limit, the sockets under the data directory, and the two verdicts. |
 | `src/userspace-layout.ts` | The directories of one userspace. |
-| `src/pkg-fs.ts` | Sources, clones, links, copies, forks. |
+| `src/pkg-fs.ts` | Sources, clones, links, copies, forks, and the digest that says whether a fork is still a copy of its origin. |
 | `src/crypto.ts` | Random hex and scrypt. |
 | `src/freshness.ts` | The newest modification time under a set of directories. |
 | `src/restart.ts` | The restart latch. |
@@ -88,4 +103,4 @@ if (remote) {
 
 ## Tests
 
-`npm test` from the runtime root builds and runs every suite. The suites of this package are under `packages/lib/test/`: `lib.test.ts` (the container, the async queue, package sources, the JSON directory store, the RPC framing), `store.test.ts` (ids, documents, the memory driver, the mirror), `config.test.ts` (declarations, the fork chain, layer-major merging, references, `describe`, the env file, `LayeredConfig` over `memoryStore()`), `freshness.test.ts` and `restart.test.ts`. To run one alone after `npm run build`: `node --test packages/lib/dist/test/lib.test.js`.
+`npm test` from the runtime root builds and runs every suite. The suites of this package are under `packages/lib/test/`: `lib.test.ts` (the container, the async queue, package sources, forks and the package digest, `packagesIn` and `keepOnly`, the JSON directory store, the RPC framing, the socket path limit), `store.test.ts` (ids, documents, the memory driver, the mirror), `config.test.ts` (declarations, the fork chain, layer-major merging, references, `describe`, the env file, `LayeredConfig` over `memoryStore()`), `freshness.test.ts` and `restart.test.ts`. To run one alone after `npm run build`: `node --test packages/lib/dist/test/lib.test.js`.

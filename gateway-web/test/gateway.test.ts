@@ -609,10 +609,10 @@ test("panel: the built-in sections are the same for everyone; a package's admin 
   for (const path of ["users", "models", "journal", "config", "packages"]) assert.equal((await api(root, `/root/api/admin/${path}`)).status, 404, `api/admin/${path} is gone`);
   const marketplaceUi = ((await (await api(root, "/root/api/ui")).json()) as { extensions: { package: string; places: { id: string; order: number }[]; commands: string[] }[] }).extensions.find((e) => e.package === "@thetis/ui-marketplace");
   assert.deepEqual(marketplaceUi?.places.map((e) => [e.id, e.order]), [["marketplace", 20]]);
-  assert.deepEqual(marketplaceUi?.commands, ["search", "show", "install", "remove", "delete", "update", "config-show", "config-list", "config-set", "config-unset", "fence-reload", "install-everyone", "install-for", "remove-for", "promote", "people"]);
+  assert.deepEqual(marketplaceUi?.commands, ["search", "show", "install", "remove", "delete", "update", "unfork", "config-show", "config-list", "config-set", "config-unset", "fence-reload", "install-everyone", "install-for", "remove-for", "promote", "people"]);
   const marketplaceForAlice = ((await (await api(alice, "/alice/api/ui")).json()) as { extensions: { package: string; places: { id: string }[]; commands: string[] }[] }).extensions.find((e) => e.package === "@thetis/ui-marketplace");
   assert.deepEqual(marketplaceForAlice?.places.map((e) => e.id), ["marketplace"], "the place is everyone's");
-  assert.deepEqual(marketplaceForAlice?.commands, ["search", "show", "install", "remove", "delete", "update", "config-show", "config-list", "config-set", "config-unset", "fence-reload"], "the admin verbs are not; a person's own configuration is, and so is reloading their own workspace");
+  assert.deepEqual(marketplaceForAlice?.commands, ["search", "show", "install", "remove", "delete", "update", "unfork", "config-show", "config-list", "config-set", "config-unset", "fence-reload"], "the admin verbs are not; a person's own configuration is, and so is reloading their own workspace");
 });
 
 test("people: an admin adds a person, changes the role and status, and removes them through @thetis/ui-admin; the journal says so", async () => {

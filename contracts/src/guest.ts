@@ -57,6 +57,12 @@ export interface KernelClient {
     uninstall(name: string): Promise<void>;
     /** Uninstalls a package of the fence's own scope and deletes its files under the home. Restores what it replaced. */
     delete(name: string): Promise<DeletedPackage>;
+    /**
+     * Puts a fork's userspace back on the package it was forked from, and answers with that package. The
+     * fork's files stay unless `deleteFiles` says otherwise. When the fork is the gateway the caller is
+     * being asked through, this call's answer is lost with the gateway: see `PackageManager.unfork`.
+     */
+    unfork(name: string, deleteFiles?: boolean): Promise<PackageInfo>;
     list(): Promise<PackageInfo[]>;
   };
   operator: {

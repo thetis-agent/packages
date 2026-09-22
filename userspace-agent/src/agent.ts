@@ -50,6 +50,7 @@ const kernel: KernelClient = {
     install: (source) => rpc("packages.install", { source }),
     uninstall: (name) => rpc("packages.uninstall", { name }),
     delete: (name) => rpc("packages.delete", { name }),
+    unfork: (name, deleteFiles) => rpc("packages.unfork", { name, deleteFiles }),
     list: () => rpc("packages.list"),
   },
   operator: {

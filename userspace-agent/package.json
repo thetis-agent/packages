@@ -1,6 +1,6 @@
 {
   "name": "@thetis/userspace-agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "Runs inside each fence: loads package modules and executes steps, tools, providers, and services for the kernel. Not installable.",
   "type": "module",

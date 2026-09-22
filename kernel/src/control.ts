@@ -3,6 +3,7 @@ import { SYSTEM_USER, type KernelRpc, type PackageInfo, type UserRecord, type Us
 import { assert, CodedError } from "@thetis/lib/error";
 import { newestMtime } from "@thetis/lib/freshness";
 import { isSupervised } from "@thetis/lib/restart";
+import { assertUserIdFitsSockets } from "@thetis/lib/socket-paths";
 import { applyInPlace, classifyChanges } from "@thetis/lib/config-tiers";
 import { CONFIG_TIERS, loadConfig } from "./config.js";
 import type { KernelServices } from "./kernel.js";
@@ -34,6 +35,10 @@ export function createControlHandler(k: KernelServices): KernelRpc {
       case "users.list":
         return k.users.list();
       case "users.create": {
+        // The id is half of a socket path -- `<home>/userspaces/<id>/run/term.sock` -- and this is the one
+        // moment both halves are known and a shorter one can still be chosen. Every way a person is admitted
+        // comes through here: the command line, an admin's `operator.*`, the browser.
+        assertUserIdFitsSockets(k.config.home, String(a.id));
         const rec = k.users.create(String(a.id), a.role as UserRole | undefined);
         journal("user.create", rec.id, { role: rec.role });
         await k.services.ensure(rec.id);
@@ -64,6 +69,11 @@ export function createControlHandler(k: KernelServices): KernelRpc {
         await k.packages.uninstall(us(), String(a.name));
         journal("package.uninstall", user(), { name: String(a.name) });
         return null;
+      case "packages.unfork": {
+        const info = await k.packages.unfork(us(), String(a.name), Boolean(a.deleteFiles));
+        journal("package.unfork", user(), { name: String(a.name), origin: info.name, files: Boolean(a.deleteFiles) });
+        return info;
+      }
       case "packages.promote": {
         const owner = us();
         const promoted = await k.packages.promote(owner, String(a.name));
@@ -133,8 +143,13 @@ export function createControlHandler(k: KernelServices): KernelRpc {
         // doing nothing, which is the failure this replaces.
         const next = loadConfig(k.config.home, k.config.projectRoot);
         const tiers = classifyChanges(k.config, next, CONFIG_TIERS);
+        // The layer as it stands, kept before applyInPlace rewrites it. The settings service holds
+        // `config.packages` by reference -- that is what makes a key written straight into it live -- so
+        // after the rewrite it has no way of its own to tell what moved, and asking it plainly was asking
+        // it to diff that object against itself. See ConfigService.reload.
+        const wasPackages = structuredClone(k.config.packages);
         applyInPlace(k.config as unknown as Record<string, unknown>, next as unknown as Record<string, unknown>);
-        const settings = await k.settings.reload(k.config.packages);
+        const settings = await k.settings.reload(k.config.packages, wasPackages);
         if (tiers.fence.length) for (const u of k.users.list()) await k.services.reload(u.id);
         journal("config.reload", SYSTEM_USER, { ...tiers });
         return { ...settings, ...tiers };

@@ -31,7 +31,7 @@ You do not see `$THETIS_HOME`, other userspaces, `/home`, or the host `/tmp`. Yo
 | `<userspace>/home`, `store`, `sessions`, `run` | Read and write. |
 | `$THETIS_HOME/shared` | Read only. The system userspace writes it. |
 | `$THETIS_HOME/packages` | Read only. |
-| `<root>/packages`, `<root>/node_modules` | Read only. The shipped code — unless one of your `rw` mounts covers the checkout, in which case it is read and write, because the grant says so. |
+| `<root>/packages`, `<root>/node_modules` | Read only. The shipped code. Read and write instead when one of your `rw` mounts covers the checkout, because the grant says so. |
 | The operating system | Read only. |
 | A mount with mode `rw` | Read and write. |
 | A mount with mode `ro` | Read only. |

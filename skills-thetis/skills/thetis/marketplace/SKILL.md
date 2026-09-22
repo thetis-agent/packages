@@ -115,6 +115,7 @@ The place is the item **Marketplace** in the sidebar's menu. The gallery shows a
 | Delete | the owner of a `@<user>/*` package | `delete { name }` |
 | Install for everyone | admins | `install-everyone { source }` |
 | Make it the default for everyone | admins | `promote { user, name }` |
+| Go back to what a fork was copied from | anyone | `unfork { name }` |
 | Install for a person | admins | `install-for { user, source }`, `remove-for { user, name }` |
 
 `search { q?, type? }` and `show { name }` read the index. `people` lists the people an admin may install for. Every action sits behind a confirm popover.

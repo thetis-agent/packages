@@ -14,6 +14,7 @@ import { configPath, createControlHandler, defaultConfig, loadConfig, redact, sa
 import { parseDotEnv } from "@thetis/lib/config";
 import { errorMessage } from "@thetis/lib/error";
 import { connectRpcSocket } from "@thetis/lib/ndjson-socket";
+import { assertHomeFitsSockets, homeSocketWarning } from "@thetis/lib/socket-paths";
 import { isSupervised, type Pending, type RestartState } from "@thetis/lib/restart";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
@@ -44,8 +45,9 @@ usage: thetis <command> [options]
   install <source> [--user <id>]       install a package (system userspace without --user)
   uninstall <name> [--user <id>]
   packages list [--user <id>] | install <source> [--user <id>] | uninstall <name> [--user <id>] | promote <name> --user <id>
-  packages outdated [--user <id>]      what is behind the registry it was installed from, or behind the code on disk
+  packages outdated [--user <id>]      what is behind the registry it was installed from, the code on disk, or the package it was forked from
   packages update [<name>] [--user <id>]  reinstall those packages at the registry's current commit
+  packages unfork <name> [--user <id>] [--delete-files]  go back to the package this fork was copied from
   mounts list [--user <id>]            host paths bound into each person's fence, and whether each is there
   mounts add <user> <path> [--ro]      bind a host directory into that person's fence at the same path (read-write unless --ro)
   mounts remove <user> <path>
@@ -80,7 +82,9 @@ usage: thetis <command> [options]
   bench verify [<package-dir>]         check a package's thetis.bench declaration without running anything
 
 When \`thetis serve\` runs, the other commands talk to it through $THETIS_HOME/thetis.sock.
-env: THETIS_HOME (data dir, default ~/.thetis; a relative path is resolved against the repository root),
+env: THETIS_HOME (data dir, default ~/.thetis; a relative path is resolved against the repository root;
+     at most 73 bytes, because every unix socket hangs off it and a socket path cannot exceed 107; a
+     home over 49 bytes serves, but shortens how long a user id may be, and init says by how much),
      OPENROUTER_API_KEY. A .env in the cwd and in the repository root is loaded.
 `;
 
@@ -107,8 +111,18 @@ export async function run(argv: string[]): Promise<void> {
   const home = resolve(PROJECT_ROOT, String(process.env.THETIS_HOME ?? resolve(process.env.HOME ?? ".", ".thetis")));
   const config = loadConfig(home, PROJECT_ROOT);
   if (cmd === "init") {
+    // Checked here rather than at the first `serve`, because this is the one moment the person is choosing
+    // the path: every unix socket this installation will ever open hangs off it, and a home that is too
+    // long cannot be fixed by anything but a different home. Saying `initialized <path>` and exiting 0
+    // over a path that can never serve is the whole bug this closes.
+    assertHomeFitsSockets(home);
     if (!existsSync(configPath(home))) saveConfig(defaultConfig(home, PROJECT_ROOT));
     process.stdout.write(`initialized ${home}\n`);
+    // A home can be perfectly good and still not have room for every user id the kernel would allow. That
+    // is a fact about this directory, not a fault in it, so it is said once, here, where another path is
+    // still free to choose -- and enforced later, at `users.create`, where an id actually exists.
+    const note = homeSocketWarning(home);
+    if (note) process.stdout.write(`${note}\n`);
     return;
   }
   if (cmd === "config" && args._[1] === undefined) return print(JSON.stringify(redact(config), null, 2));
@@ -158,6 +172,12 @@ export async function run(argv: string[]): Promise<void> {
 
 /** Runs the kernel until SIGINT, SIGTERM or an armed restart: control socket for the CLI, the door for browsers, services for everyone else. */
 async function serve(config: ReturnType<typeof loadConfig>, socket: string): Promise<void> {
+  // Said again here, and before anything is built, because `init` is not the only way a home arrives: it can
+  // be moved, `THETIS_HOME` can be edited, and a person can be handed a data directory somebody else made.
+  // Without this the first thing that happens is `control.listen()` throwing a bare `listen EINVAL` naming a
+  // path and no length, which reads as a fault in the daemon. Only the unconditional failure is refused; a
+  // home with room for some ids and not others is the business of `users.create`, not of starting up.
+  assertHomeFitsSockets(config.home);
   const kernel = await createKernel(config);
   const log = (line: string) => process.stderr.write(line + "\n");
   // Written fresh on every start, so a token from a dead daemon is never accepted by a live one.
@@ -653,13 +673,32 @@ async function outdatedIn(call: Call, target: string, shared: string): Promise<B
   return behind(installed, index);
 }
 
+/**
+ * What a fork is, in one clause, wherever a package is named. Said plainly and in the stronger form when it
+ * holds, because "identical to what is shipped" is the sentence that makes a person act and "forked from"
+ * on its own is the sentence they have been reading for months while the fixes went past them.
+ */
+function forkLine(b: Behind): string {
+  return b.identical ? `identical to ${b.origin}@${b.available}, which is shipped` : `forked from ${b.origin}@${b.installed}; ${b.available} is shipped now`;
+}
+
+const forkNote = (fork: PackageInfo["fork"]): string => {
+  if (!fork) return "";
+  if (fork.identical && fork.shipped) return `\tidentical to ${fork.name}@${fork.shipped}, which is shipped`;
+  if (fork.shipped && fork.shipped !== fork.version) return `\tforked from ${fork.name}@${fork.version}; ${fork.shipped} is shipped now`;
+  return `\tforked from ${fork.name}@${fork.version}`;
+};
+
 async function packagesCmd(call: Call, args: Args, user: string | undefined, shared: string): Promise<void> {
   const [, sub, source] = args._;
   const target = user ?? "_system";
   switch (sub) {
     case "list":
     case undefined:
-      for (const p of (await call("packages.list", { user: target })) as PackageInfo[]) print(`${p.name}@${p.version}\t${p.type}\t${p.root}`);
+      // A fork prints what it was copied from and how that package stands now. A listing that says only
+      // `@someone/gateway-web@0.1.1-fork.1` is the whole problem: nothing in it says the shipped gateway
+      // has moved on, or that this copy changed nothing and is costing its owner every fix for free.
+      for (const p of (await call("packages.list", { user: target })) as PackageInfo[]) print(`${p.name}@${p.version}\t${p.type}\t${p.root}${forkNote(p.fork)}`);
       return;
     case "install": {
       const info = (await call("packages.install", { user: target, source, actor: "_system" })) as PackageInfo;
@@ -668,6 +707,12 @@ async function packagesCmd(call: Call, args: Args, user: string | undefined, sha
     case "uninstall":
       await call("packages.uninstall", { user: target, name: source });
       return print(`uninstalled ${source} from ${target}`);
+    case "unfork": {
+      if (!source) throw new Error("packages unfork needs <name>");
+      const info = (await call("packages.unfork", { user: target, name: source, deleteFiles: args["delete-files"] === true })) as PackageInfo;
+      print(`${source} is no longer installed in ${target}; ${info.name}@${info.version} is back in its place`);
+      return print(args["delete-files"] === true ? `the fork's files were deleted` : `the fork's files were kept; delete them with: thetis packages unfork ... --delete-files, or by hand`);
+    }
     case "promote": {
       const r = (await call("packages.promote", { user: target, name: source })) as { name: string; userspaces: string[] };
       return print(`promoted ${source} to ${r.name}; installed in ${r.userspaces.join(", ")}`);
@@ -677,6 +722,7 @@ async function packagesCmd(call: Call, args: Args, user: string | undefined, sha
       if (!out.length) return print(`nothing in ${target} is behind its registry or the code on disk`);
       for (const b of out) {
         if (b.apply === "reload") print(`${b.name}\tloaded ${b.installed}, ${b.available} on disk\tthetis reload --user ${target}`);
+        else if (b.apply === "unfork") print(`${b.name}\t${forkLine(b)}\tthetis packages unfork ${b.name}${user ? ` --user ${user}` : ""}`);
         else print(`${b.name}\t${b.version}\t${shortCommit(b.installed)} -> ${shortCommit(b.available)}\t${b.registry}`);
       }
       if (out.some((b) => b.apply === "install")) print(`\nrun: thetis packages update${user ? ` --user ${user}` : ""} [<name>]`);

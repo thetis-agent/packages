@@ -1,9 +1,9 @@
 ---
 name: packages
-description: How a Thetis package is built and managed: the manifest and its thetis field, install sources and procedure, the store, forks, delete, promote, uninstall. Use when you write, install, fork or remove a package, change a shipped one, make one the default for everyone, or an install was refused.
+description: How a Thetis package is built and managed: the manifest and its thetis field, install sources, the store, forks and the way back, delete, promote, uninstall. Use when you write, install, fork or remove a package, change a shipped one, make one the default for everyone, or an install was refused.
 metadata:
   title: Packages
-  tags: [packages, manifest, install, uninstall, fork, delete, promote, everyone, steps, tools, provider, service, store, registry, scope, owner]
+  tags: [packages, manifest, install, uninstall, fork, unfork, delete, promote, everyone, steps, tools, provider, service, store, registry, scope, owner]
   related: [thetis/pipeline, thetis/using, thetis/marketplace, thetis/troubleshooting]
   version: 1
 ---
@@ -185,7 +185,11 @@ The tool does not install. It refuses a package that is not installed and a targ
 
 The replace rule: when a manifest carries `forkedFrom` and that package is installed here, the install replaces it in one operation. The original's service stops. Its link goes. The fork's link comes. The fork's service starts.
 
-The restore rule: `uninstall_package` or `delete_package` of the fork puts the original back in the same call.
+The restore rule: `uninstall_package` or `delete_package` of the fork puts the original back in the same call, when the registry recorded what the fork displaced. A fork installed into a userspace the original was not in has no such record, and then an uninstall leaves nothing in its place. For a gateway that is a person locked out of their browser.
+
+The way back: `unfork_package { name, deleteFiles }` reads the original off the fork's own manifest instead of off the registry, checks it is on disk here before it removes anything, and then swaps. The original comes back at the version it is at now, with every change it has had since the fork. `deleteFiles` defaults to false: the copy under `packages/` is kept. The CLI is `thetis packages unfork <name> --user <id> [--delete-files]`.
+
+What a fork costs, and how to see it: `list_packages` measures a fork against the original as the original stands now. `fork of @thetis/gateway-web@0.1.1, 0.2.0 is shipped now` means the original has moved on and the copy has not. `identical to the shipped 0.2.0` means the copy holds the same files as the shipped package, so it is changing nothing and will see no further fix. `thetis packages outdated` lists both. Neither shows in a version number: a fork's version follows the day it was made, not the day the original moved.
 
 A shipped TypeScript package cannot rebuild inside the fence. The fork carries the built `dist/`. Edit the JavaScript in `dist/`, or build outside and copy the result in.
 
@@ -193,6 +197,7 @@ A shipped TypeScript package cannot rebuild inside the fence. The fork carries t
 fork_package { name: "@thetis/tools-plan" }
 edit_path { path: "packages/tools-plan/index.js", old_text: "...", new_text: "..." }
 install_package { source: "packages/tools-plan" }
+unfork_package { name: "@alice/tools-plan" }
 delete_package { name: "@alice/tools-plan" }
 ```
 

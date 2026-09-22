@@ -39,9 +39,11 @@
   transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
 }
 .mk-card:hover, .mk-card:focus-visible { background: var(--surface-2); border-color: var(--hairline-strong); outline: none; }
-.mk-card-head { display: flex; gap: var(--gap-2); align-items: flex-start; }
-.mk-card-name { flex: 1 1 auto; min-width: 0; font-family: var(--mono); font-size: var(--text-sm); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mk-card-head .tags { flex: none; justify-content: flex-end; }
+/* The badges never shrink, so a long one would otherwise ellipse the name away to nothing: the head wraps
+   instead, and the name keeps a basis wide enough to read before the badges take a line of their own. */
+.mk-card-head { display: flex; flex-wrap: wrap; gap: var(--gap-2); align-items: flex-start; }
+.mk-card-name { flex: 1 1 9rem; min-width: 0; font-family: var(--mono); font-size: var(--text-sm); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mk-card-head .tags { flex: none; justify-content: flex-end; margin-left: auto; }
 .mk-card-desc { margin: 0; font-size: var(--text-xs); line-height: 1.5; color: var(--text-dim); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .mk-card-meta { margin-top: auto; padding-top: 2px; font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
 .mk-empty { grid-column: 1 / -1; padding: var(--gap-4); text-align: center; color: var(--text-faint); }

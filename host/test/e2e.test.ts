@@ -103,7 +103,9 @@ test("harness steps build the system prompt and attach tools", async () => {
   const tools = await collect(kernel.sessions.send("alice", s.id, "tools?"));
   for (const t of ["shell", "list_packages", "install_package", "spawn_subagent"]) assert.ok(tools.text.split(",").includes(t), `missing tool ${t}`);
   const listed = await collect(kernel.sessions.send("alice", s.id, "packages?"));
-  assert.match(listed.text, /@thetis\/tool-exec@0\.1\.0 \(tool\): Tools for the model/);
+  // The version is not pinned: this asserts that the listing carries a version and the description, not
+  // which version, so an ordinary bump of a shipped package is not a failing end-to-end test.
+  assert.match(listed.text, /@thetis\/tool-exec@\d+\.\d+\.\d+ \(tool\): Tools for the model/);
   assert.match(listed.text, /@thetis\/terminal@0\.1\.0 \(tool\): Long-lived shell sessions/);
 });
 

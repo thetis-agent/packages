@@ -24,6 +24,10 @@ export function pinOf(info) {
 export function withUpdate(row, found) {
   if (!found) return row;
   if (found.apply === "reload") return { ...row, update: { apply: "reload", version: found.version, installed: found.installed, available: found.available } };
+  // An un-fork installs nothing and fetches nothing: the package to go back to is already on disk here, and
+  // what changes is which of the two this userspace is pointed at. It rides on `update` all the same,
+  // because a person reads it in the same place and for the same reason: something newer than what I have.
+  if (found.apply === "unfork") return { ...row, update: { apply: "unfork", version: found.version, installed: found.installed, available: found.available, origin: found.origin, identical: !!found.identical } };
   return { ...row, update: { apply: "install", version: found.version, from: shortCommit(found.installed), to: shortCommit(found.available), source: found.source, registry: found.registry } };
 }
 
@@ -85,6 +89,10 @@ export function installedRow(info) {
     update: null,
     readme: false,
     forkedFrom: info.forkedFrom ? { name: info.forkedFrom.name, version: info.forkedFrom.version } : null,
+    // A fork against its origin as the origin stands now: what it was copied from, what that is at today,
+    // and whether this copy has changed anything at all. `forkedFrom` alone only ever said the first of the
+    // three, which is the half of the sentence that lets a fork sit there missing every fix.
+    fork: info.fork ? { name: info.fork.name, version: info.fork.version, shipped: info.fork.shipped ?? null, identical: !!info.fork.identical } : null,
     replaced: info.replaced ?? null,
     steps: (info.thetis?.steps ?? []).map((s) => ({ id: s.id, phase: s.phase })),
     tools: (info.thetis?.tools ?? []).map((t) => ({ name: t.name, description: t.description ?? "" })),
@@ -112,6 +120,7 @@ export function indexRow(entry) {
     update: null,
     readme: !!entry.readme,
     forkedFrom: null,
+    fork: null,
     replaced: null,
     steps: entry.steps ?? [],
     tools: (entry.tools ?? []).map((name) => ({ name, description: "" })),

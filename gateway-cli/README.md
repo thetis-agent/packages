@@ -8,7 +8,7 @@ The manifest declares `type: gateway` and nothing else: no steps, no tools, no s
 
 | Command | Effect |
 |---|---|
-| `init` | Creates `$THETIS_HOME/thetis.config.json` with the portable defaults when it does not exist. |
+| `init` | Creates `$THETIS_HOME/thetis.config.json` with the portable defaults when it does not exist. Refuses a home too long to hold its own unix sockets, before writing anything, and notes how long a user id it can carry when that is less than the kernel's 32. |
 | `config` | Prints the effective configuration as JSON, interpolated API key included. Also `show [<package>] [--user <id>]`, `set <package> <key> [<value>] [--user <id>] [--json] [--stdin]`, `unset <package> <key> [--user <id>]`, and `reload`, which re-reads the file and says which keys went live, which reopened the fences, and which still need a new daemon. |
 | `status` | What is running, and whether each fence is on the code that is on disk now. A workspace holding a package at a version the disk has moved past also gets `2 packages changed: @thetis/skills-hybrid 0.2.1 -> 0.2.2, @thetis/tool-groups 0.1.0 -> 0.2.0` on its line, and a reload is what applies those. `--json` prints the raw report: `{ daemon: { startedAt, uptimeSecs, supervised, restartPolicy, codeAt, stale }, restart, workspaces: [{ user, openedAt, codeAt, stale, services, changed }] }`, which the installer reads. |
 | `reload` | `--user <id>` or `--all`: closes that fence and opens it again, so its services start on the code on disk. |
@@ -16,7 +16,7 @@ The manifest declares `type: gateway` and nothing else: no steps, no tools, no s
 | `migrate` | Moves legacy record files into the storage driver. The daemon refuses to start while they are present. |
 | `serve` | Runs the kernel, its control socket, the door, and every installed service until `SIGINT` or `SIGTERM`. |
 | `users` | `list`, `add <id> [--admin]`, `remove <id>`, `suspend <id>`, `unsuspend <id>`, `role <id> <admin\|user>`, `passwd <id> [--password <text>]`. |
-| `packages` | `list`, `install <source>`, `uninstall <name>`, `promote <name> --user <id>`, `outdated`, `update [<name>]`, each with `[--user <id>]`. `install` and `uninstall` also work at the top level. Without `--user` the target is the system userspace. `outdated` reports both kinds of behind: a pin older than the registry index, which `update` installs, and a package whose fence loaded a version other than the one on disk, printed as `<name>  loaded 0.2.1, 0.2.2 on disk  thetis reload --user <id>`, which only a reload applies. |
+| `packages` | `list`, `install <source>`, `uninstall <name>`, `promote <name> --user <id>`, `unfork <name> [--delete-files]`, `outdated`, `update [<name>]`, each with `[--user <id>]`. `install` and `uninstall` also work at the top level. Without `--user` the target is the system userspace. `list` ends a fork's line with what it was forked from and how far that has moved on. `outdated` reports all three kinds of behind: a pin older than the registry index, which `update` installs; a package whose fence loaded a version other than the one on disk, printed as `<name>  loaded 0.2.1, 0.2.2 on disk  thetis reload --user <id>`, which only a reload applies; and a fork whose origin has gone on without it, printed as `<name>  identical to @thetis/gateway-web@0.2.0, which is shipped  thetis packages unfork <name> --user <id>`, which `unfork` takes. `unfork` is the inverse of `promote`'s cousin `fork_package`: the userspace goes back to the package the fork was copied from, and the fork's files under `packages/` are kept unless `--delete-files` says otherwise. |
 | `mounts` | `list [--user <id>]` (each line says whether the host still has the directory), `add <user> <path> [--ro]` (refused with a sentence when it does not), `remove <user> <path>`, `browse [path]`. Sent as `host.grants.mountsList`, `mountsSet` and `mountsBrowse`, answered by `@thetis/host-grants`. |
 | `ssh` | `list [--user <id>]`, `grant <user> <key> [--host <name>] [--scan <name>]`, `keygen <user>`, `import <user> <name> < key`, `revoke <user> <key>`. Sent as `host.grants.sshList`, `sshSet`, `sshKeygen` and `sshImport`, answered by `@thetis/host-grants`. A grant names one key file, which the host package loads into that fence's own agent; the key is never bound into the fence. `keygen` makes the person a key of their own; `import` keeps a key they already have (read from stdin, refused with a passphrase) beside it. Both print the public half and its fingerprint; `list` prints the fingerprint of every key that is there. |
 | `sessions` | `list --user <id>`, `show --user <id> --session <id>`. |
@@ -26,9 +26,17 @@ The manifest declares `type: gateway` and nothing else: no steps, no tools, no s
 
 The process exits with `1` and prints the message when a command throws. A turn error is printed as an event and does not change the exit code.
 
-## Configuration
+### How long `$THETIS_HOME` may be
 
-No `config.packages` entry. The environment: `THETIS_HOME` is the data directory, default `~/.thetis`, a relative path resolved against the runtime root; `OPENROUTER_API_KEY` is interpolated into the configuration. A `.env` in the current directory and then one in the runtime root are loaded; a variable already set is not replaced. `serve` binds the door at `config.door`.
+Every seam between two of our processes is a unix socket under the data directory, and a unix socket path has to fit in `sun_path`: 107 bytes, as `@thetis/lib/socket-paths` explains. The sockets are per-person — `<home>/userspaces/<id>/run/term.sock` is 26 bytes plus the id — so the length that matters is the home *and* an id together, and the verdict is passed wherever each half is known:
+
+| Where | What it says | Why there |
+|---|---|---|
+| `init`, `serve` | Refuses a home over **73 bytes**, where even a one-character id overflows. The socket that decides this is the sign-in socket, `userspaces/_system/run/login.sock`, whose id is fixed. | Unconditional: the home cannot serve anybody. `init` refuses before writing anything; `serve` refuses again, because a home can be moved or the variable edited afterwards. |
+| `init` | A note, not a refusal, when the home is over **49 bytes** and so cannot carry every id the kernel allows: `note: <home> allows user ids of at most 21 characters; …`. | Nothing is wrong: the home serves. It is said where the path is being chosen and another one is still free. |
+| `users.create` | Refuses an id too long for this home, naming the home, the socket, its length, the limit, and the longest id that would fit. | The one moment both halves are known and a shorter id can still be picked. Every path — the command line, the browser, an admin's `operator.*` — comes through the kernel's control handler, so all of them get it. |
+
+Before this, `init` accepted any path and `serve` died on `listen EINVAL: invalid argument`, which named a path and no length and read as a fault in the daemon.
 
 ## Use
 

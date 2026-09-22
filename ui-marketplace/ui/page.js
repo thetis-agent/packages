@@ -109,9 +109,11 @@ export function openPage(ext, root, params) {
     const rows = [];
     if (r.installed) rows.push(["installed", el("code", {}, r.pin ? `${r.version} at ${r.pin}` : r.version)]);
     if (r.available) rows.push(["registry", el("span", {}, el("code", {}, r.tip || r.version), r.registry ? el("span", { class: "text-dim" }, ` in ${r.registry}`) : null)]);
-    // The two kinds of behind read differently: a registry's newer commit, or a version this workspace has not loaded.
+    // The three kinds of behind read differently: a registry's newer commit, a version this workspace has
+    // not loaded, or an origin this fork was copied from and has not followed. The fork case says nothing
+    // here: the facts below carry it, under "forked from" and "shipped now", where it belongs.
     if (r.update?.apply === "reload") rows.push(["loaded", el("span", {}, `${r.update.installed} in your workspace, ${r.update.available} on disk: a reload applies it`)]);
-    else if (r.update) rows.push(["update", el("span", {}, `${r.update.version} is in ${r.update.registry} (${r.update.from} → ${r.update.to})`)]);
+    else if (r.update && r.update.apply !== "unfork") rows.push(["update", el("span", {}, `${r.update.version} is in ${r.update.registry} (${r.update.from} → ${r.update.to})`)]);
     return rows;
   }
 
@@ -160,6 +162,9 @@ export function openPage(ext, root, params) {
           ["type", r.type],
           r.license && ["license", r.license],
           r.forkedFrom && ["forked from", el("code", {}, `${r.forkedFrom.name}@${r.forkedFrom.version}`)],
+          // Said next to "forked from", because the pair is the whole story: what this was copied from, and
+          // what that package is at now. One without the other is what let a fork go stale unnoticed.
+          r.fork && ["shipped now", r.fork.shipped ? el("code", {}, `${r.fork.name}@${r.fork.shipped}${r.fork.identical ? " — the same files as this fork" : ""}`) : el("span", { class: "text-faint" }, "not here any more")],
           r.replaced && ["replaces", el("code", {}, r.replaced)],
           r.source && ["source", el("code", { class: "mk-wrap" }, r.source)],
         ].filter(Boolean)),

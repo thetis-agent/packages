@@ -1,8 +1,8 @@
-import { existsSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { HOST_TYPE, STORAGE_TYPE, SYSTEM_SCOPE, SYSTEM_USER, type DeletedPackage, type ExecResult, type Fences, type Manifest, type PackageInfo, type PackageRecord, type PackageSource, type UserRecord, type Userspace } from "@thetis/contracts";
 import { assert, CodedError, errorMessage } from "@thetis/lib/error";
-import { buildCommand, cloneCommand, cloneSlug, copyPackageAs, hasPackageJson, headOf, isGitSource, isInside, linkDir, removeLink, splitSource } from "@thetis/lib/pkg-fs";
+import { buildCommand, cloneCommand, cloneDirFor, cloneSlugOf, copyPackageAs, hasPackageJson, headOf, isGitSource, isInside, keepOnly, linkDir, packagesIn, removeLink, samePackage, splitSource } from "@thetis/lib/pkg-fs";
 import type { KernelConfig } from "../config.js";
 import { readManifest, scopeOf, toInfo } from "./manifest.js";
 import type { PackageRegistry } from "./registry.js";
@@ -61,8 +61,7 @@ export class PackageManager {
     const fork = this.registry.all().find((r) => r.replaced === name && r.userspaces.includes(us.id));
     const src = fork?.replacedSource;
     if (!src || src.kind === "system") return undefined;
-    const git = splitSource(src.ref);
-    return src.kind === "local" ? resolve(us.home, src.ref) : this.subdir(this.cloneDir(us, git.url, git.ref), git.sub);
+    return src.kind === "local" ? resolve(us.home, src.ref) : this.subdir(cloneDirFor(us.store, src.ref), splitSource(src.ref).sub);
   }
 
   /** Installed packages of a userspace, with their live manifests, in install order. */
@@ -101,7 +100,27 @@ export class PackageManager {
    */
   listFor(us: Userspace): PackageInfo[] {
     const loaded = (this.fences.loadedVersions?.() ?? {})[us.id] ?? {};
-    return this.installed(us).map((p) => (loaded[p.name] ? { ...p, loadedVersion: loaded[p.name] } : p));
+    return this.installed(us).map((p) => this.withFork(us, loaded[p.name] ? { ...p, loadedVersion: loaded[p.name] } : p));
+  }
+
+  /**
+   * A fork, measured against the package it was copied from as that package stands now. The manifest
+   * records only what the origin was at the time of the copy, and a copy that says only that is a dead end:
+   * the origin goes on being fixed and nobody holding the fork is ever told. So the origin is looked up
+   * where it actually lives -- displaced by this very fork, or shipped, or promoted -- and its version and
+   * its bytes are compared with the copy's.
+   *
+   * This is only done here, on the way out to a person, and not in `installed`, which the kernel's own
+   * install, restore and seed paths call. Reading the whole of two package trees costs milliseconds, which
+   * is nothing to pay once for a listing somebody is about to read and too much to pay on every internal
+   * question about what is installed.
+   */
+  private withFork(us: Userspace, info: PackageInfo): PackageInfo {
+    const from = info.forkedFrom;
+    if (!from) return info;
+    const dir = this.systemPackageDir(from.name) ?? this.displacedDir(us, from.name);
+    const shipped = this.manifestOf(us, from.name)?.version;
+    return { ...info, fork: { ...from, ...(shipped ? { shipped } : {}), ...(dir && samePackage(info.root, dir) ? { identical: true } : {}) } };
   }
 
   /**
@@ -130,17 +149,7 @@ export class PackageManager {
 
   /** The names of the promoted packages: everything in the promoted directory with a valid manifest. */
   promoted(): string[] {
-    const base = this.config.promotedPackagesDir;
-    if (!existsSync(base)) return [];
-    const out: string[] = [];
-    for (const entry of readdirSync(base)) {
-      try {
-        out.push(readManifest(resolve(base, entry)).name);
-      } catch {
-        continue;
-      }
-    }
-    return out;
+    return packagesIn(this.config.promotedPackagesDir, readManifest).map((p) => p.manifest.name);
   }
 
   installSystem(us: Userspace, name: string, replaced?: { replaced: string; replacedSource: PackageSource }): PackageInfo {
@@ -194,6 +203,41 @@ export class PackageManager {
     return rec?.replaced ? this.restore(us, rec.replaced, rec.replacedSource) : undefined;
   }
 
+  /**
+   * Undoes a fork: the userspace goes back to the package the fork was copied from. The inverse of a fork,
+   * and the thing whose absence made a fork a one-way door -- an `uninstall` puts the origin back only when
+   * the registry happens to have recorded what this fork displaced, and a fork installed into a userspace
+   * the origin was not in has no such record and takes the person's only gateway with it.
+   *
+   * The ordering is the whole of the safety, because the package a person is most likely to fork is the web
+   * gateway, and they are looking at the fork through it:
+   *
+   *   1. Find where the origin lives, before anything is changed. No origin on disk, no un-fork: a person
+   *      is told to keep the fork rather than being left with neither.
+   *   2. Swap. The fork's service stops and its link goes, then the origin's link and service come. Both
+   *      gateways bind the same socket, so they cannot overlap; the gap is the length of a stop and a
+   *      start, and the door answers 503 for that moment rather than routing to something that is gone.
+   *   3. Delete the files last, and only if asked. A failure anywhere above leaves the fork's source where
+   *      it was, so `install` from the same path puts the person back exactly where they started.
+   *
+   * `uninstall` already restores a recorded `replaced`, so its answer is taken when it has one and the
+   * origin is put back by name when it does not; that way the origin's service is started once, not twice.
+   */
+  async unfork(us: Userspace, name: string, deleteFiles = false): Promise<PackageInfo> {
+    const rec = this.registry.get(name);
+    const origin = this.installed(us).find((p) => p.name === name)?.forkedFrom?.name;
+    assert(rec && origin && rec.userspaces.includes(us.id), `${name} is not a fork installed in ${us.id}`, "invalid");
+    assert(this.displacedDir(us, origin) ?? this.systemPackageDir(origin), `${origin} is not here to go back to; keep ${name}, or install ${origin} from its source first`, "not-found");
+    const files = deleteFiles && rec.source.kind === "local" ? resolve(us.home, rec.source.ref) : undefined;
+    const back = (await this.uninstall(us, name)) ?? (await this.restore(us, origin));
+    assert(back, `${origin} did not come back; install it, or install ${name} again from ${rec.source.ref}`, "not-found");
+    if (files && isInside(us.home, files)) {
+      rmSync(files, { recursive: true, force: true });
+      await this.each((l) => l.deleted?.(us, name));
+    }
+    return back;
+  }
+
   /** Uninstalls a package of the userspace's own scope and deletes its files. Only files under the home go. */
   async delete(us: Userspace, name: string): Promise<DeletedPackage> {
     const rec = this.registry.get(name);
@@ -228,16 +272,8 @@ export class PackageManager {
   /** Where a @thetis/* package lives: the shipped directory first, then the promoted one. */
   systemPackageDir(name: string): string | undefined {
     for (const base of [this.config.systemPackagesDir, this.config.promotedPackagesDir]) {
-      if (!existsSync(base)) continue;
-      for (const entry of readdirSync(base)) {
-        const dir = resolve(base, entry);
-        if (!hasPackageJson(dir)) continue;
-        try {
-          if (readManifest(dir).name === name) return dir;
-        } catch {
-          continue;
-        }
-      }
+      const hit = packagesIn(base, readManifest).find((p) => p.manifest.name === name);
+      if (hit) return hit.dir;
     }
     return undefined;
   }
@@ -277,7 +313,7 @@ export class PackageManager {
 
   private async clone(us: Userspace, source: string): Promise<string> {
     const { url, sub, ref } = splitSource(source);
-    const dir = this.cloneDir(us, url, ref);
+    const dir = cloneDirFor(us.store, source);
     // A pinned clone is the same bytes whenever it is taken, and one registry holds many packages, so a
     // clone already sitting on that commit is reused rather than fetched again. Without a pin there is
     // nothing to compare and the tip may have moved, so it is always fetched.
@@ -288,27 +324,13 @@ export class PackageManager {
     return this.subdir(dir, sub);
   }
 
-  private cloneDir(us: Userspace, url: string, ref?: string): string {
-    return resolve(us.store, "src", cloneSlug(url, ref));
-  }
-
   /**
    * Removes clones nothing is installed from. Updating pins a new commit and leaves the old clone behind,
    * and a clone is the whole repository, so without this an installation grows by one copy every update.
    */
   private pruneClones(us: Userspace): void {
-    const src = resolve(us.store, "src");
-    if (!existsSync(src)) return;
-    const live = new Set(
-      this.registry
-        .installedIn(us.id)
-        .filter((r) => r.source.kind === "git")
-        .map((r) => {
-          const { url, ref } = splitSource(r.source.ref);
-          return cloneSlug(url, ref);
-        }),
-    );
-    for (const entry of readdirSync(src)) if (!live.has(entry)) rmSync(resolve(src, entry), { recursive: true, force: true });
+    const live = this.registry.installedIn(us.id).filter((r) => r.source.kind === "git").map((r) => cloneSlugOf(r.source.ref));
+    keepOnly(resolve(us.store, "src"), new Set(live));
   }
 
   /** The package directory inside a clone. It must stay inside the clone. */
@@ -340,10 +362,9 @@ export class PackageManager {
   /** Repairs a dead store link after the checkout or the data directory moved. */
   private relink(us: Userspace, rec: PackageRecord): PackageInfo | undefined {
     if (rec.source.kind === "system") return this.systemPackageDir(rec.name) ? this.installSystem(us, rec.name) : undefined;
-    const git = splitSource(rec.source.ref);
     // The pin is part of the clone's directory name, so repairing a link has to carry it or it looks for a
     // clone that was never made.
-    const dir = rec.source.kind === "local" ? resolve(us.home, rec.source.ref) : this.subdir(this.cloneDir(us, git.url, git.ref), git.sub);
+    const dir = rec.source.kind === "local" ? resolve(us.home, rec.source.ref) : this.subdir(cloneDirFor(us.store, rec.source.ref), splitSource(rec.source.ref).sub);
     if (!hasPackageJson(dir)) return undefined;
     this.link(us, rec.name, dir);
     return toInfo(readManifest(dir), this.linkPath(us, rec.name));

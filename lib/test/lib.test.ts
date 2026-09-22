@@ -8,11 +8,12 @@ import { AsyncQueue } from "../src/async.js";
 import { Container, token } from "../src/container.js";
 import { JsonDirStore } from "../src/json-store.js";
 import { MountStore } from "../src/mounts.js";
-import { findDependency, forkPackage, forkVersion, isGitSource, isInside, splitSource } from "../src/pkg-fs.js";
+import { findDependency, forkPackage, forkVersion, isGitSource, isInside, keepOnly, packageDigest, packagesIn, samePackage, splitSource } from "../src/pkg-fs.js";
 import { PendingCalls, callHandler } from "../src/rpc-frames.js";
 import { StoreMirror, memoryStore } from "../src/store.js";
 import { SessionStore, summarize } from "../src/session-store.js";
 import { SshStore, knownHostsOf } from "../src/ssh.js";
+import { HOME_SOCKETS, MAX_SOCKET_PATH, MAX_USER_ID, assertHomeFitsSockets, assertUserIdFitsSockets, homeSocketProblem, homeSocketWarning, longestHomeSocket, maxHomeLength, maxUserIdLength, userIdProblem } from "../src/socket-paths.js";
 import { TurnTaps } from "../src/turn-taps.js";
 
 test("container resolves lazily, caches singletons, and allows rebinding", () => {
@@ -92,6 +93,64 @@ test("rpc frames: events stream before the result, errors carry a code, and clea
   assert.deepEqual(ok, { result: null });
   const bad = await callHandler(async () => Promise.reject(Object.assign(new Error("no"), { code: "rpc" })), "m", {});
   assert.deepEqual(bad, { error: "no", code: "rpc" });
+});
+
+test("a fork is identical to its origin when nothing but its name and version differ, and one changed byte says so", () => {
+  const dir = mkdtempSync(join(tmpdir(), "thetis-same-"));
+  try {
+    const origin = join(dir, "origin");
+    mkdirSync(join(origin, "dist"), { recursive: true });
+    mkdirSync(join(origin, "node_modules", "left-pad"), { recursive: true });
+    writeFileSync(join(origin, "node_modules", "left-pad", "package.json"), JSON.stringify({ name: "left-pad", version: "1.0.0" }));
+    writeFileSync(join(origin, "dist", "index.js"), "export const x = 1;\n");
+    writeFileSync(join(origin, "package.json"), JSON.stringify({
+      name: "@thetis/thing", version: "0.2.0", description: "a thing", main: "dist/index.js",
+      scripts: { build: "tsc -b" }, dependencies: { "left-pad": "^1" }, devDependencies: { typescript: "^5" },
+      thetis: { type: "tool" },
+    }));
+    const to = join(dir, "home", "packages", "thing");
+    forkPackage({ from: origin, to, name: "@alice/thing", version: forkVersion("0.2.0"), origin: { name: "@thetis/thing", version: "0.2.0" }, root: dir });
+    // The whole point: a fresh fork is the origin under another name, and every field that differs between
+    // the two is one `forkPackage` rewrote. Anything less than this and a stale fork looks like a change.
+    assert.ok(samePackage(to, origin), "a fresh fork is its origin");
+    assert.equal(packageDigest(to), packageDigest(origin));
+    writeFileSync(join(to, "dist", "index.js"), "export const x = 2;\n");
+    assert.ok(!samePackage(to, origin), "one changed byte is a change");
+    writeFileSync(join(to, "dist", "index.js"), "export const x = 1;\n");
+    writeFileSync(join(to, "dist", "extra.js"), "");
+    assert.ok(!samePackage(to, origin), "a file the origin does not have is a change");
+    assert.ok(!samePackage(join(dir, "nowhere"), origin), "a directory that is not there is not the same package");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("packagesIn lists the packages under a directory and skips what the caller will not read", () => {
+  const dir = mkdtempSync(join(tmpdir(), "thetis-in-"));
+  try {
+    mkdirSync(join(dir, "good"), { recursive: true });
+    mkdirSync(join(dir, "broken"), { recursive: true });
+    mkdirSync(join(dir, "empty"), { recursive: true });
+    writeFileSync(join(dir, "good", "package.json"), JSON.stringify({ name: "@thetis/good" }));
+    writeFileSync(join(dir, "broken", "package.json"), "{ not json");
+    const read = (at: string) => JSON.parse(readFileSync(join(at, "package.json"), "utf8")) as { name: string };
+    assert.deepEqual(packagesIn(dir, read).map((p) => p.manifest.name), ["@thetis/good"]);
+    assert.equal(packagesIn(join(dir, "nowhere"), read).length, 0, "a directory that is not there holds no packages");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("keepOnly removes what is not named and leaves a directory that was never made alone", () => {
+  const dir = mkdtempSync(join(tmpdir(), "thetis-keep-"));
+  try {
+    for (const name of ["a", "b", "c"]) mkdirSync(join(dir, name), { recursive: true });
+    keepOnly(join(dir, "nowhere"), new Set());
+    keepOnly(dir, new Set(["b"]));
+    assert.ok(!existsSync(join(dir, "a")) && existsSync(join(dir, "b")) && !existsSync(join(dir, "c")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("fork: the copy drops scripts and devDependencies, links what the origin resolves, and numbers its version", () => {
@@ -267,4 +326,74 @@ test("ssh: the store keeps one document per person with the key paths and their 
   assert.deepEqual(new SshStore(await StoreMirror.open(space)).get("alice"), ssh.get("alice"), "what was written is what a restart reads");
   assert.equal(knownHostsOf([{ key: "/k", hosts: ["a", "a"] }, { key: "/other", hosts: ["a", "b"] }]), "a\nb\n");
   assert.equal(knownHostsOf([{ key: "/k" }]), "");
+});
+
+test("socket paths: a home with room for every id passes and says nothing, and the inventory is every socket under it", () => {
+  assert.equal(homeSocketProblem("/opt/zero/data"), undefined);
+  assert.equal(homeSocketWarning("/opt/zero/data"), undefined, "a short home costs a person nothing");
+  assert.equal(maxUserIdLength("/opt/zero/data"), MAX_USER_ID);
+  assert.doesNotThrow(() => assertUserIdFitsSockets("/opt/zero/data", "u".repeat(MAX_USER_ID)));
+  // The two ceilings, and which socket sets each. A full-length id spends 58 bytes on a terminal socket,
+  // so 49 is the home that carries everybody; a one-character id spends 34 on the sign-in socket, whose id
+  // is the fixed `_system` and does not shrink with it, so 73 is the home that can work at all.
+  assert.equal(maxHomeLength(MAX_USER_ID), 49);
+  assert.equal(maxHomeLength(), 73);
+  // Which socket is the longest is not fixed: the sign-in socket's id is the constant `_system`, so it wins
+  // for a short id and the per-person terminal socket overtakes it at nine characters. Nothing below reads
+  // the list expecting one particular answer.
+  assert.equal(longestHomeSocket("/home/someone/.thetis", "alice").path, "/home/someone/.thetis/userspaces/_system/run/login.sock");
+  assert.equal(longestHomeSocket("/home/someone/.thetis", "alexandrina").path, "/home/someone/.thetis/userspaces/alexandrina/run/term.sock");
+  assert.ok(HOME_SOCKETS.some((s) => s.path("/h", "alice").endsWith("/thetis.sock")), "the control socket");
+  assert.ok(HOME_SOCKETS.some((s) => s.path("/h", "alice").endsWith("/fence-ssh/alice/agent.sock")), "the fence ssh agent");
+  assert.ok(HOME_SOCKETS.some((s) => s.path("/h", "alice").endsWith("/userspaces/_system/run/login.sock")), "the sign-in socket");
+  assert.ok(HOME_SOCKETS.some((s) => s.path("/h", "alice").endsWith("/userspaces/alice/run/web.sock")), "the gateway");
+  assert.ok(HOME_SOCKETS.some((s) => s.path("/h", "alice").endsWith("/userspaces/alice/run/term.sock")), "the terminal");
+});
+
+test("socket paths: a home that works for short ids and not long ones is a note, not a refusal, and the id is refused when one is chosen", () => {
+  // 60 bytes: the sign-in socket fits, so the home serves; a 32-character id does not, so it costs ids.
+  const home = "/" + "d".repeat(59);
+  assert.equal(homeSocketProblem(home), undefined, "a home that serves somebody is not refused");
+  assert.doesNotThrow(() => assertHomeFitsSockets(home));
+  const fits = maxUserIdLength(home);
+  assert.equal(fits, 21, "107 less 60 bytes of home and 26 of terminal socket suffix");
+  const note = homeSocketWarning(home);
+  assert.ok(note?.startsWith("note: "), "a note, with no verdict in it");
+  assert.ok(note?.includes(`allows user ids of at most ${fits} characters`), "it names the longest id this home carries");
+  assert.ok(note?.includes(`${home}/userspaces/<user id>/run/term.sock`), "and the socket that a longer one could not open");
+  assert.ok(note?.includes(`${MAX_SOCKET_PATH} bytes`), "and the limit");
+  assert.ok(note?.includes(`at most ${maxHomeLength(MAX_USER_ID)} bytes`), "and the home that would cost nothing");
+  // The verdict, at the moment an id exists: the longest that fits passes, one character more does not.
+  assert.equal(userIdProblem(home, "a".repeat(fits)), undefined);
+  assert.doesNotThrow(() => assertUserIdFitsSockets(home, "a".repeat(fits)));
+  assert.equal(longestHomeSocket(home, "a".repeat(fits)).bytes, MAX_SOCKET_PATH, "and that id sits exactly on the limit");
+  const tooLong = "a".repeat(fits + 1);
+  const problem = userIdProblem(home, tooLong);
+  assert.ok(problem?.startsWith(`user id ${tooLong} is too long for this data directory`), "the id is named, and so is why");
+  assert.ok(problem?.includes(`${home}/userspaces/${tooLong}/run/term.sock`), "the socket is spelled out, with the real id");
+  assert.ok(problem?.includes(`${MAX_SOCKET_PATH + 1} bytes`), "with what it would measure");
+  assert.ok(problem?.includes(`${MAX_SOCKET_PATH} bytes`), "against the limit");
+  assert.ok(problem?.includes(`${home} allows user ids of at most ${fits} characters`), "and the longest id that would fit");
+  assert.throws(() => assertUserIdFitsSockets(home, tooLong), /is too long for this data directory/);
+  // An id longer than the kernel's own maximum is malformed, and `users.create` has its own sentence for it.
+  assert.equal(userIdProblem(home, "a".repeat(MAX_USER_ID + 1)), undefined);
+});
+
+test("socket paths: a home too long for even a one-character id is refused, by a sentence naming the socket, the limit and the ceiling", () => {
+  const fits = "/" + "d".repeat(maxHomeLength() - 1);
+  assert.equal(homeSocketProblem(fits), undefined, "a home of exactly the ceiling still serves");
+  // 73 bytes is where the sign-in socket lands exactly on the limit; the per-person sockets have 8 bytes of
+  // id left over, which is why this ceiling is the one a home cannot pass and not the one that is comfortable.
+  assert.equal(maxUserIdLength(fits), 8);
+  const over = fits + "x";
+  const problem = homeSocketProblem(over);
+  assert.ok(problem?.startsWith("THETIS_HOME is too long: "), "one byte more is refused");
+  assert.equal(maxUserIdLength(over), 0);
+  assert.ok(problem?.includes(over), "the sentence names the home that was refused");
+  assert.ok(problem?.includes("Even with a one-character user id"), "and that no id could rescue it");
+  assert.ok(problem?.includes(`${over}/userspaces/_system/run/login.sock`), "and the socket that does not fit, which here takes no id at all");
+  assert.ok(problem?.includes(`${MAX_SOCKET_PATH} bytes`), "and the limit itself");
+  assert.ok(problem?.includes(`at most ${maxHomeLength()} bytes`), "and the length a home may be");
+  assert.equal(homeSocketWarning(over), undefined, "a refused home is not also warned about");
+  assert.throws(() => assertHomeFitsSockets(over), new RegExp(`at most ${maxHomeLength()} bytes`));
 });

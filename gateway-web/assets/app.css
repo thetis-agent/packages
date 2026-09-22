@@ -1520,6 +1520,10 @@ select.input { padding-right: 24px; }
 .badge.is-warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: var(--warn-wash); }
 .badge.is-err { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, transparent); background: var(--err-wash); }
 .tags { display: flex; flex-wrap: wrap; gap: 4px; }
+/* A badge that says a whole clause -- what a fork was copied from, and how far that has moved on since --
+ * is wider than a table cell or a row of the facts list. In those two places it wraps onto a second line
+ * rather than running out past the card's edge; everywhere else a badge is still one unbroken line. */
+.kv .tags .badge, td .tags .badge { white-space: normal; }
 .card { border: 1px solid var(--hairline); border-radius: var(--r-lg); background: var(--surface-1); overflow: hidden; }
 .card-head { padding: 10px 14px; border-bottom: 1px solid var(--hairline); font-weight: 600; font-size: var(--text-sm); background: var(--surface-2); }
 .card-body { padding: 12px 14px; display: flex; flex-direction: column; gap: var(--gap-3); font-size: var(--text-sm); }

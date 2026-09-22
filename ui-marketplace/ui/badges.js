@@ -8,14 +8,35 @@ export function stateBadge(badge, r) {
   return badge(r.registry ? `Available · ${r.registry}` : "Available", "ok");
 }
 
-export const forkBadge = (badge, r) => (r.forkedFrom ? badge(`fork of ${r.forkedFrom.name} ${r.forkedFrom.version}`, "warn") : null);
+/**
+ * What a fork is, against the package it was copied from as that package stands now. "fork of X 0.1.1" is
+ * true and useless: it says nothing about whether X has moved on, and nothing about whether this copy
+ * changed anything, which are the two facts that decide whether the fork is worth its cost. The strongest
+ * true sentence wins, so a copy that is byte for byte the shipped package says so rather than saying "fork".
+ */
+export function forkBadge(badge, r) {
+  const fork = r.fork;
+  if (!fork) return r.forkedFrom ? badge(`fork of ${r.forkedFrom.name} ${r.forkedFrom.version}`, "warn") : null;
+  if (fork.identical && fork.shipped) return badge(`identical to ${fork.name} ${fork.shipped}, which is shipped`, "warn");
+  if (fork.shipped && fork.shipped !== fork.version) return badge(`fork of ${fork.name} ${fork.version} · ${fork.shipped} is shipped now`, "warn");
+  return badge(`fork of ${fork.name} ${fork.version}`, "warn");
+}
 
 /**
- * Something newer than what is in service. Two kinds: the registry this came from holds a newer commit, and
- * an install takes it; or the files on disk have moved past the version this workspace loaded, and a reload
- * of the workspace is what puts them into service. Nothing has been changed either way; this is an offer.
+ * Something newer than what is in service. Three kinds: the registry this came from holds a newer commit,
+ * and an install takes it; or the files on disk have moved past the version this workspace loaded, and a
+ * reload of the workspace is what puts them into service; or this is a fork and the package it was copied
+ * from has gone on without it, and going back to that package is what takes the difference. Nothing has
+ * been changed in any of the three; this is an offer.
  */
-export const updateBadge = (badge, r) => (r.update ? badge(`${r.update.apply === "reload" ? "reload" : "update"} to ${r.update.version}`, "warn") : null);
+export function updateBadge(badge, r) {
+  const update = r.update;
+  if (!update) return null;
+  // Terse, because this badge also rides on a gallery card beside the package's name. The card says there
+  // is something here to act on; the package page says which package, and at what version.
+  if (update.apply === "unfork") return badge(update.identical ? "identical to what is shipped" : `${update.available} is shipped now`, "warn");
+  return badge(`${update.apply === "reload" ? "reload" : "update"} to ${update.version}`, "warn");
+}
 
 /**
  * What the benchmarks say. A package that opts in but has never been run says so, because "not measured"
@@ -31,4 +52,10 @@ export function benchBadge(badge, r) {
   return badge(`bench: ${reports.length} suite${reports.length === 1 ? "" : "s"}`, "ok");
 }
 
-export const stateBadges = (badge, r) => [stateBadge(badge, r), forkBadge(badge, r), updateBadge(badge, r), benchBadge(badge, r)].filter(Boolean);
+/**
+ * The badges a package page carries. A fork that is behind its origin would otherwise say so twice, once as
+ * the fork badge and once as the update badge, which are the same sentence at two lengths; the fork badge
+ * is the longer and the truer of the two, so the update badge stands down for it here. The gallery, which
+ * draws no fork badge, keeps the terse one.
+ */
+export const stateBadges = (badge, r) => [stateBadge(badge, r), forkBadge(badge, r), r.update?.apply === "unfork" ? null : updateBadge(badge, r), benchBadge(badge, r)].filter(Boolean);

@@ -3,7 +3,7 @@
 // person can see; reading, editing and searching files is @thetis/tools-files. Everything here acts
 // inside the fence through the agent's env.
 import { resolve } from "node:path";
-import type { ConfigKeyState, ConfigReport, Tool, ToolEnv } from "@thetis/contracts";
+import type { ConfigKeyState, ConfigReport, PackageInfo, Tool, ToolEnv } from "@thetis/contracts";
 import { forkPackage as copyFork, forkVersion } from "@thetis/lib/pkg-fs";
 
 /** One path segment, as the kernel accepts in a package name. Keeps `as` from leaving packages/. */
@@ -25,7 +25,10 @@ export const listPackages: Tool = async (args, env) => {
       const steps = (p.thetis.steps ?? []).filter((s) => s.phase !== BENCH_PHASE).map((s) => `${s.phase}:${s.export}`).join(", ");
       const tools = (p.thetis.tools ?? []).map((t) => t.name).join(", ");
       const bench = (p.thetis.bench?.suites ?? []).join(", ");
-      const fork = p.forkedFrom ? ` fork of ${p.forkedFrom.name}@${p.forkedFrom.version}` : "";
+      // A fork is said against its origin as that origin stands now, because "fork of X@0.1.1" is as true
+      // on the day it is made as it is a year and six fixes later, and the model is often the one asked
+      // why a person is not seeing a change that shipped.
+      const fork = forkLine(p.fork ?? p.forkedFrom);
       // The fence read its version when it opened; the files have moved on since. Said here because the
       // version on the line is the one on disk, which is not the one this turn is running.
       const loaded = p.loadedVersion && p.loadedVersion !== p.version ? ` (loaded ${p.loadedVersion}, ${p.version} on disk: a workspace reload applies it)` : "";
@@ -34,6 +37,15 @@ export const listPackages: Tool = async (args, env) => {
   if (!lines.length) return wanted ? `no ${wanted} packages are installed in your userspace` : "no packages are installed in your userspace";
   return `${lines.length} ${wanted ? `${wanted} ` : ""}package${lines.length === 1 ? "" : "s"} installed in your userspace:\n${lines.join("\n")}`;
 };
+
+/** What to say about a fork on its one line: nothing, or its origin, or its origin and how far that has gone without it. */
+function forkLine(fork: PackageInfo["fork"] | undefined): string {
+  if (!fork) return "";
+  if (!("shipped" in fork) || !fork.shipped) return ` fork of ${fork.name}@${fork.version}`;
+  if (fork.identical) return ` fork of ${fork.name}@${fork.version}, identical to the shipped ${fork.shipped}: it is carrying no change and will see no further fix (unfork_package)`;
+  if (fork.shipped !== fork.version) return ` fork of ${fork.name}@${fork.version}, ${fork.shipped} is shipped now (unfork_package)`;
+  return ` fork of ${fork.name}@${fork.version}`;
+}
 
 export const installPackage: Tool = async (args, env) => {
   const info = await env.kernel.packages.install(String(args.source));
@@ -60,6 +72,19 @@ export const forkPackage: Tool = async (args, env: ToolEnv) => {
   const r = copyFork({ from: origin.root, to, name: forkName, version, origin: { name, version: origin.version }, root: env.root });
   const linked = r.linked.length ? `; dependencies linked: ${r.linked.join(", ")}` : "";
   return `forked ${name}@${origin.version} to packages/${as} as ${forkName}@${version}${brings(origin.thetis)}${linked}. Edit it, then install_package with source "packages/${as}": it replaces ${name} until the fork is uninstalled or deleted. The fork inherits ${name}'s configuration; package_config shows what it gets.`;
+};
+
+/**
+ * The inverse of `fork_package`: the userspace goes back to the package the fork was copied from, with the
+ * fork's files left where they are. A fork is the only install that replaces something, so it is the only
+ * one whose removal needs to name what takes its place; the kernel checks that package is on disk before
+ * it removes anything, which is what makes this safe to run on the gateway a person is reading through.
+ */
+export const unforkPackage: Tool = async (args, env) => {
+  const name = String(args.name);
+  const back = await env.kernel.packages.unfork(name, args.deleteFiles === true);
+  const files = args.deleteFiles === true ? " and its files were deleted" : "; its files were kept";
+  return `${name} is no longer installed${files}. ${back.name}@${back.version} is back in its place. Live on the next turn.`;
 };
 
 export const deletePackage: Tool = async (args, env) => {

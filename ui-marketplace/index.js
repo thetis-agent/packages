@@ -95,6 +95,20 @@ export async function del(args, env) {
   return { data: await env.kernel.packages.delete(packageName(args.name)) };
 }
 
+/**
+ * Goes back to the package this fork was copied from. The fork's files are kept: they are the person's own
+ * work, and a page that could throw them away on one click would be a page nobody dares press. `Delete`
+ * next to it is what removes them, once the person can see that the shipped package is back.
+ *
+ * The answer to this is very often never read. The package being replaced is usually the web gateway, which
+ * is the thing serving the click, so the connection dies mid-call; the browser treats that as the success it
+ * is and waits for the new gateway. See `unforkMe` in ui/actions.js.
+ */
+export async function unfork(args, env) {
+  const name = packageName(args.name);
+  return { data: installedRow(await env.kernel.packages.unfork(name)) };
+}
+
 /** An update is an install of the newer pinned source, as `thetis packages update` does. Refused when nothing is newer. */
 export async function update(args, env) {
   const name = packageName(args.name);

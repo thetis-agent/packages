@@ -1,6 +1,6 @@
 {
   "name": "@thetis/marketplace",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "Mirrors package registries and writes the searchable index the control panel reads.",
   "type": "module",

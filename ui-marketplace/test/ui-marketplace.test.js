@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as commands from "../index.js";
 import { mergeRows, withUpdate } from "../lib/rows.js";
-import { updateBadge } from "../ui/badges.js";
+import { forkBadge, updateBadge } from "../ui/badges.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
@@ -44,6 +44,7 @@ function fakeEnv({ installed = [], index, readmes = {}, answers = {}, role = "us
           return { ...shipped("@thetis/new"), everyone: false, source: { kind: "git", ref: source } };
         },
         uninstall: async (name) => calls.push({ method: "uninstall", name }),
+        unfork: async (name, deleteFiles) => (calls.push({ method: "unfork", name, deleteFiles }), shipped("@thetis/gateway-web")),
         delete: async (name) => (calls.push({ method: "delete", name }), { name, path: "/p", restored: "@alice/old" }),
       },
       operator: {
@@ -113,6 +114,27 @@ test("rows: a copy the workspace has not loaded is behind its own disk, index or
   const current = mergeRows([{ ...shipped("@thetis/terminal"), loadedVersion: "0.1.0" }], [], undefined);
   assert.equal(current[0].update, null, "the version it loaded is the version on disk: nothing is behind");
   assert.equal(updateBadge(badge, current[0]), null);
+});
+
+test("rows: a fork carries what it was forked from and how far that has moved, and the badges say the strongest true thing", () => {
+  const badge = (text, tone) => ({ text, tone });
+  const forkOf = (fork) => ({ ...shipped("@alice/gateway-web", { everyone: false }), version: "0.1.1-fork.1", forkedFrom: { name: fork.name, version: fork.version }, fork });
+  // The live shape: the fork changed nothing, and the package it copied is what is shipped. No version
+  // anywhere shows it, which is why the badge has to say it in words.
+  const same = mergeRows([forkOf({ name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.1.1", identical: true })], [], undefined);
+  assert.deepEqual(same[0].update, { apply: "unfork", version: "0.1.1", installed: "0.1.1", available: "0.1.1", origin: "@thetis/gateway-web", identical: true });
+  assert.deepEqual(updateBadge(badge, same[0]), { text: "identical to what is shipped", tone: "warn" }, "terse: this one also rides on a gallery card beside the name");
+  assert.deepEqual(forkBadge(badge, same[0]), { text: "identical to @thetis/gateway-web 0.1.1, which is shipped", tone: "warn" });
+  const moved = mergeRows([forkOf({ name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.2.0" })], [], undefined);
+  assert.deepEqual(updateBadge(badge, moved[0]), { text: "0.2.0 is shipped now", tone: "warn" });
+  assert.deepEqual(forkBadge(badge, moved[0]), { text: "fork of @thetis/gateway-web 0.1.1 · 0.2.0 is shipped now", tone: "warn" });
+  const working = mergeRows([forkOf({ name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.1.1" })], [], undefined);
+  assert.equal(working[0].update, null, "a fork that differs from the current origin is doing its job");
+  assert.deepEqual(forkBadge(badge, working[0]), { text: "fork of @thetis/gateway-web 0.1.1", tone: "warn" });
+  // A row from a kernel that does not answer with `fork` still says what the manifest said, and no more.
+  const old = mergeRows([{ ...shipped("@alice/thing", { everyone: false }), forkedFrom: { name: "@thetis/thing", version: "0.1.0" } }], [], undefined);
+  assert.equal(old[0].fork, null);
+  assert.deepEqual(forkBadge(badge, old[0]), { text: "fork of @thetis/thing 0.1.0", tone: "warn" });
 });
 
 test("search: no index answers the installed rows and says so; a query narrows through the index and the installed names", async () => {
@@ -187,6 +209,18 @@ test("install, remove, delete and update go through the person's own packages; u
       ["install:@thetis/exa", "uninstall:@thetis/exa", "delete:@alice/mine", `install:${REPO}#exa@${NEW}`],
       "an update is an install of the newer pinned source"
     );
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("unfork goes through the person's own packages and keeps the fork's files", async () => {
+  const t = fakeEnv({ installed: [{ ...shipped("@alice/gateway-web", { everyone: false }), forkedFrom: { name: "@thetis/gateway-web", version: "0.1.1" } }] });
+  try {
+    assert.equal((await commands.unfork({ name: "@alice/gateway-web" }, t.env)).data.name, "@thetis/gateway-web");
+    await assert.rejects(commands.unfork({ name: "not a package" }, t.env), /a package name looks like/);
+    // No second argument: this page never deletes a person's own work, and Delete is where that lives.
+    assert.deepEqual(t.calls, [{ method: "unfork", name: "@alice/gateway-web", deleteFiles: undefined }]);
   } finally {
     t.cleanup();
   }
