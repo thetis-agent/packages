@@ -57,6 +57,7 @@ export function openPlace(ext, state, root, params) {
   let draft = null; // { name, directories, disable: Set, disableSkills: Set, instructions }
   let facts = null; // { mounts, states, tools, skills, conversations, user }
   let saved = null; // the record the server holds, so the page can say what is not in it yet
+  let note = null; // the "not saved yet" line, updated in place: typing must not redraw the field being typed in
   let saving = false;
   let checking = 0; // the last state check, so a slow answer never overwrites a newer one
 
@@ -164,6 +165,18 @@ export function openPlace(ext, state, root, params) {
     return out;
   }
 
+  /**
+   * Puts what is unsaved into the line beside the button. It is updated in place rather than by redrawing,
+   * because the two fields that make a page unsaved by typing are the two the person has the caret in, and
+   * rebuilding them under the caret loses it.
+   */
+  function sayUnsaved() {
+    if (!note) return;
+    const pending = unsaved();
+    note.textContent = !id ? "This project has not been created yet." : pending.length ? `Not saved yet: ${list(pending)}.` : "";
+    note.hidden = !note.textContent;
+  }
+
   /** Binds one directory into this person's workspace, changes its mode, or unbinds it with `mode: null`. */
   async function mount(anchor, path, mode) {
     const verb = mode === null ? "Unbind this directory?" : mode === "ro" ? "Bind it read-only?" : "Bind it read-write?";
@@ -231,6 +244,7 @@ export function openPlace(ext, state, root, params) {
     const input = el("input", { class: "input pj-name", type: "text", value: draft.name, maxlength: "80", placeholder: "A name for the project", "aria-label": "Project name", spellcheck: "false" });
     input.addEventListener("input", () => {
       draft.name = input.value;
+      sayUnsaved();
     });
     return field("Name", input, "Up to 80 characters. The switcher shows it.");
   }
@@ -240,6 +254,7 @@ export function openPlace(ext, state, root, params) {
     area.value = draft.instructions;
     area.addEventListener("input", () => {
       draft.instructions = area.value;
+      sayUnsaved();
     });
     return el("section", { class: "pj-section" }, section("Instructions", "Kept as PROJECT.md and added to the system prompt of every conversation in this project."), field("PROJECT.md", area));
   }
@@ -299,16 +314,14 @@ export function openPlace(ext, state, root, params) {
   }
 
   function actions() {
-    const pending = unsaved();
     const saveBtn = button(id ? "Save" : "Create project", { tone: "primary" });
     saveBtn.addEventListener("click", () => save(saveBtn));
     const removeBtn = id ? button("Delete project", { tone: "warn" }) : null;
     removeBtn?.addEventListener("click", () => remove(removeBtn));
     // Said in words rather than left to a highlighted button: leaving the page with something unsaved is
     // exactly the loss this page has already cost someone once.
-    const note = pending.length
-      ? el("p", { class: "pj-unsaved" }, id ? `Not saved yet: ${list(pending)}.` : "This project has not been created yet.")
-      : null;
+    note = el("p", { class: "pj-unsaved" });
+    sayUnsaved();
     return el("div", { class: "pj-actions" }, saveBtn, note, removeBtn);
   }
 
