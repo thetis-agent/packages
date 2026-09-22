@@ -52,6 +52,7 @@ function envAt(root: string) {
       await mkdir(dirname(resolve(root, p)), { recursive: true });
       await writeFile(resolve(root, p), content);
     },
+    invokeTool: async () => "",
     storage: (): never => {
       throw new Error("no storage in this test");
     },
@@ -163,7 +164,7 @@ before(async () => {
   home = mkdtempSync(join(tmpdir(), "thetis-web-"));
   const sys = join(home, "system-packages");
   mkdirSync(sys);
-  for (const name of ["harness-core", "tool-exec", "prompt-cache", "gateway-web", "gateway-login", "gateway-cli", "ui-admin", "ui-marketplace"]) symlinkSync(resolve(PROJECT, "packages", name), join(sys, name));
+  for (const name of ["harness-core", "tool-exec", "prompt-cache", "gateway-web", "gateway-login", "gateway-cli", "ui-admin", "ui-marketplace", "host-grants"]) symlinkSync(resolve(PROJECT, "packages", name), join(sys, name));
   symlinkSync(join(FIXTURES, "provider-echo"), join(sys, "provider-echo"));
   servicePort = await freePort();
   const config = defaultConfig(join(home, "data"), PROJECT);

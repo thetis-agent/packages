@@ -2,8 +2,6 @@ import { resolve } from "node:path";
 import { SYSTEM_USER, type Fences, type KernelRpc, type PackageInfo, type UserRecord, type UserRole, type UserStatus } from "@thetis/contracts";
 import { assert, CodedError } from "@thetis/lib/error";
 import { newestMtime } from "@thetis/lib/freshness";
-import { browseDirectories, parseMountList, withPresence } from "@thetis/lib/mounts";
-import { describeKeys, generateKey, importKey, parseSshGrants, type MadeKey } from "@thetis/lib/ssh";
 import { isSupervised } from "@thetis/lib/restart";
 import { applyInPlace, classifyChanges } from "@thetis/lib/config-tiers";
 import { CONFIG_TIERS, loadConfig } from "./config.js";
@@ -30,34 +28,6 @@ export function createControlHandler(k: KernelServices): KernelRpc {
     /** The configuration layer named: a person's own, or the system layer when none or the system user is named. */
     const layer = () => (a.user && k.users.authorize(a.user).id !== SYSTEM_USER ? a.user : undefined);
     const configTarget = () => ({ name: String(a.name), user: layer() });
-    /**
-     * Granting a host resource into one person's fence. A mount and an ssh key are the same act: the
-     * target has to exist and must not be `_system`, the grant is journalled without its contents, and it
-     * reaches the fence by closing it -- the pool reopens on the next request and the services restart.
-     * Only the parsing and what the journal row says differ, so only those are arguments.
-     */
-    /**
-     * One person's grants, or everyone's, each entry carrying what the host says about it now. Both
-     * listings answer the same shape -- a map of user to states -- so a caller reads them the same way
-     * whether it asked about one person or all of them.
-     */
-    const listing = <T, R>(get: (u: string) => T[], all: () => Record<string, T[]>, state: (v: T[]) => R): Record<string, R> =>
-      Object.fromEntries(Object.entries(a.user ? { [user()]: get(user()) } : all()).map(([u, list]) => [u, state(list)]));
-    /** A key the kernel holds for this person, granted with its known hosts in place of any grant of the same path. */
-    const ownKey = async (made: MadeKey, hosts?: string[]): Promise<MadeKey> => {
-      const ssh = [...k.ssh.get(user()).filter((g) => g.key !== made.key), { key: made.key, ...(hosts?.length ? { hosts } : {}) }];
-      await grant("ssh", ssh, (id, v) => k.ssh.set(id, v), (v) => v.map((g) => g.key));
-      return made;
-    };
-    const grant = async <T>(kind: string, value: T, put: (id: string, v: T) => void, row: (v: T) => unknown): Promise<T> => {
-      const target = k.users.get(user());
-      assert(target, `unknown user: ${user()}`, "not-found");
-      assert(target.role !== "system", `the system userspace takes no ${kind}`, "invalid");
-      put(target.id, value);
-      journal(kind, target.id, { [kind]: row(value) });
-      await k.services.reload(target.id);
-      return value;
-    };
     switch (method) {
       case "ping":
         return "pong";
@@ -104,34 +74,8 @@ export function createControlHandler(k: KernelServices): KernelRpc {
       }
       case "packages.installEveryone":
         return installEveryone(k, actor(), String(a.source), journal);
-      case "mounts.list":
-        // Every mount comes back with what the host holds at its path, because a mount whose directory
-        // is gone is skipped when the fence opens: the list alone cannot say a mount works.
-        return listing((u) => k.mounts.get(u), () => k.mounts.all(), withPresence);
-      case "mounts.browse":
-        // The host filesystem is the operator's to see: a person's fence shows only what is bound into it.
-        return browseDirectories(String(a.path ?? "/"), { all: a.all === "true" });
-      case "mounts.set":
-        // The answer carries presence: a caller learns at once that a path it named is not there to bind.
-        return withPresence(await grant("mounts", parseMountList(a.mounts), (id, v) => k.mounts.set(id, v), (v) => v));
-      case "ssh.list":
-        // Presence, like mounts: a caller learns at once that a granted key is not on this host, rather
-        // than from a fence that quietly opened without an agent; the public half rides along for the ones there.
-        return listing((u) => k.ssh.get(u), () => k.ssh.all(), describeKeys);
-      case "ssh.keygen":
-        // No host credential to lend: the kernel makes this person a key of their own, grants it, and
-        // hands back the public half to register wherever it is going. The private half sits with the
-        // other things the kernel holds for that fence, so it is agent-held like any other grant.
-        return ownKey(generateKey(resolve(k.config.home, "fence-keys", user()), `thetis-${user()}`), parseSshGrants(a.ssh ?? [])[0]?.hosts);
-      case "ssh.import":
-        // A key the person already has, registered somewhere: it lands beside the generated ones, read once
-        // by ssh-keygen to prove it is one, and the journal names its path, never the material.
-        return ownKey(importKey(resolve(k.config.home, "fence-keys", user()), String(a.name ?? ""), String(a.privateKey ?? "")), parseSshGrants([{ key: "/hosts", hosts: (raw as { hosts?: unknown }).hosts ?? [] }])[0]?.hosts);
-      case "ssh.set":
-        // The key paths are the grant; the key material is never read here and never journalled.
-        return describeKeys(await grant("ssh", parseSshGrants(a.ssh), (id, v) => k.ssh.set(id, v), (v) => v.map((g) => g.key)));
       case "fence.reload": {
-        // `_system` is a legal target, unlike mounts.set: the providers and the sign-in page live in it,
+        // `_system` is a legal target, unlike a grant: the providers and the sign-in page live in it,
         // and are otherwise out of reach without a new daemon. `authorize` refuses the unknown and the suspended.
         const target = k.users.authorize(user());
         journal("fence.reload", target.id);
@@ -202,12 +146,28 @@ export function createControlHandler(k: KernelServices): KernelRpc {
         return k.sessions.inspect(user(), String(a.session));
       case "sessions.cancel":
         return k.sessions.cancel(user(), String(a.session));
+      case "sessions.delete":
+        await k.sessions.delete(user(), String(a.session));
+        journal("session.delete", user(), { session: String(a.session) });
+        return null;
       case "sessions.send": {
         for await (const event of k.sessions.send(user(), String(a.session), String(a.input), { model: a.model || undefined })) emit?.(event);
         return null;
       }
-      default:
+      default: {
+        // `host.<name>.<export>`: a host package's method, run by the host process. The kernel checks who
+        // is calling and writes the row; what the method does and with what is the package's, so the
+        // arguments are never journalled here (a key's material travels this way). Only an admin, for the
+        // same reason as `restart.request`: `rpc.ts` admits the system userspace, which has no business
+        // granting anything.
+        const [name, exp, ...rest] = method.startsWith("host.") ? method.slice("host.".length).split(".") : [];
+        if (name && exp && !rest.length) {
+          if (a.actor) assert(actor().role === "admin", "only an admin may call a host package", "unauthorized");
+          journal("host.call", user(), { name, method: exp });
+          return k.hosts.call(name, exp, { ...(raw as Record<string, unknown> | undefined), ...(a.actor ? { actor: a.actor } : {}) });
+        }
         throw new CodedError(`unknown control method: ${method}`, "rpc");
+      }
     }
   };
 }

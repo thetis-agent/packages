@@ -3,8 +3,8 @@
 // package's documents by its name. This seam exists so the scoping can be tested without booting the agent.
 import type { StepEnv, Store } from "@thetis/contracts";
 
-/** A call to the kernel, as the agent's `rpc` makes it. */
-export type Rpc = <T = unknown>(method: string, args?: unknown) => Promise<T>;
+/** A call to the kernel, as the agent's `rpc` makes it: events stream to `onEvent`, and an aborted `signal` cancels it. */
+export type Rpc = <T = unknown>(method: string, args?: unknown, onEvent?: (e: unknown) => void, signal?: AbortSignal) => Promise<T>;
 
 /** The five store methods as `store.*` calls, each naming the package so the kernel can prefix the namespace. */
 export function storageClient(rpc: Rpc, pkg: string, namespace?: string): Store {

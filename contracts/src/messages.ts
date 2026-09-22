@@ -16,16 +16,6 @@ export interface Message {
   name?: string;
 }
 
-/**
- * The line the default harness appends to a message from the person, so the model knows when it was sent:
- * `[Turn context: Monday 2026-09-21 20:40 Europe/Berlin]`, after a blank line, at the very end. Anything that shows
- * the person their own words, or matches on them, takes it off with `withoutTurnContext`.
- */
-export const TURN_CONTEXT = /\n\n\[Turn context: [^\n\]]*\]$/;
-
-/** The message text without the turn context line, if it ends with one. */
-export const withoutTurnContext = (text: string): string => text.replace(TURN_CONTEXT, "");
-
 export type JsonSchema = Record<string, unknown>;
 
 export interface ToolSpec {
@@ -36,7 +26,7 @@ export interface ToolSpec {
   export: string;
 }
 
-/** The parameterized provider request. Built by steps, executed by the built-in call step. */
+/** The parameterized provider request. Built by steps, sent by the harness's call step through `kernel.providers.call`. */
 export interface ProviderCall {
   model: string;
   system?: string;
@@ -44,9 +34,9 @@ export interface ProviderCall {
   tools: ToolSpec[];
   params: Record<string, unknown>;
   /**
-   * Provider hints, keyed by concern (for example `cache`). Never sent to the API; a provider reads the keys it
-   * understands. One key the kernel reads: `withheld`, the names of tools a scoping step took out of `tools`,
-   * which the built-in call still honours when the model calls one by name.
+   * Hints, keyed by concern (for example `cache`, `withheld`). Never sent to the API and never read by the
+   * kernel, which carries the call as data: a provider reads the keys it understands, and the harness's call
+   * step reads `withheld`, the names of tools a scoping step took out of `tools` and still honours by name.
    */
   hints?: Record<string, unknown>;
 }

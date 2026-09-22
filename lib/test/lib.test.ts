@@ -3,16 +3,16 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Mount, SessionRecord, TurnEvent, WatchedTurnEvent } from "@thetis/contracts";
+import type { Mount, SessionRecord, SshGrant, TurnEvent, WatchedTurnEvent } from "@thetis/contracts";
 import { AsyncQueue } from "../src/async.js";
 import { Container, token } from "../src/container.js";
 import { JsonDirStore } from "../src/json-store.js";
-import { MountStore, browseDirectories, parseMountList, withPresence } from "../src/mounts.js";
+import { MountStore } from "../src/mounts.js";
 import { findDependency, forkPackage, forkVersion, isGitSource, isInside, splitSource } from "../src/pkg-fs.js";
 import { PendingCalls, callHandler } from "../src/rpc-frames.js";
 import { StoreMirror, memoryStore } from "../src/store.js";
 import { SessionStore, summarize } from "../src/session-store.js";
-import { describeKeys, generateKey, importKey } from "../src/ssh.js";
+import { SshStore, knownHostsOf } from "../src/ssh.js";
 import { TurnTaps } from "../src/turn-taps.js";
 
 test("container resolves lazily, caches singletons, and allows rebinding", () => {
@@ -132,12 +132,10 @@ test("fork: the copy drops scripts and devDependencies, links what the origin re
   }
 });
 
-test("mounts: the store keeps one document per person, presence is what the fence will bind, and browse answers what a path is", async () => {
+test("mounts: the store keeps one document per person, answers copies, and an empty list removes the document", async () => {
   const dir = mkdtempSync(join(tmpdir(), "mounts-"));
   try {
     mkdirSync(join(dir, "repos"));
-    mkdirSync(join(dir, ".git"));
-    writeFileSync(join(dir, "note.txt"), "x");
     const space = memoryStore().open("mounts");
     const mirror = await StoreMirror.open<{ mounts: Mount[] }>(space);
     const mounts = new MountStore(mirror);
@@ -154,26 +152,6 @@ test("mounts: the store keeps one document per person, presence is what the fenc
     assert.equal(await space.get("bob"), undefined);
     const reopened = new MountStore(await StoreMirror.open(space));
     assert.deepEqual(reopened.get("alice"), [{ path: join(dir, "repos"), mode: "rw" }], "what was written is what a restart reads");
-    assert.deepEqual(parseMountList([{ path: dir, mode: "ro" }]), [{ path: dir, mode: "ro" }]);
-    assert.throws(() => parseMountList([{ path: "/a/../b", mode: "ro" }]), /absolute and normalized/);
-    assert.throws(() => parseMountList([{ path: "/", mode: "ro" }]), /not \//);
-    assert.throws(() => parseMountList([{ path: dir, mode: "rwx" }]), /rw or ro/);
-    assert.throws(() => parseMountList(Array.from({ length: 33 }, () => ({ path: dir, mode: "ro" }))), /at most 32/);
-    assert.throws(() => parseMountList("nope"), /at most 32/);
-    assert.deepEqual(withPresence([{ path: join(dir, "repos"), mode: "rw" }, { path: join(dir, "note.txt"), mode: "ro" }, { path: join(dir, "gone"), mode: "rw" }]), [
-      { path: join(dir, "repos"), mode: "rw", present: true, kind: "dir" },
-      { path: join(dir, "note.txt"), mode: "ro", present: false, kind: "file" },
-      { path: join(dir, "gone"), mode: "rw", present: false, kind: "none" },
-    ]);
-    // Directories only: a file is not a place to bind, and a hidden name is out of the way unless asked for.
-    assert.deepEqual(browseDirectories(dir).entries, [{ name: "repos", path: join(dir, "repos") }]);
-    assert.deepEqual(browseDirectories(dir, { all: true }).entries.map((e) => e.name), [".git", "repos"]);
-    assert.equal(browseDirectories(dir, { limit: 0 }).truncated, true);
-    assert.deepEqual(browseDirectories(join(dir, "note.txt")), { path: join(dir, "note.txt"), parent: dir, kind: "file", readable: false, truncated: false, entries: [] });
-    assert.equal(browseDirectories(join(dir, "gone")).kind, "none");
-    assert.equal(browseDirectories("/").parent, null);
-    assert.throws(() => browseDirectories("relative"), /absolute and normalized/);
-    assert.throws(() => browseDirectories("/a/../b"), /absolute and normalized/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -271,31 +249,22 @@ test("session store: the index beside the records answers a list without opening
   rmSync(dir, { recursive: true, force: true });
 });
 
-test("ssh: a key the kernel made carries its public half and fingerprint; a missing one is present false with nulls; an imported key is read back, refused when not a key, and never overwritten", () => {
-  const dir = mkdtempSync(join(tmpdir(), "thetis-ssh-"));
-  const made = generateKey(join(dir, "alice"), "thetis-alice");
-  assert.equal(made.key, join(dir, "alice", "id_ed25519"));
-  assert.match(made.publicKey, /^ssh-ed25519 /);
-  assert.match(made.fingerprint ?? "", /^SHA256:/);
-  const [there, gone] = describeKeys([{ key: made.key, hosts: ["github.com ssh-ed25519 AAAA"] }, { key: join(dir, "nowhere") }]);
-  assert.deepEqual(there, { key: made.key, hosts: ["github.com ssh-ed25519 AAAA"], present: true, publicKey: made.publicKey, fingerprint: made.fingerprint });
-  assert.deepEqual(gone, { key: join(dir, "nowhere"), present: false, publicKey: null, fingerprint: null });
-  // Without the .pub beside it the public half is derived from the key itself.
-  rmSync(`${made.key}.pub`);
-  assert.equal(describeKeys([{ key: made.key }])[0].publicKey, made.publicKey);
-
-  const material = readFileSync(made.key, "utf8");
-  const imported = importKey(join(dir, "bob"), "github", material);
-  assert.equal(imported.key, join(dir, "bob", "github"));
-  assert.equal(imported.publicKey, made.publicKey, "the same key: the same public half");
-  assert.equal(imported.fingerprint, made.fingerprint);
-  assert.equal(readFileSync(`${imported.key}.pub`, "utf8").trim(), made.publicKey);
-  assert.throws(() => importKey(join(dir, "bob"), "github", material), /already exists/);
-  assert.throws(() => importKey(join(dir, "bob"), "notes", "hello, not a key"), /not a private key/);
-  assert.equal(existsSync(join(dir, "bob", "notes")), false, "a refused import leaves nothing behind");
-  assert.throws(() => importKey(join(dir, "bob"), "garbage", "-----BEGIN OPENSSH PRIVATE KEY-----\nnope\n-----END OPENSSH PRIVATE KEY-----"), /not a private key ssh-keygen can read/);
-  assert.equal(existsSync(join(dir, "bob", "garbage")), false);
-  assert.throws(() => importKey(join(dir, "bob"), "bad.pub", material), /not ending in \.pub/);
-  assert.throws(() => importKey(join(dir, "bob"), "../escape", material), /one plain name/);
-  rmSync(dir, { recursive: true, force: true });
+test("ssh: the store keeps one document per person with the key paths and their known hosts, answers copies, and knownHostsOf is every line once", async () => {
+  const space = memoryStore().open("ssh");
+  const mirror = await StoreMirror.open<{ ssh: SshGrant[] }>(space);
+  const ssh = new SshStore(mirror);
+  assert.deepEqual(ssh.get("alice"), []);
+  ssh.set("alice", [{ key: "/k/a", hosts: ["gh a", "gh b"] }, { key: "/k/b", hosts: [] }]);
+  ssh.set("bob", [{ key: "/k/c" }]);
+  assert.deepEqual(ssh.all(), { alice: [{ key: "/k/a", hosts: ["gh a", "gh b"] }, { key: "/k/b" }], bob: [{ key: "/k/c" }] }, "empty hosts are not written");
+  ssh.get("alice")[0].hosts?.push("x");
+  assert.deepEqual(ssh.get("alice")[0].hosts, ["gh a", "gh b"], "get answers a copy");
+  ssh.set("bob", []);
+  assert.deepEqual(Object.keys(ssh.all()), ["alice"], "an empty list removes the document");
+  await mirror.flush();
+  assert.deepEqual(await space.get("alice"), { ssh: [{ key: "/k/a", hosts: ["gh a", "gh b"] }, { key: "/k/b" }] });
+  assert.equal(await space.get("bob"), undefined);
+  assert.deepEqual(new SshStore(await StoreMirror.open(space)).get("alice"), ssh.get("alice"), "what was written is what a restart reads");
+  assert.equal(knownHostsOf([{ key: "/k", hosts: ["a", "a"] }, { key: "/other", hosts: ["a", "b"] }]), "a\nb\n");
+  assert.equal(knownHostsOf([{ key: "/k" }]), "");
 });

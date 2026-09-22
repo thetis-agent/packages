@@ -15,6 +15,10 @@ const ALLOWED: Record<string, string[]> = {
   sandbox: ["contracts", "lib"],
   kernel: ["contracts", "lib"],
   host: ["contracts", "lib", "sandbox", "kernel"],
+  door: [],
+  "userspace-agent": ["contracts", "lib"],
+  // The command line is a host process: it wires the daemon and, for its own commands, reads a package or two.
+  "gateway-cli": ["contracts", "lib", "kernel", "host", "door", "marketplace", "bench"],
   "store-toml": ["contracts", "lib"],
 };
 

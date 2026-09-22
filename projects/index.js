@@ -3,7 +3,7 @@
 // fence environment plus `user`, `role` and the `session` the page named, already checked to be the
 // person's own. Commands answer `{ data }`; a refusal is a thrown Error, which the gateway answers as
 // `400 { error }` with the sentence. The mounts a command reports are this fence's own, from
-// THETIS_MOUNTS: a person cannot call the operator's `mounts.list`, and does not need to.
+// THETIS_MOUNTS: a person cannot call the operator's `host.grants.mountsList`, and does not need to.
 //
 // Three commands are an admin's, because binding a host directory is the operator's authority and the
 // kernel refuses `operator.*` to anyone else: `browse` lists host directories so a path can be picked
@@ -70,7 +70,7 @@ async function skillList(env, disabled) {
 async function boundMounts(env) {
   if (env.role !== "admin") return null;
   try {
-    const all = await env.kernel.operator.call("mounts.list", { user: env.user });
+    const all = await env.kernel.operator.call("host.grants.mountsList", { user: env.user });
     const list = all?.[env.user];
     return Array.isArray(list) ? list : [];
   } catch {
@@ -160,7 +160,7 @@ function pathArg(value) {
  */
 export async function uiBrowse(args, env) {
   const path = args.path === undefined || args.path === "" ? "/" : args.path === "/" ? "/" : pathArg(args.path);
-  return { data: await env.kernel.operator.call("mounts.browse", { path }) };
+  return { data: await env.kernel.operator.call("host.grants.mountsBrowse", { path }) };
 }
 
 /**
@@ -174,14 +174,14 @@ export async function uiMount(args, env) {
   const path = pathArg(args.path);
   const mode = args.mode ?? null;
   if (mode !== null && mode !== "rw" && mode !== "ro") fail("a mount is read-write (rw) or read-only (ro).");
-  const before = (await env.kernel.operator.call("mounts.list", { user: env.user }))?.[env.user] ?? [];
+  const before = (await env.kernel.operator.call("host.grants.mountsList", { user: env.user }))?.[env.user] ?? [];
   const plain = before.map((m) => ({ path: m.path, mode: m.mode }));
   if (mode === null && !plain.some((m) => m.path === path)) {
     const covering = plain.find((m) => path.startsWith(`${m.path}/`));
     fail(covering ? `${path} is reached through the mount ${covering.path}. Unbind that one in the control panel.` : `${path} is not bound.`);
   }
   const mounts = [...plain.filter((m) => m.path !== path), ...(mode ? [{ path, mode }] : [])];
-  const after = await env.kernel.operator.call("mounts.set", { user: env.user, mounts });
+  const after = await env.kernel.operator.call("host.grants.mountsSet", { user: env.user, mounts });
   const list = Array.isArray(after) ? after : [];
   return { data: { mounts: list, mount: list.find((m) => m.path === path) ?? null } };
 }

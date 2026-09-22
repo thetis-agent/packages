@@ -9,7 +9,7 @@ import type { CacheHint } from "../src/policy.js";
 const call = (messages: string[], system = "sys"): ProviderCall => ({ model: "anthropic/claude-sonnet-5", system, messages: messages.map((content) => ({ role: "user" as const, content })), tools: [], params: {} });
 
 const ctx = (c: ProviderCall, harness: Record<string, unknown> = {}, config: Record<string, unknown> = {}): PackageStepContext =>
-  ({ session: { id: "s1", user: "alice" }, turn: { id: "t1", input: [] }, conversation: c.messages, call: c, harness, packages: { has: () => false, get: () => undefined, list: () => [] }, env: {} as never, config }) as PackageStepContext;
+  ({ session: { id: "s1", user: "alice" }, turn: { id: "t1", input: [] }, conversation: c.messages, call: c, harness, packages: { has: () => false, get: () => undefined, list: () => [] }, env: {} as never, config, emit: () => {}, signal: new AbortController().signal }) as PackageStepContext;
 
 test("fingerprint diagnosis: prefix kept, rewritten, truncated, head changed", () => {
   const a = fingerprint(call(["1", "2"]));

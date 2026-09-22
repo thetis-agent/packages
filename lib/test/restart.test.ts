@@ -178,3 +178,24 @@ test("restart latch: supervision is what systemd puts in the environment, and st
   assert.equal(state.armable, false, "and it is too young to restart");
   assert.equal(build({ env: {} }).latch.status().supervised, false);
 });
+
+test("restart latch: the configuration is read through the object it was given, so a reload written into it in place is seen", () => {
+  let t = 0;
+  const control: Partial<RestartConfig> = { allowRestart: true, minUptimeSecs: 60, quietWaitMs: 120_000 };
+  const latch = new RestartLatch({ config: control, inFlight: () => [], env: SUPERVISED, now: () => t });
+  latch.onFire(() => {});
+  assert.equal(latch.status().why, "young");
+  control.minUptimeSecs = 0;
+  assert.equal(latch.status().armable, true, "minUptimeSecs changed after construction");
+  control.allowRestart = false;
+  assert.equal(latch.arm("x", "u").why, "off", "allowRestart changed after construction");
+  control.allowRestart = true;
+  control.quietWaitMs = 5_000;
+  const armed = latch.arm("x", "u");
+  assert.equal(armed.state, "armed");
+  assert.equal(armed.pending?.deadlineAt, 5_000, "quietWaitMs changed after construction");
+  latch.cancel();
+  delete control.quietWaitMs;
+  assert.equal(latch.arm("x", "u").pending?.deadlineAt, 120_000, "a key the object lacks falls back to the default");
+  latch.close();
+});

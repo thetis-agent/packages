@@ -83,6 +83,21 @@ test("merging documents: later wins, so a person's override on the origin beats 
   assert.deepEqual(mergeDocs(docs.slice(0, 3)).values.a, "file-F", "a fork's file entry beats the origin's");
 });
 
+test("merging documents: an object under a key is laid over the earlier layer's, one level deep; arrays and scalars replace", () => {
+  const docs: ConfigDoc[] = [
+    { layer: "default", from: "P", doc: { embeddings: { apiKey: "${KEY}", model: "m", nested: { a: 1 } }, list: [1, 2], n: 1 } },
+    { layer: "file", from: "P", doc: { embeddings: { baseUrl: "http://x", nested: { b: 2 } }, list: [3], n: 2 } },
+  ];
+  const { values, sources } = mergeDocs(docs);
+  assert.deepEqual(values.embeddings, { apiKey: "${KEY}", model: "m", baseUrl: "http://x", nested: { b: 2 } }, "a declared secret survives a file entry beside it; the level below replaces");
+  assert.deepEqual(values.list, [3]);
+  assert.equal(values.n, 2);
+  assert.deepEqual(sources.embeddings, { layer: "file", from: "P" }, "the source is the last layer that touched the key");
+  assert.deepEqual(mergeDocs([docs[0], { layer: "user", from: "P", doc: { embeddings: "off" } }]).values.embeddings, "off", "a scalar over an object replaces it");
+  assert.deepEqual(mergeDocs([{ layer: "user", from: "P", doc: { embeddings: "off" } }, docs[1]]).values.embeddings, { baseUrl: "http://x", nested: { b: 2 } }, "an object over a scalar replaces it");
+  assert.deepEqual(docs[0].doc.embeddings, { apiKey: "${KEY}", model: "m", nested: { a: 1 } }, "the documents themselves are untouched");
+});
+
 test("references: found anywhere, resolved from the environment, and dropped rather than emptied when unresolved", () => {
   const value = { embeddings: { apiKey: "${OPENROUTER_API_KEY}", model: "m", dims: 3 }, baseUrl: "${BASE}/v1", list: ["${BASE}", "${GONE}"], plain: true };
   assert.deepEqual(findRefs(value), ["OPENROUTER_API_KEY", "BASE", "GONE"]);

@@ -37,12 +37,15 @@ export interface KernelConfig {
   /** Path of the userspace agent entry the fence boots. */
   agentPath: string;
   model: string;
+  /** The phases the enumerator walks, in order. `call` shapes the request; `execute` is where a harness's step sends it. */
   phases: string[];
-  callPhase: string;
   enumerator?: StepRef;
   /** System packages installed into userspaces: "*" applies to every userspace, a user id to that one. */
   systemPackages: Record<string, string[]>;
-  /** The file layer of per-package configuration. `${VAR}` references stay as written; the config service resolves them at read time. */
+  /**
+   * The file layer of per-package configuration. `${VAR}` references stay as written; the config service
+   * resolves them at read time. Empty by default: a package's own defaults are in its manifest, never here.
+   */
   packages: Record<string, Record<string, unknown>>;
   /** The storage driver: a package of type `storage`, loaded by the host, never installed into a fence. */
   storage: { driver: string };
@@ -56,19 +59,9 @@ export interface KernelConfig {
   requestTimeoutMs: number;
 }
 
-/** The approved extensions, indexed at their latest. An install takes a copy and pins the commit it took. */
-export const MARKETPLACE_URL = "https://github.com/thetis-agent/packages.git";
-
-const DEFAULT_PACKAGES: Record<string, Record<string, unknown>> = {
-  "@thetis/provider-openrouter": { apiKey: "${OPENROUTER_API_KEY}", baseUrl: "https://openrouter.ai/api/v1" },
-  "@thetis/marketplace": { registries: [{ name: "thetis", url: MARKETPLACE_URL }] },
-  "@thetis/skills-hybrid": { embeddings: { apiKey: "${OPENROUTER_API_KEY}" } },
-  "@thetis/tool-groups": { embeddings: { apiKey: "${OPENROUTER_API_KEY}" } },
-};
-
-/** The file layer as it is on disk now: the defaults under what `thetis.config.json` says. `config.reload` reads it again. */
+/** The file layer as it is on disk now: exactly what `thetis.config.json` says. `config.reload` reads it again. */
 export function packagesLayer(home: string): Record<string, Record<string, unknown>> {
-  return { ...DEFAULT_PACKAGES, ...(readJson<Partial<KernelConfig>>(configPath(home), {}).packages ?? {}) };
+  return readJson<Partial<KernelConfig>>(configPath(home), {}).packages ?? {};
 }
 
 export function defaultConfig(home: string, projectRoot: string): KernelConfig {
@@ -80,13 +73,12 @@ export function defaultConfig(home: string, projectRoot: string): KernelConfig {
     sharedDir: resolve(home, "shared"),
     agentPath: resolve(projectRoot, "packages/userspace-agent/dist/src/agent.js"),
     model: "anthropic/claude-sonnet-5",
-    phases: ["history", "prompt", "tools", "call", "after"],
-    callPhase: "call",
+    phases: ["history", "prompt", "tools", "call", "execute", "after"],
     systemPackages: {
       "*": ["@thetis/harness-core", "@thetis/tool-exec", "@thetis/prompt-cache", "@thetis/tools-files", "@thetis/tools-plan", "@thetis/terminal", "@thetis/gateway-web", "@thetis/ui-tools", "@thetis/ui-context", "@thetis/projects", "@thetis/ui-admin", "@thetis/ui-marketplace", "@thetis/skills", "@thetis/skills-thetis", "@thetis/skills-hybrid", "@thetis/tool-groups", "@thetis/ui-skills"],
       _system: ["@thetis/provider-openrouter", "@thetis/gateway-login", "@thetis/marketplace"],
     },
-    packages: structuredClone(DEFAULT_PACKAGES),
+    packages: {},
     storage: { driver: "@thetis/store-toml" },
     envFile: resolve(projectRoot, ".env"),
     fence: {
@@ -119,11 +111,10 @@ export function defaultConfig(home: string, projectRoot: string): KernelConfig {
 export const CONFIG_TIERS: Record<string, ConfigTier> = {
   model: "dispatch",
   phases: "dispatch",
-  callPhase: "dispatch",
   enumerator: "dispatch",
   systemPackages: "dispatch",
   packages: "dispatch",
-  // The latch holds `config.control` by reference, so writing into that object in place reaches it.
+  // The latch reads `config.control` through the held object on every use, so writing into it in place reaches it.
   control: "dispatch",
   fence: "fence",
   // Read once into a listening socket, and once into a storage driver the whole kernel is built on.
@@ -141,7 +132,8 @@ export function configPath(home: string): string {
 /**
  * Loads config from disk over the defaults, interpolating ${ENV_VAR} references from the environment.
  * `packages` is the exception: it keeps its references, because the config service resolves them on
- * every read, so a variable that arrives later is seen without a restart.
+ * every read, so a variable that arrives later is seen without a restart; and it has no defaults to sit
+ * over, because a package's defaults are its manifest's.
  */
 export function loadConfig(home: string, projectRoot: string, env: NodeJS.ProcessEnv = process.env): KernelConfig {
   const defaults = defaultConfig(home, projectRoot);
@@ -162,7 +154,7 @@ export function loadConfig(home: string, projectRoot: string, env: NodeJS.Proces
     door: { ...defaults.door, ...(stored.door ?? {}) },
     control: { ...defaults.control, ...(stored.control ?? {}) },
   };
-  return { ...interpolate(merged, env), packages: { ...defaults.packages, ...(packages ?? {}) } };
+  return { ...interpolate(merged, env), packages: packages ?? {} };
 }
 
 /** Writes the config without derived paths, so the file stays valid when the checkout moves. */

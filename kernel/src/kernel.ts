@@ -18,6 +18,15 @@ import type { UserStore } from "./users.js";
  * One running kernel, as the operator table and the gateways see it. The composition root that builds
  * it lives outside this package, so the kernel never depends on the code that wires it.
  */
+/**
+ * The host packages, as the operator table reaches them: `host.<name>.<export>` dispatches here after the
+ * kernel has checked the caller and journalled the call. The host process binds it, like `store`; the
+ * kernel knows no package by name.
+ */
+export interface HostExtensions {
+  call(name: string, method: string, args: Record<string, unknown>): Promise<unknown>;
+}
+
 export interface KernelServices {
   config: KernelConfig;
   users: UserStore;
@@ -35,6 +44,8 @@ export interface KernelServices {
   settings: ConfigService;
   /** The service plane's document store. The kernel holds the driver's interface only; the host loaded it. */
   store: StoreDriver;
+  /** The host packages. The kernel holds the interface only; the host loads each one by name. */
+  hosts: HostExtensions;
   fences: Fences;
   journal: Journal;
   /** The latch behind a restart Thetis can ask for. Arming is not restarting: only the serving daemon acts on it. */

@@ -51,6 +51,9 @@
       },
       "embeddings": {
         "type": "object",
+        "default": {
+          "apiKey": "${OPENROUTER_API_KEY}"
+        },
         "help": "The vector source for the dense fallback, an OpenAI-compatible embeddings endpoint: baseUrl (https://openrouter.ai/api/v1), apiKey (without one the routing is lexical), model (openai/text-embedding-3-small) and dimensions (1536)."
       }
     },

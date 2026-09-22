@@ -27,7 +27,7 @@ function fakeEnv(answers = {}, { user = "root", exec } = {}) {
 const refuses = (fn, args, env, pattern) => assert.rejects(fn(args, env), pattern);
 
 test("ssh-list passes through, for everyone or one person", async () => {
-  const { env, calls } = fakeEnv({ "ssh.list": (a) => (a.user ? { [a.user]: [] } : { bob: [{ key: "/k/id_ed25519", present: true }] }) });
+  const { env, calls } = fakeEnv({ "host.grants.sshList": (a) => (a.user ? { [a.user]: [] } : { bob: [{ key: "/k/id_ed25519", present: true }] }) });
   assert.deepEqual(await commands.sshList({}, env), { data: { bob: [{ key: "/k/id_ed25519", present: true }] } });
   assert.deepEqual(await commands.sshList({ user: "bob" }, env), { data: { bob: [] } });
   assert.deepEqual(calls.map((c) => c.args), [{}, { user: "bob" }]);
@@ -35,7 +35,7 @@ test("ssh-list passes through, for everyone or one person", async () => {
 });
 
 test("ssh-set sends the whole list and refuses what the kernel would", async () => {
-  const { env, calls } = fakeEnv({ "ssh.set": (a) => a.ssh.map((g) => ({ ...g, present: true })) });
+  const { env, calls } = fakeEnv({ "host.grants.sshSet": (a) => a.ssh.map((g) => ({ ...g, present: true })) });
   const out = await commands.sshSet({ user: "bob", ssh: [{ key: "/home/k/id_ed25519", hosts: ["github.com ssh-ed25519 AAAA", " ", "github.com ssh-ed25519 AAAA"] }, { key: "/home/k/deploy" }] }, env);
   assert.deepEqual(calls[0].args, { user: "bob", ssh: [{ key: "/home/k/id_ed25519", hosts: ["github.com ssh-ed25519 AAAA"] }, { key: "/home/k/deploy" }] }, "hosts trimmed, deduplicated, and left out when empty");
   assert.equal(out.data.length, 2);
@@ -49,7 +49,7 @@ test("ssh-set sends the whole list and refuses what the kernel would", async () 
 });
 
 test("ssh-keygen asks for a generated key with the hosts given", async () => {
-  const { env, calls } = fakeEnv({ "ssh.keygen": () => ({ key: "/home/fence-keys/bob/id_ed25519", publicKey: "ssh-ed25519 AAAA thetis-bob", fingerprint: "SHA256:x" }) });
+  const { env, calls } = fakeEnv({ "host.grants.sshKeygen": () => ({ key: "/home/fence-keys/bob/id_ed25519", publicKey: "ssh-ed25519 AAAA thetis-bob", fingerprint: "SHA256:x" }) });
   const out = await commands.sshKeygen({ user: "bob", hosts: ["github.com ssh-ed25519 AAAA", ""] }, env);
   assert.deepEqual(calls[0].args, { user: "bob", ssh: [{ key: "/generated", hosts: ["github.com ssh-ed25519 AAAA"] }] });
   assert.equal(out.data.publicKey, "ssh-ed25519 AAAA thetis-bob");
@@ -60,7 +60,7 @@ test("ssh-keygen asks for a generated key with the hosts given", async () => {
 
 test("ssh-import checks the name and the shape of the material, and never repeats the material", async () => {
   const material = "-----BEGIN OPENSSH PRIVATE KEY-----\nSECRETSECRETSECRET\n-----END OPENSSH PRIVATE KEY-----\n";
-  const { env, calls } = fakeEnv({ "ssh.import": (a) => ({ key: `/home/fence-keys/bob/${a.name}`, publicKey: "ssh-ed25519 BBBB", fingerprint: "SHA256:y" }) });
+  const { env, calls } = fakeEnv({ "host.grants.sshImport": (a) => ({ key: `/home/fence-keys/bob/${a.name}`, publicKey: "ssh-ed25519 BBBB", fingerprint: "SHA256:y" }) });
   const out = await commands.sshImport({ user: "bob", name: "github", privateKey: material, hosts: ["github.com ssh-ed25519 AAAA"] }, env);
   assert.deepEqual(calls[0].args, { user: "bob", name: "github", privateKey: material, hosts: ["github.com ssh-ed25519 AAAA"] });
   assert.equal(out.data.key, "/home/fence-keys/bob/github");

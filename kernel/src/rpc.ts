@@ -1,4 +1,4 @@
-import { SYSTEM_USER, type KernelRpc, type ModelChoices, type Userspace } from "@thetis/contracts";
+import { SYSTEM_USER, type KernelRpc, type ModelChoices, type ProviderCall, type Userspace } from "@thetis/contracts";
 import { assert, CodedError } from "@thetis/lib/error";
 import { assertStoreDoc, storeId } from "@thetis/lib/store";
 import type { KernelServices } from "./kernel.js";
@@ -7,8 +7,8 @@ type Args = Record<string, string | undefined>;
 
 const OPERATOR = "operator.";
 
-/** What a fence's handler needs of the kernel: identity, packages, sessions, tokens, the store and the configuration. */
-export type RpcServices = Pick<KernelServices, "users" | "packages" | "sessions" | "auth" | "store" | "settings">;
+/** What a fence's handler needs of the kernel: identity, packages, sessions, providers, tokens, the store and the configuration. */
+export type RpcServices = Pick<KernelServices, "users" | "packages" | "sessions" | "providers" | "auth" | "store" | "settings">;
 
 /**
  * What code inside a fence may ask the kernel to do. Identity is the fence: every method acts as the
@@ -49,14 +49,33 @@ export function createRpcHandler(us: Userspace, k: RpcServices, operator?: Kerne
       case "sessions.ask":
         return k.sessions.ask(us.id, String(args.session), String(args.input));
       case "sessions.send": {
-        for await (const event of k.sessions.send(us.id, String(args.session), String(args.input), { model: args.model || undefined })) emit?.(event);
+        // A fence that drops the call cancels the turn it started, so nothing streams into the void.
+        const session = String(args.session);
+        const cancel = () => void k.sessions.cancel(us.id, session);
+        signal?.addEventListener("abort", cancel, { once: true });
+        try {
+          for await (const event of k.sessions.send(us.id, session, String(args.input), { model: args.model || undefined })) emit?.(event);
+        } finally {
+          signal?.removeEventListener("abort", cancel);
+        }
         return null;
       }
       case "models":
         assert(models, "no model list is configured", "rpc");
         return models(us);
+      case "providers.call": {
+        // Routed to the provider's own fence with its own configuration: the caller never sees the key.
+        const call = (raw as { call?: ProviderCall }).call;
+        assert(call && typeof call === "object" && typeof call.model === "string", "providers.call needs a call with a model", "rpc");
+        const provider = await k.providers.resolve(us, call.model);
+        await k.providers.call(provider, call, (e) => emit?.(e), signal);
+        return null;
+      }
       case "sessions.cancel":
         return k.sessions.cancel(us.id, String(args.session));
+      case "sessions.delete":
+        await k.sessions.delete(us.id, String(args.session));
+        return null;
       case "sessions.list":
         return k.sessions.list(us.id);
       case "sessions.inspect":

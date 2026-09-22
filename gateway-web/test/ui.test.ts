@@ -144,6 +144,7 @@ function envAt(root: string) {
       await mkdir(dirname(resolve(root, p)), { recursive: true });
       await writeFile(resolve(root, p), content);
     },
+    invokeTool: async () => "",
     storage: (): never => {
       throw new Error("no storage in this test");
     },

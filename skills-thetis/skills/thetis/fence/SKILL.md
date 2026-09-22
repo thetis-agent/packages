@@ -59,7 +59,7 @@ The kernel does not pass its own environment. Secrets in the host environment do
 
 ## Mounts
 
-A mount is an admin's grant of one host directory into one person's fence at the same path. Only an admin sets mounts: `thetis mounts add <user> <path> [--ro]`, `thetis mounts remove <user> <path>`, or the operator method `mounts.set`. The path must be absolute and normalized. A user has at most 32 mounts. A change closes the fence. The fence reopens with the new binds on the next request, and the services restart.
+A mount is an admin's grant of one host directory into one person's fence at the same path. Only an admin sets mounts: `thetis mounts add <user> <path> [--ro]`, `thetis mounts remove <user> <path>`, or the operator method `host.grants.mountsSet`, answered by the host package `@thetis/host-grants`. The path must be absolute and normalized. A user has at most 32 mounts. A change closes the fence. The fence reopens with the new binds on the next request, and the services restart.
 
 A mount is a hole in the fence, opened on purpose. The kernel does not check what the directory holds. The file tools and `@thetis/projects` read `THETIS_MOUNTS` to know what you can reach.
 
@@ -84,7 +84,7 @@ Containers you start run on the host, not in your fence. Three consequences wort
 
 - **Your fence's limits do not apply to them.** A container gets its own cgroup from Docker, not your `memoryMb`. A build that would be killed inside the fence may well succeed in a container, and may eat far more of the machine than your fence is allowed to. Ask for what you need on the container (`--memory`, `--cpus`) rather than discovering the ceiling.
 - **Paths line up, and that is why bind mounts work.** A mount appears in your fence at its host path, so a relative bind in a compose file resolves to the same directory for the CLI in here and the daemon out there. A path that exists only inside your userspace root is also a real host path, so it binds too.
-- **You may not be able to reach what you just started.** In network mode `egress` you have no route to the host's loopback. A container listening there is unreachable from here, even though you started it and `docker ps` shows it healthy. That covers `network_mode: host` with a bind address of `127.0.0.1`, and any port published to `127.0.0.1`. This is the fence, not a broken stack. A container on a bridge network is reachable by its own address (`docker inspect` gives it). Reaching a loopback container needs `fence.network: "host"`, which is an admin's change to the installation and a daemon restart.
+- **You may not be able to reach what you just started.** In network mode `egress` you have no route to the host's loopback. A container listening there is unreachable from here, even though you started it and `docker ps` shows it healthy. That covers `network_mode: host` with a bind address of `127.0.0.1`, and any port published to `127.0.0.1`. This is the fence, not a broken stack. A container on a bridge network is reachable by its own address (`docker inspect` gives it). Reaching a loopback container needs `fence.network: "host"`, which is an admin's change to the installation: `thetis config reload` closes every fence so each reopens with it.
 
 Clean up after yourself. A container you leave running outlives your session, your fence, and the daemon restart you did not ask for.
 

@@ -59,7 +59,8 @@ async function drive(arena: Arena, user: string, session: string, text: string, 
   return { events, text: reply };
 }
 
-const isBuiltinCall = (step: { package: string }): boolean => step.package === "@thetis/kernel";
+/** The `execute` phase is where the harness sends the call and runs what the model asks for; everything else is assembly. */
+const isExecute = (step: { phase?: string }): boolean => step.phase === "execute";
 
 function timingsOf(events: readonly TurnEvent[]): StepTiming[] {
   return events
@@ -115,7 +116,7 @@ export async function runTask(arena: Arena, armId: string, task: Task, attempt: 
     claims,
     reconciled: reconcile(rounds, claims),
     ms,
-    assembleMs: steps.filter((s) => !isBuiltinCall(s)).reduce((n, s) => n + s.ms, 0),
+    assembleMs: steps.filter((s) => !isExecute(s)).reduce((n, s) => n + s.ms, 0),
     errors: events.filter((e) => e.type === "error").map((e) => e.message),
     text,
   };

@@ -8,7 +8,8 @@ import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { withoutTurnContext, type KernelClient, type Message, type ModelChoices, type SessionRecord, type SessionSummaryRef, type StepEnv, type UserRole } from "@thetis/contracts";
+import type { KernelClient, Message, ModelChoices, SessionRecord, SessionSummaryRef, StepEnv, UserRole } from "@thetis/contracts";
+import { withoutTurnContext } from "@thetis/harness-core";
 import { HttpError, json, readJson } from "./http.js";
 import { handlePanel } from "./panel.js";
 import { serveFile } from "./static.js";
@@ -213,6 +214,12 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     return choices.value;
   }
 
+  /**
+   * A kernel summary is the record's words, whitespace collapsed and clipped to 200 characters, so the turn
+   * context line the harness appends may arrive on one space, or cut short; both are taken off here.
+   */
+  const withoutTurnContextTail = (text: string): string => text.replace(/\s*\[Turn context:[^\]]*(?:\]|…)?$/, "");
+
   /** The list is built from the kernel's summaries alone: no record is read, however many conversations there are. */
   async function listSessions(user: string): Promise<SessionSummary[]> {
     const archived = store.archived(user);
@@ -234,9 +241,9 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       createdAt: s.createdAt,
       updatedAt: running ? running.startedAt : s.updatedAt,
       turns: s.turns,
-      title: named ?? clip(s.first || running?.input || "", 60),
+      title: named ?? clip(withoutTurnContextTail(s.first) || running?.input || "", 60),
       named: named !== undefined,
-      preview: clip(s.last || running?.input || "", 120),
+      preview: clip(withoutTurnContextTail(s.last) || running?.input || "", 120),
       archived: archived.has(s.id),
       status: running || s.running ? "running" : "idle",
       ...(model ? { model } : {}),

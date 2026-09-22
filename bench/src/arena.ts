@@ -130,7 +130,7 @@ export class Arena {
     config.systemPackagesDir = sys;
     config.model = "bench/adhoc/adhoc/adhoc/0";
     if (opts.upstream) config.fence.network = "egress";
-    config.phases = ["history", "prompt", "tools", BENCH_PHASE, "call", "after"];
+    config.phases = ["history", "prompt", "tools", BENCH_PHASE, "call", "execute", "after"];
     config.fence.sandbox = opts.sandbox ?? "auto";
     config.fence.readOnly.push(sys, ...staged.values());
     config.requestTimeoutMs = opts.requestTimeoutMs ?? 120_000;

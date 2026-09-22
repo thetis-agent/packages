@@ -1,4 +1,4 @@
-import type { Fences, Message, SessionRecord, StepContext, StepRef, StepResult, TurnOptions, Userspace } from "@thetis/contracts";
+import type { Fences, Message, SessionRecord, StepContext, StepRef, StepResult, TurnEvent, TurnOptions, Userspace } from "@thetis/contracts";
 import { CodedError, errorMessage } from "@thetis/lib/error";
 import { newId, now } from "@thetis/lib/ids";
 import type { Journal } from "@thetis/lib/journal";
@@ -6,34 +6,46 @@ import type { SessionStore } from "@thetis/lib/session-store";
 import type { KernelConfig } from "../config.js";
 import type { PackageManager } from "../packages/manager.js";
 import type { Settings } from "../settings.js";
-import { Enumerator, isBuiltin } from "./enumerator.js";
-import { checkCancelled, type Emit, type ProviderCallStep } from "./provider-call.js";
+import type { Enumerator } from "./enumerator.js";
+
+export type Emit = (event: TurnEvent) => void;
 
 const ROLES = new Set(["system", "user", "assistant", "tool"]);
 
-/** Runs one turn: enumerate, dispatch each step into the fence, apply mutations, persist. */
+export function checkCancelled(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new CodedError("turn cancelled", "cancelled");
+}
+
+/**
+ * Runs one turn: enumerate, dispatch each step into the fence, apply mutations, persist. Every step is a
+ * package's, run in the caller's fence; the kernel never makes a model call, so what a step streams through
+ * `ctx.emit` is relayed as it is, and `usage` and the first `error` are the only events the kernel reads.
+ */
 export class PipelineRunner {
   constructor(
     private readonly config: KernelConfig,
     private readonly settings: Settings,
     private readonly enumerator: Enumerator,
-    private readonly providerCall: ProviderCallStep,
     private readonly packages: PackageManager,
     private readonly fences: Fences,
     private readonly store: SessionStore,
     private readonly journal: Journal,
   ) {}
 
-  /** An aborted `signal` ends the turn with an `error` event of code `cancelled`; whatever was applied before is still saved. */
+  /**
+   * An aborted `signal` ends the turn with an `error` event of code `cancelled`; whatever was applied before is
+   * still saved. A step that was running when the signal fired returns its partial result rather than throwing,
+   * so the check after the loop is what turns a cancel during the last step into that one event.
+   */
   async runTurn(us: Userspace, session: SessionRecord, input: Message[], emitOut: Emit, signal?: AbortSignal, opts: TurnOptions = {}): Promise<SessionRecord> {
     const turn = { id: newId("t"), input };
     const started = Date.now();
-    // What the providers reported this turn, summed; it is package-reported, so it is journaled under that name.
+    // What the steps reported this turn, summed; it is package-reported, so it is journaled under that name.
     const reported: Record<string, number> = {};
     let failure: { message: string; code?: string } | undefined;
     const emit: Emit = (event) => {
       if (event.type === "usage") for (const [k, v] of Object.entries(event.usage)) reported[k] = (reported[k] ?? 0) + v;
-      if (event.type === "error") failure = { message: event.message, code: event.code };
+      if (event.type === "error" && !failure) failure = { message: event.message, code: event.code };
       emitOut(event);
     };
     const info = { id: session.id, user: session.user, parent: session.parent };
@@ -59,10 +71,11 @@ export class PipelineRunner {
         checkCancelled(signal);
         emit({ type: "step.start", step });
         const started = Date.now();
-        const result = isBuiltin(step) ? await this.providerCall.run(us, ctx, emit, signal) : await this.runStep(us, step, ctx, signal);
+        const result = await this.runStep(us, step, ctx, emit, signal);
         this.apply(ctx, result, step.id ?? step.export);
         emit({ type: "step.end", step, ms: Date.now() - started });
       }
+      checkCancelled(signal);
     } catch (err) {
       const code = err instanceof CodedError ? err.code : undefined;
       emit({ type: "error", message: errorMessage(err), code });
@@ -80,10 +93,10 @@ export class PipelineRunner {
     return session;
   }
 
-  /** A package step runs inside the fence with its own configuration; the rest of the context is the turn's. */
-  private async runStep(us: Userspace, step: StepRef, ctx: StepContext, signal?: AbortSignal): Promise<unknown> {
+  /** A package step runs inside the fence with its own configuration; the rest of the context is the turn's. Its events are the turn's. */
+  private async runStep(us: Userspace, step: StepRef, ctx: StepContext, emit: Emit, signal?: AbortSignal): Promise<unknown> {
     const config = await this.settings.effective(us, step.package);
-    return this.fences.request(us, "step", { package: step.package, export: step.export, ctx: { ...ctx, config } }, undefined, signal);
+    return this.fences.request(us, "step", { package: step.package, export: step.export, ctx: { ...ctx, config } }, (e) => emit(e as TurnEvent), signal);
   }
 
   /** Validates a step's mutations before they touch the variables. Invalid results are rejected whole. */

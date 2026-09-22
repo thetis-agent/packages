@@ -24,6 +24,7 @@
         "type": "string",
         "secret": true,
         "required": true,
+        "default": "${OPENROUTER_API_KEY}",
         "help": "The OpenRouter API key, sent as the bearer token of every request; put it in .env as OPENROUTER_API_KEY and reference it."
       },
       "baseUrl": {

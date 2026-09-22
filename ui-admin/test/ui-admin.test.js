@@ -97,15 +97,15 @@ test("your own account is refused for every change, before the kernel is asked",
 });
 
 test("mounts-list asks for one person or everyone; mounts-set checks the list the way the kernel does", async () => {
-  const { env, calls } = fakeEnv({ "mounts.list": (a) => (a.user ? { [a.user]: [] } : { bob: [{ path: "/srv/x", mode: "ro" }] }), "mounts.set": (a) => a.mounts });
+  const { env, calls } = fakeEnv({ "host.grants.mountsList": (a) => (a.user ? { [a.user]: [] } : { bob: [{ path: "/srv/x", mode: "ro" }] }), "host.grants.mountsSet": (a) => a.mounts });
   assert.deepEqual(await commands.mountsList({}, env), { data: { bob: [{ path: "/srv/x", mode: "ro" }] } });
   assert.deepEqual(await commands.mountsList({ user: "bob" }, env), { data: { bob: [] } });
   const mounts = [{ path: "/srv/repos/a", mode: "rw" }, { path: "/srv/repos/b", mode: "ro" }];
   assert.deepEqual(await commands.mountsSet({ user: "bob", mounts }, env), { data: mounts });
   assert.deepEqual(calls, [
-    { method: "mounts.list", args: {} },
-    { method: "mounts.list", args: { user: "bob" } },
-    { method: "mounts.set", args: { user: "bob", mounts } },
+    { method: "host.grants.mountsList", args: {} },
+    { method: "host.grants.mountsList", args: { user: "bob" } },
+    { method: "host.grants.mountsSet", args: { user: "bob", mounts } },
   ]);
   await refuses(commands.mountsList, { user: "Bob" }, env, /user must be lowercase/);
   await refuses(commands.mountsSet, { user: "bob", mounts: "x" }, env, /list of at most 32/);

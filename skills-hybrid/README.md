@@ -61,7 +61,7 @@ The script imports the corpus through the same `importCorpus` the bench uses, so
 | `pinLimit` | `6` | How many skills are pinned for the conversation. 0 pins nothing. |
 | `pinBodies` | `false` | Pin bodies instead of cards. Costs bytes, saves a round trip. |
 | `embeddings.baseUrl` | `https://openrouter.ai/api/v1` | An OpenAI-compatible endpoint. |
-| `embeddings.apiKey` | `${OPENROUTER_API_KEY}` | The key, interpolated by the kernel from the daemon's environment. The kernel's default `packages` block sets it. Empty means lexical. |
+| `embeddings.apiKey` | `${OPENROUTER_API_KEY}` | The key, resolved by the config service from the daemon's environment and `.env`. This package's manifest declares the default (`thetis.config.embeddings.default`); a file-layer `embeddings: { baseUrl }` keeps it, since object defaults merge one level deep. Empty means lexical. |
 | `embeddings.model` | `openai/text-embedding-3-small` | The embedding model. |
 | `embeddings.dimensions` | `1536` | The vector size. |
 

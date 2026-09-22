@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { PackageInfo, PackageStepContext } from "@thetis/contracts";
-import { attachTools, recordCall, systemPrompt, turnContext, turnContextLine, TURN_CONTEXT, type LastCall } from "../src/index.js";
+import type { Message, PackageInfo, PackageStepContext, ProviderCall, ProviderEvent, ToolSpec, TurnEvent } from "@thetis/contracts";
+import { attachTools, callModel, recordCall, systemPrompt, turnContext, turnContextLine, TURN_CONTEXT, withoutTurnContext, type LastCall } from "../src/index.js";
 
 const greet = {
   name: "@thetis/greet",
@@ -11,9 +11,11 @@ const greet = {
   thetis: { type: "tool", tools: [{ name: "greet", description: "hi", export: "greet" }] },
 } as unknown as PackageInfo;
 
-/** A turn as the fence hands it to a step, after the built-in call: the reply is already in `call.messages`. */
+/** A turn as the fence hands it to a step, after `callModel`: the reply is already in `call.messages`. */
 function ctxWith(over: Partial<PackageStepContext> = {}): PackageStepContext {
   return {
+    emit: () => {},
+    signal: new AbortController().signal,
     session: { id: "s1", user: "alice" },
     turn: { id: "t1", input: [{ role: "user", content: "hi" }] },
     conversation: [
@@ -48,6 +50,9 @@ function ctxWith(over: Partial<PackageStepContext> = {}): PackageStepContext {
         throw new Error("no such file");
       },
       writeFile: async () => {},
+      invokeTool: async () => {
+        throw new Error("no tools in this test");
+      },
       kernel: {} as never,
     },
     config: {},
@@ -123,4 +128,222 @@ test("turnContext ends the turn's input with a dated line, once, and leaves the 
 test("turnContextLine writes the weekday, the date, the time and the zone, and a bad zone falls back to UTC", () => {
   assert.equal(turnContextLine(new Date("2026-09-21T18:40:00Z"), "Europe/Berlin"), "[Turn context: Monday 2026-09-21 20:40 Europe/Berlin]");
   assert.equal(turnContextLine(new Date("2026-09-21T00:05:00Z"), "UTC"), "[Turn context: Monday 2026-09-21 00:05 UTC]");
+});
+
+test("withoutTurnContext takes the line off the end and nothing else", () => {
+  assert.equal(withoutTurnContext("hi\n\n[Turn context: Monday 2026-09-21 20:40 Europe/Berlin]"), "hi");
+  assert.equal(withoutTurnContext("[Turn context: x] first\n\nthen"), "[Turn context: x] first\n\nthen", "only a suffix is the line");
+  assert.equal(withoutTurnContext("plain"), "plain");
+});
+
+// ---- callModel: the loop, over a fake provider, a fake tool runner and a fake package list ----
+
+type Script = (round: number, call: ProviderCall, onEvent: (e: ProviderEvent) => void, signal?: AbortSignal) => Promise<void>;
+interface Invoked {
+  ref: Pick<ToolSpec, "package" | "export" | "name">;
+  args: Record<string, unknown>;
+  config: Record<string, unknown>;
+}
+
+/** The loop's context: the provider answers per round from `script`, and `invokeTool` records what it ran. */
+function loopCtx(script: Script, over: { tools?: ToolSpec[]; hints?: Record<string, unknown>; invoke?: (call: Invoked, signal?: AbortSignal) => Promise<string | object>; packages?: PackageInfo[]; signal?: AbortSignal } = {}) {
+  const events: TurnEvent[] = [];
+  const invoked: Invoked[] = [];
+  const configs: string[] = [];
+  let round = 0;
+  const hidden = { name: "@a/p", version: "1", type: "tool", description: "", root: "", thetis: { type: "tool", tools: [{ name: "hidden_tool", description: "Hidden.", parameters: { type: "object", properties: {} }, export: "run" }] } } as unknown as PackageInfo;
+  const list = over.packages ?? [hidden];
+  const ctx = ctxWith({
+    conversation: [{ role: "user", content: "go" }],
+    call: { model: "m", messages: [], tools: over.tools ?? [], params: {}, ...(over.hints ? { hints: over.hints } : {}) },
+    harness: {},
+    packages: { has: (n) => list.some((p) => p.name === n), get: (n) => list.find((p) => p.name === n), list: () => list },
+    emit: (e) => events.push(e),
+    signal: over.signal ?? new AbortController().signal,
+  });
+  ctx.env = {
+    ...ctx.env,
+    invokeTool: async (ref, args, opts) => {
+      const call = { ref: { package: ref.package, export: ref.export, name: ref.name }, args, config: opts.config };
+      invoked.push(call);
+      return over.invoke ? over.invoke(call, opts.signal) : `ran ${ref.name}`;
+    },
+    kernel: {
+      providers: { call: (call: ProviderCall, onEvent: (e: ProviderEvent) => void, signal?: AbortSignal) => script(++round, call, onEvent, signal) },
+      config: { effective: async (name: string) => (configs.push(name), { for: name }) },
+    } as never,
+  };
+  return { ctx, events, invoked, configs };
+}
+
+const toolResults = (conversation: Message[] | undefined) => (conversation ?? []).filter((m) => m.role === "tool").map((m) => [m.name, m.content]);
+
+test("callModel: a call to a tool the call withheld is resolved against the installed packages and run under its own package; an unknown name stays refused", async () => {
+  const script: Script = async (round, _call, onEvent) => {
+    if (round === 1) onEvent({ type: "tool_call", call: { id: "c1", name: "hidden_tool", args: { a: 1 } } });
+    else if (round === 2) onEvent({ type: "tool_call", call: { id: "c2", name: "never_declared", args: {} } });
+    else onEvent({ type: "text", delta: "done" });
+  };
+  const { ctx, events, invoked, configs } = loopCtx(script, { hints: { withheld: ["hidden_tool"] } });
+  const out = await callModel(ctx);
+  assert.deepEqual(invoked, [{ ref: { package: "@a/p", export: "run", name: "hidden_tool" }, args: { a: 1 }, config: { for: "@a/p" } }], "the withheld tool ran under its own package with that package's effective configuration");
+  assert.deepEqual(configs, ["@a/p"]);
+  assert.deepEqual(toolResults(out.conversation), [["hidden_tool", "ran hidden_tool"], ["never_declared", "error: unknown tool: never_declared"]]);
+  assert.deepEqual(out.conversation!.map((m) => m.role), ["user", "assistant", "tool", "assistant", "tool", "assistant"]);
+  assert.equal(out.conversation!.at(-1)!.content, "done");
+  assert.deepEqual(out.call!.messages, out.conversation, "the call started from the conversation and grew with it");
+  assert.deepEqual(events.map((e) => e.type), ["tool.call", "message", "tool.result", "tool.call", "message", "tool.result", "text", "message"]);
+  assert.ok(!events.some((e) => e.type === "error"), "an unknown tool is the model's problem, not the turn's");
+});
+
+test("callModel: the same name with nothing withheld is refused; the hint is the only door", async () => {
+  const script: Script = async (round, _call, onEvent) => {
+    if (round === 1) onEvent({ type: "tool_call", call: { id: "c1", name: "hidden_tool", args: {} } });
+    else onEvent({ type: "text", delta: "ok" });
+  };
+  const { ctx, invoked } = loopCtx(script, { hints: {} });
+  const out = await callModel(ctx);
+  assert.deepEqual(invoked, []);
+  assert.deepEqual(toolResults(out.conversation), [["hidden_tool", "error: unknown tool: hidden_tool"]]);
+});
+
+test("callModel: cancel mid-stream keeps the partial text, emits no error, and returns", async () => {
+  const control = new AbortController();
+  // The agent's `rpc` rejects with code `cancelled` the moment the signal aborts; the fake does the same.
+  const script: Script = async (_round, _call, onEvent, signal) => {
+    onEvent({ type: "text", delta: "one " });
+    onEvent({ type: "text", delta: "two " });
+    await new Promise<void>((_, fail) => {
+      signal!.addEventListener("abort", () => fail(Object.assign(new Error("providers.call cancelled"), { code: "cancelled" })), { once: true });
+      setTimeout(() => control.abort(), 10);
+    });
+  };
+  const { ctx, events } = loopCtx(script, { signal: control.signal });
+  const out = await callModel(ctx);
+  assert.deepEqual(out.conversation, [
+    { role: "user", content: "go" },
+    { role: "assistant", content: "one two " },
+  ]);
+  assert.deepEqual(events.map((e) => e.type), ["text", "text"], "no error event: the kernel produces the one cancelled error");
+});
+
+test("callModel: a cancel between tool calls closes the ones that never ran and records the one that did", async () => {
+  const control = new AbortController();
+  const script: Script = async (_round, _call, onEvent) => {
+    onEvent({ type: "tool_call", call: { id: "c1", name: "t", args: {} } });
+    onEvent({ type: "tool_call", call: { id: "c2", name: "t", args: {} } });
+  };
+  const spec = { name: "t", description: "", parameters: {}, package: "@a/p", export: "t" };
+  const { ctx, events, invoked } = loopCtx(script, { tools: [spec], signal: control.signal, invoke: async () => "first ran" });
+  // The stop lands as the first result is recorded: after the tool, before the next one.
+  const record = ctx.emit;
+  ctx.emit = (e) => (record(e), e.type === "tool.result" ? control.abort() : undefined);
+  const out = await callModel(ctx);
+  assert.equal(invoked.length, 1, "the second tool call was not started");
+  assert.deepEqual(toolResults(out.conversation), [["t", "first ran"], ["t", "error: the turn was stopped before this tool ran"]]);
+  assert.ok(!events.some((e) => e.type === "error"));
+});
+
+test("callModel: a cancel during a tool that ignores its signal returns at once, with the call closed as stopped", async () => {
+  const control = new AbortController();
+  const script: Script = async (_round, _call, onEvent) => {
+    onEvent({ type: "text", delta: "running " });
+    onEvent({ type: "tool_call", call: { id: "c1", name: "t", args: {} } });
+  };
+  const spec = { name: "t", description: "", parameters: {}, package: "@a/p", export: "t" };
+  let finished = false;
+  const { ctx, events, invoked } = loopCtx(script, { tools: [spec], signal: control.signal, invoke: () => new Promise((res) => setTimeout(() => (finished = true, res("late")), 200)) });
+  setTimeout(() => control.abort(), 10);
+  const started = Date.now();
+  const out = await callModel(ctx);
+  assert.ok(Date.now() - started < 150, "the step did not wait for the tool");
+  assert.equal(invoked.length, 1);
+  assert.equal(finished, false, "the tool is still running; its outcome is dropped");
+  assert.deepEqual(out.conversation!.slice(1), [
+    { role: "assistant", content: "running ", toolCalls: [{ id: "c1", name: "t", args: {} }] },
+    { role: "tool", content: "error: the turn was stopped before this tool ran", toolCallId: "c1", name: "t" },
+  ]);
+  assert.ok(!events.some((e) => e.type === "error" || e.type === "tool.result"));
+  await new Promise((r) => setTimeout(r, 250));
+  assert.equal(finished, true);
+});
+
+test("callModel: a tool call id an earlier turn already answered is still closed when this turn's call never ran", async () => {
+  const control = new AbortController();
+  const script: Script = async (_round, _call, onEvent) => onEvent({ type: "tool_call", call: { id: "c1", name: "t", args: {} } });
+  const spec = { name: "t", description: "", parameters: {}, package: "@a/p", export: "t" };
+  const { ctx } = loopCtx(script, { tools: [spec], signal: control.signal, invoke: () => new Promise(() => {}) });
+  ctx.conversation = [
+    { role: "user", content: "earlier" },
+    { role: "assistant", content: "", toolCalls: [{ id: "c1", name: "t", args: {} }] },
+    { role: "tool", content: "done", toolCallId: "c1", name: "t" },
+    { role: "assistant", content: "ok" },
+    { role: "user", content: "go" },
+  ];
+  setTimeout(() => control.abort(), 10);
+  const out = await callModel(ctx);
+  assert.deepEqual(out.conversation!.slice(-2).map((m) => [m.role, m.content]), [["assistant", ""], ["tool", "error: the turn was stopped before this tool ran"]]);
+});
+
+test("callModel: a provider failure keeps the tool call and its result, keeps the partial text, drops the tool call that came with the failure, and emits one provider error", async () => {
+  const script: Script = async (round, _call, onEvent) => {
+    if (round === 1) onEvent({ type: "tool_call", call: { id: "c1", name: "t", args: { n: 1 } } });
+    else {
+      onEvent({ type: "text", delta: "partial" });
+      onEvent({ type: "tool_call", call: { id: "c2", name: "t", args: { n: 2 } } });
+      onEvent({ type: "error", message: "the provider gave up" });
+    }
+  };
+  const spec = { name: "t", description: "", parameters: {}, package: "@a/p", export: "t" };
+  const { ctx, events } = loopCtx(script, { tools: [spec], invoke: async (c) => ({ got: c.args }) });
+  const out = await callModel(ctx);
+  assert.deepEqual(out.conversation!.map((m) => m.role), ["user", "assistant", "tool", "assistant"]);
+  assert.equal(out.conversation![2].content, JSON.stringify({ got: { n: 1 } }), "an object result is JSON");
+  assert.deepEqual(out.conversation![3], { role: "assistant", content: "partial" }, "the text streamed before the failure is kept; the tool call that came with it is not");
+  const errors = events.filter((e) => e.type === "error");
+  assert.deepEqual(errors, [{ type: "error", message: "provider error: the provider gave up", code: "provider" }]);
+  assert.equal(out.call!.messages.length, 3, "the call carries what the provider accepted: the request, the reply, the tool result");
+});
+
+test("callModel: a provider the kernel cannot reach is a provider failure too; a tool that throws a coded error is still its own result", async () => {
+  const script: Script = async (round, _call, onEvent) => {
+    if (round === 1) onEvent({ type: "tool_call", call: { id: "c1", name: "t", args: {} } });
+    else throw new Error("no provider serves m");
+  };
+  const spec = { name: "t", description: "", parameters: {}, package: "@a/p", export: "t" };
+  const { ctx, events } = loopCtx(script, { tools: [spec], invoke: async () => "ok" });
+  const out = await callModel(ctx);
+  assert.deepEqual(toolResults(out.conversation), [["t", "ok"]]);
+  assert.deepEqual(events.filter((e) => e.type === "error"), [{ type: "error", message: "provider error: no provider serves m", code: "provider" }]);
+  const coded = loopCtx(async (round, _c, onEvent) => (round === 1 ? onEvent({ type: "tool_call", call: { id: "c1", name: "t", args: {} } }) : onEvent({ type: "text", delta: "on" })), { tools: [spec], invoke: async () => { throw Object.assign(new Error("x"), { code: "other" }); } });
+  const failed = await callModel(coded.ctx);
+  assert.deepEqual(toolResults(failed.conversation), [["t", "error: x"]], "only code cancelled stops the loop; any other coded error is the tool's result");
+  assert.equal(failed.conversation!.at(-1)!.content, "on");
+});
+
+test("callModel: a tool that throws yields error: <message>, emitted as its result, and the loop continues", async () => {
+  const script: Script = async (round, _call, onEvent) => {
+    if (round === 1) onEvent({ type: "tool_call", call: { id: "c1", name: "t", args: {} } });
+    else onEvent({ type: "text", delta: "after" });
+  };
+  const spec = { name: "t", description: "", parameters: {}, package: "@a/p", export: "t" };
+  const { ctx, events } = loopCtx(script, { tools: [spec], invoke: async () => { throw new Error("boom"); } });
+  const out = await callModel(ctx);
+  assert.deepEqual(toolResults(out.conversation), [["t", "error: boom"]]);
+  assert.deepEqual(events.find((e) => e.type === "tool.result"), { type: "tool.result", id: "c1", name: "t", result: "error: boom" });
+  assert.equal(out.conversation!.at(-1)!.content, "after");
+});
+
+test("callModel: usage rides on the message event and is emitted on its own; a call with messages already shaped is sent as it is", async () => {
+  const script: Script = async (_round, call, onEvent) => {
+    onEvent({ type: "text", delta: `saw ${call.messages.length}` });
+    onEvent({ type: "usage", usage: { input: 3, output: 1 } });
+  };
+  const { ctx, events } = loopCtx(script);
+  ctx.call.messages = [{ role: "system", content: "shaped" }, { role: "user", content: "go" }];
+  const out = await callModel(ctx);
+  assert.equal(out.conversation!.at(-1)!.content, "saw 2");
+  assert.deepEqual(out.call!.messages.map((m) => m.role), ["system", "user", "assistant"]);
+  assert.deepEqual(events.map((e) => e.type), ["text", "usage", "message"]);
+  assert.deepEqual((events.at(-1) as { usage?: unknown }).usage, { input: 3, output: 1 });
 });

@@ -142,12 +142,13 @@ test("a tool package's cost shows up in the tool segment, not the prompt segment
   assert.ok(tools.rounds[0]!.toolNames.includes("read_path"));
 });
 
-test("steps are timed and the assembly cost excludes the built-in call", async () => {
+test("steps are timed and the assembly cost excludes the harness's call step", async () => {
   const seen = await run("honest");
   assert.ok(seen.steps.length >= 3, "the harness prompt, the tool attach, the adapter and the probe all ran");
-  assert.ok(seen.steps.some((s) => s.package === "@thetis/kernel"), "the built-in call is a step too");
+  const calls = seen.steps.filter((s) => s.phase === "execute");
+  assert.ok(calls.length >= 1 && calls.every((s) => s.package === "@thetis/harness-core"), "the call is a step of the harness, one per turn, in the execute phase");
   assert.ok(seen.assembleMs >= 0);
-  assert.ok(!seen.steps.filter((s) => s.package === "@thetis/kernel").some((s) => s.ms === undefined));
+  assert.ok(!calls.some((s) => s.ms === undefined));
 });
 
 test("the same conversation on a second turn keeps its prefix, which is what caching makes free", async () => {

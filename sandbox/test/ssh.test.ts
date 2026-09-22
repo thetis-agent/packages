@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Userspace } from "@thetis/contracts";
-import { knownHostsOf, parseSshGrants, withKeyPresence } from "@thetis/lib/ssh";
+import { knownHostsOf } from "@thetis/lib/ssh";
 import { bwrapArgs, fencePlan, hasBwrap, type BwrapLayout } from "../src/bwrap.js";
 import { FENCE_SSH_AUTH_SOCK, FENCE_SSH_KNOWN_HOSTS, hasSshAgent, startSshAgent, writeSshFiles } from "../src/ssh.js";
 
@@ -64,17 +64,9 @@ test("the client options make ssh fail rather than hang, and keep host checking 
   assert.equal(readFileSync(files.knownHosts, "utf8"), "github.com ssh-ed25519 AAAAC3Nz\n");
 });
 
-test("grants are parsed strictly, deduplicate their known hosts, and report key presence", () => {
-  const dir = mkdtempSync(join(tmpdir(), "thetis-ssh-parse-"));
-  const key = makeKey(dir);
-  assert.deepEqual(parseSshGrants([{ key, hosts: ["a", "a", "b"] }]), [{ key, hosts: ["a", "a", "b"] }]);
-  assert.equal(knownHostsOf([{ key, hosts: ["a", "a"] }, { key: "/other", hosts: ["a", "b"] }]), "a\nb\n");
-  assert.throws(() => parseSshGrants([{ key: "relative/path" }]), /absolute and normalized/);
-  assert.throws(() => parseSshGrants([{ key: "/k", hosts: "github.com" }]), /a list of known_hosts lines/);
-  assert.throws(() => parseSshGrants(Array(17).fill({ key: "/k" })), /at most 16/);
-  const [present, missing] = withKeyPresence([{ key }, { key: "/nowhere/id_ed25519" }]);
-  assert.equal(present.present, true);
-  assert.equal(missing.present, false);
+// Parsing a grant and reporting a key's presence are the host package's (`@thetis/host-grants`), tested there.
+test("the known hosts of every grant are written once each", () => {
+  assert.equal(knownHostsOf([{ key: "/k", hosts: ["a", "a"] }, { key: "/other", hosts: ["a", "b"] }]), "a\nb\n");
 });
 
 test("a real agent holds the granted key, and the fence can use it without ever seeing it", { skip: !hasSshAgent() || !hasBwrap() }, (t) => {

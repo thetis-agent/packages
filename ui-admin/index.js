@@ -172,7 +172,7 @@ export async function journal(args, env) {
 /** Every person's mounts as `{ <user>: [{ path, mode }] }`, or one person's with `user`. */
 export async function mountsList(args, env) {
   const user = args.user ? userId(args.user, "user") : undefined;
-  return { data: await call(env, "mounts.list", user ? { user } : {}) };
+  return { data: await call(env, "host.grants.mountsList", user ? { user } : {}) };
 }
 
 /**
@@ -183,7 +183,7 @@ export async function mountsList(args, env) {
 export async function mountsBrowse(args, env) {
   const path = args.path === undefined || args.path === "" ? "/" : String(args.path);
   if (!isAbsolute(path) || path !== resolve(path)) fail(`a path to browse must be absolute and normalized: ${path}`);
-  return { data: await call(env, "mounts.browse", { path }) };
+  return { data: await call(env, "host.grants.mountsBrowse", { path }) };
 }
 
 /** A mount as the kernel accepts it: an absolute normalized path that is not the root, and mode rw or ro. */
@@ -201,7 +201,7 @@ export async function mountsSet(args, env) {
   const mounts = args.mounts.map(mountOf);
   const paths = new Set(mounts.map((m) => m.path));
   if (paths.size !== mounts.length) fail("a path is listed twice");
-  return { data: await call(env, "mounts.set", { user, mounts }) };
+  return { data: await call(env, "host.grants.mountsSet", { user, mounts }) };
 }
 
 /**
@@ -239,6 +239,8 @@ export { fleet, packageActivity, packageFork, packageInstallFor, packagePromote,
 
 // ---- ssh: which keys a person's fence may use, and where they may go ----
 //
+// The seven mount and ssh verbs reach `@thetis/host-grants`, a host package the daemon runs as
+// `host.grants.<export>`: the kernel admits an admin and journals the call, the package does the work.
 // A grant names one key file on the host; the kernel loads it into that fence's own ssh-agent, so the
 // fence signs with the key and never reads it. Every write below replaces the person's list whole, the way
 // the command line does, and closes that person's fence: it reopens with an agent holding the new list.
@@ -277,19 +279,19 @@ const hostLines = (raw) => {
 
 export async function sshList(args, env) {
   const user = args.user ? userId(args.user, "user") : undefined;
-  return { data: await call(env, "ssh.list", user ? { user } : {}) };
+  return { data: await call(env, "host.grants.sshList", user ? { user } : {}) };
 }
 
 export async function sshSet(args, env) {
   const user = userId(args.user, "user");
-  return { data: await call(env, "ssh.set", { user, ssh: sshGrants(args.ssh) }) };
+  return { data: await call(env, "host.grants.sshSet", { user, ssh: sshGrants(args.ssh) }) };
 }
 
 /** A key of the person's own, made by the kernel and granted at once; the answer carries the public half to register. */
 export async function sshKeygen(args, env) {
   const user = userId(args.user, "user");
   const hosts = hostLines(args.hosts);
-  return { data: await call(env, "ssh.keygen", { user, ssh: [{ key: "/generated", ...(hosts.length ? { hosts } : {}) }] }) };
+  return { data: await call(env, "host.grants.sshKeygen", { user, ssh: [{ key: "/generated", ...(hosts.length ? { hosts } : {}) }] }) };
 }
 
 /**
@@ -304,7 +306,7 @@ export async function sshImport(args, env) {
   if (privateKey.length > MATERIAL_LIMIT) fail("the private key is longer than 16 KB, which no key is");
   if (!privateKey.includes("PRIVATE KEY")) fail("that does not look like a private key: no PRIVATE KEY line");
   const hosts = hostLines(args.hosts);
-  return { data: await call(env, "ssh.import", { user, name, privateKey, ...(hosts.length ? { hosts } : {}) }) };
+  return { data: await call(env, "host.grants.sshImport", { user, name, privateKey, ...(hosts.length ? { hosts } : {}) }) };
 }
 
 /** What ssh-keyscan finds for a host, run inside this fence: the lines a grant needs so ssh will connect without a prompt. */

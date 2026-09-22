@@ -27,8 +27,8 @@ Nine commands. Seven are any signed-in person's; `browse` and `mount` need the a
 | `assign` | `uiAssign` | `session`, `project` | Puts the conversation in a project, or takes it out with `null`. `session` must be the one the page named. |
 | `sessions` | `uiSessions` | `project` | The ids of the conversations in the project. |
 | `mounts` | `uiMounts` | `paths?` | This fence's mounts, from `THETIS_MOUNTS`, and the state of each path asked about (at most 64), so the page can tell the truth about a directory it has not saved yet. Also the page's heartbeat while the fence reopens after a bind. |
-| `browse` | `uiBrowse` | `path?` | Admin only. The directories under one host path, through `mounts.browse`. The picker draws from it; a person's fence shows only what is bound into it, so the listing has to come from the operator. |
-| `mount` | `uiMount` | `path`, `mode` | Admin only. Binds `path` into this person's own fence (`rw` or `ro`), or unbinds it with `mode: null`, by sending the whole list through `mounts.set`. The user id comes from `env.user`, never from the page. The answer says whether the host has a directory at the path. |
+| `browse` | `uiBrowse` | `path?` | Admin only. The directories under one host path, through `host.grants.mountsBrowse`. The picker draws from it; a person's fence shows only what is bound into it, so the listing has to come from the operator. |
+| `mount` | `uiMount` | `path`, `mode` | Admin only. Binds `path` into this person's own fence (`rw` or `ro`), or unbinds it with `mode: null`, by sending the whole list through `host.grants.mountsSet`. The user id comes from `env.user`, never from the page. The answer says whether the host has a directory at the path. |
 
 `save` checks: a name of 1 to 80 characters; each directory absolute and normalized, with no `..` and no NUL; at most 64 directories, 256 tool names of at most 64 characters, 256 skill ids in the library's shape (lowercase words and dashes, up to three levels joined by `/`), 32768 characters of instructions; at most 32 projects per person. Duplicates are dropped.
 

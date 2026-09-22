@@ -1,6 +1,10 @@
 // Newline-delimited JSON request/reply framing, shared by the control socket, the fence, and the agent.
 // A request is `{ id, method, args }`; the replies are `{ id, event }`* and then one `{ id, result }` or
-// `{ id, error, code }`. The same shape flows in both directions of the fence under other key names.
+// `{ id, error, code }`. The same shape flows in both directions of the fence under other key names:
+// kernel to agent `{ id, op, payload }`, agent to kernel `{ rpc, method, args }`. Each direction has one
+// cancel frame that names a request in flight: `{ cancel: id }` from the kernel aborts an operation in the
+// agent, and `{ rpcCancel: rpc }` from the agent aborts a call the kernel is serving. Both abort the
+// signal the handler was given; the reply, if one still comes, is delivered as any other.
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 import type { EventSink } from "@thetis/contracts";

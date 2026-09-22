@@ -32,23 +32,24 @@ Every kernel error carries a code. A turn that fails emits one `error` event wit
 
 ## My change is not live
 
-You changed a file and nothing behaves differently. Nothing is broken: what it takes to put new code into service depends on where that code lives, and there are three answers. Find the row before you change anything else.
+You changed a file and nothing behaves differently. Nothing is broken: what it takes to put new code into service depends on where that code lives, and there are four answers. Find the row before you change anything else.
 
 | What you changed | What it takes |
 |---|---|
-| The **one file** a `tool`, `step`, `enumerator` or UI-command export is declared in, a package's browser files under `ui/`, or its `package.json` | Nothing. The next turn, or the next request from the page, has it. |
+| The **one file** a `tool`, `step`, `enumerator` or UI-command export is declared in, a package's browser files under `ui/`, or its `package.json` (its declared defaults included) | Nothing. The next turn, or the next request from the page, has it. |
+| A host package's entry, such as `@thetis/host-grants` | Nothing. The host re-imports it on its next call. |
 | **A file that entry imports**, such as a shared client or helper it does `import` at the top | A reload of that workspace. The agent re-reads the entry with a modification-time query, but a static import inside it carries no query, so the module cache keeps serving the old copy until the agent process is new. This is the row people get wrong: tool code is not all one tier. |
 | A package's service code, a provider, or the userspace agent | That person's workspace reloaded. |
-| `@thetis/kernel`, `@thetis/host`, `@thetis/sandbox`, `@thetis/door`, `@thetis/lib`, `@thetis/contracts`, or the `thetis` command (`@thetis/gateway-cli`) | A new daemon process. |
-| `thetis.config.json` | Depends on the key. `thetis config reload` applies most of it at once, closes the fences for the `fence` block, and names what still needs a new process. See `thetis/configuration`. |
+| `thetis.config.json` or `.env` | `thetis config reload`. It applies most keys at once, closes the fences for the `fence` block, and names what still needs a new process. See `thetis/configuration`. |
+| `@thetis/kernel`, `@thetis/host`, `@thetis/sandbox`, `@thetis/door`, `@thetis/lib`, `@thetis/contracts`, or the `thetis` command (`@thetis/gateway-cli`) | A new daemon process, `thetis restart`. Those packages carry no user-facing behaviour: they run steps and move data. Only a bug in them is a reason for a new process. |
 
-Why: a `tool` or `step` export is imported with a modification-time query, so the agent re-reads it on every call. A service is imported once, when its agent starts, and the query versions only a package's entry module, so nothing short of a new agent process reads that module graph again. The kernel, the door and the configuration are read once by `thetis serve` and held for its life.
+Why: a `tool` or `step` export is imported with a modification-time query, so the agent re-reads it on every call, and the host imports a host package's entry the same way. A service is imported once, when its agent starts, and the query versions only a package's entry module, so nothing short of a new agent process reads that module graph again. The kernel and the door are read once by `thetis serve` and held for its life; the configuration is re-read on `thetis config reload`.
 
 A TypeScript package has to be built first. A reload and a restart both put `dist/` into service, never `src/`. Run the build, then do the row.
 
 **A reload** closes one person's fence and opens it again. No tool asks for one: say what it needs, `thetis reload --user <id>` on the host, or the **Workspaces** section of the control panel. It costs that person's open shell sessions and any turn of theirs in flight, and takes about a second. Conversations and files are untouched. `_system` is a legal target, and it is the one you want when the provider or the sign-in page changed.
 
-**A new daemon process** is `restart_daemon` when you have that tool (see `thetis/using`), and otherwise `sudo systemctl restart thetis-runtime.service` on the host. It ends every turn in progress everywhere and every open shell session anywhere, so it is the last resort, not the first try.
+**A new daemon process** is the daemon's own doing: `thetis restart` on the host, `restart_daemon` when you have that tool (see `thetis/using`), or the control panel. The daemon waits for every turn to end, counts down where everyone can see it, and exits so systemd starts it again; no sudo. It ends every open shell session anywhere, so it is the last resort, not the first try, and the only reason for it is a bug in the daemon's own code. A feature that seems to need one is in the wrong package: it belongs in a step, a tool, a service, or a host package.
 
 On the host, `thetis status` compares what is on disk against what each part loaded and names anything running older code. A workspace with no fence open is never stale: the next request opens it on whatever is there then.
 
@@ -59,7 +60,7 @@ On the host, `thetis status` compares what is on disk against what each part loa
 | Code | The sentence says | What to do |
 |---|---|---|
 | `off` | Restarts are switched off in this installation's configuration, `control.allowRestart`. | Only the operator can change it, at the host. Ask for a workspace reload instead; it is the cheaper fix in any case. |
-| `unsupervised` | systemd did not start this daemon, so exiting would stop Thetis rather than restart it. | Ask the person to restart it themselves at the host, or ask for a workspace reload. |
+| `unsupervised` | systemd did not start this daemon, so exiting would stop Thetis rather than restart it. | Ask the person to start it again themselves at the host, or ask for a workspace reload. |
 | `no-listener` | This process has no restart handler, so it is a short-lived command rather than the serving daemon. | You are inside `thetis send`, `thetis chat` or a bench run, and a restart would kill only that command. Ask for what you need in the running installation. |
 | `young` | The daemon has been up for fewer seconds than `control.minUptimeSecs`, which is 60 by default. | Wait past that. If the last restart did not fix this, another one will not find it either: something else is wrong. |
 | `policy` | The deployed systemd unit does not say `Restart=always`, or its `Restart=` could not be read at all. | Only the operator can put it right, at the host: `Restart=always` in the unit, then `systemctl daemon-reload`. Until then a restart would exit cleanly and stay down, taking the installation offline for good. |
@@ -90,7 +91,7 @@ A tool result that starts with `error:` is a refusal. The turn continues. Read t
 
 | Result | Cause |
 |---|---|
-| `error: unknown tool: <name>` | No installed package attaches that name, or a project switched it off. See `thetis/projects`. |
+| `error: unknown tool: <name>` | No installed package attaches that name, or a project switched it off. The `call` step of `@thetis/harness-core` resolves the name; a name in `call.hints.withheld` is run anyway. See `thetis/projects`. |
 | `error: <path> is outside the spaces you can reach (...)` | The path is outside home, shared, and the mounts. |
 | `error: <path> is read-only (...)` | A write to shared or to an `ro` mount. |
 | `error: old_text was not found in <path>. ...` | Read the file first. Whitespace must match. |
@@ -137,7 +138,7 @@ A package that installed but does not act: the change is live on the next turn, 
 - A service that throws is recorded in the journal as `service.fail`. The agent's `stderr` shows the message.
 - A service must not write to `process.stdout`. Use `env.log`.
 - A service listens on a unix socket under `run/`, not on a port.
-- A fence closes when an admin changes the mounts. The services restart with it.
+- A fence closes when an admin changes the mounts or the ssh grants (`host.grants.mountsSet`, `host.grants.sshSet`). The services restart with it.
 
 ## A provider error
 
@@ -145,7 +146,9 @@ A package that installed but does not act: the change is live on the next turn, 
 |---|---|
 | `no provider package is installed` | The system userspace has no provider. An operator checks `systemPackages._system`. |
 | `no installed provider serves model "<model>"` | Set `config.model` to a listed id, or `call.model` in a step. `thetis models` lists the ids. |
-| `OpenRouter apiKey is not configured` | `.env` needs `OPENROUTER_API_KEY`. |
+| `OpenRouter apiKey is not configured` | `.env` needs `OPENROUTER_API_KEY`; the provider's manifest default is `${OPENROUTER_API_KEY}`, so nothing else is needed. `thetis config reload` re-reads `.env`. |
+
+A provider failure does not throw out of the turn: the `call` step returns the partial reply with every dangling tool call closed and emits one `error` event of code `provider`, and the `after` steps still run.
 | `provider error: ...` with `402 in_flight_budget_exhausted` | Set `defaults.max_tokens` in the provider configuration. |
 | `the reply stopped at the output limit of N tokens (max_tokens) ...` | Raise `defaults.max_tokens`, or ask for less at once. |
 
@@ -173,15 +176,15 @@ The provider retries `429`, `408`, `409`, `425`, `5xx`, and a `402` that names `
 | The plan and the questions | `home/plans/<id>.json`, `home/questions/<id>.json` | `read_path`. |
 | Long tool output | `home/tool-output/<tool>-<time>.txt` | `read_path`, `search_files`. |
 | The agent log | The kernel's `stderr`, each line with the prefix `[<user id>]` | On the host: `thetis chat --verbose`, or the daemon's log. Not readable from the fence. |
-| The journal | `$THETIS_HOME/journal.jsonl` | An admin: `journal.tail` on the control socket, or the Activity section. Not readable from the fence. |
+| The journal | `$THETIS_HOME/journal.jsonl` | An admin: `journal.tail` on the control socket, or the Activity section. Not readable from the fence. A `host.*` call is journalled without its arguments. |
 | The installed packages | The `list_packages` tool, or `env.kernel.packages.list()` | |
-| The kernel registry | `$THETIS_HOME/registry.json` | On the host only: `thetis packages list --user <id>`. |
+| The kernel registry | The store, under `registry` | On the host only: `thetis packages list --user <id>`. |
 
 ## Sources
 
 - packages/kernel/src/packages/manager.ts
 - packages/kernel/src/pipeline/runner.ts
-- packages/kernel/src/pipeline/provider-call.ts
+- packages/harness-core/src/index.ts
 - packages/kernel/src/providers.ts
 - packages/tool-exec/src/index.ts
 - packages/lib/src/restart.ts

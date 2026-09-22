@@ -127,13 +127,19 @@ function describeType(value: unknown): string {
   return `a ${typeof value}`;
 }
 
-/** Top-level keys of every document in order; a later document wins a key, and `sources` says which one did. */
+/**
+ * Top-level keys of every document in order; a later document wins a key, and `sources` says which one did.
+ * When both hold a plain object under a key, the later one's keys are laid over the earlier one's, one level
+ * deep, so a file layer's `embeddings: { baseUrl }` keeps a declared `embeddings.apiKey`; arrays and scalars
+ * replace. `sources` is per top-level key and names the last layer that touched it.
+ */
 export function mergeDocs(docs: ConfigDoc[]): { values: Record<string, unknown>; sources: Record<string, { layer: ConfigLayer; from: string }> } {
   const values: Record<string, unknown> = {};
   const sources: Record<string, { layer: ConfigLayer; from: string }> = {};
   for (const { layer, from, doc } of docs) {
     for (const [key, value] of Object.entries(doc)) {
-      values[key] = value;
+      const under = values[key];
+      values[key] = isPlainObject(under) && isPlainObject(value) ? { ...under, ...value } : value;
       sources[key] = { layer, from };
     }
   }

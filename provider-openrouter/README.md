@@ -1,6 +1,6 @@
 # @thetis/provider-openrouter
 
-The default provider. It sends model calls to OpenRouter's OpenAI-compatible chat completions endpoint with streaming and tool calls, applies the prompt caching policy at the wire, and reports usage with cache accounting. It is a `provider` package in the default `systemPackages["_system"]`, so it runs in the system userspace fence with the operator's key; the kernel sends `config.packages["@thetis/provider-openrouter"]` only there.
+The default provider. It sends model calls to OpenRouter's OpenAI-compatible chat completions endpoint with streaming and tool calls, applies the prompt caching policy at the wire, and reports usage with cache accounting. It is a `provider` package in the default `systemPackages["_system"]`, so it runs in the system userspace fence with the operator's key; the kernel sends `config.packages["@thetis/provider-openrouter"]` only there. A harness's call step reaches it through `env.kernel.providers.call`, which the kernel routes by `call.model` to this fence; the calling fence never sees the key.
 
 ## What it provides
 
@@ -27,14 +27,14 @@ What `call()` does with a `ProviderCall`:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `apiKey` | `OPENROUTER_API_KEY` of the agent process | The OpenRouter key. Write `"${OPENROUTER_API_KEY}"` and put the key in `.env`; the CLI interpolates it into the config. |
+| `apiKey` | `${OPENROUTER_API_KEY}` | The OpenRouter key. The manifest's default is the reference; put the key in `.env` and the config service resolves it at read time. |
 | `baseUrl` | `https://openrouter.ai/api/v1` | The API root. |
 | `headers` | `{}` | Extra request headers, merged over `Authorization`, `HTTP-Referer` and `X-Title`. |
 | `defaults` | `{}` | Request fields sent with every call, under `call.params`. Set `max_tokens` here. |
 | `cache` | `{}` | The prompt caching policy: `enabled`, `ttl`, `systemTtl`, `anchorStride`, `maxBreakpoints`, `explicitVendors`, `overrides`, `hints` (`ignore`, `tune` or `override`), `affinity`. See `@thetis/prompt-cache`. |
 | `retries` | `3` | How many times a transient refusal is tried again. |
 
-The kernel does not pass `OPENROUTER_API_KEY` into the fence, so the key reaches the provider through the configuration. The shipped default sets `apiKey` and `baseUrl` only.
+The kernel does not pass `OPENROUTER_API_KEY` into the fence, so the key reaches the provider through the configuration. `apiKey` and `baseUrl` are declared with their defaults in this package's manifest (`thetis.config.<key>.default`), which the config layers read live; the kernel compiles in no default for any package. `thetis config show @thetis/provider-openrouter` reports them with `source: default` until a layer overrides them.
 
 ## Use
 

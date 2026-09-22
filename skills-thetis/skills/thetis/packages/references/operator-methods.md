@@ -16,8 +16,11 @@ The command line talks to a running kernel through the control socket `$THETIS_H
 | `packages.uninstall` | `user`, `name` | Removes the package from that user's userspace. |
 | `packages.promote` | `user`, `name` | Makes the package the default for everyone. Returns `{ name, userspaces }`. |
 | `packages.installEveryone` | `source`, `actor` | Installs a package for every person, now and later. Returns `{ name, userspaces }`. |
-| `mounts.list` | `user` | `{ "<user>": [ { path, mode } ] }` for that user, or for every user without `user`. |
-| `mounts.set` | `user`, `mounts` | Replaces that user's mounts. At most 32 `{ path, mode }`, an absolute normalized path that is not `/`, mode `rw` or `ro`. Not for `_system`. Closes the user's fence. |
+| `sessions.delete` | `user`, `session` | Removes the session record; a running turn is cancelled first. |
+| `fence.reload` | `user` | Closes that person's fence and opens it again on the code on disk. |
+| `restart.request`, `restart.status`, `restart.cancel` | `reason` | The daemon's own restart latch. |
+| `status` | | `{ daemon, restart, workspaces }`: what each process runs and whether the code on disk is newer. |
+| `host.<name>.<export>` | the export's own | Any other method is dispatched to a host package: `host.grants.mountsList`, `mountsBrowse`, `mountsSet`, `sshList`, `sshKeygen`, `sshImport`, `sshSet` are answered by `@thetis/host-grants`. Admin or the control socket only; journalled without the arguments. |
 | `journal.tail` | `limit`, `kind`, `target`, `actor_filter` | The newest journal rows, newest first. `limit` at most 1000, default 200. |
 | `config.get` | | The configuration with secrets replaced. |
 | `models` | `user` | Every model the providers visible to that userspace serve. |
@@ -27,8 +30,8 @@ The command line talks to a running kernel through the control socket `$THETIS_H
 | `sessions.cancel` | `user`, `session` | Stops the running turn. |
 | `sessions.send` | `user`, `session`, `input`, `model` | Runs one turn and streams the events. `model` names the model for that turn. |
 
-An unknown method fails with the code `rpc`. A fence whose user has the role `user` is refused with `only an admin may use operator methods`.
+A method no table and no host package answers fails with the code `rpc`. A fence whose user has the role `user` is refused with `only an admin may use operator methods`.
 
-The methods a fence calls as itself, without `operator.`: `packages.install`, `packages.uninstall`, `packages.delete`, `packages.list`, `sessions.create`, `sessions.ask`, `sessions.send`, `sessions.cancel`, `sessions.list`, `sessions.inspect`, `models`, `auth.login`, `auth.authenticate`, and `auth.logout`. `auth.login` is answered only for the system userspace.
+The methods a fence calls as itself, without `operator.`: `packages.install`, `packages.uninstall`, `packages.delete`, `packages.list`, `sessions.create`, `sessions.ask`, `sessions.send`, `sessions.cancel`, `sessions.delete`, `sessions.list`, `sessions.inspect`, `sessions.watch`, `models`, `providers.call`, `store.*`, `config.*`, `auth.login`, `auth.authenticate`, and `auth.logout`. `auth.login` is answered only for the system userspace. Both tables are frozen seams, snapshotted by `packages/kernel/test/boundaries.test.ts`.
 
-Sources: the package that owns it, the package that owns it, packages/kernel/src/control.ts, packages/kernel/src/rpc.ts.
+Sources: packages/kernel/src/control.ts, packages/kernel/src/rpc.ts, packages/host-grants/package.json.

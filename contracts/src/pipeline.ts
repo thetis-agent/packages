@@ -3,13 +3,9 @@ import type { Message, ProviderCall, ToolCall } from "./messages.js";
 import type { PackageInfo } from "./packages.js";
 import type { SessionInfo } from "./identity.js";
 
-/** The package name the built-in provider call step is scheduled under. A wire constant, not a dependency. */
-export const KERNEL_PACKAGE = "@thetis/kernel";
-export const PROVIDER_CALL_STEP = "provider-call";
-
 export type HarnessState = Record<string, unknown>;
 
-/** A reference to a step the enumerator scheduled: a package export, or the kernel built-in. */
+/** A reference to a step the enumerator scheduled: a package export in a phase. */
 export interface StepRef {
   package: string;
   export: string;
@@ -22,7 +18,11 @@ export interface TurnInfo {
   input: Message[];
 }
 
-/** What every step sees. Serialized into the fence; mutations come back as a StepResult. */
+/**
+ * What every step sees. Serialized into the fence; mutations come back as a StepResult. The kernel builds
+ * `call` as `{ model, messages: [], tools: [], params: {} }` and never reads it again: shaping it, sending it
+ * and running what the model asks for are all steps.
+ */
 export interface StepContext {
   session: SessionInfo;
   turn: TurnInfo;
@@ -40,6 +40,11 @@ export interface TurnOptions {
   model?: string;
 }
 
+/**
+ * What a turn streams. The kernel emits the six about the turn and its steps; a step emits the rest through
+ * `ctx.emit` and the kernel relays them as they are. `usage` is summed into the journal; the first `error`
+ * is the turn's failure.
+ */
 export type TurnEvent =
   | { type: "turn.start"; turn: string; session: string }
   | { type: "step.start"; step: StepRef }

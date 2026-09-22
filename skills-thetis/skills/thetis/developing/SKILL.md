@@ -54,13 +54,13 @@ Each of these is a test. Each fails loudly, and each is telling you something ab
 
 Raising the limit is a real option and has been taken twice, but only after the mechanism went elsewhere. If your change is authority, the kernel is where it belongs and the raise is honest. If it is mechanism, the guard has just told you it is in the wrong package.
 
-**The layering.** `packages/kernel/test/boundaries.test.ts` enforces `contracts < lib < sandbox` and `kernel < host`. The kernel may not import `@thetis/sandbox`. Only `@thetis/host` and `@thetis/gateway-cli` may import the kernel.
+**The layering.** `packages/kernel/test/boundaries.test.ts` enforces `contracts < lib < sandbox` and `kernel < host`. The kernel may not import `@thetis/sandbox`. Only `@thetis/host` and `@thetis/gateway-cli` may import the kernel. The same test snapshots the frozen seams: the fence operations, the fence-to-kernel methods, the control methods, the door's routes, the runtime exports of `@thetis/contracts`, the keys of `CONFIG_TIERS`, and that `defaultConfig().packages` is empty. A change to any of those is a deliberate edit of a list in that test, never a side effect.
 
 **The skills lint.** `packages/skills-thetis/test/skills.test.js` checks frontmatter, body limits, a style deny-list, that every relative link resolves inside the package, and that the set of skills matches a list in the test. Adding a skill means adding its id to that list.
 
 ## Where a new thing goes
 
-The import rule above is not the same question as this one, and passing it is not evidence you got this right. The rule is: **mechanism goes to `@thetis/lib` or `@thetis/sandbox`, and the decision about who may use it stays in `@thetis/kernel`.** A part stays in the kernel only when delegating it would lose a guarantee that rests on the kernel being the one that does it.
+The import rule above is not the same question as this one, and passing it is not evidence you got this right. The daemon (`kernel`, `host`, `sandbox`, `door`, `lib`, `contracts`, `gateway-cli`) is finished: it is identity, package authority, the fence, the pipe, the record, the port and the latch. It runs steps and moves their results. It never makes a model call, never runs a tool, never interprets a `ProviderCall`, never knows a package by name. **A feature that seems to need the daemon is a feature in the wrong package.** Inside the daemon the rule is: mechanism goes to `@thetis/lib` or `@thetis/sandbox`, and the decision about who may use it stays in `@thetis/kernel`. A part stays in the kernel only when delegating it would lose a guarantee that rests on the kernel being the one that does it.
 
 | What you are adding | Where |
 |---|---|
@@ -68,6 +68,9 @@ The import rule above is not the same question as this one, and passing it is no
 | A mechanism: something that does work and has no opinion about who asked | `packages/lib`, or `packages/sandbox` when it is fence machinery |
 | A type in the shared vocabulary | `packages/contracts` |
 | A capability: a tool, a step, a provider, a service, a page | a package, never the kernel |
+| The model-call loop, or any other turn-time behaviour | a step in a package; the default is the `call` step of `@thetis/harness-core` in phase `execute` |
+| A default for a package's setting | that package's manifest, `thetis.config.<key>.default` |
+| An admin feature that needs the host itself: its filesystem, a key store, the grant records | a package of type `host`, such as `@thetis/host-grants`; the host loads it by `thetis.host.name`, and it answers `host.<name>.<export>` on the operator channel |
 
 An agent that knows only the import rule will put mechanism in the kernel, pass the boundary test, and fail the line count without understanding why. That is the line count doing its job.
 
@@ -89,19 +92,22 @@ Strict TypeScript, ECMAScript modules. **Import paths end in `.js`** even though
 
 ## What it takes for a change to be live
 
-Editing a file changes nothing by itself. Three answers, and `thetis/troubleshooting` has the full table:
+Editing a file changes nothing by itself. Four answers, and `thetis/troubleshooting` has the full table:
 
-- Package code a fence loads per call: the next call has it.
-- A service's module graph, a provider, the agent: `thetis reload --user <id>`.
-- The kernel, the host, the sandbox, the door: a daemon restart.
+- Package code a fence loads per call, a manifest, a host package's entry: the next call has it.
+- A service's module graph, a provider, the agent: `thetis reload --user <id>`, or `--all`.
+- `thetis.config.json` or `.env`: `thetis config reload`.
+- The daemon itself (the kernel, the host, the sandbox, the door, `lib`, `contracts`, the `thetis` command): a new process, only for the daemon's own bugs, and the daemon does it: `thetis restart`. It waits for every turn to end, counts down, and exits so systemd starts it again; no sudo.
 
 For configuration, `CONFIG_TIERS` in `packages/kernel/src/config.ts` declares per key which of those applies, and `thetis config reload` prints which keys it applied and which are still waiting on a process. **A key with no entry there is treated as needing a restart**, so adding a configuration key without declaring its tier makes it quietly un-reloadable. See `thetis/configuration`.
+
+The installer follows the same rule: an update builds, runs `thetis config reload` and `thetis reload --all`, and asks the daemon for a restart only when the systemd unit changed or `thetis status --json` reports `daemon.stale`.
 
 ## Testing something that crosses the fence
 
 Add a case to `packages/host/test/e2e.test.ts`, which shares one kernel and collects events from `kernel.sessions.send(...)`. **Run it through the real agent. Do not mock the fence.** That suite exists because the fence is where the interesting failures are.
 
-New model behaviour means teaching the echo provider fixture a trigger word. Its current vocabulary is in `references/e2e-fixture.md`.
+New model behaviour means teaching the echo provider fixture a trigger word. Its current vocabulary is in `references/e2e-fixture.md`. The loop's own cases (cancel mid-stream, dangling tool calls closed, an unknown tool refused, a withheld tool honoured, partial text kept) are tests of `@thetis/harness-core`, not of the kernel.
 
 ## Changing the fence protocol
 

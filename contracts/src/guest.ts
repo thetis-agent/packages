@@ -4,6 +4,7 @@ import type { ModelChoices, ModelDescriptor, ProviderCall, ProviderEvent } from 
 import type { DeletedPackage, PackageInfo } from "./packages.js";
 import type { AuthUser, SessionInfo, SessionRecord, SessionSummaryRef, UserRole } from "./identity.js";
 import type { StepContext, StepResult, TurnEvent, TurnOptions, WatchedTurnEvent } from "./pipeline.js";
+import type { ToolSpec } from "./messages.js";
 import type { ConfigReport } from "./config.js";
 import type { Store } from "./storage.js";
 
@@ -35,6 +36,12 @@ export interface StepEnv {
    * package or of the user clears it. `namespace` names a sub-namespace, default `default`.
    */
   storage(namespace?: string): Store;
+  /**
+   * Runs a tool export of a package installed in this fence, under that package's own env, the way the
+   * agent runs one for the kernel. This is how a harness's call step runs what the model asked for: in the
+   * caller's fence, with the tool package's effective configuration (`kernel.config.effective`) passed in.
+   */
+  invokeTool(ref: Pick<ToolSpec, "package" | "export" | "name">, args: Record<string, unknown>, opts: { session: SessionInfo; config: Record<string, unknown>; signal?: AbortSignal }): Promise<string | object>;
   kernel: KernelClient;
 }
 
@@ -58,8 +65,11 @@ export interface KernelClient {
   sessions: {
     create(parent?: string): Promise<SessionSummaryRef>;
     ask(session: string, input: string): Promise<string>;
-    send(session: string, input: string, onEvent: (event: TurnEvent) => void, opts?: TurnOptions): Promise<void>;
+    /** `signal` ends the call and cancels the turn it started. */
+    send(session: string, input: string, onEvent: (event: TurnEvent) => void, opts?: TurnOptions, signal?: AbortSignal): Promise<void>;
     cancel(session: string): Promise<boolean>;
+    /** Removes a session's record. A running turn is cancelled first. */
+    delete(session: string): Promise<void>;
     list(): Promise<SessionSummaryRef[]>;
     inspect(session: string): Promise<SessionRecord & { status: "idle" | "running" }>;
     /**
@@ -71,6 +81,14 @@ export interface KernelClient {
   };
   /** The models the fence's own providers serve, and the default. */
   models(): Promise<ModelChoices>;
+  providers: {
+    /**
+     * Sends one request to the provider that serves `call.model` (the fence's own, else the system's) and
+     * streams its events back. The provider runs in its own fence with its own configuration; this fence never
+     * sees the key. `signal` ends the stream and the provider's request with it.
+     */
+    call(call: ProviderCall, onEvent: (event: ProviderEvent) => void, signal?: AbortSignal): Promise<void>;
+  };
   /**
    * This person's own configuration layer for a package installed in this fence. `show` reports every key's
    * state with secrets redacted; `set` and `unset` change the person's layer, secrets included, and the kernel
@@ -94,6 +112,10 @@ export interface KernelClient {
 export interface PackageStepContext extends Omit<StepContext, "packages"> {
   packages: PackageQuery;
   env: StepEnv;
+  /** Streams one event to whoever is watching the turn, as it is. The kernel relays it and reads only `usage` and `error`. */
+  emit(event: TurnEvent): void;
+  /** Aborted when the turn is stopped while this step runs. A step that is waiting on something stops it here and returns what it has. */
+  signal: AbortSignal;
 }
 
 export type Step = (ctx: PackageStepContext) => Promise<StepResult | void>;

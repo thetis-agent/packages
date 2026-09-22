@@ -3,10 +3,9 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { Fences, Manifest, Message, Mount, PackageInfo, SessionRecord, StoreDriver, TurnEvent, UserRecord, Userspace, WatchedTurnEvent } from "@thetis/contracts";
+import type { Fences, Manifest, Message, PackageInfo, SessionRecord, StoreDriver, TurnEvent, UserRecord, Userspace, WatchedTurnEvent } from "@thetis/contracts";
 import { LayeredConfig } from "@thetis/lib/config";
 import { Journal } from "@thetis/lib/journal";
-import { MountStore } from "@thetis/lib/mounts";
 import { SessionStore } from "@thetis/lib/session-store";
 import { RestartLatch, type ArmResult, type FireReport, type RestartState } from "@thetis/lib/restart";
 import { memoryStore, StoreMirror } from "@thetis/lib/store";
@@ -14,18 +13,17 @@ import { UserspaceLayout } from "@thetis/lib/userspace-layout";
 import { UserStore } from "../src/users.js";
 import { AuthService } from "../src/auth.js";
 import { ProviderRegistry } from "../src/providers.js";
-import { ProviderCallStep } from "../src/pipeline/provider-call.js";
 import { ServiceSupervisor } from "../src/services.js";
 import { ConfigService, type ConfigChange } from "../src/settings.js";
 import { PackageManager } from "../src/packages/manager.js";
 import { PackageRegistry } from "../src/packages/registry.js";
 import { validateManifest } from "../src/packages/manifest.js";
-import { Enumerator, BUILTIN_CALL } from "../src/pipeline/enumerator.js";
-import { defaultConfig, saveConfig, loadConfig, packagesLayer, MARKETPLACE_URL } from "../src/config.js";
+import { Enumerator } from "../src/pipeline/enumerator.js";
+import { defaultConfig, saveConfig, loadConfig, packagesLayer } from "../src/config.js";
 import { createControlHandler, redact } from "../src/control.js";
 import { createRpcHandler, type RpcServices } from "../src/rpc.js";
 import { SessionApi, SESSION_ID } from "../src/sessions/api.js";
-import type { PipelineRunner } from "../src/pipeline/runner.js";
+import { PipelineRunner } from "../src/pipeline/runner.js";
 import type { KernelServices } from "../src/kernel.js";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "thetis-unit-"));
@@ -68,19 +66,83 @@ const pkgs: PackageInfo[] = [
   { name: "@a/hist", version: "1", type: "loader", description: "", root: "/y", thetis: { type: "loader", steps: [{ id: "trim", phase: "history", export: "trim" }] } },
 ];
 
-test("default enumerator orders steps by phase and places the built-in call last in its phase", () => {
+test("default enumerator schedules declared steps by phase in install order, and nothing of the kernel's own", () => {
   const e = new Enumerator(defaultConfig("/tmp/h", "/tmp/p"), undefined as never);
   const plan = e.defaultPlan(pkgs).map((s) => `${s.phase}:${s.export}`);
-  assert.deepEqual(plan, ["history:trim", "prompt:load", "call:provider-call", "after:save"]);
+  assert.deepEqual(plan, ["history:trim", "prompt:load", "after:save"]);
+  assert.deepEqual(e.defaultPlan(pkgs)[0], { package: "@a/hist", export: "trim", id: "@a/hist#trim", phase: "history" });
+  const harness = { ...pkgs[0], name: "@a/harness", thetis: { type: "harness", steps: [{ id: "call", phase: "execute", export: "call" }] } } as PackageInfo;
+  const withCall = e.defaultPlan([...pkgs, harness]).map((s) => `${s.phase}:${s.export}`);
+  assert.deepEqual(withCall, ["history:trim", "prompt:load", "execute:call", "after:save"], "the model call is a package's step in the execute phase");
+  assert.deepEqual(defaultConfig("/tmp/h", "/tmp/p").phases, ["history", "prompt", "tools", "call", "execute", "after"]);
+  assert.equal("callPhase" in defaultConfig("/tmp/h", "/tmp/p"), false);
 });
 
-test("enumerator output is validated against declared package steps", () => {
+test("enumerator output is validated against declared package steps only", () => {
   const e = new Enumerator(defaultConfig("/tmp/h", "/tmp/p"), undefined as never);
   assert.throws(() => e.validate([{ package: "@a/mem", export: "nope" }], pkgs), /undeclared/);
   assert.throws(() => e.validate({} as never, pkgs), /array/);
-  const ok = e.validate([{ package: "@a/hist", export: "trim" }, BUILTIN_CALL], pkgs);
-  assert.equal(ok.length, 2);
-  assert.equal(ok[1].package, "@thetis/kernel");
+  assert.throws(() => e.validate([{ package: "@thetis/kernel", export: "provider-call" }], pkgs), /undeclared/, "the kernel declares no step, so nothing can schedule one of it");
+  const ok = e.validate([{ package: "@a/hist", export: "trim" }, { package: "@a/mem", export: "save", id: "mine", phase: "after" }], pkgs);
+  assert.deepEqual(ok, [
+    { package: "@a/hist", export: "trim", id: "@a/hist#trim", phase: undefined },
+    { package: "@a/mem", export: "save", id: "mine", phase: "after" },
+  ]);
+});
+
+/** A runner over recorded fences: what each step was sent, and what it streams back. */
+function runner(home: string, plan: PackageInfo[], step: (payload: { package: string; export: string; ctx: { config: unknown } }, emit: (e: unknown) => void, signal?: AbortSignal) => Promise<unknown>) {
+  const sent: { package: string; export: string; config: unknown }[] = [];
+  const fences = {
+    request: async (_us: Userspace, op: string, payload: { package: string; export: string; ctx: { config: unknown } }, onEvent?: (e: unknown) => void, signal?: AbortSignal) => {
+      assert.equal(op, "step", "every step is the fence's; the kernel runs none itself");
+      sent.push({ package: payload.package, export: payload.export, config: payload.ctx.config });
+      return step(payload, (e) => onEvent?.(e), signal);
+    },
+  } as unknown as Fences;
+  const config = defaultConfig(home, "/proj");
+  const packages = { installed: () => plan } as unknown as PackageManager;
+  const settings = { effective: async (_us: Userspace, name: string) => ({ for: name }) };
+  const store = new SessionStore(SESSION_ID);
+  const r = new PipelineRunner(config, settings, new Enumerator(config, fences), packages, fences, store, new Journal(home));
+  const us = new UserspaceLayout(home).ensure("bob");
+  const session: SessionRecord = { id: "s_1", user: "bob", createdAt: "0", updatedAt: "0", turns: 0, conversation: [], harness: {} };
+  return { r, us, session, sent, store };
+}
+
+test("runner: a step's events are the turn's, with its package's configuration, usage summed and the first error kept; a cancel during the last step ends in one cancelled event", async () => {
+  const home = tmp();
+  try {
+    const harness = { ...pkgs[0], name: "@a/harness", thetis: { type: "harness", steps: [{ id: "call", phase: "execute", export: "call" }] } } as PackageInfo;
+    const control = new AbortController();
+    const { r, us, session, sent, store } = runner(home, [pkgs[1], harness], async (payload, emit, signal) => {
+      if (payload.export === "trim") return undefined;
+      emit({ type: "text", delta: "hel" });
+      emit({ type: "usage", usage: { tokens: 3 } });
+      emit({ type: "error", message: "first", code: "provider" });
+      emit({ type: "error", message: "second" });
+      emit({ type: "usage", usage: { tokens: 4 } });
+      control.abort();
+      assert.ok(signal?.aborted, "the step's signal is the turn's");
+      // A step returns what it has on cancel; the runner, not the step, says the turn was cancelled.
+      return { conversation: [{ role: "user", content: "go" }, { role: "assistant", content: "hel" }] };
+    });
+    const events: TurnEvent[] = [];
+    await r.runTurn(us, session, [{ role: "user", content: "go" }], (e) => events.push(e), control.signal);
+    assert.deepEqual(sent, [{ package: "@a/hist", export: "trim", config: { for: "@a/hist" } }, { package: "@a/harness", export: "call", config: { for: "@a/harness" } }]);
+    assert.deepEqual(events.map((e) => e.type), ["turn.start", "step.start", "step.end", "step.start", "text", "usage", "error", "error", "usage", "step.end", "error", "turn.end"]);
+    const errors = events.filter((e): e is Extract<TurnEvent, { type: "error" }> => e.type === "error").map((e) => e.code);
+    assert.deepEqual(errors, ["provider", undefined, "cancelled"], "the step's own errors are relayed as they are, and the cancel is one event after the last step");
+    const saved = store.load(us.sessions, "s_1");
+    assert.deepEqual(saved?.conversation.map((m) => m.content), ["go", "hel"], "what the step returned before the cancel is kept");
+    assert.equal(saved?.turn, undefined);
+    const [end] = new Journal(home).tail(1, { kind: "turn.end" });
+    const data = end.data as { reported: unknown; error: { code?: string } };
+    assert.deepEqual(data.reported, { tokens: 7 }, "usage is summed across a step's reports");
+    assert.equal(data.error.code, "provider", "the first error is the turn's failure");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });
 
 test("auth: passwords, tokens, expiry, and revocation", async () => {
@@ -151,20 +213,18 @@ test("config: packages keep their ${VAR} references while the rest is interpolat
     const loaded = loadConfig(home, "/proj", { MODEL: "m1", EXA_KEY: "sk" });
     assert.equal(loaded.model, "m1");
     assert.equal(loaded.packages["@thetis/exa"].apiKey, "${EXA_KEY}", "the config service resolves these at read time");
-    assert.equal(loaded.packages["@thetis/provider-openrouter"].apiKey, "${OPENROUTER_API_KEY}");
-    assert.deepEqual(packagesLayer(home)["@thetis/exa"], { apiKey: "${EXA_KEY}" });
-    assert.deepEqual(packagesLayer(home)["@thetis/marketplace"], { registries: [{ name: "thetis", url: MARKETPLACE_URL }] }, "the defaults sit under the file");
+    assert.equal(loaded.packages["@thetis/provider-openrouter"], undefined, "the kernel compiles in no package's defaults; a manifest declares them");
+    assert.deepEqual(packagesLayer(home), { "@thetis/exa": { apiKey: "${EXA_KEY}" } }, "the file layer is the file and nothing under it");
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
 });
 
-test("config: the approved extensions are a registry a fresh install already has", () => {
+test("config: the kernel knows no package by name: a fresh install's file layer is empty", () => {
   const cfg = defaultConfig("/tmp/h", "/tmp/p");
-  assert.ok(cfg.systemPackages._system?.includes("@thetis/marketplace"), "the service runs in the system userspace");
-  const registries = (cfg.packages["@thetis/marketplace"] as { registries: { name: string; url: string }[] }).registries;
-  assert.deepEqual(registries, [{ name: "thetis", url: MARKETPLACE_URL }]);
-  assert.match(MARKETPLACE_URL, /^https:\/\/github\.com\/thetis-agent\/packages\.git$/);
+  assert.deepEqual(cfg.packages, {});
+  assert.ok(cfg.systemPackages._system?.includes("@thetis/marketplace"), "which packages run is a list of names; what they need is theirs to declare");
+  assert.deepEqual(packagesLayer("/nonexistent/home"), {});
 });
 
 test("config: a registry url survives being saved and read back, so an operator can replace it", () => {
@@ -324,68 +384,6 @@ test("providers.forget drops one userspace's cached model list, so a reloaded pr
   providers.forget("alice");
   await providers.listModels(alice);
   assert.equal(asked, 2, "after a reload the provider is asked what it serves now");
-});
-
-test("mounts.set: validates the list, writes the store, journals the change, and reopens the fence", async () => {
-  const home = tmp();
-  try {
-    const driver = memoryStore();
-    const users = new UserStore(await mirror(driver, "users"));
-    users.create("alice");
-    const closed: string[] = [];
-    const ensured: string[] = [];
-    const docs = await mirror<{ mounts: Mount[] }>(driver, "mounts");
-    const k = {
-      users,
-      journal: new Journal(home),
-      mounts: new MountStore(docs),
-      fences: { close: async (id: string) => void closed.push(id) },
-      // `mounts.set` reaches the fence through `services.reload`, which is the pair below; the supervisor's
-      // own reload is tested for being that pair, so the double here keeps this test about mounts.
-      services: { ensure: async (id: string) => void ensured.push(id), reload: async (id: string) => { await k.fences.close(id); await k.services.ensure(id); } },
-    } as unknown as KernelServices;
-    const control = createControlHandler(k);
-    const set = (user: string, mounts: unknown) => control("mounts.set", { user, mounts });
-    await assert.rejects(set("nobody", []), code("not-found"));
-    await assert.rejects(set("_system", []), /takes no mounts/);
-    await assert.rejects(set("alice", "nope"), /list of at most 32/);
-    await assert.rejects(set("alice", Array.from({ length: 33 }, () => ({ path: "/x", mode: "ro" }))), /at most 32/);
-    for (const path of ["relative", "/a/../b", "/a/", "/a//b", "/", ""]) {
-      await assert.rejects(set("alice", [{ path, mode: "rw" }]), (e: { code: string; message: string }) => e.code === "invalid" && /invalid mount path/.test(e.message), path);
-    }
-    await assert.rejects(set("alice", [{ path: "/srv/x", mode: "rwx" }]), /invalid mount mode/);
-    await assert.rejects(set("alice", [null]), /invalid mount path/);
-    assert.deepEqual(closed, [], "nothing changed until the list is valid");
-    const mounts: Mount[] = [{ path: "/srv/x", mode: "ro" }, { path: home, mode: "rw" }];
-    // The answer and the list say what the host holds now: the temporary home is there, /srv/x is not.
-    const state = [{ path: "/srv/x", mode: "ro", present: false, kind: "none" }, { path: home, mode: "rw", present: true, kind: "dir" }];
-    assert.deepEqual(await set("alice", mounts), state);
-    await docs.flush();
-    assert.deepEqual(new MountStore(await mirror(driver, "mounts")).get("alice"), mounts, "persisted");
-    assert.deepEqual(closed, ["alice"], "the fence is closed so it reopens with the binds");
-    assert.deepEqual(ensured, ["alice"], "the supervisor reopens it and restarts the services");
-    const row = k.journal.tail(1, { kind: "mounts" })[0];
-    assert.equal(row.target, "alice");
-    assert.equal(row.actor, "operator");
-    assert.deepEqual(row.data, { mounts });
-    assert.deepEqual(await control("mounts.list", { user: "alice" }), { alice: state });
-    assert.deepEqual(await control("mounts.list", {}), { alice: state });
-    await set("alice", []);
-    assert.deepEqual(await control("mounts.list", {}), {}, "an empty list removes the entry");
-    // browse: the operator sees the host filesystem, and learns what a path is when it is not a directory.
-    mkdirSync(join(home, "repos"));
-    mkdirSync(join(home, ".hidden"));
-    writeFileSync(join(home, "note.txt"), "");
-    const listing = (await control("mounts.browse", { path: home })) as { entries: { name: string; path: string }[]; readable: boolean; parent: string | null };
-    assert.equal(listing.readable, true);
-    assert.deepEqual(listing.entries, [{ name: "repos", path: join(home, "repos") }], "directories only, and no hidden names");
-    assert.equal(listing.parent, dirname(home));
-    assert.equal((await control("mounts.browse", { path: "/srv/x" }) as { kind: string }).kind, "none");
-    assert.equal((await control("mounts.browse", { path: join(home, "note.txt") }) as { kind: string }).kind, "file");
-    await assert.rejects(control("mounts.browse", { path: "relative" }), /absolute and normalized/);
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
 });
 
 /**
@@ -609,39 +607,108 @@ test("sessions.watch: every turn of the user reaches the watcher with its sessio
   }
 });
 
-test("provider call: a call to a tool the call withheld is resolved against the installed packages and run; an unknown name stays refused", async () => {
-  const requests: { op: string; payload: { package?: string; export?: string; name?: string } }[] = [];
-  const fences = { request: async (_us: Userspace, op: string, payload: { package?: string; export?: string; name?: string }) => (requests.push({ op, payload }), `ran ${payload.name}`) } as unknown as Fences;
-  let round = 0;
-  const providers = {
-    resolve: async () => ({}),
-    call: async (_p: unknown, _call: unknown, onEvent: (e: { type: string; call?: unknown; delta?: string }) => void) => {
-      round++;
-      if (round === 1) onEvent({ type: "tool_call", call: { id: "c1", name: "hidden_tool", args: { a: 1 } } });
-      else if (round === 2) onEvent({ type: "tool_call", call: { id: "c2", name: "never_declared", args: {} } });
-      else onEvent({ type: "text", delta: "done" });
-    },
-  } as unknown as ProviderRegistry;
-  const step = new ProviderCallStep(noSettings, providers, fences);
-  const pkg = { name: "@a/p", version: "1", type: "tool", description: "", root: "", thetis: { type: "tool", tools: [{ name: "hidden_tool", description: "Hidden.", parameters: { type: "object", properties: {} }, export: "run" }] } } as PackageInfo;
-  const ctx = {
-    session: { id: "s", user: "u" },
-    turn: { id: "t", input: [] },
-    conversation: [{ role: "user", content: "go" }] as Message[],
-    call: { model: "m", messages: [], tools: [], params: {}, hints: { withheld: ["hidden_tool"] } },
-    harness: {},
-    packages: [pkg],
-    config: {},
-  };
-  const events: TurnEvent[] = [];
-  const out = await step.run({ id: "u" } as Userspace, ctx, (e) => events.push(e));
-  assert.deepEqual(requests, [{ op: "tool", payload: { package: "@a/p", export: "run", name: "hidden_tool", args: { a: 1 }, session: ctx.session, config: {} } }], "the withheld tool ran in the fence under its own package");
-  const results = (out.conversation ?? []).filter((m) => m.role === "tool").map((m) => [m.name, m.content]);
-  assert.deepEqual(results, [["hidden_tool", "ran hidden_tool"], ["never_declared", "error: unknown tool: never_declared"]]);
-  // The same name with nothing withheld is refused: the hint is the only door, and scoping opens it.
-  round = 0;
-  requests.length = 0;
-  const closed = await step.run({ id: "u" } as Userspace, { ...ctx, conversation: [{ role: "user", content: "go" }], call: { ...ctx.call, hints: {} } }, () => {});
-  assert.deepEqual(requests, []);
-  assert.equal((closed.conversation ?? []).find((m) => m.role === "tool")?.content, "error: unknown tool: hidden_tool");
+test("sessions.delete waits for the cancelled turn before removing the record; over rpc a dropped send cancels its turn and providers.call routes by model", async () => {
+  const home = tmp();
+  try {
+    const driver = memoryStore();
+    const users = new UserStore(await mirror(driver, "users"));
+    users.create("bob");
+    const packages = { installed: () => [{}], seedSystem: () => {} } as unknown as PackageManager;
+    const store = new SessionStore(SESSION_ID);
+    const layout = new UserspaceLayout(home);
+    const runner = {
+      runTurn: async (us: Userspace, session: SessionRecord, _input: Message[], emit: (e: TurnEvent) => void, signal: AbortSignal) => {
+        emit({ type: "turn.start", turn: "t1", session: session.id });
+        await new Promise<void>((done) => signal.addEventListener("abort", () => done(), { once: true }));
+        emit({ type: "error", message: "turn cancelled", code: "cancelled" });
+        store.save(us.sessions, { ...session, turns: session.turns + 1 });
+        emit({ type: "turn.end", turn: "t1", session: session.id });
+        return session;
+      },
+    } as unknown as PipelineRunner;
+    const api = new SessionApi(users, layout, packages, store, runner);
+    const ref = api.create("bob");
+    const events: TurnEvent[] = [];
+    const turn = (async () => {
+      for await (const e of api.send("bob", ref.id, "wait")) events.push(e);
+    })();
+    await new Promise((r) => setTimeout(r, 5));
+    assert.equal(api.inspect("bob", ref.id).status, "running");
+    await api.delete("bob", ref.id);
+    await turn;
+    assert.deepEqual(events.map((e) => e.type), ["turn.start", "error", "turn.end"], "the running turn was cancelled");
+    assert.equal(store.load(layout.pathFor("bob").sessions, ref.id), undefined, "the turn's closing save landed before the removal, not after");
+    assert.deepEqual(api.list("bob"), []);
+    assert.throws(() => api.inspect("bob", ref.id), code("not-found"));
+    await assert.rejects(api.delete("bob", ref.id), code("not-found"));
+
+    // Over rpc: the fence's signal cancels the turn the send started.
+    const calls: { model: string; signal?: AbortSignal }[] = [];
+    const providers = {
+      resolve: async (_us: Userspace, model: string) => ({ model }),
+      call: async (p: { model: string }, _call: unknown, onEvent: (e: unknown) => void, signal?: AbortSignal) => {
+        calls.push({ model: p.model, signal });
+        onEvent({ type: "text", delta: `from ${p.model}` });
+      },
+    } as unknown as ProviderRegistry;
+    const rpc = createRpcHandler(layout.pathFor("bob"), { users, sessions: api, providers } as unknown as RpcServices);
+    const again = api.create("bob");
+    const over: TurnEvent[] = [];
+    const life = new AbortController();
+    const sent = rpc("sessions.send", { session: again.id, input: "wait" }, (e) => over.push(e as TurnEvent), life.signal);
+    await new Promise((r) => setTimeout(r, 5));
+    assert.equal(api.inspect("bob", again.id).status, "running");
+    life.abort();
+    await sent;
+    assert.deepEqual(over.map((e) => e.type), ["turn.start", "error", "turn.end"], "dropping the call cancelled the turn");
+    assert.equal(api.inspect("bob", again.id).status, "idle");
+    const streamed: unknown[] = [];
+    assert.equal(await rpc("providers.call", { call: { model: "m1", messages: [], tools: [], params: {} } }, (e) => streamed.push(e), life.signal), null);
+    assert.deepEqual(streamed, [{ type: "text", delta: "from m1" }]);
+    assert.equal(calls[0].model, "m1", "resolved by the call's model");
+    assert.equal(calls[0].signal, life.signal, "the fence's signal ends the provider's request");
+    await assert.rejects(rpc("providers.call", { call: {} }), code("rpc"));
+    assert.equal(await rpc("sessions.delete", { session: again.id }), null);
+    assert.deepEqual(api.list("bob"), []);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("host.<name>.<export>: the control handler journals the call without its arguments and hands it, actor included, to the host; a non-admin actor is refused", async () => {
+  const home = tmp();
+  try {
+    const users = new UserStore(await mirror(memoryStore(), "users"));
+    users.create("alice", "admin");
+    users.create("bob");
+    const calls: { name: string; method: string; args: Record<string, unknown> }[] = [];
+    const k = {
+      users,
+      journal: new Journal(home),
+      hosts: { call: async (name: string, method: string, args: Record<string, unknown>) => (calls.push({ name, method, args }), { ok: true }) },
+    } as unknown as KernelServices;
+    const control = createControlHandler(k);
+    // The operator at the socket: no actor, and the row says so. The arguments reach the host and never the journal.
+    assert.deepEqual(await control("host.grants.mountsSet", { user: "bob", mounts: [{ path: "/srv/x", mode: "ro" }] }), { ok: true });
+    assert.deepEqual(calls, [{ name: "grants", method: "mountsSet", args: { user: "bob", mounts: [{ path: "/srv/x", mode: "ro" }] } }]);
+    let row = k.journal.tail(1, { kind: "host.call" })[0];
+    assert.deepEqual([row.actor, row.target, row.data], ["operator", "bob", { name: "grants", method: "mountsSet" }]);
+    // Through an admin's fence: the actor rides along to the package, and names the row.
+    await control("host.grants.sshImport", { user: "bob", actor: "alice", name: "k", privateKey: "SECRET" });
+    assert.deepEqual(calls[1], { name: "grants", method: "sshImport", args: { user: "bob", actor: "alice", name: "k", privateKey: "SECRET" } });
+    row = k.journal.tail(1, { kind: "host.call" })[0];
+    assert.deepEqual([row.actor, row.target, row.data], ["alice", "bob", { name: "grants", method: "sshImport" }]);
+    assert.ok(!readFileSync(join(home, "journal.jsonl"), "utf8").includes("SECRET"), "no argument is journalled");
+    // A person who is not an admin, and the system userspace, are refused before the host sees anything.
+    await assert.rejects(control("host.grants.sshSet", { user: "bob", actor: "bob", ssh: [] }), code("unauthorized"));
+    await assert.rejects(control("host.grants.sshSet", { user: "bob", actor: "_system", ssh: [] }), code("unauthorized"));
+    assert.equal(calls.length, 2);
+    assert.equal(k.journal.tail(10, { kind: "host.call" }).length, 2, "a refusal is not a call");
+    // Only the three-part name is a host method; anything else is still unknown.
+    await assert.rejects(control("host.grants", {}), /unknown control method/);
+    await assert.rejects(control("host.grants.mountsSet.extra", {}), /unknown control method/);
+    await assert.rejects(control("hosts.grants.mountsSet", {}), /unknown control method/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });

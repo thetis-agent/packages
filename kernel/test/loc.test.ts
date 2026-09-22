@@ -1,18 +1,11 @@
-// The kernel must stay small: under 1,400 lines of code, not counting imports, re-exports,
-// blank lines, comment-only lines, or tests. Mechanism belongs in @thetis/lib and @thetis/sandbox.
+// The kernel must stay small, and from here on it only shrinks. The guard counts lines of code, not
+// imports, re-exports, blank lines, comment-only lines, or tests. Mechanism belongs in @thetis/lib and
+// @thetis/sandbox; behaviour belongs in packages.
 //
-// The limit was 1,200 until three features landed in the authority layer at once: the fence reload, the
-// staleness report, and the daemon restart. Each is a question about who may do what, so the kernel is
-// where they belong, and their mechanism did go to @thetis/lib (freshness, the restart latch) and
-// @thetis/sandbox. The guard stays a forcing function; it now has room to spend rather than a ceiling
-// the next honest feature has to squeeze under.
-//
-// 1,400 to 1,450 for ssh grants, which are the same kind of question: which credential may a person's
-// fence use. It earned the room first. The mechanism went to @thetis/lib (SshStore, parseSshGrants,
-// withKeyPresence, knownHostsOf) and @thetis/sandbox (the agent itself), and the guard caught that
-// granting a mount and granting a key are one act written twice -- so control.ts now has one `grant` and
-// one `listing` serving both, and is shorter per verb than it was before. What is left over is the two
-// new verbs themselves, and those belong here.
+// The limit ratchets: it is set a little above the count on the day the kernel was declared finished
+// (1,332 on 2026-09-22, after the model-call loop moved to @thetis/harness-core and the mounts and ssh
+// features moved to @thetis/host-grants), and it moves down, never up. A change that needs more room is
+// a feature in the wrong package: see packages/kernel/README.md.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -20,7 +13,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "../../src");
-const LIMIT = 1450;
+const LIMIT = 1350;
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((f) => {

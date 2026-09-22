@@ -15,10 +15,18 @@ export interface HandleOptions {
   requestTimeoutMs: number;
   /** How long `close` waits for the agent to exit after SIGTERM before it kills it. */
   exitGraceMs?: number;
+  /** How long a cancelled request may still answer before it is settled as cancelled. Default `CANCEL_GRACE_MS`. */
+  cancelGraceMs?: number;
   log: (line: string) => void;
 }
 
 const EXIT_GRACE_MS = 2_000;
+/**
+ * How long a cancelled request is given to answer. The cancel reaches a step as its signal, and a step that
+ * was stopped returns what it has: the text streamed so far, the tool calls closed. Settling at once would
+ * throw that away, so the reply is waited for; one that never comes settles with code `cancelled` here.
+ */
+export const CANCEL_GRACE_MS = 5_000;
 /**
  * How long the agent is given to answer `shutdown`. The ask exists because the signal does not arrive: with
  * bubblewrap the child of this process is the sandbox, and `bwrap --unshare-pid` does not forward SIGTERM to
@@ -30,12 +38,14 @@ const SHUTDOWN_MS = 500;
 /**
  * Kernel to agent: `{ id, op, payload }`, answered by `{ id, event }`* and `{ id, result | error }`;
  * `{ cancel: id }` aborts one request. Agent to kernel: `{ rpc, method, args }`, answered by
- * `{ rpcEvent, event }`* and `{ rpcResult, result | error, code }`.
+ * `{ rpcEvent, event }`* and `{ rpcResult, result | error, code }`; `{ rpcCancel: rpc }` aborts one call.
  */
 export class ProcessHandle implements FenceHandle {
   private readonly pending = new PendingCalls("r");
-  /** Aborts when the agent is gone: the signal every RPC it opened is served with, so a kernel method that streams for the life of the fence ends with it. */
+  /** Aborts when the agent is gone: every RPC it opened is served with a signal that follows it, so a kernel method that streams for the life of the fence ends with it. */
   private readonly life = new AbortController();
+  /** The RPCs the agent opened and the kernel is still serving, by the agent's id, so `{ rpcCancel }` can abort one. */
+  private readonly served = new Map<string, AbortController>();
   /** Resolves when the agent process is gone, so the pool can forget a handle the moment it is a corpse. */
   readonly gone: Promise<void>;
   private closed = false;
@@ -61,13 +71,16 @@ export class ProcessHandle implements FenceHandle {
     const call: OpenCall = { onEvent };
     const { id, result } = this.pending.open(call);
     const timer = setTimeout(() => this.pending.settle(id, undefined, new CodedError(`fence request ${op} timed out`, "fence")), this.opts.requestTimeoutMs);
+    let grace: NodeJS.Timeout | undefined;
+    // The agent is told; its reply within the grace is delivered as any other, since a stopped step returns what it kept.
     const onAbort = () => {
       this.send({ cancel: id });
-      this.pending.settle(id, undefined, new CodedError(`fence request ${op} cancelled`, "cancelled"));
+      grace = setTimeout(() => this.pending.settle(id, undefined, new CodedError(`fence request ${op} cancelled`, "cancelled")), this.opts.cancelGraceMs ?? CANCEL_GRACE_MS);
     };
     signal?.addEventListener("abort", onAbort, { once: true });
     call.cleanup = () => {
       clearTimeout(timer);
+      clearTimeout(grace);
       signal?.removeEventListener("abort", onAbort);
     };
     this.send({ id, op, payload });
@@ -117,13 +130,27 @@ export class ProcessHandle implements FenceHandle {
       void this.serveRpc(msg.rpc, String(msg.method), msg.args);
       return;
     }
+    if (typeof msg.rpcCancel === "string") {
+      this.served.get(msg.rpcCancel)?.abort();
+      return;
+    }
     // Package code raised the error: the agent reports it without a code.
     this.pending.receive({ id: String(msg.id), ...msg }, "package");
   }
 
+  /** Each call is served with its own signal: `{ rpcCancel }` aborts that one, and the agent's exit aborts them all. */
   private async serveRpc(rid: string, method: string, args: unknown): Promise<void> {
-    const outcome = await callHandler(this.rpc, method, args, (event) => this.send({ rpcEvent: rid, event }), this.life.signal);
-    this.send({ rpcResult: rid, ...outcome });
+    const control = new AbortController();
+    const onLife = () => control.abort();
+    this.life.signal.addEventListener("abort", onLife, { once: true });
+    this.served.set(rid, control);
+    try {
+      const outcome = await callHandler(this.rpc, method, args, (event) => this.send({ rpcEvent: rid, event }), control.signal);
+      this.send({ rpcResult: rid, ...outcome });
+    } finally {
+      this.served.delete(rid);
+      this.life.signal.removeEventListener("abort", onLife);
+    }
   }
 
   private onExit(code: number | null): void {

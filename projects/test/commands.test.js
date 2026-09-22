@@ -132,9 +132,9 @@ test("browse and mount are an admin's, act on the person's own fence, and report
   const admin = await makeEnv({
     role: "admin",
     operator: (method, args) => {
-      if (method === "mounts.browse") return listing;
-      if (method === "mounts.list") return { alice: written.map((m) => ({ ...m, present: false, kind: "none" })) };
-      if (method === "mounts.set") {
+      if (method === "host.grants.mountsBrowse") return listing;
+      if (method === "host.grants.mountsList") return { alice: written.map((m) => ({ ...m, present: false, kind: "none" })) };
+      if (method === "host.grants.mountsSet") {
         written = args.mounts;
         return args.mounts.map((m) => ({ ...m, present: m.path === "/srv/repos", kind: m.path === "/srv/repos" ? "dir" : "none" }));
       }

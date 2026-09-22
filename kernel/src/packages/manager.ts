@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
-import { STORAGE_TYPE, SYSTEM_SCOPE, SYSTEM_USER, type DeletedPackage, type ExecResult, type Fences, type Manifest, type PackageInfo, type PackageRecord, type PackageSource, type UserRecord, type Userspace } from "@thetis/contracts";
+import { HOST_TYPE, STORAGE_TYPE, SYSTEM_SCOPE, SYSTEM_USER, type DeletedPackage, type ExecResult, type Fences, type Manifest, type PackageInfo, type PackageRecord, type PackageSource, type UserRecord, type Userspace } from "@thetis/contracts";
 import { assert, CodedError, errorMessage } from "@thetis/lib/error";
 import { buildCommand, cloneCommand, cloneSlug, copyPackageAs, hasPackageJson, headOf, isGitSource, isInside, linkDir, removeLink, splitSource } from "@thetis/lib/pkg-fs";
 import type { KernelConfig } from "../config.js";
@@ -351,6 +351,7 @@ export class PackageManager {
 /** A storage driver serves the service plane from the host; a fence has no use for it and must not hold one. */
 function installable(m: Manifest): Manifest {
   assert(m.thetis.type !== STORAGE_TYPE, `${m.name} is a storage driver: it runs on the host and is chosen by storage.driver in thetis.config.json; it is not installed`, "invalid");
+  assert(m.thetis.type !== HOST_TYPE, `${m.name} is a host package: the host loads it by name from the shipped or promoted packages and answers host.${m.thetis.host?.name ?? "<name>"}.<export>; it is not installed`, "invalid");
   return m;
 }
 

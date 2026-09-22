@@ -9,31 +9,32 @@ metadata:
 ---
 # The pipeline
 
-A turn is one pass through the pipeline of a session. The pipeline is a list of steps. The kernel builds the list from the configuration and the installed packages. The kernel sends each step into the fence with the three variables. The step returns new values. The kernel validates and applies them.
+A turn is one pass through the pipeline of a session. The pipeline is a list of steps. The kernel builds the list from the configuration and the installed packages. The kernel sends each step into the fence with the three variables. The step returns new values. The kernel validates and applies them, and relays what the step emits. Every step is package code; the kernel has none of its own.
 
 ## Phases
 
 The configuration field `phases` gives the order. The default is:
 
 ```
-history -> prompt -> tools -> call -> after
+history -> prompt -> tools -> call -> execute -> after
 ```
 
-`callPhase` (default `call`) names the phase that ends with the built-in provider call. The kernel gives no meaning to phase names. The intended use:
+The kernel gives no meaning to phase names. The intended use:
 
 | Phase | Intended use |
 |---|---|
 | `history` | Compact, trim, or rewrite the conversation. Set `call.messages`. |
 | `prompt` | Build `call.system`. Inject memory or skills. Set `call.model` or `call.params`. |
 | `tools` | Attach tools to `call.tools`. |
-| `call` | Steps that must run just before the provider call. The built-in call runs last in this phase. |
+| `call` | Steps that shape the request just before it is sent: scoping, cache hints. |
+| `execute` | Make the call. The `call` step of `@thetis/harness-core` runs here: the provider request, the tool loop. |
 | `after` | Read the model output. Write memory. Update `harness`. |
 
 A step declared with `phase: "bench"` never runs on an ordinary turn. Only the bench adds that phase.
 
 ## Enumeration
 
-The default plan: for each phase in order, for each installed package in install order, add each declared step of that phase. When the phase is `callPhase`, add the built-in call last. The built-in call is `{ package: "@thetis/kernel", export: "provider-call" }`.
+The default plan: for each phase in order, for each installed package in install order, add each declared step of that phase. There is no built-in step: the model call is `@thetis/harness-core`'s `call` step, declared in phase `execute` like any other.
 
 A package can replace the plan. Set `config.enumerator` to `{ "package": "@alice/my-enumerator", "export": "enumerate" }`. The kernel sends the operation `enumerate` into the fence with `{ session, packages, phases }`. The function returns an array of step references `{ package, export, phase? }`. Every reference must name an installed package that declares a step with that `export`. Otherwise the turn fails with the code `enumerator`.
 
@@ -44,7 +45,6 @@ export async function enumerate(ctx) {
     for (const pkg of ctx.packages.list()) {
       for (const s of pkg.thetis.steps ?? []) if (s.phase === phase) steps.push({ package: pkg.name, export: s.export, phase });
     }
-    if (phase === "call") steps.push({ package: "@thetis/kernel", export: "provider-call", phase });
   }
   return steps;
 }
@@ -62,8 +62,10 @@ interface PackageStepContext {
   call: ProviderCall;
   harness: HarnessState;
   packages: PackageQuery;          // has(name), get(name), list(type?)
-  env: StepEnv;                    // cwd, root, store, shared, exec, readFile, writeFile, kernel
+  env: StepEnv;                    // cwd, root, store, shared, exec, readFile, writeFile, invokeTool, kernel
   config: Record<string, unknown>; // config.packages[<this package>]
+  emit(event: TurnEvent): void;    // streamed to whoever watches the turn; the kernel reads only usage and error
+  signal: AbortSignal;             // aborted when the turn is stopped
 }
 
 type StepResult = { conversation?: Message[]; call?: ProviderCall; harness?: HarnessState };
@@ -75,7 +77,7 @@ Rules:
 - Return complete values. The kernel replaces the variable. It does not merge. To add one field to `call`, return `{ call: { ...ctx.call, system: "..." } }`.
 - Do not mutate `ctx` and return nothing. The kernel reads only the return value.
 - The context is a copy. It crosses the fence as JSON. Functions do not survive.
-- `ctx.call.messages` is empty for the whole pipeline. The built-in call fills it from the conversation. A step that sets `call.messages` replaces that copy.
+- `ctx.call.messages` is empty until the `execute` phase. The `call` step fills it from the conversation. A step that sets `call.messages` replaces that copy.
 
 ## The three variables
 
@@ -115,11 +117,11 @@ The runner checks each result. An invalid result ends the turn with an `error` e
 5. On an error: `error` with the message and the code. The loop stops.
 6. Always: save `conversation` and `harness`. Emit `turn.end`.
 
-The built-in call sends `call` to the provider. It repeats until the model answers without a tool call. Each tool call runs in the fence. The tool message is `{ role: "tool", content, toolCallId, name }`. An unknown tool name gives `error: unknown tool: <name>`, unless the name is in `call.hints.withheld`: a scoping step (`@thetis/tool-groups`) lists there the tools it took out of `call.tools`, and the kernel resolves such a name against the installed packages and runs it. A thrown tool error gives `error: <message>`. Tool results never end the turn.
+The `call` step of `@thetis/harness-core` (phase `execute`) sends `call` through `env.kernel.providers.call`; the kernel routes it by `call.model` to the provider's fence and streams the events back, so this fence never sees the key. It repeats until the model answers without a tool call. Each tool call runs in this fence through `env.invokeTool`, with the tool package's effective configuration. The tool message is `{ role: "tool", content, toolCallId, name }`. An unknown tool name gives `error: unknown tool: <name>`, unless the name is in `call.hints.withheld`: a scoping step (`@thetis/tool-groups`) lists there the tools it took out of `call.tools`, and the step resolves such a name against `ctx.packages` and runs it. A thrown tool error gives `error: <message>`. Tool results never end the turn. The step streams `text`, `tool.call`, `tool.result`, `message` and `usage` through `ctx.emit`.
 
-The built-in call returns `{ conversation, call }` with the reply and the tool rounds appended to both. It does not change `harness`.
+The step returns `{ conversation, call }` with the reply and the tool rounds appended to both. It does not change `harness`. A step result is atomic, so the step never throws for a provider failure: it returns the partial reply with every dangling tool call closed, emits one `error` event of code `provider`, and the `after` steps still run.
 
-A cancelled turn ends with an `error` event of code `cancelled`. Streamed text stays as a partial assistant message. The event list is in [references/turn-events.md](references/turn-events.md).
+A cancelled turn ends with one `error` event of code `cancelled`: the step honours `ctx.signal`, returns the partial conversation, and the runner produces the event at the next step. Streamed text stays as a partial assistant message. The event list is in [references/turn-events.md](references/turn-events.md).
 
 ## The default harness steps
 
@@ -130,6 +132,7 @@ A cancelled turn ends with an `error` event of code `cancelled`. Streamed text s
 | `@thetis/harness-core` | `attachTools` | `tools` | Adds every declared tool of every package to `call.tools`. The first package with a name wins. |
 | `@thetis/prompt-cache` | `cacheHints` | `call` | Sets `call.hints.cache` and records prefix fingerprints in `harness`. |
 | `@thetis/projects` | `projectPrompt`, `projectTools` | `prompt`, `call` | Adds the project section. Drops switched-off tools. |
+| `@thetis/harness-core` | `call` | `execute` | The provider request and the tool loop, above. |
 | `@thetis/harness-core` | `recordCall` | `after` | Writes `lastCall` to its harness key. Returns only `harness`. |
 
 ## Prompt cache rules
@@ -159,5 +162,5 @@ The agent logs one line per divergence: `prompt-cache: turn 7: message 3 changed
 
 - packages/harness-core/src/index.ts
 - packages/kernel/src/pipeline/runner.ts
-- packages/kernel/src/pipeline/provider-call.ts
 - packages/kernel/src/pipeline/enumerator.ts
+- packages/contracts/src/guest.ts

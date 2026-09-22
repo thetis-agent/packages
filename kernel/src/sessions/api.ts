@@ -18,7 +18,8 @@ export type TurnInput = string | Message[];
 
 /** The session API: the only surface gateways and subagent-spawning steps use. Every call is authorized against a user. */
 export class SessionApi {
-  private readonly running = new Map<string, AbortController>();
+  /** Each running turn: how to stop it, and when it has ended, saved and all. */
+  private readonly running = new Map<string, { control: AbortController; done: Promise<void> }>();
   /** Every turn's events also reach the user's watchers (`watch`), whoever started the turn. */
   private readonly taps = new TurnTaps();
 
@@ -59,24 +60,39 @@ export class SessionApi {
     const key = `${userId}/${sessionId}`;
     assert(!this.running.has(key), `session ${sessionId} already has a turn in progress`, "busy");
     const control = new AbortController();
-    this.running.set(key, control);
     const messages: Message[] = typeof input === "string" ? [{ role: "user", content: input }] : input;
     const queue = new AsyncQueue<TurnEvent>();
     const emit = this.taps.emitter(userId, { session: sessionId, parent: session.parent, input: typeof input === "string" ? input : undefined }, (e) => queue.push(e));
-    this.runner
+    const done = this.runner
       .runTurn(us, session, messages, emit, control.signal, opts)
       .then(() => queue.close(), (err: unknown) => queue.close(err))
       .finally(() => this.running.delete(key));
+    this.running.set(key, { control, done });
     return queue;
   }
 
   /** Stops the running turn of a session. Returns false when no turn is running. The turn ends with an `error` event of code `cancelled`. */
   cancel(userId: string, sessionId: string): boolean {
     this.users.authorize(userId);
-    const control = this.running.get(`${userId}/${sessionId}`);
-    if (!control) return false;
-    control.abort();
+    const turn = this.running.get(`${userId}/${sessionId}`);
+    if (!turn) return false;
+    turn.control.abort();
     return true;
+  }
+
+  /**
+   * Removes a session's record and its index entry. A running turn is cancelled first and waited for, so its
+   * closing save lands before the removal and not after it.
+   */
+  async delete(userId: string, sessionId: string): Promise<void> {
+    const us = this.space(userId);
+    this.load(us, sessionId);
+    const turn = this.running.get(`${userId}/${sessionId}`);
+    if (turn) {
+      turn.control.abort();
+      await turn.done;
+    }
+    this.store.remove(us.sessions, sessionId);
   }
 
   /**

@@ -82,7 +82,8 @@ export function isSupervised(env: NodeJS.ProcessEnv = process.env): boolean {
 }
 
 export class RestartLatch {
-  private readonly config: RestartConfig;
+  /** Held by reference and read on every use, so `config.reload` writing into it in place is seen. */
+  private readonly given: Partial<RestartConfig>;
   private readonly inFlight: () => string[];
   private readonly policy?: () => string | null;
   private readonly env: NodeJS.ProcessEnv;
@@ -101,7 +102,7 @@ export class RestartLatch {
     env?: NodeJS.ProcessEnv;
     now?: () => number;
   }) {
-    this.config = { ...DEFAULTS, ...opts.config };
+    this.given = opts.config ?? {};
     this.inFlight = opts.inFlight;
     this.policy = opts.policy;
     this.env = opts.env ?? process.env;
@@ -118,6 +119,13 @@ export class RestartLatch {
    */
   onFire(handler: (r: FireReport) => void): void {
     this.handler = handler;
+  }
+
+  /** What the object holds now, over the defaults for the keys it lacks. Never cached: a reload must reach it. */
+  private get config(): RestartConfig {
+    const c: Record<string, unknown> = { ...DEFAULTS };
+    for (const [k, v] of Object.entries(this.given)) if (v !== undefined) c[k] = v;
+    return c as unknown as RestartConfig;
   }
 
   arm(reason: string, by: string): ArmResult {

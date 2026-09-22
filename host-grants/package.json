@@ -1,0 +1,17 @@
+{
+  "name": "@thetis/host-grants",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "The admin grants that need the host: which host directories are bound into a person's fence, and which ssh keys its agent holds. A host package: loaded by the daemon per call as host.grants.<export>, never installed into a fence.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "thetis": {
+    "type": "host",
+    "host": {
+      "name": "grants"
+    }
+  }
+}

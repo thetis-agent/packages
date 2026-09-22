@@ -9,7 +9,8 @@ import type {
   EnumeratorContext, ExecOptions, KernelClient, PackageInfo, PackageQuery, PackageStepContext,
   Provider, ProviderCall, ProviderEvent, ServiceEnv, ServiceHandle, SessionInfo, StepContext, StepEnv, StepResult, ToolEnv, TurnEvent, WatchedTurnEvent,
 } from "@thetis/contracts";
-import { encodeFrame, PendingCalls, readFrames, type Frame } from "@thetis/lib/rpc-frames";
+import { CodedError } from "@thetis/lib/error";
+import { encodeFrame, PendingCalls, readFrames, type Frame, type OpenCall } from "@thetis/lib/rpc-frames";
 import { buildEnvFor, noStorage } from "./env.js";
 
 const ROOT = process.env.THETIS_USERSPACE ?? process.cwd();
@@ -26,10 +27,20 @@ for (const k of ["log", "info", "debug"] as const) console[k] = (...a: unknown[]
 const send = (m: unknown) => void writeOut(encodeFrame(m));
 
 // ---- kernel RPC (fence -> kernel) ----
-// `{ rpcEvent }` lines stream to `onEvent` before the `{ rpcResult }` line settles the call.
+// `{ rpcEvent }` lines stream to `onEvent` before the `{ rpcResult }` line settles the call. An aborted
+// `signal` sends `{ rpcCancel }`, which aborts the kernel's side of the call, and settles the call here at
+// once with code `cancelled`: a step that was stopped must not wait for tokens the kernel is dropping.
 const rpcPending = new PendingCalls("k");
-function rpc<T = unknown>(method: string, args?: unknown, onEvent?: (e: unknown) => void): Promise<T> {
-  const { id, result } = rpcPending.open({ onEvent });
+function rpc<T = unknown>(method: string, args?: unknown, onEvent?: (e: unknown) => void, signal?: AbortSignal): Promise<T> {
+  if (signal?.aborted) return Promise.reject(new CodedError(`${method} cancelled`, "cancelled"));
+  const call: OpenCall = { onEvent };
+  const { id, result } = rpcPending.open(call);
+  const onAbort = () => {
+    send({ rpcCancel: id });
+    rpcPending.settle(id, undefined, new CodedError(`${method} cancelled`, "cancelled"));
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
+  call.cleanup = () => signal?.removeEventListener("abort", onAbort);
   send({ rpc: id, method, args });
   return result as Promise<T>;
 }
@@ -47,14 +58,18 @@ const kernel: KernelClient = {
   sessions: {
     create: (parent) => rpc("sessions.create", { parent }),
     ask: (session, input) => rpc("sessions.ask", { session, input }),
-    send: (session, input, onEvent, opts) => rpc("sessions.send", { session, input, model: opts?.model }, (e) => onEvent(e as TurnEvent)),
+    send: (session, input, onEvent, opts, signal) => rpc("sessions.send", { session, input, model: opts?.model }, (e) => onEvent(e as TurnEvent), signal),
     cancel: (session) => rpc("sessions.cancel", { session }),
+    delete: (session) => rpc("sessions.delete", { session }),
     list: () => rpc("sessions.list"),
     inspect: (session) => rpc("sessions.inspect", { session }),
     // Settles only when the fence closes: the pending call has no timer, so it may stay open for the life of this process.
     watch: (onEvent) => rpc("sessions.watch", {}, (e) => onEvent(e as WatchedTurnEvent)),
   },
   models: () => rpc("models"),
+  providers: {
+    call: (call, onEvent, signal) => rpc("providers.call", { call }, (e) => onEvent(e as ProviderEvent), signal),
+  },
   config: {
     show: (name) => rpc("config.show", { name }),
     set: (name, key, value) => rpc("config.set", { name, key, value }),
@@ -97,6 +112,11 @@ const env: StepEnv = {
     await writeFile(file, content);
   },
   storage: noStorage,
+  invokeTool: async (ref, args, opts) => {
+    const fn = await loadExport(ref.package, ref.export);
+    const toolEnv: ToolEnv = { ...envFor(ref.package), session: opts.session, config: opts.config ?? {}, signal: opts.signal };
+    return fn(args ?? {}, toolEnv) as Promise<string | object>;
+  },
   kernel,
 };
 
@@ -136,7 +156,8 @@ function provider(pkg: string, exp: string, config: unknown): Promise<Provider> 
 
 // ---- operations the kernel dispatches ----
 // Each request carries an AbortSignal. The kernel sends `{ cancel: <id> }` to abort it; `exec` kills its
-// process and `provider.call` stops reading the stream, which closes the provider's iterator.
+// process, a step sees it as `ctx.signal`, and `provider.call` stops reading the stream, which closes the
+// provider's iterator. A tool runs only inside a step, through `env.invokeTool`: the kernel never asks for one.
 type Emit = (event: unknown) => void;
 
 /** What each operation carries. The kernel is the only sender; the shapes are the contracts' own types. */
@@ -148,7 +169,6 @@ interface Payloads {
   ping: Record<string, never>;
   exec: { cmd: string; cwd?: string; timeoutMs?: number };
   step: ExportRef & { ctx: StepContext };
-  tool: ExportRef & { args?: Record<string, unknown>; session: SessionInfo; config?: Record<string, unknown> };
   enumerate: ExportRef & { ctx: { session: SessionInfo; packages: PackageInfo[]; phases: string[] } };
   "service.start": ExportRef & { config?: Record<string, unknown> };
   "service.stop": { package: string };
@@ -162,17 +182,13 @@ type Handler<K extends Op> = (p: Payloads[K], emit: Emit, signal: AbortSignal) =
 const ops: { [K in Op]: Handler<K> } = {
   ping: async () => "pong",
   exec: (p, _emit, signal) => exec(p.cmd, { cwd: p.cwd, timeoutMs: p.timeoutMs }, signal),
-  step: async (p) => {
+  // The step's events go back as `{ id, event }` frames, which the kernel relays as turn events.
+  step: async (p, emit, signal) => {
     const fn = await loadExport(p.package, p.export);
-    const ctx: PackageStepContext = { ...p.ctx, packages: packageQuery(p.ctx.packages), env: envFor(p.package) };
+    const ctx: PackageStepContext = { ...p.ctx, packages: packageQuery(p.ctx.packages), env: envFor(p.package), emit: (event: TurnEvent) => emit(event), signal };
     const result = (await fn(ctx)) as StepResult | undefined;
     if (!result) return null;
     return { conversation: result.conversation, call: result.call, harness: result.harness };
-  },
-  tool: async (p, _emit, signal) => {
-    const fn = await loadExport(p.package, p.export);
-    const toolEnv: ToolEnv = { ...envFor(p.package), session: p.session, config: p.config ?? {}, signal };
-    return fn(p.args ?? {}, toolEnv);
   },
   enumerate: async (p) => {
     const fn = await loadExport(p.package, p.export);

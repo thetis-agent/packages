@@ -5,7 +5,7 @@
 // its entry, so the two cannot drift for long. Who may list or save is the kernel's question.
 import { existsSync, readdirSync, unlinkSync } from "node:fs";
 import { resolve } from "node:path";
-import { withoutTurnContext, type SessionRecord, type SessionSummaryRef } from "@thetis/contracts";
+import type { SessionRecord, SessionSummaryRef } from "@thetis/contracts";
 import { JsonDirStore } from "./json-store.js";
 import { readJson, writeJson } from "./json.js";
 
@@ -30,9 +30,9 @@ export function summarize(rec: SessionRecord): SessionSummary {
     createdAt: rec.createdAt,
     updatedAt: rec.updatedAt,
     turns: rec.turns,
-    // The person's words, without the turn context line the harness appends: a preview is for people.
-    first: clipText(withoutTurnContext(rec.conversation.find((m) => m.role === "user")?.content ?? "")),
-    last: clipText(withoutTurnContext(said.at(-1)?.content ?? "")),
+    // The record's words, clipped. What a harness adds to them is the harness's to take out where it shows them.
+    first: clipText(rec.conversation.find((m) => m.role === "user")?.content ?? ""),
+    last: clipText(said.at(-1)?.content ?? ""),
   };
   if (rec.parent) s.parent = rec.parent;
   return s;

@@ -1,6 +1,6 @@
 # @thetis/lib
 
-Mechanism with no policy: ids, JSON files, queues, the container, the journal, the RPC framing, the socket server and client, the userspace layout, the mount store, package file operations, scrypt, the store checks and mirror, the storage conformance suite, and the configuration layers. Nothing here decides who may do what; the kernel decides, with these parts. The package runs in the host process, where the kernel, the sandbox, the host, and the command line import it, and inside each fence, where the userspace agent imports the RPC framing.
+Mechanism with no policy: ids, JSON files, queues, the container, the journal, the RPC framing, the socket server and client, the userspace layout, package file operations, scrypt, the store checks and mirror, the storage conformance suite, and the configuration layers. Nothing here decides who may do what; the kernel decides, with these parts. The package runs in the host process, where the kernel, the sandbox, the host, and the command line import it, and inside each fence, where the userspace agent imports the RPC framing.
 
 ## What it provides
 
@@ -20,14 +20,15 @@ The layering rule: `lib` imports only `@thetis/contracts`. `sandbox`, `kernel`, 
 | `rpc-frames` | `PendingCalls`, `callHandler`, `readFrames`, `encodeFrame`: the `{ id, method, args }` framing. |
 | `ndjson-socket` | `RpcSocketServer`, `connectRpcSocket`: the framing over a Unix socket. |
 | `userspace-layout` | `UserspaceLayout`: `pathFor`, `exists`, `ensure`, `remove`. |
-| `mounts` | `MountStore`: the per-user mount lists over a `StoreMirror` of the store namespace `mounts`. `parseMountList`: the check of a list that arrives from a socket. `withPresence` adds what the host holds at each path (`present`, `kind`), which is what the fence will actually bind. `browseDirectories` lists the directories under one path, for a picker: directories only, hidden names left out unless asked, capped, and never throwing for a path that is missing or unreadable. |
 | `pkg-fs` | `splitSource`, `isGitSource`, `cloneCommand`, `buildCommand`, `isInside`, `linkDir`, `removeLink`, `copyPackageAs`, `findDependency`, `forkVersion`, `forkPackage`, and the other package file operations. |
 | `crypto` | `randomHex`, `scryptHex`. |
 | `freshness` | `newestMtime`. |
-| `restart` | `RestartLatch`, `isSupervised`. |
+| `restart` | `RestartLatch`, `isSupervised`. The latch reads `control` through the configuration reference on each use, so a reloaded `control.*` is what it sees. |
 | `store` | `assertStoreId`, `storeId`, `assertStoreDoc`, `assertJsonValue`: the shared checks every driver runs. `memoryStore()`: a Map-backed driver for tests and the bench. `StoreMirror`: one namespace held in memory and written through in order, so the kernel's records stay synchronous; `flush()` on shutdown. |
 | `store-conformance` | `storeConformance(name, open, close?)`: the `node:test` cases a storage driver passes. |
 | `config` | `validateDecls`, `forkChain`, `mergedDecls`, `defaultsOf`, `isSecretKey`, `checkValue`, `mergeDocs`, `findRefs`, `resolveRefs`, `describe`, `changedPackages`, `parseDotEnv`, `EnvFile` (the `.env` file re-read on change, a shell value winning over the file's), `LayeredConfig` (the four layers over a driver in `config/*` and `secrets/*`, layer-major along a fork chain). |
+
+The mount and ssh mechanism that used to be here (`mounts`, `ssh`) is the lib of `@thetis/host-grants`, the host package that answers `host.grants.*`: it needs the host, not the daemon, and moving it out is what made the daemon's last restart the last one.
 
 ## Use
 
@@ -77,7 +78,6 @@ if (remote) {
 | `src/rpc-frames.ts` | Pending calls, frame encoding, line reading. |
 | `src/ndjson-socket.ts` | The Unix socket server (mode `0600`) and client. |
 | `src/userspace-layout.ts` | The directories of one userspace. |
-| `src/mounts.ts` | The mount lists, their presence on the host, and the directory listing. |
 | `src/pkg-fs.ts` | Sources, clones, links, copies, forks. |
 | `src/crypto.ts` | Random hex and scrypt. |
 | `src/freshness.ts` | The newest modification time under a set of directories. |

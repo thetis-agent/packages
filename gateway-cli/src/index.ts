@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createInterface as createPrompt } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
-import type { ConfigReport, KernelRpc, ModelDescriptor, PackageInfo, SessionRecord, TurnEvent, UserRecord } from "@thetis/contracts";
+import type { ConfigReport, KernelRpc, ModelDescriptor, Mount, PackageInfo, SessionRecord, SshGrant, TurnEvent, UserRecord } from "@thetis/contracts";
 import { createDoor } from "@thetis/door";
 import { behind, readIndex, shortCommit, type Behind } from "@thetis/marketplace";
 import { ControlServer, controlSocketPath, createKernel, migrateStore, readControlToken, writeControlToken, type KernelConfig } from "@thetis/host";
@@ -14,8 +14,6 @@ import { configPath, createControlHandler, defaultConfig, loadConfig, redact, sa
 import { parseDotEnv } from "@thetis/lib/config";
 import { errorMessage } from "@thetis/lib/error";
 import { connectRpcSocket } from "@thetis/lib/ndjson-socket";
-import type { MountState } from "@thetis/lib/mounts";
-import type { SshGrantState } from "@thetis/lib/ssh";
 import { isSupervised, type Pending, type RestartState } from "@thetis/lib/restart";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
@@ -28,7 +26,7 @@ usage: thetis <command> [options]
 
   init                                 create the data dir and default config
   serve                                run the kernel, its control socket, and every installed service until stopped
-  status                               what is running, and whether it is the code that is on disk now
+  status [--json]                      what is running, and whether it is the code that is on disk now; --json the raw report
   reload --user <id> | --all           put the code on disk into service: that workspace's fence closes and opens again
                                        their gateway, terminal and every service start over, and open shell sessions die;
                                        --all does everyone, _system last, so the sign-in page blips once at the end
@@ -92,6 +90,13 @@ interface Args {
 }
 
 type Call = KernelRpc;
+
+/** A mount as `host.grants.mountsList` answers it: with what the host holds at the path now. A daemon without the host package says nothing about it. */
+type MountState = Mount & { present?: boolean; kind?: "dir" | "file" | "none" };
+/** A grant as `host.grants.sshList` answers it: whether the key is on the host, and its public half when it is. */
+type SshGrantState = SshGrant & { present?: boolean; publicKey?: string | null; fingerprint?: string | null };
+/** What making or importing a key answers: where it is, and the half to register wherever it is going. */
+type MadeKey = { key: string; publicKey: string; fingerprint: string | null };
 
 export async function run(argv: string[]): Promise<void> {
   loadDotEnv(resolve(process.cwd(), ".env"));
@@ -238,7 +243,7 @@ async function dispatch(call: Call, cmd: string, args: Args, shared: string): Pr
   };
   switch (cmd) {
     case "status":
-      return statusCmd(call);
+      return statusCmd(call, args);
     case "reload":
       return reloadCmd(call, args, user);
     case "restart":
@@ -292,8 +297,11 @@ interface StatusReport {
  * deployed and saw nothing change is told which process is still holding the code it replaced, and the
  * remedy for it — a workspace reloads, the daemon needs a new process.
  */
-async function statusCmd(call: Call): Promise<void> {
-  const { daemon, restart, workspaces } = (await call("status", {})) as StatusReport;
+async function statusCmd(call: Call, args: Args): Promise<void> {
+  const report = await call("status", {});
+  // `--json` is for a script (the installer reads it): the answer as the kernel gave it, and nothing else.
+  if (args.json === true || args.json === "true") return print(JSON.stringify(report));
+  const { daemon, restart, workspaces } = report as StatusReport;
   const supervised = `${daemon.supervised ? "supervised by systemd" : "not supervised"}; ${policyOf(daemon.restartPolicy)}`;
   print(`daemon	up ${duration(daemon.uptimeSecs)} since ${daemon.startedAt ?? "unknown"}	${supervised}	${freshness(daemon.codeAt, daemon.stale)}`);
   for (const w of workspaces) {
@@ -439,14 +447,14 @@ function stateOf(m: MountState): string {
 }
 
 /**
- * The grant list is replaced whole by `ssh.set`, the same way mounts are; grant and revoke read the
+ * The grant list is replaced whole by `host.grants.sshSet`, the same way mounts are; grant and revoke read the
  * current list first and send the edited one. A grant names one key file, never a directory: a host
  * `~/.ssh` holds unrelated credentials, and granting the directory would give a fence all of them. The
  * key is read by the kernel into that fence's own agent and is never bound where the fence can reach it.
  */
 async function sshCmd(call: Call, args: Args, user: string | undefined): Promise<void> {
   const [, sub, id, key] = args._;
-  const listOf = async (u: string) => ((await call("ssh.list", { user: u })) as Record<string, SshGrantState[]>)[u] ?? [];
+  const listOf = async (u: string) => ((await call("host.grants.sshList", { user: u })) as Record<string, SshGrantState[]>)[u] ?? [];
   if (sub === "keygen" && !id) throw new Error("ssh keygen needs <user>");
   if (sub === "import" && !(id && key)) throw new Error("ssh import needs <user> <name>, and the key on stdin");
   if (sub !== "list" && sub !== "keygen" && sub !== undefined && !(id && key)) throw new Error(`ssh ${sub} needs <user> <key-path>`);
@@ -457,7 +465,7 @@ async function sshCmd(call: Call, args: Args, user: string | undefined): Promise
         for (const g of await listOf(user)) print([user, g.key, g.fingerprint ?? "", g.present ? "" : "missing", (g.hosts ?? []).length ? `${(g.hosts ?? []).length} known host(s)` : "no known hosts"].filter(Boolean).join("\t"));
         return;
       }
-      const all = (await call("ssh.list", {})) as Record<string, SshGrantState[]>;
+      const all = (await call("host.grants.sshList", {})) as Record<string, SshGrantState[]>;
       for (const [u, list] of Object.entries(all)) for (const g of list) print([u, g.key, g.fingerprint ?? "", g.present ? "" : "missing"].filter(Boolean).join("\t"));
       return;
     }
@@ -467,7 +475,7 @@ async function sshCmd(call: Call, args: Args, user: string | undefined): Promise
       // prompt. `--host` may be given more than once, and `--scan` fetches the lines with ssh-keyscan.
       const hosts = await knownHostLines(args);
       const ssh = [...(await listOf(id)).filter((g) => g.key !== key), { key, ...(hosts.length ? { hosts } : {}) }];
-      const after = (await call("ssh.set", { user: id, ssh })) as SshGrantState[];
+      const after = (await call("host.grants.sshSet", { user: id, ssh })) as SshGrantState[];
       const granted = after.find((g) => g.key === key);
       if (granted && granted.present === false) throw new Error(`${key} is written down for ${id}, but there is no such file on the host: the fence opens without an agent. Fix the path.`);
       if (!hosts.length) print(`warning: no known hosts for ${key}; add --host <name> or --scan <name>, or ssh will refuse every connection`);
@@ -477,7 +485,7 @@ async function sshCmd(call: Call, args: Args, user: string | undefined): Promise
       // No host credential to lend, and none needed: this fence gets a key of its own, already granted.
       // The private half stays with the kernel, so it is agent-held like any other grant.
       const hosts = await knownHostLines(args);
-      const made = (await call("ssh.keygen", { user: id, ssh: [{ key: "/generated", hosts }] })) as { key: string; publicKey: string; fingerprint: string | null };
+      const made = (await call("host.grants.sshKeygen", { user: id, ssh: [{ key: "/generated", hosts }] })) as MadeKey;
       print(made.publicKey);
       print(`granted ${made.key} to ${id}${made.fingerprint ? ` (${made.fingerprint})` : ""}; register the line above wherever it is going`);
       if (!hosts.length) print(`warning: no known hosts; add --host <name> or --scan <name>, or ssh will refuse every connection`);
@@ -489,7 +497,7 @@ async function sshCmd(call: Call, args: Args, user: string | undefined): Promise
       if (process.stdin.isTTY) throw new Error("ssh import reads the private key from stdin: thetis ssh import <user> <name> < key");
       const hosts = await knownHostLines(args);
       const privateKey = await readStdin();
-      const made = (await call("ssh.import", { user: id, name: key, privateKey, hosts })) as { key: string; publicKey: string; fingerprint: string | null };
+      const made = (await call("host.grants.sshImport", { user: id, name: key, privateKey, hosts })) as MadeKey;
       print(made.publicKey);
       print(`granted ${made.key} to ${id}${made.fingerprint ? ` (${made.fingerprint})` : ""}; the fence reopens with an agent holding it`);
       if (!hosts.length) print(`warning: no known hosts; add --host <name> or --scan <name>, or ssh will refuse every connection`);
@@ -499,7 +507,7 @@ async function sshCmd(call: Call, args: Args, user: string | undefined): Promise
       const before = await listOf(id);
       const ssh = before.filter((g) => g.key !== key);
       if (ssh.length === before.length) throw new Error(`${key} is not granted to ${id}`);
-      await call("ssh.set", { user: id, ssh });
+      await call("host.grants.sshSet", { user: id, ssh });
       return print(`revoked ${key} for ${id}; the fence reopens without it`);
     }
     default:
@@ -521,23 +529,23 @@ async function knownHostLines(args: Args): Promise<string[]> {
 }
 
 /**
- * The mount list is replaced whole by `mounts.set`; add and remove read the current list first and send
+ * The mount list is replaced whole by `host.grants.mountsSet`; add and remove read the current list first and send
  * the edited one. Every line says whether the host still holds the directory, because a mount whose path
  * is gone is skipped when the fence opens, and a silent skip is how a person finds out too late.
  */
 async function mountsCmd(call: Call, args: Args, user: string | undefined): Promise<void> {
   const [, sub, id, path] = args._;
-  const listOf = async (u: string) => ((await call("mounts.list", { user: u })) as Record<string, MountState[]>)[u] ?? [];
+  const listOf = async (u: string) => ((await call("host.grants.mountsList", { user: u })) as Record<string, MountState[]>)[u] ?? [];
   if (sub !== "list" && sub !== "browse" && sub !== undefined && !(id && path)) throw new Error(`mounts ${sub} needs <user> <path>`);
   switch (sub) {
     case "list":
     case undefined: {
-      const all = (await call("mounts.list", { user })) as Record<string, MountState[]>;
+      const all = (await call("host.grants.mountsList", { user })) as Record<string, MountState[]>;
       for (const [u, list] of Object.entries(all)) for (const m of list) print([u, m.path, m.mode, stateOf(m)].filter(Boolean).join("\t"));
       return;
     }
     case "browse": {
-      const listing = (await call("mounts.browse", { path: id ?? "/" })) as { path: string; kind: string; readable: boolean; entries: { path: string }[] };
+      const listing = (await call("host.grants.mountsBrowse", { path: id ?? "/" })) as { path: string; kind: string; readable: boolean; entries: { path: string }[] };
       if (!listing.readable) throw new Error(`${listing.path} is ${listing.kind === "none" ? "not there" : listing.kind === "file" ? "not a directory" : "not readable"}`);
       for (const e of listing.entries) print(e.path);
       return;
@@ -545,7 +553,7 @@ async function mountsCmd(call: Call, args: Args, user: string | undefined): Prom
     case "add": {
       const mode = args.ro ? "ro" : "rw";
       const mounts = [...(await listOf(id)).map((m) => ({ path: m.path, mode: m.mode })).filter((m) => m.path !== path), { path, mode }];
-      const after = (await call("mounts.set", { user: id, mounts })) as MountState[];
+      const after = (await call("host.grants.mountsSet", { user: id, mounts })) as MountState[];
       const bound = after.find((m) => m.path === path);
       if (bound && bound.present === false) throw new Error(`${path} is written down for ${id}, but the host has ${bound.kind === "file" ? "a file" : "nothing"} there: the fence opens without it. Fix the path, or make the directory.`);
       return print(`mounted ${path} (${mode}) for ${id}; the fence reopens with it`);
@@ -554,7 +562,7 @@ async function mountsCmd(call: Call, args: Args, user: string | undefined): Prom
       const before = await listOf(id);
       const mounts = before.filter((m) => m.path !== path);
       if (mounts.length === before.length) throw new Error(`${path} is not mounted for ${id}`);
-      await call("mounts.set", { user: id, mounts });
+      await call("host.grants.mountsSet", { user: id, mounts });
       return print(`unmounted ${path} for ${id}`);
     }
     default:

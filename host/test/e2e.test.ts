@@ -199,15 +199,22 @@ test("git install: a package directory inside a repository, as url#dir", async (
   await kernel.packages.uninstall(us, "@alice/wave");
 });
 
-test("a turn that fails after a tool ran keeps the tool call and its result in the record", async () => {
+test("a turn that fails after a tool ran keeps the tool call and its result in the record, and the after steps still run", async () => {
   const s = kernel.sessions.create("alice");
   const r = await collect(kernel.sessions.send("alice", s.id, "run: echo FAIL_NEXT"));
   assert.ok(r.all.some((e) => e.type === "tool.result"), "the tool ran");
-  assert.ok(r.all.some((e) => e.type === "error" && /gave up/.test(e.message)), "then the provider failed");
+  const failure = r.all.find((e) => e.type === "error") as { message: string; code?: string } | undefined;
+  assert.match(failure?.message ?? "", /provider error: the provider gave up/, "then the provider failed, and the call step says so");
+  assert.equal(failure?.code, "provider");
+  assert.equal(r.all.filter((e) => e.type === "error").length, 1, "one error, emitted by the step; the kernel adds none");
+  assert.equal(r.all.at(-1)?.type, "turn.end");
   const rec = kernel.sessions.inspect("alice", s.id);
   const roles = rec.conversation.map((m) => m.role);
   assert.deepEqual(roles, ["user", "assistant", "tool"], "the call and its result survive the failure");
   assert.match(rec.conversation[2].content, /FAIL_NEXT/);
+  // The step returned rather than threw, so the turn went on to `after`: the record of the call is this turn's.
+  const own = rec.harness["@thetis/harness-core"] as { lastCall?: { messages: number } } | undefined;
+  assert.equal(own?.lastCall?.messages, 3, "recordCall saw the request, the reply and the tool result");
 });
 
 test("operator methods: an admin's fence may use them; a user's may not", async () => {
@@ -254,8 +261,14 @@ test("cancel: the turn ends at once, and the command it started keeps running in
   setTimeout(() => kernel.sessions.cancel("alice", s.id), 500);
   const started = Date.now();
   const r = await collect(events);
-  assert.ok(Date.now() - started < 10_000, "the turn did not wait for the sleep");
+  assert.ok(Date.now() - started < 3_000, "the turn did not wait for the sleep, nor for the fence's cancel grace");
   assert.equal((r.all.find((e) => e.type === "error") as { code?: string })?.code, "cancelled");
+  assert.equal(r.all.filter((e) => e.type === "error").length, 1);
+  // The call step returned what it had: the tool call the model made, closed as never run, so the next turn's provider sees a whole conversation.
+  const kept = kernel.sessions.inspect("alice", s.id).conversation.slice(-3);
+  assert.deepEqual(kept.map((m) => m.role), ["user", "assistant", "tool"]);
+  assert.equal(kept[1].toolCalls?.[0]?.name, "shell");
+  assert.equal(kept[2].content, "error: the turn was stopped before this tool ran");
   // `shell` is not `exec`. Cancelling a turn abandons the wait; it does not reach into the pty and kill
   // what the shell is running, and the session is shared with the person, so killing it would be a
   // surprise rather than a cleanup. The proof that the process survived is the next call meeting it.
@@ -451,21 +464,27 @@ test("fork with a service: replacing stops the origin and starts the fork; delet
   assert.deepEqual(log().at(-1), "stopped-origin");
 });
 
-test("mounts: an admin grants a host directory into a person's fence; the agent reads it and learns it from THETIS_MOUNTS", async () => {
+test("mounts: an admin grants a host directory into a person's fence through the host package; the agent reads it and learns it from THETIS_MOUNTS", async () => {
   const fence = kernel.container.get(T.fence) as ProcessFence;
   const dir = mkdtempSync(join(tmpdir(), "thetis-mount-"));
   const control = createControlHandler(kernel);
+  // The grant is `host.grants.mountsSet`: a host package the daemon finds among the system packages by its
+  // `thetis.host.name`, so the shipped one is linked in beside the fixtures for this test.
+  const link = join(kernel.config.systemPackagesDir, "host-grants");
+  if (!existsSync(link)) symlinkSync(resolve(PROJECT, "packages", "host-grants"), link);
   try {
     writeFileSync(join(dir, "note.txt"), "from-the-host\n");
-    await assert.rejects(control("mounts.set", { user: "alice", mounts: [{ path: "relative", mode: "rw" }] }), /invalid mount path/);
-    await assert.rejects(control("mounts.set", { user: "_system", mounts: [] }), /takes no mounts/);
+    await assert.rejects(control("host.grants.mountsSet", { user: "alice", mounts: [{ path: "relative", mode: "rw" }] }), /invalid mount path/);
+    await assert.rejects(control("host.grants.mountsSet", { user: "_system", mounts: [] }), /takes no mounts/);
+    await assert.rejects(control("host.grants.nothing", { user: "alice" }), /does not export a method named nothing/);
     // Before the grant the directory is out of reach under bubblewrap.
     if (fence.mode === "bwrap") {
       const before = await collect(kernel.sessions.send("alice", kernel.sessions.create("alice").id, `run: cat ${join(dir, "note.txt")} || echo NOT-YET`));
       assert.match(before.text, /NOT-YET/);
     }
-    await control("mounts.set", { user: "alice", mounts: [{ path: dir, mode: "ro" }, { path: "/does/not/exist", mode: "rw" }] });
+    await control("host.grants.mountsSet", { user: "alice", mounts: [{ path: dir, mode: "ro" }, { path: "/does/not/exist", mode: "rw" }] });
     assert.deepEqual(kernel.userspaces.pathFor("alice").mounts, [{ path: dir, mode: "ro" }, { path: "/does/not/exist", mode: "rw" }]);
+    assert.deepEqual(kernel.journal.tail(1, { kind: "host.call" })[0].data, { name: "grants", method: "mountsSet" }, "the kernel wrote the call, without its arguments");
     const s = kernel.sessions.create("alice");
     const probe = `cat ${join(dir, "note.txt")}; echo MOUNTS=$THETIS_MOUNTS; touch ${join(dir, "w")} 2>/dev/null && echo WROTE-RO; echo probe-done`;
     const r = await collect(kernel.sessions.send("alice", s.id, `run: ${probe}`));
@@ -478,7 +497,7 @@ test("mounts: an admin grants a host directory into a person's fence; the agent 
     assert.equal(rows.length, 1);
     assert.deepEqual(rows[0].data, { mounts: [{ path: dir, mode: "ro" }, { path: "/does/not/exist", mode: "rw" }] });
     if (fence.mode === "bwrap") assert.ok(!existsSync(join(dir, "w")), "nothing was written on the host through the ro mount");
-    await control("mounts.set", { user: "alice", mounts: [] });
+    await control("host.grants.mountsSet", { user: "alice", mounts: [] });
     assert.equal(kernel.userspaces.pathFor("alice").mounts, undefined);
     const none = await collect(kernel.sessions.send("alice", s.id, "run: echo MOUNTS=$THETIS_MOUNTS"));
     assert.match(none.text, /MOUNTS=\[\]/, "the variable is set even when nothing is mounted");

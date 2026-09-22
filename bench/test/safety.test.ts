@@ -28,24 +28,19 @@ test("the default phases do not include the bench phase", () => {
 
 test("a bench step is never scheduled under a production configuration", () => {
   const plan = enumeratorFor(defaultConfig("/tmp/home", PROJECT)).defaultPlan([candidate]);
-  assert.deepEqual(
-    plan.map((s) => s.export),
-    ["injectSkills", "provider-call"],
-    "the package's ordinary step runs and both of its bench steps are absent",
-  );
+  assert.deepEqual(plan.map((s) => s.export), ["injectSkills"], "the package's ordinary step runs and both of its bench steps are absent");
   assert.equal(plan.filter((s) => s.phase === BENCH_PHASE).length, 0);
 });
 
 test("the same package under a bench configuration schedules both bench steps, before the call", () => {
   const config = defaultConfig("/tmp/home", PROJECT);
-  config.phases = ["history", "prompt", "tools", BENCH_PHASE, "call", "after"];
-  const plan = enumeratorFor(config).defaultPlan([candidate]);
+  config.phases = ["history", "prompt", "tools", BENCH_PHASE, "call", "execute", "after"];
+  // The harness's call step is the one that sends the request; it lives in `execute`, after the bench phase.
+  const caller = { ...candidate, name: "@thetis/harness-core", thetis: { type: "loader", steps: [{ id: "call", phase: "execute", export: "callModel" }] } } as typeof candidate;
+  const plan = enumeratorFor(config).defaultPlan([candidate, caller]);
   const exports = plan.map((s) => s.export);
-  assert.deepEqual(exports, ["injectSkills", "importCorpus", "benchReport", "provider-call"]);
-  assert.ok(
-    exports.indexOf("benchReport") < exports.indexOf("provider-call"),
-    "the adapter must report before the call it is reporting on",
-  );
+  assert.deepEqual(exports, ["injectSkills", "importCorpus", "benchReport", "callModel"]);
+  assert.ok(exports.indexOf("benchReport") < exports.indexOf("callModel"), "the adapter must report before the call it is reporting on");
 });
 
 test("bench steps keep their declared order, so a probe installed last collects last", () => {

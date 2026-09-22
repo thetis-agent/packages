@@ -41,7 +41,7 @@ No steps, no tools, no UI, no bench suites.
 | `registries[].name` | the last path segment of the URL | Shown on the cards and the pages. |
 | `refreshMinutes` | `30` | How often the service refreshes. |
 
-The shipped default is one registry, `thetis`, at `https://github.com/thetis-agent/packages.git`. Replacing the list replaces the set of extensions this installation trusts. The package reads no environment variables.
+The default, declared in this package's manifest (`thetis.config.registries.default`), is one registry, `thetis`, at `https://github.com/thetis-agent/packages.git`; the kernel knows no registry of its own. Replacing the list replaces the set of extensions this installation trusts. The package reads no environment variables.
 
 ## Use
 

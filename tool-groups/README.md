@@ -63,7 +63,7 @@ Vectors come from `POST <baseUrl>/embeddings`, 64 texts per request, 20 seconds 
 
 On every later turn the step reads the pin back: the active ids that are still installed, in the current table order, plus the always-on groups forced back in, plus what `tool_search` wrote to `env.storage("sessions")` under the session id, plus any group whose tool was called while withheld (a `tool` message in the conversation with that name), reason `call`. A group that appears later, from a package installed mid-conversation, joins the catalogue as available; one that vanished is dropped with a note. No re-routing, ever.
 
-The scoping step runs in the `call` phase, after every `tools`-phase step, and only removes. A project's `tools.disable` (`@thetis/projects`) applies in the same phase and in either order; a tool the project switched off is never named in `withheld`, so it stays refused. The kernel's built-in call resolves a call to a name in `withheld` against the installed packages and runs it: scoping is an attention and token optimisation, never a permission boundary. The next turn's pin then carries the group.
+The scoping step runs in the `call` phase, after every `tools`-phase step, and only removes. A project's `tools.disable` (`@thetis/projects`) applies in the same phase and in either order; a tool the project switched off is never named in `withheld`, so it stays refused. The call step of `@thetis/harness-core` (phase `execute`) resolves a call to a name in `withheld` against the installed packages and runs it: scoping is an attention and token optimisation, never a permission boundary. The next turn's pin then carries the group.
 
 ## Benchmarks
 
@@ -95,7 +95,7 @@ The script derives the groups from the same manifests the bench fixture installs
 | `alwaysOn` | `[]` | Group ids admitted for every conversation, on top of the core. |
 | `listAlwaysOn` | `false` | List the always-on groups in the prompt section too. |
 | `embeddings.baseUrl` | `https://openrouter.ai/api/v1` | An OpenAI-compatible endpoint. |
-| `embeddings.apiKey` | `${OPENROUTER_API_KEY}` | The key, interpolated by the kernel from the daemon's environment. The kernel's default `packages` block sets it. Empty means lexical. |
+| `embeddings.apiKey` | `${OPENROUTER_API_KEY}` | The key, resolved by the config service from the daemon's environment and `.env`. This package's manifest declares the default (`thetis.config.embeddings.default`); a file-layer `embeddings: { baseUrl }` keeps it, since object defaults merge one level deep. Empty means lexical. |
 | `embeddings.model` | `openai/text-embedding-3-small` | The embedding model. |
 | `embeddings.dimensions` | `1536` | The vector size. |
 
@@ -131,4 +131,4 @@ The package is in the default `systemPackages["*"]` after `@thetis/skills-hybrid
 
 ## Tests
 
-`npm test` from the runtime root, or `node --test "test/*.test.js"` in this directory. The kernel's side of a stray call is tested in `packages/kernel/test/unit.test.ts`; the suite's own consistency in `packages/bench/test/tool-corpus.test.js`.
+`npm test` from the runtime root, or `node --test "test/*.test.js"` in this directory. The call step's side of a stray call is tested in `@thetis/harness-core`'s tests; the suite's own consistency in `packages/bench/test/tool-corpus.test.js`.

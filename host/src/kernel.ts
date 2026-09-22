@@ -1,8 +1,8 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { SYSTEM_USER, type Fence, type KernelRpc, type StoreDriver, type Userspace } from "@thetis/contracts";
+import { SYSTEM_USER, type Fence, type HostEnv, type KernelRpc, type StoreDriver, type Userspace } from "@thetis/contracts";
 import {
-  AuthService, ConfigService, createControlHandler, createRpcHandler, Enumerator, PackageManager, PackageRegistry, PipelineRunner, ProviderCallStep,
+  AuthService, ConfigService, createControlHandler, createRpcHandler, Enumerator, PackageManager, PackageRegistry, PipelineRunner,
   ProviderRegistry, ServiceSupervisor, SessionApi, SESSION_ID, UserStore, type KernelConfig, type KernelServices,
 } from "@thetis/kernel";
 import { EnvFile, LayeredConfig, type EnvSource } from "@thetis/lib/config";
@@ -15,6 +15,7 @@ import { RestartLatch } from "@thetis/lib/restart";
 import { storeId } from "@thetis/lib/store";
 import { UserspaceLayout } from "@thetis/lib/userspace-layout";
 import { Cgroups, FencePool, ProcessFence } from "@thetis/sandbox";
+import { HostPackages, type HostExtensions } from "./host-packages.js";
 import { assertMigrated } from "./migrate.js";
 import { deployedRestartPolicy } from "./policy.js";
 import { flushRecords, loadStoreDriver, openRecords, type Records } from "./store.js";
@@ -25,6 +26,8 @@ export const T = {
   log: token<(line: string) => void>("log"),
   /** The storage driver. Unbound until `createKernel` loads the configured package; a test binds `memoryStore()` instead. */
   store: token<StoreDriver>("store"),
+  /** The host packages, loaded per call by name; a test binds a fake `call`. */
+  hosts: token<HostExtensions>("hosts"),
   records: token<Records>("records"),
   env: token<EnvSource>("env"),
   settings: token<ConfigService>("settings"),
@@ -41,7 +44,6 @@ export const T = {
   providers: token<ProviderRegistry>("providers"),
   sessionStore: token<SessionStore>("sessionStore"),
   enumerator: token<Enumerator>("enumerator"),
-  providerCall: token<ProviderCallStep>("providerCall"),
   runner: token<PipelineRunner>("runner"),
   sessions: token<SessionApi>("sessions"),
   journal: token<Journal>("journal"),
@@ -129,9 +131,8 @@ function bindServices(c: Container, config: KernelConfig): void {
   c.bind(T.providers, (c) => new ProviderRegistry(c.get(T.settings), c.get(T.packages), c.get(T.userspaces), c.get(T.fences)));
   c.bind(T.sessionStore, () => new SessionStore(SESSION_ID));
   c.bind(T.enumerator, (c) => new Enumerator(c.get(T.config), c.get(T.fences)));
-  c.bind(T.providerCall, (c) => new ProviderCallStep(c.get(T.settings), c.get(T.providers), c.get(T.fences)));
   c.bind(T.runner, (c) => {
-    return new PipelineRunner(c.get(T.config), c.get(T.settings), c.get(T.enumerator), c.get(T.providerCall), c.get(T.packages), c.get(T.fences), c.get(T.sessionStore), c.get(T.journal));
+    return new PipelineRunner(c.get(T.config), c.get(T.settings), c.get(T.enumerator), c.get(T.packages), c.get(T.fences), c.get(T.sessionStore), c.get(T.journal));
   });
   c.bind(T.sessions, (c) => new SessionApi(c.get(T.users), c.get(T.userspaces), c.get(T.packages), c.get(T.sessionStore), c.get(T.runner)));
   // Armed here, fired nowhere: only `serve()` registers a handler, and the latch refuses to arm without one,
@@ -139,6 +140,26 @@ function bindServices(c: Container, config: KernelConfig): void {
   // The deployed policy is a host fact and is read here, in the daemon: a tool inside a fence sees neither the
   // cgroup it is in nor systemd, and would have to take the unit file in the checkout on trust.
   c.bind(T.restart, (c) => new RestartLatch({ config: c.get(T.config).control, inFlight: () => c.get(T.sessions).inFlight(), policy: deployedRestartPolicy }));
+  c.bind(T.hosts, (c) => new HostPackages(c.get(T.config), hostEnv(c), c.get(T.log)));
+}
+
+/**
+ * What a host package's method receives besides its arguments: the service-plane home, the people, the
+ * grant records the fence reads when it opens, the journal, and a fence reload -- the same pair `fence.reload`
+ * runs, so a changed grant reaches the fence and a provider that read a key is asked again.
+ */
+function hostEnv(c: Container): HostEnv {
+  return {
+    home: c.get(T.config).home,
+    users: { get: (id) => c.get(T.users).get(id), list: () => c.get(T.users).list() },
+    records: { mounts: c.get(T.mounts), ssh: c.get(T.ssh) },
+    journal: (row) => c.get(T.journal).append({ kind: row.kind, actor: row.actor ?? "operator", target: row.target, data: row.data }),
+    reloadFence: async (user) => {
+      c.get(T.providers).forget(user);
+      await c.get(T.services).reload(user);
+    },
+    log: c.get(T.log),
+  };
 }
 
 /** The process fence, configured from `config.fence`. The resolver file lives next to the rest of the data. */
@@ -186,6 +207,7 @@ function kernelOf(c: Container): KernelServices {
     sessions: c.get(T.sessions),
     settings: c.get(T.settings),
     store: c.get(T.store),
+    hosts: c.get(T.hosts),
     fences: c.get(T.fences),
     journal: c.get(T.journal),
     restart: c.get(T.restart),

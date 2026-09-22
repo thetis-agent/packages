@@ -26,7 +26,7 @@ export interface Records {
  */
 export async function loadStoreDriver(config: KernelConfig, log: (line: string) => void): Promise<StoreDriver> {
   const name = config.storage.driver;
-  const dir = findPackage(name, [config.systemPackagesDir, config.promotedPackagesDir]);
+  const dir = findPackage((m) => m.name === name, [config.systemPackagesDir, config.promotedPackagesDir]);
   assert(dir, `storage driver ${name} is not among the packages in ${config.systemPackagesDir} or ${config.promotedPackagesDir}`, "storage");
   const manifest = JSON.parse(readFileSync(resolve(dir, "package.json"), "utf8")) as Manifest;
   assert(manifest.thetis?.type === STORAGE_TYPE, `${name} is not a storage driver: its thetis.type is ${String(manifest.thetis?.type)}`, "storage");
@@ -47,17 +47,18 @@ export async function loadStoreDriver(config: KernelConfig, log: (line: string) 
 }
 
 /**
- * The directory whose package.json names the package, scanning each base in order, like the manager's
- * `systemPackageDir`. The real path, so a driver reached through a link resolves its own imports from where it lives.
+ * The first directory whose package.json satisfies `match`, scanning each base in order, like the manager's
+ * `systemPackageDir`. The real path, so a package reached through a link resolves its own imports from where
+ * it lives. A manifest that does not parse is skipped, so one broken package hides nothing but itself.
  */
-function findPackage(name: string, bases: string[]): string | undefined {
+export function findPackage(match: (manifest: Manifest) => boolean, bases: string[]): string | undefined {
   for (const base of bases) {
     if (!existsSync(base)) continue;
     for (const entry of readdirSync(base)) {
       const file = resolve(base, entry, "package.json");
       if (!existsSync(file)) continue;
       try {
-        if ((JSON.parse(readFileSync(file, "utf8")) as { name?: unknown }).name === name) return realpathSync(resolve(base, entry));
+        if (match(JSON.parse(readFileSync(file, "utf8")) as Manifest)) return realpathSync(resolve(base, entry));
       } catch {
         continue;
       }

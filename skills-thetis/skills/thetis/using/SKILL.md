@@ -131,7 +131,7 @@ The system prompt tells you what is scoped under `# Tool groups`, one line per r
 | `tool_search { query }` | Loads every group whose tags match the query, or the best-ranked one when none does, and lists their tools. |
 | `tool_search { load: [ids] }` | Loads those groups. An unknown id is refused by name. |
 
-A loaded group's tools are in your list from the next turn. A call to one of them by name works at once: the kernel resolves a withheld tool against the installed packages and runs it, and its group is loaded for the rest of the conversation. A tool a project switched off stays refused. Scoping is an attention and token optimisation, never a permission boundary.
+A loaded group's tools are in your list from the next turn. A call to one of them by name works at once: the `call` step of `@thetis/harness-core` resolves a withheld tool against the installed packages and runs it, and its group is loaded for the rest of the conversation. A tool a project switched off stays refused. Scoping is an attention and token optimisation, never a permission boundary.
 
 The pin is in `harness["@thetis/tool-groups"]`: `active`, `why` (`always-on`, `configured`, `skill`, `tag`, `dense`, `fusion`, `search`, `call`), `catalogue`, `mode`, `notes`.
 
@@ -141,7 +141,7 @@ The pin is in `harness["@thetis/tool-groups"]`: `active`, `why` (`always-on`, `c
 
 **It is pending, not immediate.** The call records the request and answers at once. Your turn finishes, your reply reaches the person, and only then does Thetis wait for every turn running anywhere to end, count down ten seconds where everyone can see it, and exit so that systemd starts it again. It waits two minutes at most, and then goes anyway and cuts whatever is still running. So say in that reply what is restarting, what it is for, and that it can still be called off. That reply is the only warning anyone gets.
 
-**Prefer the reload.** A workspace reload replaces one person's service code in about a second and takes nothing else down. A restart ends every turn in progress for everyone and every open shell session anywhere. A restart is only for the code the daemon read once when it started: the kernel, the host, the sandbox, the door, `@thetis/lib`, `@thetis/contracts`, the `thetis` command, or `thetis.config.json`. No tool asks for a reload: say what it needs, `thetis reload --user <id>` on the host or the Workspaces section of the control panel. See `thetis/troubleshooting` for which of the two a change needs.
+**Prefer the reload.** A workspace reload replaces one person's service code in about a second and takes nothing else down; `thetis config reload` re-reads the configuration and `.env`; a host package is live on its next call. A restart ends every open shell session anywhere. It is only for a bug in the code the daemon read once when it started: the kernel, the host, the sandbox, the door, `@thetis/lib`, `@thetis/contracts`, the `thetis` command. Those carry no feature of yours: the model-call loop is a step of `@thetis/harness-core`, mounts and ssh keys are `@thetis/host-grants`, every default is a manifest's. A feature that seems to need a restart is in the wrong package. No tool asks for a reload: say what it needs, `thetis reload --user <id>` on the host or the Workspaces section of the control panel. See `thetis/troubleshooting` for which a change needs.
 
 **Ask first.** Use `ask_user` before you call this, unless the person has just asked for a restart. It is their installation and their turns that end.
 
@@ -156,4 +156,5 @@ The pin is in `harness["@thetis/tool-groups"]`: `active`, `why` (`always-on`, `c
 - packages/tools-plan/lib/ask-user.js
 - packages/harness-core/src/index.ts
 - packages/tool-operator/package.json
+- packages/lib/src/restart.ts
 - packages/tool-groups/README.md

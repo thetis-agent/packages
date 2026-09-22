@@ -103,6 +103,8 @@ export interface ThetisField {
   skills?: string;
   /** The keys this package reads from its configuration. The kernel validates the shape, types a value on `config.set`, and reports each key's state. */
   config?: Record<string, ConfigDecl>;
+  /** A package of type `host`: the name it answers to as `host.<name>.<export>` over the operator channel. See `HostEnv`. */
+  host?: { name: string };
 }
 
 export interface Manifest {
