@@ -9,7 +9,7 @@ import { resolve } from "node:path";
 const rwMount = await mkdtemp(resolve(tmpdir(), "tf-mount-rw-"));
 const roMount = await mkdtemp(resolve(tmpdir(), "tf-mount-ro-"));
 process.env.THETIS_MOUNTS = JSON.stringify([{ path: rwMount, mode: "rw" }, { path: roMount, mode: "ro" }]);
-const { resolveContained, mountsFromEnv } = await import("../lib/paths.js");
+const { resolveContained, mountsFromEnv, writeRefusal } = await import("../lib/paths.js");
 const { readPath, writePath } = await import("../index.js");
 
 async function makeHome() {
@@ -63,6 +63,36 @@ test("the tools read and write through a mount end to end", async () => {
   assert.match(await readPath({ path: file }, env), /1\s+one/);
   assert.match(await writePath({ path: resolve(roMount, "x.md"), contents: "no" }, env), /^error: .*read-only \(mount /);
   await rm(home, { recursive: true, force: true });
+});
+
+test("a write refused by the filesystem on a path the mount list calls rw names the contradiction", async () => {
+  // The fence and the mount list are supposed to agree. When a read-only bind lands inside a granted rw
+  // mount they do not, every surface still reads rw, and all the agent gets is EROFS. Say what it means.
+  const { env } = await makeHome();
+  const resolved = await resolveContained(env, resolve(rwMount, "deep/file.txt"), { write: true });
+  assert.equal(resolved.writable, true);
+  const said = writeRefusal(Object.assign(new Error("EROFS: read-only file system"), { code: "EROFS" }), resolved);
+  assert.match(said.message, /read-only filesystem/);
+  assert.ok(said.message.includes(`${rwMount} is mounted rw`), said.message);
+  assert.match(said.message, /fault in the workspace, not in the path/);
+  assert.match(said.message, /do not work around it/);
+});
+
+test("an ordinary failure, and a write to a path the list already calls read-only, pass through unchanged", async () => {
+  const { env } = await makeHome();
+  const writable = await resolveContained(env, resolve(rwMount, "a.txt"), { write: true });
+  assert.equal(writeRefusal(Object.assign(new Error("nope"), { code: "ENOSPC" }), writable), null, "only EROFS is the contradiction");
+  // A ro mount never reaches a write at all: resolveContained refuses it first, so there is nothing to explain.
+  const readOnly = await resolveContained(env, resolve(roMount, "a.txt"), {});
+  assert.equal(readOnly.writable, false);
+  assert.equal(writeRefusal(Object.assign(new Error("EROFS"), { code: "EROFS" }), readOnly), null);
+});
+
+test("a write refused inside the person's own space says so without naming a mount", async () => {
+  const { env } = await makeHome();
+  const resolved = await resolveContained(env, "notes.txt", { write: true });
+  const said = writeRefusal(Object.assign(new Error("EROFS"), { code: "EROFS" }), resolved);
+  assert.match(said.message, /in your own space, which is read-write/);
 });
 
 after(async () => {

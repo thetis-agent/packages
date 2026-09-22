@@ -26,6 +26,8 @@ Rules every tool follows:
 - **Paths.** Relative to the person's home, or absolute. The roots are the home (read and write), the shared directory (read only), and each mount the fence announces in `THETIS_MOUNTS`. A path outside every root is refused: `<path> is outside the spaces you can reach (home rw, shared ro, ...)`. Empty paths, NUL bytes and dangling symlinks are refused. A component named `.git` is protected from writes. Paths inside the home come back relative to it, so a returned path can be passed straight back in.
 - **Bounded output.** Every result and every refusal passes through a spill bound of 32768 characters. Over it, the whole text goes to `tool-output/<tool>-<time>.txt` in the home and the model gets the head, a line `[... N of M characters not shown here ...]`, the tail, and a footer naming the file and how to read on.
 - **Failures are marked.** A refusal comes back as `error: <sentence>`, so the transcript shows a failed call.
+
+- **The mount list can be wrong, and then it says so.** What this package trusts is `THETIS_MOUNTS`, the list the fence announced; what refuses a write is the fence's mount table. A read-only bind landing *inside* a granted `rw` mount takes that subtree back without changing a word of the list, and then every surface reads `rw` while every write fails. That happened. A write that fails with `EROFS` on a path the list calls writable now comes back as the disagreement rather than as the errno: `<path> is on a read-only filesystem, but <mount> is mounted rw. ... This is a fault in the workspace, not in the path: report it in these words and do not work around it.` Nothing else is rewritten; an ordinary permission error is left alone.
 - **Skip list.** `search_files`, `find_files` and `get_directory` (below the top level) skip `.git`, `node_modules`, `dist`, `target`, `.cache`, `tool-output` and binary files, and scan at most 20000 files.
 
 ## Configuration
@@ -55,7 +57,7 @@ error: old_text appears 3 times in packages/hello/index.js. Include enough surro
 |---|---|
 | `package.json` | The manifest: six tools and the bench declaration. |
 | `index.js` | Wraps each tool with the spill bound and marks refusals. |
-| `lib/paths.js` | Root resolution: home, shared, mounts, symlinks, `.git`. |
+| `lib/paths.js` | Root resolution: home, shared, mounts, symlinks, `.git`. `writeRefusal` names a write the mount list allowed and the filesystem refused. |
 | `lib/read-path.js`, `lib/edit-path.js`, `lib/write-path.js` | The three file tools. |
 | `lib/search-files.js`, `lib/find-files.js`, `lib/get-directory.js`, `lib/walk.js` | The tree tools and the bounded walk. |
 | `lib/spill.js`, `lib/format.js` | The output bound and the footers. |

@@ -2,7 +2,7 @@
 // never leaves a half-written file behind.
 import { readFile, writeFile, rename, unlink, stat } from "node:fs/promises";
 import { dirname, basename, resolve } from "node:path";
-import { resolveContained } from "./paths.js";
+import { resolveContained, writeRefusal } from "./paths.js";
 import { numberLine } from "./format.js";
 
 function countOccurrences(hay, needle) {
@@ -33,7 +33,8 @@ async function atomicWrite(absolute, content) {
 }
 
 export async function editPath(args, env) {
-  const { absolute, display } = await resolveContained(env, args.path, { write: true });
+  const resolved = await resolveContained(env, args.path, { write: true });
+  const { absolute, display } = resolved;
   const oldText = String(args.old_text ?? "");
   const newText = String(args.new_text ?? "");
   const replaceAll = Boolean(args.replace_all);
@@ -63,7 +64,13 @@ export async function editPath(args, env) {
   const firstLine = lineOfOffset(text, firstAt);
 
   const updated = replaceAll ? text.split(oldText).join(newText) : text.slice(0, firstAt) + newText + text.slice(firstAt + oldText.length);
-  await atomicWrite(absolute, updated);
+  // The containment check above says this path is writable. When the filesystem disagrees anyway, that
+  // disagreement is the thing worth reporting, not the errno. See `writeRefusal`.
+  try {
+    await atomicWrite(absolute, updated);
+  } catch (e) {
+    throw writeRefusal(e, resolved) ?? e;
+  }
 
   const snippet = buildSnippet(updated, firstLine, newText);
   const n = replaceAll ? occurrences : 1;

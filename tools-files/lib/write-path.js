@@ -2,7 +2,7 @@
 // the model has to opt in explicitly once a file already exists.
 import { readFile, writeFile, rename, unlink, mkdir, stat } from "node:fs/promises";
 import { dirname, basename, resolve } from "node:path";
-import { resolveContained } from "./paths.js";
+import { resolveContained, writeRefusal } from "./paths.js";
 
 async function atomicWrite(absolute, content) {
   await mkdir(dirname(absolute), { recursive: true });
@@ -15,7 +15,8 @@ async function atomicWrite(absolute, content) {
 }
 
 export async function writePath(args, env) {
-  const { absolute, display } = await resolveContained(env, args.path, { write: true });
+  const resolved = await resolveContained(env, args.path, { write: true });
+  const { absolute, display } = resolved;
   const contents = String(args.contents ?? "");
   const overwrite = Boolean(args.overwrite);
 
@@ -37,7 +38,13 @@ export async function writePath(args, env) {
     }
   }
 
-  await atomicWrite(absolute, contents);
+  // The containment check above says this path is writable. When the filesystem disagrees anyway, that
+  // disagreement is the thing worth reporting, not the errno. See `writeRefusal`.
+  try {
+    await atomicWrite(absolute, contents);
+  } catch (e) {
+    throw writeRefusal(e, resolved) ?? e;
+  }
   const bytes = Buffer.byteLength(contents, "utf8");
   const lines = contents === "" ? 0 : contents.split("\n").length;
   return `wrote ${display} (${lines} lines, ${bytes} bytes)`;

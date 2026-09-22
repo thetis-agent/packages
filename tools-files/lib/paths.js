@@ -100,6 +100,7 @@ export async function resolveContained(env, rawPath, { write = false } = {}) {
   let root = null;
   let writable = false;
   let label = "";
+  let mount = null;
   if (isWithin(full, realHome)) {
     root = "home";
     writable = true;
@@ -114,6 +115,7 @@ export async function resolveContained(env, rawPath, { write = false } = {}) {
       root = "mount";
       writable = m.mode === "rw";
       label = `mount ${m.path}`;
+      mount = m;
       break;
     }
   }
@@ -127,5 +129,27 @@ export async function resolveContained(env, rawPath, { write = false } = {}) {
   }
 
   const display = root === "home" ? (relative(realHome, full) || ".") : full;
-  return { absolute: full, display, root, writable };
+  return { absolute: full, display, root, writable, mount };
+}
+
+/**
+ * A write this module allowed and the kernel refused anyway, turned into a sentence worth reading.
+ *
+ * What this module trusts is THETIS_MOUNTS: the list the fence announced. What actually refuses a write is
+ * the fence's mount table. The two are supposed to agree and they have not always: a read-only bind landing
+ * *inside* a granted `rw` mount takes that subtree back without changing a word of the list, so every
+ * surface -- this tool, the project page, the system prompt -- said `rw` while every write failed. The
+ * person who hit it had an agent discover it, and what the agent had to go on was the string `EROFS`.
+ *
+ * `EROFS` on a path the list calls writable is that disagreement and nothing else, so say so, say it is the
+ * workspace and not the path, and say not to work around it -- because the tempting workaround is to write
+ * somewhere else and leave the real fault in place. Anything else is returned unchanged; an ordinary
+ * permission error is an ordinary permission error.
+ */
+export function writeRefusal(err, resolved) {
+  if (err?.code !== "EROFS" || !resolved?.writable) return null;
+  const where = resolved.mount ? `${resolved.mount.path} is mounted ${resolved.mount.mode}` : "this path is in your own space, which is read-write";
+  return new Error(
+    `${resolved.display} is on a read-only filesystem, but ${where}. Something in your workspace is bound read-only inside a space the mount list calls read-write, so the two disagree. This is a fault in the workspace, not in the path: report it in these words and do not work around it.`,
+  );
 }
