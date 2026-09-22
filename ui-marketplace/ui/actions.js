@@ -39,6 +39,14 @@ const sourceOf = (row) => (row.name.startsWith("@thetis/") ? row.name : row.sour
 
 const count = (n) => `${n} ${n === 1 ? "person" : "people"}`;
 
+/**
+ * The people a fleet-wide install did not reach, because they are holding a fork of the package. The
+ * kernel will not install a package over somebody's fork of it, and an admin acting on people who are not
+ * at the keyboard must not be allowed to read "installed for everyone" and walk away: without this line
+ * they would believe a gateway is the default everywhere while three people are still on their own copy.
+ */
+const forksNote = (r) => (r.forks?.length ? ` Not ${r.forks.map((f) => `${f.user} (holding ${f.fork})`).join(", ")}: a person's fork of it stays in place.` : "");
+
 export function actionsFor(ext, view, host) {
   const { el } = ext.dom;
   const { button, busy, confirm } = ext.ui;
@@ -196,7 +204,7 @@ export function actionsFor(ext, view, host) {
       "Installing for everyone… this can take a minute.",
       () => ext.request("install-everyone", { args: { source: sourceOf(row) } }),
       (r) => {
-        ext.toast(`${r.name} is installed for everyone (${count(r.userspaces?.length ?? 0)}).`, { tone: "good" });
+        ext.toast(`${r.name} is installed for everyone (${count(r.userspaces?.length ?? 0)}).${forksNote(r)}`, { tone: r.forks?.length ? "warn" : "good" });
         go(r.name);
       }
     );
@@ -210,7 +218,7 @@ export function actionsFor(ext, view, host) {
       "Making it the default…",
       () => ext.request("promote", { args: { user, name: row.name } }),
       (r) => {
-        ext.toast(`${r.name} is now the default for everyone (${count(r.userspaces?.length ?? 0)}).`, { tone: "good" });
+        ext.toast(`${r.name} is now the default for everyone (${count(r.userspaces?.length ?? 0)}).${forksNote(r)}`, { tone: r.forks?.length ? "warn" : "good" });
         go(r.name);
       }
     );

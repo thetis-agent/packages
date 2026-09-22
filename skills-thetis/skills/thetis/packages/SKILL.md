@@ -185,6 +185,8 @@ The tool does not install. It refuses a package that is not installed and a targ
 
 The replace rule: when a manifest carries `forkedFrom` and that package is installed here, the install replaces it in one operation. The original's service stops. Its link goes. The fork's link comes. The fork's service starts.
 
+The other direction is a refusal, not a second replacement. Installing a package into a userspace that already holds a fork of it is refused with the code `fork` and a message naming the fork: `bob holds @bob/gwfork, a fork of @thetis/gateway-web: un-fork @bob/gwfork first, or leave it in place`. Nothing is removed, linked or recorded. The two directions differ because what they would displace differs: a displaced original is shipped or promoted and comes back by name, while a displaced fork is the person's own work and nothing could put it back. Un-fork first if you want the original; otherwise there is nothing to do.
+
 The restore rule: `uninstall_package` or `delete_package` of the fork puts the original back in the same call, when the registry recorded what the fork displaced. A fork installed into a userspace the original was not in has no such record, and then an uninstall leaves nothing in its place. For a gateway that is a person locked out of their browser.
 
 The way back: `unfork_package { name, deleteFiles }` reads the original off the fork's own manifest instead of off the registry, checks it is on disk here before it removes anything, and then swaps. The original comes back at the version it is at now, with every change it has had since the fork. `deleteFiles` defaults to false: the copy under `packages/` is kept. The CLI is `thetis packages unfork <name> --user <id> [--delete-files]`.
@@ -212,6 +214,8 @@ delete_package { name: "@alice/tools-plan" }
 These are operator methods. Only an admin calls them: from the CLI, from the control panel, or from an admin's fence through `env.kernel.operator.call`.
 
 `packages.promote { user, name }` makes a person's package the default for everyone. The directory is copied to `$THETIS_HOME/packages/<basename>` with its `node_modules`. The name becomes `@thetis/<basename>`. The owner's original is removed. The package is installed into every existing userspace. New userspaces get it at creation. The copy does not follow later changes to the source. The CLI command is `thetis packages promote <name> --user <id>`.
+
+Neither method reaches a person who is holding a fork of the package, and neither stops on one. Both answer `{ name, userspaces, forks }`: `userspaces` are the people it installed for, `forks` is `[{ user, fork }]` for the people whose own copy was left in place. The same pair goes into the journal row, so an admin reading it later still knows the package is not everywhere and whose copy is standing in for it. The people themselves see it on their own listing: their fork's row says the package it was copied from is the default for everyone (`everyone else gets it`). The seed a new userspace gets skips a forked package for the same reason.
 
 `packages.installEveryone { source }` installs a package for every person, now and later. A shipped `@thetis/*` package is linked into every person and marked `everyone`. Another source is installed for the admin first. A `@thetis/*` name from a registry is then linked into every person. A package in the admin's own scope is promoted.
 

@@ -5,6 +5,7 @@ import { newestMtime } from "@thetis/lib/freshness";
 import { isSupervised } from "@thetis/lib/restart";
 import { assertUserIdFitsSockets } from "@thetis/lib/socket-paths";
 import { applyInPlace, classifyChanges } from "@thetis/lib/config-tiers";
+import { forkOf } from "@thetis/lib/pkg-fs";
 import { CONFIG_TIERS, loadConfig } from "./config.js";
 import type { KernelServices } from "./kernel.js";
 
@@ -78,9 +79,9 @@ export function createControlHandler(k: KernelServices): KernelRpc {
         const owner = us();
         const promoted = await k.packages.promote(owner, String(a.name));
         await k.packages.uninstall(owner, String(a.name));
-        const userspaces = await installEverywhere(k, promoted);
-        journal("package.promote", user(), { name: String(a.name), promoted, userspaces });
-        return { name: promoted, userspaces };
+        const sweep = await installEverywhere(k, promoted);
+        journal("package.promote", user(), { name: String(a.name), promoted, ...sweep });
+        return { name: promoted, ...sweep };
       }
       case "packages.installEveryone":
         return installEveryone(k, actor(), String(a.source), journal);
@@ -192,6 +193,9 @@ export function createControlHandler(k: KernelServices): KernelRpc {
 
 type JournalFn = (kind: string, target: string, data?: Record<string, unknown>) => void;
 
+/** What a sweep across the fleet did: the userspaces the package reached, and the people whose fork of it was left in place. */
+type Sweep = { userspaces: string[]; forks: { user: string; fork: string }[] };
+
 /** The daemon's own code. A change to any of it needs a new process; a reload would not pick it up. */
 const DAEMON_PACKAGES = ["kernel", "host", "sandbox", "door", "lib", "contracts", "gateway-cli"];
 
@@ -242,38 +246,48 @@ function status(k: KernelServices): unknown {
  * person. Anything else is installed for the actor first and then promoted, which copies it under
  * @thetis for everyone.
  */
-async function installEveryone(k: KernelServices, who: UserRecord, source: string, journal: JournalFn): Promise<{ name: string; userspaces: string[] }> {
+async function installEveryone(k: KernelServices, who: UserRecord, source: string, journal: JournalFn): Promise<{ name: string } & Sweep> {
   if (k.packages.systemPackageDir(source)) {
     // Link first: the registry record the mark lives on exists only once someone has the package.
-    const userspaces = await installEverywhere(k, source);
+    const sweep = await installEverywhere(k, source);
     k.packages.markEveryone(source, true);
-    journal("package.everyone", source, { userspaces });
-    return { name: source, userspaces };
+    journal("package.everyone", source, { ...sweep });
+    return { name: source, ...sweep };
   }
   const own = k.sessions.userspaceFor(who);
   const info = await k.packages.install(own, who, source);
   if (info.name.startsWith("@thetis/")) {
-    const userspaces = await installEverywhere(k, info.name);
-    journal("package.everyone", info.name, { source, userspaces });
-    return { name: info.name, userspaces };
+    const sweep = await installEverywhere(k, info.name);
+    journal("package.everyone", info.name, { source, ...sweep });
+    return { name: info.name, ...sweep };
   }
   const promoted = await k.packages.promote(own, info.name);
   await k.packages.uninstall(own, info.name);
-  const userspaces = await installEverywhere(k, promoted);
-  journal("package.promote", who.id, { name: info.name, promoted, source, userspaces });
-  return { name: promoted, userspaces };
+  const sweep = await installEverywhere(k, promoted);
+  journal("package.promote", who.id, { name: info.name, promoted, source, ...sweep });
+  return { name: promoted, ...sweep };
 }
 
-/** Installs a system package into every existing person's userspace. */
-async function installEverywhere(k: KernelServices, name: string): Promise<string[]> {
-  const system = k.users.authorize(SYSTEM_USER);
-  const done: string[] = [];
-  for (const u of k.users.list()) {
-    if (u.role === "system" || !k.userspaces.exists(u.id)) continue;
-    await k.packages.install(k.userspaces.pathFor(u.id), system, name);
-    done.push(u.id);
-  }
-  return done;
+/**
+ * Installs a system package into every existing person's userspace, and says who it left alone. A person
+ * holding a fork of that package is one the kernel refuses -- see `PackageManager.displace` for why that
+ * is a refusal and not a second displacement -- and a fleet-wide sweep must not stop halfway through
+ * because one person made a private decision months ago. So the question is asked before each install
+ * rather than caught after it, and the people it names are carried out with the answer.
+ *
+ * Both halves of that answer matter, and to different people. Whoever ran the sweep is acting on people
+ * who are not at the keyboard: `userspaces` alone would let them walk away believing a package is
+ * everywhere when it is not, which is how a gateway comes to be the default for everyone except the three
+ * people who never hear about it. `forks` names those three, in the answer and in the journal row, so the
+ * admin can go and talk to them. What the people themselves see is on their own package listing, where the
+ * fork's row says the package it was copied from is now everyone's default.
+ */
+async function installEverywhere(k: KernelServices, name: string): Promise<Sweep> {
+  const people = k.users.list().filter((u) => u.role !== "system" && k.userspaces.exists(u.id));
+  const forks = people.map((u) => ({ user: u.id, fork: forkOf(k.registry.installedIn(u.id), name) })).filter((f): f is { user: string; fork: string } => !!f.fork);
+  const userspaces = people.filter((u) => !forks.some((f) => f.user === u.id)).map((u) => u.id);
+  for (const id of userspaces) await k.packages.install(k.userspaces.pathFor(id), k.users.authorize(SYSTEM_USER), name);
+  return { userspaces, forks };
 }
 
 const SECRET = /key|secret|token|password/i;

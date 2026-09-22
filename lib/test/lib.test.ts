@@ -8,7 +8,7 @@ import { AsyncQueue } from "../src/async.js";
 import { Container, token } from "../src/container.js";
 import { JsonDirStore } from "../src/json-store.js";
 import { MountStore } from "../src/mounts.js";
-import { findDependency, forkPackage, forkVersion, isGitSource, isInside, keepOnly, packageDigest, packagesIn, samePackage, splitSource } from "../src/pkg-fs.js";
+import { findDependency, forkOf, forkPackage, forkVersion, isGitSource, isInside, keepOnly, packageDigest, packagesIn, samePackage, splitSource } from "../src/pkg-fs.js";
 import { PendingCalls, callHandler } from "../src/rpc-frames.js";
 import { StoreMirror, memoryStore } from "../src/store.js";
 import { SessionStore, summarize } from "../src/session-store.js";
@@ -93,6 +93,27 @@ test("rpc frames: events stream before the result, errors carry a code, and clea
   assert.deepEqual(ok, { result: null });
   const bad = await callHandler(async () => Promise.reject(Object.assign(new Error("no"), { code: "rpc" })), "m", {});
   assert.deepEqual(bad, { error: "no", code: "rpc" });
+});
+
+/**
+ * The fork relation backwards. Only the fork's manifest names the other end, so "is something here already
+ * standing in for this package?" cannot be asked of the incoming package at all -- it has to be asked of
+ * what the userspace holds. The kernel asks it before every install and before every seed, which is what
+ * keeps a shipped gateway from landing beside somebody's fork of it and taking its socket.
+ */
+test("the fork of a package a userspace already holds is found on the records, and nothing else is mistaken for one", () => {
+  const held = [
+    { name: "@thetis/terminal" },
+    { name: "@alice/gw", forkedFrom: { name: "@thetis/gateway-web" } },
+    { name: "@alice/tools", forkedFrom: { name: "@thetis/tools-files" } },
+  ];
+  assert.equal(forkOf(held, "@thetis/gateway-web"), "@alice/gw");
+  assert.equal(forkOf(held, "@thetis/tools-files"), "@alice/tools");
+  assert.equal(forkOf(held, "@thetis/terminal"), undefined, "a package nobody forked");
+  assert.equal(forkOf(held, "@thetis/skills"), undefined, "a package nobody holds at all");
+  assert.equal(forkOf(held, "@alice/gw"), undefined, "the fork itself is not a fork of itself: reinstalling it over itself still works");
+  assert.equal(forkOf([{ name: "@alice/gw", forkedFrom: { name: "@alice/gw" } }], "@alice/gw"), undefined, "nor when a manifest names itself as its own origin");
+  assert.equal(forkOf([], "@thetis/gateway-web"), undefined);
 });
 
 test("a fork is identical to its origin when nothing but its name and version differ, and one changed byte says so", () => {

@@ -466,6 +466,41 @@ test("fork with a service: replacing stops the origin and starts the fork; delet
   assert.deepEqual(log().at(-1), "stopped-origin");
 });
 
+/**
+ * An admin makes a package everyone's default while somebody is holding a fork of it. The admin is acting
+ * on people who are not at the keyboard, so neither silent answer is good enough: installing over the fork
+ * takes a person's own work out of service without telling them, and skipping them quietly leaves the admin
+ * believing the package is everywhere when it is not. The sweep therefore installs where it can, leaves the
+ * fork alone, and names the people it left alone -- in its answer and in the journal row.
+ *
+ * The harm being prevented is concrete. `@thetis/hello` brings a tool; before this, both copies were
+ * installed and `greet` was offered to the model twice. With a gateway it is worse: two services bind the
+ * same `run/web.sock` and the second one wins, so the person's fork stops answering their browser.
+ */
+test("install for everyone: a person holding a fork keeps it, is named in the answer and the journal, and their tools are still offered once", async () => {
+  const control = createControlHandler(kernel);
+  const us = kernel.userspaces.pathFor("alice");
+  const s = kernel.sessions.create("alice");
+  await collect(kernel.sessions.send("alice", s.id, "fork: @thetis/hello as hello3"));
+  await collect(kernel.sessions.send("alice", s.id, "install: packages/hello3"));
+  assert.ok(!kernel.packages.installed(us).some((p) => p.name === "@thetis/hello"), "the fork displaced the origin");
+
+  const r = (await control("packages.installEveryone", { source: "@thetis/hello" })) as { name: string; userspaces: string[]; forks: { user: string; fork: string }[] };
+  assert.equal(r.name, "@thetis/hello");
+  assert.ok(r.userspaces.includes("bob") && !r.userspaces.includes("alice"), `everyone who was not holding a fork of it: ${r.userspaces.join(", ")}`);
+  assert.deepEqual(r.forks, [{ user: "alice", fork: "@alice/hello3" }], "and the one who was, by name");
+  const names = kernel.packages.installed(us).map((p) => p.name);
+  assert.ok(names.includes("@alice/hello3") && !names.includes("@thetis/hello"), `alice keeps her fork and only her fork: ${names.join(", ")}`);
+  const tools = await collect(kernel.sessions.send("alice", s.id, "tools?"));
+  assert.equal(tools.text.split(",").filter((t) => t.trim() === "greet").length, 1, `the tool is offered once, by the fork: ${tools.text}`);
+  const rows = kernel.journal.tail(50).filter((row) => row.kind === "package.everyone");
+  assert.deepEqual(rows[0]?.data?.forks, [{ user: "alice", fork: "@alice/hello3" }], "an admin reading the journal later sees who was left alone");
+  assert.equal(kernel.packages.listFor(us).find((p) => p.name === "@alice/hello3")?.fork?.everyone, true, "and alice's own listing says the package she forked is now everyone's default");
+
+  await control("packages.unfork", { user: "alice", name: "@alice/hello3", deleteFiles: true });
+  kernel.packages.markEveryone("@thetis/hello", false);
+});
+
 test("mounts: an admin grants a host directory into a person's fence through the host package; the agent reads it and learns it from THETIS_MOUNTS", async () => {
   const fence = kernel.container.get(T.fence) as ProcessFence;
   const dir = mkdtempSync(join(tmpdir(), "thetis-mount-"));
@@ -604,7 +639,10 @@ test("config.set at the system layer reaches the provider on its next call, with
   const control = createControlHandler(kernel);
   const opened = () => ({ ...((kernel.fences as { openedAt?(): Record<string, number> }).openedAt?.() ?? {}) });
   const before = opened();
-  const rows = () => kernel.journal.tail(50).filter((r) => r.kind.startsWith("service.")).length;
+  // Every service row this file has ever written, not the last fifty: a window that short counts a
+  // different stretch of history each time a test above it learns to write one more row, and then this
+  // test fails for something that has nothing to do with configuration.
+  const rows = () => kernel.journal.tail(1000).filter((r) => r.kind.startsWith("service.")).length;
   const serviceRows = rows();
   const s = kernel.sessions.create("alice");
   assert.equal((await collect(kernel.sessions.send("alice", s.id, "hello"))).text, "echo: hello (t1)");

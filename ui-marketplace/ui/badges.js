@@ -17,9 +17,14 @@ export function stateBadge(badge, r) {
 export function forkBadge(badge, r) {
   const fork = r.fork;
   if (!fork) return r.forkedFrom ? badge(`fork of ${r.forkedFrom.name} ${r.forkedFrom.version}`, "warn") : null;
-  if (fork.identical && fork.shipped) return badge(`identical to ${fork.name} ${fork.shipped}, which is shipped`, "warn");
-  if (fork.shipped && fork.shipped !== fork.version) return badge(`fork of ${fork.name} ${fork.version} · ${fork.shipped} is shipped now`, "warn");
-  return badge(`fork of ${fork.name} ${fork.version}`, "warn");
+  // The origin is what everyone here gets by default. It is a clause on whichever sentence wins rather
+  // than a sentence of its own, because it is never the reason to act -- it is the context for acting. An
+  // admin cannot make that default this person's, since the kernel will not install a package over
+  // somebody's fork of it, so this row is the only place the decision reaches them.
+  const everyone = fork.everyone ? " · everyone else gets that one" : "";
+  if (fork.identical && fork.shipped) return badge(`identical to ${fork.name} ${fork.shipped}, which is shipped${everyone}`, "warn");
+  if (fork.shipped && fork.shipped !== fork.version) return badge(`fork of ${fork.name} ${fork.version} · ${fork.shipped} is shipped now${everyone}`, "warn");
+  return badge(`fork of ${fork.name} ${fork.version}${everyone}`, "warn");
 }
 
 /**

@@ -1,6 +1,6 @@
 {
   "name": "@thetis/ui-admin",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "The admin sections of the web gateway's control panel: people, models, configuration, mounts, activity, workspaces, and overview.",
   "type": "module",

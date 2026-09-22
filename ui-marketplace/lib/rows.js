@@ -92,7 +92,10 @@ export function installedRow(info) {
     // A fork against its origin as the origin stands now: what it was copied from, what that is at today,
     // and whether this copy has changed anything at all. `forkedFrom` alone only ever said the first of the
     // three, which is the half of the sentence that lets a fork sit there missing every fix.
-    fork: info.fork ? { name: info.fork.name, version: info.fork.version, shipped: info.fork.shipped ?? null, identical: !!info.fork.identical } : null,
+    // `everyone` is the origin being the house default. It travels with the fork rather than with the row
+    // itself, because the row is not everyone's -- that is the whole point of it, and the person holding it
+    // has no other way to learn that the package they stepped away from is what everybody else runs.
+    fork: info.fork ? { name: info.fork.name, version: info.fork.version, shipped: info.fork.shipped ?? null, identical: !!info.fork.identical, everyone: !!info.fork.everyone } : null,
     replaced: info.replaced ?? null,
     steps: (info.thetis?.steps ?? []).map((s) => ({ id: s.id, phase: s.phase })),
     tools: (info.thetis?.tools ?? []).map((t) => ({ name: t.name, description: t.description ?? "" })),

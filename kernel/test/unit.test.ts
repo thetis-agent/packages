@@ -662,6 +662,66 @@ test("packages: a fork says what it was forked from and how far that has moved, 
   }
 });
 
+/**
+ * The fork rule read backwards, which is the direction that was missing. A fork names its origin and so
+ * displaces it on install; the origin names nothing, so until now a shipped package installed into a
+ * userspace that already held a fork of it landed beside the fork. Two gateways then bind the same
+ * `run/web.sock` and two copies of the same tools are offered to the model.
+ *
+ * The answer is a refusal rather than a second displacement, because a displaced fork is nobody's to put
+ * back: see the note on `PackageManager.displace`. What is asserted here is that the refusal comes before
+ * anything is removed or linked, that it names the fork so the person can act on it, and that the seed --
+ * the one path that installs a system package without going through `install` -- leaves a fork alone too.
+ */
+test("packages: a package whose fork is already installed here is refused by name, and the seed leaves that fork alone", async () => {
+  const home = tmp();
+  try {
+    const registry = new PackageRegistry(await mirror(memoryStore(), "registry"));
+    const config = defaultConfig(home, "/proj");
+    config.systemPackagesDir = join(home, "system");
+    config.systemPackages = { "*": ["@thetis/gw"] };
+    const shipped = join(config.systemPackagesDir, "gw");
+    mkdirSync(shipped, { recursive: true });
+    writeFileSync(join(shipped, "package.json"), JSON.stringify({ name: "@thetis/gw", version: "0.1.1", main: "index.js", thetis: { type: "gateway", service: { export: "start" } } }));
+    writeFileSync(join(shipped, "index.js"), "export const x = 1;\n");
+    const manager = new PackageManager(config, registry, {} as Fences);
+    const us = new UserspaceLayout(home).ensure("alice");
+    const alice = { id: "alice", role: "user", status: "active", createdAt: "" } as const;
+    const admin = { id: "root", role: "admin", status: "active", createdAt: "" } as const;
+
+    manager.seedSystem(us);
+    forkPackage({ from: join(us.store, "node_modules", "@thetis", "gw"), to: join(us.home, "packages", "gw"), name: "@alice/gw", version: "0.1.1-fork.1", origin: { name: "@thetis/gw", version: "0.1.1" }, root: us.root });
+    await manager.install(us, alice, "packages/gw");
+    assert.deepEqual(manager.installed(us).map((p) => p.name), ["@alice/gw"], "the fork displaced its origin: the direction that already worked");
+
+    // An admin installing the shipped package here is refused, and the refusal names the copy in the way.
+    await assert.rejects(
+      manager.install(us, admin, "@thetis/gw"),
+      (e: { code: string; message: string }) => e.code === "fork" && /@alice\/gw/.test(e.message) && /@thetis\/gw/.test(e.message),
+    );
+    assert.deepEqual(manager.installed(us).map((p) => p.name), ["@alice/gw"], "a refusal installs nothing and removes nothing");
+    assert.equal(registry.get("@thetis/gw"), undefined, "and records nothing");
+
+    // The seed is the other way a system package arrives, and it does not go through `install` at all. A
+    // person who forked their gateway and then had their userspace seeded again would get it back beside
+    // the fork, on the daemon's own start, with nobody having asked for it.
+    manager.seedSystem(us);
+    assert.deepEqual(manager.installed(us).map((p) => p.name), ["@alice/gw"], "the seed leaves a fork of the package it would install alone");
+
+    // Said on the way out to the person, so that a fork standing in for everyone's default says so.
+    assert.equal(manager.listFor(us)[0].fork?.everyone, true);
+
+    // Nothing about a fork of something else, or a reinstall of the fork itself, changes.
+    await manager.install(us, alice, "packages/gw");
+    assert.deepEqual(manager.installed(us).map((p) => p.name), ["@alice/gw"], "a fork is still reinstallable over itself");
+    assert.equal((await manager.unfork(us, "@alice/gw")).name, "@thetis/gw");
+    await manager.install(us, admin, "@thetis/gw");
+    assert.deepEqual(manager.installed(us).map((p) => p.name), ["@thetis/gw"], "with the fork gone the shipped package installs as it always did");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("sessions.watch: every turn of the user reaches the watcher with its session, parent and input, whoever started it; the signal removes it", async () => {
   const home = tmp();
   try {

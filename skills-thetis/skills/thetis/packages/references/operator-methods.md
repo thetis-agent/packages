@@ -12,11 +12,11 @@ The command line talks to a running kernel through the control socket `$THETIS_H
 | `users.setRole` | `id`, `role` | `admin` or `user`. |
 | `users.passwd` | `id`, `password` | Sets the password. Revokes every token of the user. |
 | `packages.list` | `user` | The packages installed in that user's userspace. |
-| `packages.install` | `user`, `source`, `actor` | Installs into that user's userspace. `actor` names who installs. The ownership rules use the actor's role. |
+| `packages.install` | `user`, `source`, `actor` | Installs into that user's userspace. `actor` names who installs. The ownership rules use the actor's role. Refused with the code `fork` when that userspace already holds a fork of the package, naming the fork. |
 | `packages.uninstall` | `user`, `name` | Removes the package from that user's userspace. |
-| `packages.promote` | `user`, `name` | Makes the package the default for everyone. Returns `{ name, userspaces }`. |
+| `packages.promote` | `user`, `name` | Makes the package the default for everyone. Returns `{ name, userspaces, forks }`: the people it installed for, and `[{ user, fork }]` for the people holding a fork of it, whose own copy is left in place. |
 | `packages.unfork` | `user`, `name`, `deleteFiles` | Puts the package this fork was copied from back in its place, at the version it is at now. Refused when that package is not on disk here, before anything is removed. `deleteFiles` defaults to false. Returns the `PackageInfo` of the package that came back. |
-| `packages.installEveryone` | `source`, `actor` | Installs a package for every person, now and later. Returns `{ name, userspaces }`. |
+| `packages.installEveryone` | `source`, `actor` | Installs a package for every person, now and later. Returns `{ name, userspaces, forks }`, as `packages.promote` does: a person holding a fork of the package keeps it and is named in `forks` and in the journal row. |
 | `sessions.delete` | `user`, `session` | Removes the session record; a running turn is cancelled first. |
 | `fence.reload` | `user` | Closes that person's fence and opens it again on the code on disk. |
 | `restart.request`, `restart.status`, `restart.cancel` | `reason` | The daemon's own restart latch. |

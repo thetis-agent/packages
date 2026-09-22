@@ -79,9 +79,14 @@ export function mountPackages(root, { user }, shell) {
   const forkBadge = (r) => {
     const fork = r.fork;
     if (!fork) return r.forkedFrom ? badge(`fork of ${r.forkedFrom.name} ${r.forkedFrom.version}`, "warn") : null;
-    if (fork.identical && fork.shipped) return badge(`identical to ${fork.name} ${fork.shipped}, which is shipped`, "warn");
-    if (fork.shipped && fork.shipped !== fork.version) return badge(`fork of ${fork.name} ${fork.version} · ${fork.shipped} is shipped now`, "warn");
-    return badge(`fork of ${fork.name} ${fork.version}`, "warn");
+    /* The origin is what everyone here gets by default, and this row is the one place its holder is told:
+     * an admin making a package the default for everyone cannot make it theirs, because the kernel will
+     * not install a package over somebody's fork of it. A clause, not a sentence of its own -- it is the
+     * context for acting on the rest of the badge, never the reason to. */
+    const everyone = fork.everyone ? " · everyone else gets that one" : "";
+    if (fork.identical && fork.shipped) return badge(`identical to ${fork.name} ${fork.shipped}, which is shipped${everyone}`, "warn");
+    if (fork.shipped && fork.shipped !== fork.version) return badge(`fork of ${fork.name} ${fork.version} · ${fork.shipped} is shipped now${everyone}`, "warn");
+    return badge(`fork of ${fork.name} ${fork.version}${everyone}`, "warn");
   };
 
   /** A package the person can delete with its files: one of their own. */

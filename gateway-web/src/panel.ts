@@ -27,8 +27,8 @@ export interface PackageRow {
   service: boolean;
   /** Set on a fork: what it was copied from, and what it displaced in this person's setup. */
   forkedFrom?: { name: string; version: string };
-  /** Set on a fork: the same origin, plus what that origin is at on disk now and whether this copy differs from it at all. */
-  fork?: { name: string; version: string; shipped?: string; identical?: boolean };
+  /** Set on a fork: the same origin, plus what that origin is at on disk now, whether this copy differs from it at all, and whether it is what everyone else gets. */
+  fork?: { name: string; version: string; shipped?: string; identical?: boolean; everyone?: boolean };
   replaced?: string;
 }
 
@@ -43,7 +43,7 @@ export function toRow(p: PackageInfo): PackageRow {
     tools: (p.thetis.tools ?? []).map((t) => t.name),
     service: !!p.thetis.service,
     ...(p.forkedFrom ? { forkedFrom: { name: p.forkedFrom.name, version: p.forkedFrom.version } } : {}),
-    ...(p.fork ? { fork: { name: p.fork.name, version: p.fork.version, ...(p.fork.shipped ? { shipped: p.fork.shipped } : {}), ...(p.fork.identical ? { identical: true } : {}) } } : {}),
+    ...(p.fork ? { fork: { name: p.fork.name, version: p.fork.version, ...(p.fork.shipped ? { shipped: p.fork.shipped } : {}), ...(p.fork.identical ? { identical: true } : {}), ...(p.fork.everyone ? { everyone: true } : {}) } } : {}),
     ...(p.replaced ? { replaced: p.replaced } : {}),
   };
 }

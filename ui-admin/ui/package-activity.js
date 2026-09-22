@@ -9,6 +9,14 @@ const RANGES = [
   ["all", "all", 0],
 ];
 
+/**
+ * The people a fleet-wide install left alone, because they hold a fork of the package. "installed for
+ * everyone" is read as everyone, and an admin who never learns otherwise goes on believing a package is
+ * everywhere while somebody is still running their own copy of it. The names are what makes it actionable:
+ * whoever reads this row later can go and ask them.
+ */
+const kept = (d) => (Array.isArray(d.forks) && d.forks.length ? `, except ${d.forks.map((f) => f.user).join(", ")}, who ${d.forks.length === 1 ? "holds" : "hold"} a fork of it` : "");
+
 /** One sentence for an entry, from its kind and data. Unknown kinds show the kind and the target. */
 export function sentence(entry, name) {
   const d = entry.data ?? {};
@@ -19,9 +27,9 @@ export function sentence(entry, name) {
     case "package.uninstall":
       return `removed ${d.name ?? name} for ${t}`;
     case "package.promote":
-      return `promoted ${d.name ?? name} to ${d.promoted ?? "a system package"}${Array.isArray(d.userspaces) ? ` for ${d.userspaces.length} workspace${d.userspaces.length === 1 ? "" : "s"}` : ""}`;
+      return `promoted ${d.name ?? name} to ${d.promoted ?? "a system package"}${Array.isArray(d.userspaces) ? ` for ${d.userspaces.length} workspace${d.userspaces.length === 1 ? "" : "s"}` : ""}${kept(d)}`;
     case "package.everyone":
-      return `installed ${t} for everyone`;
+      return `installed ${t} for everyone${kept(d)}`;
     case "service.start":
       return `service started for ${t}`;
     case "service.stop":
@@ -48,7 +56,7 @@ function toneOf(kind) {
 
 /** The data a sentence did not use, as `key: value` pairs. */
 function detail(entry) {
-  const used = new Set(["name", "version", "key", "user", "promoted", "userspaces"]);
+  const used = new Set(["name", "version", "key", "user", "promoted", "userspaces", "forks"]);
   const rest = Object.entries(entry.data ?? {}).filter(([k]) => !used.has(k));
   return rest.map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join(" · ");
 }

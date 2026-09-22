@@ -131,6 +131,14 @@ test("rows: a fork carries what it was forked from and how far that has moved, a
   const working = mergeRows([forkOf({ name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.1.1" })], [], undefined);
   assert.equal(working[0].update, null, "a fork that differs from the current origin is doing its job");
   assert.deepEqual(forkBadge(badge, working[0]), { text: "fork of @thetis/gateway-web 0.1.1", tone: "warn" });
+  // The origin is what everyone on this host gets, and the person holding the fork is the one it could not
+  // be made the default for: the kernel refuses to install a package over somebody's fork of it. The badge
+  // is where that decision reaches them, so it rides on whichever sentence wins rather than replacing one.
+  const house = mergeRows([forkOf({ name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.2.0", everyone: true })], [], undefined);
+  assert.deepEqual(forkBadge(badge, house[0]), { text: "fork of @thetis/gateway-web 0.1.1 · 0.2.0 is shipped now · everyone else gets that one", tone: "warn" });
+  const houseSame = mergeRows([forkOf({ name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.1.1", identical: true, everyone: true })], [], undefined);
+  assert.deepEqual(forkBadge(badge, houseSame[0]), { text: "identical to @thetis/gateway-web 0.1.1, which is shipped · everyone else gets that one", tone: "warn" });
+
   // A row from a kernel that does not answer with `fork` still says what the manifest said, and no more.
   const old = mergeRows([{ ...shipped("@alice/thing", { everyone: false }), forkedFrom: { name: "@thetis/thing", version: "0.1.0" } }], [], undefined);
   assert.equal(old[0].fork, null);

@@ -2,7 +2,7 @@ import { existsSync, rmSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { HOST_TYPE, STORAGE_TYPE, SYSTEM_SCOPE, SYSTEM_USER, type DeletedPackage, type ExecResult, type Fences, type Manifest, type PackageInfo, type PackageRecord, type PackageSource, type UserRecord, type Userspace } from "@thetis/contracts";
 import { assert, CodedError, errorMessage } from "@thetis/lib/error";
-import { buildCommand, cloneCommand, cloneDirFor, cloneSlugOf, copyPackageAs, hasPackageJson, headOf, isGitSource, isInside, keepOnly, linkDir, packagesIn, removeLink, samePackage, splitSource } from "@thetis/lib/pkg-fs";
+import { buildCommand, cloneCommand, cloneDirFor, cloneSlugOf, copyPackageAs, forkOf, hasPackageJson, headOf, isGitSource, isInside, keepOnly, linkDir, packagesIn, removeLink, samePackage, splitSource } from "@thetis/lib/pkg-fs";
 import type { KernelConfig } from "../config.js";
 import { readManifest, scopeOf, toInfo } from "./manifest.js";
 import type { PackageRegistry } from "./registry.js";
@@ -114,25 +114,34 @@ export class PackageManager {
    * install, restore and seed paths call. Reading the whole of two package trees costs milliseconds, which
    * is nothing to pay once for a listing somebody is about to read and too much to pay on every internal
    * question about what is installed.
+   *
+   * `everyone` is the fork's other half of the news. An admin who makes a package the default for everyone
+   * cannot make it this person's -- their fork is in the way, and the sweep leaves it there by design -- so
+   * the only place that decision can reach them is here, on the row of the copy standing in for it.
    */
   private withFork(us: Userspace, info: PackageInfo): PackageInfo {
     const from = info.forkedFrom;
     if (!from) return info;
     const dir = this.systemPackageDir(from.name) ?? this.displacedDir(us, from.name);
     const shipped = this.manifestOf(us, from.name)?.version;
-    return { ...info, fork: { ...from, ...(shipped ? { shipped } : {}), ...(dir && samePackage(info.root, dir) ? { identical: true } : {}) } };
+    return { ...info, fork: { ...from, ...(shipped ? { shipped } : {}), ...(dir && samePackage(info.root, dir) ? { identical: true } : {}), ...(this.forEveryone().includes(from.name) ? { everyone: true } : {}) } };
   }
 
   /**
    * Links the system packages into a fresh userspace: for a person, the `"*"` list, every promoted
    * package, and every package an admin marked for everyone; the userspace's own list always. The
    * system userspace is not a person. Idempotent.
+   *
+   * A package somebody here has forked is skipped, for the reasons in `displace`. This is the one path
+   * that installs a system package without going through `install`, so the rule has to be stated twice or
+   * a seed would quietly undo what the fork rule decided -- and a seed is not a person asking for
+   * anything, so there is nobody here to refuse to.
    */
   seedSystem(us: Userspace): void {
     const everyone = us.id === SYSTEM_USER ? [] : this.forEveryone();
     const names = [...everyone, ...(this.config.systemPackages[us.id] ?? [])];
     for (const name of new Set(names)) {
-      if (!this.registry.get(name)?.userspaces.includes(us.id)) this.installSystem(us, name);
+      if (!this.registry.get(name)?.userspaces.includes(us.id) && !forkOf(this.registry.installedIn(us.id), name)) this.installSystem(us, name);
     }
   }
 
@@ -250,8 +259,34 @@ export class PackageManager {
     return { name, path: dir, ...(restored ? { restored: restored.name } : {}) };
   }
 
-  /** The fork rule: when a manifest names an origin that is installed here, the origin is stopped and unlinked first. */
+  /**
+   * The fork rule, in both directions. Forwards: a manifest that names an origin installed here has that
+   * origin stopped and unlinked first, so the fork takes its place in one operation. Backwards: a package
+   * whose fork is already installed here is refused, and the refusal names the fork.
+   *
+   * The two directions are deliberately not symmetrical. A displaced origin is recoverable: it is shipped
+   * or promoted, its files are the kernel's own, `restore` puts it back by name and `unfork` exists to ask
+   * for exactly that. A displaced fork would be the person's own work, and nothing here could put it back
+   * -- the registry keeps one document per package name with the userspaces it is in, so recording that
+   * `@thetis/gateway-web` had displaced alice's fork would claim it in every userspace holding the shipped
+   * gateway and restore the wrong thing at the next uninstall anywhere. The second install therefore does
+   * not happen. Leaving both installed, which is what happened before this, is the worst of the three: two
+   * gateways bind the same `run/web.sock` and the second one to start silently takes the socket from the
+   * first, so the person's fork stops answering their own browser and nothing says why.
+   *
+   * A refusal is also the only answer anybody hears. The person is told before their gateway goes out of
+   * service; an admin is told which people were left alone rather than believing a package is everywhere
+   * when it is not. `installEverywhere` asks `forkOf` the same question before it calls, so a sweep across
+   * the fleet names those people and carries on instead of stopping on one person's private decision.
+   *
+   * In the git and local paths the refusal lands after the build, because the displacement itself has to:
+   * a fork that fails to build must not have stopped the origin's service first, and both halves of the
+   * rule belong in one place. Nothing has been removed or linked by then, so what a clashing install costs
+   * is the build's time and nothing else.
+   */
   private async displace(us: Userspace, m: Manifest): Promise<{ replaced: string; replacedSource: PackageSource } | undefined> {
+    const fork = forkOf(this.registry.installedIn(us.id), m.name);
+    assert(!fork, `${us.id} holds ${fork}, a fork of ${m.name}: un-fork ${fork} first, or leave it in place`, "fork");
     const origin = m.thetis.forkedFrom?.name;
     const rec = origin && origin !== m.name ? this.registry.get(origin) : undefined;
     if (!rec?.userspaces.includes(us.id)) return undefined;

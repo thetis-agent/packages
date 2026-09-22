@@ -55,6 +55,8 @@ thetis chat --user alice
 
 `send` without `--session` creates a new session; `sessions list` finds its id for later turns. In `chat`, a line of text sends one turn; `/new` starts a session, `/inspect` prints the session state, `/quit` ends the loop. `printf 'hello\n/quit\n' | node bin/thetis.js chat --user alice` works.
 
+A reasoning model's thinking arrives as its own event, and a terminal has no fold to put it in, so `send` and `chat` write a dim `[thinking…]` once and close it off the moment the answer, a tool call or an error arrives. `--verbose` streams the thinking itself, dimmed, as it streams the steps. Nothing is stored either way; it is what the model was doing while you waited, not part of the reply. It appears only when the provider is asked for it, which is `defaults.reasoning` in the provider's configuration.
+
 `--user` is not authenticated. The CLI is an operator tool on the host: anyone who can run it, or open the control socket, can act as any user.
 
 ## Files

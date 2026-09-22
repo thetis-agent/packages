@@ -193,6 +193,21 @@ export interface ForkManifest {
   thetis: Record<string, unknown> & { forkedFrom?: { name: string; version: string } };
 }
 
+/**
+ * The fork of `name` that a userspace already holds, if it holds one. This is the fork relation read
+ * backwards, and it has to be read backwards because only one end of it is written down: a fork names its
+ * origin in its own manifest, so "does this package displace something here?" is a question its manifest
+ * answers, while "is something here already standing in for this package?" is not a question the incoming
+ * package can answer at all. The only place that knows is what the userspace already holds.
+ *
+ * It takes records rather than directories on purpose. The question is asked before anything is fetched,
+ * built or linked -- an admin installing a gateway for everyone has to know which people to leave alone
+ * before the first clone -- and a record is what the kernel has at that point.
+ */
+export function forkOf(installed: { name: string; forkedFrom?: { name: string } }[], name: string): string | undefined {
+  return installed.find((r) => r.name !== name && r.forkedFrom?.name === name)?.name;
+}
+
 /** The version a fork gets: `<origin>-fork.N`, where N follows the fork that already carries this name. */
 export function forkVersion(origin: string, current?: string): string {
   const m = current ? /-fork\.(\d+)$/.exec(current) : null;

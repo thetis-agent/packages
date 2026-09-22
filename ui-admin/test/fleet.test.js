@@ -6,6 +6,7 @@ import { mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as commands from "../fleet.js";
+import { sentence } from "../ui/package-activity.js";
 
 /** A package directory whose newest file is from `at`: what "older code" is measured against. */
 function rootAt(at) {
@@ -93,6 +94,25 @@ test("package-activity: only the entries about the package, newest first, cut to
   assert.deepEqual(calls[0], { method: "journal.tail", args: { limit: 1000 } });
   const all = await commands.packageActivity({ name: "@thetis/terminal" }, env);
   assert.equal(all.data.entries.length, 4, "the exa install is not about this package");
+});
+
+/**
+ * A fleet-wide install does not reach a person holding a fork of the package: the kernel refuses to put a
+ * package over somebody's fork of it, and the sweep names them instead of stopping. The row is the only
+ * durable record of that, so the sentence has to carry the names -- "installed for everyone" read months
+ * later is otherwise a claim about the fleet that was never true.
+ */
+test("package-activity: a fleet-wide install says who it left alone, and why", () => {
+  const forks = [{ user: "bob", fork: "@bob/gateway-web" }];
+  assert.equal(
+    sentence({ kind: "package.everyone", target: "@thetis/gateway-web", data: { userspaces: ["root"], forks } }),
+    "installed @thetis/gateway-web for everyone, except bob, who holds a fork of it",
+  );
+  assert.equal(sentence({ kind: "package.everyone", target: "@thetis/gateway-web", data: { userspaces: ["root", "bob"] } }), "installed @thetis/gateway-web for everyone");
+  assert.equal(
+    sentence({ kind: "package.promote", target: "alice", data: { name: "@alice/gw", promoted: "@thetis/gw", userspaces: ["root"], forks } }),
+    "promoted @alice/gw to @thetis/gw for 1 workspace, except bob, who holds a fork of it",
+  );
 });
 
 test("package-update: a system package moves for everyone, a personal one in the admin's workspace; nothing to do is a refusal", async () => {

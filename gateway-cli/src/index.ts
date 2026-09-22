@@ -690,9 +690,12 @@ function forkLine(b: Behind): string {
 
 const forkNote = (fork: PackageInfo["fork"]): string => {
   if (!fork) return "";
-  if (fork.identical && fork.shipped) return `\tidentical to ${fork.name}@${fork.shipped}, which is shipped`;
-  if (fork.shipped && fork.shipped !== fork.version) return `\tforked from ${fork.name}@${fork.version}; ${fork.shipped} is shipped now`;
-  return `\tforked from ${fork.name}@${fork.version}`;
+  // The origin is what everyone on this host gets. An operator looking down a list of people is the one
+  // most likely to be wondering why this person is not among them, and this is the answer.
+  const everyone = fork.everyone ? "; everyone else gets it" : "";
+  if (fork.identical && fork.shipped) return `\tidentical to ${fork.name}@${fork.shipped}, which is shipped${everyone}`;
+  if (fork.shipped && fork.shipped !== fork.version) return `\tforked from ${fork.name}@${fork.version}; ${fork.shipped} is shipped now${everyone}`;
+  return `\tforked from ${fork.name}@${fork.version}${everyone}`;
 };
 
 async function packagesCmd(call: Call, args: Args, user: string | undefined, shared: string): Promise<void> {
@@ -720,8 +723,12 @@ async function packagesCmd(call: Call, args: Args, user: string | undefined, sha
       return print(args["delete-files"] === true ? `the fork's files were deleted` : `the fork's files were kept; delete them with: thetis packages unfork ... --delete-files, or by hand`);
     }
     case "promote": {
-      const r = (await call("packages.promote", { user: target, name: source })) as { name: string; userspaces: string[] };
-      return print(`promoted ${source} to ${r.name}; installed in ${r.userspaces.join(", ")}`);
+      const r = (await call("packages.promote", { user: target, name: source })) as { name: string; userspaces: string[]; forks?: { user: string; fork: string }[] };
+      print(`promoted ${source} to ${r.name}; installed in ${r.userspaces.join(", ")}`);
+      // Anyone holding a fork of it keeps their fork: see PackageManager.displace. Said here because the
+      // line above is otherwise read as "everyone", and the whole point of promoting is that it is everyone.
+      if (r.forks?.length) print(`not installed for ${r.forks.map((f) => `${f.user} (holding ${f.fork})`).join(", ")}: their fork of it stays in place`);
+      return;
     }
     case "outdated": {
       const out = await outdatedIn(call, target, shared);
@@ -788,22 +795,40 @@ async function chat(call: Call, user: string, sessionId: string | undefined, ver
 
 async function render(call: Call, user: string, session: string, input: string, verbose: boolean): Promise<void> {
   const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
+  // A reasoning model can spend most of a turn thinking, and a terminal has no fold to put that in. So the
+  // default says it is happening and no more, and `-v` streams it dimmed, the way `-v` streams the steps.
+  // Either way it is closed off the moment anything else arrives, so thinking never reads as the answer.
+  let thinking = false;
+  const settle = () => {
+    if (!thinking) return;
+    thinking = false;
+    process.stdout.write("\n");
+  };
   await call("sessions.send", { user, session, input }, (raw) => {
     const e = raw as TurnEvent;
     switch (e.type) {
+      case "reasoning":
+        if (verbose) process.stdout.write(dim(e.delta));
+        else if (!thinking) process.stdout.write(dim("[thinking…]"));
+        thinking = true;
+        break;
       case "text":
+        settle();
         process.stdout.write(e.delta);
         break;
       case "tool.call":
+        settle();
         process.stdout.write(`\n${dim(`[tool ${e.call.name}] ${JSON.stringify(e.call.args).slice(0, 400)}`)}\n`);
         break;
       case "tool.result":
         process.stdout.write(dim(`[${e.name} -> ${e.result.replace(/\s+/g, " ").slice(0, 300)}]`) + "\n");
         break;
       case "message":
+        settle();
         if (e.usage) process.stdout.write(`\n${dim(usageLine(e.usage))}\n`);
         break;
       case "error":
+        settle();
         process.stdout.write(`\n\x1b[31merror: ${e.message}\x1b[0m\n`);
         break;
       case "step.start":

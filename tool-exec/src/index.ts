@@ -41,10 +41,13 @@ export const listPackages: Tool = async (args, env) => {
 /** What to say about a fork on its one line: nothing, or its origin, or its origin and how far that has gone without it. */
 function forkLine(fork: PackageInfo["fork"] | undefined): string {
   if (!fork) return "";
-  if (!("shipped" in fork) || !fork.shipped) return ` fork of ${fork.name}@${fork.version}`;
-  if (fork.identical) return ` fork of ${fork.name}@${fork.version}, identical to the shipped ${fork.shipped}: it is carrying no change and will see no further fix (unfork_package)`;
-  if (fork.shipped !== fork.version) return ` fork of ${fork.name}@${fork.version}, ${fork.shipped} is shipped now (unfork_package)`;
-  return ` fork of ${fork.name}@${fork.version}`;
+  // The origin is everyone's default here. Worth saying to the model, because it is usually the reason a
+  // person's setup differs from the one every other answer about this host describes.
+  const everyone = "everyone" in fork && fork.everyone ? ", and everyone else gets it" : "";
+  if (!("shipped" in fork) || !fork.shipped) return ` fork of ${fork.name}@${fork.version}${everyone}`;
+  if (fork.identical) return ` fork of ${fork.name}@${fork.version}, identical to the shipped ${fork.shipped}${everyone}: it is carrying no change and will see no further fix (unfork_package)`;
+  if (fork.shipped !== fork.version) return ` fork of ${fork.name}@${fork.version}, ${fork.shipped} is shipped now${everyone} (unfork_package)`;
+  return ` fork of ${fork.name}@${fork.version}${everyone}`;
 }
 
 export const installPackage: Tool = async (args, env) => {

@@ -40,6 +40,13 @@ export interface ForkStatus extends ForkOrigin {
   shipped?: string;
   /** True when the fork's files are the origin's files, apart from the name and version a fork rewrites. */
   identical?: boolean;
+  /**
+   * True when the origin is what every person here gets by default. Said to the holder of the fork, because
+   * an admin making a package everyone's default cannot make it theirs -- the kernel refuses to install a
+   * package over somebody's fork of it -- and the person would otherwise have no way of learning that the
+   * thing they are standing apart from is now the house default.
+   */
+  everyone?: boolean;
 }
 
 export interface PackageSource {
