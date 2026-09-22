@@ -20,6 +20,12 @@ echo devpass123 | THETIS_HOME=.devhome node bin/thetis.js users passwd dev
 THETIS_HOME=.devhome nohup node bin/thetis.js serve > .devhome/serve.log 2>&1 &
 ```
 
+**The key is opt-out, not opt-in.** `envFile` defaults to the *checkout's* `.env`, not the data
+directory's, so a throwaway daemon started here inherits the real `OPENROUTER_API_KEY` and bills a live
+account; that has happened. Put `"envFile": ".env"` in `.devhome/thetis.config.json` and write the key you
+want into `.devhome/.env`, or leave that file empty for a run that sends no model turns. `thetis serve`
+prints the file it read on startup, so check that line before sending anything.
+
 Open `http://127.0.0.1:8799/login` at a viewport of at least 1000px wide (under 860px the chat-bar chips
 are hidden by design; under 760px the sidebar becomes a drawer). Stop the daemon by killing the pid whose
 listening socket is `.devhome/thetis.sock` (`ss -lxp | grep devhome/thetis.sock`), then delete `.devhome`.

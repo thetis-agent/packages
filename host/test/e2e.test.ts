@@ -708,6 +708,41 @@ test("removeUser forgets the password and the tokens, so the id comes back as an
   await kernel.removeUser("dave");
 });
 
+test("nothing under the data directory is still named after a removed user", async () => {
+  // `removeUser` is a hand-maintained list of everything keyed by a person, and nothing fails when a new
+  // per-user namespace or per-user directory is added and forgotten there. That is not hypothetical: it is
+  // how the password and the live tokens were left behind, and then how `fence-keys/<id>` was left behind
+  // after that -- private key material, which `ssh.keygen` would have handed to whoever was given the id
+  // next. So this asserts the shape rather than the list: after a removal, no file or directory under the
+  // data directory is named after them. It is blunt on purpose. A new leak has to be of a kind that does
+  // not put the id in a path to get past it, and the next person to add one does not have to remember.
+  const id = "erin";
+  kernel.users.create(id);
+  await kernel.auth.setPassword(id, "hunter2");
+  await kernel.auth.login(id, "hunter2");
+  const us = kernel.userspaces.pathFor(id);
+  for (const dir of ["fence-keys", "fence-ssh"]) {
+    mkdirSync(join(kernel.config.home, dir, id), { recursive: true });
+    writeFileSync(join(kernel.config.home, dir, id, "something"), "held for them by the host\n");
+  }
+  kernel.sessions.create(id);
+  assert.ok(existsSync(us.home), "they had a userspace to begin with");
+
+  await kernel.removeUser(id);
+  await Promise.all(Object.values(kernel.container.get(T.records)).map((m: { flush(): Promise<void> }) => m.flush()));
+
+  const named: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === id) named.push(join(dir, entry.name));
+      if (entry.isDirectory()) walk(join(dir, entry.name));
+      else if (entry.name === `${id}.toml` || entry.name === `${id}.json`) named.push(join(dir, entry.name));
+    }
+  };
+  walk(kernel.config.home);
+  assert.deepEqual(named, [], `these were left behind by removeUser:\n${named.join("\n")}`);
+});
+
 test("a secret set over RPC reaches the tool and nothing else: not the reply, not config.show, not the journal", async () => {
   const us = kernel.userspaces.pathFor("alice");
   const rpc = createRpcHandler(us, kernel);

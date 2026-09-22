@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import type { StepRef } from "@thetis/contracts";
 import type { ConfigTier } from "@thetis/lib/config-tiers";
 import { readJson, writeJson } from "@thetis/lib/json";
@@ -144,7 +144,13 @@ export function loadConfig(home: string, projectRoot: string, env: NodeJS.Proces
     ...rest,
     home,
     projectRoot: defaults.projectRoot,
-    envFile: defaults.envFile,
+    // The one derived path a data directory may override, because it decides which secrets the whole
+    // installation runs on. The default is the checkout's `.env`, which is where `deploy/install.sh` puts
+    // the provider key and what every ordinary installation wants. A second data directory under the same
+    // checkout inherits that key without being told, which is how a throwaway daemon for a test came to
+    // spend real money on a real account; such a home sets `envFile` to opt out. A relative value is
+    // resolved against the home, so the file stays valid when the checkout moves.
+    envFile: stored.envFile ? resolve(home, stored.envFile) : defaults.envFile,
     storage: { ...defaults.storage, ...(stored.storage ?? {}) },
     fence: {
       ...defaults.fence,
@@ -162,6 +168,8 @@ export function saveConfig(config: KernelConfig): void {
   const { home, projectRoot, systemPackagesDir, promotedPackagesDir, sharedDir, agentPath, envFile, fence, ...portable } = config;
   writeJson(configPath(home), {
     ...portable,
+    // Kept only when it is not the default, and relative to the home, so it survives the checkout moving.
+    ...(envFile === defaultConfig(home, projectRoot).envFile ? {} : { envFile: relative(home, envFile) || ".env" }),
     fence: { sandbox: fence.sandbox, network: fence.network, limits: fence.limits, docker: fence.docker, ...(fence.dockerSocket ? { dockerSocket: fence.dockerSocket } : {}) },
   });
 }

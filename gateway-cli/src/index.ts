@@ -214,6 +214,12 @@ async function serve(config: ReturnType<typeof loadConfig>, socket: string): Pro
     await kernel.services.boot();
     await new Promise<void>((done, fail) => door.once("error", fail).listen(config.door.port, config.door.host, done));
     print(`thetis is serving; control socket ${socket}; door on http://${config.door.host}:${config.door.port}; press Ctrl+C to stop`);
+    // Which secrets this daemon is running on, said out loud. The default env file belongs to the checkout,
+    // not to the data directory, so a second data directory under the same checkout silently inherits the
+    // real provider key -- which is how a throwaway daemon for a test came to spend money on a live account.
+    // Naming the file and whether it carried a key costs one line and ends that surprise; set `envFile` in
+    // the data directory's configuration to point somewhere else.
+    print(`environment: ${config.envFile}${existsSync(config.envFile) ? "" : " (not there)"}`);
     // Said at startup rather than when something first needs it: whether a stopped daemon comes back is the
     // operator's fact to know, and it is decided by the deployed unit, not by anything thetis does.
     print(supervision(kernel.restartPolicy()));

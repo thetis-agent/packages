@@ -204,8 +204,17 @@ test("config: the promoted packages directory is derived and secrets are redacte
     saveConfig(cfg);
     const raw = JSON.parse(readFileSync(join(home, "thetis.config.json"), "utf8"));
     assert.equal(raw.promotedPackagesDir, undefined);
-    assert.equal(raw.envFile, undefined, "derived, so it is not written");
+    assert.equal(raw.envFile, undefined, "derived, so it is not written while it is the default");
     assert.equal(loadConfig(home, "/other").promotedPackagesDir, join(home, "packages"));
+    assert.equal(loadConfig(home, "/proj").envFile, join("/proj", ".env"), "the default is the checkout's, which is where the installer puts the key");
+
+    // A data directory may own its environment, because otherwise a second one under the same checkout
+    // silently runs on the first one's provider key. Kept relative to the home, so a moved checkout is fine.
+    cfg.envFile = join(home, ".env");
+    saveConfig(cfg);
+    assert.equal(JSON.parse(readFileSync(join(home, "thetis.config.json"), "utf8")).envFile, ".env", "written relative to the home");
+    assert.equal(loadConfig(home, "/proj").envFile, join(home, ".env"), "and read back against it, whatever the checkout is");
+    assert.equal(loadConfig(home, "/elsewhere").envFile, join(home, ".env"));
     const shown = redact(cfg);
     assert.equal(shown.packages["@thetis/provider-openrouter"].apiKey, "•••");
     assert.equal(shown.packages["@thetis/provider-openrouter"].baseUrl, "https://x");
