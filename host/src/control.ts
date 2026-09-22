@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -24,12 +24,27 @@ export function controlSocketPath(home: string): string {
  * guaranteed directory is offered there is no token and the socket behaves as it always did. The feature
  * arms itself on installations whose unit says `RuntimeDirectory=thetis`, and is inert on the rest.
  */
-export function controlTokenPath(): string | undefined {
+export function controlTokenPath(home: string): string | undefined {
   // `RUNTIME_DIRECTORY` is set by systemd when the unit declares `RuntimeDirectory=`, which makes
   // /run/thetis for the service's lifetime and removes it on stop. `XDG_RUNTIME_DIR` is the same guarantee
   // for a user service.
   const run = process.env.RUNTIME_DIRECTORY?.split(":")[0] || process.env.XDG_RUNTIME_DIR;
-  return run ? resolve(run, "control.token") : undefined;
+  return run ? resolve(run, tokenName(home)) : undefined;
+}
+
+/**
+ * One token file per data directory, named after it.
+ *
+ * A single `control.token` in a shared run directory is one file for the whole machine, and a machine can
+ * hold more than one daemon: the throwaway ones a person starts beside production for a test all land in
+ * `$XDG_RUNTIME_DIR`. Each start overwrote the last, so the one before it was left holding a token nobody
+ * could read any more and refused every operator command while still answering `ping` -- a command line
+ * that had quietly stopped talking to the daemon it named. Naming the file after the data directory the
+ * daemon serves makes them independent, and keeps the secret out of that directory, where a fence could
+ * read it.
+ */
+function tokenName(home: string): string {
+  return `control.${createHash("sha256").update(resolve(home)).digest("hex").slice(0, 16)}.token`;
 }
 
 /**
@@ -41,8 +56,8 @@ export function controlTokenPath(): string | undefined {
  * masked data directory, and an installation without a run directory -- a container, a stripped image, a
  * development box -- should keep working rather than lose its command line to a hardening measure.
  */
-export function writeControlToken(log: (line: string) => void): string | undefined {
-  const path = controlTokenPath();
+export function writeControlToken(home: string, log: (line: string) => void): string | undefined {
+  const path = controlTokenPath(home);
   if (!path) {
     log("[control] no RuntimeDirectory for this unit; the control socket admits anyone who can open it (add RuntimeDirectory=thetis to require a token)");
     return undefined;
@@ -66,10 +81,13 @@ export function writeControlToken(log: (line: string) => void): string | undefin
  * the system unit's directory is tried first, then the user's: whichever holds a token is the daemon's,
  * and finding neither means this daemon requires none.
  */
-export function readControlToken(): string | undefined {
-  const candidates = [process.env.RUNTIME_DIRECTORY?.split(":")[0], "/run/thetis", process.env.XDG_RUNTIME_DIR].filter((d): d is string => !!d);
-  for (const dir of candidates) {
-    const path = resolve(dir, "control.token");
+export function readControlToken(home: string): string | undefined {
+  const dirs = [process.env.RUNTIME_DIRECTORY?.split(":")[0], "/run/thetis", process.env.XDG_RUNTIME_DIR].filter((d): d is string => !!d);
+  // This data directory's own file first, everywhere, and only then the shared name a daemon started
+  // before this change would have written. Without that fallback, upgrading the packages under a daemon
+  // that is still running would take its command line away until somebody restarted it.
+  const candidates = [...dirs.map((d) => resolve(d, tokenName(home))), ...dirs.map((d) => resolve(d, "control.token"))];
+  for (const path of candidates) {
     try {
       if (existsSync(path)) return readFileSync(path, "utf8").trim() || undefined;
     } catch {

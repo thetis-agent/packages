@@ -138,7 +138,7 @@ export async function run(argv: string[]): Promise<void> {
   const socket = controlSocketPath(home);
   // The running daemon's token, from the host's run directory. Undefined when there is none, and then the
   // daemon has none either and admits anyone who can open the socket, as it always did.
-  const remote = await connectRpcSocket(socket, readControlToken());
+  const remote = await connectRpcSocket(socket, readControlToken(home));
   if (cmd === "serve") {
     if (remote) {
       remote.close();
@@ -181,7 +181,7 @@ async function serve(config: ReturnType<typeof loadConfig>, socket: string): Pro
   const kernel = await createKernel(config);
   const log = (line: string) => process.stderr.write(line + "\n");
   // Written fresh on every start, so a token from a dead daemon is never accepted by a live one.
-  const control = new ControlServer(socket, createControlHandler(kernel), log, writeControlToken(log));
+  const control = new ControlServer(socket, createControlHandler(kernel), log, writeControlToken(config.home, log));
   const door = createDoor({
     loginSocket: resolve(kernel.userspaces.pathFor("_system").run, "login.sock"),
     socketFor: (user) => (kernel.users.get(user)?.role !== "system" && kernel.users.get(user) && kernel.userspaces.exists(user) ? resolve(kernel.userspaces.pathFor(user).run, "web.sock") : undefined),
