@@ -27,6 +27,8 @@ The library, for readers in any fence (`@thetis/ui-marketplace` is the one today
 | `readReadme(env, entry)` | The README copy of an index entry, or `undefined`. |
 | `readReadmeAsset(env, entry, path)` | One image the README shows, as `{ type, data }` (SVG text or PNG base64), or `undefined` when the entry does not list it. |
 | `behind(installed, index)` | Installed packages that are behind, each with `apply`: `"install"` when the pin is older than the index, and the `source` to install to catch up; `"reload"` when the fence loaded a different version than the one on disk; `"unfork"` when the package is a fork and the package it was copied from has gone on without it. `index` may be `undefined`, which leaves the reload and un-fork cases. |
+| `ahead(installed, index)` | The other direction: installed packages whose version is newer than the one the index holds (`state: "ahead"`), and packages no registry lists at all (`state: "unpublished"`). Unpublished work. `undefined` for the index answers nothing, because there is then no published version to compare against. |
+| `compareVersions(a, b)`, `isNewer(a, b)` | Two version strings compared as versions: `0.10.0` is newer than `0.9.0`, and `1.0.0-rc.1` is older than `1.0.0`. There is no semver dependency in this repository. |
 | `refresh(env, registries)`, `registriesOf(config)` | What the service runs. |
 
 No steps, no tools, no UI, no bench suites.
@@ -86,6 +88,21 @@ A fork has no pin and no loaded version to be behind on: it is a copy of a packa
 
 A package is only ever one of the three. The install case wins when more than one holds, because an install brings the new pin and reopens the fence anyway, and the fork case comes last: being told two things at once about one package is being told neither. `loadedVersion` is absent when no fence is open for the workspace, and then there is nothing to say.
 
+### The other direction: ahead
+
+Whoever maintains a package is also running it. Their checkout is the source their own fences load, so the moment they bump a version on disk their installation is on the new one while the registry every other installation reads still holds the old. That gap is real work that nobody else can have yet, and until now nothing anywhere showed it. `ahead` is the sibling of `behind` and needs nothing new recorded and no new configuration: the index already carries each package's published version, and the installed record already carries the local one.
+
+| `state` | What it means | The wording everywhere |
+|---|---|---|
+| `ahead` | A registry holds this package at an older version than the one installed here. | `0.3.0 here, 0.2.0 published` |
+| `unpublished` | No registry lists this package at all: a package of one's own that has never been shared. | `never published` |
+
+Matched on the name alone, unlike `behind`, which matches on the repository too. `behind` is about a pin moving along one registry; the question here is whether *anyone* has this package yet, and a package published to a second registry is published. When two registries hold it, the newest of them is what this is measured against.
+
+Three things are left out on purpose. **A fork**, because a fork is by construction a package no registry holds, so every fork would be listed as unpublished for ever; it already has a row of its own saying what it was copied from and how that package stands now, and that row is the truer of the two -- a fork is a private copy, not work waiting to be shared. **A package installed from a git registry that the index no longer carries**, for the same reason `behind` leaves it alone: a registry dropping a package is a statement about the registry. And **no index at all**, because without a mirror "nothing is published" would be a claim about the registries made without reading one.
+
+Versions are compared as versions, not as strings: `0.10.0` is newer than `0.9.0`, a missing part counts as zero so `1.2` and `1.2.0` are the same version, build metadata after `+` is dropped, and a prerelease is older than the release it leads to, which is what keeps a fork's `0.1.1-fork.1` from ever reading as newer than the `0.1.1` it was copied from.
+
 ## Files
 
 | File | Content |
@@ -95,8 +112,9 @@ A package is only ever one of the three. The install case wins when more than on
 | `src/mirror.ts` | `refresh`: the clone, the scan, the README copies and their images. |
 | `src/index-file.ts` | The index and README paths, `readIndex`, `writeIndex`, `readReadme`, `readReadmeAsset`, the `IndexedPackage` type. |
 | `src/search.ts` | `search`. |
-| `src/updates.ts` | `behind`, `shortCommit`. |
+| `src/updates.ts` | `behind`, `ahead`, `shortCommit`. |
+| `src/versions.ts` | `compareVersions`, `isNewer`: the version comparison, written here because there is no semver dependency and there is not going to be one. |
 
 ## Tests
 
-`npm test` from the runtime root. `test/marketplace.test.ts` builds a git registry in a temporary directory, refreshes it with a real `exec`, and checks the index, a failed registry, the README copies and their cap, the image copies and their rules, the search ranking, the configuration parsing, the pinned sources, and what `behind` lists, of all three kinds.
+`npm test` from the runtime root. `test/marketplace.test.ts` builds a git registry in a temporary directory, refreshes it with a real `exec`, and checks the index, a failed registry, the README copies and their cap, the image copies and their rules, the search ranking, the configuration parsing, the pinned sources, what `behind` lists, of all three kinds, and what `ahead` lists, of both -- with the version comparison exercised on its own, including `0.10.0` against `0.9.0` and a prerelease against its release.

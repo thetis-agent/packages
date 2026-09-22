@@ -1,6 +1,6 @@
 /* The badges a row carries, the same on a card and on a page: its state (Only me, Everyone, Available),
- * a fork's origin, an update or a reload on offer, and what the benchmarks say. `badge` is the shell's, handed in so
- * this module needs nothing of the seam. */
+ * a fork's origin, an update or a reload on offer, whether the work here has been published anywhere, and
+ * what the benchmarks say. `badge` is the shell's, handed in so this module needs nothing of the seam. */
 
 export function stateBadge(badge, r) {
   if (r.scope === "everyone") return badge("Everyone", "accent");
@@ -44,6 +44,29 @@ export function updateBadge(badge, r) {
 }
 
 /**
+ * The other direction from `updateBadge`: not something newer than what is here, but something here that is
+ * newer than anywhere else. Whoever maintains a package runs it from the same checkout every fence loads, so
+ * a version bump is live for them the moment it lands while the registry every other installation reads is
+ * still on the old one. No badge has ever said so, and the person holding the gap is the only person who can
+ * close it.
+ *
+ * Kept short on purpose. This badge rides on a gallery card beside the package's name, where `.mk-card-head`
+ * wraps and a long badge takes the name's line away from it.
+ */
+export function aheadBadge(badge, r) {
+  const a = r.ahead;
+  if (!a) return null;
+  // Two tones, because the two cases are not the same size. A package no registry has ever listed is a
+  // quiet fact and very often the right state -- on the machine of whoever maintains these packages it is
+  // true of nearly all of them at once, and a gallery of amber says nothing at all. A version here that is
+  // past what a registry holds is a gap between what this installation runs and what anybody else can get,
+  // and that is the one worth standing out. "never published" rather than "unpublished": the first is a
+  // fact about the registries, the second reads like a judgement on the package.
+  if (a.state === "unpublished") return badge("never published", "dim");
+  return badge(`${a.version} here, ${a.published} published`, "warn");
+}
+
+/**
  * What the benchmarks say. A package that opts in but has never been run says so, because "not measured"
  * and "measured and fine" are different things and a blank badge would hide which one this is.
  */
@@ -63,4 +86,4 @@ export function benchBadge(badge, r) {
  * is the longer and the truer of the two, so the update badge stands down for it here. The gallery, which
  * draws no fork badge, keeps the terse one.
  */
-export const stateBadges = (badge, r) => [stateBadge(badge, r), forkBadge(badge, r), r.update?.apply === "unfork" ? null : updateBadge(badge, r), benchBadge(badge, r)].filter(Boolean);
+export const stateBadges = (badge, r) => [stateBadge(badge, r), forkBadge(badge, r), r.update?.apply === "unfork" ? null : updateBadge(badge, r), aheadBadge(badge, r), benchBadge(badge, r)].filter(Boolean);

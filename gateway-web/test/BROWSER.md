@@ -881,3 +881,143 @@ preamble says).
 
 Stop the daemon by the pid on `.devhome-avatar/thetis.sock`, release `/tmp/thetis-browser.lock`, and delete
 `.devhome-avatar`.
+
+## Unpublished work, and publishing from where it is shown (2026-09-22)
+
+The other direction from `behind`: a package whose version here is newer than the version the registries
+hold, or that no registry lists at all. `@thetis/marketplace`'s `ahead` names both, the gallery card, the
+package page and the built-in Packages table all say it, and the package page is where it can be acted on —
+**Publish**, a soft dependency on `@thetis/package-publish` that is simply not drawn where that package is
+not installed or has no target configured.
+
+The fixture is a bare git repository standing in for a registry, holding one package at an *older* version
+than the checkout and one at the *same* version. It has to sit under the data directory's `shared/`: the
+system fence, which is where the marketplace service refreshes, is bound the shared directory and takes no
+mounts of its own, and a person's fence is granted the same path read-write so a publish can push to it.
+
+```sh
+H=$PWD/.devhome-ahead
+THETIS_HOME=$H node bin/thetis.js init
+# $H/thetis.config.json: "door": {"host":"127.0.0.1","port":8809}, "envFile": ".env",
+#   packages["@thetis/gateway-login"] = {"secure": false},
+#   systemPackages["*"] += "@thetis/package-publish",
+#   packages["@thetis/marketplace"].registries = [{ "name":"thetis", "url":"file://$H/shared/registry.git" }],
+#   packages["@thetis/package-publish"].targets = [{ "name":"thetis", "url":"file://$H/shared/registry.git", "branch":"main" }]
+: > $H/.env                       # so this daemon cannot spend the real provider key
+git init --bare -q $H/shared/registry.git
+# then, in a scratch clone: exa/package.json at @thetis/exa 0.0.9 (the checkout is 0.1.0) with a README,
+# terminal/package.json at @thetis/terminal 0.1.0 (the same as the checkout), commit on main, push.
+THETIS_HOME=$H node bin/thetis.js users add dev --admin
+echo devpass123 | THETIS_HOME=$H node bin/thetis.js users passwd dev
+THETIS_HOME=$H nohup node bin/thetis.js serve > $H/serve.log 2>&1 &
+THETIS_HOME=$H node bin/thetis.js mounts add dev $H/shared/registry.git
+THETIS_HOME=$H node bin/thetis.js packages install @thetis/exa --user dev
+```
+
+`thetis serve` prints the environment file it read; check that line says `$H/.env` before anything else.
+`[@thetis/marketplace] indexed 2 packages from 1 registries` in `$H/serve.log` is the fixture being read.
+From the shell, before the browser: `thetis packages outdated --user dev` ends with `@thetis/exa  0.1.0
+here, 0.0.9 published in thetis` under a paragraph headed "17 packages are newer in dev than the registries
+hold, or not published at all" and a closing line naming `thetis publish`, and `thetis packages list --user
+dev` shows `@thetis/terminal@0.1.0 …` with no clause at all, because the registry has caught up with that
+one, while every other row ends `never published`.
+
+88. **The gallery**: sign in at `http://127.0.0.1:8809/login` as `dev` / `devpass123` at 1440px, open `#menu`
+    and click `.menu-item[data-place="@thetis/ui-marketplace#marketplace"]`. Expect `.mk-card[data-name=
+    "@thetis/exa"]` whose `.mk-card-head .tags` holds `Only me` **and** a `.badge.is-warn` reading
+    `0.1.0 here, 0.0.9 published`; `.mk-card[data-name="@thetis/terminal"]` with the state badge and no
+    second badge at all; and every other installed card, `@thetis/ui-marketplace` among them, carrying a
+    `.badge.is-dim` reading `never published` — dim, because on this machine that is true of nearly every
+    package at once and a gallery of amber would say nothing. At 700px the head wraps and the name stays
+    readable: no `.mk-card` scrolls horizontally and the document does not scroll sideways. No console errors.
+89. **A page, ahead**: click the exa card. Expect `.mk-crumb` reading "Marketplace › @thetis/exa", the side
+    card's `.tags` with `Only me` and the warn `0.1.0 here, 0.0.9 published`, and in the `.kv` an
+    **installed** row `0.1.0`, a **registry** row `0.0.9 in thetis`, and a **published** row reading
+    `0.0.9 in thetis — 0.1.0 is what is here`.
+90. **A page, never published**: go back and open `@thetis/ui-marketplace`. Expect the dim badge
+    `never published` and a **published** row reading `nowhere: no registry lists this package`.
+91. **The Publish block**: on either page, expect in the side card, under the actions,
+    `.mk-picker.mk-publish` holding `select.mk-bump` — first option `as it is — <version>`, then a patch, a
+    minor and a major bump — and a button reading **Publish to thetis**. With one target configured there is
+    no `select.mk-target`; the version select's value is `""` (*as it is*) on a package that is already
+    ahead. Under the card, a `.panel-hint` naming the two versions: `0.1.0 is here and 0.0.9 is what thetis
+    holds.` A person without `@thetis/package-publish` installed sees none of it:
+    `thetis packages uninstall @thetis/package-publish --user dev`, reload, and expect the page to draw
+    with no `.mk-publish`, no **last publish** row and no console error. The `POST
+    api/ext/@thetis/ui-marketplace/publish-targets` is still sent and still answers 200 — with
+    `{"available": false, "targets": []}`, decided from the configuration before any tool runs, which is
+    what makes asking on every page open cost nothing.
+92. **The dry run in front of the confirm**: on the exa page, click **Publish to thetis**. Expect a
+    `.busy-note` "Checking what would be published…" (the first one clones the target and takes seconds;
+    later ones are quick enough to miss if you poll at 200 ms), one `POST api/ext/@thetis/ui-marketplace/publish`
+    carrying `dryRun: true`, then a `.popover` titled "Publish @thetis/exa?" with the rows `package
+    @thetis/exa@0.1.0`, `to thetis · file://…/registry.git`, `version 0.0.9 → 0.1.0` and `branch main`, a
+    note saying everyone mirroring thetis gets it on their next refresh, that a published version is not
+    taken back and that only this package's own directory is committed, and a confirm button reading
+    **Publish 0.1.0**. On a package no registry holds, the version row reads `0.2.0, the first version
+    thetis would hold of it` instead, and no `was` that never existed is printed anywhere. Escape closes it and nothing was pushed: `git --git-dir=$H/shared/registry.git log
+    --oneline main` still shows one commit.
+93. **Publish**: click it again and confirm. Expect a second `POST …/publish` with no `dryRun` key, a
+    `.toast.is-good` reading `@thetis/exa@0.1.0 is in thetis (<short commit>).`, and the page redrawn. The
+    bare repository now has a second commit and `exa/package.json` at `0.1.0`. The gallery still shows the
+    old badge until the marketplace service refreshes the index (`refreshMinutes`, 30 by default): the badge
+    is read off the index, not off the target.
+94. **A refusal is one sentence**: click **Publish to thetis** again with the version select left at *as it
+    is*. Expect the dry run to answer 400 and a `.toast.is-error` reading, whole, `@thetis/exa 0.1.0 does
+    not move past 0.1.0, which thetis already holds, so no update check anywhere would see this publish.
+    Publish 0.1.1 or later, or pass bump: "patch".` — and no popover at all. The browser logs the 400 in
+    the console; that one is the refusal being shown, not a fault.
+95. **The built-in Packages table**: open `#menu`, click **Control panel**, and stay on **Packages**. Expect
+    one `POST api/ext/@thetis/ui-marketplace/search` *after* the table was drawn, then the Scope cell of
+    `@thetis/exa` holding `Only me` and the warn `0.1.0 here, 0.0.9 published`, and every unpublished row
+    holding a dim `never published`. Click the exa row: the detail card's `.kv` carries a **published** row
+    reading `0.0.9 in thetis — 0.1.0 is what is here`, and a `.panel-hint` under it says `0.1.0 is here and
+    0.0.9 is what thetis holds. Publish is on its page in the marketplace.` — the section names the gap and
+    points at the one place that can close it. With `@thetis/ui-marketplace` removed
+    (`thetis packages uninstall @thetis/ui-marketplace --user dev`, then reload) expect the table to draw
+    with neither badge, no `published` row, no hint and no `search` request at all, and no console error:
+    `src/panel.ts` never learns any of this, and the section is the bootstrap either way.
+96. **The record**: reopen the exa page. Expect in the same `.kv` a **last publish** row reading
+    `@thetis/exa@0.1.0 to thetis · <a moment ago>`. It comes from the publishing package's own store
+    through `publish_targets`, not from the kernel's journal — a publish is not a journal act, and there is
+    no row of that kind anywhere in **Activity**. Open another package's page, `@thetis/ui-marketplace`:
+    the same row is there and still reads `@thetis/exa@0.1.0`, because the record is the last publish to
+    *that target*, whatever it was of, which is why the row names the package. Before any publish at all
+    there is no such row and nothing says there could have been one.
+
+97. **Passengers**: the case the panel exists for needs the other fixture — a package whose files live
+    *inside* a clone of the registry, so that a publish pushes the branch and anything already committed on
+    it rides along. The `file://` fixture above is copy mode, where there are never any passengers, so
+    build checkout mode instead. Put three packages of dev's own in the registry at 0.1.0 (`alpha`, `beta`,
+    `gamma`, each a `package.json` with a `thetis` field and an `index.js`), clone it *as* dev's packages
+    directory and point its origin at the same `file://` url:
+
+    ```sh
+    git clone $H/shared/registry.git $H/userspaces/dev/home/packages
+    cd $H/userspaces/dev/home/packages && git remote set-url origin file://$H/shared/registry.git
+    # then, from the runtime root, with the daemon up:
+    for p in alpha beta gamma; do THETIS_HOME=$H node bin/thetis.js packages install packages/$p --user dev; done
+    # in the clone: bump beta to 0.2.0 and commit; change gamma/index.js and commit WITHOUT bumping it.
+    # Commit both; push neither.
+    ```
+
+    Open `@dev/alpha`'s page, choose **a patch bump**, click **Publish to thetis**. Expect **no popover**,
+    and under the Publish row a `.mk-passengers` holding the publishing package's own refusal sentence,
+    whole, with its `git branch keep; git reset --hard origin/main; …` recipe; then, in this order, one
+    `.mk-passenger.is-blocked` with **no** checkbox reading `@dev/gamma 0.1.0 · thetis holds 0.1.0 — its
+    version has not moved past the 0.1.0 thetis holds, so it cannot be published at all. It cannot ride
+    along either; …`, and one `.mk-passenger` with an `input.mk-passenger-tick` reading `@dev/beta 0.2.0 ·
+    thetis holds 0.1.0`. The Publish button is `disabled`, under the hint "Publishing is off until those
+    are dealt with." Now bump gamma to 0.2.0 in the clone and commit, and press Publish again: both rows
+    are ticks, the button is live, and the hint is "Tick what is meant to go out with this publish."
+    Tick neither and press Publish — it comes back to the panel, because a publishable passenger that is
+    not named is still a refusal. Tick both and press Publish: the popover opens with `package
+    @dev/alpha@0.1.1`, `version 0.1.0 → 0.1.1` and an **also publishing** row reading `@dev/beta,
+    @dev/gamma` — names, never a count — and the note "The packages above are published in their own
+    right, each one checked the same way." Confirm, and expect `.toast.is-good` reading `@dev/alpha@0.1.1
+    is in thetis (<short commit>). @dev/beta, @dev/gamma went with it.` and the bare repository to hold
+    alpha 0.1.1, beta 0.2.0 and gamma 0.2.0. Changing the target or the version select clears the panel,
+    because that is a different question; ticks survive a redraw of the same one.
+
+Stop the daemon by the pid on `.devhome-ahead/thetis.sock`, release `/tmp/thetis-browser.lock`, and delete
+`.devhome-ahead`.

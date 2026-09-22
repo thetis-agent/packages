@@ -5,9 +5,14 @@
 // installed the moment it lands; what the workspace is still running is the version its fence read when it
 // opened, and a reload of that workspace is what catches it up. And a fork is behind the package it was
 // copied from, which goes on being fixed while the fork does not; going back to it is what catches that up.
+//
+// `ahead` is the same question asked the other way round, for the person who maintains the packages rather
+// than the person who installs them: what is newer here than the version the registry holds, and what has
+// never been published at all. See `ahead` at the foot of this file.
 import { splitSource } from "@thetis/lib/pkg-fs";
 import type { ForkStatus } from "@thetis/contracts";
 import type { IndexedPackage, MarketplaceIndex } from "./index-file.js";
+import { compareVersions, isNewer } from "./versions.js";
 
 /** The part of an installed package this needs: its name, its version, where it came from, and what is running. */
 export interface InstalledRef {
@@ -101,3 +106,71 @@ export function behind(installed: readonly InstalledRef[], index: MarketplaceInd
 
 /** A short, stable way to show a commit to a person. */
 export const shortCommit = (commit: string): string => commit.slice(0, 7);
+
+/**
+ * The other direction. `behind` asks what this installation is missing; `ahead` asks what it is holding that
+ * nobody else can have yet. The person who maintains a package is also running it: their checkout is the
+ * source their own fences load, so the moment they bump a version on disk their installation is on the new
+ * one while the registry every other installation reads still holds the old. Nothing recorded anywhere says
+ * so, and there is nothing new to record -- the index already carries each package's published version and
+ * the installed record already carries the local one, so this is a comparison and nothing more.
+ */
+export interface Ahead {
+  name: string;
+  /** The version installed here. */
+  version: string;
+  /** The version the index holds for it. Empty on `unpublished`, where no registry holds it at all. */
+  published: string;
+  /** The registry holding the older version. Empty on `unpublished`. */
+  registry: string;
+  /** `ahead`: a registry has it, at an older version. `unpublished`: no registry lists this package. */
+  state: "ahead" | "unpublished";
+}
+
+/**
+ * The index entry for a name, across every registry, taking the newest version when more than one holds it.
+ * Matched on the name alone, unlike `behind`, which matches on the repository too: `behind` is about a pin
+ * moving along one registry, while the question here is whether *anyone* has this package yet, and a package
+ * published to a second registry is published.
+ */
+function publishedEntry(name: string, index: MarketplaceIndex): IndexedPackage | undefined {
+  let best: IndexedPackage | undefined;
+  for (const entry of index.packages) {
+    if (entry.name !== name) continue;
+    if (!best || compareVersions(entry.version, best.version) > 0) best = entry;
+  }
+  return best;
+}
+
+/**
+ * Installed packages whose version is newer than the version the index holds, and packages no registry holds
+ * at all. Unpublished work, in the two forms it takes.
+ *
+ * Three things are deliberately left out.
+ *
+ * A fork is one. A fork is by construction a package no registry holds, so every fork would be listed as
+ * unpublished for ever, and a fork already has a row of its own saying it is a fork and what it was copied
+ * from. Two rows about one package is two rows nobody reads, and the fork row is the truer of the two: a
+ * fork is not work waiting to be shared, it is a private copy, which is the whole point of it.
+ *
+ * A package installed from a git registry that the index no longer carries is another, for the same reason
+ * `behind` leaves it alone: a registry that dropped a package is not a statement about this copy.
+ *
+ * And having no index at all is the third. Without a mirror there is no published version to compare
+ * against, so "nothing is published" would be a claim about the registries made without reading one.
+ */
+export function ahead(installed: readonly InstalledRef[], index: MarketplaceIndex | undefined): Ahead[] {
+  if (!index) return [];
+  const out: Ahead[] = [];
+  for (const record of installed) {
+    if (!record.version || record.fork) continue;
+    const entry = publishedEntry(record.name, index);
+    if (!entry) {
+      if (record.source?.kind === "git") continue;
+      out.push({ name: record.name, version: record.version, published: "", registry: "", state: "unpublished" });
+      continue;
+    }
+    if (isNewer(record.version, entry.version)) out.push({ name: record.name, version: record.version, published: entry.version, registry: entry.registry, state: "ahead" });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}

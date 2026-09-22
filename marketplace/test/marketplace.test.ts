@@ -11,7 +11,8 @@ import {
 } from "../src/index.js";
 import { registriesOf } from "../src/service.js";
 import { cloneCommand, cloneSlug, splitSource } from "@thetis/lib/pkg-fs";
-import { behind, shortCommit } from "../src/updates.js";
+import { ahead, behind, shortCommit } from "../src/updates.js";
+import { compareVersions } from "../src/versions.js";
 import type { IndexedPackage, MarketplaceIndex } from "../src/index-file.js";
 
 /** A real environment rooted in a temporary home, like the agent's `StepEnv`. */
@@ -400,4 +401,85 @@ test("nothing here installs anything: it reports, and a person decides", () => {
   );
   assert.deepEqual(out.map((b) => b.name), ["@thetis/a", "@thetis/b"], "sorted, so the report reads the same every time");
   assert.equal(shortCommit(NEW), "2222222");
+});
+
+// ---- ahead: what is newer here than anywhere else ----
+
+test("versions are compared as numbers, not as text: 0.10.0 is newer than 0.9.0", () => {
+  // The whole reason this function exists. A string comparison puts "0.10.0" before "0.9.0", and the tenth
+  // release of a line is exactly when nobody is reading the numbers any more.
+  assert.equal(compareVersions("0.10.0", "0.9.0"), 1);
+  assert.equal(compareVersions("0.9.0", "0.10.0"), -1);
+  assert.equal(compareVersions("1.0.0", "0.99.99"), 1);
+  assert.equal(compareVersions("2.1.0", "2.1.0"), 0);
+  assert.equal(compareVersions("1.2", "1.2.0"), 0, "a missing part is a zero, not a difference");
+  assert.equal(compareVersions("1.2.3", "1.2"), 1);
+  assert.equal(compareVersions("1.2.0+build.7", "1.2.0"), 0, "build metadata is not part of the version");
+});
+
+test("a prerelease is older than the release it leads to, and prerelease identifiers order among themselves", () => {
+  assert.equal(compareVersions("1.0.0-rc.1", "1.0.0"), -1, "the rule people get backwards");
+  assert.equal(compareVersions("1.0.0", "1.0.0-rc.1"), 1);
+  assert.equal(compareVersions("1.0.0-rc.2", "1.0.0-rc.1"), 1);
+  assert.equal(compareVersions("1.0.0-rc.10", "1.0.0-rc.9"), 1, "and numerically here too");
+  assert.equal(compareVersions("1.0.0-rc", "1.0.0-rc.1"), -1, "fewer identifiers is lower");
+  assert.equal(compareVersions("1.0.0-1", "1.0.0-alpha"), -1, "a numeric identifier is lower than a text one");
+  // What a fork's version looks like. It is not newer than the package it was copied from, which is why a
+  // fork could never be mistaken for unpublished work even before `ahead` left forks out on purpose.
+  assert.equal(compareVersions("0.1.1-fork.1", "0.1.1"), -1);
+});
+
+test("an installed package newer than the version the index holds is unpublished work, and says which registry is behind it", () => {
+  const index = indexOf([{ name: "@thetis/marketplace", version: "0.2.0", commit: NEW, source: `${URL_A}#marketplace@${NEW}` }]);
+  const record = { name: "@thetis/marketplace", version: "0.3.0", source: { kind: "system" as const, ref: "/srv/thetis/runtime/packages/marketplace" } };
+  assert.deepEqual(ahead([record], index), [{ name: "@thetis/marketplace", version: "0.3.0", published: "0.2.0", registry: "thetis", state: "ahead" }]);
+  // The version the registry holds, reached: nothing to say. And older here is `behind`'s question, not this one.
+  assert.deepEqual(ahead([{ ...record, version: "0.2.0" }], index), []);
+  assert.deepEqual(ahead([{ ...record, version: "0.1.0" }], index), []);
+  assert.deepEqual(ahead([{ ...record, version: "0.10.0" }], index), [{ name: "@thetis/marketplace", version: "0.10.0", published: "0.2.0", registry: "thetis", state: "ahead" }], "0.10.0 is newer than 0.2.0");
+});
+
+test("a package no registry lists at all has never been shared, which is its own kind of unpublished", () => {
+  const index = indexOf([{ name: "@thetis/exa", version: "0.1.0", commit: NEW, source: `${URL_A}#exa@${NEW}` }]);
+  const mine = { name: "@thetis/package-publish", version: "0.1.0", source: { kind: "system" as const, ref: "/srv/thetis/runtime/packages/package-publish" } };
+  assert.deepEqual(ahead([mine], index), [{ name: "@thetis/package-publish", version: "0.1.0", published: "", registry: "", state: "unpublished" }]);
+  const local = { name: "@alice/scratch", version: "0.0.1", source: { kind: "local" as const, ref: "packages/scratch" } };
+  assert.deepEqual(ahead([local], index), [{ name: "@alice/scratch", version: "0.0.1", published: "", registry: "", state: "unpublished" }]);
+});
+
+test("a package installed from a registry that no longer carries it is left alone, as it is for behind", () => {
+  // A registry dropping a package is a statement about the registry, not about this copy, and certainly not
+  // an invitation to publish it back.
+  const gone = { name: "@thetis/gone", version: "0.4.0", source: { kind: "git" as const, ref: `${URL_A}#gone@${OLD}` } };
+  assert.deepEqual(ahead([gone], indexOf([])), []);
+});
+
+test("a fork is not unpublished work: it has a row of its own, and two rows about one package is two rows nobody reads", () => {
+  const fork = { name: "@alice/gateway-web", version: "0.1.1-fork.1", source: { kind: "local" as const, ref: "packages/gateway-web" }, fork: { name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.2.0" } };
+  assert.deepEqual(ahead([fork], indexOf([])), []);
+  // Even a fork whose version was pushed past what the registry holds stays out: it is a private copy, not
+  // work waiting to be shared, and `behind` is already telling its holder the thing worth acting on.
+  const index = indexOf([{ name: "@alice/gateway-web", version: "0.1.0", commit: NEW, source: `${URL_A}#gw@${NEW}` }]);
+  assert.deepEqual(ahead([{ ...fork, version: "0.9.0" }], index), []);
+});
+
+test("with no index there is nothing to compare against, so nothing is claimed about the registries", () => {
+  const record = { name: "@thetis/marketplace", version: "0.3.0", source: { kind: "system" as const, ref: "/srv" } };
+  assert.deepEqual(ahead([record], undefined), [], "no mirror yet is not the same as nothing published");
+  assert.deepEqual(ahead([{ name: "@thetis/x" }], indexOf([])), [], "a record with no version says nothing");
+});
+
+test("a package two registries hold is measured against the newest of them, and ahead rows are sorted", () => {
+  const index = indexOf([
+    { name: "@thetis/exa", version: "0.1.0", registry: "thetis", commit: OLD, source: `${URL_A}#exa@${OLD}` },
+    { name: "@thetis/exa", version: "0.4.0", registry: "team", commit: NEW, source: `https://git.example.com/p.git#exa@${NEW}` },
+  ]);
+  const at = (version: string) => [{ name: "@thetis/exa", version, source: { kind: "system" as const, ref: "/srv" } }];
+  assert.deepEqual(ahead(at("0.2.0"), index), [], "published to one registry is published");
+  assert.deepEqual(ahead(at("0.5.0"), index), [{ name: "@thetis/exa", version: "0.5.0", published: "0.4.0", registry: "team", state: "ahead" }]);
+  const many = [
+    { name: "@thetis/b", version: "2.0.0", source: { kind: "system" as const, ref: "/srv" } },
+    { name: "@thetis/a", version: "2.0.0", source: { kind: "system" as const, ref: "/srv" } },
+  ];
+  assert.deepEqual(ahead(many, indexOf([])).map((a) => a.name), ["@thetis/a", "@thetis/b"], "sorted, so the report reads the same every time");
 });

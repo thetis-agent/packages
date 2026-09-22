@@ -10,8 +10,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as commands from "../index.js";
-import { mergeRows, withUpdate } from "../lib/rows.js";
-import { forkBadge, updateBadge } from "../ui/badges.js";
+import { mergeRows, withAhead, withUpdate } from "../lib/rows.js";
+import { aheadBadge, forkBadge, updateBadge } from "../ui/badges.js";
+import { blockerLines, passengersOf } from "../ui/actions.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
@@ -25,7 +26,7 @@ const fromRegistry = (name, commit) => ({ name, version: "0.1.0", type: "tool", 
 const entry = (name, version, commit, extra = {}) => ({ name, version, type: "tool", description: `${name} from the registry`, keywords: ["k"], registry: "thetis", url: REPO, dir: name.slice(8), commit, source: `${REPO}#${name.slice(8)}@${commit}`, steps: [], tools: ["t"], service: false, ...extra });
 
 /** An env with a shared directory holding `index`, `installed` behind the kernel, and an operator that records calls. */
-function fakeEnv({ installed = [], index, readmes = {}, answers = {}, role = "user", user = "alice", reports = {} } = {}) {
+function fakeEnv({ installed = [], index, readmes = {}, answers = {}, role = "user", user = "alice", reports = {}, effective = {}, tools = {} } = {}) {
   const shared = mkdtempSync(join(tmpdir(), "ui-market-"));
   mkdirSync(join(shared, "marketplace", "readme", "thetis"), { recursive: true });
   if (index) writeFileSync(join(shared, "marketplace", "index.json"), JSON.stringify(index));
@@ -36,6 +37,14 @@ function fakeEnv({ installed = [], index, readmes = {}, answers = {}, role = "us
     role,
     shared,
     readFile: (p) => import("node:fs/promises").then((fs) => fs.readFile(p, "utf8")),
+    // The seam a UI command runs another package's tool through, as the agent's env provides it: the ref
+    // off that package's manifest, the args, and that package's effective configuration.
+    invokeTool: async (ref, args, opts) => {
+      calls.push({ method: "invokeTool", ref, args, config: opts.config, session: opts.session });
+      const answer = tools[ref.name];
+      if (answer === undefined) throw new Error(`no such tool: ${ref.name}`);
+      return typeof answer === "function" ? answer(args) : answer;
+    },
     kernel: {
       packages: {
         list: async () => installed,
@@ -58,6 +67,9 @@ function fakeEnv({ installed = [], index, readmes = {}, answers = {}, role = "us
         show: async (name) => (calls.push({ method: "config.show", name }), reports[name] instanceof Error ? Promise.reject(reports[name]) : reports[name] ?? { package: name, inherits: [], keys: [], summary: "every key is set", broken: false }),
         set: async (name, key, value) => (calls.push({ method: "config.set", name, key, value }), reports[name] ?? { package: name, inherits: [], keys: [], summary: "every key is set", broken: false }),
         unset: async (name, key) => (calls.push({ method: "config.unset", name, key }), reports[name] ?? { package: name, inherits: [], keys: [], summary: "every key is set", broken: false }),
+        // What a package's own code receives. A fence is one person's authority, so a package in it may
+        // read another's: this is how the marketplace reaches the publishing package's targets.
+        effective: async (name) => (calls.push({ method: "config.effective", name }), effective[name] ?? {}),
       },
     },
   };
@@ -333,4 +345,208 @@ test("the browser modules parse, and the entry defines install and nothing else"
   const probe = spawnSync(process.execPath, ["--input-type=module", "-e", `import * as m from ${JSON.stringify("file://" + join(ui, "index.js"))}; console.log(JSON.stringify(Object.keys(m)));`], { encoding: "utf8" });
   assert.equal(probe.status, 0, probe.stderr);
   assert.deepEqual(JSON.parse(probe.stdout.trim()), ["default"]);
+});
+
+// ---- ahead: the work that is here and nowhere else ----
+
+test("rows: a version newer here than the registry holds is unpublished work, and the badge says it short", () => {
+  const badge = (text, tone) => ({ text, tone });
+  const index = { version: 1, updatedAt: "2026-09-22T00:00:00.000Z", registries: [{ name: "thetis", url: REPO }], packages: [entry("@thetis/exa", "0.2.0", NEW)] };
+  const rows = mergeRows([{ ...shipped("@thetis/exa"), version: "0.3.0" }], index.packages, index);
+  assert.deepEqual(rows[0].ahead, { state: "ahead", version: "0.3.0", published: "0.2.0", registry: "thetis" });
+  assert.deepEqual(aheadBadge(badge, rows[0]), { text: "0.3.0 here, 0.2.0 published", tone: "warn" }, "a gap between what runs here and what anybody else can get");
+  // Nobody has it at all. Said as a fact about the registries rather than as a verdict on the package:
+  // a package of one's own that has never been shared is not a thing that has gone wrong.
+  const mine = mergeRows([shipped("@thetis/package-publish")], index.packages, index);
+  assert.deepEqual(mine[0].ahead, { state: "unpublished", version: "0.1.0", published: "", registry: "" });
+  assert.deepEqual(aheadBadge(badge, mine[0]), { text: "never published", tone: "dim" }, "quiet: on a maintainer's machine this is true of nearly every package at once");
+  // Caught up, and a row the index only offers: nothing to say either way.
+  const level = mergeRows([{ ...shipped("@thetis/exa"), version: "0.2.0" }], index.packages, index);
+  assert.equal(level[0].ahead, null);
+  assert.equal(aheadBadge(badge, level[0]), null);
+  assert.equal(mergeRows([], index.packages, index)[0].ahead, null, "a package that is only offered here is nobody's unpublished work");
+  assert.equal(withAhead({ name: "x" }, undefined).ahead, undefined, "nothing ahead says nothing");
+});
+
+test("rows: 0.10.0 is ahead of 0.9.0, and a fork is never listed as unpublished", () => {
+  const index = { version: 1, updatedAt: "", registries: [{ name: "thetis", url: REPO }], packages: [entry("@thetis/exa", "0.9.0", NEW)] };
+  assert.equal(mergeRows([{ ...shipped("@thetis/exa"), version: "0.10.0" }], index.packages, index)[0].ahead.published, "0.9.0", "compared as versions, not as text");
+  assert.equal(mergeRows([{ ...shipped("@thetis/exa"), version: "0.9.0" }], index.packages, index)[0].ahead, null);
+  // A fork is by construction a package no registry holds. It already has a fork badge saying what it was
+  // copied from and how that package stands now; a second badge calling it unpublished would be the same
+  // package shouting twice, and the fork badge is the one worth reading.
+  const fork = { ...shipped("@alice/gateway-web", { everyone: false }), version: "0.1.1-fork.1", fork: { name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.2.0" } };
+  assert.equal(mergeRows([fork], index.packages, index)[0].ahead, null);
+});
+
+// ---- publishing: a soft dependency on @thetis/package-publish ----
+
+/** The publishing package as the kernel lists it, with the two tools its manifest declares. */
+const publisher = () => ({
+  name: "@thetis/package-publish",
+  version: "0.1.0",
+  type: "tool",
+  description: "publishes packages",
+  root: ROOT,
+  everyone: false,
+  source: { kind: "system", ref: "/sys" },
+  thetis: {
+    type: "tool",
+    tools: [
+      { name: "publish_targets", description: "where this workspace may publish", export: "publishTargets" },
+      { name: "publish_package", description: "publish one package", export: "publishPackage" },
+    ],
+  },
+});
+
+const TARGETS = [{ name: "thetis", url: "git@github.com:thetis-agent/packages.git" }];
+
+test("publish-targets: no publishing package, or no target configured, is an answer and not a failure", async () => {
+  // The case almost every installation is in, for ever. Nothing is imported, nothing is declared as a
+  // dependency, nothing throws, and the page simply does not draw the action.
+  const bare = fakeEnv({ installed: [shipped("@thetis/exa")] });
+  try {
+    assert.deepEqual(await commands.publishTargets({}, bare.env), { data: { available: false, targets: [] } });
+    assert.deepEqual(bare.calls, [], "nothing is asked of a package that is not there");
+  } finally {
+    bare.cleanup();
+  }
+  const silent = fakeEnv({ installed: [shipped("@thetis/exa"), publisher()], effective: { "@thetis/package-publish": { targets: [] } } });
+  try {
+    assert.deepEqual(await commands.publishTargets({}, silent.env), { data: { available: false, targets: [] } });
+    assert.ok(!silent.calls.some((c) => c.method === "invokeTool"), "the configuration decides it, before any tool runs");
+  } finally {
+    silent.cleanup();
+  }
+});
+
+test("publish-targets: the tool runs under its own package with its own effective configuration", async () => {
+  const t = fakeEnv({
+    installed: [shipped("@thetis/exa"), publisher()],
+    effective: { "@thetis/package-publish": { targets: TARGETS, workDir: "publish" } },
+    tools: { publish_targets: { targets: [{ name: "thetis", url: TARGETS[0].url, holds: "0.2.0" }] } },
+  });
+  try {
+    const out = await commands.publishTargets({ package: "@thetis/exa" }, t.env);
+    assert.equal(out.data.available, true);
+    assert.deepEqual(out.data.targets, [{ name: "thetis", url: TARGETS[0].url, holds: "0.2.0" }], "what the tool reports wins over the bare configuration");
+    const invoked = t.calls.find((c) => c.method === "invokeTool");
+    assert.deepEqual(invoked.ref, { package: "@thetis/package-publish", export: "publishTargets", name: "publish_targets" }, "the export comes off the installed manifest, not from a copy kept here");
+    assert.deepEqual(invoked.args, { package: "@thetis/exa" });
+    assert.deepEqual(invoked.config, { targets: TARGETS, workDir: "publish" }, "the tool's package's configuration, not this one's");
+    assert.equal(invoked.session.user, "alice");
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("publish-targets: a registry that cannot be reached still leaves the action offered, with what went wrong", async () => {
+  const t = fakeEnv({
+    installed: [publisher()],
+    effective: { "@thetis/package-publish": { targets: TARGETS } },
+    tools: { publish_targets: () => { throw new Error("ssh: Could not resolve hostname github.com"); } },
+  });
+  try {
+    const out = await commands.publishTargets({}, t.env);
+    assert.equal(out.data.available, true, "the configured targets are still true");
+    assert.deepEqual(out.data.targets, [{ name: "thetis", url: TARGETS[0].url, branch: null }]);
+    assert.match(out.data.error, /Could not resolve hostname/);
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("publish: the dry run and the publish are the same call, and a bad version never reaches the tool", async () => {
+  const t = fakeEnv({
+    installed: [shipped("@thetis/exa"), publisher()],
+    effective: { "@thetis/package-publish": { targets: TARGETS } },
+    tools: { publish_package: (args) => ({ package: args.package, target: args.to, was: "0.2.0", now: "0.3.0", first: false, commit: "abc1234def", branch: "main" }) },
+  });
+  try {
+    const dry = await commands.publish({ name: "@thetis/exa", to: "thetis", bump: "minor", dryRun: true }, t.env);
+    assert.equal(dry.data.dryRun, true);
+    assert.equal(dry.data.now, "0.3.0", "the page shows the old and the new version from this, not from arithmetic of its own");
+    assert.deepEqual(t.calls.find((c) => c.method === "invokeTool").args, { package: "@thetis/exa", to: "thetis", bump: "minor", dryRun: true });
+    const real = await commands.publish({ name: "@thetis/exa", to: "thetis", bump: "minor" }, t.env);
+    assert.equal(real.data.dryRun, false);
+    assert.deepEqual(t.calls.filter((c) => c.method === "invokeTool")[1].args, { package: "@thetis/exa", to: "thetis", bump: "minor" }, "no dryRun key at all once the person has agreed");
+    // "as it is" sends neither a bump nor a version: the version on disk is the work, and the tool refuses
+    // it if it does not move past what the target holds.
+    await commands.publish({ name: "@thetis/exa" }, t.env);
+    assert.deepEqual(t.calls.filter((c) => c.method === "invokeTool")[2].args, { package: "@thetis/exa" });
+    await assert.rejects(commands.publish({ name: "exa" }, t.env), /looks like @scope\/name/);
+    await assert.rejects(commands.publish({ name: "@thetis/exa", bump: "sideways" }, t.env), /patch, minor or major/);
+    await assert.rejects(commands.publish({ name: "@thetis/exa", version: "next" }, t.env), /a version looks like/);
+    await assert.rejects(commands.publish({ name: "@thetis/exa", version: "1.2.0", bump: "patch" }, t.env), /not both/);
+    assert.equal(t.calls.filter((c) => c.method === "invokeTool").length, 3, "a refused call never reaches the tool");
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("publish: without the publishing package the verb refuses in one sentence, which is what a toast shows", async () => {
+  const t = fakeEnv({ installed: [shipped("@thetis/exa")] });
+  try {
+    await assert.rejects(commands.publish({ name: "@thetis/exa" }, t.env), /package-publish is not installed in your workspace/);
+  } finally {
+    t.cleanup();
+  }
+});
+
+/**
+ * A publish in a checkout that is itself the registry pushes the branch, so a commit already on that branch
+ * rides along even though the publish's own commit is scoped to one directory -- which is the ordinary state
+ * of whoever maintains the packages. `with` is how the deliberate ones are named, one at a time, by the
+ * person. It is never filled in for them, here or in the page.
+ */
+test("publish: with names the passengers, and a name that cannot be one is refused before the tool is asked", async () => {
+  const t = fakeEnv({
+    installed: [shipped("@thetis/exa"), publisher()],
+    effective: { "@thetis/package-publish": { targets: TARGETS } },
+    tools: { publish_package: (args) => ({ package: args.package, target: args.to, was: "0.2.0", now: "0.3.0", first: false, commit: "abc1234", branch: "main", ok: true }) },
+  });
+  try {
+    const out = await commands.publish({ name: "@thetis/exa", bump: "minor", with: ["@thetis/tools-files", "@thetis/terminal"] }, t.env);
+    assert.deepEqual(t.calls.find((c) => c.method === "invokeTool").args, { package: "@thetis/exa", bump: "minor", with: ["@thetis/tools-files", "@thetis/terminal"] });
+    assert.deepEqual(out.data.with, ["@thetis/tools-files", "@thetis/terminal"], "the page reads back what it asked for, and names it in the toast");
+    await commands.publish({ name: "@thetis/exa" }, t.env);
+    assert.equal("with" in t.calls.filter((c) => c.method === "invokeTool")[1].args, false, "no passengers is no key at all, not an empty list");
+    await assert.rejects(commands.publish({ name: "@thetis/exa", with: "@thetis/terminal" }, t.env), /with is a list of package names/);
+    await assert.rejects(commands.publish({ name: "@thetis/exa", with: ["terminal"] }, t.env), /looks like @scope\/name/);
+    await assert.rejects(commands.publish({ name: "@thetis/exa", with: ["@thetis/exa"] }, t.env), /it does not go in with as well/);
+    await assert.rejects(commands.publish({ name: "@thetis/exa", with: ["@thetis/a", "@thetis/a"] }, t.env), /names the same package twice/);
+    assert.equal(t.calls.filter((c) => c.method === "invokeTool").length, 2, "a refused list never reaches the tool");
+  } finally {
+    t.cleanup();
+  }
+});
+
+/**
+ * What the page draws the passenger panel from. A dry run answers `ok: false` with the blockers rather than
+ * refusing, so the rows are there to be shown, already sorted into the ones that can be named and the ones
+ * that can never be: `publishable` is the whole decision, because a package whose version has gone past the
+ * registry can be published in its own right and offered as a tick, and one that cannot has to be shown as
+ * the reason instead. The blocked ones come first, because they are what has to be dealt with before any
+ * tick means anything. A blocker that is not about passengers at all -- staged files -- keeps its sentence
+ * and contributes no rows.
+ */
+test("publish: the dry run's blockers separate what can be ticked from what is a reason", () => {
+  const blockers = [
+    { code: "dirty-index", message: "Other files are staged in /srv/runtime: a.txt.", details: ["a.txt", "b.txt"] },
+    {
+      code: "unpushed-others",
+      message: "Commits on this branch touch more than alpha/ and are not in thetis yet.",
+      details: {
+        blocked: [{ dir: "gamma", files: ["gamma/index.js"], package: "@dev/gamma", version: "0.1.0", holds: "0.1.0", moved: false, publishable: false, reason: "not-newer", problem: null }],
+        nameable: [{ dir: "beta", files: ["beta/package.json"], package: "@dev/beta", version: "0.2.0", holds: "0.1.0", moved: true, publishable: true, reason: null, problem: null }],
+      },
+    },
+  ];
+  assert.deepEqual(blockerLines(blockers), ["Other files are staged in /srv/runtime: a.txt.", "Commits on this branch touch more than alpha/ and are not in thetis yet."], "each refusal's own sentence, whole");
+  assert.deepEqual(passengersOf(blockers).map((r) => [r.package, r.publishable]), [["@dev/gamma", false], ["@dev/beta", true]], "blocked first: it is what has to be dealt with");
+  // A row list rather than the sorted pair still reads, so a blocker that only meets the minimum shape is
+  // drawn rather than dropped.
+  assert.deepEqual(passengersOf([{ details: [{ dir: "beta", package: "@dev/beta", version: "0.2.0", holds: "0.1.0", moved: true }] }]).map((r) => r.package), ["@dev/beta"]);
+  assert.deepEqual(passengersOf([{ code: "verify-failed", message: "verify refused" }]), [], "a blocker with no rows has no passengers");
+  assert.deepEqual(passengersOf(undefined), [], "and neither has a dry run that had nothing to report");
 });

@@ -1,0 +1,60 @@
+{
+  "name": "@thetis/package-publish",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Publishing a package is its own act and not a side effect of saving one: the version has to move past what the registry already holds, the package has to be sound, and only that package's directory is committed and pushed. Runs in the person's own fence with their own ssh key, so the registry's authentication decides who may publish.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "thetis": {
+    "type": "tool",
+    "config": {
+      "targets": {
+        "type": "array",
+        "default": [],
+        "help": "Where this workspace may publish, each { name, url, branch? }: a writable git URL for a registry, branch defaulting to the remote's head. Empty publishes nowhere, which is the default."
+      },
+      "verify": {
+        "type": "string",
+        "help": "A command run in the package's directory before anything is committed; a non-zero exit refuses the publish. Unset, only the manifest is checked."
+      },
+      "workDir": {
+        "type": "string",
+        "default": "publish",
+        "help": "Where clones of the targets are kept, under the person's home."
+      }
+    },
+    "tools": [
+      {
+        "name": "publish_targets",
+        "description": "Where this workspace may publish, and the version each target already holds for a package.",
+        "export": "publishTargets",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "package": { "type": "string", "description": "A package name, to report the version each target holds for it." }
+          }
+        }
+      },
+      {
+        "name": "publish_package",
+        "description": "Publish one package to a registry: set its version, check it, commit only its own directory, and push. Refuses when the version does not move past what the target already holds.",
+        "export": "publishPackage",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "package": { "type": "string", "description": "The package to publish: a name installed in this workspace, or a path to its directory." },
+            "to": { "type": "string", "description": "The target's name. Required when more than one is configured." },
+            "version": { "type": "string", "description": "The version to publish, such as 1.2.0. Give this or bump." },
+            "bump": { "type": "string", "enum": ["patch", "minor", "major"], "description": "Move the current version by one step instead of naming it." },
+            "message": { "type": "string", "description": "The commit subject. Defaults to the package name and the new version." },
+            "dryRun": { "type": "boolean", "description": "Do everything except the commit and the push, and report what would have happened." }
+          },
+          "required": ["package"]
+        }
+      }
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 /* The gallery: one toolbar row (a search box, one chip per package type, a note on the index) and a card per
- * package (its name, the state badge and an update on offer, two lines of description, then version · type · registry;
- * the fork and bench badges wait for the page). An installed package whose configuration is missing something
+ * package (its name, the state badge, an update on offer and unpublished work, two lines of description,
+ * then version · type · registry; the fork and bench badges wait for the page). An installed package whose configuration is missing something
  * carries the kernel's one sentence about it, from one `config-list` call after the rows, so a card that
  * cannot work says so before its page is opened.
  * Installed packages come first, then what the registries offer. The search runs on the server through
@@ -8,7 +8,7 @@
  * so coming back from a package page shows the same list. Clicking a card re-opens the place with the
  * package's name. */
 
-import { stateBadge, updateBadge } from "./badges.js";
+import { aheadBadge, stateBadge, updateBadge } from "./badges.js";
 
 /** Kept across opens: the query a person came back to. */
 const last = { q: "", type: "" };
@@ -92,7 +92,7 @@ export function openGallery(ext, root) {
     return el(
       "button",
       { type: "button", class: `mk-card${r.installed ? " is-installed" : ""}`, "data-name": r.name, onClick: () => ext.open.place("marketplace", { name: r.name }) },
-      el("div", { class: "mk-card-head" }, el("code", { class: "mk-card-name" }, r.name), el("div", { class: "tags" }, stateBadge(badge, r), updateBadge(badge, r))),
+      el("div", { class: "mk-card-head" }, el("code", { class: "mk-card-name" }, r.name), el("div", { class: "tags" }, stateBadge(badge, r), updateBadge(badge, r), aheadBadge(badge, r))),
       el("p", { class: "mk-card-desc" }, r.description || "No description."),
       r.installed && summaries.get(r.name)?.broken ? el("span", { class: "mk-card-broken" }, summaries.get(r.name).summary) : null,
       el("span", { class: "mk-card-meta" }, [r.version, r.type, r.registry].filter(Boolean).join(" · "))

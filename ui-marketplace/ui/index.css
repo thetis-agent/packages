@@ -74,6 +74,21 @@
 .mk-pill { cursor: help; }
 .mk-picker { display: flex; gap: var(--gap-2); align-items: center; margin-top: var(--gap-2); }
 .mk-picker .mk-person { flex: 1 1 auto; min-width: 0; }
+/* The Publish row carries two selects and a button, which is one more control than the side card is wide
+   enough for: it wraps instead of squeezing the version choice down to an ellipsis, and each select keeps
+   enough basis to read its longest option ("as it is — 0.10.0") before the row takes a second line. */
+.mk-publish { flex-wrap: wrap; }
+.mk-publish .mk-target, .mk-publish .mk-bump { flex: 1 1 140px; min-width: 0; }
+/* What else is on the branch and would be pushed with the publish: the refusal's own sentence, then a row
+   per package. A tickable one is a label a click anywhere on lands; one that cannot be published is a
+   paragraph and not a control, because it is a reason and not a choice, and the two must not look alike. */
+.mk-publish-block { display: flex; flex-direction: column; gap: var(--gap-2); }
+.mk-passengers { display: flex; flex-direction: column; gap: var(--gap-1); font-size: var(--text-sm); }
+.mk-passengers-why { margin: 0; color: var(--text-dim); }
+.mk-passenger { display: flex; gap: var(--gap-2); align-items: baseline; margin: 0; flex-wrap: wrap; }
+.mk-passenger .mk-passenger-tick { margin: 0; flex: none; }
+.mk-passenger:not(.is-blocked) { cursor: pointer; }
+.mk-passenger.is-blocked { color: var(--warn); }
 
 .mk-config-line { margin: 0; font-size: var(--text-sm); }
 .mk-card-broken { font-size: var(--text-xs); color: var(--err); }

@@ -4,7 +4,16 @@
  * package of their own with its files. Installing from a source stays here because it is the bootstrap:
  * with nothing else installed a person must still be able to install from the browser. Everything the
  * registries know (search, package pages, updates, an admin's installs for others) is the marketplace
- * place of `@thetis/ui-marketplace`; each row links there when that package has registered its place. */
+ * place of `@thetis/ui-marketplace`; each row links there when that package has registered its place.
+ *
+ * One thing this section shows that it cannot work out for itself: whether a package's version here is
+ * newer than the version the registries hold, or has never been published at all. That answer needs the
+ * marketplace index, and the gateway imports no domain package -- `src/panel.ts` serves these rows out of
+ * `kernel.packages.list()` and nothing else, which is what keeps the built-in section the bootstrap it is
+ * meant to be. So it is asked for, softly, from the marketplace package's own `search` verb, the same
+ * soft link this file already makes for the place: when `@thetis/ui-marketplace` is not installed, or has
+ * not declared that verb, nothing is asked and nothing is drawn. The request goes out after the table, so
+ * the section never waits on it, and a failure leaves the rows exactly as they are. */
 
 import { api } from "../lib/api.js";
 import { clear, el } from "../lib/dom.js";
@@ -40,13 +49,15 @@ async function settle(deadline = Date.now() + SETTLE_MS) {
   }
 }
 
-/** The place a row links to: the marketplace package's, when it is installed and has loaded. */
-export const MARKETPLACE_PLACE = "@thetis/ui-marketplace#marketplace";
+/** The marketplace package, and the place a row links to when it is installed and has loaded. */
+export const MARKETPLACE_PKG = "@thetis/ui-marketplace";
+export const MARKETPLACE_PLACE = `${MARKETPLACE_PKG}#marketplace`;
 
 export function mountPackages(root, { user }, shell) {
   let installed = [];
   let query = "";
   let selected = null;
+  let ahead = new Map(); // package name -> { state, version, published, registry }, when the marketplace can say
 
   const filter = el("input", { class: "input", type: "search", placeholder: "Filter packages", "aria-label": "Filter packages", onInput: (e) => { query = e.target.value.trim().toLowerCase(); drawList(); } });
   const listEl = el("div", { class: "panel-col" });
@@ -65,6 +76,25 @@ export function mountPackages(root, { user }, shell) {
     }
     stop();
     if (selected && !installed.some((r) => r.name === selected)) selected = null;
+    drawList();
+    drawDetail();
+    await loadAhead();
+  }
+
+  /**
+   * What is newer here than the registries hold, from the marketplace package's `search`, which merges the
+   * installed list with the index and puts `ahead` on each row. Soft in both directions: the verb is only
+   * sent when that package declared it, and any failure leaves `ahead` as it was. Nothing here throws.
+   */
+  async function loadAhead() {
+    if (!(registry.declared(MARKETPLACE_PKG)?.commands ?? []).includes("search")) return;
+    try {
+      const out = await api(`/api/ext/${MARKETPLACE_PKG}/search`, { method: "POST", body: { args: {} } });
+      const rows = Array.isArray(out?.data?.rows) ? out.data.rows : [];
+      ahead = new Map(rows.filter((r) => r.installed && r.ahead).map((r) => [r.name, r.ahead]));
+    } catch {
+      return;
+    }
     drawList();
     drawDetail();
   }
@@ -89,6 +119,19 @@ export function mountPackages(root, { user }, shell) {
     return badge(`fork of ${fork.name} ${fork.version}${everyone}`, "warn");
   };
 
+  /* Work that is here and nowhere else. Whoever maintains a package is also running it, out of the same
+   * checkout every fence loads, so a version bump is in service here the moment it lands while the registry
+   * every other installation reads still holds the old one. Nothing in this table has ever said so. Short,
+   * because it sits in a cell beside two other badges. */
+  const aheadBadge = (r) => {
+    const a = ahead.get(r.name);
+    if (!a) return null;
+    // Dim for a package no registry ever listed, which is a quiet fact and true of most of them at once on
+    // a maintainer's machine; warn for a version here that is past what a registry holds, which is a gap
+    // between what this installation runs and what anybody else can get. See `aheadBadge` in ui-marketplace.
+    return a.state === "unpublished" ? badge("never published", "dim") : badge(`${a.version} here, ${a.published} published`, "warn");
+  };
+
   /** A package the person can delete with its files: one of their own. */
   const ownRow = (r) => r.name.startsWith(`@${user}/`);
 
@@ -111,7 +154,7 @@ export function mountPackages(root, { user }, shell) {
           { key: "name", label: "Package", render: (r) => el("code", { class: "cell-name", title: r.description || null }, r.name) },
           { key: "version", label: "Version", render: (r) => el("code", { class: "text-dim" }, r.version) },
           { key: "type", label: "Type" },
-          { key: "scope", label: "Scope", render: (r) => el("div", { class: "tags" }, scopeBadge(r), forkBadge(r)) },
+          { key: "scope", label: "Scope", render: (r) => el("div", { class: "tags" }, scopeBadge(r), forkBadge(r), aheadBadge(r)) },
           { key: "brings", label: "Brings", render: (r) => el("span", { class: "cell-name" }, brings(r)) },
         ],
         shown,
@@ -168,6 +211,10 @@ export function mountPackages(root, { user }, shell) {
     }
     const open = marketplace();
     if (open) actions.push(button("Open in the marketplace", { onClick: () => open(row.name) }));
+    // Publishing is the marketplace package's action, in its own page, where the registry picker, the
+    // version choice and the dry run in front of the confirm live. This section says the gap exists and
+    // points at the one place that can close it; it does not grow a second half of that flow.
+    if (ahead.get(row.name) && open) hints.push(ahead.get(row.name).state === "unpublished" ? `No registry lists ${row.name}. Publish is on its page in the marketplace.` : `${ahead.get(row.name).version} is here and ${ahead.get(row.name).published} is what ${ahead.get(row.name).registry} holds. Publish is on its page in the marketplace.`);
     put(
       detailEl,
       card(
@@ -176,7 +223,10 @@ export function mountPackages(root, { user }, shell) {
         kv([
           ["version", el("code", {}, row.version)],
           ["type", row.type],
-          ["scope", el("div", { class: "tags" }, scopeBadge(row), forkBadge(row))],
+          ["scope", el("div", { class: "tags" }, scopeBadge(row), forkBadge(row), aheadBadge(row))],
+          // Said in full here, where there is room for it, and only when the marketplace could answer.
+          ahead.get(row.name)?.state === "ahead" && ["published", el("span", {}, el("code", {}, ahead.get(row.name).published), ` in ${ahead.get(row.name).registry} — ${row.version} is what is here`)],
+          ahead.get(row.name)?.state === "unpublished" && ["published", el("span", { class: "text-faint" }, "nowhere: no registry lists this package")],
           row.forkedFrom && ["forked from", el("code", {}, `${row.forkedFrom.name}@${row.forkedFrom.version}`)],
           row.fork && ["shipped now", row.fork.shipped ? el("code", {}, `${row.fork.name}@${row.fork.shipped}${row.fork.identical ? " — the same files as this fork" : ""}`) : el("span", { class: "text-faint" }, "not here any more")],
           row.replaced && ["replaces", el("code", {}, row.replaced)],
@@ -277,6 +327,9 @@ export function mountPackages(root, { user }, shell) {
     if (change.kind === "register" && change.slot === "places" && registry.keyOf(change.package, change.id) === MARKETPLACE_PLACE) {
       drawList();
       drawDetail();
+      // Its declaration is what lets this section ask what is unpublished; before it arrived there was
+      // nobody to ask.
+      void loadAhead();
     }
   });
 

@@ -1,9 +1,9 @@
 ---
 name: packages
-description: How a Thetis package is built and managed: the manifest and its thetis field, install sources, the store, forks and the way back, delete, promote, uninstall. Use when you write, install, fork or remove a package, change a shipped one, make one the default for everyone, or an install was refused.
+description: How a Thetis package is built and managed: the manifest, install sources, the store, forks and the way back, delete, promote, publish. Use when you write, install, fork or remove a package, publish one to a registry, change a shipped one, make one the default for everyone, or an install was refused.
 metadata:
   title: Packages
-  tags: [packages, manifest, install, uninstall, fork, unfork, delete, promote, everyone, steps, tools, provider, service, store, registry, scope, owner]
+  tags: [packages, manifest, install, uninstall, fork, unfork, delete, promote, publish, everyone, steps, tools, provider, service, store, registry, scope, owner]
   related: [thetis/pipeline, thetis/using, thetis/marketplace, thetis/troubleshooting]
   version: 1
 ---
@@ -221,8 +221,63 @@ Neither method reaches a person who is holding a fork of the package, and neithe
 
 The system userspace is never included. The full operator table is in [references/operator-methods.md](references/operator-methods.md).
 
+## Publishing to a registry
+
+A registry is a git repository. Each package is a directory in it holding a `package.json` with a `thetis` field. `@thetis/marketplace` clones a registry, indexes it, and pins every entry as `<url>#<dir>@<commit>`. So publishing is one act: put the package's directory in the registry repository at a new version, commit, push. Nothing else makes a new version visible to anybody.
+
+`@thetis/package-publish` is the package that does it. It is a `tool` package, so it runs in the person's own fence with their own agent-held ssh key. The registry's own authentication decides who may publish; Thetis decides nothing about that.
+
+The rule the whole thing turns on: the version has to move past what the registry already holds for that package. A publish at a version the registry has is invisible to every update check there is, because the index carries the version it carried before and every installation goes on believing it is current. A package the registry does not hold yet is a first publish and passes.
+
+Two sources, told apart by looking, not by being told:
+
+| Source | What happens |
+|---|---|
+| A package under `packages/` in home, which is not a git repository | The registry is cloned into `<home>/<workDir>/<target>`, the package's directory is copied in at the name the registry already uses for it, and the clone is committed and pushed. |
+| A package inside a checkout that is already the registry repository | Nothing is cloned and nothing is copied. Only that package's directory is committed, in the checkout, and the branch is pushed. |
+
+The second is the case of whoever maintains the shipped packages: one checkout that is the package source, the git work tree, the registry and the push origin at once. Detection is the resolved package path being inside a git work tree whose `origin` is the same repository as the target's url. `git@github.com:o/r.git`, `https://github.com/o/r.git` and `.../o/r` are one repository.
+
+| Tool | Arguments | Answers |
+|---|---|---|
+| `publish_targets` | `package` (optional) | The configured targets. With a package: what each one holds for it, the directory it holds it in, and whether what is here is in front of that. |
+| `publish_package` | `package` (required), `to`, `version` or `bump` (`patch`, `minor`, `major`), `with`, `message`, `dryRun` | The package, the target, `was` and `now`, whether it was a first publish, the files, the commit and the branch, plus `source` (the pin the marketplace will carry) and `indexed: false`. |
+
+`package` is a name installed in this workspace or a path to a directory. `to` is a target's name, required when more than one is configured. `dryRun` does everything up to the commit and says what would go.
+
+A publish is refused, with a sentence naming what to do and a code on the error, when the version does not move past what the target holds (`not-newer`), the manifest is not sound (`manifest`: no `name`, no `version`, no `thetis`, a `main` that is not there, a version that is not semantic), or a configured `verify` command exits non-zero (`verify-failed`).
+
+### What else the branch is carrying
+
+Scoping a commit to one directory does not scope the push. `git push` sends the branch, so a branch that already holds commits to other packages publishes those too. Committing across several packages and then shipping one is a normal way to work, so this is the common case and not a corner.
+
+`with` is how it is settled: the names of the other packages you mean to publish as well.
+
+| A package riding on the branch | What happens |
+|---|---|
+| Not publishable on its own: its version has not moved past what the registry holds, or its manifest is unsound | Refused (`unpushed-others`), always. It can never be named in `with`, because its code would land under a version every installation already holds and no update check will look at again. The refusal gives the way out: `git branch keep; git reset --hard origin/<branch>; git checkout keep -- <dir>`, then publish one at a time. |
+| Publishable, not named | Refused (`unnamed-others`), and listed. A version having moved is not consent: a person raises a version to try something as readily as to ship it. |
+| Publishable and named in `with` | It goes, as a publish in its own right: every gate the named package gets, `verify` included, its own journal row and its own record. |
+| Named in `with` but not riding | Refused (`not-a-passenger`). A name that quietly does nothing is worse than a name that is wrong. |
+
+`dirty-index` is the smaller cousin: other files are *staged*, and only this package's directory would be committed, so they would be left behind. `dryRun` reports all three in `blockers` instead of refusing, and lists what `with` could still take in `nameable`.
+
+Where a workspace may publish is configuration: `config.packages["@thetis/package-publish"].targets`, each `{ name, url, branch? }`. The list is empty by default, so a new installation publishes nowhere until somebody says otherwise.
+
+```
+publish_targets { package: "@alice/hello" }
+publish_package { package: "packages/hello", to: "thetis", bump: "minor", dryRun: true }
+publish_package { package: "@thetis/exa", version: "0.4.0" }
+publish_package { package: "@thetis/exa", bump: "patch", with: ["@thetis/skills"] }
+```
+
+The command line is `thetis publish <package> --to <target> [--version <v> | --bump patch|minor|major] [--with <name>]... [--dry-run]`.
+
+The registry holds the new version as soon as the push returns, but the marketplace index does not: it is refreshed on the service's own schedule, 30 minutes by default. So a gallery goes on showing the old version for a while, and the answer's `indexed: false` is there to be said out loud rather than looked past.
+
 ## Sources
 
 - packages/kernel/src/packages/manifest.ts
 - packages/kernel/src/control.ts
 - packages/tool-exec/src/index.ts
+- packages/package-publish/lib/publish.js

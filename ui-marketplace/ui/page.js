@@ -6,7 +6,10 @@
  * admin's people for the picker come from `people`. An installed package also gets its configuration
  * report from `config-show`: the card says the kernel's one sentence when the package is missing
  * something, and **Configure** opens the shared form on the person's own layer below the README, where
- * the row for each key says its state and offers the fix. `open` returns an unmount that stops a late
+ * the row for each key says its state and offers the fix. It also asks `publish-targets` where this
+ * workspace may publish, which carries the last publish to each target from that package's own store;
+ * that answer is `available: false` on every installation without @thetis/package-publish, which is most
+ * of them, and then no Publish block and no last-publish row is drawn and nothing throws. `open` returns an unmount that stops a late
  * answer from drawing into a closed page. */
 
 import { actionsFor } from "./actions.js";
@@ -39,9 +42,10 @@ export function openPage(ext, root, params) {
       body.append(el("p", { class: "mk-error" }, err?.message || `${name} could not be read.`));
       return;
     }
-    const [people, config] = await Promise.all([view.role !== "user" ? loadPeople() : [], view.row.installed ? loadConfig() : null]);
+    const [people, config, publish] = await Promise.all([view.role !== "user" ? loadPeople() : [], view.row.installed ? loadConfig() : null, view.row.installed ? loadPublish() : null]);
     view.people = people;
     view.config = config;
+    view.publish = publish;
     if (alive) draw(view);
   }
 
@@ -50,6 +54,21 @@ export function openPage(ext, root, params) {
     try {
       const out = await ext.request("config-show", { args: { name } });
       return out?.data && Array.isArray(out.data.keys) ? out.data : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Where this workspace may publish. Asked without a package name, so it is the cheap question -- which
+   * targets are configured -- and not the expensive one, which would mean reaching every registry on every
+   * page open. What each target holds for this package is settled by the dry run in front of the confirm,
+   * where it is wanted and where it is worth waiting for. A failure here is null and no Publish block.
+   */
+  async function loadPublish() {
+    try {
+      const out = await ext.request("publish-targets");
+      return out?.data?.available ? out.data : null;
     } catch {
       return null;
     }
@@ -114,7 +133,31 @@ export function openPage(ext, root, params) {
     // here: the facts below carry it, under "forked from" and "shipped now", where it belongs.
     if (r.update?.apply === "reload") rows.push(["loaded", el("span", {}, `${r.update.installed} in your workspace, ${r.update.available} on disk: a reload applies it`)]);
     else if (r.update && r.update.apply !== "unfork") rows.push(["update", el("span", {}, `${r.update.version} is in ${r.update.registry} (${r.update.from} → ${r.update.to})`)]);
+    // And the other direction, which no row has ever carried: the version here is newer than the one every
+    // other installation can reach, or no registry holds this package at all. Said in full here, where
+    // there is room for it; the badge says it short.
+    if (r.ahead?.state === "ahead") rows.push(["published", el("span", {}, el("code", {}, r.ahead.published), ` in ${r.ahead.registry} — ${r.ahead.version} is what is here`)]);
+    else if (r.ahead) rows.push(["published", el("span", { class: "text-dim" }, "nowhere: no registry lists this package")]);
     return rows;
+  }
+
+  /**
+   * What was last published, per target, from the publishing package's own record. That record is the only
+   * one there is: a publish is not a journal act, because the journal is the kernel's account of what the
+   * kernel did and there is no seam for a package inside a fence to append to it -- rightly, since a log
+   * anything may write into is a log nobody can lean on. So the package keeps its history in its own store
+   * and hands it back here, which is what makes it a record rather than a write-only gesture.
+   *
+   * The row names the package, because the record is the last publish to that *target*, whatever it was
+   * of, and on this page that is very often some other package. Absent without a word when there is none.
+   */
+  function publishRows(view) {
+    const targets = (view.publish?.targets ?? []).filter((t) => t.lastPublish);
+    return targets.map((t) => {
+      const last = t.lastPublish;
+      const label = targets.length > 1 ? `last to ${t.name}` : "last publish";
+      return [label, el("span", {}, el("code", {}, `${last.name}@${last.version}`), ` to ${last.target}`, last.at ? el("span", { class: "text-dim" }, ` · ${when(last.at)}`) : null)];
+    });
   }
 
   function benchRows(r) {
@@ -143,7 +186,7 @@ export function openPage(ext, root, params) {
     const r = view.row;
     clear(body);
     const side = el("aside", { class: "mk-side" });
-    const { buttons, hints, picker } = actionsFor(ext, view, side);
+    const { buttons, hints, picker, publish } = actionsFor(ext, view, side);
     // The kernel's sentence about the configuration, said only when something is missing; Configure is the fix.
     const sentence = el("p", { class: "mk-config-line", hidden: !view.config?.broken || null }, view.config?.broken ? summaryLine(ext, view.config) : null);
     if (view.config) {
@@ -167,11 +210,13 @@ export function openPage(ext, root, params) {
           r.fork && ["shipped now", r.fork.shipped ? el("code", {}, `${r.fork.name}@${r.fork.shipped}${r.fork.identical ? " — the same files as this fork" : ""}`) : el("span", { class: "text-faint" }, "not here any more")],
           r.replaced && ["replaces", el("code", {}, r.replaced)],
           r.source && ["source", el("code", { class: "mk-wrap" }, r.source)],
+          ...publishRows(view),
         ].filter(Boolean)),
         heading("Brings"),
         brings(r),
         buttons.length ? el("div", { class: "card-actions" }, ...buttons) : null,
-        picker
+        picker,
+        publish
       ),
       ...hints.map((h) => el("p", { class: "panel-hint" }, h))
     );

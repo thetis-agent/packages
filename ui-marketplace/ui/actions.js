@@ -1,8 +1,9 @@
 /* The actions a package page offers, and the confirm popover in front of each: Install for me, Update or
  * Reload my workspace or Go back to the package this was forked from, Remove, Delete (a package of one's
- * own, with its files), and for an admin Install for everyone, Make it the default for everyone, and
- * Install for a person. Update, Reload and Go back are the three kinds of behind: a registry holding a
- * newer commit is installed, files on disk the workspace has not read are already installed and are put
+ * own, with its files), Publish to a registry -- with the packages already on the branch that a push would
+ * carry with it, ticked one by one or named as the reason it cannot go -- and for an admin Install for
+ * everyone, Make it the default for everyone, and Install for a person. Update, Reload and Go back are the three kinds of behind: a
+ * registry holding a newer commit is installed, files on disk the workspace has not read are already installed and are put
  * into service by reloading the workspace, and a fork's origin has moved on without it, which going back
  * to that origin takes. Every popover states the facts a person should read first and one sentence on what
  * happens next; nothing is sent until they confirm. After an action the place is re-opened on the page, or
@@ -46,6 +47,54 @@ const count = (n) => `${n} ${n === 1 ? "person" : "people"}`;
  * they would believe a gateway is the default everywhere while three people are still on their own copy.
  */
 const forksNote = (r) => (r.forks?.length ? ` Not ${r.forks.map((f) => `${f.user} (holding ${f.fork})`).join(", ")}: a person's fork of it stays in place.` : "");
+
+/**
+ * A publish in a checkout that *is* the registry pushes the branch, so anything already committed on that
+ * branch goes with it even though the publish's own commit is scoped to one directory. That is the
+ * maintainer's ordinary state -- work committed across several packages as they went -- so the publishing
+ * package refuses and names the passengers rather than shipping them quietly. A dry run reports the same
+ * rows in `blockers[].details` instead of refusing, which is what lets this page draw them.
+ *
+ * A row is a passenger when it names a package, and `publishable` is the whole decision: a package whose
+ * version has gone past what the registry holds can be published in its own right and so can be offered as
+ * a tick; one that cannot be published can never be named, and is shown as the reason the publish cannot
+ * go. The rows arrive already sorted into `details.blocked` and `details.nameable`, and the blocked ones
+ * come first here because they are what has to be dealt with before any tick means anything. A blocker
+ * whose `details` is a plain list of paths -- staged files -- names no package and contributes no rows; its
+ * sentence still stands on its own.
+ */
+export const passengersOf = (blockers) =>
+  (blockers ?? [])
+    .flatMap((b) => {
+      const d = b.details;
+      if (Array.isArray(d)) return d;
+      return d && typeof d === "object" ? [...(d.blocked ?? []), ...(d.nameable ?? [])] : [];
+    })
+    .filter((d) => d && typeof d === "object" && typeof d.package === "string");
+
+/** Whether this passenger can be named in `with`. `moved` is the fallback for a row that does not say. */
+const canRide = (row) => (row.publishable === undefined ? !!row.moved : !!row.publishable);
+
+/** The blocker sentences, whole, as the publishing package wrote them: one refusal, one paragraph. */
+export const blockerLines = (blockers) => (blockers ?? []).map((b) => b.message).filter((m) => typeof m === "string" && m);
+
+/**
+ * Why this one can never be named. The publishing package says it two ways: a `problem` is a sentence about
+ * the manifest and is already a sentence, and `reason: "not-newer"` is a version that has not moved, which
+ * is the common one and reads better said in terms of the two versions than by its code.
+ */
+function blockedWhy(row, target) {
+  if (typeof row.problem === "string" && row.problem) return row.problem;
+  if (row.moved === false) return `its version has not moved past the ${row.holds || "version"} ${target || "the registry"} holds, so it cannot be published at all.`;
+  return "it cannot be published as it stands.";
+}
+
+/** What one passenger is, in the line beside its tick or its cross. */
+function passengerLine(row, target) {
+  const at = row.version ? ` ${row.version}` : "";
+  const held = row.holds ? `${target || "the registry"} holds ${row.holds}` : `${target || "the registry"} has no version of it`;
+  return `${at ? at.slice(1) : "this version"} · ${held}`;
+}
 
 export function actionsFor(ext, view, host) {
   const { el } = ext.dom;
@@ -307,5 +356,180 @@ export function actionsFor(ext, view, host) {
     picker = el("div", { class: "mk-picker" }, select, b);
   }
 
-  return { buttons, hints, picker };
+  /**
+   * Publishing this package to a registry. Two things have to be settled before anything happens: which
+   * target, when more than one is configured, and which version. Neither is a free-text box. The target is
+   * a picker over the configured names, the same shape as the person picker above it; the version is a
+   * choice between the version already on disk and a patch, minor or major step from it, because a box
+   * would ask a person to do semver arithmetic in their head and then trust that they did it right.
+   *
+   * The confirm popover is filled from a dry run rather than from a guess. `publish_package` with
+   * `dryRun` does everything except the commit and the push and reports what would have happened, so the
+   * popover shows the target's real `was`, the real `now` and whether this is the first version that
+   * target would hold -- and a refusal (a version that does not move past the target, a package that will
+   * not build) arrives as a toast before the person has agreed to anything. This is the one action in the
+   * product that changes what other installations receive, so it is the one that has earned a round trip.
+   */
+  async function publishNow(anchor, to, bump, panel) {
+    const args = { name: row.name, ...(to ? { to } : {}), ...(bump ? { bump } : {}), ...(panel.chosen().length ? { with: panel.chosen() } : {}) };
+    let preview;
+    const checking = busy(host, "Checking what would be published…");
+    try {
+      preview = (await ext.request("publish", { args: { ...args, dryRun: true } }))?.data ?? {};
+    } catch (err) {
+      panel.clear();
+      return ext.toast(err?.message || "That did not work.", { tone: "error" });
+    } finally {
+      checking();
+    }
+    const now = preview.now ?? preview.version ?? "";
+    const was = preview.was ?? "";
+    const target = preview.target ?? to ?? "";
+    const first = !!preview.first || !was;
+    // A dry run that would not go says so in full, in the page, and the popover does not open. The person
+    // ticks what is meant to ride along and presses Publish again; what cannot ride along is a reason, not
+    // a choice, and is drawn as one. Nothing is ever ticked on their behalf.
+    if (preview.ok === false || preview.blockers?.length) {
+      panel.draw(preview.blockers ?? [], target);
+      return;
+    }
+    panel.clear();
+    const also = args.with ?? [];
+    const ok = await confirm(anchor, {
+      title: `Publish ${row.name}?`,
+      lines: [
+        ["package", `${preview.package ?? row.name}@${now}`],
+        ["to", preview.url ? `${target} · ${preview.url}` : target || "the configured registry"],
+        ["version", first ? `${now}, the first version ${target || "that registry"} would hold of it` : `${was} → ${now}`],
+        preview.branch && ["branch", preview.branch],
+        // Never a count. A person agreeing to publish somebody else's work alongside their own reads the
+        // names or they have not agreed to anything.
+        also.length && ["also publishing", also.join(", ")],
+      ].filter(Boolean),
+      note: `This pushes to a registry other installations read: everyone mirroring ${target || "it"} gets ${now} on their next refresh, and a version once published is not taken back.${also.length ? ` ${also.length === 1 ? "The package" : "The packages"} above ${also.length === 1 ? "is" : "are"} published in ${also.length === 1 ? "its" : "their"} own right, each one checked the same way.` : " Only this package's own directory is committed."}`,
+      confirmLabel: `Publish ${now}`,
+      tone: "warn",
+    });
+    if (!ok) return;
+    const stop = busy(host, `Publishing to ${target || "the registry"}…`);
+    try {
+      const out = (await ext.request("publish", { args }))?.data ?? {};
+      const at = out.commit ? ` (${String(out.commit).slice(0, 7)})` : "";
+      const rode = also.length ? ` ${also.join(", ")} went with it.` : "";
+      ext.toast(`${out.package ?? row.name}@${out.now ?? now} is in ${out.target ?? target}${at}.${rode}`, { tone: "good" });
+      go(row.name);
+    } catch (err) {
+      ext.toast(err?.message || "That did not work.", { tone: "error" });
+    } finally {
+      stop();
+    }
+  }
+
+  /**
+   * The panel under the Publish row: what else is on this branch and would be pushed with the publish.
+   * It holds its own ticks between one dry run and the next, so a person who ticks two of three and
+   * presses Publish again does not lose the ticks to the redraw. `blocked` is what can never be named;
+   * while there is one of those the button is off, because no amount of ticking makes that publish go.
+   */
+  function publishPanel(button) {
+    const node = el("div", { class: "mk-passengers", hidden: true });
+    const ticked = new Set();
+    let blocked = 0;
+
+    const clear = () => {
+      node.hidden = true;
+      blocked = 0;
+      ext.dom.clear(node);
+      button.disabled = false;
+    };
+
+    function draw(blockers, target) {
+      const rows = passengersOf(blockers);
+      const others = blockerLines(blockers);
+      ext.dom.clear(node);
+      blocked = rows.filter((r) => !canRide(r)).length;
+      for (const line of others) node.append(el("p", { class: "mk-passengers-why" }, line));
+      for (const r of rows) {
+        if (canRide(r)) {
+          const box = el("input", { type: "checkbox", class: "mk-passenger-tick" });
+          box.checked = ticked.has(r.package);
+          box.addEventListener("change", () => (box.checked ? ticked.add(r.package) : ticked.delete(r.package)));
+          node.append(el("label", { class: "mk-passenger" }, box, el("code", {}, r.package), el("span", { class: "text-dim" }, ` ${passengerLine(r, target)}`)));
+        } else {
+          // Named as the reason, not offered as a choice: this one cannot be published as it stands, so
+          // the publish cannot go until it is dealt with, and saying so is the only useful thing here.
+          node.append(
+            el(
+              "p",
+              { class: "mk-passenger is-blocked" },
+              el("code", {}, r.package),
+              el("span", {}, ` ${passengerLine(r, target)} — ${blockedWhy(r, target)} It cannot ride along either; take it off this branch, or fix it and publish it in its turn.`)
+            )
+          );
+        }
+      }
+      // A tick that is no longer offered is a tick nobody meant: drop it rather than send it.
+      for (const name of [...ticked]) if (!rows.some((r) => canRide(r) && r.package === name)) ticked.delete(name);
+      button.disabled = blocked > 0;
+      node.append(
+        el(
+          "p",
+          { class: "panel-hint" },
+          blocked > 0
+            ? "Publishing is off until those are dealt with. A package that cannot be published cannot be carried along by one that can."
+            : rows.length
+              ? "Tick what is meant to go out with this publish. Each one is published in its own right and checked the same way; anything left unticked has to come off the branch first."
+              : "Deal with the above and press Publish again."
+        )
+      );
+      node.hidden = false;
+      node.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    return { node, draw, clear, chosen: () => [...ticked] };
+  }
+
+  /**
+   * The Publish block, or nothing at all. `view.publish` comes from `publish-targets`, which answers
+   * `available: false` when @thetis/package-publish is not installed here or has no target configured --
+   * which is most installations, for ever. Nothing throws in that case and nothing is drawn: publishing is
+   * for whoever maintains the packages, and everybody else only ever installs them.
+   */
+  let publish = null;
+  const offer = view.publish;
+  if (row.installed && offer?.available) {
+    const targets = Array.isArray(offer.targets) ? offer.targets : [];
+    const target = targets.length > 1 ? el("select", { class: "input mk-target", "aria-label": "Registry" }, ...targets.map((t) => el("option", { value: t.name }, t.holds ? `${t.name} · has ${t.holds}` : t.name))) : null;
+    const only = targets[0]?.name ?? "";
+    // "as it is" first, and chosen by default whenever this copy is already ahead of what is published:
+    // the version on disk is the work, and the person bumped it when they did the work.
+    const step = el(
+      "select",
+      { class: "input mk-bump", "aria-label": "Version to publish" },
+      el("option", { value: "" }, `as it is — ${row.version}`),
+      el("option", { value: "patch" }, "a patch bump"),
+      el("option", { value: "minor" }, "a minor bump"),
+      el("option", { value: "major" }, "a major bump")
+    );
+    step.value = row.ahead ? "" : "patch";
+    const chosen = () => (target ? target.value : only);
+    const b = button(chosen() ? `Publish to ${chosen()}` : "Publish", { tone: "quiet" });
+    const panel = publishPanel(b);
+    // A different target or a different version is a different question, so the passengers are asked
+    // again rather than carried over from the answer to the last one.
+    if (target) target.addEventListener("change", () => { b.textContent = `Publish to ${target.value}`; panel.clear(); });
+    step.addEventListener("change", () => panel.clear());
+    b.addEventListener("click", () => void publishNow(b, chosen(), step.value, panel));
+    publish = el("div", { class: "mk-publish-block" }, el("div", { class: "mk-picker mk-publish" }, target, step, b), panel.node);
+    hints.push(
+      row.ahead?.state === "unpublished"
+        ? `No registry lists ${row.name}. Publishing pushes this package's own directory to ${chosen() || "the configured registry"}, where every installation that mirrors it can reach it.`
+        : row.ahead
+          ? `${row.ahead.version} is here and ${row.ahead.published} is what ${row.ahead.registry} holds. Publishing is what closes that gap; nothing else in the product does.`
+          : `Publishing pushes this package's own directory to ${chosen() || "the configured registry"}. The version has to move past what that registry already holds, so pick a bump unless you have already moved it here.`
+    );
+    if (offer.error) hints.push(`The registries could not be read just now (${offer.error}), so the versions above may be missing. Publish checks again before it asks you to confirm.`);
+  }
+
+  return { buttons, hints, picker, publish };
 }

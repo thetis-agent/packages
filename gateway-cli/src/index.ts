@@ -1,14 +1,15 @@
 // CLI gateway. When `thetis serve` runs, every command is a client of that one kernel over the control
 // socket, so installs, passwords and moderation reach the running services. Without a daemon, a command
 // boots a kernel in-process. Both paths speak to the same operator handler, so the commands are one code.
-import { spawnSync } from "node:child_process";
+import { exec as cpExec, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { createInterface as createPrompt } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import type { ConfigReport, KernelRpc, ModelDescriptor, Mount, PackageInfo, SessionRecord, SshGrant, TurnEvent, UserRecord } from "@thetis/contracts";
 import { createDoor } from "@thetis/door";
-import { behind, readIndex, shortCommit, type Behind } from "@thetis/marketplace";
+import { ahead, behind, readIndex, shortCommit, type Ahead, type Behind } from "@thetis/marketplace";
 import { ControlServer, controlSocketPath, createKernel, migrateStore, readControlToken, writeControlToken, type KernelConfig } from "@thetis/host";
 import { configPath, createControlHandler, defaultConfig, loadConfig, redact, saveConfig, type SessionRef } from "@thetis/kernel";
 import { parseDotEnv } from "@thetis/lib/config";
@@ -45,7 +46,9 @@ usage: thetis <command> [options]
   install <source> [--user <id>]       install a package (system userspace without --user)
   uninstall <name> [--user <id>]
   packages list [--user <id>] | install <source> [--user <id>] | uninstall <name> [--user <id>] | promote <name> --user <id>
-  packages outdated [--user <id>]      what is behind the registry it was installed from, the code on disk, or the package it was forked from
+  packages outdated [--user <id>]      what is behind the registry it was installed from, the code on disk, or the
+                                       package it was forked from, and what is ahead: newer here than the registry
+                                       holds, or never published at all
   packages update [<name>] [--user <id>]  reinstall those packages at the registry's current commit
   packages unfork <name> [--user <id>] [--delete-files]  go back to the package this fork was copied from
   mounts list [--user <id>]            host paths bound into each person's fence, and whether each is there
@@ -66,6 +69,13 @@ usage: thetis <command> [options]
                                        keep it with the kernel under that name and grant it to the person's fence;
                                        prints the public half and its fingerprint. A key with a passphrase is refused
   ssh revoke <user> <key>
+  publish <package> --to <target> [--version <v> | --bump patch|minor|major] [--with <name>]... [--dry-run]
+                                       put a package in a registry at a new version: check the manifest, refuse a
+                                       version the target already holds, commit only that package's directory and
+                                       push. <package> is an installed name or a path; --dry-run says what would go.
+                                       A push sends the branch, so commits to other packages on it would go too:
+                                       --with names one you meant to publish as well, and is repeatable. One that
+                                       could not be published on its own is refused whatever you say
   models [--user <id>]                 models advertised by installed providers
   config                               print the configuration file over its defaults, secrets hidden
   config show [<package>] [--user <id>]  every key of one package and where its value comes from, or one line per package;
@@ -284,6 +294,8 @@ async function dispatch(call: Call, cmd: string, args: Args, shared: string): Pr
       return sshCmd(call, args, user);
     case "config":
       return configCmd(call, args, user);
+    case "publish":
+      return publishCmd(call, args, user);
     case "install":
     case "uninstall":
       return packagesCmd(call, { ...args, _: ["packages", ...args._] }, user, shared);
@@ -658,6 +670,117 @@ async function configCmd(call: Call, args: Args, user: string | undefined): Prom
   }
 }
 
+/** What `@thetis/package-publish` answers. Kept here as a shape and not as a dependency: see `publishCmd`. */
+interface PublishAnswer {
+  ok: boolean;
+  dryRun: boolean;
+  package: string;
+  from: string;
+  mode: string;
+  target: string;
+  url: string;
+  branch: string;
+  directory: string;
+  repo: string;
+  was: string | null;
+  now: string;
+  first: boolean;
+  files: string[];
+  /** The packages that rode along on the branch, each a publish of its own. */
+  with?: { package: string; was: string | null; now: string; files: string[] }[];
+  /** The publishable passengers a dry run could still be told to take. */
+  nameable?: string[];
+  author: string;
+  commit: string | null;
+  committed: boolean;
+  pushed: boolean;
+  summary: string;
+  /** Only on a dry run: the gates about the state of the tree, reported instead of thrown. */
+  blockers?: { code: string; message: string }[];
+}
+
+const PUBLISH_PACKAGE = "@thetis/package-publish";
+
+/**
+ * `thetis publish`: the same act the `publish_package` tool performs, run from a terminal so that the
+ * person who maintains the packages does not need a chat window to ship one. It goes through the package's
+ * own code and decides nothing of its own; what it supplies is the environment, because the command line
+ * is not a fence. The operator's home, shell and ssh agent stand in for the fence's, which is the right
+ * identity: the maintainer publishing from their checkout is the operator, and theirs is the key the
+ * registry knows.
+ */
+async function publishCmd(call: Call, args: Args, user: string | undefined): Promise<void> {
+  const name = opt(args._[1]);
+  if (!name) throw new Error("publish needs a package: thetis publish <package> --to <target> [--version <v> | --bump patch|minor|major] [--dry-run]");
+  // The specifier is held in a variable on purpose. The package is plain ECMAScript with no build and no
+  // declarations, so a literal import would ask the compiler for types that do not exist, and the command
+  // line is not going to grow a copy of them. A package that is not there is one sentence, not a stack.
+  const specifier = PUBLISH_PACKAGE;
+  let mod: { publish: (a: Record<string, unknown>, e: unknown) => Promise<PublishAnswer> };
+  try {
+    mod = await import(specifier);
+  } catch {
+    throw new Error(`thetis publish needs ${PUBLISH_PACKAGE}, which is not in this installation's packages directory.`);
+  }
+  // The configuration comes from the kernel, so the command line and the fence read one set of targets.
+  const report = (await call("config.show", { name: PUBLISH_PACKAGE, user })) as ConfigReport;
+  const config = Object.fromEntries(report.keys.filter((k) => k.state === "set").map((k) => [k.key, k.value]));
+  const answer = await mod.publish(
+    { package: name, to: opt(args.to), version: opt(args.version), bump: opt(args.bump), message: opt(args.message), with: list(args.with), dryRun: args["dry-run"] === true || args.dryRun === true },
+    publishEnv(call, user, config),
+  );
+  print(answer.summary);
+  // A dry run reports the two gates about the surrounding tree rather than throwing, so they are printed
+  // here and the exit code says the publish would not go: a script asking "would this publish?" is asking
+  // a yes or no question and should not have to parse the sentence to learn the answer.
+  for (const blocker of answer.blockers ?? []) print(`refused\t${blocker.code}\t${blocker.message}`);
+  if (answer.ok === false) process.exitCode = 1;
+  print(`package\t${answer.package}\t${answer.was ?? "(not held)"} -> ${answer.now}${answer.first ? "\tfirst publish" : ""}`);
+  print(`target\t${answer.target}\t${answer.url}\t${answer.branch}`);
+  print(`tree\t${answer.repo}\t${answer.directory}/\t${answer.mode}`);
+  if (answer.commit) print(`commit\t${answer.commit}\t${answer.author}`);
+  for (const file of answer.files) print(`${answer.dryRun ? "would send" : "sent"}\t${file}`);
+  // Each package that rode along on the branch, as its own publish, because that is what it was.
+  for (const also of answer.with ?? []) print(`${answer.dryRun ? "would send" : "sent"}\t${also.package}\t${also.was ?? "(not held)"} -> ${also.now}\t${also.files.length} file(s)`);
+  for (const name of answer.dryRun ? (answer.nameable ?? []) : []) if (!(answer.with ?? []).some((w) => w.package === name)) print(`could add\t${name}\t--with ${name}`);
+}
+
+/** A flag's value when it is a string worth having, and undefined when it is a bare `--flag` or missing. */
+const opt = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+
+/** A flag given none, once or many times, as a list. */
+const list = (v: unknown): string[] => [v].flat().filter((x): x is string => typeof x === "string" && x.trim().length > 0);
+
+/**
+ * The environment `@thetis/package-publish` expects, built out of what a host process has. It is the
+ * fence's `ToolEnv` minus one field: there is no store on this side of the control socket, so a publish
+ * made from the command line keeps no record of itself. Everything that record would have held is in the
+ * answer, which is printed.
+ */
+function publishEnv(call: Call, user: string | undefined, config: Record<string, unknown>) {
+  const home = process.env.HOME ?? process.cwd();
+  return {
+    cwd: home,
+    root: home,
+    shared: home,
+    config,
+    exec: (cmd: string, opts: { cwd?: string; timeoutMs?: number; env?: Record<string, string> } = {}) =>
+      new Promise<{ code: number; stdout: string; stderr: string }>((res) => {
+        cpExec(cmd, { cwd: opts.cwd ? resolve(home, opts.cwd) : home, env: { ...process.env, ...(opts.env ?? {}) }, timeout: opts.timeoutMs ?? 120_000, maxBuffer: 16 * 1024 * 1024, shell: "/bin/bash" }, (err, stdout, stderr) => {
+          const code = err && typeof (err as { code?: unknown }).code === "number" ? (err as { code: number }).code : err ? 1 : 0;
+          res({ code, stdout: String(stdout), stderr: String(stderr) + (err && !stderr ? `\n${(err as Error).message}` : "") });
+        });
+      }),
+    readFile: (p: string) => readFile(resolve(home, p), "utf8"),
+    writeFile: async (p: string, content: string) => {
+      const file = resolve(home, p);
+      await mkdir(dirname(file), { recursive: true });
+      await writeFile(file, content);
+    },
+    kernel: { packages: { list: () => call("packages.list", { user }) } },
+  };
+}
+
 /** Moves the legacy record files into the store. Runs against the files directly, so the daemon must be stopped first. */
 async function migrateCmd(config: KernelConfig): Promise<void> {
   const { imported, skipped } = await migrateStore(config, (line) => process.stderr.write(line + "\n"));
@@ -671,13 +794,34 @@ async function migrateCmd(config: KernelConfig): Promise<void> {
  * says what is installed, and this compares them so a person can decide.
  */
 async function outdatedIn(call: Call, target: string, shared: string): Promise<Behind[]> {
-  const installed = (await call("packages.list", { user: target })) as PackageInfo[];
-  // The index is a file the marketplace service writes into the shared directory. The command line is a host
-  // process and reads it there; asking the kernel would mean teaching the kernel where the marketplace keeps
-  // its things, which is exactly the sort of opinion it does not hold.
-  const index = await readIndex({ shared, readFile: async (at: string) => readFileSync(at, "utf8"), writeFile: async () => {} });
-  return behind(installed, index);
+  return (await standingIn(call, target, shared)).behind;
 }
+
+/**
+ * The marketplace index. It is a file the marketplace service writes into the shared directory. The command
+ * line is a host process and reads it there; asking the kernel would mean teaching the kernel where the
+ * marketplace keeps its things, which is exactly the sort of opinion it does not hold.
+ */
+const marketplaceIndex = (shared: string) => readIndex({ shared, readFile: async (at: string) => readFileSync(at, "utf8"), writeFile: async () => {} });
+
+/**
+ * Where a userspace stands, both ways round, off one read of the list and one of the index. `behind` is
+ * what it is missing. `ahead` is the other direction: what is newer here than anywhere else, which nothing
+ * in this tool has ever said. Whoever maintains these packages runs them from the same checkout that every
+ * fence loads, so a version bump is live here the moment it lands while the registry other installations
+ * read still holds the old one.
+ */
+async function standingIn(call: Call, target: string, shared: string): Promise<{ installed: PackageInfo[]; behind: Behind[]; ahead: Ahead[] }> {
+  const installed = (await call("packages.list", { user: target })) as PackageInfo[];
+  const index = await marketplaceIndex(shared);
+  return { installed, behind: behind(installed, index), ahead: ahead(installed, index) };
+}
+
+/** Unpublished work, in one clause, wherever a package is named. Empty for a package the registries have caught up with. */
+const aheadNote = (a: Ahead | undefined): string => {
+  if (!a) return "";
+  return a.state === "unpublished" ? "\tnever published" : `\t${a.version} here, ${a.published} published in ${a.registry}`;
+};
 
 /**
  * What a fork is, in one clause, wherever a package is named. Said plainly and in the stronger form when it
@@ -703,12 +847,18 @@ async function packagesCmd(call: Call, args: Args, user: string | undefined, sha
   const target = user ?? "_system";
   switch (sub) {
     case "list":
-    case undefined:
+    case undefined: {
       // A fork prints what it was copied from and how that package stands now. A listing that says only
       // `@someone/gateway-web@0.1.1-fork.1` is the whole problem: nothing in it says the shipped gateway
       // has moved on, or that this copy changed nothing and is costing its owner every fix for free.
-      for (const p of (await call("packages.list", { user: target })) as PackageInfo[]) print(`${p.name}@${p.version}\t${p.type}\t${p.root}${forkNote(p.fork)}`);
+      // Unpublished work prints the same way and for the same reason: a version on disk that no registry
+      // has is invisible in every listing there has ever been, and the person holding it is the one person
+      // who could publish it.
+      const standing = await standingIn(call, target, shared);
+      const unshared = new Map(standing.ahead.map((a) => [a.name, a]));
+      for (const p of standing.installed) print(`${p.name}@${p.version}\t${p.type}\t${p.root}${forkNote(p.fork)}${aheadNote(unshared.get(p.name))}`);
       return;
+    }
     case "install": {
       const info = (await call("packages.install", { user: target, source, actor: "_system" })) as PackageInfo;
       return print(`installed ${info.name}@${info.version} (${info.type}) in ${target}`);
@@ -731,14 +881,23 @@ async function packagesCmd(call: Call, args: Args, user: string | undefined, sha
       return;
     }
     case "outdated": {
-      const out = await outdatedIn(call, target, shared);
-      if (!out.length) return print(`nothing in ${target} is behind its registry or the code on disk`);
+      const { behind: out, ahead: unshared } = await standingIn(call, target, shared);
+      if (!out.length && !unshared.length) return print(`nothing in ${target} is behind its registry or the code on disk, and nothing here is newer than the registries hold`);
+      if (!out.length) print(`nothing in ${target} is behind its registry or the code on disk`);
       for (const b of out) {
         if (b.apply === "reload") print(`${b.name}\tloaded ${b.installed}, ${b.available} on disk\tthetis reload --user ${target}`);
         else if (b.apply === "unfork") print(`${b.name}\t${forkLine(b)}\tthetis packages unfork ${b.name}${user ? ` --user ${user}` : ""}`);
         else print(`${b.name}\t${b.version}\t${shortCommit(b.installed)} -> ${shortCommit(b.available)}\t${b.registry}`);
       }
       if (out.some((b) => b.apply === "install")) print(`\nrun: thetis packages update${user ? ` --user ${user}` : ""} [<name>]`);
+      // Ahead rows carry no command of their own on the row, because unlike an update there is nothing to
+      // apply here -- the change is already in service; what is missing is that anyone else can have it.
+      // The line under them names the one command that closes the gap.
+      if (unshared.length) {
+        print(`\n${unshared.length} package${unshared.length === 1 ? " is" : "s are"} newer in ${target} than the registries hold, or not published at all:`);
+        for (const a of unshared) print(`${a.name}${aheadNote(a)}`);
+        print(`\nrun: thetis publish <package> [--to <target>] [--bump patch|minor|major], or use Publish on the package's page in the Marketplace`);
+      }
       return;
     }
     case "update": {
@@ -875,8 +1034,12 @@ function parse(argv: string[]): Args {
     if (a.startsWith("--")) {
       const key = a.slice(2);
       const next = argv[i + 1];
-      if (next !== undefined && !next.startsWith("--")) (out[key] = next), i++;
-      else out[key] = true;
+      const value: string | boolean = next !== undefined && !next.startsWith("--") ? (i++, next) : true;
+      // A flag given twice is both values, not the second one. `--host`, `--scan` and `--with` are all
+      // meant to repeat, and `knownHostLines` has always read `[args.host].flat()` as though this were
+      // already true; it was not, and the first `--host` of a pair was being dropped without a word.
+      const had = out[key];
+      out[key] = had === undefined ? value : ([] as string[]).concat(had as string[], value as string);
     } else out._.push(a);
   }
   return out;
@@ -893,3 +1056,14 @@ function loadDotEnv(file: string): void {
 function print(s: string): void {
   process.stdout.write(s + "\n");
 }
+
+/**
+ * `thetis packages list | head` is what anybody does with a long listing, and `head` closing the pipe
+ * used to kill the process with an unhandled EPIPE and a stack trace, as though the command had failed.
+ * It had not: the reader stopped reading, which is the reader's business. Exit quietly instead. Every
+ * other write error is left alone, because those are real.
+ */
+process.stdout.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EPIPE") process.exit(0);
+  throw err;
+});

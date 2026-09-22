@@ -193,3 +193,118 @@ export async function people(_args, env) {
   const list = await call(env, "users.list");
   return { data: (Array.isArray(list) ? list : []).filter((p) => p.role !== "system").map((p) => ({ id: p.id, role: p.role, status: p.status })) };
 }
+
+// ---- publishing, as a soft dependency on @thetis/package-publish ----
+
+const PUBLISH = "@thetis/package-publish";
+const BUMPS = new Set(["patch", "minor", "major"]);
+const VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)*$/;
+
+/**
+ * The publishing package's tool, when it is installed in this fence and declares that tool. Most
+ * installations will never have it: publishing is for whoever maintains the packages, and everybody else
+ * only ever installs them. So this is a soft dependency in the strict sense -- nothing here imports it,
+ * nothing declares it in `dependencies`, and its absence is an answer rather than an error. The reference
+ * is read off the installed manifest rather than written down here, because the export a tool names is the
+ * manifest's to decide and this package has no business holding a second copy of it.
+ */
+async function publishTool(env, toolName) {
+  const pkg = (await env.kernel.packages.list()).find((p) => p.name === PUBLISH);
+  const tool = pkg?.thetis?.tools?.find((t) => t.name === toolName);
+  return tool ? { package: PUBLISH, export: tool.export, name: tool.name } : null;
+}
+
+/** Where this workspace may publish, from the publishing package's own effective configuration. `[]` when it has none. */
+async function publishTargetList(env) {
+  const config = await env.kernel.config.effective(PUBLISH).catch(() => ({}));
+  const targets = Array.isArray(config.targets) ? config.targets : [];
+  return targets.filter((t) => t && typeof t.name === "string").map((t) => ({ name: t.name, url: typeof t.url === "string" ? t.url : "", branch: typeof t.branch === "string" ? t.branch : null }));
+}
+
+/**
+ * Runs one of the publishing package's tools in this fence. `env.invokeTool` is the same seam the harness
+ * uses to run what a model asked for: the tool's export, under the tool's own package, with that package's
+ * effective configuration -- which `env.kernel.config.effective` gives, because a fence is one person's
+ * authority and a package in it may load another's configuration, exactly as the gateway runs another
+ * package's UI commands as the person.
+ *
+ * `session` is what a tool receives to know which conversation it is serving. This one is not serving a
+ * conversation: a page asked, and publishing acts on the workspace and its registries, not on a transcript.
+ * The id is whatever conversation happened to be on screen, and empty when none was, which is the truth.
+ */
+async function invokePublish(env, toolName, args) {
+  const ref = await publishTool(env, toolName);
+  if (!ref) fail(`${PUBLISH} is not installed in your workspace, so there is nothing here that can publish.`);
+  const config = await env.kernel.config.effective(PUBLISH);
+  const raw = await env.invokeTool(ref, args, { session: { id: env.session ?? "", user: env.user }, config });
+  if (raw && typeof raw === "object") return raw;
+  // A tool may answer a string. These two do not, but a refusal read as a success is the one failure mode
+  // worth spending three lines on here.
+  try {
+    return JSON.parse(String(raw));
+  } catch {
+    return { text: String(raw) };
+  }
+}
+
+/**
+ * Where this workspace may publish, and, when a package is named, what each target already holds for it.
+ * Answers `{ available, targets }` and never throws for the ordinary case of the publishing package not
+ * being installed or having no target configured: the page simply does not offer the action. `available`
+ * is decided from the configuration alone, before any tool runs, so a page that will not offer Publish
+ * pays nothing for asking.
+ */
+export async function publishTargets(args, env) {
+  const ref = await publishTool(env, "publish_targets");
+  const targets = ref ? await publishTargetList(env) : [];
+  if (!ref || !targets.length) return { data: { available: false, targets } };
+  const name = typeof args.package === "string" && args.package ? packageName(args.package) : null;
+  try {
+    const out = await invokePublish(env, "publish_targets", name ? { package: name } : {});
+    return { data: { available: true, ...out, targets: Array.isArray(out.targets) && out.targets.length ? out.targets : targets } };
+  } catch (err) {
+    // The tool reaching its targets can fail for every reason a network can. The configured names are still
+    // true and still worth offering: the dry run in front of the publish is where the real answer comes from.
+    return { data: { available: true, targets, error: err?.message || String(err) } };
+  }
+}
+
+/**
+ * Publishes one package to one target, or, with `dryRun`, reports what that would do without committing or
+ * pushing anything. The page runs the dry run first and shows its `was` and `now` in the confirm popover,
+ * because this is the one action in the product that changes what other installations receive, and a person
+ * must see the old version, the new version and the target before they agree to it -- not a bump they have
+ * to do the arithmetic for. A refusal is thrown, and its sentence stands alone in a toast.
+ *
+ * `with` names the packages being published deliberately alongside this one. A dry run answers
+ * `ok: false` with `blockers[]` instead of refusing, each blocker carrying `details` rows about the
+ * passengers, which is what lets the page draw them and let the person choose rather than guess.
+ */
+export async function publish(args, env) {
+  const name = packageName(args.name);
+  const to = args.to === undefined || args.to === null || args.to === "" ? undefined : String(args.to);
+  const bump = args.bump === undefined || args.bump === null || args.bump === "" ? undefined : String(args.bump);
+  const version = args.version === undefined || args.version === null || args.version === "" ? undefined : String(args.version);
+  if (bump !== undefined && !BUMPS.has(bump)) fail("bump is patch, minor or major");
+  if (version !== undefined && !VERSION.test(version)) fail("a version looks like 1.2.0");
+  if (bump !== undefined && version !== undefined) fail("give a bump or a version, not both");
+  // The passengers, named one by one and never filled in by anybody but the person. A publish in a
+  // checkout that is itself the registry pushes the branch, so a commit already on that branch rides
+  // along whether or not it is wanted; `with` is how the publishing package is told which of those are
+  // deliberate. It is a list of names and nothing else, checked here so a mistyped one is a sentence
+  // rather than something silently published.
+  const also = args.with === undefined || args.with === null ? [] : args.with;
+  if (!Array.isArray(also)) fail("with is a list of package names");
+  const named = also.map((n) => packageName(n));
+  if (named.includes(name)) fail(`${name} is what is being published; it does not go in with as well`);
+  if (new Set(named).size !== named.length) fail("with names the same package twice");
+  const out = await invokePublish(env, "publish_package", {
+    package: name,
+    ...(to ? { to } : {}),
+    ...(bump ? { bump } : {}),
+    ...(version ? { version } : {}),
+    ...(named.length ? { with: named } : {}),
+    ...(args.dryRun ? { dryRun: true } : {}),
+  });
+  return { data: { ...out, dryRun: !!args.dryRun, with: named } };
+}

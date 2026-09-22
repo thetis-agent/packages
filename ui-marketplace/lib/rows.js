@@ -4,7 +4,7 @@
 // anything: a row is what a person reads before deciding.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { behind, shortCommit } from "@thetis/marketplace";
+import { ahead, behind, shortCommit } from "@thetis/marketplace";
 
 const PIN = /@([0-9a-f]{40})$/;
 
@@ -29,6 +29,16 @@ export function withUpdate(row, found) {
   // because a person reads it in the same place and for the same reason: something newer than what I have.
   if (found.apply === "unfork") return { ...row, update: { apply: "unfork", version: found.version, installed: found.installed, available: found.available, origin: found.origin, identical: !!found.identical } };
   return { ...row, update: { apply: "install", version: found.version, from: shortCommit(found.installed), to: shortCommit(found.available), source: found.source, registry: found.registry } };
+}
+
+/**
+ * Folds "nobody else can have this yet" onto a row. The sibling of `withUpdate`, and the other direction:
+ * `update` is something newer than what is in service here, `ahead` is something newer here than what the
+ * registries hold. `state` is `ahead` when a registry has an older version of this package, `unpublished`
+ * when no registry lists it at all.
+ */
+export function withAhead(row, found) {
+  return found ? { ...row, ahead: { state: found.state, version: found.version, published: found.published, registry: found.registry } } : row;
 }
 
 /**
@@ -87,6 +97,9 @@ export function installedRow(info) {
     available: false,
     tip: null,
     update: null,
+    // Unpublished work: the version here against the version the registries hold. Filled by `mergeRows`,
+    // which is the only place that has the index to compare against.
+    ahead: null,
     readme: false,
     forkedFrom: info.forkedFrom ? { name: info.forkedFrom.name, version: info.forkedFrom.version } : null,
     // A fork against its origin as the origin stands now: what it was copied from, what that is at today,
@@ -121,6 +134,7 @@ export function indexRow(entry) {
     available: true,
     tip: entry.version,
     update: null,
+    ahead: null,
     readme: !!entry.readme,
     forkedFrom: null,
     fork: null,
@@ -141,9 +155,12 @@ export function indexRow(entry) {
 export function mergeRows(installed, entries, index) {
   const byName = new Map();
   const newer = new Map(behind(installed, index).map((b) => [b.name, b]));
+  // The two directions, read off the same two lists. `behind` is what this installation is missing;
+  // `ahead` is what it is holding that nobody else can have yet, which until now nothing anywhere showed.
+  const unshared = new Map(ahead(installed, index).map((a) => [a.name, a]));
   // An installed row learns what is behind before the index is consulted: a copy whose workspace loaded an
   // older version than the one on disk is behind whether or not any registry carries the package.
-  for (const info of installed) byName.set(info.name, withUpdate(installedRow(info), newer.get(info.name)));
+  for (const info of installed) byName.set(info.name, withAhead(withUpdate(installedRow(info), newer.get(info.name)), unshared.get(info.name)));
   for (const entry of entries) {
     const have = byName.get(entry.name);
     if (!have) {
@@ -151,7 +168,7 @@ export function mergeRows(installed, entries, index) {
       continue;
     }
     const merged = { ...have, registry: entry.registry, source: entry.source, available: true, tip: entry.version, readme: !!entry.readme, keywords: entry.keywords ?? [], description: have.description || entry.description || "" };
-    byName.set(entry.name, withUpdate(merged, newer.get(entry.name)));
+    byName.set(entry.name, withAhead(withUpdate(merged, newer.get(entry.name)), unshared.get(entry.name)));
   }
   return [...byName.values()];
 }
