@@ -1,9 +1,9 @@
 ---
 name: packages
-description: How a Thetis package is built and managed: the manifest, install sources, the store, forks and the way back, delete, promote, publish. Use when you write, install, fork or remove a package, publish one to a registry, change a shipped one, make one the default for everyone, or an install was refused.
+description: How a Thetis package is built and managed: the manifest, install sources, the store, forks and the way back, delete, promote, publish, unpublish. Use when you write, install, fork or remove a package, publish one to a registry or take one out of one, change a shipped one, make one the default for everyone, or an install was refused.
 metadata:
   title: Packages
-  tags: [packages, manifest, install, uninstall, fork, unfork, delete, promote, publish, everyone, steps, tools, provider, service, store, registry, scope, owner]
+  tags: [packages, manifest, install, uninstall, fork, unfork, delete, promote, publish, unpublish, everyone, steps, tools, provider, service, store, registry, scope, owner]
   related: [thetis/pipeline, thetis/using, thetis/marketplace, thetis/troubleshooting]
   version: 1
 ---
@@ -240,8 +240,9 @@ The second is the case of whoever maintains the shipped packages: one checkout t
 
 | Tool | Arguments | Answers |
 |---|---|---|
-| `publish_targets` | `package` (optional) | The configured targets. With a package: what each one holds for it, the directory it holds it in, and whether what is here is in front of that. |
-| `publish_package` | `package` (required), `to`, `version` or `bump` (`patch`, `minor`, `major`), `with`, `message`, `dryRun` | The package, the target, `was` and `now`, whether it was a first publish, the files, the commit and the branch, plus `source` (the pin the marketplace will carry) and `indexed: false`. |
+| `publish_targets` | `package` (optional) | The configured targets. With a package: what each one holds for it, the directory it holds it in, and whether what is here is in front of that. Also `lastPublish` and `lastRemoval` per target, out of this person's own record. |
+| `publish_package` | `package` (required), `to`, `version` or `bump` (`patch`, `minor`, `major`), `as` (`origin` or `itself`, for a fork), `with`, `message`, `dryRun` | The package, the target, `was` and `now`, whether it was a first publish, the files, the commit and the branch, plus `source` (the pin the marketplace will carry) and `indexed: false`. |
+| `unpublish_package` | `package` (required), `to`, `with`, `message`, `dryRun` | `removed: true`, the package, the target, `held` (the version the registry was carrying), the directory, the files and the commit. |
 
 `package` is a name installed in this workspace or a path to a directory. `to` is a target's name, required when more than one is configured. `dryRun` does everything up to the commit and says what would go.
 
@@ -262,6 +263,29 @@ Scoping a commit to one directory does not scope the push. `git push` sends the 
 
 `dirty-index` is the smaller cousin: other files are *staged*, and only this package's directory would be committed, so they would be left behind. `dryRun` reports all three in `blockers` instead of refusing, and lists what `with` could still take in `nameable`.
 
+### Publishing a fork
+
+A fork carries `thetis.forkedFrom`, so "publish my change" over a fork is two different acts wearing the same words. It can mean the change becomes the next version of the package it came from, which is upstreaming. Or it can mean this is a package of its own now, apart from the one it came from. Both are legitimate, so the publish refuses (`ambiguous-fork`) until `as` says which, and the refusal prints the command for each.
+
+| `as` | What lands in the registry | What happens to your copy |
+|---|---|---|
+| `origin` | The origin's name, the version you are publishing, and no `forkedFrom`, in the origin's own directory. A registry entry carrying `forkedFrom` would displace the very package it is, in every userspace that took it. | Nothing. It keeps its own name, its `0.1.0-fork.1` version and its `forkedFrom`, and goes on being your fork. |
+| `itself` | The fork, under its own name, in its own directory, `forkedFrom` and all. | An ordinary publish: the version is written into the fork's manifest. |
+
+The question is asked once. The gate fires when the target holds the origin and does not yet hold this fork; once the fork is in the registry under its own name a publish has only one reading left, and the registry is what remembers the answer.
+
+The version of an as-origin publish is a version of the origin, never of the fork. `0.1.0-fork.1` is never a candidate and never the default, and a `bump` steps from what the target holds for the origin, or from the version the fork was taken at when the target holds none. `as origin` on a package that is not a fork is `not-a-fork`; a word that is neither is `bad-as`; a fork inside a checkout that is itself the registry is `fork-in-checkout`, because a publish there commits the directory the package already sits in and copies nothing.
+
+Un-forking after an as-origin publish is the loop closing: you go back to the origin, and the origin is now your own change.
+
+### Taking a package out of a registry
+
+`unpublish_package` deletes the package's directory from the registry, commits and pushes. It is its own tool and its own verb rather than an argument to `publish_package`, because an argument that inverts what a command does is how people delete things by accident.
+
+`package` is the name the registry holds it under, or the directory it keeps it in. It does not have to be installed here. The target has to actually hold it (`not-held`), the directory has to hold the package that was named (`name-mismatch`), and a removal pushes the branch exactly as a publish does, so the same three gates about what else is committed on the branch apply, `with` and all.
+
+Say what it does and does not do, because the two halves are easy to confuse. The package leaves the registry now and the marketplace index at its next refresh, so nobody installs it again. Every installation that already has it keeps it, goes on running it, and is not told: `behind` leaves a package the index no longer carries alone, because a registry dropping a package is not the same thing as a package being out of date. A removal is therefore not a recall, and it is irreversible from the product's point of view. When the package is inside a checkout that is itself the registry, the source and the registry are the same directory and the removal takes it.
+
 Where a workspace may publish is configuration: `config.packages["@thetis/package-publish"].targets`, each `{ name, url, branch? }`. The list is empty by default, so a new installation publishes nowhere until somebody says otherwise.
 
 ```
@@ -269,9 +293,11 @@ publish_targets { package: "@alice/hello" }
 publish_package { package: "packages/hello", to: "thetis", bump: "minor", dryRun: true }
 publish_package { package: "@thetis/exa", version: "0.4.0" }
 publish_package { package: "@thetis/exa", bump: "patch", with: ["@thetis/skills"] }
+publish_package { package: "@alice/exa", to: "thetis", as: "origin", bump: "minor" }
+unpublish_package { package: "@alice/hello", to: "thetis" }
 ```
 
-The command line is `thetis publish <package> --to <target> [--version <v> | --bump patch|minor|major] [--with <name>]... [--dry-run]`.
+The command line is `thetis publish <package> --to <target> [--version <v> | --bump patch|minor|major] [--as origin|itself] [--with <name>]... [--dry-run]`, and `thetis unpublish <package> --to <target> [--with <name>]... [--dry-run]`.
 
 The registry holds the new version as soon as the push returns, but the marketplace index does not: it is refreshed on the service's own schedule, 30 minutes by default. So a gallery goes on showing the old version for a while, and the answer's `indexed: false` is there to be said out loud rather than looked past.
 
@@ -281,3 +307,5 @@ The registry holds the new version as soon as the push returns, but the marketpl
 - packages/kernel/src/control.ts
 - packages/tool-exec/src/index.ts
 - packages/package-publish/lib/publish.js
+- packages/package-publish/lib/fork.js
+- packages/package-publish/lib/unpublish.js

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { publish } from "../lib/publish.js";
 import { targets } from "../lib/targets.js";
-import { publishPackage, publishTargets } from "../index.js";
+import { publishPackage, publishTargets, unpublishPackage } from "../index.js";
 import { makeEnv, makePackage, makeRegistry, manifest, seedRegistry, temp } from "./helpers.js";
 
 test("without a package it is the configured list and nothing is cloned", async (t) => {
@@ -104,6 +104,15 @@ test("the tool exports are the library, with the arguments a model actually send
   assert.equal(real.dryRun, false, "the string false is not a dry run either way round");
   assert.equal(real.pushed, true);
   assert.equal((await publishTargets({ package: "packages/hello" }, env)).targets[0].holds, "0.1.0");
+
+  const gone = await unpublishPackage({ package: " @alice/hello ", to: " reg ", dryRun: "0" }, env);
+  assert.equal(gone.dryRun, false, "the string zero is not a dry run either");
+  assert.equal(gone.package, "@alice/hello");
+  assert.equal(gone.pushed, true);
+  const after = (await publishTargets({ package: "packages/hello" }, env)).targets[0];
+  assert.equal(after.holds, null, "the registry stopped holding it");
+  assert.equal(after.lastRemoval.name, "@alice/hello", "and the removal is read back where the record is shown");
+  assert.equal(after.lastPublish.version, "0.1.0", "while the last publish goes on meaning the last publish");
 });
 
 test("a fence with no store loses the record and nothing else", async (t) => {

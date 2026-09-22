@@ -64,14 +64,20 @@ export async function resolvePackage(env, spec) {
 /**
  * The target repository as this publish will use it, and what it already holds for the package.
  * `mode` is `checkout` when the package is already inside the target repository and `copy` when it is not.
+ *
+ * `alsoName` is a second package to look up in the same tree, which is how a fork asks whether the target
+ * already holds the package it was copied from. It is answered on the copy path only: there, the clone has
+ * just been reset onto the registry's branch, so the registry's whole tree is on disk and the lookup is
+ * free. In a checkout the directory a package sits in is the directory the registry keeps it in, so a
+ * publish there has only one thing it can be and nothing to ask about.
  */
-export async function locate(env, pkg, target, workDir) {
+export async function locate(env, pkg, target, workDir, alsoName) {
   const top = await topLevelOf(env, pkg.path);
   if (top) {
     const origin = await originOf(env, top);
     if (origin && sameRepository(origin, target.url)) return locateInCheckout(env, pkg, target, top, origin);
   }
-  return locateInClone(env, pkg, target, workDir);
+  return locateInClone(env, pkg, target, workDir, alsoName);
 }
 
 async function locateInCheckout(env, pkg, target, top, origin) {
@@ -95,10 +101,10 @@ async function locateInCheckout(env, pkg, target, top, origin) {
   const held = onRemote ? await showFile(env, top, ref, `${dir}/package.json`) : null;
   const staged = outside(lines(await git(env, top, ["diff", "--cached", "--name-only"])), dir);
   const others = onRemote ? await aheadOthers(env, top, ref, dir) : [];
-  return { mode: "checkout", repo: top, url: origin, dir, branch, branchOnRemote: onRemote, holds: held?.version ?? null, holdsName: held?.name ?? null, staged, others };
+  return { mode: "checkout", repo: top, url: origin, dir, branch, branchOnRemote: onRemote, holds: held?.version ?? null, holdsName: held?.name ?? null, staged, others, origin: null };
 }
 
-async function locateInClone(env, pkg, target, workDir) {
+export async function locateInClone(env, pkg, target, workDir, alsoName) {
   const repo = join(workDir, safeName(target.name));
   await ensureClone(env, target, repo);
   const branch = target.branch ?? (await currentBranch(env, repo)) ?? "main";
@@ -123,9 +129,13 @@ async function locateInClone(env, pkg, target, workDir) {
   const found = onRemote ? await findPackageDir(repo, pkg.name) : null;
   const dir = found?.dir ?? pkg.directory;
   const held = onRemote ? (found ?? (await readDirManifest(env, repo, dir))) : null;
+  // What the registry holds for a second package, when the caller named one: a fork asking after the
+  // package it was copied from. Null both when nothing was asked and when the registry does not hold it,
+  // which are the same answer to the only question anybody asks of it.
+  const also = onRemote && alsoName && alsoName !== pkg.name ? await findPackageDir(repo, alsoName) : null;
   // Nothing local survives the reset above, so a clone carries no commits of its own to push: there are
   // never passengers on this path. `test/gates.test.js` plants one and proves it rather than assuming it.
-  return { mode: "copy", repo, url: target.url, dir, branch, branchOnRemote: onRemote, holds: held?.version ?? null, holdsName: held?.name ?? null, staged: [], others: [] };
+  return { mode: "copy", repo, url: target.url, dir, branch, branchOnRemote: onRemote, holds: held?.version ?? null, holdsName: held?.name ?? null, staged: [], others: [], origin: also };
 }
 
 /**

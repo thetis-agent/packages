@@ -10,7 +10,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { safeName, targetsOf, workDirOf } from "./config.js";
 import { locate, resolvePackage } from "./locate.js";
-import { lastPublish } from "./record.js";
+import { lastPublish, lastRemoval } from "./record.js";
 import { compareVersions } from "./semver.js";
 
 export async function targets(args = {}, env) {
@@ -32,6 +32,9 @@ export async function targets(args = {}, env) {
       repo,
       cloned: existsSync(join(repo, ".git")),
       lastPublish: await lastPublish(env, target.name),
+      // The other act against a registry, kept apart from the last publish rather than folded into it: a
+      // card that drew one version from both keys would report a package's removal as its current version.
+      lastRemoval: await lastRemoval(env, target.name),
     };
     if (pkg) {
       try {

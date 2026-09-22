@@ -68,3 +68,18 @@ export function withVersion(text, manifest, version) {
   }
   return `${JSON.stringify({ ...manifest, version }, null, 2)}\n`;
 }
+
+/**
+ * The manifest the registry gets when a fork is published as its origin: the origin's name, the version
+ * being published, and no `forkedFrom`, because what lands in the registry is the origin and not somebody's
+ * copy of it. A registry entry that named a fork's origin would make every installation that took it
+ * replace the very package it is, which is what `forkedFrom` means to the kernel.
+ *
+ * It is written out rather than patched in place. `withVersion` keeps a person's own file byte for byte
+ * because that file is theirs to read and edit; this one is writing a different package's manifest into a
+ * clone from the fork's, so there is no file here whose shape anybody is attached to.
+ */
+export function withOrigin(manifest, name, version) {
+  const { forkedFrom, ...thetis } = manifest.thetis ?? {};
+  return `${JSON.stringify({ ...manifest, name, version, thetis }, null, 2)}\n`;
+}

@@ -69,13 +69,23 @@ usage: thetis <command> [options]
                                        keep it with the kernel under that name and grant it to the person's fence;
                                        prints the public half and its fingerprint. A key with a passphrase is refused
   ssh revoke <user> <key>
-  publish <package> --to <target> [--version <v> | --bump patch|minor|major] [--with <name>]... [--dry-run]
+  publish <package> --to <target> [--version <v> | --bump patch|minor|major] [--as origin|itself]
+          [--with <name>]... [--dry-run]
                                        put a package in a registry at a new version: check the manifest, refuse a
                                        version the target already holds, commit only that package's directory and
                                        push. <package> is an installed name or a path; --dry-run says what would go.
                                        A push sends the branch, so commits to other packages on it would go too:
                                        --with names one you meant to publish as well, and is repeatable. One that
-                                       could not be published on its own is refused whatever you say
+                                       could not be published on its own is refused whatever you say.
+                                       Publishing a fork is two different acts and is refused until you say which:
+                                       --as origin makes the change the next version of the package it was forked
+                                       from, --as itself makes it a package of its own
+  unpublish <package> --to <target> [--with <name>]... [--dry-run]
+                                       take a package out of a registry: delete its directory, commit and push.
+                                       <package> is the name the registry holds it under, or the directory it is
+                                       in; it need not be installed here. It leaves the marketplace index at the
+                                       next refresh, and installations that already have it keep it and are not
+                                       told. Irreversible from here: git has the history, nothing else does
   models [--user <id>]                 models advertised by installed providers
   config                               print the configuration file over its defaults, secrets hidden
   config show [<package>] [--user <id>]  every key of one package and where its value comes from, or one line per package;
@@ -296,6 +306,8 @@ async function dispatch(call: Call, cmd: string, args: Args, shared: string): Pr
       return configCmd(call, args, user);
     case "publish":
       return publishCmd(call, args, user);
+    case "unpublish":
+      return unpublishCmd(call, args, user);
     case "install":
     case "uninstall":
       return packagesCmd(call, { ...args, _: ["packages", ...args._] }, user, shared);
@@ -685,6 +697,10 @@ interface PublishAnswer {
   was: string | null;
   now: string;
   first: boolean;
+  /** Which publish a fork's was: `origin` when the change went out as the package it was forked from. */
+  as?: string;
+  /** Set only on an as-origin publish: the copy the code came out of, which is left exactly as it was. */
+  fork?: { name: string; version: string } | null;
   files: string[];
   /** The packages that rode along on the branch, each a publish of its own. */
   with?: { package: string; was: string | null; now: string; files: string[] }[];
@@ -697,6 +713,12 @@ interface PublishAnswer {
   summary: string;
   /** Only on a dry run: the gates about the state of the tree, reported instead of thrown. */
   blockers?: { code: string; message: string }[];
+}
+
+/** What `unpublish` answers. A removal has no `now`: `held` is the version the registry was carrying. */
+interface UnpublishAnswer extends Omit<PublishAnswer, "was" | "now" | "first"> {
+  removed: true;
+  held: string | null;
 }
 
 const PUBLISH_PACKAGE = "@thetis/package-publish";
@@ -726,7 +748,7 @@ async function publishCmd(call: Call, args: Args, user: string | undefined): Pro
   const report = (await call("config.show", { name: PUBLISH_PACKAGE, user })) as ConfigReport;
   const config = Object.fromEntries(report.keys.filter((k) => k.state === "set").map((k) => [k.key, k.value]));
   const answer = await mod.publish(
-    { package: name, to: opt(args.to), version: opt(args.version), bump: opt(args.bump), message: opt(args.message), with: list(args.with), dryRun: args["dry-run"] === true || args.dryRun === true },
+    { package: name, to: opt(args.to), version: opt(args.version), bump: opt(args.bump), as: opt(args.as), message: opt(args.message), with: list(args.with), dryRun: args["dry-run"] === true || args.dryRun === true },
     publishEnv(call, user, config),
   );
   print(answer.summary);
@@ -736,6 +758,9 @@ async function publishCmd(call: Call, args: Args, user: string | undefined): Pro
   for (const blocker of answer.blockers ?? []) print(`refused\t${blocker.code}\t${blocker.message}`);
   if (answer.ok === false) process.exitCode = 1;
   print(`package\t${answer.package}\t${answer.was ?? "(not held)"} -> ${answer.now}${answer.first ? "\tfirst publish" : ""}`);
+  // An as-origin publish put somebody's fork out under the origin's name. The one thing a person could
+  // reasonably assume happened is the one thing that did not, so their copy is named and said to be intact.
+  if (answer.fork) print(`fork\t${answer.fork.name}\t${answer.fork.version}\tpublished as ${answer.package}; your copy is unchanged`);
   print(`target\t${answer.target}\t${answer.url}\t${answer.branch}`);
   print(`tree\t${answer.repo}\t${answer.directory}/\t${answer.mode}`);
   if (answer.commit) print(`commit\t${answer.commit}\t${answer.author}`);
@@ -743,6 +768,38 @@ async function publishCmd(call: Call, args: Args, user: string | undefined): Pro
   // Each package that rode along on the branch, as its own publish, because that is what it was.
   for (const also of answer.with ?? []) print(`${answer.dryRun ? "would send" : "sent"}\t${also.package}\t${also.was ?? "(not held)"} -> ${also.now}\t${also.files.length} file(s)`);
   for (const name of answer.dryRun ? (answer.nameable ?? []) : []) if (!(answer.with ?? []).some((w) => w.package === name)) print(`could add\t${name}\t--with ${name}`);
+}
+
+/**
+ * `thetis unpublish`: the same act the `unpublish_package` tool performs. It runs through the same code and
+ * the same environment as `publish`, and it prints the two halves of what a removal is: the registry stops
+ * carrying the package, and every installation that already has it goes on running it and is not told.
+ */
+async function unpublishCmd(call: Call, args: Args, user: string | undefined): Promise<void> {
+  const name = opt(args._[1]);
+  if (!name) throw new Error("unpublish needs a package: thetis unpublish <package> --to <target> [--dry-run]");
+  const specifier = PUBLISH_PACKAGE;
+  let mod: { unpublish: (a: Record<string, unknown>, e: unknown) => Promise<UnpublishAnswer> };
+  try {
+    mod = await import(specifier);
+  } catch {
+    throw new Error(`thetis unpublish needs ${PUBLISH_PACKAGE}, which is not in this installation's packages directory.`);
+  }
+  const report = (await call("config.show", { name: PUBLISH_PACKAGE, user })) as ConfigReport;
+  const config = Object.fromEntries(report.keys.filter((k) => k.state === "set").map((k) => [k.key, k.value]));
+  const answer = await mod.unpublish(
+    { package: name, to: opt(args.to), message: opt(args.message), with: list(args.with), dryRun: args["dry-run"] === true || args.dryRun === true },
+    publishEnv(call, user, config),
+  );
+  print(answer.summary);
+  for (const blocker of answer.blockers ?? []) print(`refused\t${blocker.code}\t${blocker.message}`);
+  if (answer.ok === false) process.exitCode = 1;
+  print(`removed\t${answer.package}\t${answer.held ?? "(not held)"}`);
+  print(`target\t${answer.target}\t${answer.url}\t${answer.branch}`);
+  print(`tree\t${answer.repo}\t${answer.directory}/\t${answer.mode}`);
+  if (answer.commit) print(`commit\t${answer.commit}\t${answer.author}`);
+  for (const file of answer.files) print(`${answer.dryRun ? "would remove" : "removed"}\t${file}`);
+  for (const also of answer.with ?? []) print(`${answer.dryRun ? "would send" : "sent"}\t${also.package}\t${also.was ?? "(not held)"} -> ${also.now}\t${also.files.length} file(s)`);
 }
 
 /** A flag's value when it is a string worth having, and undefined when it is a bare `--flag` or missing. */

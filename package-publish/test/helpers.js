@@ -4,9 +4,9 @@
 // tests can reach a network.
 import { execFileSync } from "node:child_process";
 import { exec as cpExec } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 // Git must not read this host's configuration: the identity, the default branch and anything else a
 // developer happens to have set would make the tests say different things on different machines.
@@ -141,4 +141,40 @@ export async function refusal(promise) {
     return err;
   }
   throw new Error("expected a refusal, got an answer");
+}
+
+/**
+ * A fork of a package on disk, written the way `forkPackage` in `@thetis/lib` writes one: the copy takes a
+ * new name and `<origin version>-fork.N`, loses `scripts` and `devDependencies` because a shipped package
+ * cannot rebuild inside a fence, and carries `thetis.forkedFrom`. It is done by hand here rather than
+ * imported because this package ships no dependencies and its tests run on plain node, and because the
+ * shape of a fork's manifest is exactly what these tests are about.
+ */
+export async function makeFork(dir, origin, name, n = 1) {
+  const m = JSON.parse(await readFile(join(origin, "package.json"), "utf8"));
+  const files = {};
+  for (const entry of await readdir(origin, { withFileTypes: true, recursive: true })) {
+    if (!entry.isFile() || entry.name === "package.json") continue;
+    const rel = relative(origin, join(entry.parentPath ?? entry.path, entry.name));
+    files[rel] = await readFile(join(origin, rel), "utf8");
+  }
+  const { scripts, devDependencies, ...rest } = m;
+  return makePackage(dir, { ...rest, name, version: `${m.version}-fork.${n}`, thetis: { ...m.thetis, forkedFrom: { name: m.name, version: m.version } } }, files);
+}
+
+/** The package directories a registry holds, at the level `@thetis/marketplace` indexes them. */
+export function held(bare, ref = "main") {
+  const out = {};
+  let listing;
+  try {
+    listing = execFileSync("git", ["-C", bare, "ls-tree", "-r", "--name-only", ref], { encoding: "utf8" });
+  } catch {
+    return out; // a registry with no branch on it yet holds nothing, which is the same answer
+  }
+  for (const line of listing.split("\n")) {
+    if (!/^[^/]+\/package\.json$/.test(line)) continue;
+    const m = JSON.parse(show(bare, ref, line));
+    out[line.split("/")[0]] = `${m.name}@${m.version}`;
+  }
+  return out;
 }

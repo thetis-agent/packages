@@ -1,6 +1,6 @@
 {
   "name": "@thetis/package-publish",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "Publishing a package is its own act and not a side effect of saving one: the version has to move past what the registry already holds, the package has to be sound, and only that package's directory is committed and pushed. Runs in the person's own fence with their own ssh key, so the registry's authentication decides who may publish.",
   "type": "module",
@@ -49,7 +49,25 @@
             "to": { "type": "string", "description": "The target's name. Required when more than one is configured." },
             "version": { "type": "string", "description": "The version to publish, such as 1.2.0. Give this or bump." },
             "bump": { "type": "string", "enum": ["patch", "minor", "major"], "description": "Move the current version by one step instead of naming it." },
+            "as": { "type": "string", "enum": ["origin", "itself"], "description": "Which publish a fork's is: origin makes the change the next version of the package it was forked from, itself makes it a package of its own. Required when the target holds the origin and not yet this fork." },
+            "with": { "type": "array", "items": { "type": "string" }, "description": "Other packages already committed on this branch that you mean to publish as well. A push sends the branch, so they would go either way; naming them is the consent." },
             "message": { "type": "string", "description": "The commit subject. Defaults to the package name and the new version." },
+            "dryRun": { "type": "boolean", "description": "Do everything except the commit and the push, and report what would have happened." }
+          },
+          "required": ["package"]
+        }
+      },
+      {
+        "name": "unpublish_package",
+        "description": "Take a package out of a registry: delete its directory, commit and push. It leaves the marketplace index at the next refresh; installations that already have it keep it and are not told.",
+        "export": "unpublishPackage",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "package": { "type": "string", "description": "The package to remove: the name the registry holds it under, or the directory it keeps it in. It does not have to be installed here." },
+            "to": { "type": "string", "description": "The target's name. Required when more than one is configured." },
+            "with": { "type": "array", "items": { "type": "string" }, "description": "Other packages already committed on this branch that you mean to publish as well. A removal pushes the branch like a publish does." },
+            "message": { "type": "string", "description": "The commit subject. Defaults to the package name and the version being removed." },
             "dryRun": { "type": "boolean", "description": "Do everything except the commit and the push, and report what would have happened." }
           },
           "required": ["package"]

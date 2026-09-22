@@ -1,21 +1,24 @@
-// Entry point. The mechanism lives in `lib/` as plain functions over `(args, env)`, and these are the two
+// Entry point. The mechanism lives in `lib/` as plain functions over `(args, env)`, and these are the three
 // exports the manifest names. They are thin on purpose: a browser surface reaches the same code through
-// `env.invokeTool`, and code in this fence can import `publish` and `targets` directly when a tool call is
-// the wrong seam. Nothing decides anything here that the library does not decide the same way.
+// `env.invokeTool`, and code in this fence can import `publish`, `unpublish` and `targets` directly when a
+// tool call is the wrong seam. Nothing decides anything here that the library does not decide the same way.
 //
 // The one thing the wrappers do is coerce: arguments that arrive from a model are JSON that was written
 // by a language model, so `dryRun: "true"` and a name with a stray space around it turn up, and a boolean
 // that is really the string "false" would otherwise publish for real.
 import { publish } from "./lib/publish.js";
 import { targets } from "./lib/targets.js";
+import { unpublish } from "./lib/unpublish.js";
 
 export { publish } from "./lib/publish.js";
+export { unpublish } from "./lib/unpublish.js";
 export { targets } from "./lib/targets.js";
 export { Refusal } from "./lib/refuse.js";
 export { bumpVersion, compareVersions, isVersion } from "./lib/semver.js";
 export { repoKey, sameRepository } from "./lib/git-url.js";
 export { pickTarget, targetsOf, workDirOf } from "./lib/config.js";
-export { lastPublish } from "./lib/record.js";
+export { lastPublish, lastRemoval } from "./lib/record.js";
+export { forkedFrom } from "./lib/fork.js";
 
 const text = (v) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
 const flag = (v) => v === true || v === "true" || v === 1 || v === "1";
@@ -23,7 +26,11 @@ const flag = (v) => v === true || v === "true" || v === 1 || v === "1";
 const names = (v) => (Array.isArray(v) ? v : typeof v === "string" ? v.split(",") : []).map((x) => String(x).trim()).filter(Boolean);
 
 export async function publishPackage(args = {}, env) {
-  return publish({ package: text(args.package), to: text(args.to), version: text(args.version), bump: text(args.bump), message: text(args.message), with: names(args.with), dryRun: flag(args.dryRun) }, env);
+  return publish({ package: text(args.package), to: text(args.to), version: text(args.version), bump: text(args.bump), as: text(args.as), message: text(args.message), with: names(args.with), dryRun: flag(args.dryRun) }, env);
+}
+
+export async function unpublishPackage(args = {}, env) {
+  return unpublish({ package: text(args.package), to: text(args.to), message: text(args.message), with: names(args.with), dryRun: flag(args.dryRun) }, env);
 }
 
 export async function publishTargets(args = {}, env) {
