@@ -6,7 +6,7 @@ import type { Readable } from "node:stream";
 import { SYSTEM_USER, type Mount, type Userspace } from "@thetis/contracts";
 import type { FenceCgroup } from "./cgroup.js";
 import { FENCE_DOCKER_SOCKET } from "./docker.js";
-import { orderIntents, renderIntents, validateIntents, type MountIntent } from "./plan.js";
+import { orderIntents, renderIntents, resolveGrants, validateIntents, type MountIntent } from "./plan.js";
 import { FENCE_SSH_AUTH_SOCK, FENCE_SSH_CONFIG, FENCE_SSH_DIR, FENCE_SSH_KNOWN_HOSTS, type FenceSsh } from "./ssh.js";
 
 /** The OS directories every fence may read. Missing ones are skipped. */
@@ -115,14 +115,16 @@ export function fencePlan(us: Userspace, layout: BwrapLayout): MountIntent[] {
     intents.push({ kind: "ro", target: FENCE_SSH_KNOWN_HOSTS, source: layout.ssh.knownHosts, optional: true, why: "the known hosts" });
   }
   intents.push({ kind: "rw", target: us.root, source: us.root, why: "the userspace" });
-  // Declared last, so a granted path wins over a read-only bind of the same path. Depth decides the rest.
-  for (const m of us.mounts ?? []) intents.push({ kind: m.mode === "rw" ? "rw" : "ro", target: m.path, source: m.path, why: `a ${m.mode} mount` });
+  // Declared last, so a granted path wins over a read-only bind of the same path, and marked `grant`, so a
+  // read-only bind *inside* one is bound read-write instead of quietly taking that subtree back. Depth
+  // decides the rest. See `resolveGrants` in plan.ts for which binds a grant does not win over.
+  for (const m of us.mounts ?? []) intents.push({ kind: m.mode === "rw" ? "rw" : "ro", target: m.path, source: m.path, grant: true, why: `a ${m.mode} mount` });
   return intents;
 }
 
 /** The bubblewrap arguments that give `us` a read-only host, a writable userspace, and its namespaces. */
 export function bwrapArgs(us: Userspace, layout: BwrapLayout, env: Record<string, string>, log?: (line: string) => void): string[] {
-  const ordered = orderIntents(fencePlan(us, layout));
+  const ordered = orderIntents(resolveGrants(fencePlan(us, layout)));
   // A conflict is reported and never fatal: the plan still renders, and the operator learns which entry
   // took the path. Silence here is what the old list gave, and silence is what made the mask bug survive.
   for (const c of validateIntents(ordered)) log?.(`[fence] ${us.id}: mount plan conflict at ${c.target}: ${c.message}`);

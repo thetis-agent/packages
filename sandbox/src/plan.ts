@@ -15,6 +15,10 @@
 // mount can then only ever be *inside* an earlier one, never on top of it. A mask under a bound parent
 // still applies, and a bind under a mask still shows through -- both verified against a real bubblewrap in
 // `test/plan.test.ts`. Getting the order right is no longer something a reader has to hold in their head.
+//
+// Ordering answers "what lands on top of what". It does not answer "who wins" when one entry lands legally
+// *inside* another and takes part of it away, which is how a read-only bind can eat a hole in a person's
+// read-write mount. That is `resolveGrants`, below, and it cost the same kind of silence to find.
 import { posix } from "node:path";
 
 /** What one entry of the plan does. The names are the fence's vocabulary, not bubblewrap's spelling. */
@@ -30,6 +34,9 @@ export interface MountIntent {
   optional?: boolean;
   /** One phrase naming who asked for this, so a conflict report can say what collided with what. */
   why: string;
+  /** A person's own mount, granted by an admin. The grant is authority, so nothing the fence adds for its
+   * own reasons may quietly take part of it back: see `resolveGrants`. */
+  grant?: boolean;
 }
 
 export interface PlanConflict {
@@ -40,6 +47,51 @@ export interface PlanConflict {
 /** How deep a path is, so the plan can be ordered parents-first. `/` is 0, `/opt` is 1. */
 function depth(path: string): number {
   return posix.normalize(path).split("/").filter(Boolean).length;
+}
+
+/** Whether `path` lies strictly inside `root`. Both are absolute and normalized before the comparison. */
+function isBelow(path: string, root: string): boolean {
+  const p = posix.normalize(path);
+  const r = posix.normalize(root);
+  return p !== r && p.startsWith(r === "/" ? "/" : `${r}/`);
+}
+
+/**
+ * The second way an intent can be lost, and the one the ordering rule cannot fix. Ordering by depth stops
+ * an entry landing *on top of* another, but a deeper entry still lands *inside* an earlier one, and that
+ * is a mount too: a read-only bind inside a person's read-write mount takes that subtree back, silently,
+ * with both flags still in the command line and no conflict to report.
+ *
+ * It happened. `fence.readOnly` binds the checkout's `packages` and `node_modules` so a fence sees the
+ * code it runs; a person granted `rw` over the checkout itself got a workspace where the two directories
+ * they were most likely to edit were read-only, while `THETIS_MOUNTS`, the project page and the system
+ * prompt all said `rw`. The agent discovered it, which is exactly the surprise a mount state is supposed
+ * to prevent.
+ *
+ * So a grant wins over what the fence adds for its own convenience: a read-only bind of a host path at
+ * its own path, inside a granted `rw` mount, is bound read-write instead. Two things are deliberately
+ * left alone, because they are policy rather than convenience:
+ *
+ *  - anything behind a mask. A `tmpfs` between the grant and the bind is the fence hiding something
+ *    inside a granted path -- the service plane under `$THETIS_HOME` -- and what shows through the mask
+ *    is revealed on purpose and read-only. A grant over `/opt/zero` does not make the shared directory
+ *    or the promoted packages writable.
+ *  - a bind whose source is not its target. That is the fence putting one path somewhere else (the
+ *    resolver, the ssh files, the cgroup), not the person's own directory, and the grant says nothing
+ *    about it.
+ */
+export function resolveGrants(intents: MountIntent[]): MountIntent[] {
+  const grants = intents.filter((i) => i.grant && i.kind === "rw");
+  if (!grants.length) return intents;
+  const masks = intents.filter((i) => i.kind === "tmpfs");
+  return intents.map((intent) => {
+    if (intent.kind !== "ro" || intent.grant || intent.source !== intent.target) return intent;
+    const grant = grants.find((g) => isBelow(intent.target, g.target));
+    if (!grant) return intent;
+    const masked = masks.some((m) => (m.target === intent.target || isBelow(intent.target, m.target)) && isBelow(m.target, grant.target));
+    if (masked) return intent;
+    return { ...intent, kind: "rw" as const, why: `${intent.why}, read-write inside the mount ${grant.target}` };
+  });
 }
 
 /**
@@ -61,10 +113,11 @@ export function orderIntents(intents: MountIntent[]): MountIntent[] {
 }
 
 /**
- * What an ordered plan cannot deliver. Shadowing is structurally impossible once the plan is ordered --
- * a later entry is deeper, so it lands inside its predecessor rather than over it -- which leaves two
- * things worth saying out loud: two entries claiming the same path, where only the last one happens, and
- * an entry that names no source when its kind needs one.
+ * What an ordered plan cannot deliver. One entry landing on top of another is structurally impossible once
+ * the plan is ordered -- a later entry is deeper, so it lands inside its predecessor rather than over it --
+ * and one landing inside a grant and taking it back is `resolveGrants`'s. That leaves two things worth
+ * saying out loud: two entries claiming the same path, where only the last one happens, and an entry that
+ * names no source when its kind needs one.
  */
 export function validateIntents(ordered: MountIntent[]): PlanConflict[] {
   const conflicts: PlanConflict[] = [];

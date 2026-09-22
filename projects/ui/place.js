@@ -1,11 +1,17 @@
 /* The project page, opened from the switcher with `{ id }` for a project's settings or `{}` for a new
  * one. It asks `get` once, keeps a draft (name, directories, switched-off tools and skills, instructions) and
- * redraws the body from the draft after every edit; nothing is sent until Save. Mounts are the exception,
- * and they have to be: a mount is a change to the workspace itself, not a field of the project, so the two
- * buttons that bind and unbind one send at once and the page then asks the server what the fence really
- * has. Binding closes the fence, which takes the gateway serving this page with it, so `mount` expects the
- * request to be lost and waits for the new workspace to answer instead of calling that a failure. The draft
- * is never reloaded around a bind: unsaved edits survive it. Save calls `save`,
+ * redraws the body from the draft after every edit. Typing is a draft and waits for Save; the two things
+ * that change the workspace rather than the record -- a mount, and the directory list that names it -- are
+ * sent the moment they change.
+ *
+ * The directory list used to wait for Save while its mount did not, and that cost a person their setup:
+ * they chose two directories, each one bound at once with a toast saying so, and the list itself was never
+ * saved, so the page was empty when they came back while the binds were still in place. A directory and
+ * its bind are one act, so both happen at once; a list that cannot be saved falls back to the draft and
+ * says so. Binding closes the fence, which takes the gateway serving this page with it, so `mount` expects
+ * the request to be lost and waits for the new workspace to answer instead of calling that a failure. The
+ * draft is never reloaded around a bind: unsaved edits survive it, and an unsaved draft survives the place
+ * being closed too, because Escape closes a place and nothing warned. Save calls `save`,
  * toasts, and refreshes the switcher; for a new project it also chooses it, so the sidebar shows the
  * conversations that join it. Delete sits behind the shell's confirm popover; after it the page becomes
  * the new-project form, because the shell offers no way to close a place from inside it. `open` returns
@@ -14,6 +20,16 @@
 import { directoriesSection, skillsSection, toolsSection } from "./place-parts.js";
 
 const BROWSED = "thetis.project.browsed";
+
+/* An unsaved draft, kept while the page is open, so closing the place (Escape, a conversation, the ✕) does
+ * not throw away what was typed. It lives for this page load only: nothing about a project is remembered
+ * anywhere the person cannot see it. */
+const keptDrafts = new Map();
+
+const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/** "the name", "the name and the directories", "the name, the tools and the directories". */
+const list = (parts) => (parts.length < 2 ? parts.join("") : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`);
 
 /** Where the picker opens: the last directory chosen here, so a second one is two clicks away. */
 function lastBrowsed() {
@@ -40,6 +56,7 @@ export function openPlace(ext, state, root, params) {
   let id = typeof params.id === "string" ? params.id : null;
   let draft = null; // { name, directories, disable: Set, disableSkills: Set, instructions }
   let facts = null; // { mounts, states, tools, skills, conversations, user }
+  let saved = null; // the record the server holds, so the page can say what is not in it yet
   let saving = false;
   let checking = 0; // the last state check, so a slow answer never overwrites a newer one
 
@@ -51,13 +68,22 @@ export function openPlace(ext, state, root, params) {
       if (!alive) return;
       const data = out?.data ?? {};
       const project = data.project;
-      draft = {
+      saved = {
         name: project?.name ?? "",
         directories: [...(project?.directories ?? [])],
-        disable: new Set(project?.tools?.disable ?? []),
-        disableSkills: new Set(project?.skills?.disable ?? []),
+        disable: [...(project?.tools?.disable ?? [])],
+        disableSkills: [...(project?.skills?.disable ?? [])],
         instructions: typeof data.instructions === "string" ? data.instructions : "",
       };
+      const kept = keptDrafts.get(id ?? "new");
+      draft = kept ?? {
+        name: saved.name,
+        directories: [...saved.directories],
+        disable: new Set(saved.disable),
+        disableSkills: new Set(saved.disableSkills),
+        instructions: saved.instructions,
+      };
+      if (kept) ext.toast("Unsaved changes from before are still here.", { tone: "warn" });
       facts = {
         mounts: Array.isArray(data.mounts) ? data.mounts : [],
         states: data.states && typeof data.states === "object" ? data.states : {},
@@ -99,6 +125,43 @@ export function openPlace(ext, state, root, params) {
         await new Promise((done) => setTimeout(done, 700));
       }
     }
+  }
+
+  /**
+   * The directory list, saved the moment it changes. It is not a draft field: a directory is bound into the
+   * workspace as soon as it is chosen, and a list that named a bind but was never saved is how a person
+   * loses their setup without being told. Only the list moves -- the name, the instructions and the
+   * switches keep whatever the record already holds, so nothing half-typed is written behind the person's
+   * back. A project that does not exist yet has nowhere to save to, so its list waits for Create, and a
+   * save that fails leaves the draft as it is: the page then says there are unsaved changes.
+   */
+  async function persistDirs() {
+    if (!id || !saved || sameList(saved.directories, draft.directories)) return;
+    const wanted = [...draft.directories];
+    try {
+      const out = await ext.request("save", { args: { id, name: saved.name, directories: wanted, disable: saved.disable, disableSkills: saved.disableSkills } });
+      if (!alive) return;
+      const now = out?.data?.project;
+      saved = { ...saved, directories: [...(now?.directories ?? wanted)] };
+      void state.refresh();
+      draw();
+    } catch (err) {
+      if (!alive) return;
+      ext.toast(err?.message || "The directory list could not be saved. Use Save when the workspace answers again.", { tone: "error" });
+      draw();
+    }
+  }
+
+  /** What the draft holds that the record does not. Empty means the page and the record agree. */
+  function unsaved() {
+    if (!saved) return [];
+    const out = [];
+    if (draft.name.trim() !== saved.name) out.push("the name");
+    if (!sameList(draft.directories, saved.directories)) out.push("the directories");
+    if (!sameList([...draft.disable].sort(), [...saved.disable].sort())) out.push("the tools");
+    if (!sameList([...draft.disableSkills].sort(), [...saved.disableSkills].sort())) out.push("the skills");
+    if (draft.instructions !== saved.instructions) out.push("the instructions");
+    return out;
   }
 
   /** Binds one directory into this person's workspace, changes its mode, or unbinds it with `mode: null`. */
@@ -145,6 +208,9 @@ export function openPlace(ext, state, root, params) {
     remember(chosen);
     if (!accept(chosen)) return;
     draw();
+    // Before the bind, never after: binding closes the fence, and the list has to be on disk by then.
+    await persistDirs();
+    if (!alive) return;
     await checkStates();
     if (!alive) return;
     // A mount may already cover it, through a parent bound earlier. Then there is nothing to bind.
@@ -157,6 +223,7 @@ export function openPlace(ext, state, root, params) {
   /** A directory was added or removed: redraw, then ask the server what the fence has at the new list. */
   function redrawDirectories() {
     draw();
+    void persistDirs();
     void checkStates();
   }
 
@@ -191,9 +258,10 @@ export function openPlace(ext, state, root, params) {
     anchor.disabled = true;
     try {
       const out = await ext.request("save", { session: ext.conversation.current ?? undefined, args: { id: id ?? undefined, name, directories: draft.directories, disable: [...draft.disable], disableSkills: [...draft.disableSkills], instructions: draft.instructions } });
-      const saved = out?.data?.project;
+      const record = out?.data?.project;
       const created = !id;
-      if (saved?.id) id = saved.id;
+      if (record?.id) id = record.id;
+      keptDrafts.delete(created ? "new" : id);
       ext.toast(created ? `Project "${name}" created.` : `Project "${name}" saved.`, { tone: "ok" });
       await state.refresh();
       if (created && id) state.choose(id);
@@ -231,11 +299,17 @@ export function openPlace(ext, state, root, params) {
   }
 
   function actions() {
+    const pending = unsaved();
     const saveBtn = button(id ? "Save" : "Create project", { tone: "primary" });
     saveBtn.addEventListener("click", () => save(saveBtn));
     const removeBtn = id ? button("Delete project", { tone: "warn" }) : null;
     removeBtn?.addEventListener("click", () => remove(removeBtn));
-    return el("div", { class: "pj-actions" }, saveBtn, removeBtn);
+    // Said in words rather than left to a highlighted button: leaving the page with something unsaved is
+    // exactly the loss this page has already cost someone once.
+    const note = pending.length
+      ? el("p", { class: "pj-unsaved" }, id ? `Not saved yet: ${list(pending)}.` : "This project has not been created yet.")
+      : null;
+    return el("div", { class: "pj-actions" }, saveBtn, note, removeBtn);
   }
 
   function draw() {
@@ -259,8 +333,22 @@ export function openPlace(ext, state, root, params) {
     page.scrollTop = scrollTop;
   }
 
+  /* The browser's own warning, for the tab being closed or reloaded. It only fires for a draft the page
+   * cannot keep: the directories are already saved by the time anything can be lost. */
+  function beforeUnload(event) {
+    if (!draft || !unsaved().length) return;
+    event.preventDefault();
+    event.returnValue = "";
+  }
+  window.addEventListener("beforeunload", beforeUnload);
+
   load();
   return () => {
     alive = false;
+    window.removeEventListener("beforeunload", beforeUnload);
+    // Escape closes a place, and so does opening a conversation. Keep what was typed, for this page load,
+    // so coming back to the project finds it rather than an empty form.
+    if (draft && unsaved().length) keptDrafts.set(id ?? "new", draft);
+    else keptDrafts.delete(id ?? "new");
   };
 }

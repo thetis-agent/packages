@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Userspace } from "@thetis/contracts";
 import { bwrapArgs, fencePlan, hasBwrap, type BwrapLayout } from "../src/bwrap.js";
-import { orderIntents, renderIntents, validateIntents, type MountIntent } from "../src/plan.js";
+import { orderIntents, renderIntents, resolveGrants, validateIntents, type MountIntent } from "../src/plan.js";
 
 function space(root: string, mounts: Userspace["mounts"] = []): Userspace {
   return { id: "alice", root, home: join(root, "home"), store: join(root, "store"), run: join(root, "run"), mounts } as unknown as Userspace;
@@ -90,4 +90,59 @@ test("under a real bubblewrap the mask hides the parent's contents and a bind in
   assert.equal(beside, "outside the mask", "the parent bind has to survive the empty /tmp above it");
   assert.match(secret, /No such file/, `the mask did not apply: the fence read ${JSON.stringify(secret)}`);
   assert.equal(promoted, "a promoted package", "a bind inside the mask has to show through it");
+});
+
+test("a read-only bind inside a granted rw mount is bound read-write, so no hole is eaten in the grant", () => {
+  // The report: "the agent said the bind was read-only, not read/write like it should have been". A person
+  // granted rw over the checkout, and `fence.readOnly` binds `<checkout>/packages` and `<checkout>/node_modules`
+  // inside it, so the two directories they most wanted to edit were read-only while everything that reports
+  // a mount's mode said rw.
+  const resolved = resolveGrants([
+    { kind: "ro", target: "/srv/code/packages", source: "/srv/code/packages", why: "the operating system" },
+    { kind: "ro", target: "/srv/code/node_modules", source: "/srv/code/node_modules", why: "the operating system" },
+    { kind: "rw", target: "/srv/thetis/users/alice", source: "/srv/thetis/users/alice", why: "the userspace" },
+    { kind: "rw", target: "/srv/code", source: "/srv/code", grant: true, why: "a rw mount" },
+  ]);
+  const kindAt = (target: string) => resolved.find((i) => i.target === target)?.kind;
+  assert.equal(kindAt("/srv/code"), "rw");
+  assert.equal(kindAt("/srv/code/packages"), "rw", "a read-only bind inside the grant takes that subtree back");
+  assert.equal(kindAt("/srv/code/node_modules"), "rw");
+  assert.match(resolved.find((i) => i.target === "/srv/code/packages")!.why, /read-write inside the mount \/srv\/code/);
+});
+
+test("a grant does not reach through a mask, or claim a bind that only passes through it", () => {
+  const plan: MountIntent[] = [
+    { kind: "rw", target: "/opt/zero", source: "/opt/zero", grant: true, why: "a rw mount" },
+    { kind: "tmpfs", target: "/opt/zero/data", why: "fence.hidden" },
+    { kind: "ro", target: "/opt/zero/data/packages", source: "/opt/zero/data/packages", why: "promoted packages" },
+    { kind: "ro", target: "/opt/zero/data/shared", source: "/opt/zero/data/shared", why: "the shared directory" },
+    { kind: "ro", target: "/opt/zero/etc/resolv.conf", source: "/run/thetis/resolv.conf", why: "the egress resolver" },
+    { kind: "ro", target: "/elsewhere", source: "/elsewhere", why: "the operating system" },
+  ];
+  const kinds = Object.fromEntries(resolveGrants(plan).map((i) => [i.target, i.kind]));
+  assert.equal(kinds["/opt/zero/data/packages"], "ro", "what shows through a mask is revealed on purpose, read-only");
+  assert.equal(kinds["/opt/zero/data/shared"], "ro", "a grant over the parent does not make the shared directory writable");
+  assert.equal(kinds["/opt/zero/etc/resolv.conf"], "ro", "a bind of some other host path is not the person's directory");
+  assert.equal(kinds["/elsewhere"], "ro", "nothing outside the grant changes");
+});
+
+test("a ro mount stays read-only, and so does everything the fence binds inside it", () => {
+  const resolved = resolveGrants([
+    { kind: "ro", target: "/srv/code/packages", source: "/srv/code/packages", why: "the operating system" },
+    { kind: "ro", target: "/srv/code", source: "/srv/code", grant: true, why: "a ro mount" },
+  ]);
+  assert.equal(resolved.find((i) => i.target === "/srv/code")?.kind, "ro");
+  assert.equal(resolved.find((i) => i.target === "/srv/code/packages")?.kind, "ro");
+});
+
+test("under a real bubblewrap a granted directory is writable all the way down", { skip: !hasBwrap() }, () => {
+  const granted = mkdtempSync(join(tmpdir(), "thetis-grant-"));
+  const inner = join(granted, "packages");
+  mkdirSync(inner, { recursive: true });
+  const root = mkdtempSync(join(tmpdir(), "thetis-grant-us-"));
+  mkdirSync(join(root, "home"), { recursive: true });
+  const args = bwrapArgs(space(root, [{ path: granted, mode: "rw" }]), { ...layout, readOnly: [inner] }, { PATH: "/usr/bin:/bin" });
+  const run = spawnSync("bwrap", [...args, "--", "/bin/sh", "-c", `touch ${granted}/top 2>&1 && touch ${inner}/deep 2>&1 && echo written`], { encoding: "utf8" });
+  assert.equal(run.status, 0, run.stdout + run.stderr);
+  assert.match(run.stdout, /written/, `the grant had a read-only hole in it: ${run.stdout}`);
 });

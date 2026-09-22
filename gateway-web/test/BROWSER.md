@@ -381,7 +381,18 @@ after the one fix in `ui/state.js` (see the last paragraph); screenshots `.playw
     dock (`.rail-btn[data-dock="@thetis/ui-tools#tools"]`) still lists both cards and its "Turned off right
     now" section still says "Nothing is withheld in this conversation.": `@thetis/ui-tools` does not yet
     read the project's list (its `withheld()` is a placeholder; the integration was left for later).
-32. **Settings, save, delete**: open the menu and pick "Settings". Expect the place with the name, the two
+32. **The directory list saves itself**: open the menu and pick "Settings". Type `/tmp/thetis-phase5-extra`
+    in `.pj-dir-input` and press Enter. Expect one `POST …/save` straight away, with no click on Save, and
+    `<home>/projects/p_<id>.json` holding three directories while `p_<id>.md` and `tools.disable` are
+    unchanged; `.pj-actions` shows no `.pj-unsaved`. Now type a character into `textarea.pj-instructions`
+    and `input.pj-name`: `.pj-unsaved` reads "Not saved yet: the name and the instructions." and no request
+    is sent. Press Escape to close the place and open Settings again: the typed name and instructions are
+    still there with a `.toast` "Unsaved changes from before are still here.", and `.pj-unsaved` still names
+    them. Click the `.pj-dir-remove` of `/tmp/thetis-phase5-extra`: another `…/save`, the record back to
+    two directories, the record's `name` still `thetis-check` — an unsaved name is never written by a
+    directory change. Reload the page and open Settings: two directories, the typed name and instructions
+    gone.
+33. **Settings, save, delete**: with the place open, expect the name, the two
     rows with their badges, `.pj-facts` "1 conversation is in this project.", the two switches off and the
     instructions. Change the name to `thetis-check-2`, click the `.pj-dir-remove` of `/tmp/does-not-exist`,
     click **Save**: the toast `Project "thetis-check-2" saved.`, one row, the switcher `.pj-head-name`
@@ -392,7 +403,7 @@ after the one fix in `ui/state.js` (see the last paragraph); screenshots `.playw
     to "All conversations" without `.is-chosen`, the storage key gone, the place redrawn as the new-project
     form ("Create project"), both `.session` rows in the list, and `sessions.json` `{}` with the record and
     the `.md` gone.
-33. **Reload with a project chosen**: create a project again, keep it chosen, reload. Expect `.pj-head-name`
+60. **Reload with a project chosen**: create a project again, keep it chosen, reload. Expect `.pj-head-name`
     with its name from `localStorage`, the list narrowed to its conversations, and no `assign` request: a
     conversation that exists when the page loads is never adopted, however new it is (a `+` while the
     project is chosen still is).
