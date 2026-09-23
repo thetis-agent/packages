@@ -1,6 +1,9 @@
 /* One conversation's transcript. Draws saved messages and applies live turn events on top:
  * `text` grows a live bubble under a caret, `tool.call` opens a card that `tool.result` fills and settles,
  * `message` settles the bubble into rendered markdown with a usage footnote, `error` becomes a note.
+ * `stall` and `nudge` are the waiting made visible: a stall turns the running card amber with a line saying
+ * what has gone quiet and for how long, and the nudge that follows says what was decided and by whom, in
+ * two plainly different looks, because a stall read as a hang is the thing all of this exists to prevent.
  * Consecutive tool cards sit in one run with a count, so a long stretch of calls reads as one thing.
  * One instance per pane: `mountTranscript(root, { session })` knows which conversation it draws, so a
  * background tab keeps drawing its own events. Tool rows are offered to the registered transcript
@@ -35,6 +38,12 @@ const DOWN = ["M5 8l5 5 5-5"];
 const OPEN_TAB = ["M4 4h6M4 4v6M4 4l7 7", "M9 16h7v-7"];
 const FLASH_MS = 1200;
 const OWN_CARD = ":scope > .tool-run > .tool-run-body > details.tool"; // this instance's cards, not a nested block's
+
+/** The opening of the tool result @thetis/harness-core writes when a nudge cancelled a call. That package
+ *  owns the wording; a browser file cannot import from it, so the pattern is copied here, as the turn
+ *  context line above is. It is what lets a reloaded conversation tell a cancel from a failure at all:
+ *  `stall` and `nudge` are transient, and the tool message is the only part of it that is saved. */
+const NUDGE_CANCELLED = /^error: `[^`]+` was cancelled after running for /;
 
 /** The tool that spawns a subagent, and the first line of its result: `[subagent <id>]` or `[subagent <id> <label>]`. */
 export const SPAWN_TOOL = "spawn_subagent";
@@ -91,6 +100,19 @@ function tallyRecord(record) {
 /** What a record's `children` say, for the store: parent, label, task, when, and the recorded spend. */
 function agentsOfRecord(record) {
   return (record.children ?? []).map((c) => [c.id, { parent: c.parent || record.id, label: c.label ?? undefined, task: c.task ?? undefined, createdAt: c.createdAt, outcome: c.turn ? null : store.agent(c.id)?.outcome ?? "done", cost: typeof c.cost === "number" ? c.cost : tallyRecord(c).cost }]);
+}
+
+/**
+ * True when the record's saved conversation already ends with the running turn's own input, which is what
+ * the kernel writes there as the turn starts. Only one of the two copies may carry the harness's
+ * [Turn context: …] line — the record's is saved before the step that appends it runs — so the comparison
+ * is made without it.
+ */
+function carriesTurnInput(record) {
+  const last = (record.conversation ?? []).at(-1);
+  if (!last || last.role !== "user") return false;
+  const bare = (text) => String(text ?? "").replace(TURN_CONTEXT, "").trim();
+  return bare(last.content) === bare(record.turn?.input);
 }
 
 /**
@@ -323,13 +345,81 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
 
   /** A turn that ends while a tool runs leaves its card without a result; say so rather than leave it pulsing. */
   function settleTools(status = "stopped") {
-    for (const card of root.querySelectorAll(`${OWN_CARD}.is-running, ${OWN_CARD}[data-await]`)) {
-      card.classList.remove("is-running");
+    for (const card of root.querySelectorAll(`${OWN_CARD}.is-running, ${OWN_CARD}.is-quiet, ${OWN_CARD}[data-await]`)) {
+      card.classList.remove("is-running", "is-quiet");
       card.removeAttribute("data-await");
       card.querySelector(".tool-status").textContent = status;
       card.open = false;
     }
     for (const block of blocks) if (block.state === "starting" || block.state === "working") endBlock(block, status === "stopped" ? "stopped" : "failed");
+  }
+
+  // ---- stalls and nudges ----
+  //
+  // A stall is not a failure and not a hang: the work is still running, and the only thing that has happened
+  // is that the turn stopped waiting in silence and started asking about it. So it is drawn as work with a
+  // reason -- amber, never red, and never a spinner that has stopped -- and the decision that follows is
+  // drawn plainly differently depending on which way it went. A reader who cannot tell a continue from a
+  // cancel at a glance has been told nothing useful.
+
+  /** The card of a running tool call, or null when nothing here drew one (a renderer took the row, or it is a nested block's). */
+  function cardOf(id) {
+    return id ? root.querySelector(`${OWN_CARD}[data-tool="${cssEscape(id)}"]`) : null;
+  }
+
+  /** The line inside a card that says what is being asked, or what was decided. One per card, replaced in place. */
+  function nudgeLine(card, text, tone) {
+    let line = card.querySelector(":scope > .tool-nudge");
+    if (!line) card.append((line = el("div", { class: "tool-nudge" })));
+    line.className = `tool-nudge${tone ? ` is-${tone}` : ""}`;
+    line.textContent = text;
+    return line;
+  }
+
+  function stalled(event) {
+    const what = event.what ?? {};
+    const quiet = fmtDuration(event.ms || 0);
+    if (what.kind === "tool") {
+      const card = cardOf(what.id);
+      if (card) {
+        card.classList.add("is-quiet");
+        card.querySelector(".tool-status").textContent = `quiet ${quiet}`;
+        nudgeLine(card, `No output for ${quiet}. It is still running; asking the model whether to keep waiting.`);
+        return;
+      }
+    }
+    note(what.kind === "model" ? `The model has sent nothing for ${quiet}. The request is still open; asking whether to keep waiting.` : `${what.name || "A tool"} has been quiet for ${quiet}. It is still running; asking whether to keep waiting.`, "quiet");
+  }
+
+  function decided(event) {
+    const what = event.what ?? {};
+    const quiet = fmtDuration(event.ms || 0);
+    const who = event.by === "model" ? "The model decided" : "Nobody could be asked, so the rule decided";
+    const why = event.why || "no reason given";
+    if (what.kind === "tool") {
+      const card = cardOf(what.id);
+      if (card) {
+        if (event.decision === "continue") {
+          card.classList.remove("is-quiet");
+          card.querySelector(".tool-status").textContent = "running";
+          nudgeLine(card, `Left running after ${quiet} of silence. ${who}: ${why}`, "continue");
+        } else {
+          // The `tool.result` that follows carries this same reason to the model. The card only has to make
+          // sure the person does not read it as the tool having broken.
+          card.dataset.nudged = "cancel";
+          card.classList.remove("is-quiet");
+          card.querySelector(".tool-status").textContent = "cancelled";
+          nudgeLine(card, `Cancelled after ${quiet} of silence. ${who}: ${why}`, "cancel");
+        }
+        return;
+      }
+    }
+    // A cancelled model call is always followed by the turn's `error`, which carries the same reason. Two
+    // red lines saying one thing is worse than one, so this draws nothing and lets that be the row.
+    if (what.kind === "model" && event.decision === "cancel") return;
+    const subject = what.kind === "model" ? "the model call" : what.name || "the tool";
+    if (event.decision === "continue") note(`Still waiting on ${subject} after ${quiet}. ${who}: ${why}`, "quiet");
+    else note(`Cancelled ${subject} after ${quiet} of silence. ${who}: ${why}`, "error");
   }
 
   function toolCard(call, running, restoring = false) {
@@ -361,28 +451,40 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     return node;
   }
 
+  /**
+   * Settles one card from its result. A nudge cancel is neither a failure nor a success, and it is told
+   * apart from both: amber, badge `cancelled`, and the body not drawn in the error colour. It is recognised
+   * from the `data-nudged` this instance set when the `nudge` arrived, and, when there is no such event to
+   * have seen, from the result text itself, so a reload of a finished conversation reads the same. A turn's
+   * `stall` and `nudge` are transient and nothing saves them; the tool message is what is kept.
+   */
   function toolResult(id, name, result) {
     const failed = /^error:/i.test(result || "");
     const card = id ? root.querySelector(`${OWN_CARD}[data-tool="${cssEscape(id)}"]`) : null;
     if (!card) {
+      const cancelled = NUDGE_CANCELLED.test(result || "");
       const node = toolCard({ id, name, args: {} }, false, !live && !pendingRow);
-      node.append(...resultSection(result || "", failed));
-      node.classList.toggle("is-bad", failed);
-      node.querySelector(".tool-status").textContent = failed ? "failed" : "done";
+      node.append(...resultSection(result || "", failed && !cancelled));
+      node.classList.toggle("is-bad", failed && !cancelled);
+      node.classList.toggle("is-cancelled", cancelled);
+      node.querySelector(".tool-status").textContent = cancelled ? "cancelled" : failed ? "failed" : "done";
       return;
     }
-    card.classList.remove("is-running");
+    const cancelled = card.dataset.nudged === "cancel" || NUDGE_CANCELLED.test(result || "");
+    card.classList.remove("is-running", "is-quiet");
     card.removeAttribute("data-await");
-    card.classList.toggle("is-bad", failed);
-    card.querySelector(".tool-status").textContent = failed ? "failed" : "done";
+    card.classList.toggle("is-bad", failed && !cancelled);
+    card.classList.toggle("is-cancelled", cancelled);
+    card.querySelector(".tool-status").textContent = cancelled ? "cancelled" : failed ? "failed" : "done";
     const since = Number(card.dataset.since);
     if (since) card.querySelector(".tool-took").textContent = fmtDuration(Date.now() - since);
-    card.append(...resultSection(result || "", failed));
+    card.append(...resultSection(result || "", failed && !cancelled, cancelled ? "why it was cancelled" : undefined));
     card.open = false;
     catchUp();
   }
 
-  function resultSection(text, failed, label = failed ? "error" : "result") {
+  function resultSection(text, failed, label) {
+    label = label ?? (failed ? "error" : "result");
     const head = el("div", { class: "tool-label" }, label);
     if (text.length <= RESULT_PREVIEW) return [head, el("pre", { class: `tool-pre${failed ? " is-error" : ""}` }, text)];
     const pre = el("pre", { class: `tool-pre${failed ? " is-error" : ""}` }, `${text.slice(0, RESULT_PREVIEW)}\n…`);
@@ -750,6 +852,14 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
         if (rendered(event, false)) break;
         toolResult(event.id, event.name, event.result);
         break;
+      case "stall":
+        settleThinking();
+        stalled(event);
+        break;
+      case "nudge":
+        settleThinking();
+        decided(event);
+        break;
       case "message":
         settleThinking();
         if (event.message?.role !== "assistant") break;
@@ -784,7 +894,13 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     settleTools("no result");
     run = null;
     if (record.turn) {
-      userRow(record.turn.input);
+      // The kernel writes the turn's input into the record the moment the turn starts, so `conversation`
+      // normally already ends with the very message `turn.input` holds, and the loop above has just drawn
+      // it. Drawing it again put the person's own message on the page twice on every refresh made while a
+      // turn was running, and the copy stayed there until the next reload. The input is drawn here only
+      // when the record does not carry it — a turn whose opening save has not landed, or a record written
+      // by an older kernel — so nothing the person said is ever lost either.
+      if (!carriesTurnInput(record)) userRow(record.turn.input);
       for (const { event } of record.turn.events ?? []) applyEvent(event);
     }
     bindRunningChildren();

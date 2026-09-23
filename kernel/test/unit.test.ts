@@ -262,24 +262,30 @@ test("config: a registry url survives being saved and read back, so an operator 
   }
 });
 
-/** A supervisor over one service package, with every fence operation and journal row recorded. */
+/** A supervisor over one service package, with every fence operation and journal row recorded. `fail` makes
+ *  the next `service.start` throw, as a service whose module graph will not load does. */
 async function supervisor(home: string) {
   const order: string[] = [];
   const configs: unknown[] = [];
+  let failure: string | undefined;
+  const started = (op: string) => {
+    if (op === "service.start" && failure) throw new Error(failure);
+    return "started";
+  };
   const pkg = { name: "@x/svc", version: "1", type: "service", description: "", root: "/x", thetis: { type: "service", service: { export: "startService" } } } as PackageInfo;
   const packages = { installed: () => [pkg], seedSystem: () => order.push("seed") } as unknown as PackageManager;
-  const handle = { request: async (op: string) => (order.push(`${op}:${pkg.name}`), "started"), close: async () => {} };
+  const handle = { request: async (op: string) => (order.push(`${op}:${pkg.name}`), started(op)), close: async () => {} };
   const fences = {
     close: async (id?: string) => void order.push(`close:${String(id)}`),
     handle: async (us: Userspace) => (order.push(`open:${us.id}`), handle),
-    request: async (_us: Userspace, op: string, payload: { config?: unknown }) => (order.push(`${op}:${pkg.name}`), configs.push(payload.config), "started"),
+    request: async (_us: Userspace, op: string, payload: { config?: unknown }) => (order.push(`${op}:${pkg.name}`), configs.push(payload.config), started(op)),
   } as unknown as Fences;
   const userspaces = new UserspaceLayout(home);
   userspaces.ensure("alice");
   const journal = new Journal(home);
   const settings = { effective: async (_us: Userspace, name: string) => ({ for: name }) };
   const sup = new ServiceSupervisor(settings, new UserStore(await mirror(memoryStore(), "users")), userspaces, packages, fences, () => {}, journal);
-  return { sup, order, configs, journal, pkg };
+  return { sup, order, configs, journal, pkg, packages, userspaces, fail: (why?: string) => void (failure = why) };
 }
 
 test("services.reload closes the fence first, then opens a new one and starts the services on it", async () => {
@@ -884,6 +890,52 @@ test("host.<name>.<export>: the control handler journals the call without its ar
     await assert.rejects(control("host.grants", {}), /unknown control method/);
     await assert.rejects(control("host.grants.mountsSet.extra", {}), /unknown control method/);
     await assert.rejects(control("hosts.grants.mountsSet", {}), /unknown control method/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+/**
+ * The other half of "report the real state, not the intention": `status` used to list the installed packages
+ * that declare a service and call that the running ones, so a `@thetis/marketplace` that failed to start at
+ * boot read as perfectly healthy while its index went stale and nobody was told. What the supervisor tried
+ * and could not do is the only honest source for this, and it is where the row now gets it from.
+ */
+test("status leaves a service that failed to start out of what is running, and says which one and since when", async () => {
+  const home = tmp();
+  try {
+    const { sup, pkg, userspaces, fail } = await supervisor(home);
+    fail("Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@thetis/lib'");
+    await sup.boot();
+    await sup.ensure("alice");
+    const down = sup.notRunning.get("alice") ?? [];
+    assert.deepEqual(down.map((d) => d.name), ["@x/svc"]);
+    assert.match(down[0].error, /ERR_MODULE_NOT_FOUND/);
+    assert.ok(Date.parse(down[0].since) > 0, "the moment it failed, so a person can see how long it has been dead");
+
+    const k = {
+      config: { systemPackagesDir: home },
+      fences: {},
+      users: { list: () => [{ id: "alice" }] },
+      userspaces,
+      packages: { listFor: () => [pkg] } as unknown as PackageManager,
+      restart: { status: () => ({}) },
+      restartPolicy: () => "always",
+      services: sup,
+      journal: new Journal(home),
+    } as unknown as KernelServices;
+    const report = async () => (await createControlHandler(k)("status", {})) as { workspaces: { services: string[]; down: { name: string; error: string }[] }[] };
+
+    const bad = (await report()).workspaces[0];
+    assert.deepEqual(bad.services, [], "a service that is not running is not reported as running");
+    assert.deepEqual(bad.down.map((d) => d.name), ["@x/svc"]);
+
+    fail(undefined);
+    await sup.restart("alice", "@x/svc");
+    assert.deepEqual(sup.notRunning.get("alice"), [], "the record goes the moment the service does start");
+    const good = (await report()).workspaces[0];
+    assert.deepEqual(good.services, ["@x/svc"]);
+    assert.deepEqual(good.down, []);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

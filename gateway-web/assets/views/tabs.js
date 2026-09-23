@@ -32,7 +32,7 @@ const ARCHIVE = ["M3.5 5.5h13v2.5h-13zM4.5 8v7.5h11V8M8 11h4"];
 const STOP = ["M6.5 6.5h7v7h-7z"];
 const KEEP = 5; // panes with their rows built: the shown one and the ones shown most recently
 
-export function mountTabs({ onNew, onArchive, onRename, onModel }) {
+export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel }) {
   const strip = $("tabs");
   const host = $("panes");
   const newTab = $("new-tab");
@@ -255,6 +255,11 @@ export function mountTabs({ onNew, onArchive, onRename, onModel }) {
     await activate(id);
   }
 
+  /**
+   * Closes a pane, and tells `onClosed` once the tab is gone and the conversation on screen has moved off
+   * it. The order is the point: what that hook does — discarding a conversation nothing was ever said in —
+   * must not happen while the id is still `current`, still in `tabs`, and still the one in the address bar.
+   */
   function close(id) {
     const pane = panes.get(id);
     if (!pane) return;
@@ -265,11 +270,15 @@ export function mountTabs({ onNew, onArchive, onRename, onModel }) {
     pane.node.remove();
     pane.tab.remove();
     store.set({ tabs: [...order] });
-    if (store.get("current") !== id) return;
-    const next = order[at] ?? order[at - 1];
-    if (next) return activate(next);
-    store.set({ current: null });
-    empty.classList.add("is-active");
+    if (store.get("current") === id) {
+      const next = order[at] ?? order[at - 1];
+      if (next) void activate(next); // `current` moves synchronously, inside activate, before it awaits anything
+      else {
+        store.set({ current: null });
+        empty.classList.add("is-active");
+      }
+    }
+    onClosed?.(id);
   }
 
   /**

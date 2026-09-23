@@ -21,6 +21,29 @@ const MAX_OUTPUT = 30_000;
 /** What the services get to stop on SIGTERM. The kernel kills the agent 2 s after it asks (the fence's
  *  exit grace), and a service that has not finished by then is worse off for being waited on. */
 const STOP_DEADLINE_MS = 1_000;
+/**
+ * How often this agent says it is alive while it is working on a request. The kernel times a request by the
+ * silence on it and not by how long the work takes -- a `step` is a whole turn, and a tool running a build
+ * is quiet for minutes while being perfectly healthy -- so the one thing it needs from here is proof that
+ * this process is still turning. The kernel derives the interval from the silence it allows (a tenth of it)
+ * and passes it in; the fallback is for a run started without it, and is well inside any sane budget.
+ */
+const HEARTBEAT_MS = Number(process.env.THETIS_HEARTBEAT_MS) > 0 ? Number(process.env.THETIS_HEARTBEAT_MS) : 5_000;
+/**
+ * How long an operation that is not one of the long ones may run before this agent stops it and fails it.
+ *
+ * The heartbeat above is what keeps a healthy fence from being killed for being busy, and it is unconditional:
+ * it beats for as long as the operation runs. That took the kernel's timer away as a bound on everything, so
+ * a step that awaits something which never resolves would keep the fence beating and nothing would ever end
+ * the turn. The allowance puts the bound back where it belongs -- in here, on the operation itself, so what
+ * fails is the package that hung and not the workspace, which keeps its gateway, its terminal and its
+ * sessions. Only the operations that are legitimately long are exempt; see `allowanceFor`.
+ *
+ * The kernel passes half of the silence it allows a fence (`requestTimeoutMs`), so the two never disagree:
+ * the operation's own failure always comes first, and a person is told which package hung rather than that
+ * their fence died. The fallback is for a run started without it.
+ */
+const STEP_DEADLINE_MS = Number(process.env.THETIS_STEP_DEADLINE_MS) > 0 ? Number(process.env.THETIS_STEP_DEADLINE_MS) : 300_000;
 
 const writeOut = process.stdout.write.bind(process.stdout);
 for (const k of ["log", "info", "debug"] as const) console[k] = (...a: unknown[]) => console.error(...a);
@@ -169,7 +192,7 @@ interface ExportRef {
 interface Payloads {
   ping: Record<string, never>;
   exec: { cmd: string; cwd?: string; timeoutMs?: number };
-  step: ExportRef & { ctx: StepContext };
+  step: ExportRef & { ctx: StepContext; phase?: string };
   enumerate: ExportRef & { ctx: { session: SessionInfo; packages: PackageInfo[]; phases: string[] } };
   "service.start": ExportRef & { config?: Record<string, unknown> };
   "service.stop": { package: string };
@@ -213,9 +236,12 @@ const ops: { [K in Op]: Handler<K> } = {
   // inside it, and a service that is never told leaves its socket on disk for the door to trip over.
   shutdown: async () => (await stopServices(), "stopped"),
   "provider.models": async (p) => (await provider(p.package, p.export, p.config)).models(),
+  // The signal is handed to the provider, not only checked between events. A provider that is waiting on a
+  // connection which produces nothing reaches no event, so the check below would never run: the only thing
+  // that ends such a request is the provider aborting its own fetch, which it can do only if it has the signal.
   "provider.call": async (p, emit, signal) => {
     const prov = await provider(p.package, p.export, p.config);
-    for await (const e of prov.call(p.call)) {
+    for await (const e of prov.call(p.call, signal)) {
       if (signal.aborted) break;
       emit(e as ProviderEvent);
     }
@@ -225,6 +251,51 @@ const ops: { [K in Op]: Handler<K> } = {
 
 function isOp(op: string): op is Op {
   return Object.hasOwn(ops, op);
+}
+
+/** The phase a step is running in: what the kernel said, else what the package's own manifest declares for
+ *  that export. A step has to be declared to be scheduled, so between the two the phase is always known. */
+function phaseOf(p: Payloads["step"]): string | undefined {
+  if (typeof p.phase === "string") return p.phase;
+  return p.ctx?.packages?.find((x) => x.name === p.package)?.thetis?.steps?.find((s) => s.export === p.export)?.phase;
+}
+
+/**
+ * How long this operation gets before the agent stops it, or 0 for no limit. Three are exempt and each for
+ * its own reason.
+ *
+ * `provider.call` and the `execute` step are the turn's long work by design -- a model answering, tools
+ * running under it, a build that says nothing for twenty minutes -- and both are watched from the inside,
+ * where the thing that is slow can be asked about instead of killed. A deadline over them would be the
+ * ten-minute cap on a working turn all over again.
+ *
+ * `exec` carries its own timeout (`timeoutMs`, and a default) and always settles, so it is bounded already,
+ * and a package build is deliberately allowed to run longer than this allowance.
+ *
+ * Everything else is fast by nature: a step that builds a prompt, lists tools or records the call, an
+ * enumerator, a service starting, a provider listing its models. A minute of that is not slowness, it is a
+ * bug, and it gets the allowance. A step whose phase nothing names is treated as one of these: an unnamed
+ * phase is a package that did not say what it is, and guessing "unbounded" is how a turn hangs for ever.
+ */
+function allowanceFor(op: Op, payload: Payloads[Op]): number {
+  if (op === "provider.call" || op === "exec") return 0;
+  if (op === "step" && phaseOf(payload as Payloads["step"]) === "execute") return 0;
+  return STEP_DEADLINE_MS;
+}
+
+/** What a person is told when an operation runs past its allowance. It names the package and the export,
+ *  because this is that package's bug and not a failure of the fence, which is still serving everything else. */
+function overdue(op: Op, payload: Payloads[Op], limit: number): Error {
+  const p = payload as { package?: string; export?: string };
+  const what = p.package ? `${p.package}#${p.export ?? "?"}` : `the ${op} operation`;
+  const where = op === "step" ? ` in the ${phaseOf(payload as Payloads["step"]) ?? "unnamed"} phase` : "";
+  const err = new Error(
+    `${what}${where} did not finish within ${limit < 1_000 ? `${limit} ms` : `${Math.round(limit / 1000)} s`} and was stopped. Only the execute phase may run long; a step that builds a prompt, lists tools or records the call is expected to take milliseconds, so this is a bug in that package rather than a slow turn. The workspace is unaffected: its other services, sessions and this fence are still running.`,
+  );
+  // The stack would be this timer's, which tells nobody anything about the code that hung; the sentence is
+  // the whole diagnosis, and it is what the kernel relays to the person.
+  err.stack = err.message;
+  return err;
 }
 
 const inflight = new Map<string, AbortController>();
@@ -244,17 +315,41 @@ async function dispatch(msg: Frame): Promise<void> {
   const { id, op, payload } = msg as { id: string; op: string; payload?: unknown };
   const control = new AbortController();
   inflight.set(id, control);
+  // The beat runs for exactly as long as the operation does, so what it reports is this request still being
+  // worked on and not merely a process that exists. Unreferenced: it must never be the reason this process
+  // stays up, and a request that outlives everything else is still the kernel's to end, not ours.
+  const beat = setInterval(() => send({ id, alive: true }), HEARTBEAT_MS).unref();
+  let clock: NodeJS.Timeout | undefined;
   try {
     if (!isOp(op)) throw new Error(`unknown op: ${op}`);
     // The frame was read once at the boundary; the kernel built it from the contracts' types, so the
     // payload is trusted to be the shape the operation declares.
     const handler = ops[op] as Handler<Op>;
-    const result = await handler((payload ?? {}) as Payloads[Op], (event) => send({ id, event }), control.signal);
+    const p = (payload ?? {}) as Payloads[Op];
+    const work = handler(p, (event) => send({ id, event }), control.signal);
+    // The allowance is raced against the work, not enforced inside it: the point is to end an operation that
+    // is not going to end by itself, and one that ignores its signal would sit there being asked nicely for
+    // ever. The signal is aborted first all the same, so work that does watch it stops rather than running on
+    // unwatched. A late rejection from `work` is consumed by the race and never goes unhandled.
+    const limit = allowanceFor(op, p);
+    const result = await (limit
+      ? Promise.race([
+          work,
+          new Promise<never>((_, fail) => {
+            clock = setTimeout(() => {
+              control.abort();
+              fail(overdue(op, p, limit));
+            }, limit).unref();
+          }),
+        ])
+      : work);
     send({ id, result: result === undefined ? null : result });
   } catch (err) {
     // The stack goes back whole: package code failed, and its author needs the trace.
     send({ id, error: err instanceof Error ? (err.stack ?? err.message) : String(err) });
   } finally {
+    clearInterval(beat);
+    clearTimeout(clock);
     inflight.delete(id);
   }
 }

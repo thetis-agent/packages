@@ -12,7 +12,15 @@ export interface SandboxHandle extends FenceHandle {
 }
 
 export interface HandleOptions {
+  /**
+   * How long a request may go without a single sign of life from the fence before the fence is taken to be
+   * dead. It is not a limit on the work: a `step` runs a whole turn, so a limit on its duration is a limit
+   * on every model call, tool run and subagent under it added together, which is how a turn doing real work
+   * came to be killed at ten minutes and lose everything it had done.
+   */
   requestTimeoutMs: number;
+  /** How often the agent was told to report itself alive, only so the error can say what was expected. Derived by `heartbeatFor`. */
+  heartbeatMs?: number;
   /** How long `close` waits for the agent to exit after SIGTERM before it kills it. */
   exitGraceMs?: number;
   /** How long a cancelled request may still answer before it is settled as cancelled. Default `CANCEL_GRACE_MS`. */
@@ -34,6 +42,36 @@ export const CANCEL_GRACE_MS = 5_000;
  * over the protocol. Well inside the exit grace, because a fence that will not answer must still die on time.
  */
 const SHUTDOWN_MS = 500;
+
+/**
+ * How often a fence reports itself alive while it is working on a request, given the silence it is allowed:
+ * a tenth of it, and never more than 15 seconds. Two properties are wanted and both follow from the tenth.
+ * A live fence cannot be mistaken for a dead one -- it has to miss ten beats in a row, which a process whose
+ * event loop is turning does not do -- and the heartbeat costs nothing worth counting: one short line every
+ * 15 seconds per request in flight, against a stream that carries a token at a time. The floor is for the
+ * tests and for anyone who configures a very short timeout: three beats inside the budget, at least.
+ */
+export const heartbeatFor = (requestTimeoutMs: number): number => Math.max(50, Math.min(15_000, Math.floor(requestTimeoutMs / 10)));
+
+/**
+ * What a person is told when a fence stops answering. The old text -- "fence request step timed out" -- said
+ * nothing anyone could act on, and it was a lie besides: the request had not run out of time, it had been
+ * working for ten minutes. This one says how long the silence was, how far into the work it fell, whether
+ * the fence had ever answered at all, and what a live one would have been doing in that gap.
+ */
+function silentFence(op: string, user: string, elapsed: number, quiet: number, signs: number, beat: number): string {
+  const before = signs
+    ? `though it had been answering until then -- ${signs} frames in ${duration(elapsed)} of work`
+    : `and it had not answered at all in the ${duration(elapsed)} since it was sent`;
+  return `the fence for ${user} stopped answering: nothing from the ${op} request for ${duration(quiet)}, ${before}. A working fence reports itself alive every ${duration(beat)} even while it is busy, so its agent process is wedged or gone.`;
+}
+
+function duration(ms: number): string {
+  if (ms < 1_000) return `${Math.round(ms)} ms`;
+  const secs = Math.round(ms / 1000);
+  if (secs < 60) return `${secs} s`;
+  return `${Math.floor(secs / 60)} m ${secs % 60} s`;
+}
 
 /**
  * Kernel to agent: `{ id, op, payload }`, answered by `{ id, event }`* and `{ id, result | error }`;
@@ -65,18 +103,54 @@ export class ProcessHandle implements FenceHandle {
     this.gone = new Promise((done) => child.once("exit", () => done()).once("error", () => done()));
   }
 
+  /**
+   * One request into the fence. The timer on it asks one question and only one: is the fence still there.
+   * It measures silence, never work. Every frame for this call resets it -- an event, the result, and the
+   * bare `{ id, alive: true }` heartbeat the agent sends while it is working -- through `onLive`, which
+   * fires whether or not the caller wanted events, because most callers here pass no `onEvent` at all.
+   *
+   * A fence that has really stopped answering is stopped the way an abort stops it, not settled where it
+   * stands: it is told `{ cancel: id }` and given the grace, so the step returns the text it streamed and
+   * the tool calls it closed instead of the caller being handed an error and nothing else.
+   */
   request(op: string, payload: unknown, onEvent?: EventSink, signal?: AbortSignal): Promise<unknown> {
     if (this.closed) return Promise.reject(new CodedError(`fence for ${this.us.id} is closed`, "fence"));
     if (signal?.aborted) return Promise.reject(new CodedError(`fence request ${op} cancelled`, "cancelled"));
     const call: OpenCall = { onEvent };
     const { id, result } = this.pending.open(call);
-    const timer = setTimeout(() => this.pending.settle(id, undefined, new CodedError(`fence request ${op} timed out`, "fence")), this.opts.requestTimeoutMs);
+    const budget = this.opts.requestTimeoutMs;
+    const beat = this.opts.heartbeatMs ?? heartbeatFor(budget);
+    const started = Date.now();
+    let lastSign = started;
+    let signs = 0;
+    let timer: NodeJS.Timeout;
     let grace: NodeJS.Timeout | undefined;
-    // The agent is told; its reply within the grace is delivered as any other, since a stopped step returns what it kept.
-    const onAbort = () => {
-      this.send({ cancel: id });
-      grace = setTimeout(() => this.pending.settle(id, undefined, new CodedError(`fence request ${op} cancelled`, "cancelled")), this.opts.cancelGraceMs ?? CANCEL_GRACE_MS);
+    let dead: CodedError | undefined;
+    call.onLive = () => {
+      lastSign = Date.now();
+      signs += 1;
     };
+    // The agent is told; its reply within the grace is delivered as any other, since a stopped step returns what it kept.
+    const stop = (err: CodedError) => {
+      this.send({ cancel: id });
+      grace = setTimeout(() => this.pending.settle(id, undefined, err), this.opts.cancelGraceMs ?? CANCEL_GRACE_MS);
+    };
+    // Armed for the whole budget and re-armed for what is left of it whenever a sign of life arrives, rather
+    // than cleared and set again per frame: a streaming step sends thousands of them.
+    const watch = () => {
+      const quiet = Date.now() - lastSign;
+      if (quiet < budget) {
+        timer = setTimeout(watch, budget - quiet);
+        return;
+      }
+      dead = new CodedError(silentFence(op, this.us.id, Date.now() - started, quiet, signs, beat), "fence");
+      // Not announced during a close: the `shutdown` ask has its own short deadline, and a fence being taken
+      // down on purpose going quiet is the expected case, not news. `close` says what became of it either way.
+      if (!this.closing) this.opts.log(`[fence] ${dead.message}`);
+      stop(dead);
+    };
+    const onAbort = () => stop(new CodedError(`fence request ${op} cancelled`, "cancelled"));
+    timer = setTimeout(watch, budget);
     signal?.addEventListener("abort", onAbort, { once: true });
     call.cleanup = () => {
       clearTimeout(timer);
@@ -84,7 +158,13 @@ export class ProcessHandle implements FenceHandle {
       signal?.removeEventListener("abort", onAbort);
     };
     this.send({ id, op, payload });
-    return result;
+    // A fence that answered the cancel hands back what it kept, and the caller would otherwise carry on as
+    // though nothing had happened: this is the one place that knows the work was cut short, so it says so
+    // once, on the call's own event sink, in the same words the rejection would have carried.
+    return result.then((value) => {
+      if (dead) onEvent?.({ type: "error", message: dead.message, code: "fence" });
+      return value;
+    });
   }
 
   /**
@@ -132,6 +212,11 @@ export class ProcessHandle implements FenceHandle {
     }
     if (typeof msg.rpcCancel === "string") {
       this.served.get(msg.rpcCancel)?.abort();
+      return;
+    }
+    // A heartbeat carries nothing and settles nothing; it only resets the liveness timer of the call it names.
+    if (msg.alive !== undefined) {
+      this.pending.alive(String(msg.id));
       return;
     }
     // Package code raised the error: the agent reports it without a code.

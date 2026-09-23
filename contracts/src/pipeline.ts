@@ -47,7 +47,9 @@ export interface TurnOptions {
  * is the turn's failure.
  *
  * `text` and `reasoning` are transient: they are what the answer looked like while it arrived, and the
- * `message` event carries the answer itself. `reasoning` is transient twice over, because nothing keeps it at
+ * `message` event carries the answer itself. `stall` and `nudge` are transient in the same way: they are what
+ * the waiting looked like while it happened, and nothing of them is kept in the conversation except the tool
+ * result a cancel writes. `reasoning` is transient twice over, because nothing keeps it at
  * all — a reasoning model's thinking is not part of the message, so a gateway redrawing a saved conversation
  * has no thinking to redraw, and a gateway that does not know the kind can ignore it.
  */
@@ -61,6 +63,26 @@ export type TurnEvent =
   | { type: "tool.result"; id: string; name: string; result: string }
   | { type: "message"; message: Message; usage?: Record<string, number> }
   | { type: "usage"; usage: Record<string, number> }
+  /**
+   * Something in this turn has gone quiet for long enough to ask about. It is still running: a stall is not a
+   * failure and not a stop, it is the moment the turn stopped waiting silently and started asking. Every
+   * `stall` is followed by exactly one `nudge` for the same `what.id`, unless the work finishes first.
+   */
+  | { type: "stall"; what: { kind: "tool" | "model"; id: string; name: string }; ms: number }
+  /**
+   * What was decided about a stall, and who decided it. `by: "model"` is an answer somebody gave; `by: "rule"`
+   * is the unanswerable case -- the question could not be put, or could not be answered inside its own budget --
+   * and then the decision is always `cancel`, because continuing to wait must never be what happens when nobody
+   * chose. `why` says which of those it was, in words a person can read.
+   */
+  | {
+      type: "nudge";
+      what: { kind: "tool" | "model"; id: string; name: string };
+      ms: number;
+      decision: "continue" | "cancel";
+      by: "model" | "rule";
+      why: string;
+    }
   | { type: "error"; message: string; code?: string }
   | { type: "turn.end"; turn: string; session: string };
 

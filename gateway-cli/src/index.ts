@@ -339,7 +339,7 @@ async function dispatch(call: Call, cmd: string, args: Args, shared: string): Pr
 interface StatusReport {
   daemon: { startedAt: string | null; uptimeSecs: number; supervised: boolean; restartPolicy: string | null; codeAt: string | null; stale: boolean };
   restart: Pending | null;
-  workspaces: { user: string; openedAt: string | null; codeAt: string | null; stale: boolean; services: string[]; changed?: { name: string; loaded: string; onDisk: string }[] }[];
+  workspaces: { user: string; openedAt: string | null; codeAt: string | null; stale: boolean; services: string[]; down?: { name: string; since: string; error: string }[]; changed?: { name: string; loaded: string; onDisk: string }[] }[];
 }
 
 /**
@@ -359,10 +359,19 @@ async function statusCmd(call: Call, args: Args): Promise<void> {
     // Which packages, and from which version to which: "older than the code on disk" names neither, and a
     // package shipped with the service is installed the moment its files land, so nothing else would say it.
     const changed = w.changed?.length ? `	${w.changed.length} package${w.changed.length === 1 ? "" : "s"} changed: ${w.changed.map((c) => `${c.name} ${c.loaded} -> ${c.onDisk}`).join(", ")}` : "";
-    print(`${w.user}	${fence}	${w.services.join(" ") || "no services"}	${freshness(w.codeAt, w.stale)}${changed}`);
+    // On the row, so nobody has to read to the bottom to learn that something they are relying on is dead.
+    const down = w.down?.length ? `	${w.down.length} not running: ${w.down.map((d) => d.name).join(" ")}` : "";
+    print(`${w.user}	${fence}	${w.services.join(" ") || "no services"}	${freshness(w.codeAt, w.stale)}${changed}${down}`);
   }
   // Said in the same words here, in `thetis restart status` and on the page: one armed restart, one sentence.
   if (restart) print(`\n${pendingLine(restart)}`);
+  // Said in full at the bottom, with the moment and the reason: a service that failed to start is the one
+  // thing here that nothing else will ever mention again, and it does not heal by itself.
+  for (const w of workspaces)
+    for (const d of w.down ?? [])
+      print(`
+${d.name} in ${w.user} is not running. It has been down since ${d.since}: ${d.error}
+Start it again: thetis reload --user ${w.user}`);
   for (const w of workspaces) if (w.stale) print(`
 ${w.user} is running older code than what is on disk. Put it into service: thetis reload --user ${w.user}`);
   if (daemon.stale) print(`
@@ -397,8 +406,11 @@ async function reloadCmd(call: Call, args: Args, user: string | undefined): Prom
   let failed = false;
   for (const id of targets) {
     try {
-      const done = (await call("fence.reload", { user: id })) as { services: string[] };
+      const done = (await call("fence.reload", { user: id })) as { services: string[]; down?: { name: string; error: string }[] };
       print(`reloaded ${id}	${done.services.join(" ") || "no services; the fence reopens on the next request"}`);
+      // A reload that brought everything back except one thing has to say so here, at the moment someone is
+      // watching it, rather than leaving it to be noticed in `thetis status` or not at all.
+      for (const d of done.down ?? []) print(`${d.name} did not start: ${d.error}`);
     } catch (err) {
       failed = true;
       print(`${id} did not reload: ${errorMessage(err)}
@@ -1042,6 +1054,18 @@ async function render(call: Call, user: string, session: string, input: string, 
       case "tool.result":
         process.stdout.write(dim(`[${e.name} -> ${e.result.replace(/\s+/g, " ").slice(0, 300)}]`) + "\n");
         break;
+      // A stall and a nudge are never dimmed away with the rest. A terminal has no card to turn grey and no
+      // spinner to slow down, so the only thing that separates "still working" from "hung" is a line saying
+      // so. It is printed at every verbosity, because the reader's alternative is guessing.
+      case "stall":
+        settle();
+        process.stdout.write(`\n${dim(`[${e.what.name} has been quiet for ${took(e.ms)}; it is still running, and the model is being asked whether to keep waiting]`)}\n`);
+        break;
+      case "nudge":
+        settle();
+        if (e.decision === "continue") process.stdout.write(dim(`[still waiting on ${e.what.name}, by ${e.by === "model" ? "the model's decision" : "rule"}: ${e.why}]`) + "\n");
+        else process.stdout.write(`\x1b[33m[cancelled ${e.what.name} after ${took(e.ms)} of silence — ${e.by === "model" ? "the model decided to" : "nobody could be asked, so the rule did"}: ${e.why}]\x1b[0m\n`);
+        break;
       case "message":
         settle();
         if (e.usage) process.stdout.write(`\n${dim(usageLine(e.usage))}\n`);
@@ -1060,6 +1084,15 @@ async function render(call: Call, user: string, session: string, input: string, 
     }
   });
   process.stdout.write("\n");
+}
+
+/** `45s`, `4m 12s`: how long something has been going, in the same wording the harness and the web page use. */
+function took(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
 /** One line of accounting for a reply. Reads the usage by field name; a provider that reports nothing prints nothing. */

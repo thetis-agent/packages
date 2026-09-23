@@ -1,6 +1,6 @@
 {
   "name": "@thetis/harness-core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "MIT",
   "description": "The default harness: the system prompt, the turn context line, every installed tool attached to the call, and the loop that sends it and runs the tools.",
   "type": "module",
@@ -19,7 +19,14 @@
     "type": "loader",
     "config": {
       "turnContext": { "type": "boolean", "default": true, "help": "Append a [Turn context: <weekday> <date> <time> <zone>] line to each message from the person, so the model knows when it is." },
-      "timeZone": { "type": "string", "help": "The IANA zone of the turn context line, for example Europe/Berlin. Unset means the zone of the daemon." }
+      "timeZone": { "type": "string", "help": "The IANA zone of the turn context line, for example Europe/Berlin. Unset means the zone of the daemon." },
+      "modelStallMs": { "type": "number", "default": 60000, "help": "How long the model may send nothing at all before the turn asks whether to keep waiting. The work keeps running while the question is out. A value of 0 or less is ignored: there is no way to switch the question off." },
+      "toolStallMs": { "type": "number", "default": 120000, "help": "How long a tool may run without returning before the turn asks whether to keep waiting. Builds and test runs live here, so it is longer than the model's." },
+      "stallBackoff": { "type": "number", "default": 2, "help": "What the silence allowance is multiplied by after each continue, so a second question about the same work comes later than the first. Never less than 1." },
+      "stallMaxMs": { "type": "number", "default": 900000, "help": "The longest the silence allowance grows to, however many times the same work was continued." },
+      "nudgeMs": { "type": "number", "default": 30000, "help": "How long one attempt at asking may take. An attempt that runs out counts as unanswered." },
+      "nudgeAttempts": { "type": "number", "default": 2, "help": "How many attempts the question gets. When they are used up the work is cancelled: an unanswered question never keeps waiting." },
+      "nudgeModel": { "type": "string", "help": "The model the question is put to. Unset means the turn's own model. Name a small fast model here when the turn's own model is a slow or expensive one, or one served by a provider you do not want to ask about itself." }
     },
     "steps": [
       {

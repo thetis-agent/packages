@@ -13,6 +13,14 @@ import type { UserStore } from "./users.js";
  */
 export class ServiceSupervisor {
   private enabled = false;
+  /**
+   * What a workspace is meant to be running and is not: by userspace, the services whose last start threw,
+   * with the moment it did and what it said. Real state and not a declaration, which is the whole reason it
+   * is kept here -- `status` used to list the installed packages that declare a service and call that the
+   * running ones, so `@thetis/marketplace` failing to start at boot read as healthy for seventeen minutes
+   * and the marketplace index went stale with nobody told. An entry goes the moment that service does start.
+   */
+  readonly notRunning = new Map<string, { name: string; since: string; error: string }[]>();
 
   constructor(
     private readonly settings: Settings,
@@ -99,11 +107,15 @@ export class ServiceSupervisor {
     const payload = { package: pkg.name, export: service.export, config: await this.settings.effective(us, pkg.name) };
     try {
       const result = await (handle ? handle.request("service.start", payload) : this.fences.request(us, "service.start", payload));
+      this.notRunning.set(us.id, (this.notRunning.get(us.id) ?? []).filter((d) => d.name !== pkg.name));
       if (result === "started") {
         this.log(`[services] started ${pkg.name} in ${us.id}`);
         this.journal.append({ kind: "service.start", target: us.id, data: { package: pkg.name } });
       }
     } catch (err) {
+      // Remembered, not only logged and journalled: a line that scrolled past at boot is not a way for
+      // anyone to find out that their gateway or their marketplace is dead right now.
+      this.notRunning.set(us.id, [...(this.notRunning.get(us.id) ?? []).filter((d) => d.name !== pkg.name), { name: pkg.name, since: new Date().toISOString(), error: errorMessage(err) }]);
       this.log(`[services] ${pkg.name} in ${us.id} failed to start: ${errorMessage(err)}`);
       this.journal.append({ kind: "service.fail", target: us.id, data: { package: pkg.name, error: errorMessage(err) } });
     }

@@ -7,7 +7,7 @@ import { knownHostsOf } from "@thetis/lib/ssh";
 import { bwrapArgs, hasBwrap, hasCgroupNamespace, launcherCommand, launcherReady, presentMounts } from "./bwrap.js";
 import type { Cgroups, FenceCgroup, FenceLimits } from "./cgroup.js";
 import { dockerSocket, FENCE_DOCKER_SOCKET, type DockerAccess } from "./docker.js";
-import { ProcessHandle, type SandboxHandle } from "./handle.js";
+import { heartbeatFor, ProcessHandle, type SandboxHandle } from "./handle.js";
 import { hasSlirp, startEgress, writeResolvConf } from "./network.js";
 import { FENCE_SSH_AUTH_SOCK, startSshAgent, writeSshFiles, type SshAgent } from "./ssh.js";
 
@@ -126,6 +126,15 @@ export class ProcessFence implements Fence {
    * network before its first instruction runs. A failure before the gate opens kills the process.
    */
   async open(us: Userspace, rpc: KernelRpc): Promise<SandboxHandle> {
+    // Read once for this open and used twice, so the agent beats at exactly the rate its handle is expecting
+    // even if the configuration is rewritten while the fence is starting.
+    const requestTimeoutMs = this.opts.requestTimeoutMs();
+    const heartbeatMs = heartbeatFor(requestTimeoutMs);
+    // Half the silence a fence is allowed, and the agent bounds its own short operations with it. The two are
+    // one number on purpose: the step's own failure must always come first, so what a person is told is which
+    // package hung, not that their fence died -- and a fence that beats while a package hangs would otherwise
+    // never be ended by anything.
+    const stepDeadlineMs = Math.floor(requestTimeoutMs / 2);
     // Stamped before the spawn: this is when the agent reads its modules, and `status` compares it against
     // what is on disk now.
     const openedAt = Date.now();
@@ -142,7 +151,7 @@ export class ProcessFence implements Fence {
     // The agent is started before bubblewrap, because its socket is one of the paths bound into the fence.
     // It is a kernel-owned child like the egress helper: the fence talks to it, never holds what it holds.
     const ssh = at.sandbox === "bwrap" ? this.openSsh(us) : undefined;
-    const child = this.spawn(us, at, cgroups && cgroups.fence(us.id, this.cgroupNamespace()), ssh);
+    const child = this.spawn(us, at, cgroups && cgroups.fence(us.id, this.cgroupNamespace()), ssh, heartbeatMs, stepDeadlineMs);
     const cleanup: (() => void)[] = ssh ? [ssh.stop] : [];
     try {
       if (at.sandbox === "bwrap") await this.openGate(us, at, child, cgroups, cleanup, ssh);
@@ -151,7 +160,7 @@ export class ProcessFence implements Fence {
       for (const fn of cleanup) fn();
       throw new CodedError(`fence for ${us.id} could not start: ${errorMessage(err)}`, "fence");
     }
-    const handle = new ProcessHandle(child, us, rpc, { requestTimeoutMs: this.opts.requestTimeoutMs(), log: this.log }, cleanup);
+    const handle = new ProcessHandle(child, us, rpc, { requestTimeoutMs, heartbeatMs, log: this.log }, cleanup);
     await handle.request("ping", {});
     return Object.assign(handle, { openedAt });
   }
@@ -196,7 +205,7 @@ export class ProcessFence implements Fence {
     this.log(`[fence] ${us.id}: started (network ${at.network}${placement ? ", limited" : ""}${at.docker ? ", docker" : ""}${ssh ? ", ssh" : ""})`);
   }
 
-  private spawn(space: Userspace, at: Resolved, cgroup?: FenceCgroup, ssh?: SshAgent): ChildProcess {
+  private spawn(space: Userspace, at: Resolved, cgroup?: FenceCgroup, ssh?: SshAgent, heartbeatMs?: number, stepDeadlineMs?: number): ChildProcess {
     // Package code learns the mounts from the environment in every mode; without a sandbox they are simply the host's paths.
     const us = { ...space, mounts: presentMounts(space, this.log) };
     const env = {
@@ -209,6 +218,13 @@ export class ProcessFence implements Fence {
       THETIS_SHARED: this.opts.sharedDir,
       THETIS_USER: us.id,
       THETIS_MOUNTS: JSON.stringify(us.mounts),
+      // How often the agent reports itself alive while it is working. It is the kernel's number, not the
+      // agent's, because it is the kernel that decides how much silence means death: the two must agree, or
+      // a healthy fence beating slower than it is waited for is killed for being busy.
+      ...(heartbeatMs ? { THETIS_HEARTBEAT_MS: String(heartbeatMs) } : {}),
+      // How long the agent gives an operation that is not the model loop before it stops it and says which
+      // package hung. Derived from the same number as the heartbeat, for the reason given where it is computed.
+      ...(stepDeadlineMs ? { THETIS_STEP_DEADLINE_MS: String(stepDeadlineMs) } : {}),
       // Set only when the socket is really bound, so a tool asks the environment what this fence has rather
       // than probing a path and guessing why it is missing — the same reason `THETIS_MOUNTS` reports the
       // mounts that were bound and not the ones that were asked for.

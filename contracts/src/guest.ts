@@ -170,7 +170,14 @@ export type Service = (env: ServiceEnv) => Promise<ServiceHandle | void>;
 
 export interface Provider {
   models(): Promise<ModelDescriptor[]>;
-  call(call: ProviderCall): AsyncIterable<ProviderEvent>;
+  /**
+   * One request, as a stream of events. `signal` is the caller giving up: the provider stops the HTTP request
+   * itself, rather than being abandoned mid-`await` with its socket still open. Breaking out of the iteration
+   * is not enough on its own -- an async generator parked on an `await` does not see a `return()` until it
+   * reaches a `yield`, so a request that produces nothing at all would never notice -- which is why the signal
+   * is a parameter and not something the caller can arrange from outside.
+   */
+  call(call: ProviderCall, signal?: AbortSignal): AsyncIterable<ProviderEvent>;
 }
 
 export interface EnumeratorContext {

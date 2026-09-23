@@ -5,6 +5,11 @@
 // cancel frame that names a request in flight: `{ cancel: id }` from the kernel aborts an operation in the
 // agent, and `{ rpcCancel: rpc }` from the agent aborts a call the kernel is serving. Both abort the
 // signal the handler was given; the reply, if one still comes, is delivered as any other.
+// One frame carries nothing at all: `{ id, alive: true }`, the heartbeat a fence sends while it is working
+// on a request. It exists so that a caller which times a call can tell a fence that is wedged from one that
+// is busy and quiet -- a build running under a tool emits nothing for minutes and is perfectly alive. A
+// heartbeat is not an event and is never relayed to anyone: it only tells the caller that the other end is
+// still there, through `alive(id)` below.
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 import type { EventSink } from "@thetis/contracts";
@@ -30,6 +35,14 @@ export type Outcome = { result: unknown } | { error: string; code?: string };
 export interface OpenCall {
   onEvent?: EventSink;
   cleanup?: () => void;
+  /**
+   * Runs whenever anything at all arrives for this call: an event, the result, the error, or a bare
+   * heartbeat. A caller that measures silence resets its clock here and nowhere else. It is separate from
+   * `onEvent` on purpose -- `onEvent` is optional and most callers pass none, so a liveness clock hung off
+   * it would never be reset for them, which is exactly how a fence request that was streaming happily was
+   * once killed for being ten minutes old.
+   */
+  onLive?: () => void;
 }
 
 interface Pending {
@@ -61,6 +74,7 @@ export class PendingCalls {
     const id = String(frame.id);
     const p = this.calls.get(id);
     if (!p) return false;
+    p.call.onLive?.();
     if ("event" in frame) {
       p.call.onEvent?.(frame.event);
       return true;
@@ -70,6 +84,15 @@ export class PendingCalls {
       return this.settle(id, undefined, new CodedError(String(frame.error), code));
     }
     return this.settle(id, frame.result);
+  }
+
+  /** A heartbeat for one call: it carries nothing, so it does nothing but say that the other end is there.
+   *  Returns false when no call has that id, which is the ordinary race of a beat crossing the result. */
+  alive(id: string): boolean {
+    const p = this.calls.get(id);
+    if (!p) return false;
+    p.call.onLive?.();
+    return true;
   }
 
   settle(id: string, result: unknown, error?: unknown): boolean {

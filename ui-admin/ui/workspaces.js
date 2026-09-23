@@ -223,6 +223,25 @@ export function mountWorkspaces(ext, root, { user }) {
     return el("span", { class: "text-dim ua-changed", title: changed.map((c) => say(c, c.name)).join(", ") }, changed.map((c) => say(c, c.name.slice(c.name.indexOf("/") + 1))).join(", "));
   }
 
+  /**
+   * What this workspace is running, and what it is meant to be running and is not. `status` answers those two
+   * separately, and they are shown separately for the same reason: the list used to be every installed package
+   * that *declares* a service, so one that had failed to start looked exactly like one that was serving, and a
+   * dead marketplace sat on this page looking healthy. A failure is not another dim tag -- it is the one thing
+   * in this row somebody has to act on -- so it is a warning badge that says since when and what it said, and
+   * the remedy is the Reload control already on the row.
+   */
+  function servicesCell(row) {
+    const down = Array.isArray(row.down) ? row.down : [];
+    const short = (name) => name.slice(name.indexOf("/") + 1);
+    return el(
+      "div",
+      { class: "ua-code" },
+      tags(row.services ?? [], "dim", down.length ? "none running" : "no service"),
+      ...down.map((d) => el("span", { class: "ua-line", title: `${d.name} has not been running since ${clock(d.since)}: ${d.error}` }, badge(`${short(d.name)} not running`, "warn")))
+    );
+  }
+
   function codeCell(row) {
     const note = lost.get(row.user);
     // No fence open is not staleness: the next request opens the workspace on whatever is on disk then.
@@ -262,7 +281,7 @@ export function mountWorkspaces(ext, root, { user }) {
             render: (r) => el("span", { class: "ua-line" }, el("code", {}, r.user), r.user === user ? el("span", { class: "text-faint" }, " (me)") : null, r.user === SYSTEM ? badge("system", "accent") : null),
           },
           { key: "code", label: "Code", render: codeCell },
-          { key: "services", label: "Services", render: (r) => tags(r.services ?? [], "dim", "no service") },
+          { key: "services", label: "Services", render: servicesCell },
           {
             key: "actions",
             label: "",

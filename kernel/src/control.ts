@@ -95,7 +95,7 @@ export function createControlHandler(k: KernelServices): KernelRpc {
         journal("fence.reload", target.id);
         k.providers.forget(target.id);
         await k.services.reload(target.id);
-        return { user: target.id, services: serviceNames(installedIn(k, target.id)) };
+        return { user: target.id, ...serviceState(installedIn(k, target.id), k.services.notRunning.get(target.id) ?? []) };
       }
       case "restart.request": {
         // Only an admin, asserted here rather than left to `rpc.ts`, which admits any non-user and so admits
@@ -205,8 +205,12 @@ const installedIn = (k: KernelServices, id: string): PackageInfo[] => k.packages
 const changedIn = (installed: PackageInfo[]): { name: string; loaded: string; onDisk: string }[] =>
   installed.flatMap((p) => (p.loadedVersion && p.loadedVersion !== p.version ? [{ name: p.name, loaded: p.loadedVersion, onDisk: p.version }] : []));
 
-/** The installed packages that declare a service: what a reload takes down and brings back up. */
-const serviceNames = (list: PackageInfo[]): string[] => list.filter((p) => p.thetis.service).map((p) => p.name);
+/** What a workspace's declared services are actually doing, split by whether the last start of each worked:
+ *  the ones running, and the ones that are not, each with the moment it failed and what it said. The two are
+ *  answered together and never folded into one -- reporting the declarations as the running set is how a dead
+ *  `@thetis/marketplace` read as healthy for seventeen minutes. `down` comes from the supervisor, which is
+ *  the only thing here that ever tried to start anything. */
+const serviceState = (list: PackageInfo[], down: { name: string; since: string; error: string }[]) => ({ services: list.filter((p) => p.thetis.service && !down.some((d) => d.name === p.name)).map((p) => p.name), down });
 
 /** A moment as the rest of the service plane writes them, and null for one nobody knows. */
 const moment = (ms: number): string | null => (ms > 0 ? new Date(ms).toISOString() : null);
@@ -236,7 +240,9 @@ function status(k: KernelServices): unknown {
         const openedAt = opened[u.id] ?? 0;
         const code = newestMtime(installed.map((p) => p.root));
         // A workspace with no fence open is never stale: the next request opens it on the code that is there then.
-        return { user: u.id, openedAt: moment(openedAt), codeAt: moment(code), stale: openedAt > 0 && code > openedAt, services: serviceNames(installed), changed: changedIn(installed) };
+        // `down` rides here beside `stale` and `changed` for the same reason those do: the three of them are
+        // every way a workspace can differ from what someone assumes it is, and each says since when.
+        return { user: u.id, openedAt: moment(openedAt), codeAt: moment(code), stale: openedAt > 0 && code > openedAt, ...serviceState(installed, k.services.notRunning.get(u.id) ?? []), changed: changedIn(installed) };
       }),
   };
 }

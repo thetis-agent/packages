@@ -63,7 +63,14 @@ export class FencePool implements Fences {
     return opening;
   }
 
-  /** Sends one request, dropping the handle if the agent died so the next call reopens it. */
+  /**
+   * Sends one request, dropping the handle *and closing it* if the agent died, so the next call reopens a
+   * fence rather than adding one. Forgetting alone leaked the whole fence: the map entry went and the agent
+   * did not, so a turn that ended with a `fence` error left a process running unattached, still LISTENing on
+   * that workspace's `run/web.sock`, still holding its cgroup and its ssh agent, while the next request
+   * opened a second fence whose gateway could not bind the socket the first one had. Found live, forty
+   * minutes after the turn that orphaned it, on a workspace `status` was reporting as having no fence open.
+   */
   async request(us: Userspace, op: string, payload: unknown, onEvent?: EventSink, signal?: AbortSignal): Promise<unknown> {
     const h = await this.handle(us);
     const pending = h.request(op, payload, onEvent, signal);
@@ -73,7 +80,15 @@ export class FencePool implements Fences {
     try {
       return await pending;
     } catch (err) {
-      if (errorCode(err) === "fence") this.forget(us.id);
+      // Dispatched, never awaited, and its failure swallowed: `close` asks the agent to stop its services,
+      // waits out the SIGTERM grace and kills whatever is left, which is seconds this caller must not spend
+      // -- it is here to report a fence error, and the cleanup of a fence that has already gone wrong must
+      // never become a second way for it to get stuck. The bound is the handle's own: `close` gives the
+      // agent `exitGraceMs` after SIGTERM and then SIGKILLs it, so nothing here waits forever.
+      if (errorCode(err) === "fence") {
+        this.forget(us.id);
+        void h.close().catch(() => {});
+      }
       throw err;
     } finally {
       set.delete(pending);

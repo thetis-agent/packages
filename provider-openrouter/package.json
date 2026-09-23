@@ -1,6 +1,6 @@
 {
   "name": "@thetis/provider-openrouter",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "MIT",
   "description": "Sends model calls to OpenRouter with streaming, tool calls, and prompt caching.",
   "type": "module",
@@ -48,6 +48,16 @@
         "type": "number",
         "default": 3,
         "help": "How many times a transient refusal (429, 408, 409, 425, 5xx, an in-flight budget 402) is tried again before it is reported."
+      },
+      "requestTimeoutMs": {
+        "type": "number",
+        "default": 180000,
+        "help": "How long the whole attempt to get a response may take, retries and the waits between them included. Node's fetch has no timeout of its own, so without this a connection that opens and then says nothing waits for ever."
+      },
+      "streamStallMs": {
+        "type": "number",
+        "default": 120000,
+        "help": "How long an open stream may send no bytes at all before it is abandoned. Any byte resets it, so this is not a limit on how long a reply may take."
       }
     },
     "export": "createProvider"

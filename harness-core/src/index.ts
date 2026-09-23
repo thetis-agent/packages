@@ -5,7 +5,7 @@
 // packages are a tool (`list_packages` in @thetis/tool-exec), each paid for on the turns that want it.
 // The prompt names no session id, so a subagent's prompt is byte-identical to its parent's apart from one
 // line, and the provider cache the parent warmed serves the child.
-import type { HarnessState, Message, PackageInfo, PackageStepContext, ProviderCall, ProviderEvent, StepResult, ToolCall, ToolSpec } from "@thetis/contracts";
+import type { HarnessState, Message, PackageInfo, PackageStepContext, ProviderCall, ProviderEvent, StepResult, ToolCall, ToolSpec, TurnEvent } from "@thetis/contracts";
 
 /** The key this package keeps its per-session state under; other packages read it by name. */
 const NAME = "@thetis/harness-core";
@@ -111,6 +111,306 @@ export async function recordCall(ctx: PackageStepContext): Promise<StepResult> {
 const STOPPED = "the turn was stopped before this tool ran";
 const FAILED = "the turn failed before this tool ran";
 
+// ---- the nudge ----
+//
+// The rule the whole of this section exists to keep:
+//
+//   Every wait is bounded, and every bound ends in a decision. Continuing to wait is a decision somebody
+//   made, never a default that nobody chose.
+//
+// A turn waits on two things that can take any length of time and give no sign either way: the model's
+// stream, and a tool. Neither can be put on a deadline, because a deadline cannot tell a twenty-minute build
+// from a wedged socket, and killing the first to be safe from the second is how a turn that had done an
+// hour of work came to be thrown away whole.
+//
+// So nothing here is killed on a timer. What is bounded is the silence. When a wait has produced nothing for
+// long enough to be worth a question, the turn says so (`stall`) and asks the model, while the work goes on
+// running: keep waiting, or cancel this one piece. The answer is a `nudge` event, and it says who decided.
+//
+// The question is itself a wait, so it is bounded too -- in time and in attempts -- and this is the part that
+// makes being stuck impossible: **a nudge that cannot be answered cancels.** Not "waits a bit longer", not
+// "tries for ever": cancels. Every path out of a stall reaches a decision, and only one of the two decisions
+// is "keep waiting", and that one can only be reached by somebody actually choosing it. A `continue` resets
+// the clock, so the next silence asks again, with a longer fuse. Waiting for ever remains possible, but only
+// as an unbroken series of deliberate decisions, each one of them on the page.
+
+/** The numbers. Exported so the manifest, the README and the tests cannot quietly disagree with the code. */
+export const NUDGE_DEFAULTS = {
+  /** A model that has sent no text, no reasoning and no tool call for this long is worth a question. */
+  modelStallMs: 60_000,
+  /** A tool that has been running this long without returning is worth a question. Builds and test runs live here. */
+  toolStallMs: 120_000,
+  /** What the silence allowance is multiplied by after each `continue`: the second question comes later than the first. */
+  stallBackoff: 2,
+  /** The longest the allowance grows to, however many times it was continued. */
+  stallMaxMs: 900_000,
+  /** How long one attempt at asking may take before it counts as unanswered. */
+  nudgeMs: 30_000,
+  /** How many attempts the question gets. When they are used up, the rule cancels. */
+  nudgeAttempts: 2,
+} as const;
+
+export interface NudgeConfig {
+  modelStallMs: number;
+  toolStallMs: number;
+  stallBackoff: number;
+  stallMaxMs: number;
+  nudgeMs: number;
+  nudgeAttempts: number;
+  /** The model the question is put to. Unset means the turn's own. */
+  nudgeModel?: string;
+}
+
+/** A positive finite number, or undefined. A configured `0` is not a way to switch a bound off; nothing is. */
+const positive = (n: unknown): number | undefined => (typeof n === "number" && Number.isFinite(n) && n > 0 ? n : undefined);
+
+export function nudgeConfig(config: Record<string, unknown>): NudgeConfig {
+  const model = config.nudgeModel;
+  return {
+    modelStallMs: positive(config.modelStallMs) ?? NUDGE_DEFAULTS.modelStallMs,
+    toolStallMs: positive(config.toolStallMs) ?? NUDGE_DEFAULTS.toolStallMs,
+    stallBackoff: Math.max(1, positive(config.stallBackoff) ?? NUDGE_DEFAULTS.stallBackoff),
+    stallMaxMs: positive(config.stallMaxMs) ?? NUDGE_DEFAULTS.stallMaxMs,
+    nudgeMs: positive(config.nudgeMs) ?? NUDGE_DEFAULTS.nudgeMs,
+    nudgeAttempts: Math.max(1, Math.floor(positive(config.nudgeAttempts) ?? NUDGE_DEFAULTS.nudgeAttempts)),
+    nudgeModel: typeof model === "string" && model.trim() ? model.trim() : undefined,
+  };
+}
+
+type Watched = { kind: "tool" | "model"; id: string; name: string };
+type Decision = { decision: "continue" | "cancel"; by: "model" | "rule"; why: string };
+type Cancelled = { ms: number; by: "model" | "rule"; why: string };
+
+/** `4m 12s`, `45s`. Written for the model and for a person, in one wording used everywhere. */
+export function fmtMs(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+/**
+ * The tool the question is answered with. It is never run: `callModel` reads the `tool_call` event and
+ * throws the call away, so `package` and `export` are here only because a ToolSpec has them.
+ */
+const DECIDE: ToolSpec = {
+  name: "decide",
+  description: "Say whether the quiet work keeps running or is cancelled. Call this exactly once, and say nothing else.",
+  parameters: {
+    type: "object",
+    properties: {
+      decision: { type: "string", enum: ["continue", "cancel"], description: "`continue` leaves it running and asks again after a longer silence. `cancel` stops this one piece of work; the turn goes on without it." },
+      why: { type: "string", description: "One short sentence, for a person watching and for the agent whose work this is. Say what you think is happening." },
+    },
+    required: ["decision", "why"],
+  },
+  package: NAME,
+  export: "decide",
+};
+
+const NUDGE_SYSTEM = `You are deciding one thing about an agent's turn that is running right now. Something it started has gone quiet and nobody can tell whether it is working or wedged. It is still running while you read this, and it keeps running unless you say otherwise.
+
+Call \`decide\` exactly once. Judge it on whether the work plausibly takes this long: a build, a test run, a large download or a model thinking hard can be silent for minutes; a read of a small file cannot. Prefer \`continue\` when the silence fits the work, and \`cancel\` when it does not, or when it has already been continued several times and nothing has changed.
+
+There is no third answer, and there is no way to ask for more. If you do not answer, the work is cancelled, because waiting must be something somebody chose.`;
+
+/** What the deciding model is told. Short on purpose: it must be cheap and fast, and the turn's own prompt may be enormous. */
+function question(what: Watched, quiet: number, continued: number, args: Record<string, unknown> | undefined, asked: string): string {
+  const lines =
+    what.kind === "tool"
+      ? [`The tool \`${what.name}\` has been running for ${fmtMs(quiet)} and has returned nothing.`, args && Object.keys(args).length ? `It was called with: ${clip(safeJson(args), 600)}` : ""]
+      : [`The model \`${what.name}\` has sent nothing for ${fmtMs(quiet)}: no text, no reasoning, no tool call. The request is open.`];
+  if (continued) lines.push(`This has already been continued ${continued === 1 ? "once" : `${continued} times`}.`);
+  if (asked) lines.push(`The turn was asked to: ${clip(asked, 400)}`);
+  lines.push("Keep waiting, or cancel it?");
+  return lines.filter(Boolean).join("\n");
+}
+
+/** The arguments as text, or a note that they could not be written: the question must not fail over them. */
+const safeJson = (value: unknown): string => {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return "(arguments that could not be written down)";
+  }
+};
+
+const clip = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+
+/** The last thing the person said this turn, without the turn context line: why the work is being done at all. */
+function lastAsk(conversation: Message[]): string {
+  for (let i = conversation.length - 1; i >= 0; i--) if (conversation[i].role === "user") return withoutTurnContext(conversation[i].content).trim();
+  return "";
+}
+
+/**
+ * Reads a decision out of one answer. The tool call is the way it is meant to arrive; the text scan is
+ * there because a small model told to use a tool sometimes just writes the word. Where the text is
+ * ambiguous the first of the two words wins, which is deterministic and, when it is wrong, wrong towards
+ * cancelling -- the direction that cannot leave anybody stuck.
+ */
+export function readDecision(text: string, calls: ToolCall[]): Decision | undefined {
+  for (const c of calls) {
+    if (c.name !== DECIDE.name) continue;
+    const decision = String((c.args as { decision?: unknown })?.decision ?? "").toLowerCase();
+    const why = String((c.args as { why?: unknown })?.why ?? "").trim();
+    if (decision === "continue" || decision === "cancel") return { decision, by: "model", why: why || `the model said ${decision} and gave no reason` };
+  }
+  const word = /\b(continue|cancel)\b/i.exec(text);
+  if (!word) return undefined;
+  const decision = word[1].toLowerCase() as "continue" | "cancel";
+  return { decision, by: "model", why: clip(text.replace(/\s+/g, " ").trim(), 300) || `the model wrote ${decision}` };
+}
+
+/**
+ * Puts the question, bounded in time and in attempts, and answers with a decision whatever happens. There is
+ * no path out of here that is not a decision: a refusal, a timeout, an unreadable answer and a used-up
+ * attempt count all land on `cancel` by `rule`, and the `why` says which it was in words a person can read.
+ */
+async function askAbout(ctx: PackageStepContext, cfg: NudgeConfig, what: Watched, quiet: number, continued: number, args?: Record<string, unknown>): Promise<Decision> {
+  const call: ProviderCall = {
+    model: cfg.nudgeModel || ctx.call.model,
+    system: NUDGE_SYSTEM,
+    messages: [{ role: "user", content: question(what, quiet, continued, args, lastAsk(ctx.conversation)) }],
+    tools: [DECIDE],
+    params: {},
+  };
+  let last = "the question was never answered";
+  for (let attempt = 1; attempt <= cfg.nudgeAttempts; attempt++) {
+    if (ctx.signal.aborted) return { decision: "cancel", by: "rule", why: "the turn was stopped while the question was out" };
+    const own = new AbortController();
+    const bound = AbortSignal.any([ctx.signal, own.signal]);
+    const timer = setTimeout(() => own.abort(), cfg.nudgeMs);
+    timer.unref?.();
+    let text = "";
+    const calls: ToolCall[] = [];
+    let failure: string | undefined;
+    try {
+      await untilAborted(
+        bound,
+        ctx.env.kernel.providers.call(
+          call,
+          (e: ProviderEvent) => {
+            if (e.type === "text") text += e.delta;
+            else if (e.type === "tool_call") calls.push(e.call);
+            else if (e.type === "error") failure = e.message;
+          },
+          bound,
+        ),
+      );
+    } catch (err) {
+      failure = ctx.signal.aborted ? "the turn was stopped" : isCancelled(err) ? `no answer within ${fmtMs(cfg.nudgeMs)}` : errorMessage(err);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (ctx.signal.aborted) return { decision: "cancel", by: "rule", why: "the turn was stopped while the question was out" };
+    if (failure === undefined) {
+      const read = readDecision(text, calls);
+      if (read) return read;
+      last = "the answer named neither continue nor cancel";
+    } else last = failure;
+  }
+  return { decision: "cancel", by: "rule", why: `nobody could be asked whether to keep waiting (${last}, after ${cfg.nudgeAttempts} ${cfg.nudgeAttempts === 1 ? "attempt" : "attempts"}), and an unanswered question cancels rather than waits` };
+}
+
+/** A watch on one wait. `touch` is a sign of life; `give_up` is what a cancel does to the work itself. */
+interface Watch {
+  touch(): void;
+  stop(): void;
+  /** Set once, when a nudge decided to cancel this wait. */
+  cancelled?: Cancelled;
+}
+
+/**
+ * Watches one wait and asks about it when it goes quiet. The timer here never ends anything by itself: all
+ * it can do is start the question. `stop()` makes a question already in flight moot, which is the ordinary
+ * case -- most stalls end because the work finished while somebody was being asked about it.
+ */
+function watch(ctx: PackageStepContext, cfg: NudgeConfig, what: Watched, giveUp: () => void, args?: Record<string, unknown>): Watch {
+  let last = Date.now();
+  let allowance = what.kind === "model" ? cfg.modelStallMs : cfg.toolStallMs;
+  let continued = 0;
+  let asking = false;
+  let stopped = false;
+  const self: Watch = {
+    touch: () => {
+      last = Date.now();
+    },
+    stop: () => {
+      stopped = true;
+      clearInterval(timer);
+    },
+  };
+
+  /** Streams an event and swallows whatever the listener does with it. A watcher is not a place to fail from. */
+  const say = (event: TurnEvent): void => {
+    try {
+      ctx.emit(event);
+    } catch {
+      // Whoever is watching the turn has gone. The decision still has to be made and acted on.
+    }
+  };
+
+  /** Acts on one decision, once. Called with a model's answer, or with the rule's when there was none. */
+  const settle = (read: Decision): void => {
+    if (stopped) return; // the work finished while the question was out: the answer is about something over
+    say({ type: "nudge", what, ms: Date.now() - last, ...read });
+    if (read.decision === "cancel") {
+      self.cancelled = { ms: Date.now() - last, by: read.by, why: read.why };
+      self.stop();
+      giveUp();
+      return;
+    }
+    continued += 1;
+    last = Date.now();
+    allowance = Math.min(cfg.stallMaxMs, Math.round(allowance * cfg.stallBackoff));
+    asking = false;
+  };
+
+  /** What the rule decides when the question could not even be put. Always a cancel; never a longer wait. */
+  const unaskable = (err: unknown): Decision => ({
+    decision: "cancel",
+    by: "rule",
+    why: `the question could not even be put (${errorMessage(err)}), and a question that cannot be asked cancels rather than waits`,
+  });
+
+  // Nothing in this callback may throw. An exception out of a timer is not a failed turn, it is a dead
+  // process; and an exception that merely escaped the asking would leave `asking` true for ever, which is
+  // the unbounded wait this whole section exists to make impossible. Both roads end in a decision instead.
+  const timer = setInterval(() => {
+    if (stopped || asking || Date.now() - last < allowance) return;
+    asking = true;
+    try {
+      say({ type: "stall", what, ms: Date.now() - last });
+      void askAbout(ctx, cfg, what, Date.now() - last, continued, args).then(settle, (err) => settle(unaskable(err)));
+    } catch (err) {
+      settle(unaskable(err));
+    }
+  }, Math.max(10, Math.min(1000, Math.floor(allowance / 4))));
+  timer.unref?.();
+  return self;
+}
+
+/**
+ * What the model is told when a nudge cancelled its tool call. This is the only way it finds out: the `nudge`
+ * event goes to whoever is watching the turn, not into the conversation. So it says the four things the model
+ * has to know -- that the call did not fail, how long it was silent, who decided, and that the work may still
+ * be going on outside the turn -- and then says outright not to reissue it unchanged, because a model handed
+ * a bare "error" reissues the same call, and the same call would stall in the same way.
+ */
+export function cancelledToolResult(name: string, ran: number, cancel: Cancelled): string {
+  const who = cancel.by === "model" ? "the decision was to cancel it" : "the question could not be answered, so the rule cancelled it";
+  return [
+    `error: \`${name}\` was cancelled after running for ${fmtMs(ran)}.`,
+    `It did not fail and it did not refuse anything: it produced nothing for ${fmtMs(cancel.ms)}, this turn asked whether to keep waiting, and ${who}.`,
+    `Reason: ${cancel.why}.`,
+    `Whatever it started may still be running outside this turn, and anything it had already changed has changed.`,
+    `Do not issue the same call again unchanged: it would go quiet in the same way. Make it smaller, bound it yourself (a timeout, a narrower path, fewer results, one part of the work), or reach the same end another way.`,
+    `If you are sure it only needed longer, say so in your reply instead of starting it again.`,
+  ].join(" ");
+}
+
 const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 const isCancelled = (err: unknown): boolean => (err as { code?: unknown } | null)?.code === "cancelled";
 const cancelled = () => Object.assign(new Error("the turn was stopped"), { code: "cancelled" });
@@ -170,9 +470,15 @@ interface Round {
   cancelled?: boolean;
 }
 
-async function callOnce(ctx: PackageStepContext, call: ProviderCall, partial: { text: string }): Promise<Round> {
+async function callOnce(ctx: PackageStepContext, call: ProviderCall, partial: { text: string }, cfg: NudgeConfig, nth: number): Promise<Round> {
   const round: Round = { toolCalls: [] };
+  // The stream's own controller, under the turn's: a nudge can end this one request without ending the turn,
+  // and everything the turn has already done is kept either way.
+  const own = new AbortController();
+  const bound = AbortSignal.any([ctx.signal, own.signal]);
+  const watcher = watch(ctx, cfg, { kind: "model", id: `${ctx.turn.id}#${nth}`, name: call.model }, () => own.abort());
   const onEvent = (e: ProviderEvent) => {
+    watcher.touch(); // any event at all is the stream alive: text, thinking, a tool call, an accounting line
     if (e.type === "text") {
       partial.text += e.delta;
       ctx.emit({ type: "text", delta: e.delta });
@@ -191,10 +497,17 @@ async function callOnce(ctx: PackageStepContext, call: ProviderCall, partial: { 
     } else if (e.type === "error") round.failure = e.message;
   };
   try {
-    await untilAborted(ctx.signal, ctx.env.kernel.providers.call(call, onEvent, ctx.signal));
+    await untilAborted(bound, ctx.env.kernel.providers.call(call, onEvent, bound));
   } catch (err) {
-    if (ctx.signal.aborted || isCancelled(err)) round.cancelled = true;
+    // Three ways out, and the order matters. The person stopping the turn wins over everything. A nudge that
+    // cancelled the stream is a failure of this request, not a stop of the turn: it is reported, the text
+    // streamed so far is kept, and the turn ends saying why. Anything else is the provider's own failure.
+    if (ctx.signal.aborted) round.cancelled = true;
+    else if (watcher.cancelled) round.failure = `the model call was cancelled after ${fmtMs(watcher.cancelled.ms)} of silence: ${watcher.cancelled.why}`;
+    else if (isCancelled(err)) round.cancelled = true;
     else round.failure = errorMessage(err);
+  } finally {
+    watcher.stop();
   }
   return round;
 }
@@ -205,17 +518,30 @@ async function callOnce(ctx: PackageStepContext, call: ProviderCall, partial: { 
  * and there is no result to record. A stop does not wait for the tool: it gets the signal, and what it
  * started may go on (`shell` says so of its command), but the turn is over now.
  */
-async function runTool(ctx: PackageStepContext, call: ProviderCall, tc: ToolCall): Promise<Message | undefined> {
+async function runTool(ctx: PackageStepContext, call: ProviderCall, tc: ToolCall, cfg: NudgeConfig): Promise<Message | undefined> {
   const spec = call.tools.find((t) => t.name === tc.name) ?? withheldTool(call, ctx.packages.list(), tc.name);
   let result: string;
+  // This call's own controller, under the turn's. A nudge aborts it to cancel one tool; the turn is untouched,
+  // so the model gets a result it can act on and the loop goes on.
+  const own = new AbortController();
+  const bound = AbortSignal.any([ctx.signal, own.signal]);
+  const watcher = watch(ctx, cfg, { kind: "tool", id: tc.id, name: tc.name }, () => own.abort(), tc.args);
+  const started = Date.now();
   try {
     if (!spec) throw new Error(`unknown tool: ${tc.name}`);
-    const config = await ctx.env.kernel.config.effective(spec.package);
-    const raw = await untilAborted(ctx.signal, ctx.env.invokeTool(spec, tc.args, { session: ctx.session, config, signal: ctx.signal }));
+    // Reading the package's configuration is a round trip to the kernel, so it is inside the watch too: a
+    // wait nobody is watching is the thing this whole section exists to make impossible, and "it is only a
+    // config read" is exactly how one gets left out.
+    const config = await untilAborted(bound, ctx.env.kernel.config.effective(spec.package));
+    const raw = await untilAborted(bound, ctx.env.invokeTool(spec, tc.args, { session: ctx.session, config, signal: bound }));
     result = typeof raw === "string" ? raw : JSON.stringify(raw ?? null);
   } catch (err) {
-    if (ctx.signal.aborted || isCancelled(err)) return undefined;
-    result = `error: ${errorMessage(err)}`;
+    if (ctx.signal.aborted) return undefined;
+    if (watcher.cancelled) result = cancelledToolResult(tc.name, Date.now() - started, watcher.cancelled);
+    else if (isCancelled(err)) return undefined;
+    else result = `error: ${errorMessage(err)}`;
+  } finally {
+    watcher.stop();
   }
   ctx.emit({ type: "tool.result", id: tc.id, name: tc.name, result });
   return { role: "tool", content: result, toolCallId: tc.id, name: tc.name };
@@ -233,6 +559,11 @@ async function runTool(ctx: PackageStepContext, call: ProviderCall, tc: ToolCall
  * tool calls are not worth losing to one refusal. On a provider failure the step emits one `error` event of code
  * `provider` and the `after` steps still run. On a cancel it emits nothing: the kernel ends the turn with the
  * single `cancelled` error. `ctx.signal` is checked mid-stream, between tool calls, and between rounds.
+ *
+ * Neither of the two long waits in here -- the stream, and each tool -- is ever simply waited on. Each runs
+ * under its own controller beneath `ctx.signal`, watched for silence; see "the nudge" above for what happens
+ * then. A cancelled tool is a tool result the model reads and the loop goes on; a cancelled stream ends the
+ * turn the way a provider failure does, keeping everything.
  */
 export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
   const conversation = [...ctx.conversation];
@@ -244,9 +575,10 @@ export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
     if (failure !== undefined) ctx.emit({ type: "error", message: `provider error: ${failure}`, code: "provider" });
     return { conversation, call };
   };
-  for (;;) {
+  const cfg = nudgeConfig(ctx.config ?? {});
+  for (let nth = 1; ; nth++) {
     if (ctx.signal.aborted) return stop(STOPPED);
-    const round = await callOnce(ctx, call, partial);
+    const round = await callOnce(ctx, call, partial, cfg, nth);
     if (round.cancelled) return stop(STOPPED);
     if (round.failure !== undefined) return stop(FAILED, round.failure);
     const assistant: Message = { role: "assistant", content: partial.text };
@@ -258,7 +590,7 @@ export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
     if (!assistant.toolCalls?.length) break;
     for (const tc of assistant.toolCalls) {
       if (ctx.signal.aborted) return stop(STOPPED);
-      const result = await runTool(ctx, call, tc);
+      const result = await runTool(ctx, call, tc, cfg);
       if (!result) return stop(STOPPED);
       conversation.push(result);
       call.messages.push(result);

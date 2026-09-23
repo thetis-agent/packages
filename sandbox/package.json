@@ -1,6 +1,6 @@
 {
   "name": "@thetis/sandbox",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "MIT",
   "description": "The process fence: one userspace agent per person under bubblewrap, with cgroup limits and outbound-only networking. Not installable.",
   "type": "module",

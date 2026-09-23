@@ -380,6 +380,28 @@ test("a page that connects mid-turn receives the snapshot of the turn in progres
   assert.ok(rec.turn === null || rec.turn.events.length > 0);
 });
 
+test("the record a page refreshed mid-turn is given carries the turn in progress, and its input is already the last message of the conversation", async () => {
+  // This is what the transcript is rebuilt from after a hard refresh. Both halves matter: without `turn`
+  // the in-flight turn is not on the page at all, and the fact that `conversation` already ends with the
+  // very message `turn.input` holds is why the transcript must not draw both (it drew the person's own
+  // message twice on every refresh made while a turn ran). If the kernel ever stops writing the input at
+  // turn start, this says so, and the page's comparison of the two copies has to be looked at again.
+  const cookie = await cookieFor("alice", "wonderland");
+  const { id } = (await (await api(cookie, "/alice/api/sessions", { method: "POST" })).json()) as { id: string };
+  const asked = "slow: a b c d e f g h i j k l m n o p";
+  assert.equal((await api(cookie, `/alice/api/sessions/${id}/send`, { method: "POST", body: JSON.stringify({ text: asked }) })).status, 202);
+  await new Promise((r) => setTimeout(r, 120));
+  type Mid = { status: string; conversation: { role: string; content: string }[]; turn: { input: string; events: unknown[] } | null };
+  const rec = (await (await api(cookie, `/alice/api/sessions/${id}`)).json()) as Mid;
+  assert.equal(rec.status, "running");
+  assert.ok(rec.turn, "the gateway hands the page the turn it is carrying");
+  assert.equal(rec.turn!.input, asked);
+  const last = rec.conversation.at(-1);
+  assert.equal(last?.role, "user");
+  assert.equal(last?.content.replace(/\n\n\[Turn context: [^\n\]]*\]$/, ""), asked);
+  await api(cookie, `/alice/api/sessions/${id}/cancel`, { method: "POST" });
+});
+
 test("a subagent's turn is on the parent's stream, tagged with its parent, and the record lists it under children with its label and task", async () => {
   const cookie = await cookieFor("alice", "wonderland");
   const { id } = (await (await api(cookie, "/alice/api/sessions", { method: "POST" })).json()) as { id: string };
@@ -503,6 +525,57 @@ test("archive and restore", async () => {
   assert.equal((await api(cookie, `/alice/api/sessions/${id}/archive`, { method: "POST", body: JSON.stringify({ archived: false }) })).status, 200);
   list = (await (await api(cookie, "/alice/api/sessions")).json()) as { id: string; archived: boolean }[];
   assert.equal(list.find((s) => s.id === id)?.archived, false);
+});
+
+test("a conversation nothing was said in can be discarded; one with a message, one working, and one already gone are refused", async () => {
+  // What the page's tidying rests on. The page's list is a moment old whenever it asks, so every reason to
+  // refuse is checked here against the record itself, and each refusal is an answer the page ignores rather
+  // than a fault: it never asked for this on the person's behalf.
+  const cookie = await cookieFor("alice", "wonderland");
+  const ids = async () => ((await (await api(cookie, "/alice/api/sessions")).json()) as { id: string }[]).map((s) => s.id);
+  const create = async () => ((await (await api(cookie, "/alice/api/sessions", { method: "POST" })).json()) as { id: string }).id;
+  const discard = (id: string) => api(cookie, `/alice/api/sessions/${id}`, { method: "DELETE" });
+
+  const empty = await create();
+  // Archived, so the gateway holds a file of its own for it: that file has to go with the record.
+  await api(cookie, `/alice/api/sessions/${empty}/archive`, { method: "POST", body: JSON.stringify({ archived: true }) });
+  const kept = join(home, "store", "alice", "sessions", "alice", `${empty}.json`);
+  assert.ok(existsSync(kept));
+  assert.ok((await ids()).includes(empty));
+  assert.equal((await discard(empty)).status, 200);
+  assert.ok(!(await ids()).includes(empty), "the row is gone from the list");
+  assert.ok(!existsSync(kept), "and so is what the gateway kept about it, the archive mark included");
+  assert.equal((await discard(empty)).status, 404, "a second page discarding the same one finds it already gone");
+
+  const spoken = await create();
+  assert.equal((await turn(cookie, "alice", spoken, async () => api(cookie, `/alice/api/sessions/${spoken}/send`, { method: "POST", body: JSON.stringify({ text: "keep me" }) }))).text, "echo: keep me (t1)");
+  assert.equal((await discard(spoken)).status, 409, "a conversation with words in it is archived, never removed");
+  assert.ok((await ids()).includes(spoken));
+
+  const working = await create();
+  assert.equal((await api(cookie, `/alice/api/sessions/${working}/send`, { method: "POST", body: JSON.stringify({ text: "slow: a b c d e f g h i j k l m n o p" }) })).status, 202);
+  await new Promise((r) => setTimeout(r, 120));
+  assert.equal((await discard(working)).status, 409, "a turn in flight is a conversation in use, whatever the record says yet");
+  await api(cookie, `/alice/api/sessions/${working}/cancel`, { method: "POST" });
+  assert.ok((await ids()).includes(working));
+
+  const parent = await create();
+  const messages = await collect(cookie, "alice", async () => api(cookie, `/alice/api/sessions/${parent}/send`, { method: "POST", body: JSON.stringify({ text: "spawn: hello" }) }), (m) => m.session === parent && m.event.type === "turn.end");
+  const child = messages.map((m) => m.session).find((s) => s !== parent);
+  assert.ok(child, "the spawn made a subagent");
+  assert.equal((await discard(child!)).status, 409, "a subagent is work inside a conversation, not a row anyone is tidying");
+});
+
+test("the stream says `sessions` when an empty conversation is discarded, so another page's list catches up", async () => {
+  const cookie = await cookieFor("alice", "wonderland");
+  const control = new AbortController();
+  const gen = frames(cookie, control.signal, "/alice/api/events");
+  assert.equal((await gen.next()).value?.event, "snapshot");
+  const { id } = (await (await api(cookie, "/alice/api/sessions", { method: "POST" })).json()) as { id: string };
+  assert.equal((await gen.next()).value?.event, "sessions");
+  assert.equal((await api(cookie, `/alice/api/sessions/${id}`, { method: "DELETE" })).status, 200);
+  assert.equal((await gen.next()).value?.event, "sessions");
+  control.abort();
 });
 
 test("model and name: the models list, a chosen model rides with the turn and its usage, and a name replaces the derived title", async () => {

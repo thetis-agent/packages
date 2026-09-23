@@ -151,8 +151,9 @@ test("the store keeps one file per conversation, rewrites only that one, and mig
 
     store.setArchived("alice", "s_m", true);
     store.forget("alice", "s_old");
+    assert.ok(!existsSync(join(dir, "sessions", "alice", "s_old.json")), "forget leaves no file: the conversation it was about is being removed");
     store = new GatewayStore(dir); // read back from the files
-    assert.deepEqual([...store.archived("alice")].sort(), ["s_m", "s_old"], "forget keeps the archive mark");
+    assert.deepEqual([...store.archived("alice")], ["s_m"], "forget takes the archive mark with the rest; another conversation's is untouched");
     assert.equal(store.title("alice", "s_old"), undefined);
     assert.equal(store.model("alice", "s_m"), "echo");
     assert.equal(store.archived("bob").size, 0);

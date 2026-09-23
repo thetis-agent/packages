@@ -183,6 +183,24 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       const id = seg[2];
       if (!/^s_[a-f0-9]+$/.test(id ?? "")) throw new HttpError(404, "unknown session");
       if (seg.length === 3 && method === "GET") return json(res, 200, await showSession(user, id));
+      if (seg.length === 3 && method === "DELETE") {
+        // Only a conversation nothing was ever said in: the page discards the ones a person opened and
+        // walked away from, so a day's clicks on `+` do not pile up as "New conversation" in the history.
+        // Anything with a turn, or a turn in flight, is refused — a record with words in it is archived,
+        // never removed, and a page whose list is a moment stale must not be able to take one with it.
+        // A subagent is refused whatever is in it: it is work inside a conversation, and one is empty and
+        // idle for the instant between its creation and its first turn. The page asks for this on its own,
+        // as tidying nobody requested, so a 409 here is an answer it is expected to ignore in silence.
+        const rec = await kernel.sessions.inspect(id);
+        const busy = rec.status === "running" || Boolean(hub.runningOf(user, id));
+        if (rec.parent || rec.turns > 0 || rec.conversation.length > 0 || busy) throw new HttpError(409, "only an empty conversation can be discarded");
+        await kernel.sessions.delete(id);
+        // Everything this gateway kept about it goes with the record, the archive mark included: a mark on
+        // an id nothing answers to any more would be read at every start and never be true of anything.
+        store.forget(user, id);
+        listChanged(user);
+        return json(res, 200, { id, deleted: true });
+      }
       if (seg[3] === "send" && seg.length === 4 && method === "POST") {
         const body = await readJson(req);
         const text = typeof body.text === "string" ? body.text.trim() : "";

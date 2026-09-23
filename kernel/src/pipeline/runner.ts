@@ -93,10 +93,15 @@ export class PipelineRunner {
     return session;
   }
 
-  /** A package step runs inside the fence with its own configuration; the rest of the context is the turn's. Its events are the turn's. */
+  /**
+   * A package step runs inside the fence with its own configuration; the rest of the context is the turn's.
+   * Its events are the turn's. The phase goes with it -- an optional field on the operation, as every seam is
+   * extended -- because the fence bounds a step by what kind of step it is: `execute` runs the model loop and
+   * is legitimately long, and everything else builds a prompt, lists tools or records the call and is not.
+   */
   private async runStep(us: Userspace, step: StepRef, ctx: StepContext, emit: Emit, signal?: AbortSignal): Promise<unknown> {
     const config = await this.settings.effective(us, step.package);
-    return this.fences.request(us, "step", { package: step.package, export: step.export, ctx: { ...ctx, config } }, (e) => emit(e as TurnEvent), signal);
+    return this.fences.request(us, "step", { package: step.package, export: step.export, phase: step.phase, ctx: { ...ctx, config } }, (e) => emit(e as TurnEvent), signal);
   }
 
   /** Validates a step's mutations before they touch the variables. Invalid results are rejected whole. */

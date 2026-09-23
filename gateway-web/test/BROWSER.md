@@ -416,7 +416,7 @@ after the one fix in `ui/state.js` (see the last paragraph); screenshots `.playw
 
 Defect found and fixed in this run (`packages/projects/ui/state.js`): the page decided which conversations
 "existed at load" from `ext.sessions.list()` at `install`, but the shell's module loader and its event
-stream race, so on a fast load the list was still empty and a conversation created in the last two minutes
+stream race, so on a fast load the list was still empty and a conversation created in the last ten minutes
 could be adopted, or even moved from another project before the assignments had been read. The state now
 adopts nothing until its first `list` has answered, marks every conversation known by then as seen, skips
 archived ones, and clears the storage key when the remembered project no longer exists.
@@ -1183,3 +1183,201 @@ run — which is the point, and what the record has to say instead.
 
 Stop the daemon by the pid on `.devhome-fork/thetis.sock`, release `/tmp/thetis-browser.lock`, and delete
 `.devhome-fork`.
+
+## Coming back after a refresh (2026-09-23)
+
+The same setup as **Subagents on the page**: `.devhome3` on door port 8803 with the echo provider fixture,
+so `slow: w1 w2 …` streams a word every 50 ms and a turn of four hundred words runs for twenty seconds —
+long enough to refresh the page in the middle of it and still watch it finish. Two conversations are
+needed, because the fault this pass exists for only showed with more than one: **A** is the one being read
+with a turn running in it, **B** is one touched more recently. Send from `browser_evaluate` throughout
+(`#input`, dispatch `input`, `requestSubmit()` the form `#input` sits in), and refresh with a real reload —
+setting `location.hash` alone is a fragment navigation and does not re-run the page.
+
+107. **The address bar names the conversation on screen**: with a conversation open, expect the URL to end
+     in `#<its id>`. Click the other conversation's `.session-open` in the sidebar: the hash becomes that
+     id. Close every tab (`.tab-close`): the hash goes, and the URL is the bare prefix again. This is the
+     whole of what is stored to bring a refresh back — one id, where it can be seen and linked to.
+108. **A refresh comes back to the conversation being read, not to the top of the list**: in A send
+     `slow: a0 a1 … a399`; after 1200 ms open B from the sidebar and send `hello` there, so B is the most
+     recently updated and sorts first; when B is done, activate A's tab again. Reload. Expect the URL still
+     `#<A>`, `.pane.is-active[data-session=<A>]`, `.tab.is-active.is-working`, `#stop` shown, and A's whole
+     history on screen. Before this the page opened whichever conversation was first in the list, so this
+     reload landed in B and A — history, streaming reply and Stop — was not on the page at all.
+109. **The message being answered is drawn once**: in that same restored pane, the last `.msg.is-user
+     .msg-text` reads `slow: a0 a1 …` and there is exactly **one** of it. The record carries that message
+     twice — the kernel writes it into `conversation` as the turn starts, and it is `turn.input` as well —
+     and the transcript used to draw both, so every refresh mid-turn left the person's own words on the
+     page twice, and the copy stayed until the next reload. Check the live reply is still growing: read
+     `.msg-text.is-live` twice a second apart and expect it longer the second time, and after the turn ends
+     expect `#stop` hidden and still one copy of the message.
+110. **The same while a subagent runs**: in A send `spawn: slow: b0 b1 … b239`, wait 1500 ms, reload. Expect
+     one `.msg.is-user` for `spawn: slow: b0 …`, the newest `details.agent.is-running[open]` with
+     `.agent-state` "working" and a `.msg-text.is-live` in its `.agent-body` continuing from the words
+     already streamed, `#stop` shown, and the URL still `#<A>`. A subagent's block is restored from the
+     parent's record, so the duplicate row sat above it before this and the block itself was fine.
+111. **A conversation that is gone is not insisted on**: set the hash to `#s_deadbeefdead` and reload.
+     Expect the newest conversation open and the hash rewritten to its id — a link to a conversation this
+     person no longer has is a miss, not an error. A hash naming an **archived** conversation does open it:
+     coming back to where you were is not a judgement about which conversations are interesting.
+
+## A wait that goes quiet, and what was decided about it (2026-09-23)
+
+`@thetis/harness-core` never kills a wait on a timer. When a tool or the model's stream has produced
+nothing for long enough, it emits `stall`, asks the model whether to keep waiting **while the work keeps
+running**, and emits `nudge` with the answer. These steps check that the page shows that as work with a
+reason and never as a hang, and that a continue and a cancel are plainly different to look at.
+
+No model is needed and none should be used: the whole section runs against a scripted provider that reads
+its answers from a file, reaches no network and needs no key. Write it into a throwaway data directory:
+
+```sh
+THETIS_HOME=.devhome-nudge node bin/thetis.js init
+# .devhome-nudge/thetis.config.json:
+#   "model": "scripted/model", "envFile": ".env", "door": {"host":"127.0.0.1","port":8899},
+#   systemPackages["_system"] = ["@thetis/gateway-login","@thetis/marketplace"]   (no provider: the
+#     scripted one goes into dev's own userspace, and a userspace's own provider is preferred)
+#   packages["@thetis/gateway-login"] = {"secure": false},
+#   packages["@thetis/harness-core"] = {"toolStallMs": 6000, "modelStallMs": 6000,
+#     "stallBackoff": 2, "nudgeMs": 4000, "nudgeAttempts": 2}
+#     (the shipped numbers are 120s/60s/2/30s/2; these are the same shapes in seconds)
+: > .devhome-nudge/.env          # empty on purpose: `serve` prints the file it read, check that line
+THETIS_HOME=.devhome-nudge node bin/thetis.js users add dev --admin
+echo devpass123 | THETIS_HOME=.devhome-nudge node bin/thetis.js users passwd dev
+THETIS_HOME=.devhome-nudge nohup node bin/thetis.js serve > .devhome-nudge/serve.log 2>&1 &
+# then, into dev's own home, a package @dev/provider-script of type provider whose createProvider
+# returns { models: () => [{id:"*"}], call(call, signal) }: it reads ./script.json, answers the turn's
+# calls from `rounds` in order, answers the harness's questions from `nudges` (a question is the call
+# carrying the one `decide` tool), yields a step's `events`, and then, when the step says
+# `"silent": true`, waits on the signal for ever. That last part is the incident this is all about.
+THETIS_HOME=.devhome-nudge node bin/thetis.js packages install \
+  "$PWD/.devhome-nudge/userspaces/dev/home/provider-script" --user dev
+```
+
+`thetis reload --user dev` between scenarios: the provider is built once per fence, so the round counter
+resets with the fence and not otherwise. Sign in at `http://127.0.0.1:8899/login` at 1440px.
+
+**Scenario A, a tool: quiet, continued, then cancelled.** `script.json` with one round that streams `I
+will run the build.` and a `tool_call` of `shell` with `{"cmd":"sleep 900"}`, a second round that streams
+a closing line, and two `nudges`: `continue` with `why` *a build of this size can be silent for minutes*,
+then `cancel` with `why` *it has now been silent twice as long as this build takes*.
+
+107. **Send** "build it" in a new conversation. Poll `.pane.is-active details.tool` every 250 ms through
+     the turn. Expect, in order:
+     - `details.tool.is-running`, `.tool-status` `running`, no `.tool-nudge`.
+     - at about 6s, `details.tool.is-running.is-quiet`, `.tool-status` reading `quiet 6s`, and one
+       `.tool-nudge` (no tone class) reading `No output for 6s. It is still running; asking the model
+       whether to keep waiting.` The status pill is amber (`--warn`), not red, and its pulse has stopped.
+       The sidebar row's `.session-step` reads `shell · quiet` and the tab keeps `.is-working`.
+     - a moment later the same card back to `.is-running` with `.tool-status` `running` and the
+       `.tool-nudge.is-continue` reading `Left running after 6s of silence. The model decided: a build of
+       this size can be silent for minutes`. The sidebar reads `shell · still waiting`.
+     - at about 12s a second `stall` on the same card: `.is-quiet` again, `quiet 12s`, and the asking
+       line back. The allowance doubled, which is the point: the second question came later than the first.
+     - then `details.tool.is-cancelled` (**not** `.is-bad`), `.tool-status` `cancelled`, and
+       `.tool-nudge.is-cancel` reading `Cancelled after 15s of silence. The model decided: it has now
+       been silent twice as long as this build takes`.
+     The card's body carries a `.tool-label` reading **why it was cancelled** over a `.tool-pre` that is
+     *not* `.is-error`, holding the message the model was given: it begins ``error: `shell` was cancelled
+     after running for``, says it did not fail, says the work may still be running, and says not to issue
+     the same call again unchanged. The turn then ends normally with the second round's reply: one tool
+     was cancelled, not the turn. No `.msg.is-note.is-error` anywhere, and no console errors.
+108. **The work really was left running**: open the terminal shelf. `sleep 900` is still there with
+     `no output for …`, which is what the sentence in the card claims. This is the difference between
+     this and a kill: the turn stopped waiting, it did not stop the work.
+109. **Reload the page.** `stall` and `nudge` are transient and nothing saves them, so the `.tool-nudge`
+     line is gone, but the card still reads `details.tool.is-cancelled` with `.tool-status` `cancelled`
+     and the **why it was cancelled** body. It must never come back as `failed`: the badge would then
+     contradict the first sentence inside it. (`transcript.js` recognises it from the result text, with
+     a copy of the wording `@thetis/harness-core` owns, the way it copies the turn context line.)
+
+**Scenario B, the model's stream: quiet, continued, then nobody can be asked.** `script.json` with one
+round that streams `Let me work that o` and then `"silent": true`, and `nudges` of one `continue` with
+`why` *it may still be thinking* followed by two `"silent": true` steps: the question goes to the same
+provider that has gone quiet, so it cannot be answered either.
+
+110. **Send** "what is 2+2" in a new conversation. Expect in `.pane.is-active`:
+     - the partial reply `Let me work that o` in a `.msg.is-assistant`.
+     - `.msg.is-note.is-quiet` reading `The model has sent nothing for 6s. The request is still open;
+       asking whether to keep waiting.` and `.session-step` reading `Waiting on the model`.
+     - `.msg.is-note.is-quiet` reading `Still waiting on the model call after 6s. The model decided: it
+       may still be thinking`, and `.session-step` `Still waiting on the model`.
+     - a second stall note at 12s, and then, after the two unanswered attempts,
+       **one** `.msg.is-note.is-error` reading `The turn failed: provider error: the model call was
+       cancelled after 20s of silence: nobody could be asked whether to keep waiting (no answer within
+       4s, after 2 attempts), and an unanswered question cancels rather than waits`.
+     There is exactly one red line, not two: a cancelled model call is always followed by the turn's own
+     `error` carrying the same reason, so the page draws no separate cancel note for it.
+111. **Nothing was thrown away**: `thetis sessions show --user dev --session <id>` holds the user message
+     and an assistant message of `Let me work that o`. The turn ended, it kept what it had, and it said
+     why. That is the whole of the guarantee, seen from outside.
+112. **The person's own stop still works**: script a round that is `"silent": true` from the first byte
+     and nudges that are all `"silent": true`, send, wait for the stall note (about 6s), and click
+     `#stop` a second or two later, while the question is still out and before the rule would cancel at
+     about 14s. Expect the turn to end at once: `#stop` hidden, one `.msg.is-note.is-quiet` reading
+     `Stopped.`, **no** note about a decision, and no red line. A decision about work the person has
+     already stopped is not announced, and the question still in flight is dropped rather than landing
+     a moment later on a turn that is over.
+
+Stop the daemon by the pid on `.devhome-nudge/thetis.sock` (`ss -lxp | grep devhome-nudge`), release
+`/tmp/thetis-browser.lock`, and delete `.devhome-nudge`.
+
+## A conversation nobody said anything in (2026-09-23)
+
+The shape of the setup is **Subagents on the page**'s, in a home of its own so it can run beside another
+pass: `.devhome-empty` on door port 8805, the echo provider fixture as the model, `"envFile": ".env"` with
+an empty `.devhome-empty/.env` — check the `environment:` line `serve` prints before anything else, because
+the default is the *checkout's* `.env` and that one holds a live key. Five conversations are made at the
+start and nothing new is made until step 119, because the sweep leaves anything younger than ten minutes
+alone and this pass has to walk across that line rather than around it: note the clock at step 113. Drive
+from `browser_evaluate` (`#input`, dispatch `input`, `requestSubmit()` the form it sits in), reload with a
+real `location.reload()` — `browser_navigate` to the same URL is a fragment navigation and does not re-run
+the page — and read `browser_network_requests` after each step: what is checked here is as much what is
+**not** asked for as what is. Nothing in this pass should ever put a `.toast` on screen.
+
+113. **Five empty conversations, and words in one of them**: sign in at `http://127.0.0.1:8805/login` at
+     1440px and click `#new-chat` five times, waiting for each tab to appear before the next click (the
+     `creating` guard swallows a second click made while the first is in flight). Expect five `.tab`s, five
+     `.pane[data-session]` and five `.session` rows all reading "New conversation" — the pile this pass
+     exists to be rid of. Call them **A** to **E** in the order made, and note the time. Activate A's tab
+     and send `hello`: expect `.msg.is-assistant .msg-text` "echo: hello (t1)", A's row carrying that
+     preview and `.session-meta` "1 turn". Five rows still: nothing goes while it is on screen.
+114. **Closing the tab of one nothing was said in discards it**: click E's `.tab-close` (E is not the
+     active tab). Expect within a second one `DELETE api/sessions/<E>` answered **200**, no
+     `.tab[data-session=<E>]`, **no** `.session[data-session=<E>]` row, four rows left, and no `.toast`.
+     The person asked for a tab to close; they hear about the rest only as the row going.
+115. **One with a message in it is never touched**: click A's `.tab-close` (A is active, so the neighbour
+     becomes active and the URL follows it). Expect A's row still there with its preview and meta, and
+     **no** `DELETE` for A anywhere in the network log — the page does not ask about a conversation
+     something was said in. The server would refuse it anyway: `fetch('api/sessions/<A>', {method:'DELETE'})`
+     from `browser_evaluate` answers **409** `only an empty conversation can be discarded` and the page
+     does not change. That probe is the one console error this pass produces — a browser logs any 4xx as a
+     failed resource — and it comes from the probe, not from the page.
+116. **One with a turn running is never touched, from a list that has not caught up either**: activate D
+     and, in a single `browser_evaluate`, send `slow: d0 d1 … d199` and then click `.tab.is-active
+     .tab-close` about 60 ms later — before the 202 is back, while the page's mark on D is still `pending`
+     and D's row still shows no preview. Expect **no** `DELETE` for D, D's row still there and
+     `.session.is-working` with its step under the sheen, and the turn running on to its end without its
+     pane (afterwards the row reads `1 turn` and the words it streamed). What refused it here was the
+     page's own `running`/`pending` mark, before any request went out; the server's 409 is the same answer
+     from the other side.
+117. **What the page never saw closed is swept on the next load**: B and C are still open as tabs, still
+     empty, made in step 113. Activate B's tab so the address bar names B, and — at least ten minutes after
+     step 113 — reload. Expect in the network log, in this order: `GET api/sessions`, `GET api/sessions/<B>`
+     (the conversation the hash named, opened first), one `DELETE api/sessions/<C>` **200**, `GET
+     api/sessions`. On screen: B open (`.pane.is-active[data-session=<B>]`, URL ending `#<B>`) and a sidebar
+     of A, D and B. The tabs are not restored, so C was open nowhere and nobody was in it; B was, and the
+     sweep runs last and reads `current`, so the empty conversation the person came back to stayed.
+118. **And the one you were sitting in goes as soon as you are not**: click A's row, so the address bar
+     names A, and reload. Expect one `DELETE api/sessions/<B>` **200** and a sidebar of A and D — the two
+     conversations with words in them, and nothing else. Nothing was ever swept from under anyone: B went
+     on the first load that did not come back to it.
+119. **A conversation made a moment ago is left alone**: click `#new-chat` (**F**), then open A from the
+     sidebar so the address bar names A, and reload at once. Expect F still in the list and **no** `DELETE`
+     for it, however many times the page is reloaded inside the ten minutes: the only conversation that
+     young is one another window — or the command line — has just made and is being typed into, and this
+     page cannot see that. Poll until `Date.now()` is more than ten minutes past F's creation, reload once
+     more, and expect one `DELETE api/sessions/<F>` **200** and the sidebar back to A and D.
+
+Stop the daemon by the pid on `.devhome-empty/thetis.sock` (`ss -lxp | grep devhome-empty`), release
+`/tmp/thetis-browser.lock`, and delete `.devhome-empty`.

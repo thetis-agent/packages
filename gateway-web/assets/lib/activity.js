@@ -47,6 +47,24 @@ export function applyActivity(session, event, startedAt, parent) {
       if (had?.state !== "working") return;
       return store.setActivity(session, { ...had, step: "Thinking", tool: false });
     }
+    // Something has gone quiet. The row must keep saying "working", because it is, and must say what has
+    // gone quiet, because a row that only says `shell` for eleven minutes is indistinguishable from a hang
+    // and that is exactly the reading this whole mechanism exists to prevent.
+    case "stall": {
+      if (had?.state !== "working") return;
+      const what = event.what ?? {};
+      if (what.kind === "model") return store.setActivity(session, { ...had, step: "Waiting on the model", tool: false });
+      return store.setActivity(session, { ...had, step: `${what.name || "tool"} · quiet`, tool: true });
+    }
+    case "nudge": {
+      if (had?.state !== "working") return;
+      const what = event.what ?? {};
+      // A cancel is followed at once by the tool result or the turn's error, and each of those sets the row
+      // itself. Only a continue has to say anything here: the waiting goes on, and somebody chose that.
+      if (event.decision !== "continue") return;
+      if (what.kind === "model") return store.setActivity(session, { ...had, step: "Still waiting on the model", tool: false });
+      return store.setActivity(session, { ...had, step: `${what.name || "tool"} · still waiting`, tool: true });
+    }
     case "usage": {
       if (had?.state !== "working") return;
       const u = event.usage ?? {};

@@ -945,6 +945,29 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .tool-more { margin: 0 12px 10px; padding: 2px 9px; font-size: var(--text-xs); color: var(--accent); background: transparent; border: 1px solid var(--accent-edge); border-radius: var(--r-sm); cursor: pointer; }
 .tool-more:hover { background: var(--accent-wash); }
 
+/* A tool that has gone quiet. Amber, and never red: nothing has failed, the work is still running, and
+ * somebody is being asked about it. The pulse stops, because a pulse says "any moment now" and the whole
+ * point of the row is that nobody knows that. The decision that follows keeps the line but changes its
+ * colour, so a continue and a cancel are told apart without reading a word of them. */
+.tool.is-quiet .tool-status { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: var(--warn-wash); animation: none; }
+.tool.is-quiet .tool-name { color: var(--warn); }
+.tool-nudge {
+  padding: 6px 13px 8px;
+  border-top: 1px solid var(--hairline);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--warn);
+}
+.tool-nudge.is-continue { color: var(--text-faint); }
+.tool-nudge.is-cancel { color: var(--err); }
+
+/* A call a nudge stopped. Not `is-bad`: nothing failed, and the badge says `cancelled` rather than
+ * `failed` so the card does not contradict the sentence inside it. It keeps the amber of the stall it came
+ * from, which is also what a reloaded conversation shows, since the tool message is the only part of any
+ * of this that is saved. */
+.tool.is-cancelled .tool-name { color: var(--warn); }
+.tool.is-cancelled .tool-status { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: var(--warn-wash); }
+
 .msg.is-note { display: flex; align-items: center; justify-content: center; gap: 7px; font-size: var(--text-xs); color: var(--text-faint); }
 .note-dot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
 .msg.is-note.is-error { color: var(--err); }

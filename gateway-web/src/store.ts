@@ -224,8 +224,15 @@ export class GatewayStore {
     this.put(user, session, { title: title || undefined });
   }
 
+  /**
+   * Drops everything kept about a conversation, the archive mark included; with nothing left, its file
+   * goes too. The one caller is the discard of an empty conversation, where the record itself is being
+   * removed: what is left behind afterwards is not state about anything, it is litter read at every start.
+   * There is no second meaning here that keeps the mark — archiving a conversation that no longer exists
+   * is not a thing anyone can want — so this stays one method rather than one with a flag.
+   */
   forget(user: string, session: string): void {
-    this.put(user, session, { usage: undefined, model: undefined, title: undefined });
+    this.put(user, session, { usage: undefined, model: undefined, title: undefined, archived: undefined });
   }
 
   private entry(user: string, session: string): Entry {

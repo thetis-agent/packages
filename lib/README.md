@@ -17,7 +17,7 @@ The layering rule: `lib` imports only `@thetis/contracts`. `sandbox`, `kernel`, 
 | `container` | `Container`, `token`. |
 | `journal` | `Journal`, `JournalRow`, `JournalFilter`. |
 | `json-store` | `JsonDirStore`: one JSON file per record, ids checked before they become paths. |
-| `rpc-frames` | `PendingCalls`, `callHandler`, `readFrames`, `encodeFrame`: the `{ id, method, args }` framing. |
+| `rpc-frames` | `PendingCalls`, `callHandler`, `readFrames`, `encodeFrame`: the `{ id, method, args }` framing. `PendingCalls.alive(id)` delivers a heartbeat -- a frame that carries nothing and settles nothing -- and every frame for a call, heartbeat included, runs its `OpenCall.onLive`, which is where a caller that measures silence resets its clock. It is deliberately not `onEvent`: that one is optional, most callers pass none, and a liveness clock hung off it would never be reset for them. |
 | `ndjson-socket` | `RpcSocketServer`, `connectRpcSocket`: the framing over a Unix socket. |
 | `socket-paths` | `MAX_SOCKET_PATH`, `MAX_USER_ID`, `HOME_SOCKETS`, `longestHomeSocket`, `longestForIdLength`, `maxUserIdLength`, `maxHomeLength`, `homeSocketProblem`, `homeSocketWarning`, `userIdProblem`, `assertHomeFitsSockets`, `assertUserIdFitsSockets`: how long `$THETIS_HOME` and a user id may be, given every Unix socket that hangs off the home. |
 | `userspace-layout` | `UserspaceLayout`: `pathFor`, `exists`, `ensure`, `remove`. |
