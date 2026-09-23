@@ -1,6 +1,6 @@
 {
   "name": "@thetis/skills-hybrid",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "license": "MIT",
   "description": "One brief per skill always in the prompt, a few cards retrieved for the conversation by dense and lexical ranking fused, pinned once, and skill_search for the rest.",
   "type": "module",
@@ -97,5 +97,8 @@
       "importer": "importCorpus",
       "adapter": "benchReport"
     }
+  },
+  "peerDependencies": {
+    "@thetis/runtime": "^0.2.0"
   }
 }

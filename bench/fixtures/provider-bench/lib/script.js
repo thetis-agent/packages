@@ -1,3 +1,4 @@
+import { contentText } from "@thetis/runtime/lib/content";
 // A scripted reply. The script reacts to what the harness assembled, never to a marker in the query: the
 // query text must stay exactly as the suite authored it, because a retriever matches on it.
 
@@ -28,6 +29,6 @@ export function replyFor(script, task, round, call) {
  */
 function fill(toolCall, call) {
   if (!toolCall.argsFromRequest) return toolCall;
-  const request = [...(call.messages ?? [])].reverse().find((m) => m.role === "user")?.content ?? "";
+  const request = contentText([...(call.messages ?? [])].reverse().find((m) => m.role === "user")?.content);
   return { ...toolCall, args: { ...(toolCall.args ?? {}), [toolCall.argsFromRequest]: request } };
 }

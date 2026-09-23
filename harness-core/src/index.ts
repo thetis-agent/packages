@@ -1,3 +1,5 @@
+import { assertJson, contentText, normalizeContent, textContent, textPart, toolContent } from "@thetis/runtime/lib/content";
+import { ContentStream } from "@thetis/runtime/lib/content-stream";
 // The default harness: a system prompt of where the model is and how to work, a step that attaches every
 // installed tool, and the loop that sends the call and runs what the model asks for. Skills are the loader's
 // to announce: it knows whether there are any. The prompt carries no manual and no per-tool advice: a tool's
@@ -68,9 +70,9 @@ export async function turnContext(ctx: PackageStepContext): Promise<StepResult |
   const conversation = ctx.conversation;
   let i = conversation.length - 1;
   while (i >= 0 && conversation[i].role !== "user") i--;
-  if (i < 0 || TURN_CONTEXT.test(conversation[i].content)) return;
+  if (i < 0 || TURN_CONTEXT.test(contentText(conversation[i].content))) return;
   const line = turnContextLine(new Date(), zoneOf(ctx.config ?? {}));
-  const input = { ...conversation[i], content: `${conversation[i].content}\n\n${line}` };
+  const input = { ...conversation[i], content: [...normalizeContent(conversation[i].content), textPart(`\n\n${line}`)] };
   return { conversation: [...conversation.slice(0, i), input, ...conversation.slice(i + 1)] };
 }
 
@@ -246,7 +248,7 @@ const clip = (text: string, max: number): string => (text.length > max ? `${text
 
 /** The last thing the person said this turn, without the turn context line: why the work is being done at all. */
 function lastAsk(conversation: Message[]): string {
-  for (let i = conversation.length - 1; i >= 0; i--) if (conversation[i].role === "user") return withoutTurnContext(conversation[i].content).trim();
+  for (let i = conversation.length - 1; i >= 0; i--) if (conversation[i].role === "user") return withoutTurnContext(contentText(conversation[i].content)).trim();
   return "";
 }
 
@@ -278,7 +280,7 @@ async function askAbout(ctx: PackageStepContext, cfg: NudgeConfig, what: Watched
   const call: ProviderCall = {
     model: cfg.nudgeModel || ctx.call.model,
     system: NUDGE_SYSTEM,
-    messages: [{ role: "user", content: question(what, quiet, continued, args, lastAsk(ctx.conversation)) }],
+    messages: [{ role: "user", content: textContent(question(what, quiet, continued, args, lastAsk(ctx.conversation))) }],
     tools: [DECIDE],
     params: {},
   };
@@ -449,7 +451,7 @@ function closeDangling(conversation: Message[], reason: string): void {
   const last = at >= 0 ? conversation[at] : undefined;
   if (!last?.toolCalls?.length) return;
   const answered = new Set(conversation.slice(at + 1).filter((m) => m.role === "tool").map((m) => m.toolCallId));
-  for (const tc of last.toolCalls) if (!answered.has(tc.id)) conversation.push({ role: "tool", content: `error: ${reason}`, toolCallId: tc.id, name: tc.name });
+  for (const tc of last.toolCalls) if (!answered.has(tc.id)) conversation.push({ role: "tool", content: textContent(`error: ${reason}`), toolCallId: tc.id, name: tc.name });
 }
 
 /**
@@ -476,7 +478,7 @@ interface Round {
   cancelled?: boolean;
 }
 
-async function callOnce(ctx: PackageStepContext, call: ProviderCall, partial: { text: string }, cfg: NudgeConfig, nth: number, context: ContextRecorder): Promise<Round> {
+async function callOnce(ctx: PackageStepContext, call: ProviderCall, partial: ContentStream, cfg: NudgeConfig, nth: number, context: ContextRecorder): Promise<Round> {
   const round: Round = { toolCalls: [] };
   // The stream's own controller, under the turn's: a nudge can end this one request without ending the turn,
   // and everything the turn has already done is kept either way.
@@ -488,8 +490,14 @@ async function callOnce(ctx: PackageStepContext, call: ProviderCall, partial: { 
     if (e.type === "request") {
       context.request(e.body, e.at);
     } else if (e.type === "text") {
-      partial.text += e.delta;
+      partial.text(e.delta);
       ctx.emit({ type: "text", delta: e.delta });
+    } else if (e.type === "content.start" || e.type === "content.delta" || e.type === "content.end") {
+      partial.accept(e);
+      ctx.emit(e);
+    } else if (e.type === "extension") {
+      assertJson(e.data);
+      ctx.emit(e);
     } else if (e.type === "reasoning") {
       // Forwarded and then forgotten. A reasoning model's thinking is worth watching while it happens, so a
       // long wait is visibly a model working rather than a stall, but it is not the answer: it never joins
@@ -507,6 +515,7 @@ async function callOnce(ctx: PackageStepContext, call: ProviderCall, partial: { 
   };
   try {
     await untilAborted(bound, ctx.env.kernel.providers.call(call, onEvent, bound));
+    partial.finish();
   } catch (err) {
     // Three ways out, and the order matters. The person stopping the turn wins over everything. A nudge that
     // cancelled the stream is a failure of this request, not a stop of the turn: it is reported, the text
@@ -529,7 +538,7 @@ async function callOnce(ctx: PackageStepContext, call: ProviderCall, partial: { 
  */
 async function runTool(ctx: PackageStepContext, call: ProviderCall, tc: ToolCall, cfg: NudgeConfig): Promise<Message | undefined> {
   const spec = call.tools.find((t) => t.name === tc.name) ?? withheldTool(call, ctx.packages.list(), tc.name);
-  let result: string;
+  let content: Message["content"];
   // This call's own controller, under the turn's. A nudge aborts it to cancel one tool; the turn is untouched,
   // so the model gets a result it can act on and the loop goes on.
   const own = new AbortController();
@@ -543,17 +552,17 @@ async function runTool(ctx: PackageStepContext, call: ProviderCall, tc: ToolCall
     // config read" is exactly how one gets left out.
     const config = await untilAborted(bound, ctx.env.kernel.config.effective(spec.package));
     const raw = await untilAborted(bound, ctx.env.invokeTool(spec, tc.args, { session: ctx.session, config, signal: bound }));
-    result = typeof raw === "string" ? raw : JSON.stringify(raw ?? null);
+    content = toolContent(raw);
   } catch (err) {
     if (ctx.signal.aborted) return undefined;
-    if (watcher.cancelled) result = cancelledToolResult(tc.name, Date.now() - started, watcher.cancelled);
+    if (watcher.cancelled) content = textContent(cancelledToolResult(tc.name, Date.now() - started, watcher.cancelled));
     else if (isCancelled(err)) return undefined;
-    else result = `error: ${errorMessage(err)}`;
+    else content = textContent(`error: ${errorMessage(err)}`);
   } finally {
     watcher.stop();
   }
-  ctx.emit({ type: "tool.result", id: tc.id, name: tc.name, result });
-  return { role: "tool", content: result, toolCallId: tc.id, name: tc.name };
+  ctx.emit({ type: "tool.result", id: tc.id, name: tc.name, content, result: contentText(content) });
+  return { role: "tool", content, toolCallId: tc.id, name: tc.name };
 }
 
 /**
@@ -584,9 +593,10 @@ export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
     const { request: _request, ...lastCall } = context.lastCall ?? {};
     return { conversation, call, harness: { ...ctx.harness, [NAME]: { ...ownState(ctx.harness), lastCall } } };
   };
-  const partial = { text: "" };
+  let partial = new ContentStream();
   const stop = (reason: string, failure?: string): Promise<StepResult> => {
-    if (partial.text) conversation.push({ role: "assistant", content: partial.text });
+    const message = partial.message();
+    if (message.content.length) conversation.push(message);
     closeDangling(conversation, reason);
     if (failure !== undefined) ctx.emit({ type: "error", message: `provider error: ${failure}`, code: "provider" });
     return finish(failure === undefined ? "cancelled" : "failed");
@@ -598,8 +608,8 @@ export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
     const round = await callOnce(ctx, call, partial, cfg, nth, context);
     if (round.cancelled) return stop(STOPPED);
     if (round.failure !== undefined) return stop(FAILED, round.failure);
-    const assistant: Message = { role: "assistant", content: partial.text };
-    partial.text = "";
+    const assistant = partial.message();
+    partial = new ContentStream();
     if (round.toolCalls.length) assistant.toolCalls = round.toolCalls;
     conversation.push(assistant);
     call.messages.push(assistant);

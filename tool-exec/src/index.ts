@@ -1,3 +1,4 @@
+import { contentText } from "@thetis/runtime/lib/content";
 // The tool package that lets the model install, fork, delete and replace its own packages, and spawn a
 // subagent in the same space. Running commands is @thetis/terminal, which holds a shell session the
 // person can see; reading, editing and searching files is @thetis/tools-files. Everything here acts
@@ -116,7 +117,7 @@ export const spawnSubagent: Tool = async (args, env) => {
     await env.kernel.sessions.send(child.id, String(args.task), (e) => {
       if (e.type === "text") partial += e.delta;
       else if (e.type === "message" && e.message.role === "assistant") {
-        if (e.message.content.trim()) reply = e.message.content;
+        if (contentText(e.message.content).trim()) reply = contentText(e.message.content);
         partial = "";
       } else if (e.type === "error") failure = { message: e.message, code: e.code };
     }, undefined, env.signal);

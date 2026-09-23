@@ -1,3 +1,4 @@
+import { contentText, hasMedia, renderContent } from "../lib/content.js";
 /* One conversation's transcript. Draws saved messages and applies live turn events on top:
  * `text` grows a live bubble under a caret, `tool.call` opens a card that `tool.result` fills and settles,
  * `message` settles the bubble into rendered markdown with a usage footnote, `error` becomes a note.
@@ -109,9 +110,23 @@ function agentsOfRecord(record) {
  * is made without it.
  */
 function carriesTurnInput(record) {
+  const inputs = record.turn?.messages;
+  if (inputs?.length) {
+    const tail = (record.conversation ?? []).slice(-inputs.length);
+    const comparable = (message) => {
+      const parts = typeof message.content === "string" ? [{ type: "text", data: { text: message.content } }] : message.content;
+      const content = parts.flatMap((part) => {
+        if (part.type !== "text" || typeof part.data?.text !== "string") return [part];
+        const text = part.data.text.replace(TURN_CONTEXT, "");
+        return text ? [{ ...part, data: { ...part.data, text } }] : [];
+      });
+      return JSON.stringify({ role: message.role, content });
+    };
+    return tail.length === inputs.length && tail.every((message, i) => comparable(message) === comparable(inputs[i]));
+  }
   const last = (record.conversation ?? []).at(-1);
   if (!last || last.role !== "user") return false;
-  const bare = (text) => String(text ?? "").replace(TURN_CONTEXT, "").trim();
+  const bare = (text) => contentText(text).replace(TURN_CONTEXT, "").trim();
   return bare(last.content) === bare(record.turn?.input);
 }
 
@@ -122,6 +137,7 @@ function carriesTurnInput(record) {
  * tab). `onOpenAgent(id)` opens a child in a tab; it is handed down to nested instances.
  */
 export function mountTranscript(root, { session, nested = false, brief = false, catchUp: outerCatchUp, onOpenAgent } = {}) {
+  let rich = null;
   let live = null;        // { node, textEl, text }
   let thinking = null;    // { node, textNode } collecting streamed reasoning, or null. Per instance, not per module:
                           // a nested agent block has its own instance, and its child's thinking is not this one's.
@@ -190,6 +206,7 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
 
   function reset() {
     clear(root);
+    rich = null;
     live = null;
     thinking = null;
     settled = null;
@@ -227,7 +244,7 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     for (const fn of hooks) fn();
     if (nested) return null; // the block's brief is the child's user row
     // The harness ends each input with a [Turn context: ...] line for the model; the person did not type it.
-    const node = row("user", el("div", { class: "msg-text" }, String(text ?? "").replace(TURN_CONTEXT, "")));
+    const node = row("user", el("div", { class: "msg-text" }, ...renderContent(text, { markdown: false, strip: TURN_CONTEXT })));
     if (brief) node.classList.add("is-brief");
     return node;
   }
@@ -299,8 +316,8 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   }
 
   function assistantRow(text, usage, model) {
-    if (!text.trim()) return;
-    const textEl = el("div", { class: "msg-text" }, ...renderMarkdown(text));
+    if (!contentText(text).trim() && !hasMedia(text)) return;
+    const textEl = el("div", { class: "msg-text" }, ...renderContent(text));
     row("assistant", textEl, usageLine(usage, model));
   }
 
@@ -314,12 +331,21 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
    * `tool.call`. Its usage goes onto that bubble; drawing the text again would show it twice.
    */
   function assistantMessage(content, usage) {
-    if (live) return settleLive(content || live.text, usage);
+    if (rich) { rich.node.remove(); rich = null; }
+    if (hasMedia(content)) {
+      if (live) { live.node.remove(); live = null; }
+      if (settled) { settled.node.remove(); settled = null; }
+      return assistantRow(content, usage, liveModel());
+    }
+    content = contentText(content);
+    if (live) { settleLive(content || live.text, usage); settled = null; return; }
     if (settled && settled.text.trim() === (content || "").trim()) {
       const foot = usageLine(usage, liveModel());
       if (foot && !settled.node.querySelector(".msg-usage")) settled.node.append(foot);
+      settled = null;
       return;
     }
+    settled = null;
     assistantRow(content || "", usage, liveModel());
   }
 
@@ -458,13 +484,15 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
    * have seen, from the result text itself, so a reload of a finished conversation reads the same. A turn's
    * `stall` and `nudge` are transient and nothing saves them; the tool message is what is kept.
    */
-  function toolResult(id, name, result) {
+  function toolResult(id, name, content) {
+    const result = contentText(content);
     const failed = /^error:/i.test(result || "");
     const card = id ? root.querySelector(`${OWN_CARD}[data-tool="${cssEscape(id)}"]`) : null;
     if (!card) {
       const cancelled = NUDGE_CANCELLED.test(result || "");
       const node = toolCard({ id, name, args: {} }, false, !live && !pendingRow);
       node.append(...resultSection(result || "", failed && !cancelled));
+      if (hasMedia(content)) node.append(...renderContent(content.filter((p) => p.type !== "text")));
       node.classList.toggle("is-bad", failed && !cancelled);
       node.classList.toggle("is-cancelled", cancelled);
       node.querySelector(".tool-status").textContent = cancelled ? "cancelled" : failed ? "failed" : "done";
@@ -479,6 +507,7 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     const since = Number(card.dataset.since);
     if (since) card.querySelector(".tool-took").textContent = fmtDuration(Date.now() - since);
     card.append(...resultSection(result || "", failed && !cancelled, cancelled ? "why it was cancelled" : undefined));
+    if (hasMedia(content)) card.append(...renderContent(content.filter((p) => p.type !== "text")));
     card.open = false;
     catchUp();
   }
@@ -675,7 +704,7 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
         break;
       }
       case "message":
-        if (event.message?.role === "assistant" && event.message.content?.trim()) block.lastReply = event.message.content;
+        if (event.message?.role === "assistant" && contentText(event.message.content).trim()) block.lastReply = contentText(event.message.content);
         break;
       case "error":
         endBlock(block, event.code === "cancelled" ? "stopped" : "failed");
@@ -687,7 +716,7 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
         break;
     }
     build(block);
-    block.nested.applyEvent(event, message.input);
+    block.nested.applyEvent(event, message.input, message.messages);
   }
 
   /** Opens a child's block (building its rows first when they waited), scrolls it to the centre, and flashes it. The block, or null. */
@@ -712,7 +741,7 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
 
   /** A restored spawn result: the block for that child, its state from the record, folded; rows on first open. */
   function restoredAgent(message) {
-    const parsed = parseSpawnResult(message.content);
+    const parsed = parseSpawnResult(contentText(message.content));
     const { label, body, kind } = parsed;
     let id = parsed.id;
     let block = byCall.get(message.toolCallId) ?? (id ? byAgent.get(id) : null);
@@ -723,7 +752,7 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     if (!block) block = agentBlock({ id, task: child?.task || "", label: child?.label || label, restoring: true });
     if (id && !block.id) bind(block, id);
     const outcome = kind;
-    if (child) block.lastReply = [...(child.conversation ?? [])].reverse().find((m) => m.role === "assistant" && m.content?.trim())?.content ?? "";
+    if (child) block.lastReply = contentText([...(child.conversation ?? [])].reverse().find((m) => m.role === "assistant" && contentText(m.content).trim())?.content);
     if (child) {
       const tally = tallyRecord(child);
       block.steps = tally.steps;
@@ -808,17 +837,18 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     }
     if (message.role === "tool") {
       if (message.name === SPAWN_TOOL && restoredAgent(message)) return;
-      if (rendered({ type: "tool.result", id: message.toolCallId, name: message.name, result: message.content }, true)) return;
+      if (rendered({ type: "tool.result", id: message.toolCallId, name: message.name, result: contentText(message.content), content: message.content }, true)) return;
       return toolResult(message.toolCallId, message.name, message.content);
     }
-    if (message.content) note(message.content);
+    if (contentText(message.content)) note(contentText(message.content));
   }
 
   /** One live turn event. `input` accompanies `turn.start`. */
-  function applyEvent(event, input) {
+  function applyEvent(event, input, messages) {
     switch (event.type) {
       case "turn.start":
         if (pendingRow) settleLocal();
+        else if (messages) { for (const message of messages) drawMessage(message); }
         else if (input) userRow(input);
         break;
       case "text": {
@@ -828,6 +858,20 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
         const delta = event.delta || "";
         bubble.text += delta;
         bubble.textNode.appendData(delta); // one text node grown in place, not the whole reply set again per token
+        catchUp();
+        break;
+      }
+      case "content.start":
+      case "content.delta":
+      case "content.end": {
+        settleThinking();
+        if (!rich) rich = { node: row("assistant", el("div", { class: "msg-text" })), parts: new Map() };
+        if (event.part) rich.parts.set(event.part.id, structuredClone(event.part));
+        else {
+          const part = rich.parts.get(event.partId);
+          if (part?.type === "text" && typeof event.delta === "string") part.data.text += event.delta;
+        }
+        clear(rich.node.querySelector(".msg-text")).append(...renderContent([...rich.parts.values()]));
         catchUp();
         break;
       }
@@ -850,7 +894,7 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
       case "tool.result":
         if ((event.name === SPAWN_TOOL || byCall.has(event.id)) && agentResult(event)) break;
         if (rendered(event, false)) break;
-        toolResult(event.id, event.name, event.result);
+        toolResult(event.id, event.name, event.content ?? event.result);
         break;
       case "stall":
         settleThinking();
@@ -900,7 +944,10 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
       // turn was running, and the copy stayed there until the next reload. The input is drawn here only
       // when the record does not carry it — a turn whose opening save has not landed, or a record written
       // by an older kernel — so nothing the person said is ever lost either.
-      if (!carriesTurnInput(record)) userRow(record.turn.input);
+      if (!carriesTurnInput(record)) {
+        if (record.turn.messages) for (const message of record.turn.messages) drawMessage(message);
+        else userRow(record.turn.input);
+      }
       for (const { event } of record.turn.events ?? []) applyEvent(event);
     }
     bindRunningChildren();

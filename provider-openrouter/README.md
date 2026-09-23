@@ -109,3 +109,7 @@ Reasoning tokens are output tokens: they count against `defaults.max_tokens` and
 ## Tests
 
 `npm test` from the runtime root builds every package and runs `test/retry.test.ts` and `test/bounds.test.ts` with `node --test`. Nothing in the tests reaches the network: the bounds are tested against a server on `127.0.0.1` that is written to behave the way the wedged one did.
+
+## Content parts
+
+The runtime 0.2 contract uses ordered content parts. This adapter sends user text, image assets, audio assets and PDFs through the per-call asset context. Unsupported kinds, roles and generated-media streams fail explicitly. Modality conversion lives in `src/content.ts`; the runtime retains unknown kinds for other providers. See the runtime `docs/content.md` guide for input shapes and supported formats.

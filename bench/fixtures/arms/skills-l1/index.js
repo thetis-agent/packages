@@ -1,3 +1,4 @@
+import { contentText } from "@thetis/runtime/lib/content";
 // Names and descriptions in the prompt, bodies behind a tool. Nothing is in hand until the model asks for it,
 // so this mechanism trades a round trip for a prompt that stays small however large the corpus grows.
 import { loadCorpus, mark, KEY } from "./lib/shared.js";
@@ -33,7 +34,7 @@ export async function benchReport(ctx) {
   const loaded = new Set();
   for (const message of ctx.conversation) {
     if (message.role !== "tool" || message.name !== "load_skill") continue;
-    for (const record of corpus.records) if (message.content.includes(record.canary)) loaded.add(record.id);
+    for (const record of corpus.records) if (contentText(message.content).includes(record.canary)) loaded.add(record.id);
   }
   return mark(ctx, SELF, undefined, {
     direct: [...loaded],

@@ -103,3 +103,35 @@ test("opening a finished descendant fetches and draws the history missing from i
   await new Promise((resolve) => setImmediate(resolve));
   assert.match(child.querySelector(".agent-body").textContent, /full research history/);
 });
+
+test("structured image and unknown content render live and after restoring the record", () => {
+  const parent = new FakeNode("section");
+  const root = new FakeNode("div");
+  parent.append(root);
+  const transcript = mountTranscript(root, { session: "s_1" });
+  const image = { id: "photo", type: "asset", data: { id: "a_123", mediaType: "image/png", name: "photo.png" } };
+  const opaque = { id: "mesh", type: "@example/mesh.v1", data: { vertices: [1, 2], extra: null } };
+  const content = [{ type: "text", data: { text: "Look at this" } }, image, opaque];
+  const conversation = [{ role: "user", content }, { role: "assistant", content: [opaque] }];
+  transcript.restore({ id: "s_1", conversation, children: [], usage: {}, turn: null });
+  assert.equal(root.querySelectorAll("img.content-media").length, 1);
+  assert.equal(root.querySelector("img.content-media").getAttribute("src"), "api/media/a_123");
+  assert.equal(root.querySelectorAll("details.content-unknown").length, 2);
+  assert.match(root.textContent, /Look at this/);
+  transcript.reset();
+  transcript.applyEvent({ type: "turn.start" }, "Look at this", [conversation[0]]);
+  transcript.applyEvent({ type: "content.start", messageId: "m", part: { ...opaque, data: null } });
+  transcript.applyEvent({ type: "content.end", messageId: "m", part: opaque });
+  transcript.applyEvent({ type: "message", message: conversation[1] });
+  assert.equal(root.querySelectorAll("img.content-media").length, 1);
+  assert.equal(root.querySelectorAll("details.content-unknown").length, 2, "the final message replaces the streamed preview");
+});
+
+test("two media-only inputs are distinguished by their parts when restoring a running turn", () => {
+  const previous = { role: "user", content: [{ type: "asset", data: { id: "a_first", mediaType: "image/png", name: "first.png" } }] };
+  const current = { role: "user", content: [{ type: "asset", data: { id: "a_second", mediaType: "image/png", name: "second.png" } }] };
+  const record = { id: "s_1", conversation: [previous], children: [], usage: {}, turn: { input: "", messages: [current], events: [] } };
+  assert.deepEqual(drawn(record), ["first.png", "second.png"]);
+  record.conversation.push(current);
+  assert.deepEqual(drawn(record), ["first.png", "second.png"], "a saved input is drawn only once");
+});

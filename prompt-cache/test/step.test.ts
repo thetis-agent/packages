@@ -1,3 +1,4 @@
+import { textContent } from "@thetis/runtime/lib/content";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { PackageStepContext, ProviderCall } from "@thetis/runtime/contracts";
@@ -6,7 +7,7 @@ import { HARNESS_KEY, affinityOf, cacheHints } from "../src/step.js";
 import type { CacheDiagnostics } from "../src/fingerprint.js";
 import type { CacheHint } from "../src/policy.js";
 
-const call = (messages: string[], system = "sys"): ProviderCall => ({ model: "anthropic/claude-sonnet-5", system, messages: messages.map((content) => ({ role: "user" as const, content })), tools: [], params: {} });
+const call = (messages: string[], system = "sys"): ProviderCall => ({ model: "anthropic/claude-sonnet-5", system, messages: messages.map((content) => ({ role: "user" as const, content: textContent(content) })), tools: [], params: {} });
 
 const ctx = (c: ProviderCall, harness: Record<string, unknown> = {}, config: Record<string, unknown> = {}): PackageStepContext =>
   ({ session: { id: "s1", user: "alice" }, turn: { id: "t1", input: [] }, conversation: c.messages, call: c, harness, packages: { has: () => false, get: () => undefined, list: () => [] }, env: {} as never, config, emit: () => {}, signal: new AbortController().signal }) as PackageStepContext;

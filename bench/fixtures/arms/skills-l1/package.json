@@ -50,5 +50,8 @@
       "importer": "importCorpus",
       "adapter": "benchReport"
     }
+  },
+  "peerDependencies": {
+    "@thetis/runtime": "^0.2.0"
   }
 }

@@ -1,3 +1,4 @@
+import { contentText } from "@thetis/runtime/lib/content";
 // Briefs always, a few cards retrieved for the conversation, the rest behind search and fetch. The retrieval
 // runs once, on the first user message, and the result is pinned in the harness by id and content hash, so
 // the prompt prefix does not move on later turns; a pack update mid-conversation re-renders a pinned card
@@ -18,7 +19,7 @@ const section = (heading, skills) => `${heading}\n\n${skills.map((s) => `## ${s.
 /** The first user message of the conversation, as the ranker sees it. */
 export function queryOf(ctx) {
   const first = (ctx.conversation ?? []).find((m) => m?.role === "user");
-  const content = typeof first?.content === "string" ? first.content : Array.isArray(first?.content) ? first.content.map((p) => (typeof p === "string" ? p : p?.text ?? "")).join("\n") : "";
+  const content = contentText(first?.content);
   return queryTextOf(content);
 }
 

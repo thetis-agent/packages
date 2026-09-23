@@ -1,3 +1,4 @@
+import { textContent, contentText } from "@thetis/runtime/lib/content";
 import { test, after } from "node:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -23,17 +24,17 @@ function ctxWith(over: Partial<PackageStepContext> = {}): PackageStepContext {
     emit: () => {},
     signal: new AbortController().signal,
     session: { id: "s1", user: "alice" },
-    turn: { id: "t1", input: [{ role: "user", content: "hi" }] },
+    turn: { id: "t1", input: [{ role: "user", content: textContent("hi") }] },
     conversation: [
-      { role: "user", content: "hi" },
-      { role: "assistant", content: "hello" },
+      { role: "user", content: textContent("hi") },
+      { role: "assistant", content: textContent("hello") },
     ],
     call: {
       model: "vendor/model",
       system: "You are Thetis.",
       messages: [
-        { role: "user", content: "hi" },
-        { role: "assistant", content: "hello" },
+        { role: "user", content: textContent("hi") },
+        { role: "assistant", content: textContent("hello") },
       ],
       tools: [
         { name: "greet", description: "hi", parameters: {}, package: "@thetis/greet", export: "greet" },
@@ -124,11 +125,11 @@ test("turnContext ends the turn's input with a dated line, once, and leaves the 
   const once = await turnContext(ctx);
   assert.deepEqual(Object.keys(once!), ["conversation"]);
   const [first, reply] = once!.conversation!;
-  assert.match(first.content, /^hi\n\n\[Turn context: [A-Z][a-z]+day \d{4}-\d{2}-\d{2} \d{2}:\d{2} Europe\/Berlin\]$/);
+  assert.match(contentText(first.content), /^hi\n\n\[Turn context: [A-Z][a-z]+day \d{4}-\d{2}-\d{2} \d{2}:\d{2} Europe\/Berlin\]$/);
   assert.deepEqual(reply, ctx.conversation[1], "the messages after the input are untouched");
   assert.equal(await turnContext({ ...ctx, conversation: once!.conversation! }), undefined, "an input that already carries the line is left alone");
   assert.equal(await turnContext({ ...ctx, config: { turnContext: false } }), undefined, "switched off, the step returns nothing");
-  assert.ok(TURN_CONTEXT.test(first.content));
+  assert.ok(TURN_CONTEXT.test(contentText(first.content)));
 });
 
 test("turnContextLine writes the weekday, the date, the time and the zone, and a bad zone falls back to UTC", () => {
@@ -160,7 +161,7 @@ function loopCtx(script: Script, over: { tools?: ToolSpec[]; hints?: Record<stri
   const hidden = { name: "@a/p", version: "1", type: "tool", description: "", root: "", thetis: { type: "tool", tools: [{ name: "hidden_tool", description: "Hidden.", parameters: { type: "object", properties: {} }, export: "run" }] } } as unknown as PackageInfo;
   const list = over.packages ?? [hidden];
   const ctx = ctxWith({
-    conversation: [{ role: "user", content: "go" }],
+    conversation: [{ role: "user", content: textContent("go") }],
     call: { model: "m", messages: [], tools: over.tools ?? [], params: {}, ...(over.hints ? { hints: over.hints } : {}) },
     harness: {},
     packages: { has: (n) => list.some((p) => p.name === n), get: (n) => list.find((p) => p.name === n), list: () => list },
@@ -183,7 +184,7 @@ function loopCtx(script: Script, over: { tools?: ToolSpec[]; hints?: Record<stri
   return { ctx, events, invoked, configs };
 }
 
-const toolResults = (conversation: Message[] | undefined) => (conversation ?? []).filter((m) => m.role === "tool").map((m) => [m.name, m.content]);
+const toolResults = (conversation: Message[] | undefined) => (conversation ?? []).filter((m) => m.role === "tool").map((m) => [m.name, contentText(m.content)]);
 
 test("callModel: a call to a tool the call withheld is resolved against the installed packages and run under its own package; an unknown name stays refused", async () => {
   const script: Script = async (round, _call, onEvent) => {
@@ -197,7 +198,7 @@ test("callModel: a call to a tool the call withheld is resolved against the inst
   assert.deepEqual(configs, ["@a/p"]);
   assert.deepEqual(toolResults(out.conversation), [["hidden_tool", "ran hidden_tool"], ["never_declared", "error: unknown tool: never_declared"]]);
   assert.deepEqual(out.conversation!.map((m) => m.role), ["user", "assistant", "tool", "assistant", "tool", "assistant"]);
-  assert.equal(out.conversation!.at(-1)!.content, "done");
+  assert.equal(contentText(out.conversation!.at(-1)!.content), "done");
   assert.deepEqual(out.call!.messages, out.conversation, "the call started from the conversation and grew with it");
   assert.deepEqual(events.filter((e) => e.type !== "context.updated").map((e) => e.type), ["tool.call", "message", "tool.result", "tool.call", "message", "tool.result", "text", "message"]);
   assert.ok(!events.some((e) => e.type === "error"), "an unknown tool is the model's problem, not the turn's");
@@ -228,8 +229,8 @@ test("callModel: cancel mid-stream keeps the partial text, emits no error, and r
   const { ctx, events } = loopCtx(script, { signal: control.signal });
   const out = await callModel(ctx);
   assert.deepEqual(out.conversation, [
-    { role: "user", content: "go" },
-    { role: "assistant", content: "one two " },
+    { role: "user", content: textContent("go") },
+    { role: "assistant", content: textContent("one two ") },
   ]);
   assert.deepEqual(events.filter((e) => e.type !== "context.updated").map((e) => e.type), ["text", "text"], "no error event: the kernel produces the one cancelled error");
 });
@@ -267,8 +268,8 @@ test("callModel: a cancel during a tool that ignores its signal returns at once,
   assert.equal(invoked.length, 1);
   assert.equal(finished, false, "the tool is still running; its outcome is dropped");
   assert.deepEqual(out.conversation!.slice(1), [
-    { role: "assistant", content: "running ", toolCalls: [{ id: "c1", name: "t", args: {} }] },
-    { role: "tool", content: "error: the turn was stopped before this tool ran", toolCallId: "c1", name: "t" },
+    { role: "assistant", content: textContent("running "), toolCalls: [{ id: "c1", name: "t", args: {} }] },
+    { role: "tool", content: textContent("error: the turn was stopped before this tool ran"), toolCallId: "c1", name: "t" },
   ]);
   assert.ok(!events.some((e) => e.type === "error" || e.type === "tool.result"));
   await new Promise((r) => setTimeout(r, 250));
@@ -281,15 +282,15 @@ test("callModel: a tool call id an earlier turn already answered is still closed
   const spec = { name: "t", description: "", parameters: {}, package: "@a/p", export: "t" };
   const { ctx } = loopCtx(script, { tools: [spec], signal: control.signal, invoke: () => new Promise(() => {}) });
   ctx.conversation = [
-    { role: "user", content: "earlier" },
-    { role: "assistant", content: "", toolCalls: [{ id: "c1", name: "t", args: {} }] },
-    { role: "tool", content: "done", toolCallId: "c1", name: "t" },
-    { role: "assistant", content: "ok" },
-    { role: "user", content: "go" },
+    { role: "user", content: textContent("earlier") },
+    { role: "assistant", content: textContent(""), toolCalls: [{ id: "c1", name: "t", args: {} }] },
+    { role: "tool", content: textContent("done"), toolCallId: "c1", name: "t" },
+    { role: "assistant", content: textContent("ok") },
+    { role: "user", content: textContent("go") },
   ];
   setTimeout(() => control.abort(), 10);
   const out = await callModel(ctx);
-  assert.deepEqual(out.conversation!.slice(-2).map((m) => [m.role, m.content]), [["assistant", ""], ["tool", "error: the turn was stopped before this tool ran"]]);
+  assert.deepEqual(out.conversation!.slice(-2).map((m) => [m.role, contentText(m.content)]), [["assistant", ""], ["tool", "error: the turn was stopped before this tool ran"]]);
 });
 
 test("callModel: a provider failure keeps the tool call and its result, keeps the partial text, drops the tool call that came with the failure, and emits one provider error", async () => {
@@ -305,8 +306,8 @@ test("callModel: a provider failure keeps the tool call and its result, keeps th
   const { ctx, events } = loopCtx(script, { tools: [spec], invoke: async (c) => ({ got: c.args }) });
   const out = await callModel(ctx);
   assert.deepEqual(out.conversation!.map((m) => m.role), ["user", "assistant", "tool", "assistant"]);
-  assert.equal(out.conversation![2].content, JSON.stringify({ got: { n: 1 } }), "an object result is JSON");
-  assert.deepEqual(out.conversation![3], { role: "assistant", content: "partial" }, "the text streamed before the failure is kept; the tool call that came with it is not");
+  assert.equal(contentText(out.conversation![2].content), JSON.stringify({ got: { n: 1 } }), "an object result is JSON");
+  assert.deepEqual(out.conversation![3], { role: "assistant", content: textContent("partial") }, "the text streamed before the failure is kept; the tool call that came with it is not");
   const errors = events.filter((e) => e.type === "error");
   assert.deepEqual(errors, [{ type: "error", message: "provider error: the provider gave up", code: "provider" }]);
   assert.equal(out.call!.messages.length, 3, "the call carries what the provider accepted: the request, the reply, the tool result");
@@ -325,7 +326,7 @@ test("callModel: a provider the kernel cannot reach is a provider failure too; a
   const coded = loopCtx(async (round, _c, onEvent) => (round === 1 ? onEvent({ type: "tool_call", call: { id: "c1", name: "t", args: {} } }) : onEvent({ type: "text", delta: "on" })), { tools: [spec], invoke: async () => { throw Object.assign(new Error("x"), { code: "other" }); } });
   const failed = await callModel(coded.ctx);
   assert.deepEqual(toolResults(failed.conversation), [["t", "error: x"]], "only code cancelled stops the loop; any other coded error is the tool's result");
-  assert.equal(failed.conversation!.at(-1)!.content, "on");
+  assert.equal(contentText(failed.conversation!.at(-1)!.content), "on");
 });
 
 test("callModel: a tool that throws yields error: <message>, emitted as its result, and the loop continues", async () => {
@@ -337,8 +338,8 @@ test("callModel: a tool that throws yields error: <message>, emitted as its resu
   const { ctx, events } = loopCtx(script, { tools: [spec], invoke: async () => { throw new Error("boom"); } });
   const out = await callModel(ctx);
   assert.deepEqual(toolResults(out.conversation), [["t", "error: boom"]]);
-  assert.deepEqual(events.find((e) => e.type === "tool.result"), { type: "tool.result", id: "c1", name: "t", result: "error: boom" });
-  assert.equal(out.conversation!.at(-1)!.content, "after");
+  assert.deepEqual(events.find((e) => e.type === "tool.result"), { type: "tool.result", id: "c1", name: "t", result: "error: boom", content: textContent("error: boom") });
+  assert.equal(contentText(out.conversation!.at(-1)!.content), "after");
 });
 
 test("callModel: reasoning is forwarded as its own event and is in no message", async () => {
@@ -351,7 +352,7 @@ test("callModel: reasoning is forwarded as its own event and is in no message", 
   const out = await callModel(ctx);
   assert.deepEqual(events.filter((e) => e.type !== "context.updated").map((e) => e.type), ["reasoning", "reasoning", "text", "message"], "each chunk is relayed as it arrives, in order");
   assert.deepEqual(events.filter((e) => e.type === "reasoning").map((e) => (e as { delta: string }).delta), ["let me ", "think"]);
-  assert.equal(out.conversation!.at(-1)!.content, "the answer", "the thinking is not part of the reply");
+  assert.equal(contentText(out.conversation!.at(-1)!.content), "the answer", "the thinking is not part of the reply");
   assert.ok(!JSON.stringify(out.conversation).includes("think"), "and nothing of it is kept in the conversation");
 });
 
@@ -361,9 +362,9 @@ test("callModel: usage rides on the message event and is emitted on its own; a c
     onEvent({ type: "usage", usage: { input: 3, output: 1 } });
   };
   const { ctx, events } = loopCtx(script);
-  ctx.call.messages = [{ role: "system", content: "shaped" }, { role: "user", content: "go" }];
+  ctx.call.messages = [{ role: "system", content: textContent("shaped") }, { role: "user", content: textContent("go") }];
   const out = await callModel(ctx);
-  assert.equal(out.conversation!.at(-1)!.content, "saw 2");
+  assert.equal(contentText(out.conversation!.at(-1)!.content), "saw 2");
   assert.deepEqual(out.call!.messages.map((m) => m.role), ["system", "user", "assistant"]);
   assert.deepEqual(events.filter((e) => e.type !== "context.updated").map((e) => e.type), ["text", "usage", "message"]);
   assert.deepEqual((events.find((e) => e.type === "message") as { usage?: unknown }).usage, { input: 3, output: 1 });
@@ -417,4 +418,32 @@ test("context keeps reported usage when a later request fails or is cancelled", 
     assert.deepEqual(saved.usage[0].usage, { cost: 0.04, prompt_tokens: 123 });
     assert.equal(saved.usage[0].status, cancelled ? "cancelled" : "failed");
   }
+});
+
+test("rich tool output and unfamiliar provider parts survive the loop without text coercion", async () => {
+  const opaque = { id: "mesh", type: "@example/mesh.v1", data: { vertices: [0, 1, 2], material: null } };
+  const toolParts = [{ type: "asset", data: { id: "a_example", mediaType: "image/png" } }, opaque];
+  const { ctx, events } = loopCtx(async (round, call, emit) => {
+    if (round === 1) return emit({ type: "tool_call", call: { id: "c", name: "rich", args: {} } });
+    assert.deepEqual(call.messages.at(-1)?.content, toolParts);
+    emit({ type: "text", delta: "before" });
+    emit({ type: "content.start", messageId: "response", part: { ...opaque, data: null } });
+    emit({ type: "content.delta", messageId: "response", partId: "mesh", delta: { chunk: 1 } });
+    emit({ type: "extension", name: "@example/progress", data: { done: null } });
+    emit({ type: "content.end", messageId: "response", part: opaque });
+    emit({ type: "text", delta: "after" });
+  }, { tools: [{ name: "rich", package: "@example/rich", export: "run", description: "", parameters: {} }], invoke: async () => ({ type: "tool-result", content: toolParts }) });
+  const result = await callModel(ctx);
+  const expected = [...textContent("before"), opaque, ...textContent("after")];
+  assert.deepEqual(result.conversation?.at(-1), { role: "assistant", id: "response", content: expected });
+  assert.deepEqual(events.find((e) => e.type === "tool.result"), { type: "tool.result", id: "c", name: "rich", result: "", content: toolParts });
+  assert.deepEqual(events.find((e) => e.type === "extension"), { type: "extension", name: "@example/progress", data: { done: null } });
+});
+
+test("turn context appends text while preserving the IDs and order of attached parts", async () => {
+  const content = [{ id: "photo", type: "asset", data: { id: "a_example", mediaType: "image/png" } }, { type: "@example/unknown", data: null }];
+  const result = await turnContext(ctxWith({ conversation: [{ role: "user", id: "input", content }] }));
+  assert.equal(result?.conversation?.[0].id, "input");
+  assert.deepEqual(result?.conversation?.[0].content.slice(0, 2), content);
+  assert.equal(result?.conversation?.[0].content[2].type, "text");
 });

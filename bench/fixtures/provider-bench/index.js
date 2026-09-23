@@ -47,7 +47,7 @@ export function createProvider(config) {
     spent() {
       return spent.usd;
     },
-    async *call(call) {
+    async *call(call, signal, context) {
       const at = parseAddress(call.model) ?? { run: "adhoc", arm: "adhoc", task: "adhoc", attempt: 0 };
       const key = `${at.run}/${at.arm}/${at.task}/${at.attempt}`;
       const round = rounds.get(key) ?? 0;
@@ -86,7 +86,7 @@ export function createProvider(config) {
         // The address rode in `call.model` so the query text could stay untouched. The real provider needs a
         // real model id, so it is put back here, at the only boundary that knows about both.
         const forwarded = { ...call, model: config.upstream.model };
-        for await (const event of upstream.call(forwarded)) {
+        for await (const event of upstream.call(forwarded, signal, context)) {
           if (event.type === "usage" && Number.isFinite(event.usage?.cost)) spent.usd += event.usage.cost;
           yield event;
         }

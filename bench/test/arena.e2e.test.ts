@@ -1,3 +1,4 @@
+import { contentText } from "@thetis/runtime/lib/content";
 // The arena through the real kernel, the real fence and the real agent. This is the test that proves the
 // whole mechanism: the bench phase runs when configured and never otherwise, the provider sees the assembled
 // call, and a package's claim is checked against what actually reached the prompt.
@@ -108,7 +109,7 @@ test("the query reaches the harness exactly as written, with the addressing in t
   assert.ok(messages.length > 0);
   const record = arena.kernel.sessions.inspect(arena.userOf("none"), messages.at(-1)!.id);
   assert.ok(
-    record.conversation.some((m) => m.role === "user" && m.content === task.query),
+    record.conversation.some((m) => m.role === "user" && contentText(m.content) === task.query),
     "no marker is added to the query: a retriever matches on this text",
   );
 });

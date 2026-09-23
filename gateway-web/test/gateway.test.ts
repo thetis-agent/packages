@@ -1,3 +1,4 @@
+import { contentText } from "@thetis/runtime/lib/content";
 // End-to-end through the door: one gateway per person on a unix socket, the login target, and a real
 // kernel with the echo provider fixture. Exercises sign-in, sessions and the event stream, the panel,
 // isolation between people, and finally the same path with the gateways running inside real fences.
@@ -398,7 +399,7 @@ test("the record a page refreshed mid-turn is given carries the turn in progress
   assert.equal(rec.turn!.input, asked);
   const last = rec.conversation.at(-1);
   assert.equal(last?.role, "user");
-  assert.equal(last?.content.replace(/\n\n\[Turn context: [^\n\]]*\]$/, ""), asked);
+  assert.equal(contentText(last?.content).replace(/\n\n\[Turn context: [^\n\]]*\]$/, ""), asked);
   await api(cookie, `/alice/api/sessions/${id}/cancel`, { method: "POST" });
 });
 
@@ -442,8 +443,8 @@ test("a subagent's turn is on the parent's stream, tagged with its parent, and t
   assert.equal(rec.status, "idle");
   assert.equal(rec.turn, null);
   assert.equal(rec.turns, 1);
-  assert.deepEqual(rec.conversation.map((m) => [m.role, m.content.replace(/\n\n\[Turn context: [^\n\]]*\]$/, "")]), [["user", "hello"], ["assistant", "echo: hello (t1)"]]);
-  assert.match(rec.conversation[0].content, /\n\n\[Turn context: \w+ \d{4}-\d{2}-\d{2} \d{2}:\d{2} [\w/]+\]$/, "the harness dated the input and the record keeps the line");
+  assert.deepEqual(rec.conversation.map((m) => [m.role, contentText(m.content).replace(/\n\n\[Turn context: [^\n\]]*\]$/, "")]), [["user", "hello"], ["assistant", "echo: hello (t1)"]]);
+  assert.match(contentText(rec.conversation[0].content), /\n\n\[Turn context: \w+ \d{4}-\d{2}-\d{2} \d{2}:\d{2} [\w/]+\]$/, "the harness dated the input and the record keeps the line");
   assert.deepEqual(rec.usage, {});
   const list = (await (await api(cookie, "/alice/api/sessions")).json()) as { id: string }[];
   assert.ok(list.some((s) => s.id === id) && !list.some((s) => s.id === childId), "the list still holds root conversations only");
@@ -947,4 +948,34 @@ test("inside the fences: the login target in the system userspace and alice's ga
   } finally {
     await new Promise<void>((done) => realDoor.close(() => done()));
   }
+});
+
+test("authenticated media and structured HTTP input retain attachments and isolate owners", async () => {
+  const cookie = await cookieFor("alice", "wonderland");
+  const bob = await cookieFor("bob", "builder");
+  const bytes = new Uint8Array([0, 255, 42]);
+  const upload = await api(cookie, "/alice/api/media?name=photo.png", { method: "POST", headers: { "content-type": "image/png" }, body: bytes });
+  assert.equal(upload.status, 201);
+  const asset = await upload.json() as { id: string; mediaType: string };
+  const read = await api(cookie, `/alice/api/media/${asset.id}`);
+  assert.equal(read.status, 200);
+  assert.deepEqual(new Uint8Array(await read.arrayBuffer()), bytes);
+  assert.equal((await api(bob, `/bob/api/media/${asset.id}`)).status, 404);
+  assert.equal((await api("", `/alice/api/media/${asset.id}`)).status, 401);
+  const unsafe = await api(cookie, "/alice/api/media", { method: "POST", headers: { "content-type": "text/html" }, body: "<script>bad()</script>" });
+  const unsafeAsset = await unsafe.json() as { id: string };
+  const download = await api(cookie, `/alice/api/media/${unsafeAsset.id}`);
+  assert.equal(download.headers.get("content-disposition"), "attachment");
+  const { id } = await (await api(cookie, "/alice/api/sessions", { method: "POST" })).json() as { id: string };
+  const attachment = { id: "photo", type: "asset", data: { id: asset.id, mediaType: asset.mediaType } };
+  const opaque = { id: "opaque", type: "@example/future.v1", data: { untouched: null } };
+  const content = [{ type: "text", data: { text: "rich?" } }, attachment, opaque];
+  const result = await turn(cookie, "alice", id, async () => {
+    const response = await api(cookie, `/alice/api/sessions/${id}/send`, { method: "POST", body: JSON.stringify({ input: { role: "user", content } }) });
+    assert.equal(response.status, 202);
+  });
+  assert.ok(!result.events.some((e) => e.type === "error"));
+  const rec = await (await api(cookie, `/alice/api/sessions/${id}`)).json() as { conversation: import("@thetis/runtime/contracts").Message[] };
+  assert.deepEqual(rec.conversation[0].content.slice(0, 3), content);
+  assert.deepEqual(rec.conversation[1].content, [attachment, opaque]);
 });

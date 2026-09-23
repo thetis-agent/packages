@@ -1,3 +1,4 @@
+import { contentText } from "@thetis/runtime/lib/content";
 // Rank first, inject a few, offer the rest behind a search tool. The only one of the three mechanisms that
 // makes a decision the harness can be held to, which is why it is the only one with a ranking to report.
 import { loadCorpus, mark, KEY } from "./lib/shared.js";
@@ -10,7 +11,7 @@ let idx = null;
 const indexOf = (corpus) => (idx ??= index(corpus.records));
 
 /** The first user message is the request; later turns keep the same pin so the prompt prefix stays cacheable. */
-const requestOf = (ctx) => ctx.conversation.find((m) => m.role === "user")?.content ?? "";
+const requestOf = (ctx) => contentText(ctx.conversation.find((m) => m.role === "user")?.content);
 
 export async function importCorpus(ctx) {
   const corpus = await loadCorpus(ctx.env);

@@ -1,3 +1,5 @@
+import { MAX_ASSET_BYTES } from "@thetis/runtime/lib/assets";
+import { contentText, normalizeTurnInput } from "@thetis/runtime/lib/content";
 // The HTTP surface of one person's gateway: static assets, a JSON API over the kernel's session calls,
 // and one Server-Sent Events stream per browser that carries every turn event of that person. The
 // gateway runs inside the person's own fence, so it holds that person's authority and nobody else's.
@@ -147,6 +149,19 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       req.on("close", () => abort.abort());
       return pump(res, await openStream(ctx, who!, seg[2], seg[3], seg[4], url.searchParams, abort.signal), abort.signal);
     }
+    if (seg[1] === "media" && seg.length === 2 && method === "POST") {
+      const bytes = await readBytes(req, MAX_ASSET_BYTES, "That attachment");
+      const mediaType = String(req.headers["content-type"] ?? "application/octet-stream").split(";")[0].trim();
+      const name = url.searchParams.get("name") ?? undefined;
+      return json(res, 201, await kernel.assets.put({ mediaType, name, data: bytes.toString("base64") }));
+    }
+    if (seg[1] === "media" && seg.length === 3 && method === "GET") {
+      const { asset, data } = await kernel.assets.read(seg[2]);
+      const inline = /^(image\/(png|jpeg|webp|gif)|audio\/(mpeg|mp3|wav|x-wav|ogg|flac|aac|mp4)|video\/(mp4|webm|ogg))$/.test(asset.mediaType);
+      res.writeHead(200, { "Content-Type": asset.mediaType, "Cache-Control": "no-store", "Content-Disposition": inline ? "inline" : "attachment", "Content-Security-Policy": "default-src 'none'; sandbox" });
+      res.end(Buffer.from(data, "base64"));
+      return;
+    }
     if (seg[1] === "me" && seg.length === 2 && method === "GET") return json(res, 200, { user, role: who!.role, avatar: avatarUrl(user) });
     if (seg[1] === "me" && seg[2] === "avatar" && seg.length === 3) {
       if (method === "GET") return sendAvatar(res, user);
@@ -204,8 +219,9 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       if (seg[3] === "send" && seg.length === 4 && method === "POST") {
         const body = await readJson(req);
         const text = typeof body.text === "string" ? body.text.trim() : "";
-        if (!text) throw new HttpError(400, "text is required");
-        const run = await hub.start(user, id, text, store.model(user, id));
+        if (body.input === undefined && !text) throw new HttpError(400, "text or input is required");
+        const input = body.input === undefined ? text : normalizeTurnInput(body.input);
+        const run = await hub.start(user, id, input, store.model(user, id));
         return json(res, 202, { session: id, startedAt: run.startedAt, model: run.model ?? null });
       }
       if (seg[3] === "model" && seg.length === 4 && method === "POST") {
@@ -366,7 +382,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       turns: rec.turns,
       status: rec.status,
       label: null,
-      task: withoutTurnContext(rec.conversation.find((m) => m.role === "user")?.content ?? turn?.input ?? ""),
+      task: withoutTurnContext(contentText(rec.conversation.find((m) => m.role === "user")?.content) || turn?.input || ""),
       conversation: rec.conversation,
       usage: store.usage(user, id),
       ...(cost !== undefined ? { cost } : {}),
@@ -379,7 +395,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
    * not in the saved conversation yet, so the running turn's `tool.result` events are read too.
    */
   function labelsOf(user: string, rec: SessionRecord): Map<string, string | null> {
-    const texts = rec.conversation.filter((m) => m.role === "tool").map((m) => m.content);
+    const texts = rec.conversation.filter((m) => m.role === "tool").map((m) => contentText(m.content));
     for (const { event } of hub.runningOf(user, rec.id)?.events ?? []) if (event.type === "tool.result") texts.push(event.result);
     const labels = new Map<string, string | null>();
     for (const text of texts) {

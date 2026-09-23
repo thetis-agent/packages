@@ -8,9 +8,12 @@
 | `step.start` | `step` | Before each step. |
 | `step.end` | `step`, `ms` | After each step. |
 | `text` | `delta` | For each text chunk from the provider. |
+| `content.start` / `content.end` | `messageId`, `part` with `id` | An ordered part starts or completes. End carries the full payload. |
+| `content.delta` | `messageId`, `partId`, `delta` | A JSON delta; consumers may retain just the final snapshot. |
+| `extension` | `name`, `data` | A namespaced transient package event. |
 | `reasoning` | `delta` | For each chunk of a reasoning model's thinking. Transient: it is in no message and in no saved conversation, so nothing replays it. |
 | `tool.call` | `call: { id, name, args }` | When the provider emits a tool call. |
-| `tool.result` | `id`, `name`, `result` | After the tool ran. |
+| `tool.result` | `id`, `name`, `content`, `result` (text preview) | After the tool ran. |
 | `message` | `message`, `usage?` | After each assistant message is complete. `usage` repeats the last usage the provider reported. |
 | `usage` | `usage` | When the provider reports token usage. |
 | `stall` | `what: { kind, id, name }`, `ms` | When a tool or the model stream has produced nothing for long enough to ask about. The work is still running. Transient. |
@@ -27,9 +30,14 @@ The usage fields `@thetis/provider-openrouter` reports: `prompt_tokens`, `comple
 The shapes:
 
 ```ts
+type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+interface ContentPart { id?: string; type: string; data: JsonValue }
+
 interface Message {
   role: "system" | "user" | "assistant" | "tool";
-  content: string;
+  id?: string;
+  content: ContentPart[];
+  extensions?: Record<string, JsonValue>;
   toolCalls?: { id: string; name: string; args: Record<string, unknown> }[]; // assistant only
   toolCallId?: string;  // tool only
   name?: string;        // tool only
@@ -63,6 +71,9 @@ type TurnEventNudge = {
 };
 
 type ProviderEvent =
+  | { type: "content.start" | "content.end"; messageId: string; part: ContentPart & { id: string } }
+  | { type: "content.delta"; messageId: string; partId: string; delta: JsonValue }
+  | { type: "extension"; name: string; data: JsonValue }
   | { type: "text"; delta: string }
   | { type: "reasoning"; delta: string }
   | { type: "tool_call"; call: { id: string; name: string; args: Record<string, unknown> } }
@@ -85,4 +96,6 @@ interface SessionRecord {
 }
 ```
 
-Sources: src/kernel/pipeline/runner.ts, the package that owns it, the package that owns it, packages/prompt-cache/README.md, packages/harness-core/README.md.
+Sources: src/contracts/content.ts, src/contracts/messages.ts, src/kernel/pipeline/runner.ts, docs/content.md, packages/prompt-cache/README.md, packages/harness-core/README.md.
+
+Text parts carry `{ type: "text", data: { text } }`; asset parts carry `{ type: "asset", data: { id, mediaType, name? } }`. Other namespaced types pass through unchanged. Use `env.kernel.assets.put` for bytes, then reference the returned ID. `sessions.complete` returns a Message; `askText` is an explicit text projection. Both accept text, one message, or a message array. Legacy strings normalize at API and persistence boundaries. Tools opt into parts with `{ type: "tool-result", content }`.

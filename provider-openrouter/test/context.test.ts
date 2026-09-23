@@ -1,3 +1,4 @@
+import { textContent } from "@thetis/runtime/lib/content";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -17,7 +18,7 @@ test("inspection capture matches the sent JSON after defaults, overrides and cac
   try {
     const provider = createProvider({ apiKey: "test-capture-key", headers: { "X-Private": "private-header" }, baseUrl: `http://127.0.0.1:${(server.address() as { port: number }).port}`, defaults: { temperature: 0.9, max_tokens: 1000 } });
     const events: ProviderEvent[] = [];
-    for await (const event of provider.call({ model: "anthropic/claude-sonnet-4", system: "Stable prompt", messages: [{ role: "user", content: "hello" }], tools: [], params: { temperature: 0.2 }, hints: { context: true } })) events.push(event);
+    for await (const event of provider.call({ model: "anthropic/claude-sonnet-4", system: "Stable prompt", messages: [{ role: "user", content: textContent("hello") }], tools: [], params: { temperature: 0.2 }, hints: { context: true } })) events.push(event);
     const capture = events[0];
     assert.equal(capture.type, "request");
     if (capture.type !== "request") throw new Error("missing capture");

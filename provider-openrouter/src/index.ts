@@ -1,7 +1,8 @@
+import { wireContent } from "./content.js";
 // OpenRouter provider: OpenAI-compatible chat completions with SSE streaming and tool calls.
 // Prompt caching is applied at the wire. The policy comes from this package's own `cache` config; a
 // `cache` hint on the call may tune it within the configured `hints` mode.
-import type { Message, ModelDescriptor, Provider, ProviderCall, ProviderEvent, ToolCall } from "@thetis/runtime/contracts";
+import type { Message, ModelDescriptor, Provider, ProviderCall, ProviderContext, ProviderEvent, ToolCall } from "@thetis/runtime/contracts";
 import { applyHint, applyOpenAiCompatible, normalizeUsage, readHint, resolvePolicy, type CacheConfig, type OpenAiWireMessage } from "@thetis/prompt-cache";
 
 export interface OpenRouterConfig {
@@ -80,11 +81,14 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
       return body.data.map((m) => ({ id: m.id, name: m.name }));
     },
 
-    async *call(call: ProviderCall, signal?: AbortSignal): AsyncIterable<ProviderEvent> {
+    async *call(call: ProviderCall, signal?: AbortSignal, context?: ProviderContext): AsyncIterable<ProviderEvent> {
       if (!apiKey) return yield { type: "error", message: "OpenRouter apiKey is not configured (set OPENROUTER_API_KEY)" };
+      let messages: WireMessage[];
+      try { messages = await toWire(call, context); }
+      catch (error) { return yield { type: "error", message: reason(error) }; }
       const body = {
         model: call.model,
-        messages: toWire(call),
+        messages,
         tools: call.tools.length ? call.tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } })) : undefined,
         stream: true,
         usage: { include: true },
@@ -143,7 +147,9 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
           if (chunk.error) return yield { type: "error", message: chunk.error.message ?? JSON.stringify(chunk.error) };
           if (typeof chunk.choices?.[0]?.finish_reason === "string") finish = chunk.choices[0].finish_reason;
           const delta = chunk.choices?.[0]?.delta;
-          if (delta?.content) yield { type: "text", delta: String(delta.content) };
+          if (typeof delta?.content === "string") yield { type: "text", delta: delta.content };
+          else if (delta?.content != null) return yield { type: "error", message: "OpenRouter returned an unsupported content delta" };
+          if (delta?.images || delta?.audio) return yield { type: "error", message: "This OpenRouter adapter does not yet decode generated image or audio streams" };
           // A reasoning model sends its thinking beside the answer, and two spellings are in the wild:
           // `reasoning`, which is OpenRouter's normalization, and `reasoning_content`, which is what DeepSeek
           // and llama.cpp emit and OpenRouter passes through for some upstreams. Take whichever came. It is
@@ -289,23 +295,24 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-function toWire(call: ProviderCall): WireMessage[] {
+async function toWire(call: ProviderCall, context?: ProviderContext): Promise<WireMessage[]> {
   const out: WireMessage[] = [];
   if (call.system) out.push({ role: "system", content: call.system });
-  for (const m of call.messages) out.push(messageToWire(m));
+  for (const m of call.messages) out.push(await messageToWire(m, context));
   return out;
 }
 
-function messageToWire(m: Message): WireMessage {
+async function messageToWire(m: Message, context?: ProviderContext): Promise<WireMessage> {
+  const content = await wireContent(m, context);
   if (m.role === "assistant" && m.toolCalls?.length) {
     return {
       role: "assistant",
-      content: m.content || null,
+      content: content || null,
       tool_calls: m.toolCalls.map((tc: ToolCall) => ({ id: tc.id, type: "function", function: { name: tc.name, arguments: JSON.stringify(tc.args) } })),
     };
   }
-  if (m.role === "tool") return { role: "tool", content: m.content, tool_call_id: m.toolCallId, name: m.name };
-  return { role: m.role, content: m.content };
+  if (m.role === "tool") return { role: "tool", content, tool_call_id: m.toolCallId, name: m.name };
+  return { role: m.role, content };
 }
 
 function parseArgs(raw: string): Record<string, unknown> {

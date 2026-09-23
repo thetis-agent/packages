@@ -330,7 +330,7 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel }) {
       if (!seen) {
         if (turn !== pane.drawn.turn) pane.drawn = { turn, seq: 0 };
         pane.drawn.seq = message.seq;
-        pane.transcript.applyEvent(message.event, message.input);
+        pane.transcript.applyEvent(message.event, message.input, message.messages);
       }
     } else pane.transcript.applyChild(message);
   }

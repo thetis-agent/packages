@@ -1,3 +1,4 @@
+import { contentText } from "@thetis/runtime/lib/content";
 // The nudge: what a turn does when something in it goes quiet, and the guarantee that it can never end up
 // stuck. The numbers here are the shipped ones divided by about a thousand, so a stall that takes two
 // minutes in production takes forty milliseconds in this file and the shapes are the same.
@@ -186,22 +187,22 @@ test("a quiet tool is asked about while it keeps running, and a continue lets it
 
   assert.equal(finished, true, "the tool was never touched; it ran to the end");
   assert.deepEqual(
-    out.conversation!.filter((m) => m.role === "tool").map((m) => m.content),
+    out.conversation!.filter((m) => m.role === "tool").map((m) => contentText(m.content)),
     ["build ok"],
     "a continued tool returns its own result, with nothing of the nudge in it",
   );
-  assert.equal(out.conversation!.at(-1)!.content, "built");
+  assert.equal(contentText(out.conversation!.at(-1)!.content), "built");
   assert.ok(!events.some((e) => e.type === "error"));
   // The question is asked about the work, not with the work: the turn's own conversation is never resent.
   assert.ok(nudgeCalls.length >= 2);
   for (const c of nudgeCalls) {
     assert.equal(c.messages.length, 1, "one message: the situation. The turn's prompt may be a million tokens.");
     assert.deepEqual(c.tools.map((t) => t.name), ["decide"]);
-    assert.match(c.messages[0].content, /The tool `build` has been running for/);
-    assert.match(c.messages[0].content, /npm run build/, "what it was called with, so the decision can be an informed one");
-    assert.match(c.messages[0].content, /The turn was asked to: build the thing$/m, "and what the person wanted, without the turn context line");
+    assert.match(contentText(c.messages[0].content), /The tool `build` has been running for/);
+    assert.match(contentText(c.messages[0].content), /npm run build/, "what it was called with, so the decision can be an informed one");
+    assert.match(contentText(c.messages[0].content), /The turn was asked to: build the thing$/m, "and what the person wanted, without the turn context line");
   }
-  assert.match(nudgeCalls[1].messages[0].content, /already been continued once/);
+  assert.match(contentText(nudgeCalls[1].messages[0].content), /already been continued once/);
 });
 
 test("a tool the model cancels comes back as a tool result that says so, and the turn carries on", async () => {
@@ -228,12 +229,12 @@ test("a tool the model cancels comes back as a tool result that says so, and the
 
   const result = out.conversation!.find((m) => m.role === "tool")!;
   assert.equal(result.toolCallId, "c1");
-  assert.match(result.content, /^error: `shell` was cancelled after running for /);
-  assert.match(result.content, /sleep 99999 will never finish/);
-  assert.match(result.content, /Do not issue the same call again unchanged/);
-  assert.deepEqual(firstOf(events, "tool.result")!.result, result.content, "the page sees exactly what the model sees");
+  assert.match(contentText(result.content), /^error: `shell` was cancelled after running for /);
+  assert.match(contentText(result.content), /sleep 99999 will never finish/);
+  assert.match(contentText(result.content), /Do not issue the same call again unchanged/);
+  assert.deepEqual(firstOf(events, "tool.result")!.content, result.content, "the page sees exactly what the model sees");
 
-  assert.equal(out.conversation!.at(-1)!.content, "I will try a smaller command.", "the loop went on: one tool was cancelled, not the turn");
+  assert.equal(contentText(out.conversation!.at(-1)!.content), "I will try a smaller command.", "the loop went on: one tool was cancelled, not the turn");
   assert.ok(!events.some((e) => e.type === "error"), "a cancelled tool is not a failed turn");
 });
 
@@ -252,8 +253,8 @@ test("a nudge nobody answers cancels by rule, and says in the event and to the m
   assert.match(nudge.why, /nobody could be asked whether to keep waiting/);
   assert.match(nudge.why, /no answer within 0s|no answer within/, "and what went wrong with the asking");
   assert.match(nudge.why, /an unanswered question cancels rather than waits/, "the rule itself, in words a person can read");
-  assert.match(out.conversation!.find((m) => m.role === "tool")!.content, /the question could not be answered, so the rule cancelled it/);
-  assert.equal(out.conversation!.at(-1)!.content, "understood");
+  assert.match(contentText(out.conversation!.find((m) => m.role === "tool")!.content), /the question could not be answered, so the rule cancelled it/);
+  assert.equal(contentText(out.conversation!.at(-1)!.content), "understood");
 });
 
 test("a nudge that fails every time is the same unanswerable case, and the failure is named", async () => {
@@ -320,8 +321,8 @@ test("nothing a watcher does can throw: the page going away neither kills the pr
   // The decision still lands and still acts, with nobody listening to any of it.
   const cancelling = deaf(harness({ script, tools: [tool("shell")], nudge: decides("cancel", "it will not finish"), invoke: () => new Promise(() => {}) }));
   const stopped = await within(3_000, callModel(cancelling.ctx));
-  assert.match(stopped.conversation!.find((m) => m.role === "tool")!.content, /was cancelled after running for/);
-  assert.equal(stopped.conversation!.at(-1)!.content, "understood");
+  assert.match(contentText(stopped.conversation!.find((m) => m.role === "tool")!.content), /was cancelled after running for/);
+  assert.equal(contentText(stopped.conversation!.at(-1)!.content), "understood");
 
   // And the asking is not stuck after one throw: the second question is put, and the tool that does
   // finish is left to finish, which is what a continue means.
@@ -330,7 +331,7 @@ test("nothing a watcher does can throw: the page going away neither kills the pr
   const out = await within(3_000, callModel(continuing.ctx));
   assert.ok(allOf(continuing.events, "stall").length >= 2, "a second question was put after the first throw");
   assert.equal(done, true);
-  assert.deepEqual(out.conversation!.filter((m) => m.role === "tool").map((m) => m.content), ["built"]);
+  assert.deepEqual(out.conversation!.filter((m) => m.role === "tool").map((m) => contentText(m.content)), ["built"]);
 });
 
 // ---- a model stream that goes quiet ----
@@ -361,8 +362,8 @@ test("a stream that opens and says nothing is asked about, and a cancel ends the
   assert.match(error.message, /it has sent nothing since the first few words/);
 
   assert.deepEqual(out.conversation!.map((m) => m.role), ["user", "assistant", "tool", "assistant"]);
-  assert.equal(out.conversation![2].content, "the file", "the tool round that was already done is kept");
-  assert.equal(out.conversation!.at(-1)!.content, "here is what I fou", "and so are the words that did arrive");
+  assert.equal(contentText(out.conversation![2].content), "the file", "the tool round that was already done is kept");
+  assert.equal(contentText(out.conversation!.at(-1)!.content), "here is what I fou", "and so are the words that did arrive");
 });
 
 test("a model call that never produces anything at all, with a provider that cannot be asked either, still ends", async () => {
@@ -392,7 +393,7 @@ test("the person's stop wins over a nudge in flight: the turn stops at once and 
   assert.ok(events.some((e) => e.type === "stall"), "the stall was announced before the person stopped it");
   assert.ok(!events.some((e) => e.type === "nudge"), "a decision about work the person already stopped is not worth announcing");
   assert.ok(!events.some((e) => e.type === "error"), "a stop is the kernel's one cancelled error, not this step's");
-  assert.equal(out.conversation!.at(-1)!.content, "error: the turn was stopped before this tool ran");
+  assert.equal(contentText(out.conversation!.at(-1)!.content), "error: the turn was stopped before this tool ran");
 });
 
 // ---- the guarantee ----
@@ -487,7 +488,7 @@ for (const fixture of GUARANTEE) {
     const nudge = firstOf(events, "nudge");
     assert.ok(nudge, "a stall reached a decision");
     assert.ok(nudge.why.trim().length > 0, "and the decision came with a reason");
-    const said = firstOf(events, "error")?.message ?? out.conversation!.filter((m) => m.role === "tool").map((m) => m.content).join(" ");
+    const said = firstOf(events, "error")?.message ?? out.conversation!.filter((m) => m.role === "tool").map((m) => contentText(m.content)).join(" ");
     assert.match(said, /cancelled/, "and the turn says out loud what was cancelled and why");
 
     // 4. Every wait in it was bounded, and each bound ended in a decision somebody or some rule made.

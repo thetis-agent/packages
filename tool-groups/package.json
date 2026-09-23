@@ -1,6 +1,6 @@
 {
   "name": "@thetis/tool-groups",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "MIT",
   "description": "Scopes the tool list to the groups a conversation looks like it needs: one group per package, routed once on the first message by tags, skill edges and a dense fallback, pinned for the conversation, and tool_search to load the rest.",
   "type": "module",
@@ -124,5 +124,8 @@
         }
       }
     }
+  },
+  "peerDependencies": {
+    "@thetis/runtime": "^0.2.0"
   }
 }

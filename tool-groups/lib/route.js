@@ -1,3 +1,4 @@
+import { contentText } from "@thetis/runtime/lib/content";
 // The routing decision, made once per conversation, and the prompt section that tells the model about it.
 // Three signals are unioned, not ranked, because they fail in different places: the always-on core, the
 // skill edges (a pinned or universal skill tagged `tool-group:<id>`), and the tag match on the first message.
@@ -34,7 +35,7 @@ export function configOf(config = {}) {
 /** The first user message of the conversation, as the router sees it. */
 export function queryOf(conversation, clean = (s) => s) {
   const first = (conversation ?? []).find((m) => m?.role === "user");
-  const content = typeof first?.content === "string" ? first.content : Array.isArray(first?.content) ? first.content.map((p) => (typeof p === "string" ? p : p?.text ?? "")).join("\n") : "";
+  const content = contentText(first?.content);
   return clean(content);
 }
 

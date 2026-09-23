@@ -1,3 +1,4 @@
+import { contentText } from "@thetis/runtime/lib/content";
 // Context snapshots live in the person's home beside the gateway's own UI records. Only the latest
 // request is kept; the small usage ledger survives reopening the page, failures and interrupted turns.
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -45,7 +46,7 @@ export class ContextRecorder {
   get lastCall(): LastCall | undefined { return this.snapshot.lastCall; }
 
   async start(call: ProviderCall): Promise<void> {
-    const system = [call.system ?? "", ...call.messages.filter((message) => message.role === "system").map((message) => message.content)].filter(Boolean).join("\n\n");
+    const system = [call.system ?? "", ...call.messages.filter((message) => message.role === "system").map((message) => contentText(message.content))].filter(Boolean).join("\n\n");
     this.snapshot.lastCall = {
       model: call.model, system, systemChars: system.length, tools: call.tools.map((t) => t.name),
       messages: call.messages.length, at: new Date().toISOString(), turn: this.ctx.turn.id,

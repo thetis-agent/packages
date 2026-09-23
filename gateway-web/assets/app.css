@@ -1645,3 +1645,7 @@ select.input { padding-right: 24px; }
   max-height: 14em;
   overflow-y: auto;
 }
+
+.content-media { display: block; max-width: 100%; max-height: 28rem; margin-block: .75rem; }
+.content-attachment { display: block; margin-block: .4rem; }
+.content-unknown pre { white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -46,7 +46,7 @@ Call `spawn_subagent` with `task` and a short `label` such as `research`. The to
 
 The subagent turn runs inside your tool call. Your turn waits. The default request timeout is 600000 milliseconds. Give a subagent a task that ends inside that time.
 
-Package code can do the same with `env.kernel.sessions.create(parentId)` and `env.kernel.sessions.ask(childId, text)`.
+Package code can do the same with `env.kernel.sessions.create(parentId)` and `env.kernel.sessions.askText(childId, text)`.
 
 ## The shell tools
 

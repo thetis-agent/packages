@@ -1,3 +1,4 @@
+import { textContent } from "@thetis/runtime/lib/content";
 // The two bounds on a request, against a real server that behaves the way the wedged one did: it accepts the
 // connection and then says nothing. Node's fetch has no timeout of its own, so before these bounds existed
 // this file's server would have held a turn open until something else killed it.
@@ -44,7 +45,7 @@ async function serving(how: Behaviour): Promise<{ url: string; close: () => Prom
   };
 }
 
-const CALL: ProviderCall = { model: "vendor/model", messages: [{ role: "user", content: "hi" }], tools: [], params: {} };
+const CALL: ProviderCall = { model: "vendor/model", messages: [{ role: "user", content: textContent("hi") }], tools: [], params: {} };
 
 async function collect(events: AsyncIterable<ProviderEvent>): Promise<ProviderEvent[]> {
   const out: ProviderEvent[] = [];

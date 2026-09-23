@@ -1,3 +1,4 @@
+import { textContent } from "@thetis/runtime/lib/content";
 // The gateway over a fake kernel: the session list is built from summaries without reading a record, the
 // hub picks up a turn the kernel replays on watch, the store keeps one file per conversation and migrates
 // the old single file, and the models answer is trimmed and served from a cache.
@@ -118,7 +119,7 @@ test("the hub carries a turn the kernel replays on watch: started when the kerne
   assert.equal(running[0].startedAt, "2026-01-01T00:00:00.000Z");
   assert.equal(running[0].input, "hello");
   assert.equal(running[0].events.length, 2);
-  deliver!({ session: "s_9", event: { type: "message", message: { role: "assistant", content: "hi" }, usage: { cost: 1 } } });
+  deliver!({ session: "s_9", event: { type: "message", message: { role: "assistant", content: textContent("hi") }, usage: { cost: 1 } } });
   deliver!({ session: "s_9", event: { type: "turn.end", turn: "t_1", session: "s_9" } });
   await new Promise((r) => setImmediate(r));
   assert.deepEqual(seen, ["1:turn.start", "2:text", "3:message", "4:turn.end"]);

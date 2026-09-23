@@ -95,7 +95,7 @@ export function contextViews(ext) {
 
 function contentText(content) {
   if (typeof content === "string") return content;
-  if (Array.isArray(content)) return content.map((b) => typeof b === "string" ? b : b?.text ?? `[${b?.type ?? "block"}]`).join("\n");
+  if (Array.isArray(content)) return content.map((b) => typeof b === "string" ? b : b?.text ?? (b?.type === "text" ? b.data?.text : undefined) ?? `[${b?.type ?? "block"}]`).join("\n");
   return content == null ? "" : JSON.stringify(content);
 }
 

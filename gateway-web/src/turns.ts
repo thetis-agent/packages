@@ -1,8 +1,9 @@
+import { contentText, normalizeTurnInput } from "@thetis/runtime/lib/content";
 // Runs turns in the background and fans their events out to every connected browser of the user.
 // A turn's events are buffered while it runs, so a page that connects mid-turn receives what it missed.
 // Turns the hub did not start (a subagent's, one sent from the command line) reach it through
 // `sessions.watch` and are carried the same way, stamped with the session's parent when it has one.
-import type { KernelClient, TurnEvent, WatchedTurnEvent } from "@thetis/runtime/contracts";
+import type { KernelClient, Message, TurnInput, TurnEvent, WatchedTurnEvent } from "@thetis/runtime/contracts";
 
 export interface NumberedEvent {
   seq: number;
@@ -16,6 +17,7 @@ export interface RunningTurn {
   /** The turn id, known after `turn.start`. */
   turn?: string;
   input: string;
+  messages?: Message[];
   /** The model the turn was asked for, when the person chose one. */
   model?: string;
   startedAt: string;
@@ -29,6 +31,7 @@ export interface TurnMessage extends NumberedEvent {
   turn?: string;
   /** Set on `turn.start` only: what the user sent, so another tab can draw it. */
   input?: string;
+  messages?: Message[];
 }
 
 export type Listener = (message: TurnMessage) => void;
@@ -56,12 +59,13 @@ export class TurnHub {
    * Starts a turn. Resolves once the kernel has emitted its first event; rejects with the kernel's own
    * error (code `busy`, `not-found`) when the turn cannot start, so nothing is recorded in that case.
    */
-  start(user: string, session: string, input: string, model?: string): Promise<RunningTurn> {
+  start(user: string, session: string, input: TurnInput, model?: string): Promise<RunningTurn> {
     const k = key(user, session);
     // A second sender must not clear ownership of the first sender's watch events when it is refused.
     if (this.mine.has(k) || this.running.has(k)) return Promise.reject(Object.assign(new Error(`session ${session} already has a turn in progress`), { code: "busy" }));
+    const messages = normalizeTurnInput(input);
     return new Promise((done, fail) => {
-      const run: RunningTurn = { session, input, model, startedAt: new Date().toISOString(), events: [] };
+      const run: RunningTurn = { session, input: messages.map((m) => contentText(m.content)).join("\n"), messages, model, startedAt: new Date().toISOString(), events: [] };
       let started = false;
       const begin = () => {
         if (started) return;
@@ -128,7 +132,7 @@ export class TurnHub {
     if (this.mine.has(k)) return;
     let run = this.running.get(k);
     if (m.event.type === "turn.start") {
-      run = { session: m.session, parent: m.parent, turn: m.event.turn, input: m.input ?? "", startedAt: m.startedAt ?? new Date().toISOString(), events: [] };
+      run = { session: m.session, parent: m.parent, turn: m.event.turn, input: m.input ?? "", messages: m.messages, startedAt: m.startedAt ?? new Date().toISOString(), events: [] };
       this.running.set(k, run);
     }
     if (!run) return;
@@ -151,7 +155,10 @@ export class TurnHub {
     run.events.push(numbered);
     const message: TurnMessage = { ...numbered, session: run.session, turn: run.turn };
     if (run.parent) message.parent = run.parent;
-    if (event.type === "turn.start") message.input = run.input;
+    if (event.type === "turn.start") {
+      message.input = run.input;
+      message.messages = run.messages;
+    }
     for (const fn of this.listeners.get(user) ?? []) {
       try {
         fn(message);

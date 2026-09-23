@@ -1,6 +1,6 @@
 {
   "name": "@thetis/gateway-web",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "license": "MIT",
   "description": "Your browser interface: conversations, the transcript, and the control panel, served from your own space.",
   "type": "module",
@@ -10,7 +10,7 @@
   },
   "peerDependencies": {
     "@thetis/harness-core": "^0.3.1",
-    "@thetis/runtime": "^0.1.0"
+    "@thetis/runtime": "^0.2.0"
   },
   "devDependencies": {
     "@thetis/harness-core": "^0.3.1",
