@@ -2,7 +2,7 @@
 // in the tool segment); `expected` is what the task names; `alwaysOn` is what every arm carries for every task
 // and is therefore left out of precision. The numbers are the predecessor's: recall and precision over the
 // routable groups, their F1, and whether the routing produced nothing at all for a query that needed something.
-import type { CapabilityRecord } from "@thetis/contracts";
+import type { CapabilityRecord } from "@thetis/runtime/contracts";
 
 export interface Routing {
   alwaysOn: Set<string>;

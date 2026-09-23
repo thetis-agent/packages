@@ -1,6 +1,6 @@
 // ssh grants: what a grant list looks like when it arrives, what the host holds at each key's path now,
 // and the keys the host makes or takes in for one person. The store itself is the kernel's record
-// (`env.records.ssh`); `knownHostsOf`, which the fence uses, stays in @thetis/lib.
+// (`env.records.ssh`); `knownHostsOf`, which the fence uses, stays in @thetis/runtime/lib.
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";

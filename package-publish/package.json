@@ -8,11 +8,9 @@
   "scripts": {
     "test": "node --test \"test/*.test.js\""
   },
-  "dependencies": {
-    "@thetis/lib": "^0.3.0"
-  },
   "devDependencies": {
-    "@thetis/marketplace": "^0.3.0"
+    "@thetis/marketplace": "^0.4.0",
+    "@thetis/runtime": "file:../.."
   },
   "thetis": {
     "type": "tool",
@@ -80,5 +78,8 @@
         }
       }
     ]
+  },
+  "peerDependencies": {
+    "@thetis/runtime": "^0.1.0"
   }
 }

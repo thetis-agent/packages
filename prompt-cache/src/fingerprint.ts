@@ -3,7 +3,7 @@
 // and each outgoing message; the next turn checks that the previous call is still a prefix.
 
 import { createHash } from "node:crypto";
-import type { ProviderCall } from "@thetis/contracts";
+import type { ProviderCall } from "@thetis/runtime/contracts";
 
 export interface Fingerprint {
   head: string;

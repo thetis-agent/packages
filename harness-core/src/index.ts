@@ -5,7 +5,7 @@
 // packages are a tool (`list_packages` in @thetis/tool-exec), each paid for on the turns that want it.
 // The prompt names no session id, so a subagent's prompt is byte-identical to its parent's apart from one
 // line, and the provider cache the parent warmed serves the child.
-import type { HarnessState, Message, PackageInfo, PackageStepContext, ProviderCall, ProviderEvent, StepResult, ToolCall, ToolSpec, TurnEvent } from "@thetis/contracts";
+import type { HarnessState, Message, PackageInfo, PackageStepContext, ProviderCall, ProviderEvent, StepResult, ToolCall, ToolSpec, TurnEvent } from "@thetis/runtime/contracts";
 import { ContextRecorder } from "./context.js";
 
 /** The key this package keeps its per-session state under; other packages read it by name. */

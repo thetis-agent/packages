@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { KernelClient, ToolEnv } from "@thetis/contracts";
+import type { KernelClient, ToolEnv } from "@thetis/runtime/contracts";
 import { spawnSubagent } from "../src/index.js";
 
 test("stopping while a child is being created does not start its turn", async () => {

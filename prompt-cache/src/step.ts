@@ -3,7 +3,7 @@
 // provider owns the policy; see `applyHint`.
 
 import { createHash } from "node:crypto";
-import type { PackageStepContext, StepResult } from "@thetis/contracts";
+import type { PackageStepContext, StepResult } from "@thetis/runtime/contracts";
 import { diagnose, describe, fingerprint, type CacheDiagnostics } from "./fingerprint.js";
 import { resolveHint, type CacheConfig } from "./policy.js";
 

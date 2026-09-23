@@ -9,16 +9,13 @@
     "build": "tsc -b"
   },
   "peerDependencies": {
-    "@thetis/contracts": "^0.1.0",
-    "@thetis/harness-core": "^0.1.0"
+    "@thetis/harness-core": "^0.3.1",
+    "@thetis/runtime": "^0.1.0"
   },
   "devDependencies": {
-    "@thetis/contracts": "^0.1.0",
-    "@thetis/harness-core": "^0.1.0",
-    "@thetis/host": "^0.1.0",
-    "@thetis/kernel": "^0.1.0",
-    "@thetis/door": "^0.1.0",
-    "@thetis/gateway-login": "^0.1.0"
+    "@thetis/harness-core": "^0.3.1",
+    "@thetis/gateway-login": "^0.1.0",
+    "@thetis/runtime": "file:../.."
   },
   "thetis": {
     "type": "gateway",

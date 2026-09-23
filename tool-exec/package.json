@@ -8,15 +8,6 @@
   "scripts": {
     "build": "tsc -b"
   },
-  "dependencies": {
-    "@thetis/lib": "^0.1.0"
-  },
-  "peerDependencies": {
-    "@thetis/contracts": "^0.1.0"
-  },
-  "devDependencies": {
-    "@thetis/contracts": "^0.1.0"
-  },
   "thetis": {
     "type": "tool",
     "tools": [
@@ -202,5 +193,11 @@
       ],
       "peerGroup": "tools"
     }
+  },
+  "peerDependencies": {
+    "@thetis/runtime": "^0.1.0"
+  },
+  "devDependencies": {
+    "@thetis/runtime": "file:../.."
   }
 }

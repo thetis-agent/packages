@@ -4,7 +4,7 @@ The default storage driver: one TOML file per document. The host opens it once w
 
 ## What it provides
 
-A package of type `storage`. Not installable: it runs on the host, chosen by `storage.driver` in `thetis.config.json`, never placed into a fence. It depends on `@thetis/contracts` for the `Store` interfaces and on `@thetis/lib` for the shared id and document checks.
+A package of type `storage`. Not installable: it runs on the host, chosen by `storage.driver` in `thetis.config.json`, never placed into a fence. It depends on `@thetis/runtime/contracts` for the `Store` interfaces and on `@thetis/runtime/lib` for the shared id and document checks.
 
 One export, `createStore({ root, log })`, returns a `StoreDriver`. `parse` and `stringify` are exported too, for anyone who wants the codec on its own.
 
@@ -30,10 +30,10 @@ The writer is canonical. Keys are sorted; in each table the scalars come first, 
 
 ## Writing another driver
 
-Implement `StoreDriver` from `@thetis/contracts`, run every id through `assertStoreId` and every document through `assertStoreDoc` from `@thetis/lib/store`, and declare `"thetis": { "type": "storage", "export": "createStore" }` in `package.json`. Then register the conformance suite in a test:
+Implement `StoreDriver` from `@thetis/runtime/contracts`, run every id through `assertStoreId` and every document through `assertStoreDoc` from `@thetis/runtime/lib/store`, and declare `"thetis": { "type": "storage", "export": "createStore" }` in `package.json`. Then register the conformance suite in a test:
 
 ```ts
-import { storeConformance } from "@thetis/lib/store-conformance";
+import { storeConformance } from "@thetis/runtime/lib/store-conformance";
 storeConformance("mine", async () => createStore({ root, log }));
 ```
 

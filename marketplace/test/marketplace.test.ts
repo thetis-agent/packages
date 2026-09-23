@@ -10,9 +10,9 @@ import {
   type MirrorEnv,
 } from "../src/index.js";
 import { registriesOf } from "../src/service.js";
-import { cloneCommand, cloneSlug, splitSource } from "@thetis/lib/pkg-fs";
+import { cloneCommand, cloneSlug, splitSource } from "@thetis/runtime/lib/pkg-fs";
 import { ahead, behind, shortCommit } from "../src/updates.js";
-import { compareVersions } from "@thetis/lib/versions";
+import { compareVersions } from "@thetis/runtime/lib/versions";
 import type { IndexedPackage, MarketplaceIndex } from "../src/index-file.js";
 
 /** A real environment rooted in a temporary home, like the agent's `StepEnv`. */

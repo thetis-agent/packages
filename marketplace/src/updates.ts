@@ -9,10 +9,10 @@
 // `ahead` is the same question asked the other way round, for the person who maintains the packages rather
 // than the person who installs them: what is newer here than the version the registry holds, and what has
 // never been published at all. See `ahead` at the foot of this file.
-import { splitSource } from "@thetis/lib/pkg-fs";
-import type { ForkStatus } from "@thetis/contracts";
+import { splitSource } from "@thetis/runtime/lib/pkg-fs";
+import type { ForkStatus } from "@thetis/runtime/contracts";
 import type { IndexedPackage, MarketplaceIndex } from "./index-file.js";
-import { compareVersions, isNewer } from "@thetis/lib/versions";
+import { compareVersions, isNewer } from "@thetis/runtime/lib/versions";
 
 /** The part of an installed package this needs: its name, its version, where it came from, and what is running. */
 export interface InstalledRef {

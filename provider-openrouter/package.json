@@ -11,12 +11,6 @@
   "dependencies": {
     "@thetis/prompt-cache": "^0.1.0"
   },
-  "peerDependencies": {
-    "@thetis/contracts": "^0.1.0"
-  },
-  "devDependencies": {
-    "@thetis/contracts": "^0.1.0"
-  },
   "thetis": {
     "type": "provider",
     "config": {
@@ -61,5 +55,11 @@
       }
     },
     "export": "createProvider"
+  },
+  "peerDependencies": {
+    "@thetis/runtime": "^0.1.0"
+  },
+  "devDependencies": {
+    "@thetis/runtime": "file:../.."
   }
 }

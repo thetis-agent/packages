@@ -161,6 +161,6 @@ The agent logs one line per divergence: `prompt-cache: turn 7: message 3 changed
 ## Sources
 
 - packages/harness-core/src/index.ts
-- packages/kernel/src/pipeline/runner.ts
-- packages/kernel/src/pipeline/enumerator.ts
-- packages/contracts/src/guest.ts
+- src/kernel/pipeline/runner.ts
+- src/kernel/pipeline/enumerator.ts
+- src/contracts/guest.ts

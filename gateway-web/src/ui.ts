@@ -10,7 +10,7 @@ import { readFile, stat } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { KernelClient, PackageInfo, StepEnv, UiCommandDecl, UiCommandEnv, UiCommandResult, UiEntryDecl, UiStream, UserRole } from "@thetis/contracts";
+import type { KernelClient, PackageInfo, StepEnv, UiCommandDecl, UiCommandEnv, UiCommandResult, UiEntryDecl, UiStream, UserRole } from "@thetis/runtime/contracts";
 import { HttpError } from "./http.js";
 import { serveFile, within } from "./static.js";
 

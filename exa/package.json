@@ -24,12 +24,6 @@
     "build": "tsc -b",
     "test": "node --test dist/test/"
   },
-  "peerDependencies": {
-    "@thetis/contracts": "^0.1.0"
-  },
-  "devDependencies": {
-    "@thetis/contracts": "^0.1.0"
-  },
   "thetis": {
     "type": "tool",
     "config": {
@@ -552,5 +546,11 @@
       ],
       "peerGroup": "tools"
     }
+  },
+  "peerDependencies": {
+    "@thetis/runtime": "^0.1.0"
+  },
+  "devDependencies": {
+    "@thetis/runtime": "file:../.."
   }
 }

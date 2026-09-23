@@ -85,4 +85,4 @@ interface SessionRecord {
 }
 ```
 
-Sources: packages/kernel/src/pipeline/runner.ts, the package that owns it, the package that owns it, packages/prompt-cache/README.md, packages/harness-core/README.md.
+Sources: src/kernel/pipeline/runner.ts, the package that owns it, the package that owns it, packages/prompt-cache/README.md, packages/harness-core/README.md.

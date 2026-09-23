@@ -10,7 +10,7 @@ Standard fields the kernel reads:
 | `keywords` | Indexed by the marketplace search. |
 | `main` | The module the agent imports. Default `index.js`. Relative to the package directory. |
 | `dependencies` | When not empty and there is no build script, install runs `npm install --omit=dev`. |
-| `peerDependencies` | Each peer must be installed in the same userspace. `@thetis/contracts`, `@thetis/lib`, and `@thetis/kernel` are always satisfied. |
+| `peerDependencies` | Each peer must be installed in the same userspace. `@thetis/runtime` is provided by the platform. |
 | `scripts.build` | When present, install runs `npm install` and then `npm run build`. |
 | `license` | Every shipped package has `MIT`. Shown on the marketplace page. |
 
@@ -82,4 +82,4 @@ A kernel registry record, in `$THETIS_HOME/registry.json`:
 
 What package code sees for each installed package, `PackageInfo`, from `ctx.packages.list()` or `env.kernel.packages.list()`: `{ name, version, type, description, root, thetis, forkedFrom?, everyone?, replaced? }`. `everyone` is `true` when every person gets the package.
 
-Sources: packages/kernel/src/packages/manifest.ts, packages/contracts/src/config.ts, packages/contracts/src/packages.ts.
+Sources: src/kernel/packages/manifest.ts, src/contracts/config.ts, src/contracts/packages.ts.

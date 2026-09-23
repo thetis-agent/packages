@@ -145,7 +145,7 @@ Name your packages `@<your user id>/<name>`. A wrong scope fails with the code `
 1. Get the package directory.
 2. Read and validate `package.json`.
 3. Check ownership.
-4. Check `peerDependencies`. Each peer must be installed in this userspace. `@thetis/contracts`, `@thetis/lib`, and `@thetis/kernel` are always satisfied. Failure code: `peer`.
+4. Check `peerDependencies`. Each peer must be installed in this userspace. `@thetis/runtime` is provided by the platform. Failure code: `peer`.
 5. Build inside the fence. With `scripts.build`: `npm install --no-audit --no-fund && npm run build`. Else with `dependencies`: `npm install --omit=dev --no-audit --no-fund`. Else nothing. The timeout is 300000 milliseconds. A non-zero exit fails with the code `build`.
 6. Make sure the `main` file exists.
 7. Link `store/node_modules/<name>` to the package directory.
@@ -227,7 +227,7 @@ A registry is a git repository. Each package is a directory in it holding a `pac
 
 `@thetis/package-publish` is the package that does it. It is a `tool` package, so it runs in the person's own fence with their own agent-held ssh key. The registry's own authentication decides who may publish; Thetis decides nothing about that.
 
-Versions are compared with one function for the whole system, `@thetis/lib/versions`, which the marketplace's badges also use, so "is this newer" cannot be answered one way on a card and another way by the publish. It is lenient: every pair of strings has an order, including a hand-written `1.2`, which a registry is free to hold and this package is not free to reject. What a package may be published *at* is the stricter question and is separate: that has to be a real semantic version.
+Versions are compared with one function for the whole system, `@thetis/runtime/lib/versions`, which the marketplace's badges also use, so "is this newer" cannot be answered one way on a card and another way by the publish. It is lenient: every pair of strings has an order, including a hand-written `1.2`, which a registry is free to hold and this package is not free to reject. What a package may be published *at* is the stricter question and is separate: that has to be a real semantic version.
 
 The rule the whole thing turns on: the version has to move past what the registry already holds for that package. A publish at a version the registry has is invisible to every update check there is, because the index carries the version it carried before and every installation goes on believing it is current. A package the registry does not hold yet is a first publish and passes.
 
@@ -305,8 +305,8 @@ The registry holds the new version as soon as the push returns, but the marketpl
 
 ## Sources
 
-- packages/kernel/src/packages/manifest.ts
-- packages/kernel/src/control.ts
+- src/kernel/packages/manifest.ts
+- src/kernel/control.ts
 - packages/tool-exec/src/index.ts
 - packages/package-publish/lib/publish.js
 - packages/package-publish/lib/fork.js

@@ -2,8 +2,8 @@
 // A registry is a git repository with package directories at its first or second level. The clone runs
 // through the fence's `exec`, so the mirror never leaves the userspace.
 
-import type { ExecOptions } from "@thetis/contracts";
-import { mirrorCommand, pinnedSource } from "@thetis/lib/pkg-fs";
+import type { ExecOptions } from "@thetis/runtime/contracts";
+import { mirrorCommand, pinnedSource } from "@thetis/runtime/lib/pkg-fs";
 import {
   readIndex, readmeAssetFile, readmeAssetPath, readmeAssetsOf, readmeAssetType, readmeDir, readmeFile, readmePath, README_ASSET_CAP, README_CAP, README_TRUNCATED, writeIndex,
   type FileEnv, type IndexedPackage, type MarketplaceIndex, type Registry, type RegistryState,

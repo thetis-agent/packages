@@ -1,7 +1,7 @@
 // The version rules, which are the gate the package exists for. There is no semver dependency in this
 // repository, so they are written out and checked here.
 //
-// The ordering itself now lives in `@thetis/lib/versions` and is shared with `@thetis/marketplace`, which
+// The ordering itself now lives in `@thetis/runtime/lib/versions` and is shared with `@thetis/marketplace`, which
 // decides the same question on the way out. These cases stay pointed at it rather than being deleted: they
 // are the ones this author thought of, the marketplace's own cases are the ones that author thought of, and
 // a merge that kept only one set would have quietly dropped half of what is known about this function.

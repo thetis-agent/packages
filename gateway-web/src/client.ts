@@ -1,6 +1,6 @@
 // Builds the fence-side kernel client over a raw RPC function. The userspace agent has its own copy of this
 // shape; this one serves tests and any host that runs the gateway in-process against `createRpcHandler`.
-import type { ProviderEvent, KernelClient, KernelRpc, TurnEvent, WatchedTurnEvent } from "@thetis/contracts";
+import type { ProviderEvent, KernelClient, KernelRpc, TurnEvent, WatchedTurnEvent } from "@thetis/runtime/contracts";
 
 export function clientFromRpc(rpc: KernelRpc): KernelClient {
   const call = <T>(method: string, args: unknown, emit?: (e: unknown) => void) => rpc(method, args, emit) as Promise<T>;

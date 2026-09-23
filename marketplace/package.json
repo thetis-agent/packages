@@ -16,12 +16,6 @@
     "build": "tsc -b",
     "test": "node --test dist/test/"
   },
-  "peerDependencies": {
-    "@thetis/contracts": "^0.1.0"
-  },
-  "devDependencies": {
-    "@thetis/contracts": "^0.1.0"
-  },
   "thetis": {
     "type": "service",
     "config": {
@@ -47,7 +41,10 @@
       "export": "startService"
     }
   },
-  "dependencies": {
-    "@thetis/lib": "^0.1.0"
+  "peerDependencies": {
+    "@thetis/runtime": "^0.1.0"
+  },
+  "devDependencies": {
+    "@thetis/runtime": "file:../.."
   }
 }

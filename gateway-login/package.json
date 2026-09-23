@@ -8,12 +8,6 @@
   "scripts": {
     "build": "tsc -b"
   },
-  "peerDependencies": {
-    "@thetis/contracts": "^0.1.0"
-  },
-  "devDependencies": {
-    "@thetis/contracts": "^0.1.0"
-  },
   "thetis": {
     "type": "gateway",
     "config": {
@@ -27,5 +21,11 @@
     "service": {
       "export": "startService"
     }
+  },
+  "peerDependencies": {
+    "@thetis/runtime": "^0.1.0"
+  },
+  "devDependencies": {
+    "@thetis/runtime": "file:../.."
   }
 }

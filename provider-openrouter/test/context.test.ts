@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import type { ProviderEvent } from "@thetis/contracts";
+import type { ProviderEvent } from "@thetis/runtime/contracts";
 import { createProvider } from "../src/index.js";
 
 test("inspection capture matches the sent JSON after defaults, overrides and cache breakpoints, without headers", async () => {

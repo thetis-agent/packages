@@ -665,7 +665,7 @@ the OpenRouter key in the environment of `serve` (steps 43 and 47 send one messa
     it; the emulator loads (`ui/vendor/xterm.js`, once per page) into `.term-panes > .term-pane` and shows a
     prompt; `.term-cwd` reads `~` and `.term-meta` `bash · idle`; the chip reads `1 terminal`. The
     console must be clean: a blocked stylesheet here means the page was served without its nonce (see
-    `packages/sandbox/README.md`). Reload: the drawer opens by itself, because the conversation has a shell, at
+    `src/sandbox/README.md`). Reload: the drawer opens by itself, because the conversation has a shell, at
     the same height.
 55. **Type in it**: click the screen and type `printf '\033[31mRED\033[0m \033[1;32mGREEN\033[0m\n'` and
     Enter. `RED` renders in `--term-red` and `GREEN` bold in `--term-bright-green` — `getComputedStyle` on
@@ -742,7 +742,7 @@ the OpenRouter key in the environment of `serve` (steps 43 and 47 send one messa
     (`pkill -f "userspace-agent.*<their id>"` — never a pattern matching your own tooling). Visit their
     prefix in the browser. The door opens the fence again and the page loads; before this change it
     answered 502 and stayed that way until someone intervened.
-68. **The daemon's own tier**: `touch packages/kernel/dist/src/control.js` on the host and reopen the
+68. **The daemon's own tier**: `touch dist/src/kernel/control.js` on the host and reopen the
     section. The daemon card reads `running code from HH:MM · newer on disk since HH:MM` and says a reload
     cannot replace the kernel, the door or `thetis.config.json` — those need
     `sudo systemctl restart thetis-runtime.service`.
@@ -755,12 +755,12 @@ delete `.devhome7`.
 The pass runs against `.devhome3` on door port 8803 with the echo provider fixture as the model, so a
 subagent costs nothing and behaves the same every time. Setup, after `init` and before `users add`:
 make `.devhome3/system-packages` with a symlink per directory of `packages/` plus
-`packages/host/test/fixtures/provider-echo` as `provider-echo`; in `.devhome3/thetis.config.json` set
+`test/host/fixtures/provider-echo` as `provider-echo`; in `.devhome3/thetis.config.json` set
 `"model": "echo"`, `"door": {"host": "127.0.0.1", "port": 8803}`, `"systemPackagesDir": "<runtime>/.devhome3/system-packages"`,
 add `"@thetis/provider-echo"` to `systemPackages._system`, `packages["@thetis/provider-echo"] = {"tag": "t1"}`,
 `packages["@thetis/gateway-login"] = {"secure": false}`, and `fence.readOnly` listing `<runtime>/packages`,
 `<runtime>/node_modules`, `<runtime>/.devhome3/packages`, `<runtime>/.devhome3/system-packages` and
-`<runtime>/packages/host/test/fixtures`. The cue `spawn: <task>` makes the echo model call `spawn_subagent`
+`<runtime>/test/host/fixtures`. The cue `spawn: <task>` makes the echo model call `spawn_subagent`
 with the label `helper`; a task of `slow: w1 w2 …` streams one word every 50 ms, so a child of eighty words
 runs for four seconds. The echo provider reports no usage, so every meta line and cost is empty here.
 

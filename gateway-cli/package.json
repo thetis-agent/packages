@@ -9,15 +9,16 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@thetis/contracts": "^0.1.0",
-    "@thetis/door": "^0.1.0",
-    "@thetis/host": "^0.1.0",
-    "@thetis/kernel": "^0.1.0",
-    "@thetis/lib": "^0.1.0",
     "@thetis/bench": "^0.4.0",
-    "@thetis/marketplace": "^0.1.0"
+    "@thetis/marketplace": "^0.4.0"
   },
   "thetis": {
     "type": "gateway"
+  },
+  "peerDependencies": {
+    "@thetis/runtime": "^0.1.0"
+  },
+  "devDependencies": {
+    "@thetis/runtime": "file:../.."
   }
 }

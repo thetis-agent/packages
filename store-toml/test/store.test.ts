@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { storeConformance } from "@thetis/lib/store-conformance";
+import { storeConformance } from "@thetis/runtime/lib/store-conformance";
 import { createStore } from "../src/index.js";
 
 const log = (): void => {};

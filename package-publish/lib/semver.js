@@ -4,9 +4,9 @@
 // The last of those is **not written here**, and used to be. `@thetis/marketplace` decides whether a badge
 // says a package is ahead of the registry and this package decides whether the publish is allowed at all,
 // which is the same question asked twice; two implementations of it meant a badge could say a package was
-// ahead while the publish refused it. So the ordering has one home, `@thetis/lib/versions`, and both sides
+// ahead while the publish refused it. So the ordering has one home, `@thetis/runtime/lib/versions`, and both sides
 // import it. That is the one dependency this package has, and it is the same arrangement `@thetis/tool-exec`
-// already has with `@thetis/lib`: a shipped package is linked into a userspace rather than installed with
+// already has with `@thetis/runtime/lib`: a shipped package is linked into a userspace rather than installed with
 // npm, so nothing is fetched into a fence to satisfy it.
 //
 // The split that remains is deliberate and is the whole rule: **lenient about what it reads, strict about
@@ -14,7 +14,7 @@
 // it is going into a registry every other installation compares against, and that is `isVersion`. A version
 // it is measured *against* comes out of somebody else's manifest in a registry, is not this package's to
 // reject, and is ordered rather than refused.
-export { compareVersions, isNewer } from "@thetis/lib/versions";
+export { compareVersions, isNewer } from "@thetis/runtime/lib/versions";
 
 const RE = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+([0-9A-Za-z.-]+))?$/;
 

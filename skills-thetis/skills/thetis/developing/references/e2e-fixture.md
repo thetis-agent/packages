@@ -1,6 +1,6 @@
 # The echo provider fixture
 
-`packages/host/test/fixtures/provider-echo/index.js` is a deterministic provider, so an end-to-end test
+`test/host/fixtures/provider-echo/index.js` is a deterministic provider, so an end-to-end test
 can assert on exact output without a model. New model behaviour in a test means teaching it a trigger.
 
 A `tool` message as the last message wins over everything below: it yields `tool said: <content>`.

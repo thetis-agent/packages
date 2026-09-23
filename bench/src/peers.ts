@@ -2,7 +2,7 @@
 // corpus; anything else is not a comparison, it is two numbers printed near each other.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { BenchDecl, Manifest, ThetisField } from "@thetis/contracts";
+import type { BenchDecl, Manifest, ThetisField } from "@thetis/runtime/contracts";
 
 export interface Participant {
   name: string;

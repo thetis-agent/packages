@@ -7,7 +7,7 @@
 // it still answers everything but the registry's word.
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { newestMtime } from "@thetis/lib/freshness";
+import { newestMtime } from "@thetis/runtime/lib/freshness";
 
 const USER_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const PACKAGE_NAME = /^@[a-z0-9-]+\/[a-z0-9._-]+$/;
@@ -182,7 +182,7 @@ export async function packageFork(args, env) {
   const as = args.as ? String(args.as) : name.slice(name.indexOf("/") + 1);
   if (!DIR_NAME.test(as)) fail(`as must be a plain directory name: ${as}`);
   const forkName = `@${env.user}/${as}`;
-  const { forkPackage, forkVersion } = await import("@thetis/lib/pkg-fs");
+  const { forkPackage, forkVersion } = await import("@thetis/runtime/lib/pkg-fs");
   const version = forkVersion(origin.version, installed.find((p) => p.name === forkName)?.version);
   const to = resolve(env.cwd, "packages", as);
   forkPackage({ from: origin.root, to, name: forkName, version, origin: { name, version: origin.version }, root: env.root });

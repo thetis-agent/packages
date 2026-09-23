@@ -5,7 +5,7 @@
 // pages and the admin verbs over packages in `@thetis/ui-marketplace`. The gateway imports no domain
 // package at all.
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { KernelClient, PackageInfo, UserRole } from "@thetis/contracts";
+import type { KernelClient, PackageInfo, UserRole } from "@thetis/runtime/contracts";
 import { field, HttpError, json, readJson } from "./http.js";
 
 export interface Who {

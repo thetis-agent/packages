@@ -1,6 +1,6 @@
 # @thetis/tool-operator
 
-The operator's own package: one tool that asks this daemon to restart itself, and the status-bar chip that shows a restart coming and calls it off. It is a `tool` package with a `ui`, plain ECMAScript with no build step, no dependency and no `bench` block. It adds nothing to the kernel and holds no state: every guard is the kernel's, and every sentence it returns is written in `@thetis/lib/restart` and passed through untouched.
+The operator's own package: one tool that asks this daemon to restart itself, and the status-bar chip that shows a restart coming and calls it off. It is a `tool` package with a `ui`, plain ECMAScript with no build step, no dependency and no `bench` block. It adds nothing to the kernel and holds no state: every guard is the kernel's, and every sentence it returns is written in `@thetis/runtime/lib/restart` and passed through untouched.
 
 It exists as a package of its own because **authority here is what is installed**. A tool declaration carries no `role` field, unlike a `ui.commands` entry, so a tool that every model can see and only an admin may use would be a setting that records an intention: the model would offer the tool to everyone and collect refusals. Instead this package is installed for one admin at a time:
 
@@ -83,4 +83,4 @@ The page's Content Security Policy allows no inline styles, so everything the ch
 
 `npm test` from the runtime root, or `node --test "test/*.test.js"` here. `test/tool.test.js`: every `ArmResult` state comes back byte for byte, an armed one carries the instruction to say it now, a missing or blank reason is refused before the kernel is asked, a trimmed reason is the only argument sent, a thrown `unauthorized` becomes the plain sentence, any other failure is not swallowed, and the manifest declares what this README says it does. `test/chip.test.js`: hidden while nothing is pending, the countdown and the Cancel button, both branches of the deadline in the title, the daemon going and the page waiting, and the waiting really ending.
 
-See `packages/lib/src/restart.ts` in the runtime repository for the whole restart feature, and `packages/kernel/src/packages/manifest.ts` for the one package deliberately not installed for everyone.
+See `src/lib/restart.ts` in the runtime repository for the whole restart feature, and `src/kernel/packages/manifest.ts` for the one package deliberately not installed for everyone.

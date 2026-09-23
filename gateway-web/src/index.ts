@@ -3,7 +3,7 @@
 // userspace's `run/` directory, which the door on the host routes `/<person>/` to.
 import { chmodSync, mkdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
-import type { Service } from "@thetis/contracts";
+import type { Service } from "@thetis/runtime/contracts";
 import { createGateway } from "./server.js";
 import { GatewayStore } from "./store.js";
 

@@ -9,7 +9,7 @@ metadata:
 ---
 # The fence
 
-The fence is the boundary around one userspace. All package code runs inside a fence. The kernel is the only bridge across it. `@thetis/sandbox` builds the fence with bubblewrap. It starts one long-lived Node process per userspace, the userspace agent. Every step, tool, provider, and service of that userspace runs in that process.
+The fence is the boundary around one userspace. All package code runs inside a fence. The kernel is the only bridge across it. `@thetis/runtime/sandbox` builds the fence with bubblewrap. It starts one long-lived Node process per userspace, the userspace agent. Every step, tool, provider, and service of that userspace runs in that process.
 
 ## What you see
 
@@ -119,6 +119,6 @@ Identity is the fence. A call to the kernel acts as the userspace's own user. No
 
 ## Sources
 
-- packages/sandbox/src/docker.ts
-- packages/sandbox/README.md
-- packages/userspace-agent/src/agent.ts
+- src/sandbox/docker.ts
+- src/sandbox/README.md
+- src/userspace-agent/agent.ts

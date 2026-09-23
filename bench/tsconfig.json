@@ -10,16 +10,7 @@
   ],
   "references": [
     {
-      "path": "../contracts"
-    },
-    {
-      "path": "../lib"
-    },
-    {
-      "path": "../host"
-    },
-    {
-      "path": "../kernel"
+      "path": "../../tsconfig.runtime.json"
     }
   ]
 }

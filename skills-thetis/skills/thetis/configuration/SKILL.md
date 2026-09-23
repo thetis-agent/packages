@@ -79,7 +79,7 @@ To give your own package a setting, **declare it in your manifest** under `theti
 
 ## When a configuration change takes effect
 
-`CONFIG_TIERS` in `packages/kernel/src/config.ts` declares this per key of `thetis.config.json`, and `thetis config reload` prints which of the three happened:
+`CONFIG_TIERS` in `src/kernel/config.ts` declares this per key of `thetis.config.json`, and `thetis config reload` prints which of the three happened:
 
 | Tier | Keys | What it takes |
 |---|---|---|
@@ -136,6 +136,6 @@ The provider's key needs no line here: its manifest default is `${OPENROUTER_API
 
 ## Sources
 
-- packages/kernel/src/config.ts
-- packages/kernel/src/control.ts
-- packages/lib/src/config.ts
+- src/kernel/config.ts
+- src/kernel/control.ts
+- src/lib/config.ts

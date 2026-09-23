@@ -11,9 +11,9 @@
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { SYSTEM_USER } from "@thetis/contracts";
-import { createKernel, defaultConfig, T, type Kernel, type KernelConfig } from "@thetis/host";
-import { memoryStore } from "@thetis/lib/store";
+import { SYSTEM_USER } from "@thetis/runtime/contracts";
+import { createKernel, defaultConfig, T, type Kernel, type KernelConfig } from "@thetis/runtime";
+import { memoryStore } from "@thetis/runtime/lib/store";
 
 export const BENCH_PHASE = "bench";
 export const PROBE_PACKAGE = "@thetis/bench-probe";

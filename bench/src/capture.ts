@@ -1,7 +1,7 @@
 // What the provider saw, and what the packages said they did. The two are reconciled here, and where they
 // disagree the provider wins: a package's claim about its own behaviour is evidence, never the measurement.
 import { existsSync, readFileSync } from "node:fs";
-import type { BenchClaim } from "@thetis/contracts";
+import type { BenchClaim } from "@thetis/runtime/contracts";
 import type { Available } from "./metrics/recall.js";
 
 export interface CaptureLine {

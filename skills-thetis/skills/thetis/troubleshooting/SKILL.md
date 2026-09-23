@@ -41,7 +41,7 @@ You changed a file and nothing behaves differently. Nothing is broken: what it t
 | **A file that entry imports**, such as a shared client or helper it does `import` at the top | A reload of that workspace. The agent re-reads the entry with a modification-time query, but a static import inside it carries no query, so the module cache keeps serving the old copy until the agent process is new. This is the row people get wrong: tool code is not all one tier. |
 | A package's service code, a provider, or the userspace agent | That person's workspace reloaded. |
 | `thetis.config.json` or `.env` | `thetis config reload`. It applies most keys at once, closes the fences for the `fence` block, and names what still needs a new process. See `thetis/configuration`. |
-| `@thetis/kernel`, `@thetis/host`, `@thetis/sandbox`, `@thetis/door`, `@thetis/lib`, `@thetis/contracts`, or the `thetis` command (`@thetis/gateway-cli`) | A new daemon process, `thetis restart`. Those packages carry no user-facing behaviour: they run steps and move data. Only a bug in them is a reason for a new process. |
+| `@thetis/runtime/kernel`, `@thetis/runtime`, `@thetis/runtime/sandbox`, `@thetis/runtime/door`, `@thetis/runtime/lib`, `@thetis/runtime/contracts`, or the `thetis` command (`@thetis/gateway-cli`) | A new daemon process, `thetis restart`. Those packages carry no user-facing behaviour: they run steps and move data. Only a bug in them is a reason for a new process. |
 
 Why: a `tool` or `step` export is imported with a modification-time query, so the agent re-reads it on every call, and the host imports a host package's entry the same way. A service is imported once, when its agent starts, and the query versions only a package's entry module, so nothing short of a new agent process reads that module graph again. The kernel and the door are read once by `thetis serve` and held for its life; the configuration is re-read on `thetis config reload`.
 
@@ -182,10 +182,10 @@ The provider retries `429`, `408`, `409`, `425`, `5xx`, and a `402` that names `
 
 ## Sources
 
-- packages/kernel/src/packages/manager.ts
-- packages/kernel/src/pipeline/runner.ts
+- src/kernel/packages/manager.ts
+- src/kernel/pipeline/runner.ts
 - packages/harness-core/src/index.ts
-- packages/kernel/src/providers.ts
+- src/kernel/providers.ts
 - packages/tool-exec/src/index.ts
-- packages/lib/src/restart.ts
+- src/lib/restart.ts
 - packages/tool-operator/index.js

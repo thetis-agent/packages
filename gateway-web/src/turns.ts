@@ -2,7 +2,7 @@
 // A turn's events are buffered while it runs, so a page that connects mid-turn receives what it missed.
 // Turns the hub did not start (a subagent's, one sent from the command line) reach it through
 // `sessions.watch` and are carried the same way, stamped with the session's parent when it has one.
-import type { KernelClient, TurnEvent, WatchedTurnEvent } from "@thetis/contracts";
+import type { KernelClient, TurnEvent, WatchedTurnEvent } from "@thetis/runtime/contracts";
 
 export interface NumberedEvent {
   seq: number;

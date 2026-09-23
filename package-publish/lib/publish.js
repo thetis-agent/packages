@@ -69,7 +69,7 @@ export async function publish(args = {}, env) {
   // update check can see: the marketplace index would carry the same version it carried before, every
   // installation would go on believing it is current, and the work would be invisible.
   //
-  // The comparison is `@thetis/lib/versions`, the same function the marketplace badges use, and it orders
+  // The comparison is `@thetis/runtime/lib/versions`, the same function the marketplace badges use, and it orders
   // every pair of strings rather than answering "I cannot say" about the ones this package would not let
   // anybody publish. That matters here and nowhere else: `now` was checked by `isVersion` before we got
   // this far, but `where.holds` comes out of somebody else's manifest in the registry and is not ours to

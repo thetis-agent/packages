@@ -9,7 +9,7 @@
  * which is benched. The kernel refuses a non-admin whatever is installed, so the packaging is the signal and
  * the kernel is the guard.
  *
- * Every sentence about a restart is written in `@thetis/lib/restart` and passed through here verbatim. That is
+ * Every sentence about a restart is written in `@thetis/runtime/lib/restart` and passed through here verbatim. That is
  * not laziness: the refusals say what happened, why, and what to do instead, and each ends by making clear
  * that nothing happened — the sentence that stops a model inventing a second attempt. They live in the library
  * precisely so that forking this package cannot change what the kernel says about itself. So nothing here

@@ -3,7 +3,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { CapabilityRecord, Corpus } from "@thetis/contracts";
+import type { CapabilityRecord, Corpus } from "@thetis/runtime/contracts";
 
 export interface CorpusFile extends Omit<Corpus, "records"> {
   records: number;

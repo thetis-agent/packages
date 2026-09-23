@@ -6,7 +6,7 @@ The grants an admin makes into one person's fence: host directories bound at the
 
 A package of type `host`, named `grants`. Not installable: the daemon loads it from the shipped or the promoted packages and calls one export per operator method `host.grants.<export>`, importing the entry again whenever its file changes, so an edit is live on the next call without a reload. The kernel admits the call when the caller is an admin (through a fence) or the operator (at the control socket), and journals `host.call` without the arguments; each export then checks the target, writes the kernel's record, journals the grant itself, and reopens the fence so the grant reaches it.
 
-Every export is `(args, env) => Promise<unknown>`, with `env` the `HostEnv` of `@thetis/contracts`: `home`, the `users` table, the `records` (`mounts` and `ssh`, one list per person with `get`, `all`, `set`), `journal(row)`, `reloadFence(user)` and `log`. `args.user` names the target; `_system` takes no grant of either kind, and an unknown user is `not-found`.
+Every export is `(args, env) => Promise<unknown>`, with `env` the `HostEnv` of `@thetis/runtime/contracts`: `home`, the `users` table, the `records` (`mounts` and `ssh`, one list per person with `get`, `all`, `set`), `journal(row)`, `reloadFence(user)` and `log`. `args.user` names the target; `_system` takes no grant of either kind, and an unknown user is `not-found`.
 
 | Export | Arguments | Answers |
 |---|---|---|
@@ -18,13 +18,13 @@ Every export is `(args, env) => Promise<unknown>`, with `env` the `HostEnv` of `
 | `sshImport` | `user`, `name`, `privateKey`, `hosts?` | `{ key, publicKey, fingerprint }`: the material written once as `fence-keys/<user>/<name>`, proved a key by ssh-keygen, granted; never overwritten, never journalled |
 | `sshSet` | `user`, `ssh: [{ key, hosts? }]` | the list as written, with presence; at most 16 keys, each an absolute normalized path |
 
-A key kept for a person outlives every call here but not the person: `removeUser` in `@thetis/host` deletes `fence-keys/<user>` with the rest of what is keyed to the id, so a removed id that is added again is a person with no key rather than one silently holding the last occupant's.
+A key kept for a person outlives every call here but not the person: `removeUser` in `@thetis/runtime` deletes `fence-keys/<user>` with the rest of what is keyed to the id, so a removed id that is added again is a person with no key rather than one silently holding the last occupant's.
 
 The journal rows are `mounts` (`{ mounts: [{ path, mode }] }`) and `ssh` (`{ ssh: [key paths] }`), with the admin as `actor` when the call came through a fence. Key material is never in an answer, a refusal, a log line or the journal.
 
 ## Callers
 
-`thetis mounts` and `thetis ssh` in `@thetis/gateway-cli`, and the mounts and ssh pages of `@thetis/ui-admin`. The fence side -- reading the records when a fence opens, binding the mounts, loading the keys into the agent -- is `@thetis/lib` (`UserspaceLayout`, `knownHostsOf`) and `@thetis/sandbox`, unchanged by this package.
+`thetis mounts` and `thetis ssh` in `@thetis/gateway-cli`, and the mounts and ssh pages of `@thetis/ui-admin`. The fence side -- reading the records when a fence opens, binding the mounts, loading the keys into the agent -- is `@thetis/runtime/lib` (`UserspaceLayout`, `knownHostsOf`) and `@thetis/runtime/sandbox`, unchanged by this package.
 
 ## Layout
 

@@ -1,7 +1,7 @@
 // Validating `thetis.bench`. Deliberately not in the kernel: the kernel never reads this field, a malformed
 // one cannot hurt a turn, and the useful error — "the adapter you named is not declared as a bench step" —
 // belongs where the author is working, not in the pipeline.
-import type { BenchDecl, StepDecl, ThetisField } from "@thetis/contracts";
+import type { BenchDecl, StepDecl, ThetisField } from "@thetis/runtime/contracts";
 import { BENCH_PHASE } from "./arena.js";
 
 export function validateBench(name: string, thetis: ThetisField): string[] {

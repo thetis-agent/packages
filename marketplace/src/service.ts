@@ -1,6 +1,6 @@
 // The service: refresh on start and on a timer. The registries come from this package's configuration.
 
-import type { Service } from "@thetis/contracts";
+import type { Service } from "@thetis/runtime/contracts";
 import type { Registry } from "./index-file.js";
 import { refresh } from "./mirror.js";
 

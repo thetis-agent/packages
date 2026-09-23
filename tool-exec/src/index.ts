@@ -3,8 +3,8 @@
 // person can see; reading, editing and searching files is @thetis/tools-files. Everything here acts
 // inside the fence through the agent's env.
 import { resolve } from "node:path";
-import type { ConfigKeyState, ConfigReport, PackageInfo, Tool, ToolEnv } from "@thetis/contracts";
-import { forkPackage as copyFork, forkVersion } from "@thetis/lib/pkg-fs";
+import type { ConfigKeyState, ConfigReport, PackageInfo, Tool, ToolEnv } from "@thetis/runtime/contracts";
+import { forkPackage as copyFork, forkVersion } from "@thetis/runtime/lib/pkg-fs";
 
 /** One path segment, as the kernel accepts in a package name. Keeps `as` from leaving packages/. */
 const DIR_NAME = /^[a-z0-9._-]+$/;

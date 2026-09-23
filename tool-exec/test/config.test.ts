@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { ConfigReport, PackageInfo, ToolEnv } from "@thetis/contracts";
+import type { ConfigReport, PackageInfo, ToolEnv } from "@thetis/runtime/contracts";
 import { configurePackage, packageConfig } from "../src/index.js";
 
 const SECRET = "sk-live-do-not-echo";

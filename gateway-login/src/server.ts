@@ -5,7 +5,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { KernelClient } from "@thetis/contracts";
+import type { KernelClient } from "@thetis/runtime/contracts";
 
 export interface LoginOptions {
   /** Directory of the static assets. Defaults to the package's `assets/`. */

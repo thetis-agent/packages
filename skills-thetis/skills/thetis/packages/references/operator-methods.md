@@ -33,6 +33,6 @@ The command line talks to a running kernel through the control socket `$THETIS_H
 
 A method no table and no host package answers fails with the code `rpc`. A fence whose user has the role `user` is refused with `only an admin may use operator methods`.
 
-The methods a fence calls as itself, without `operator.`: `packages.install`, `packages.uninstall`, `packages.delete`, `packages.list`, `sessions.create`, `sessions.ask`, `sessions.send`, `sessions.cancel`, `sessions.delete`, `sessions.list`, `sessions.inspect`, `sessions.watch`, `models`, `providers.call`, `store.*`, `config.*`, `auth.login`, `auth.authenticate`, and `auth.logout`. `auth.login` is answered only for the system userspace. Both tables are frozen seams, snapshotted by `packages/kernel/test/boundaries.test.ts`.
+The methods a fence calls as itself, without `operator.`: `packages.install`, `packages.uninstall`, `packages.delete`, `packages.list`, `sessions.create`, `sessions.ask`, `sessions.send`, `sessions.cancel`, `sessions.delete`, `sessions.list`, `sessions.inspect`, `sessions.watch`, `models`, `providers.call`, `store.*`, `config.*`, `auth.login`, `auth.authenticate`, and `auth.logout`. `auth.login` is answered only for the system userspace. Both tables are frozen seams, snapshotted by `test/architecture.test.mjs`.
 
-Sources: packages/kernel/src/control.ts, packages/kernel/src/rpc.ts, packages/host-grants/package.json.
+Sources: src/kernel/control.ts, src/kernel/rpc.ts, packages/host-grants/package.json.

@@ -9,7 +9,7 @@ stylesheet at runtime — about 55 KiB of palette, font metrics and cursor rules
 terminal from the theme — and the gateway's content security policy refuses inline CSS. The gateway
 therefore mints a nonce for each page and carries it in `<meta name="csp-nonce">`; the patch stamps that
 nonce on the three style elements the library creates, so those stylesheets are allowed and every other
-inline stylesheet is still refused. See `packages/sandbox/README.md`.
+inline stylesheet is still refused. See `src/sandbox/README.md`.
 
 The patch is a helper at the head of the file and three call sites:
 

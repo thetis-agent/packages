@@ -7,16 +7,16 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { createInterface as createPrompt } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
-import type { ConfigReport, KernelRpc, ModelDescriptor, Mount, PackageInfo, SessionRecord, SshGrant, TurnEvent, UserRecord } from "@thetis/contracts";
-import { createDoor } from "@thetis/door";
+import type { ConfigReport, KernelRpc, ModelDescriptor, Mount, PackageInfo, SessionRecord, SshGrant, TurnEvent, UserRecord } from "@thetis/runtime/contracts";
+import { createDoor } from "@thetis/runtime/door";
 import { ahead, behind, readIndex, shortCommit, type Ahead, type Behind } from "@thetis/marketplace";
-import { ControlServer, controlSocketPath, createKernel, migrateStore, readControlToken, writeControlToken, type KernelConfig } from "@thetis/host";
-import { configPath, createControlHandler, defaultConfig, loadConfig, redact, saveConfig, type SessionRef } from "@thetis/kernel";
-import { parseDotEnv } from "@thetis/lib/config";
-import { errorMessage } from "@thetis/lib/error";
-import { connectRpcSocket } from "@thetis/lib/ndjson-socket";
-import { assertHomeFitsSockets, homeSocketWarning } from "@thetis/lib/socket-paths";
-import { isSupervised, type Pending, type RestartState } from "@thetis/lib/restart";
+import { ControlServer, controlSocketPath, createKernel, migrateStore, readControlToken, writeControlToken, type KernelConfig } from "@thetis/runtime";
+import { configPath, createControlHandler, defaultConfig, loadConfig, redact, saveConfig, type SessionRef } from "@thetis/runtime/kernel";
+import { parseDotEnv } from "@thetis/runtime/lib/config";
+import { errorMessage } from "@thetis/runtime/lib/error";
+import { connectRpcSocket } from "@thetis/runtime/lib/ndjson-socket";
+import { assertHomeFitsSockets, homeSocketWarning } from "@thetis/runtime/lib/socket-paths";
+import { isSupervised, type Pending, type RestartState } from "@thetis/runtime/lib/restart";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 /** How long `serve` gives the door, the control socket and the fences to close before it exits regardless. */

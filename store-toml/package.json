@@ -16,12 +16,14 @@
     "build": "tsc -b",
     "test": "node --test dist/test/"
   },
-  "dependencies": {
-    "@thetis/contracts": "^0.1.0",
-    "@thetis/lib": "^0.1.0"
-  },
   "thetis": {
     "type": "storage",
     "export": "createStore"
+  },
+  "peerDependencies": {
+    "@thetis/runtime": "^0.1.0"
+  },
+  "devDependencies": {
+    "@thetis/runtime": "file:../.."
   }
 }

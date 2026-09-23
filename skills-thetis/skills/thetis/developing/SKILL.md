@@ -17,25 +17,26 @@ There is no test framework. It is `node:test` and `node:assert/strict`.
 
 ```sh
 npm run build        # tsc -b over the project references in the root tsconfig.json
+npm run build:runtime # only runtime/src; no extension source required
 npm test             # builds, then runs every suite in both repositories
-npm run clean        # rm -rf packages/*/dist and the tsbuildinfo files
+npm run clean        # remove runtime and extension build output
 node bin/thetis.js <command>          # the CLI, against a running daemon if there is one
 ```
 
-`npm test` runs two globs, and the reason matters: `packages/*/dist/test/**/*.test.js` for TypeScript packages, which are compiled first, and `packages/*/test/**/*.test.js` for plain-JavaScript packages, which are not. A test you wrote in TypeScript and did not build will silently not run.
+`npm test` builds first, then runs runtime architecture tests under `test/`, compiled runtime tests under `dist/test/`, compiled extension tests under `packages/*/dist/test/`, and plain-JavaScript extension tests under `packages/*/test/`.
 
 One file, after a build:
 
 ```sh
-node --test packages/kernel/dist/test/loc.test.js
-node --test --test-name-pattern "tool loop" packages/host/dist/test/e2e.test.js
+node --test dist/test/kernel/loc.test.js
+node --test --test-name-pattern "tool loop" dist/test/host/e2e.test.js
 THETIS_TEST_SANDBOX=none npm test     # no bubblewrap: faster, and the only way on a host without it
 THETIS_TEST_VERBOSE=1 npm test        # the browser and gateway suites print their logs
 ```
 
 ## Two repositories, and the order
 
-`packages/` is a git submodule with its own history. A change to any package is **two commits**:
+`src/` and `test/` belong to the runtime repository. `packages/` is a git submodule for extensions and host applications, with its own history. A change to an extension requires **two commits**:
 
 ```sh
 cd packages && git add -A && git commit      # first: the package change itself
@@ -50,23 +51,23 @@ Not every runtime commit moves the pointer. A commit that touches only the runti
 
 Each of these is a test. Each fails loudly, and each is telling you something about where your code belongs.
 
-**The kernel line count.** `packages/kernel/test/loc.test.ts` fails when the kernel is at or over its limit, which the `LIMIT` constant in that file states and is the only place that states it truly. The counter excludes blank lines, comment-only lines, `import` statements including multi-line ones, `export ... from` re-exports, and test files. So comments are free and cost you nothing: the way to buy room is to move mechanism out, not to compress prose.
+**The kernel line count.** `test/kernel/loc.test.ts` fails when the kernel is at or over its limit, which the `LIMIT` constant in that file states and is the only place that states it truly. The counter excludes blank lines, comment-only lines, `import` statements including multi-line ones, `export ... from` re-exports, and test files. So comments are free and cost you nothing: the way to buy room is to move mechanism out, not to compress prose.
 
 Raising the limit is a real option and has been taken twice, but only after the mechanism went elsewhere. If your change is authority, the kernel is where it belongs and the raise is honest. If it is mechanism, the guard has just told you it is in the wrong package.
 
-**The layering.** `packages/kernel/test/boundaries.test.ts` enforces `contracts < lib < sandbox` and `kernel < host`. The kernel may not import `@thetis/sandbox`. Only `@thetis/host` and `@thetis/gateway-cli` may import the kernel. The same test snapshots the frozen seams: the fence operations, the fence-to-kernel methods, the control methods, the door's routes, the runtime exports of `@thetis/contracts`, the keys of `CONFIG_TIERS`, and that `defaultConfig().packages` is empty. A change to any of those is a deliberate edit of a list in that test, never a side effect.
+**The layering.** `test/architecture.test.mjs` parses imports and enforces the internal module boundaries in `ARCHITECTURE.md`. The kernel imports only contracts and library mechanisms. Runtime modules use relative imports; extensions use the public `@thetis/runtime` exports. Only the host resolves the IoC container. `test/kernel/seams.test.ts` separately snapshots the fence operations, RPC and control methods, door routes, contract constants and configuration tiers.
 
 **The skills lint.** `packages/skills-thetis/test/skills.test.js` checks frontmatter, body limits, a style deny-list, that every relative link resolves inside the package, and that the set of skills matches a list in the test. Adding a skill means adding its id to that list.
 
 ## Where a new thing goes
 
-The import rule above is not the same question as this one, and passing it is not evidence you got this right. The daemon (`kernel`, `host`, `sandbox`, `door`, `lib`, `contracts`, `gateway-cli`) is finished: it is identity, package authority, the fence, the pipe, the record, the port and the latch. It runs steps and moves their results. It never makes a model call, never runs a tool, never interprets a `ProviderCall`, never knows a package by name. **A feature that seems to need the daemon is a feature in the wrong package.** Inside the daemon the rule is: mechanism goes to `@thetis/lib` or `@thetis/sandbox`, and the decision about who may use it stays in `@thetis/kernel`. A part stays in the kernel only when delegating it would lose a guarantee that rests on the kernel being the one that does it.
+The import rule above is not the same question as this one, and passing it is not evidence you got this right. The daemon (`kernel`, `host`, `sandbox`, `door`, `lib`, `contracts`, `gateway-cli`) is finished: it is identity, package authority, the fence, the pipe, the record, the port and the latch. It runs steps and moves their results. It never makes a model call, never runs a tool, never interprets a `ProviderCall`, never knows a package by name. **A feature that seems to need the daemon is a feature in the wrong package.** Inside the daemon the rule is: mechanism goes to `@thetis/runtime/lib` or `@thetis/runtime/sandbox`, and the decision about who may use it stays in `@thetis/runtime/kernel`. A part stays in the kernel only when delegating it would lose a guarantee that rests on the kernel being the one that does it.
 
 | What you are adding | Where |
 |---|---|
-| A decision about who may do what | `packages/kernel` |
-| A mechanism: something that does work and has no opinion about who asked | `packages/lib`, or `packages/sandbox` when it is fence machinery |
-| A type in the shared vocabulary | `packages/contracts` |
+| A decision about who may do what | `src/kernel` |
+| A mechanism: something that does work and has no opinion about who asked | `src/lib`, or `src/sandbox` when it is fence machinery |
+| A type in the shared vocabulary | `src/contracts` |
 | A capability: a tool, a step, a provider, a service, a page | a package, never the kernel |
 | The model-call loop, or any other turn-time behaviour | a step in a package; the default is the `call` step of `@thetis/harness-core` in phase `execute` |
 | A default for a package's setting | that package's manifest, `thetis.config.<key>.default` |
@@ -74,21 +75,21 @@ The import rule above is not the same question as this one, and passing it is no
 
 An agent that knows only the import rule will put mechanism in the kernel, pass the boundary test, and fail the line count without understanding why. That is the line count doing its job.
 
-Every class takes its dependencies through its constructor. No class builds its own, and there is no global state. `createKernel` in `packages/host/src/kernel.ts` is the only place kernel services are constructed, which is why a change there is often the whole of wiring a new service.
+Kernel services take their collaborators through constructors. `createKernel` in `src/host/kernel.ts` is the composition root: it registers typed factories, accepts binding overrides, and then resolves services. Keep container lookups there; do not introduce service locators in domain code. Share contracts once and keep classes focused on one responsibility. `ARCHITECTURE.md` records the SOLID, DRY and clean-code rules, and `test/host/runtime.test.ts` proves that injected adapters work without installed extensions.
 
 ## Adding a TypeScript package to the runtime
 
 Five steps, and the fourth is the one that fails silently:
 
-1. `packages/<dir>/tsconfig.json` extending `../../tsconfig.base.json`, with `rootDir: "."`, `outDir: "dist"`, `include: ["src/**/*.ts", "test/**/*.ts"]`, and a `references` entry for each package it imports.
-2. `packages/<dir>/package.json` with `"main": "dist/src/index.js"`, and `@thetis/contracts` in **both** `peerDependencies` and `devDependencies`.
+1. `packages/<dir>/tsconfig.json` extending `../../tsconfig.base.json`, with `rootDir: "."`, `outDir: "dist"`, `include: ["src/**/*.ts", "test/**/*.ts"]`, and a reference to `../../tsconfig.runtime.json` plus any other extension projects it imports.
+2. `packages/<dir>/package.json` with `"main": "dist/src/index.js"`, and `"@thetis/runtime": "^0.1.0"` in `peerDependencies` and `"@thetis/runtime": "file:../.."` in `devDependencies`.
 3. Source under `src/`, tests under `test/`.
 4. A `{ "path": "packages/<dir>" }` entry in the **root** `tsconfig.json`, after the packages it references. Miss this and `tsc -b` never compiles the package: no error, an empty `dist/`, and a runtime complaint that the main entry does not exist.
 5. `npm install` to link the workspace, then `npm run build`.
 
 ## House rules the compiler will not teach you
 
-Strict TypeScript, ECMAScript modules. **Import paths end in `.js`** even though the sources are `.ts`. `@thetis/lib` is imported by subpath only, as `@thetis/lib/ids`, and has no root export: adding a module there means adding it to the `exports` map in `packages/lib/package.json`. Build output is `dist/src/` and `dist/test/`.
+Strict TypeScript, ECMAScript modules. **Relative import paths end in `.js`** even though the sources are `.ts`. Extensions import shared mechanisms by subpath, such as `@thetis/runtime/lib/ids`; the runtime package's `exports` map exposes `./lib/*`. Runtime build output is `dist/src/` and `dist/test/`. Extensions retain their own `dist/` directories.
 
 ## What it takes for a change to be live
 
@@ -99,13 +100,13 @@ Editing a file changes nothing by itself. Four answers, and `thetis/troubleshoot
 - `thetis.config.json` or `.env`: `thetis config reload`.
 - The daemon itself (the kernel, the host, the sandbox, the door, `lib`, `contracts`, the `thetis` command): a new process, only for the daemon's own bugs, and the daemon does it: `thetis restart`. It waits for every turn to end, counts down, and exits so systemd starts it again; no sudo.
 
-For configuration, `CONFIG_TIERS` in `packages/kernel/src/config.ts` declares per key which of those applies, and `thetis config reload` prints which keys it applied and which are still waiting on a process. **A key with no entry there is treated as needing a restart**, so adding a configuration key without declaring its tier makes it quietly un-reloadable. See `thetis/configuration`.
+For configuration, `CONFIG_TIERS` in `src/kernel/config.ts` declares per key which of those applies, and `thetis config reload` prints which keys it applied and which are still waiting on a process. **A key with no entry there is treated as needing a restart**, so adding a configuration key without declaring its tier makes it quietly un-reloadable. See `thetis/configuration`.
 
 The installer follows the same rule: an update builds, runs `thetis config reload` and `thetis reload --all`, and asks the daemon for a restart only when the systemd unit changed or `thetis status --json` reports `daemon.stale`.
 
 ## Testing something that crosses the fence
 
-Add a case to `packages/host/test/e2e.test.ts`, which shares one kernel and collects events from `kernel.sessions.send(...)`. **Run it through the real agent. Do not mock the fence.** That suite exists because the fence is where the interesting failures are.
+Add a case to `test/host/e2e.test.ts`, which shares one kernel and collects events from `kernel.sessions.send(...)`. **Run it through the real agent. Do not mock the fence.** That suite exists because the fence is where the interesting failures are.
 
 New model behaviour means teaching the echo provider fixture a trigger word. Its current vocabulary is in `references/e2e-fixture.md`. The loop's own cases (cancel mid-stream, dangling tool calls closed, an unknown tool refused, a withheld tool honoured, partial text kept) are tests of `@thetis/harness-core`, not of the kernel.
 
@@ -121,9 +122,9 @@ A new RPC method a fence may call has to be added in three files at once, and mi
 
 ## Sources
 
-- packages/kernel/test/loc.test.ts, packages/kernel/test/boundaries.test.ts
+- ARCHITECTURE.md, test/kernel/loc.test.ts, test/architecture.test.mjs, test/kernel/seams.test.ts
 - packages/skills-thetis/test/skills.test.js and packages/skills-thetis/README.md
 - package.json (scripts), tsconfig.json, tsconfig.base.json, .gitmodules
-- packages/host/src/kernel.ts, packages/kernel/src/config.ts
-- packages/host/test/e2e.test.ts and packages/host/test/fixtures/provider-echo/index.js
+- src/host/kernel.ts, src/kernel/config.ts
+- test/host/e2e.test.ts and test/host/fixtures/provider-echo/index.js
 - .github/workflows/ci.yml

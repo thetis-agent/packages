@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { forkPackage } from "@thetis/lib/pkg-fs";
+import { forkPackage } from "@thetis/runtime/lib/pkg-fs";
 import { publish } from "../lib/publish.js";
 import { AUTHOR, git, makeCheckout, makeEnv, makePackage, makeRegistry, manifest, seedRegistry, temp } from "./helpers.js";
 

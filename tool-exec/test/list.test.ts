@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { PackageInfo, ToolEnv } from "@thetis/contracts";
+import type { PackageInfo, ToolEnv } from "@thetis/runtime/contracts";
 import { listPackages } from "../src/index.js";
 
 const installed = [

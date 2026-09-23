@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { KernelClient, Message, ModelChoices, SessionRecord, SessionSummaryRef, StepEnv, UserRole } from "@thetis/contracts";
+import type { KernelClient, Message, ModelChoices, SessionRecord, SessionSummaryRef, StepEnv, UserRole } from "@thetis/runtime/contracts";
 import { withoutTurnContext } from "@thetis/harness-core";
 import { HttpError, json, readBytes, readJson } from "./http.js";
 import { handlePanel } from "./panel.js";

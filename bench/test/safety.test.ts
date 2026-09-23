@@ -5,8 +5,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Enumerator, defaultConfig, type KernelConfig } from "@thetis/kernel";
-import type { PackageInfo } from "@thetis/contracts";
+import { Enumerator, defaultConfig, type KernelConfig } from "@thetis/runtime/kernel";
+import type { PackageInfo } from "@thetis/runtime/contracts";
 
 const PROJECT = resolve(fileURLToPath(import.meta.url), "../../../../..");
 const BENCH_PHASE = "bench";

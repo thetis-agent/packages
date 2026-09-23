@@ -6,9 +6,9 @@
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, sep } from "node:path";
-import type { Store, StoreDriver, StoreFactory, StoreOpenOptions } from "@thetis/contracts";
-import { CodedError, errorCode } from "@thetis/lib/error";
-import { assertStoreDoc, assertStoreId } from "@thetis/lib/store";
+import type { Store, StoreDriver, StoreFactory, StoreOpenOptions } from "@thetis/runtime/contracts";
+import { CodedError, errorCode } from "@thetis/runtime/lib/error";
+import { assertStoreDoc, assertStoreId } from "@thetis/runtime/lib/store";
 import { parse, stringify } from "./toml.js";
 
 export { parse, stringify, TomlError } from "./toml.js";

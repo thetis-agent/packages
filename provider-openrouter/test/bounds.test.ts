@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
-import type { ProviderCall, ProviderEvent } from "@thetis/contracts";
+import type { ProviderCall, ProviderEvent } from "@thetis/runtime/contracts";
 import { createProvider } from "../src/index.js";
 
 type Behaviour = "silent" | "headers-then-silence" | "stream";

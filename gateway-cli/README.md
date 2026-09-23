@@ -4,7 +4,7 @@ The `thetis` command. It runs in the host process; the entry point `bin/thetis.j
 
 ## What it provides
 
-The manifest declares `type: gateway` and nothing else: no steps, no tools, no service, no ui. The package is a host process; it is not linked into any userspace. It is the only package besides `@thetis/host` that may import `@thetis/kernel`. It uses `@thetis/door` under `serve`, `@thetis/marketplace` for `packages outdated` and `packages update`, and `@thetis/bench` for `bench`.
+The manifest declares `type: gateway` and nothing else: no steps, no tools, no service, no ui. The package is a host process; it is not linked into any userspace. It is the only package besides `@thetis/runtime` that may import `@thetis/runtime/kernel`. It uses `@thetis/runtime/door` under `serve`, `@thetis/marketplace` for `packages outdated` and `packages update`, and `@thetis/bench` for `bench`.
 
 | Command | Effect |
 |---|---|
@@ -30,7 +30,7 @@ The process exits with `1` and prints the message when a command throws. A turn 
 
 ### How long `$THETIS_HOME` may be
 
-Every seam between two of our processes is a unix socket under the data directory, and a unix socket path has to fit in `sun_path`: 107 bytes, as `@thetis/lib/socket-paths` explains. The sockets are per-person — `<home>/userspaces/<id>/run/term.sock` is 26 bytes plus the id — so the length that matters is the home *and* an id together, and the verdict is passed wherever each half is known:
+Every seam between two of our processes is a unix socket under the data directory, and a unix socket path has to fit in `sun_path`: 107 bytes, as `@thetis/runtime/lib/socket-paths` explains. The sockets are per-person — `<home>/userspaces/<id>/run/term.sock` is 26 bytes plus the id — so the length that matters is the home *and* an id together, and the verdict is passed wherever each half is known:
 
 | Where | What it says | Why there |
 |---|---|---|
@@ -71,4 +71,4 @@ When something in a turn goes quiet, the harness emits `stall` and then `nudge`,
 
 ## Tests
 
-The package has no tests of its own. `packages/kernel/test/boundaries.test.ts` allows it, and only it besides the host, to import the kernel; `packages/host/test/e2e.test.ts` drives the control socket the commands use. Run every test with `npm test` from the runtime root.
+The package has no tests of its own. `test/architecture.test.mjs` allows it, and only it besides the host, to import the kernel; `test/host/e2e.test.ts` drives the control socket the commands use. Run every test with `npm test` from the runtime root.

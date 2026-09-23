@@ -63,9 +63,9 @@ The reply begins `[subagent s_… cli survey]`. Readers parse that line with `/^
 | File | Content |
 |---|---|
 | `package.json` | The manifest: nine tools and the bench declaration. |
-| `src/index.ts` | The nine tool functions. Forking is `forkPackage` from `@thetis/lib/pkg-fs`; install, uninstall and delete go through `env.kernel.packages`; subagents through `env.kernel.sessions`, with the cancel cascade on `env.signal`. |
+| `src/index.ts` | The nine tool functions. Forking is `forkPackage` from `@thetis/runtime/lib/pkg-fs`; install, uninstall and delete go through `env.kernel.packages`; subagents through `env.kernel.sessions`, with the cancel cascade on `env.signal`. |
 | `BENCH.md`, `bench/` | The generated benchmark view and reports. |
 
 ## Tests
 
-The package has no test directory of its own. `npm test` from the runtime root covers it through the host tests: `packages/host/test/e2e.test.ts` runs the write, exec and install cycle through a real fence, and `packages/gateway-web/test/gateway.test.ts` spawns a subagent with the echo provider's `spawn:` cue, checks the result line and the child's record, and stops the parent while the child streams.
+The package has no test directory of its own. `npm test` from the runtime root covers it through the host tests: `test/host/e2e.test.ts` runs the write, exec and install cycle through a real fence, and `packages/gateway-web/test/gateway.test.ts` spawns a subagent with the echo provider's `spawn:` cue, checks the result line and the child's record, and stops the parent while the child streams.

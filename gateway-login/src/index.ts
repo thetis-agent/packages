@@ -2,7 +2,7 @@
 // door routes `/login`, `/logout` and `/` to it.
 import { chmodSync, mkdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
-import type { Service } from "@thetis/contracts";
+import type { Service } from "@thetis/runtime/contracts";
 import { createLogin } from "./server.js";
 
 export { createLogin, type LoginOptions, COOKIE } from "./server.js";

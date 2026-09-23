@@ -4,7 +4,7 @@
 // `scope` (call phase, after every tools-phase step) drops the tools of groups that are not active. A call to
 // a dropped tool is still honoured by the kernel, because scoping is an attention and token optimisation,
 // never a permission boundary; the group is loaded from the next turn.
-// The query is the first user message without the harness's [Turn context: ...] line, as @thetis/contracts
+// The query is the first user message without the harness's [Turn context: ...] line, as @thetis/runtime/contracts
 // defines it; `queryTextOf` applies that rule and the predecessor's 2000-character clip.
 import { fuse, packagesOf, firstSentence, queryTextOf as withoutTurnContext } from "@thetis/skills";
 import { deriveGroups, catalogueOf, lexicalRank, orderIds, routable, SEARCH_TOOL, SELF, STATE } from "./lib/groups.js";

@@ -315,6 +315,6 @@
     }
   },
   "dependencies": {
-    "@thetis/marketplace": "^0.1.0"
+    "@thetis/marketplace": "^0.4.0"
   }
 }

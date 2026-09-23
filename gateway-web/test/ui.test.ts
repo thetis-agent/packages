@@ -1,7 +1,7 @@
 // The extension seam of the gateway: `thetis.ui` composed from installed packages, a package's browser
 // files served under its own segment, and its declared commands run as the person. First the composition
 // rules on hand-built package lists against a scratch store, then the routes through the door as alice,
-// with the fixtures under packages/host/test/fixtures installed into her own space.
+// with the fixtures under test/host/fixtures installed into her own space.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { exec as cpExec } from "node:child_process";
@@ -12,11 +12,11 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import type { PackageInfo, UiDecl, Userspace } from "@thetis/contracts";
-import { createKernel, T, type Kernel } from "@thetis/host";
-import { createControlHandler, createRpcHandler, defaultConfig } from "@thetis/kernel";
-import { memoryStore } from "@thetis/lib/store";
-import { createDoor } from "@thetis/door";
+import type { PackageInfo, UiDecl, Userspace } from "@thetis/runtime/contracts";
+import { createKernel, T, type Kernel } from "@thetis/runtime";
+import { createControlHandler, createRpcHandler, defaultConfig } from "@thetis/runtime/kernel";
+import { memoryStore } from "@thetis/runtime/lib/store";
+import { createDoor } from "@thetis/runtime/door";
 import { createLogin } from "@thetis/gateway-login";
 import { clientFromRpc } from "../src/client.js";
 import { createGateway } from "../src/server.js";
@@ -24,7 +24,7 @@ import { GatewayStore } from "../src/store.js";
 import { composeUi, type UiExtension } from "../src/ui.js";
 
 const PROJECT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
-const FIXTURES = resolve(PROJECT, "packages/host/test/fixtures");
+const FIXTURES = resolve(PROJECT, "test/host/fixtures");
 const PEOPLE = ["alice", "bob", "root"] as const;
 const GOOD = "@alice/ui-good";
 

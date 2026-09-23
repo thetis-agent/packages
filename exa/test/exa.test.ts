@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { ToolEnv } from "@thetis/contracts";
+import type { ToolEnv } from "@thetis/runtime/contracts";
 import { checkPath, createClient, createTools, formatResults, formatRun, type FetchLike, type RequestInitLike } from "../src/index.js";
 
 interface Call {

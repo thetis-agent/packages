@@ -144,7 +144,7 @@ export async function refusal(promise) {
 }
 
 /**
- * A fork of a package on disk, written the way `forkPackage` in `@thetis/lib` writes one: the copy takes a
+ * A fork of a package on disk, written the way `forkPackage` in `@thetis/runtime/lib` writes one: the copy takes a
  * new name and `<origin version>-fork.N`, loses `scripts` and `devDependencies` because a shipped package
  * cannot rebuild inside a fence, and carries `thetis.forkedFrom`. It is done by hand here rather than
  * imported because this package ships no dependencies and its tests run on plain node, and because the

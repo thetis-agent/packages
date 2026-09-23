@@ -2,7 +2,7 @@
 // request is kept; the small usage ledger survives reopening the page, failures and interrupted turns.
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import type { PackageStepContext, ProviderCall } from "@thetis/contracts";
+import type { PackageStepContext, ProviderCall } from "@thetis/runtime/contracts";
 import type { LastCall } from "./index.js";
 
 interface UsageTurn {

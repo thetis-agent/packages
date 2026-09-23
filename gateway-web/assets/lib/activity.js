@@ -24,7 +24,7 @@ export function applyActivity(session, event, startedAt, parent) {
       return store.setActivity(session, fresh(Date.parse(startedAt || "") || Date.now()));
     case "step.start": {
       const record = had?.state === "working" ? had : fresh(Date.now());
-      const builtin = event.step?.package === "@thetis/kernel";
+      const builtin = event.step?.package === "@thetis/runtime/kernel";
       return store.setActivity(session, { ...record, step: builtin ? "Thinking" : stepName(event.step), tool: false });
     }
     case "reasoning": {

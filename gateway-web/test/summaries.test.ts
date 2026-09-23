@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, w
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
-import type { KernelClient, SessionSummaryRef, WatchedTurnEvent } from "@thetis/contracts";
+import type { KernelClient, SessionSummaryRef, WatchedTurnEvent } from "@thetis/runtime/contracts";
 import { createGateway } from "../src/server.js";
 import { GatewayStore } from "../src/store.js";
 import { TurnHub } from "../src/turns.js";

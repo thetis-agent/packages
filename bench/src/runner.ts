@@ -2,7 +2,7 @@
 // reaches the harness exactly as the suite wrote it. Everything observable is collected: the turn events for
 // step timing, the provider's capture for byte and canary accounting, and the probe's harness record for
 // what each package claimed.
-import type { BenchClaim, TurnEvent } from "@thetis/contracts";
+import type { BenchClaim, TurnEvent } from "@thetis/runtime/contracts";
 import type { Arena } from "./arena.js";
 import { addressOf, byAddress, readCapture, reconcile, type CaptureLine, type Reconciled } from "./capture.js";
 import type { SuiteDef, Task } from "./suite.js";

@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
-import type { Message, PackageInfo, PackageStepContext, ProviderCall, ProviderEvent, ToolSpec, TurnEvent } from "@thetis/contracts";
+import type { Message, PackageInfo, PackageStepContext, ProviderCall, ProviderEvent, ToolSpec, TurnEvent } from "@thetis/runtime/contracts";
 import { callModel, cancelledToolResult, fmtMs, NUDGE_DEFAULTS, nudgeConfig, readDecision } from "../src/index.js";
 
 const contextHome = mkdtempSync(join(tmpdir(), "thetis-context-test-"));
