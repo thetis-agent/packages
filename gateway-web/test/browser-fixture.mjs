@@ -23,6 +23,9 @@ const SETUP = `export default async function install(ext) {
   window.reviewSetupReady = true;
 }`;
 
+/** A one-pixel PNG: enough for the browser to call it an image and draw it. */
+export const PNG_1PX = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
 export function deferred() {
   let resolve;
   const promise = new Promise((done) => { resolve = done; });
@@ -41,7 +44,9 @@ export async function withPage(browser, name, options, run) {
   const id = "s_aaaa";
   const session = { id, title: "Browser regression", named: true, turns: options.existing ? 1 : 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   const conversation = options.existing ? [{ role: "user", content: "Earlier question" }, { role: "assistant", content: "Earlier reply" }] : [];
-  let created = false, sends = 0;
+  let created = false, sends = 0, uploads = 0;
+  const sent = [];   // the JSON bodies of every send, so a test can check the wire shape
+  const media = [];  // { name, mediaType, size } of every upload
   await page.addInitScript(({ holdHook, holdModule }) => {
     window.reviewHooks = [];
     window.reviewOrder = [];
@@ -84,8 +89,18 @@ export async function withPage(browser, name, options, run) {
           if (options.holdRecord) await recordGate.promise;
           return route.fulfill({ json: { ...session, conversation, children: [], usage: {}, turn: null } });
         }
+        if (api === "media" && route.request().method() === "POST") {
+          uploads += 1;
+          const name = new URL(route.request().url()).searchParams.get("name");
+          const mediaType = String(route.request().headers()["content-type"] ?? "").split(";")[0];
+          const size = route.request().postDataBuffer()?.length ?? 0;
+          media.push({ name, mediaType, size });
+          return route.fulfill({ status: 201, json: { id: `a_${uploads}`, mediaType, name, size } });
+        }
+        if (api.startsWith("media/")) return route.fulfill({ status: 200, contentType: "image/png", body: Buffer.from(PNG_1PX, "base64") });
         if (api === `sessions/${id}/send`) {
           sends += 1;
+          sent.push(route.request().postDataJSON());
           sendRequested.resolve();
           if (options.holdSend) await sendGate.promise;
           return route.fulfill({ status: 202, json: { session: id } });
@@ -111,6 +126,8 @@ export async function withPage(browser, name, options, run) {
       page, id, uiRequested: uiRequested.promise, recordRequested: recordRequested.promise, sendRequested: sendRequested.promise,
       releaseUi: uiGate.resolve, releaseRecord: recordGate.resolve, releaseSend: sendGate.resolve,
       sends: () => sends,
+      sent: () => sent,
+      media: () => media,
       emit: (events) => page.evaluate(({ id, events }) => {
         for (const [index, event] of events.entries()) reviewEmit("turn", { session: id, turn: "t_browser", seq: index + 1, event, ...(event.type === "turn.start" ? { input: "New question" } : {}) });
       }, { id, events }),

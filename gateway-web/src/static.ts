@@ -21,9 +21,11 @@ export const TYPES: Record<string, string> = {
  * cannot be shipped as a file. The nonce is minted for each response and travels in a meta tag, so only
  * the code this response served can stamp it; CSS from anywhere else is still refused, which is what
  * `'unsafe-inline'` would have given up. A response with no nonce keeps the old policy exactly.
+ * `img-src` allows `blob:` for the composer's thumbnails of the pictures a person has attached but not
+ * yet sent: they are object URLs of files the page itself was handed, never anything fetched.
  */
 const csp = (nonce: string): string =>
-  `default-src 'self'; img-src 'self' data:; style-src 'self'${nonce ? ` 'nonce-${nonce}'` : ""}; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'`;
+  `default-src 'self'; img-src 'self' data: blob:; style-src 'self'${nonce ? ` 'nonce-${nonce}'` : ""}; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'`;
 
 /** True when `file` is strictly inside `root`, by path arithmetic; symlinks are not followed. */
 export function within(root: string, file: string): boolean {

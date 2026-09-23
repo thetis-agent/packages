@@ -90,10 +90,17 @@
 
     <div class="composer-wrap">
       <form id="composer" class="composer" autocomplete="off">
+        <div id="attachments" class="attachments" hidden aria-label="Attachments"></div>
         <div class="composer-field">
           <textarea id="input" class="composer-input" rows="1" placeholder="Message Thetis…" aria-label="Message"></textarea>
         </div>
         <div class="composer-bar">
+          <button type="button" id="attach" class="icon-btn sm attach-btn" title="Attach an image (or paste or drop one)" aria-label="Attach an image">
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M12.5 6.5 7.7 11.3a1.8 1.8 0 0 0 2.5 2.5l5.3-5.3a3.4 3.4 0 0 0-4.8-4.8L5 9.4a5 5 0 0 0 7.1 7.1l4.2-4.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <input type="file" id="attach-file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,audio/*,video/*" multiple hidden>
           <div class="composer-tools" id="composer-tools"></div>
           <span id="composer-note" class="composer-note"></span>
           <div class="composer-run">
@@ -111,7 +118,7 @@
           </div>
         </div>
       </form>
-      <p class="composer-hint">Enter to send · Shift+Enter for a newline</p>
+      <p class="composer-hint">Enter to send · Shift+Enter for a newline · paste or drop an image to attach it</p>
     </div>
 
     <!-- The shelf: the bottom dock under the conversation, the legacy terminal drawer's chrome made

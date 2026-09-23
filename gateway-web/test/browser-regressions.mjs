@@ -2,7 +2,7 @@
 // executable overrides. These use no live service, credentials, model provider or package lockfile.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { withPage } from "./browser-fixture.mjs";
+import { PNG_1PX, withPage } from "./browser-fixture.mjs";
 
 let browser;
 before(async () => {
@@ -90,5 +90,87 @@ test("a stale history response retains live events received while loading", { ti
     assert.match(transcript, /Live answer before snapshot/);
     assert.equal(transcript.split("Live answer before snapshot").length - 1, 1);
     assert.equal(await f.running(), true);
+  });
+});
+
+/** Hands the page a synthetic paste or drop carrying one PNG, the way a screenshot tool or a file manager would. */
+const deliver = (page, how) => page.evaluate(({ how, png }) => {
+  const bytes = Uint8Array.from(atob(png), (c) => c.charCodeAt(0));
+  const file = new File([bytes], how === "paste" ? "image.png" : "diagram.png", { type: "image/png" });
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  if (how === "paste") {
+    document.querySelector("#input").dispatchEvent(new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true }));
+  } else {
+    const main = document.querySelector("main.main");
+    main.dispatchEvent(new DragEvent("dragenter", { dataTransfer: transfer, bubbles: true, cancelable: true }));
+    window.reviewDropping = main.classList.contains("is-dropping");
+    main.dispatchEvent(new DragEvent("drop", { dataTransfer: transfer, bubbles: true, cancelable: true }));
+  }
+}, { how, png: PNG_1PX });
+
+for (const how of ["paste", "drop"]) {
+  test(`a ${how === "paste" ? "pasted" : "dropped"} image is uploaded, shown in the tray, and sent as an asset part with the text`, { timeout: 15000 }, async () => {
+    await withPage(browser, `attach-${how}`, { existing: true }, async (f) => {
+      await f.page.getByText("Earlier reply", { exact: true }).last().waitFor();
+      await deliver(f.page, how);
+      if (how === "drop") assert.equal(await f.page.evaluate(() => window.reviewDropping), true, "the drop highlight shows while a file is over the conversation");
+      assert.equal(await f.page.evaluate(() => document.querySelector("main.main").classList.contains("is-dropping")), false, "and clears on the drop");
+      // The chip shows while the upload travels, then settles with the file's size; the send waits for it.
+      await f.page.locator("#attachments .attachment.is-ready").waitFor();
+      assert.equal(await f.page.locator("#attachments .attachment").count(), 1);
+      assert.equal(await f.page.locator("#attachments img.attachment-thumb").count(), 1, "an image gets a thumbnail");
+      const name = await f.page.locator(".attachment-name").innerText();
+      if (how === "paste") assert.match(name, /^pasted-\d{8}-\d{6}Z\.png$/, "a clipboard image is named by the clock");
+      else assert.equal(name, "diagram.png");
+      assert.deepEqual(f.media(), [{ name, mediaType: "image/png", size: 70 }]);
+      assert.equal(await f.page.locator("#send").isDisabled(), false, "a picture alone is a message");
+      await f.page.locator("#input").fill("What is this?");
+      await f.page.locator("#input").press("Enter");
+      await f.sendRequested;
+      await f.idle();
+      assert.deepEqual(f.sent(), [{ input: { role: "user", content: [
+        { type: "text", data: { text: "What is this?" } },
+        { type: "asset", data: { id: "a_1", mediaType: "image/png", name } },
+      ] } }]);
+      assert.equal(await f.page.locator("#attachments").isVisible(), false, "the tray empties once sent");
+      assert.equal(await f.page.locator("#input").inputValue(), "");
+      // The person's own row shows the picture before the server echoes it.
+      const row = f.page.locator(".pane.is-active .msg.is-user").last();
+      assert.match(await row.innerText(), /What is this\?/);
+      assert.equal(await row.locator("img.content-media").count(), 1);
+    });
+  });
+}
+
+test("a pasted image can be removed before sending, and a text-only send still travels as { text }", { timeout: 15000 }, async () => {
+  await withPage(browser, "attach-remove", { existing: true }, async (f) => {
+    await f.page.getByText("Earlier reply", { exact: true }).last().waitFor();
+    await deliver(f.page, "paste");
+    await f.page.locator("#attachments .attachment.is-ready").waitFor();
+    await f.page.locator(".attachment-remove").click();
+    assert.equal(await f.page.locator("#attachments").isVisible(), false);
+    assert.equal(await f.page.locator("#send").isDisabled(), true, "nothing to send once the picture is gone and the box is empty");
+    await f.page.locator("#input").fill("Just words");
+    await f.page.locator("#input").press("Enter");
+    await f.sendRequested;
+    await f.idle();
+    assert.deepEqual(f.sent(), [{ text: "Just words" }]);
+  });
+});
+
+test("a paste of plain text is left to the textarea", { timeout: 15000 }, async () => {
+  await withPage(browser, "paste-text", { existing: true }, async (f) => {
+    await f.page.getByText("Earlier reply", { exact: true }).last().waitFor();
+    // The clipboard API needs a secure origin the fixture does not have, so the paste is synthetic; what
+    // matters is that the composer does not cancel it, which is what would keep the words out of the box.
+    const cancelled = await f.page.evaluate(() => {
+      const transfer = new DataTransfer();
+      transfer.setData("text/plain", "pasted words");
+      return !document.querySelector("#input").dispatchEvent(new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true }));
+    });
+    assert.equal(cancelled, false, "a text paste keeps its default handling");
+    assert.equal(await f.page.locator("#attachments").isVisible(), false);
+    assert.deepEqual(f.media(), []);
   });
 });

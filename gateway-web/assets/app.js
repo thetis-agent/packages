@@ -4,7 +4,9 @@
 
 import { applyActivity, countWorking } from "./lib/activity.js";
 import { api, apiBytes, connect } from "./lib/api.js";
+import { localContent } from "./lib/attachments.js";
 import { avatarFor, repaintPersonAvatars } from "./lib/avatar.js";
+import { contentText } from "./lib/content.js";
 import { $, clear, setHidden } from "./lib/dom.js";
 import { bindShell, broadcastTurn, createExt, notifySessionCreated } from "./lib/ext.js";
 import { loadExtensions } from "./lib/loader.js";
@@ -100,22 +102,30 @@ async function createConversation() {
   }
 }
 
-/** Sends to the active conversation, creating one when none is open. An ask form's answers come through here too. */
-async function send(text) {
+/**
+ * Sends to the active conversation, creating one when none is open. An ask form's answers and a package's
+ * `conversation.send` come through here too, as plain strings. `input` is what travels: a string, or a
+ * user message with content parts when the composer had attachments. `draft` is what the composer gives
+ * back to itself when the send is refused — the text and the attachment list — so nothing typed or
+ * uploaded is lost to a 409.
+ */
+async function send(input, draft) {
+  const text = typeof input === "string" ? input : contentText(input.content);
+  const restore = () => composer.restore(text, draft);
   let id = store.get("current");
   if (!id) {
     id = await createConversation();
-    if (!id) { composer.restore(text); return; }
+    if (!id) { restore(); return; }
   }
   const transcript = tabs.transcriptOf(id);
   store.mark("pending", id, true);
-  transcript?.addLocal(text);
+  transcript?.addLocal(localContent(input));
   try {
-    await sendTurn(id, text);
+    await sendTurn(id, input);
   } catch (err) {
     transcript?.failLocal();
     toast(err.status === 409 ? "That conversation is still working on the last message." : err.message, { tone: "error" });
-    composer.restore(text);
+    restore();
   } finally {
     store.mark("pending", id, false);
   }
@@ -248,7 +258,7 @@ async function chooseModel(id, model) {
 
 // --- the views ---
 
-const composer = mountComposer({ onSend: (text) => { void send(text); }, onStop: stop, onModel: chooseModel });
+const composer = mountComposer({ onSend: (input, draft) => { void send(input, draft); }, onStop: stop, onModel: chooseModel });
 const sessions = mountSessions({ onOpen: openConversation, onNew: createConversation, onArchive: archive, onRename: rename, onAgent: showAgent, onOpenAgent: openAgent });
 const tabs = mountTabs({
   onNew: createConversation,

@@ -22,10 +22,12 @@ binary is installed. The suite stays separate from `npm test`, so normal tests n
 dependency. Failed cases save a screenshot and Playwright trace under a temporary directory; set
 `THETIS_BROWSER_ARTIFACTS` to choose another output directory.
 
-The seven checks cover delayed extension declarations and installation, awaited creation hooks,
+The eleven checks cover delayed extension declarations and installation, awaited creation hooks,
 draft restoration after a hook fails, send acknowledgements arriving after turn completion or a
-reconnect snapshot, and live events arriving before a saved conversation response. Request gates
-control event order without sleeps.
+reconnect snapshot, live events arriving before a saved conversation response, and attachments: a
+pasted and a dropped PNG travel through `POST /api/media`, show as a chip in `#attachments`, and go
+out as an `asset` part beside the text in `{ input }`; a removed one leaves the send as `{ text }`; a
+text paste keeps its default handling. Request gates control event order without sleeps.
 
 ## Setup
 
@@ -81,6 +83,16 @@ press does not): open a new tab on the same URL and close the old one before the
    (`.tab.is-working`), `.chat-state` visible, then `.msg.is-assistant .msg-text` with the reply and a
    `.msg-usage` footnote. The other pane still holds its own content (0 `.msg`). The sidebar row shows the
    working step while it runs and the preview and `.session-meta` after.
+   **With a picture**: paste a screenshot into `#input`, or drop a PNG anywhere on `main.main` (expect
+   `main.main.is-dropping` with the "Drop to attach" overlay while the file is over it, gone on drop), or
+   click `#attach` and pick one. Expect `#attachments` shown with one `.attachment.is-uploading` that
+   becomes `.is-ready`, holding `img.attachment-thumb`, `.attachment-name` (a pasted one is
+   `pasted-<yyyymmdd>-<hhmmss>Z.png`), `.attachment-state` with the size, and `.attachment-remove`;
+   `#send` enabled with the box empty; the placeholder "Say something about the attachment, or just
+   send it…". Enter: the request is `{ input: { role: "user", content: [text?, asset] } }`, `#attachments`
+   carries `hidden` again, the `.msg.is-user` row holds `img.content-media` from `api/media/<id>`, and the
+   model's reply speaks to the picture. A `.zip` dropped is refused with a `.toast` naming its type; a 409
+   on send puts the text and the chips back.
 5. **Switch tabs from the sidebar**: click the other `.session-open` row. Expect its `.tab.is-active` and
    `.pane.is-active`; the pane with the reply keeps its 2 `.msg`s (a pane stays built while it is among
    the 5 most recently shown). Click the first tab's `.tab-open` to come back the same way. Scroll that
