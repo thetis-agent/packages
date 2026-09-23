@@ -4,22 +4,22 @@
 
 import { createHash } from "node:crypto";
 import type { PackageStepContext, StepResult } from "@thetis/runtime/contracts";
-import { diagnose, describe, fingerprint, type CacheDiagnostics } from "./fingerprint.js";
-import { resolveHint, type CacheConfig } from "./policy.js";
+import { diagnose, describe, fingerprint, CacheDiagnosticsSchema, type CacheDiagnostics } from "./fingerprint.js";
+import { resolveHint, readCacheConfig } from "./policy.js";
 
 export const HARNESS_KEY = "@thetis/prompt-cache";
 export const HINT_KEY = "cache";
 
 export async function cacheHints(ctx: PackageStepContext): Promise<StepResult> {
-  const config = ctx.config as CacheConfig;
+  const config = readCacheConfig(ctx.config);
   const hint = resolveHint(config, ctx.call.model);
   if (config.affinity !== false) hint.affinity = affinityOf(ctx.session.user);
   const call = { ...ctx.call, hints: { ...(ctx.call.hints ?? {}), [HINT_KEY]: hint } };
   if (config.diagnostics === false) return { call };
 
-  const prev = ctx.harness[HARNESS_KEY] as CacheDiagnostics | undefined;
+  const prev = CacheDiagnosticsSchema.safeParse(ctx.harness[HARNESS_KEY]).data;
   const next = fingerprint(ctx.call);
-  const divergence = diagnose(prev && Array.isArray(prev.messages) ? prev : undefined, next);
+  const divergence = diagnose(prev, next);
   const turn = (prev?.turns ?? 0) + 1;
   const diagnostics: CacheDiagnostics = { ...next, turns: turn, divergences: (prev?.divergences ?? 0) + (divergence ? 1 : 0), last: prev?.last };
   if (divergence) {

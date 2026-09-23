@@ -9,7 +9,8 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@thetis/prompt-cache": "^0.1.0"
+    "@thetis/prompt-cache": "^0.1.0",
+    "zod": "^4.6.5"
   },
   "thetis": {
     "type": "provider",

@@ -18,12 +18,14 @@ const SUITE = resolve(PROJECT, "packages/bench/suites/assembly-cost-v1");
 let arena: Arena;
 
 /** A package that injects a body and claims it honestly, and one that claims a body it never injected. */
-function writeFixtures(root: string): { honest: string; liar: string } {
+function writeFixtures(root: string): { honest: string; liar: string; corrupt: string } {
   const honest = resolve(root, "honest");
   const liar = resolve(root, "liar");
+  const corrupt = resolve(root, "corrupt");
   for (const [dir, name, injects] of [
     [honest, "@honest/skills", true],
     [liar, "@liar/skills", false],
+    [corrupt, "@corrupt/skills", true],
   ] as const) {
     mkdirSync(dir, { recursive: true });
     writeFileSync(
@@ -39,6 +41,7 @@ function writeFixtures(root: string): { honest: string; liar: string } {
           steps: [
             { id: "inject", phase: "prompt", export: "inject" },
             { id: "bench-report", phase: BENCH_PHASE, export: "benchReport" },
+            ...(name === "@corrupt/skills" ? [{ id: "corrupt", phase: "after", export: "corrupt" }] : []),
           ],
           bench: { suites: ["assembly-cost@1"], adapter: "benchReport" },
         },
@@ -52,16 +55,19 @@ export async function inject(ctx) {
 }
 export async function benchReport(ctx) {
   const prev = ctx.harness["@thetis/bench"] ?? {};
-  return { harness: { ...ctx.harness, "@thetis/bench": { ...prev, claims: { ...(prev.claims ?? {}), ${JSON.stringify(name)}: { direct: ["cap.alpha"], offered: [] } } } } };
+  return { harness: { ...ctx.harness, "@thetis/bench": { ...prev, claims: { ...(prev.claims ?? {}), ${JSON.stringify(name)}: { package: ${JSON.stringify(name)}, direct: ["cap.alpha"], offered: [] } } } } };
+}
+export async function corrupt(ctx) {
+  return { harness: { ...ctx.harness, "@thetis/bench": { claims: { "@corrupt/skills": { package: "@corrupt/skills", direct: null, offered: [] } } } } };
 }`,
     );
   }
-  return { honest, liar };
+  return { honest, liar, corrupt };
 }
 
 before(async () => {
   const staging = resolve(PROJECT, "packages/bench/dist/.fixtures");
-  const { honest, liar } = writeFixtures(staging);
+  const { honest, liar, corrupt } = writeFixtures(staging);
   arena = await Arena.open({
     project: PROJECT,
     sandbox: SANDBOX,
@@ -71,6 +77,7 @@ before(async () => {
       { id: "none" },
       { id: "honest", packages: [honest] },
       { id: "liar", packages: [liar] },
+      { id: "corrupt", packages: [corrupt] },
       { id: "tools", packages: [resolve(PROJECT, "packages/tools-files")] },
     ],
   });
@@ -82,6 +89,10 @@ after(async () => {
 
 const task = { id: "t-read", query: "Read src/index.ts and say what it exports.", turns: 2 };
 const run = (arm: string) => runTask(arena, arm, task, 0, { runId: "r1" });
+
+test("a package cannot pass malformed harness claims into scoring", async () => {
+  await assert.rejects(run("corrupt"), /bench.*claims.*direct/i);
+});
 
 test("a suite on disk loads, validates, and reports its strata", () => {
   const suite = loadSuite(SUITE);

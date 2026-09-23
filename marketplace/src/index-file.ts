@@ -2,49 +2,8 @@
 // `<shared>/marketplace/index.json`: the shared directory is written by the system userspace, where the
 // service runs, and read by every fence, where the gateways run. Nothing has to import this module.
 
-export interface Registry {
-  name: string;
-  url: string;
-}
-
-export interface RegistryState extends Registry {
-  /** The commit the mirror holds, when the last refresh succeeded. */
-  commit?: string;
-  /** Why the last refresh failed, when it did. The packages of the previous refresh are kept. */
-  error?: string;
-}
-
-export interface IndexedPackage {
-  name: string;
-  version: string;
-  type: string;
-  description: string;
-  keywords: string[];
-  registry: string;
-  url: string;
-  /** Directory of the package inside the registry repository. */
-  dir: string;
-  /** The commit this entry was read from. The index always shows the latest; this is what an install pins. */
-  commit: string;
-  /** The install source, pinned: `<url>#<dir>@<commit>`. */
-  source: string;
-  steps: { id: string; phase: string }[];
-  tools: string[];
-  service: boolean;
-  /** Benchmark suites the package runs. This is how a comparison finds its peers without cloning a registry. */
-  bench?: { suites: string[]; corpus?: string; peerGroup?: string };
-  /** The package directory holds a `README.md`; a copy sits at `readmePath`. False or absent when it does not. */
-  readme?: boolean;
-  /** The local images the README shows, as written in it (`bench/x/chart.svg`); each has a copy at `readmeAssetPath`. */
-  readmeAssets?: string[];
-}
-
-export interface MarketplaceIndex {
-  version: 1;
-  updatedAt: string;
-  registries: RegistryState[];
-  packages: IndexedPackage[];
-}
+import { MarketplaceIndexSchema, type MarketplaceIndex, type IndexedPackage } from "./schemas.js";
+export type { Registry, RegistryState, IndexedPackage, MarketplaceIndex } from "./schemas.js";
 
 export const INDEX_FILE = "marketplace/index.json";
 
@@ -67,8 +26,8 @@ export async function readIndex(env: FileEnv): Promise<MarketplaceIndex | undefi
     return undefined;
   }
   try {
-    const parsed = JSON.parse(text) as MarketplaceIndex;
-    return parsed && parsed.version === 1 && Array.isArray(parsed.packages) ? parsed : undefined;
+    const parsed = MarketplaceIndexSchema.safeParse(JSON.parse(text));
+    return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
   }

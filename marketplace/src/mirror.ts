@@ -4,6 +4,7 @@
 
 import type { ExecOptions } from "@thetis/runtime/contracts";
 import { mirrorCommand, pinnedSource } from "@thetis/runtime/lib/pkg-fs";
+import { IndexableManifestSchema } from "./schemas.js";
 import {
   readIndex, readmeAssetFile, readmeAssetPath, readmeAssetsOf, readmeAssetType, readmeDir, readmeFile, readmePath, README_ASSET_CAP, README_CAP, README_TRUNCATED, writeIndex,
   type FileEnv, type IndexedPackage, type MarketplaceIndex, type Registry, type RegistryState,
@@ -59,9 +60,9 @@ async function scan(env: MirrorEnv, registry: Registry, commit: string): Promise
   const out: IndexedPackage[] = [];
   const assets: { entry: IndexedPackage; paths: string[] }[] = [];
   for (const file of files.filter((f) => f.endsWith("/package.json"))) {
-    let manifest: Record<string, unknown>;
+    let manifest: unknown;
     try {
-      manifest = JSON.parse(await env.readFile(file)) as Record<string, unknown>;
+      manifest = JSON.parse(await env.readFile(file));
     } catch {
       continue;
     }
@@ -153,25 +154,19 @@ async function dropStaleReadmes(env: MirrorEnv, registry: Registry, entries: Ind
 }
 
 /** One index entry from a manifest, or undefined when it is not a Thetis package. */
-export function describe(m: Record<string, unknown>, registry: Registry, dir: string, commit: string): IndexedPackage | undefined {
-  const thetis = m.thetis as
-    | {
-        type?: unknown;
-        steps?: { id: string; phase: string }[];
-        tools?: { name: string }[];
-        service?: unknown;
-        bench?: { suites?: string[]; corpus?: string; peerGroup?: string };
-      }
-    | undefined;
-  if (typeof m.name !== "string" || typeof m.version !== "string" || !thetis || typeof thetis.type !== "string") return undefined;
+export function describe(raw: unknown, registry: Registry, dir: string, commit: string): IndexedPackage | undefined {
+  const parsed = IndexableManifestSchema.safeParse(raw);
+  if (!parsed.success) return undefined;
+  const m = parsed.data;
+  const thetis = m.thetis;
   // A storage driver runs on the host and is chosen in the configuration, so it is never installable and is not offered.
   if (thetis.type === "storage") return undefined;
   return {
     name: m.name,
     version: m.version,
     type: thetis.type,
-    description: typeof m.description === "string" ? m.description : "",
-    keywords: Array.isArray(m.keywords) ? m.keywords.filter((k): k is string => typeof k === "string") : [],
+    description: m.description ?? "",
+    keywords: m.keywords ?? [],
     registry: registry.name,
     url: registry.url,
     dir,

@@ -49,3 +49,15 @@ test("diagnostics and affinity can be turned off; other hints survive", async ()
   assert.equal(r.call!.hints!.other, 1);
   assert.equal((r.call!.hints!.cache as CacheHint).affinity, undefined);
 });
+
+test("invalid saved cache diagnostics are discarded rather than reused as typed counters", async () => {
+  const saved = { head: "old", messages: [], turns: "8", divergences: "3" };
+  const result = await cacheHints(ctx(call(["hi"]), { [HARNESS_KEY]: saved }));
+  const diagnostics = result.harness![HARNESS_KEY] as CacheDiagnostics;
+  assert.equal(diagnostics.turns, 1);
+  assert.equal(diagnostics.divergences, 0);
+});
+
+test("cache configuration reports malformed nested fields before evaluating policy", async () => {
+  await assert.rejects(cacheHints(ctx(call(["hi"]), {}, { overrides: { anthropic: { anchorStride: "four" } } })), /overrides.*anthropic.*anchorStride/);
+});

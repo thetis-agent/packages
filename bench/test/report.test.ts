@@ -4,11 +4,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  assertWritable, buildReport, canonical, digestOf, isStale, renderMarkdown, viewFor, writeMarkdown,
+  assertWritable, buildReport, canonical, digestOf, isStale, readViews, renderMarkdown, viewFor, writeMarkdown,
   writePackageView, writeSuiteReport, type ReportInputs,
 } from "../src/report.js";
 import { comparable, participants, peerGroupOf, readParticipant, type Participant } from "../src/peers.js";
 import { validateBench } from "../src/manifest.js";
+import { verify } from "../src/cli.js";
 import type { ArmScore } from "../src/score.js";
 import { bootstrap, paired, seedOf } from "../src/metrics/stats.js";
 
@@ -97,6 +98,24 @@ test("an unreadable report on disk is replaced rather than trusted", () => {
   });
 });
 
+test("a report with the expected digest but malformed measurements is replaced", () => {
+  withTmp((dir) => {
+    const broken = { ...report(), shared: { self: { bytes_tools: { mean: "many" } } } };
+    writeFileSync(join(dir, "report.json"), JSON.stringify(broken));
+    assert.equal(writeSuiteReport(dir, report()).written, true);
+  });
+});
+
+test("persisted views validate nested results and retain future metadata", () => {
+  withTmp((dir) => {
+    const view = { ...viewFor(report(), "@a/x", "self", "skills", ["peer"]), future: { revision: "v2" } };
+    writePackageView(dir, view);
+    assert.deepEqual(readViews(dir), [view]);
+    writeFileSync(join(dir, "bench", "tools-v1", "report.json"), JSON.stringify({ ...view, report: { ...view.report, latency: { self: "quick" } } }));
+    assert.deepEqual(readViews(dir), []);
+  });
+});
+
 test("a package's view keeps the floor, itself and its peers, and drops the rest", () => {
   const view = viewFor(report(), "@a/x", "self", "skills", ["peer"]);
   assert.deepEqual(view.arms, ["none", "self", "peer"]);
@@ -156,6 +175,16 @@ test("a package that opts into no suite is not a participant", () => {
     const found = participants([dir], "tools@1");
     assert.deepEqual(found.map((p) => p.name), ["@a/opted"]);
     assert.equal(readParticipant(join(dir, "nothing-here")), null);
+  });
+});
+
+test("participant manifests cannot claim suites with a string masquerading as an array", () => {
+  withTmp((dir) => {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "@a/package", version: "1", thetis: { type: "tool", bench: { suites: "tools@1" } } }));
+    assert.equal(readParticipant(dir), null);
+    const problems = verify(dir);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0]!, /thetis.*bench.*suites/);
   });
 });
 
@@ -219,6 +248,6 @@ test("a bench step with no suite opted into is a mistake worth naming", () => {
 
 test("an arm configuration must name an arm the package declares", () => {
   const thetis = { type: "loader", steps: [], bench: { suites: ["assembly-cost@1"], arms: ["dense"], armConfig: { dense: { denseMode: "fallback" }, fusion: { denseMode: "fusion" } } } };
-  assert.deepEqual(validateBench("@x/y", thetis as never), ['@x/y: thetis.bench.armConfig names "fusion", which is not in thetis.bench.arms']);
-  assert.deepEqual(validateBench("@x/y", { ...thetis, bench: { ...thetis.bench, arms: ["dense", "fusion"] } } as never), []);
+  assert.deepEqual(validateBench("@x/y", thetis), ['@x/y: thetis.bench.armConfig names "fusion", which is not in thetis.bench.arms']);
+  assert.deepEqual(validateBench("@x/y", { ...thetis, bench: { ...thetis.bench, arms: ["dense", "fusion"] } }), []);
 });

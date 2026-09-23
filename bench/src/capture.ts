@@ -3,41 +3,17 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { BenchClaim } from "@thetis/runtime/contracts";
 import type { Available } from "./metrics/recall.js";
+import { CaptureLineSchema, type CaptureLine } from "./schemas.js";
+import { parseJsonLines } from "./json.js";
+export type { CaptureLine } from "./schemas.js";
 
-export interface CaptureLine {
-  run: string;
-  arm: string;
-  task: string;
-  attempt: number;
-  round: number;
-  model: string;
-  at: number;
-  bytes: { system: number; tools: number; messages: number; hints: number; total: number };
-  sha: { system: string; tools: string; prefix: string };
-  prefixBytes: number;
-  toolNames: string[];
-  toolIds: string[];
-  toolBytes: Record<string, number>;
-  canaryDirect: string[];
-  /** Canaries found in the tool schemas: a corpus of tools proves reach here, not in the system prompt. */
-  canaryTools?: string[];
-  idsMentioned: string[];
-  idsReturned: string[];
-  canaryReturned: string[];
-  nonAsciiRatio: number;
-  hintKeys: string[];
-}
 
 export const addressOf = (l: { run: string; arm: string; task: string; attempt: number }): string =>
   `${l.run}/${l.arm}/${l.task}/${l.attempt}`;
 
 export function readCapture(path: string): CaptureLine[] {
   if (!existsSync(path)) return [];
-  return readFileSync(path, "utf8")
-    .split("\n")
-    .filter((line) => line.trim())
-    .map((line) => JSON.parse(line) as CaptureLine)
-    .filter((line) => Array.isArray(line.canaryDirect) && !!line.bytes);
+  return parseJsonLines(CaptureLineSchema, readFileSync(path, "utf8"), `capture ${path}`);
 }
 
 export function byAddress(lines: readonly CaptureLine[]): Map<string, CaptureLine[]> {

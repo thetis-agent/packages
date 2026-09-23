@@ -95,6 +95,8 @@ By default the question goes to the turn's own model, which is the one that know
 
 This package owns the line and its stripper. `TURN_CONTEXT` is the regex that matches it as a suffix (`/\n\n\[Turn context: [^\n\]]*\]$/`) and `withoutTurnContext(text)` takes it off. Anything that shows the person their own words, or matches on them, imports them from here: the web gateway strips it from the sidebar titles and previews, the skills packages from the ranking query. Code that must not depend on this package (a provider fixture, a browser file) copies the regex and says so.
 
+Context snapshots and saved request summaries use Zod schemas. An unreadable or malformed diagnostic snapshot is logged and replaced with a fresh ledger, so diagnostics cannot interrupt a turn. Wire summaries validate only the fields they display; the complete provider request is preserved separately, including unfamiliar content.
+
 ## Configuration
 
 `config.packages["@thetis/harness-core"]`:

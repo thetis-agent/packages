@@ -1,10 +1,11 @@
 import { textContent, contentText } from "@thetis/runtime/lib/content";
 import { test, after } from "node:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import type { Message, PackageInfo, PackageStepContext, ProviderCall, ProviderEvent, ToolSpec, TurnEvent } from "@thetis/runtime/contracts";
+import { ContextRecorder } from "../src/context.js";
 import { attachTools, callModel, recordCall, systemPrompt, turnContext, turnContextLine, TURN_CONTEXT, withoutTurnContext, type LastCall } from "../src/index.js";
 
 const greet = {
@@ -446,4 +447,37 @@ test("turn context appends text while preserving the IDs and order of attached p
   assert.equal(result?.conversation?.[0].id, "input");
   assert.deepEqual(result?.conversation?.[0].content.slice(0, 2), content);
   assert.equal(result?.conversation?.[0].content[2].type, "text");
+});
+
+
+test("recordCall replaces malformed saved summaries even when their turn matches", async () => {
+  const ctx = ctxWith({ harness: { "@thetis/harness-core": { lastCall: { turn: "t1", model: false } } } });
+  const result = await recordCall(ctx);
+  const saved = result.harness!["@thetis/harness-core"] as { lastCall: LastCall };
+  assert.equal(saved.lastCall.model, ctx.call.model);
+});
+
+test("context ignores corrupt snapshots and summarizes unknown wire layouts without interrupting a turn", async () => {
+  const dir = mkdtempSync(join(contextHome, "malformed-"));
+  const ctx = ctxWith();
+  ctx.env.cwd = dir;
+  const file = join(dir, "harness-core/context/s1.json");
+  mkdirSync(join(dir, "harness-core/context"), { recursive: true });
+  writeFileSync(file, JSON.stringify({ usage: [null], lastCall: { model: 8 } }));
+  const warnings: unknown[][] = [];
+  const warn = console.warn;
+  console.warn = (...args: unknown[]) => { warnings.push(args); };
+  try {
+    const recorder = await ContextRecorder.open(ctx);
+    await recorder.start(ctx.call);
+    const body = { messages: [null, { role: "system", content: [null, { text: "valid" }, { image: "opaque" }] }], tools: [null, { function: { name: "tool" } }], future: { arbitrary: true } };
+    assert.doesNotThrow(() => recorder.request(body, "now"));
+    await recorder.finish("complete");
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    assert.equal(saved.usage.length, 1);
+    assert.equal(saved.lastCall.system, "valid");
+    assert.deepEqual(saved.lastCall.tools, ["?", "tool"]);
+    assert.deepEqual(saved.lastCall.request, body);
+    assert.equal(warnings.length, 1);
+  } finally { console.warn = warn; }
 });

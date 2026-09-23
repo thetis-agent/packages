@@ -8,58 +8,24 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join, resolve, sep } from "node:path";
 import type { ArmScore, MetricName } from "./score.js";
 import { PER_ARM, SHARED } from "./score.js";
-import type { Interval, Paired } from "./metrics/stats.js";
+import type { Interval } from "./metrics/stats.js";
+import { PackageViewSchema, ScorerManifestSchema, StoredDigestSchema, type PackageView, type ReportInputs, type SuiteReport } from "./report-schemas.js";
+import { parseJson } from "./json.js";
+export type { PackageView, ReportInputs, SuiteReport } from "./report-schemas.js";
 
 /**
  * The scorer's identity, read from its own manifest rather than written here, so it cannot drift. It is part
  * of a report's digest: changing how a number is computed changes what the number means, and a report
  * produced by different arithmetic is not the same report. Bump this package's version when scoring changes.
  */
-export const SCORER = `@thetis/bench@${(JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string }).version}`;
+export const SCORER = `@thetis/bench@${parseJson(ScorerManifestSchema, readFileSync(new URL("../../package.json", import.meta.url), "utf8"), "bench manifest").version}`;
 export const REPORT_VERSION = 1;
-
-export interface ReportInputs {
-  probe: "A" | "B";
-  suite: { id: string; version: string; sha256: string; tasks: number; controls: number; description?: string };
-  corpus?: { id: string; version: string; sha256: string; records: number };
-  /** Every arm as `name@version`, never a content hash: a report must not change its own digest by existing. */
-  arms: { id: string; packages: string[] }[];
-  floor: string;
-  scorer: string;
-  seed: string;
-  model: string | null;
-  sandbox: string;
-}
-
-export interface SuiteReport {
-  version: number;
-  generatedAt: string;
-  digest: string;
-  inputs: ReportInputs;
-  shared: Record<string, Partial<Record<MetricName, Interval>>>;
-  delta: Record<string, Partial<Record<MetricName, Paired>>>;
-  perArm: Record<string, Partial<Record<MetricName, Interval>>>;
-  latency: Record<string, number | null>;
-  conformance: Record<string, ArmScore["conformance"] & { passed: boolean }>;
-  notes: string[];
-}
-
-export interface PackageView {
-  version: number;
-  package: string;
-  peerGroup: string;
-  suite: string;
-  suiteDigest: string;
-  generatedAt: string;
-  arms: string[];
-  report: SuiteReport;
-}
 
 /** Stable key order, so the same inputs always hash the same however they were built. */
 export function canonical(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  const entries = Object.entries(value as Record<string, unknown>)
+  const entries = Object.entries(value)
     .filter(([, v]) => v !== undefined)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`;
@@ -110,8 +76,8 @@ function writeIfChanged(path: string, body: string, digest: string, force: boole
   assertWritable(path);
   if (!force && existsSync(path)) {
     try {
-      const existing = JSON.parse(readFileSync(path, "utf8")) as { digest?: string; suiteDigest?: string };
-      if ((existing.digest ?? existing.suiteDigest) === digest) return { path, written: false, reason: "unchanged" };
+      const existing = parseJson(StoredDigestSchema, readFileSync(path, "utf8"), `report ${path}`);
+      if (existing === digest) return { path, written: false, reason: "unchanged" };
     } catch {
       // A report we cannot read is a report we should replace.
     }
@@ -164,7 +130,7 @@ export function readViews(packageDir: string, reportDir = "bench"): PackageView[
     const at = join(root, entry, "report.json");
     if (!existsSync(at)) continue;
     try {
-      out.push(JSON.parse(readFileSync(at, "utf8")) as PackageView);
+      out.push(parseJson(PackageViewSchema, readFileSync(at, "utf8"), `report ${at}`));
     } catch {
       continue;
     }

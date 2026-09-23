@@ -64,3 +64,8 @@ test("a 1h conversation lifetime lifts the system lifetime with it", () => {
   const p = resolvePolicy({ ttl: "1h", systemTtl: "5m" }, "anthropic/x");
   assert.equal(p.systemTtl, "1h");
 });
+
+test("hints never coerce objects into trusted enum values", () => {
+  assert.equal(readHint({ strategy: { toString: () => "off" } }), undefined);
+  assert.deepEqual(readHint({ ttl: "1h", anchorStride: Infinity, maxBreakpoints: "2" }), { ttl: "1h" });
+});

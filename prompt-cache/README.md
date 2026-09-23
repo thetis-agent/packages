@@ -41,6 +41,8 @@ No tools, no service, no UI, no bench suites.
 
 A key that is not set is not in the hint. With an empty configuration the hint carries only the affinity token, and the provider's own policy applies unchanged. Whether a hint can change anything is the provider's `cache.hints` mode, not this package's. The package reads no environment variables.
 
+Zod validates configuration, incoming hints, saved diagnostics, and usage values. Configuration errors identify the invalid field. Incoming hints still discard malformed individual fields, preserving valid knobs; invalid saved diagnostics start a fresh counter. Usage accepts finite numeric metrics without coercing strings or arrays.
+
 ## Use
 
 Ask for hour-long conversation entries and closer anchors on Opus models, from the harness side:

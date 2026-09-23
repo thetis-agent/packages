@@ -1,3 +1,5 @@
+import { VerifyManifestSchema } from "./schemas.js";
+import { parseJson } from "./json.js";
 // `bench run` and `bench verify`. The run boots a throwaway kernel, drives every arm over the suite, and
 // writes one report per suite plus a view inside each participating package.
 import { readFileSync } from "node:fs";
@@ -231,9 +233,9 @@ function summaryLine(report: ReturnType<typeof buildReport>, suite: SuiteDef): s
 
 /** `bench verify`: check a package's declaration without running anything. */
 export function verify(dir: string): string[] {
-  const manifest = JSON.parse(readFileSync(resolve(dir, "package.json"), "utf8")) as { name?: string; thetis?: unknown };
-  if (!manifest.thetis) return [`${dir} has no thetis field`];
-  return validateBench(manifest.name ?? dir, manifest.thetis as never);
+  const manifest = parseJson(VerifyManifestSchema, readFileSync(resolve(dir, "package.json"), "utf8"), `manifest ${dir}/package.json`);
+  if (manifest.thetis === undefined) return [`${dir} has no thetis field`];
+  return validateBench(manifest.name ?? dir, manifest.thetis);
 }
 
 export async function main(argv: readonly string[]): Promise<number> {

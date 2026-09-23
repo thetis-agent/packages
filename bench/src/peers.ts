@@ -2,7 +2,9 @@
 // corpus; anything else is not a comparison, it is two numbers printed near each other.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { BenchDecl, Manifest, ThetisField } from "@thetis/runtime/contracts";
+import type { BenchDecl, ThetisField } from "@thetis/runtime/contracts";
+import { ManifestSchema } from "@thetis/runtime/schemas";
+import { parseJson } from "./json.js";
 
 export interface Participant {
   name: string;
@@ -20,7 +22,7 @@ export function readParticipant(dir: string): Participant | null {
   const manifestPath = join(dir, "package.json");
   if (!existsSync(manifestPath)) return null;
   try {
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Manifest;
+    const manifest = parseJson(ManifestSchema, readFileSync(manifestPath, "utf8"), `participant ${manifestPath}`);
     const bench = manifest.thetis?.bench;
     if (!bench?.suites?.length) return null;
     return { name: manifest.name, version: manifest.version, dir: resolve(dir), bench, thetis: manifest.thetis, peerGroup: peerGroupOf(bench) };

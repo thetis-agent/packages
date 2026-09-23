@@ -5,62 +5,52 @@
 // implicitly on recent models and bills storage for explicit marks. So the strategy is per vendor,
 // resolved from the model id, and a policy carries only knobs a provider can clamp.
 
-export type CacheTtl = "5m" | "1h";
-export type CacheStrategy = "breakpoints" | "automatic" | "off";
+import { z } from "zod";
+import { parseSchema } from "@thetis/runtime/lib/validation";
 
-/** The resolved policy a provider acts on. The provider owns it; a hint may tune it. */
-export interface CachePolicy {
-  version: 1;
-  strategy: CacheStrategy;
-  /** Lifetime asked for the conversation breakpoints. */
-  ttl: CacheTtl;
-  /** Lifetime asked for the system-prefix breakpoint. Never shorter than `ttl`: a longer entry must precede shorter ones. */
-  systemTtl: CacheTtl;
-  /** Positions between the stable anchor breakpoints. 0 disables anchors. */
-  anchorStride: number;
-  /** Upper bound on breakpoints in one request. Anthropic accepts at most 4. */
-  maxBreakpoints: number;
-  /** Opaque stable identifier the provider can pass upstream to keep related requests together. */
-  affinity?: string;
-}
+const CacheTtlSchema = z.enum(["5m", "1h"]);
+const CacheStrategySchema = z.enum(["breakpoints", "automatic", "off"]);
+const HintModeSchema = z.enum(["ignore", "tune", "override"]);
+const CacheOverrideSchema = z.object({
+  strategy: CacheStrategySchema.optional(),
+  ttl: CacheTtlSchema.optional(),
+  systemTtl: CacheTtlSchema.optional(),
+  anchorStride: z.number().optional(),
+  maxBreakpoints: z.number().optional(),
+});
+const CacheHintSchema = CacheOverrideSchema.extend({ version: z.literal(1).optional(), affinity: z.string().min(1).max(128).optional() });
+const CachePolicySchema = CacheOverrideSchema.required().extend({ version: z.literal(1), affinity: CacheHintSchema.shape.affinity });
+const CacheHintInputSchema = z.object({
+  strategy: CacheHintSchema.shape.strategy.catch(undefined),
+  ttl: CacheHintSchema.shape.ttl.catch(undefined),
+  systemTtl: CacheHintSchema.shape.systemTtl.catch(undefined),
+  anchorStride: CacheHintSchema.shape.anchorStride.catch(undefined),
+  maxBreakpoints: CacheHintSchema.shape.maxBreakpoints.catch(undefined),
+  affinity: CacheHintSchema.shape.affinity.catch(undefined),
+});
+export const CacheConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  ttl: z.string().optional(),
+  systemTtl: z.string().optional(),
+  anchorStride: z.number().optional(),
+  maxBreakpoints: z.number().optional(),
+  explicitVendors: z.array(z.string()).optional(),
+  overrides: z.record(z.string(), CacheOverrideSchema).optional(),
+  diagnostics: z.boolean().optional(),
+  affinity: z.boolean().optional(),
+  hints: HintModeSchema.optional(),
+});
 
-/**
- * What a step attaches as `call.hints.cache`: only the knobs it wants to change, plus an affinity
- * token. The provider validates it on arrival and applies it according to its `hints` mode.
- */
-export interface CacheHint extends CacheOverride {
-  version?: 1;
-  affinity?: string;
-}
+export type CacheTtl = z.infer<typeof CacheTtlSchema>;
+export type CacheStrategy = z.infer<typeof CacheStrategySchema>;
+export type HintMode = z.infer<typeof HintModeSchema>;
+export type CacheOverride = z.infer<typeof CacheOverrideSchema>;
+export type CacheHint = z.infer<typeof CacheHintSchema>;
+export type CachePolicy = z.infer<typeof CachePolicySchema>;
+export type CacheConfig = z.infer<typeof CacheConfigSchema>;
 
-/** How a provider treats a hint: ignore it, let it tune the knobs, or let it replace the policy. */
-export type HintMode = "ignore" | "tune" | "override";
-
-/** Per-vendor or per-model override. Keys of `overrides` are matched as prefixes of the model id. */
-export interface CacheOverride {
-  strategy?: CacheStrategy;
-  ttl?: CacheTtl;
-  systemTtl?: CacheTtl;
-  anchorStride?: number;
-  maxBreakpoints?: number;
-}
-
-/** `config.packages["@thetis/prompt-cache"]`. */
-export interface CacheConfig {
-  enabled?: boolean;
-  ttl?: string;
-  systemTtl?: string;
-  anchorStride?: number;
-  maxBreakpoints?: number;
-  /** Vendors that cache nothing unless told to. Every other vendor is left automatic. */
-  explicitVendors?: string[];
-  overrides?: Record<string, CacheOverride>;
-  /** Record prefix fingerprints in the harness and log when a turn rewrites the cached prefix. */
-  diagnostics?: boolean;
-  /** Send a stable per-user token to the provider (OpenRouter: the `user` field). */
-  affinity?: boolean;
-  /** Provider side only: what a hint from the harness may do. Default `tune`. */
-  hints?: HintMode;
+export function readCacheConfig(raw: unknown): CacheConfig {
+  return parseSchema(CacheConfigSchema, raw, "prompt-cache configuration");
 }
 
 export const MAX_BREAKPOINTS = 4;
@@ -70,7 +60,6 @@ export const DEFAULT_ANCHOR_STRIDE = 8;
 export const DEFAULT_EXPLICIT_VENDORS = ["anthropic"];
 
 const TTLS = new Set<string>(["5m", "1h"]);
-const STRATEGIES = new Set<string>(["breakpoints", "automatic", "off"]);
 
 /** `vendor/model` ids name their vendor; a bare id is its own vendor, which is how a direct endpoint looks. */
 export function vendorOf(model: string): string {
@@ -78,7 +67,8 @@ export function vendorOf(model: string): string {
 }
 
 /** Builds the policy for one model from the package configuration. */
-export function resolvePolicy(config: CacheConfig, model: string): CachePolicy {
+export function resolvePolicy(raw: unknown, model: string): CachePolicy {
+  const config = readCacheConfig(raw);
   const vendor = vendorOf(model);
   const explicit = (config.explicitVendors ?? DEFAULT_EXPLICIT_VENDORS).map((v) => v.toLowerCase());
   const base: CachePolicy = {
@@ -96,7 +86,8 @@ export function resolvePolicy(config: CacheConfig, model: string): CachePolicy {
 }
 
 /** The sparse hint a step attaches: only what its configuration names for this model. */
-export function resolveHint(config: CacheConfig, model: string): CacheHint {
+export function resolveHint(raw: unknown, model: string): CacheHint {
+  const config = readCacheConfig(raw);
   const hint: CacheHint = { version: 1 };
   if (config.enabled === false) hint.strategy = "off";
   else if (config.explicitVendors) hint.strategy = config.explicitVendors.map((v) => v.toLowerCase()).includes(vendorOf(model)) ? "breakpoints" : "automatic";
@@ -110,15 +101,10 @@ export function resolveHint(config: CacheConfig, model: string): CacheHint {
 
 /** Validates a hint that crossed the fence. Unknown or malformed fields are dropped; nothing usable gives undefined. */
 export function readHint(raw: unknown): CacheHint | undefined {
-  if (!raw || typeof raw !== "object") return undefined;
-  const r = raw as Record<string, unknown>;
-  const hint: CacheHint = {};
-  if (STRATEGIES.has(String(r.strategy))) hint.strategy = r.strategy as CacheStrategy;
-  if (typeof r.ttl === "string" && TTLS.has(r.ttl)) hint.ttl = r.ttl as CacheTtl;
-  if (typeof r.systemTtl === "string" && TTLS.has(r.systemTtl)) hint.systemTtl = r.systemTtl as CacheTtl;
-  if (typeof r.anchorStride === "number" && Number.isFinite(r.anchorStride)) hint.anchorStride = r.anchorStride;
-  if (typeof r.maxBreakpoints === "number" && Number.isFinite(r.maxBreakpoints)) hint.maxBreakpoints = r.maxBreakpoints;
-  if (typeof r.affinity === "string" && r.affinity.length > 0 && r.affinity.length <= 128) hint.affinity = r.affinity;
+  const result = CacheHintInputSchema.safeParse(raw);
+  if (!result.success) return undefined;
+  const hint = result.data;
+  for (const key of Object.keys(hint) as (keyof typeof hint)[]) if (hint[key] === undefined) delete hint[key];
   return Object.keys(hint).length ? hint : undefined;
 }
 
@@ -162,7 +148,7 @@ function matchOverride(overrides: Record<string, CacheOverride>, model: string, 
 }
 
 function ttl(v: unknown, fallback: CacheTtl): CacheTtl {
-  return typeof v === "string" && TTLS.has(v) ? (v as CacheTtl) : fallback;
+  return CacheTtlSchema.safeParse(v).data ?? fallback;
 }
 
 function int(v: unknown, fallback: number): number {

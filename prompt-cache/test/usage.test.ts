@@ -27,3 +27,12 @@ test("garbage in, empty out", () => {
   assert.deepEqual(normalizeUsage("x"), {});
   assert.equal(normalizeUsage({}).cache_read_tokens, 0);
 });
+
+test("usage rejects arrays and ignores nonfinite or incorrectly typed metrics", () => {
+  assert.deepEqual(normalizeUsage([12, 34]), {});
+  const usage = normalizeUsage({ prompt_tokens: "12", cost: Infinity, input_tokens: 10, prompt_tokens_details: { cached_tokens: "3", cache_write_tokens: 2 } });
+  assert.equal(usage.prompt_tokens, 12);
+  assert.equal(usage.cache_read_tokens, 0);
+  assert.equal(usage.cache_write_tokens, 2);
+  assert.equal(usage.cost, undefined);
+});

@@ -1,12 +1,9 @@
 // A small HTTP client for the Exa API. It knows the base URL, the key header, the timeout,
 // and how to turn an error body into one sentence. Nothing else.
 
-export interface ExaConfig {
-  apiKey?: string;
-  baseUrl?: string;
-  timeoutMs?: number;
-  defaults?: { numResults?: number; maxCharacters?: number; researchWaitSeconds?: number };
-}
+import { parseSchema } from "@thetis/runtime/lib/validation";
+import { ExaConfigSchema, type ExaConfig } from "./schemas.js";
+export type { ExaConfig } from "./schemas.js";
 
 export interface ResponseLike {
   ok: boolean;
@@ -52,8 +49,8 @@ export function checkPath(path: string): string {
   return path;
 }
 
-export function createClient(raw: Record<string, unknown> | undefined, fetchImpl: FetchLike = globalThis.fetch as unknown as FetchLike): ExaClient {
-  const cfg = (raw ?? {}) as ExaConfig;
+export function createClient(raw: Record<string, unknown> | undefined, fetchImpl: FetchLike = globalThis.fetch): ExaClient {
+  const cfg = parseSchema(ExaConfigSchema, raw ?? {}, "Exa configuration");
   const config = { ...cfg, baseUrl: String(cfg.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, ""), timeoutMs: Number(cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS) };
 
   async function request(method: string, path: string, body?: Record<string, unknown>, query?: Query): Promise<unknown> {

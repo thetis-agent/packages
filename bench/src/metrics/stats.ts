@@ -2,27 +2,25 @@
 // which tasks are in the suite, not how many times each was run: every interval here is a bootstrap over
 // tasks. Ported from thetis-agent.v2 runtime/lib/evaluation/metrics.ts and random.ts.
 import { createHash, createHmac } from "node:crypto";
+import { z } from "zod";
 
 export const limits = { bootstrapSamples: 2000, tasks: 4096 };
 
-export interface Interval {
-  mean: number;
-  lower: number;
-  upper: number;
+export const IntervalSchema = z.looseObject({
+  mean: z.number(), lower: z.number(), upper: z.number(),
   /** Half the width of the interval: the smallest difference this many tasks can resolve. */
-  mde: number;
-  n: number;
-}
+  mde: z.number().nonnegative(), n: z.number().int().nonnegative(),
+});
+export type Interval = z.infer<typeof IntervalSchema>;
 
 /** A pairwise verdict that a mean cannot hide: one pathological task is visible here. */
-export interface Paired {
-  interval: Interval;
-  wins: number;
-  ties: number;
-  losses: number;
+export const PairedSchema = z.looseObject({
+  interval: IntervalSchema,
+  wins: z.number().int().nonnegative(), ties: z.number().int().nonnegative(), losses: z.number().int().nonnegative(),
   /** Two-sided sign-flip permutation test on the paired differences. */
-  p: number;
-}
+  p: z.number().min(0).max(1),
+});
+export type Paired = z.infer<typeof PairedSchema>;
 
 export function seedOf(parts: readonly (string | number)[]): string {
   return createHmac("sha256", "thetis/bench/v1").update(JSON.stringify(parts)).digest("hex");

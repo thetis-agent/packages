@@ -8,6 +8,7 @@ import { bitsOverRandom, score as recallScore, type Gold } from "./metrics/recal
 import { hitAt1, mrr, ndcg } from "./metrics/ranking.js";
 import { routeScore, surfaceTools, type Routing } from "./metrics/routing.js";
 import type { Task } from "./suite.js";
+import type { Conformance } from "./schemas.js";
 
 /** A metric that every arm can produce, whatever its mechanism. These are the only ones that may be compared. */
 export const SHARED = [
@@ -178,7 +179,7 @@ export interface ArmScore {
   delta: Partial<Record<MetricName, Paired>>;
   /** Numbers only this arm's mechanism can produce. Never placed beside another arm's. */
   perArm: Partial<Record<MetricName, Interval>>;
-  conformance: { adapterLies: string[]; adapterModest: string[]; offeredUnverified: string[]; errors: string[] };
+  conformance: Conformance;
 }
 
 type ByTask = Map<string, Partial<Record<MetricName, number>>>;

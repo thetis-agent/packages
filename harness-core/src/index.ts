@@ -9,26 +9,12 @@ import { ContentStream } from "@thetis/runtime/lib/content-stream";
 // line, and the provider cache the parent warmed serves the child.
 import type { HarnessState, Message, PackageInfo, PackageStepContext, ProviderCall, ProviderEvent, StepResult, ToolCall, ToolSpec, TurnEvent } from "@thetis/runtime/contracts";
 import { ContextRecorder } from "./context.js";
+import { z } from "zod";
+import { LastCallSchema, type LastCall } from "./schemas.js";
+export type { LastCall } from "./schemas.js";
 
 /** The key this package keeps its per-session state under; other packages read it by name. */
 const NAME = "@thetis/harness-core";
-
-/** The most recent request, with a small summary also kept in the session harness. */
-export interface LastCall {
-  model: string;
-  /** The whole system prompt: it is per-session state on disk, and an inspector shows it. */
-  system: string;
-  systemChars: number;
-  /** The names of the tools that were attached. */
-  tools: string[];
-  /** Messages in the latest request, before its reply. Legacy records counted the completed exchange. */
-  messages: number;
-  at: string;
-  turn?: string;
-  format?: "wire" | "provider-call";
-  request?: Record<string, unknown>;
-  usage?: Record<string, number>;
-}
 
 /**
  * The turn context line `turnContext` ends each input with, as a suffix match. Anything that shows the
@@ -102,7 +88,7 @@ export async function attachTools(ctx: PackageStepContext): Promise<StepResult> 
  * the request itself must not be changed by recording it.
  */
 export async function recordCall(ctx: PackageStepContext): Promise<StepResult> {
-  const recorded = ownState(ctx.harness).lastCall as LastCall | undefined;
+  const recorded = LastCallSchema.safeParse(ownState(ctx.harness).lastCall).data;
   if (recorded?.turn === ctx.turn.id) return { harness: ctx.harness };
   const system = ctx.call.system ?? "";
   const lastCall: LastCall = {
@@ -626,10 +612,11 @@ export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
   return finish("complete");
 }
 
+const HarnessRecordSchema = z.record(z.string(), z.unknown());
+
 /** This package's own record in `harness`, or an empty one; whatever else it holds is kept. */
 function ownState(harness: HarnessState): Record<string, unknown> {
-  const own = harness[NAME];
-  return own && typeof own === "object" && !Array.isArray(own) ? (own as Record<string, unknown>) : {};
+  return HarnessRecordSchema.safeParse(harness[NAME]).data ?? {};
 }
 
 const GUIDE = (ctx: PackageStepContext) => `You are Thetis, an agent working for ${ctx.session.user} in their own workspace on this Thetis server.

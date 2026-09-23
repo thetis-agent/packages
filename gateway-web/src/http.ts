@@ -1,5 +1,9 @@
 // Small HTTP helpers shared by the route modules.
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { z } from "zod";
+import { parseSchema } from "@thetis/runtime/lib/validation";
+
+const JsonBodySchema = z.record(z.string(), z.unknown());
 
 export const BODY_LIMIT = 1024 * 1024;
 
@@ -39,14 +43,20 @@ export async function readBody(req: IncomingMessage): Promise<string> {
   return (await readBytes(req)).toString("utf8");
 }
 
-export async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+export function readJson(req: IncomingMessage): Promise<Record<string, unknown>>;
+export function readJson<S extends z.ZodType>(req: IncomingMessage, schema: S): Promise<z.output<S>>;
+export async function readJson(req: IncomingMessage, schema: z.ZodType = JsonBodySchema): Promise<unknown> {
   const text = await readBody(req);
-  if (!text.trim()) return {};
+  let value: unknown;
   try {
-    const value = JSON.parse(text);
-    return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+    value = text.trim() ? JSON.parse(text) : {};
   } catch {
     throw new HttpError(400, "invalid JSON body");
+  }
+  try {
+    return parseSchema(schema, value, "invalid JSON body");
+  } catch (error) {
+    throw new HttpError(400, error instanceof Error ? error.message : "invalid JSON body");
   }
 }
 

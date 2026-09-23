@@ -3,26 +3,20 @@
 // and each outgoing message; the next turn checks that the previous call is still a prefix.
 
 import { createHash } from "node:crypto";
+import { z } from "zod";
 import type { ProviderCall } from "@thetis/runtime/contracts";
 
-export interface Fingerprint {
-  head: string;
-  messages: string[];
-}
-
-export type DivergenceKind = "head" | "rewrite" | "truncate";
-
-export interface Divergence {
-  kind: DivergenceKind;
-  /** Message index where the prefix first differs; absent for a head change. */
-  at?: number;
-}
-
-export interface CacheDiagnostics extends Fingerprint {
-  turns: number;
-  divergences: number;
-  last?: Divergence & { turn: number };
-}
+const FingerprintSchema = z.object({ head: z.string(), messages: z.array(z.string()) });
+const DivergenceSchema = z.object({ kind: z.enum(["head", "rewrite", "truncate"]), at: z.number().int().nonnegative().optional() });
+export const CacheDiagnosticsSchema = FingerprintSchema.extend({
+  turns: z.number().int().nonnegative(),
+  divergences: z.number().int().nonnegative(),
+  last: DivergenceSchema.extend({ turn: z.number().int().nonnegative() }).optional(),
+});
+export type Fingerprint = z.infer<typeof FingerprintSchema>;
+export type Divergence = z.infer<typeof DivergenceSchema>;
+export type DivergenceKind = Divergence["kind"];
+export type CacheDiagnostics = z.infer<typeof CacheDiagnosticsSchema>;
 
 export function fingerprint(call: ProviderCall): Fingerprint {
   const tools = call.tools.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));

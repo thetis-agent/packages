@@ -6,30 +6,33 @@
 // kernel, not here — an avatar is decoration, which is why it may live in the gateway's own directory.
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { extname, resolve } from "node:path";
+import { z } from "zod";
+import { parseSchema } from "@thetis/runtime/lib/validation";
+
+const SessionUsageSchema = z.record(z.string(), z.record(z.string(), z.union([z.number(), z.string()])));
+const EntrySchema = z.looseObject({
+  title: z.string().optional(),
+  model: z.string().optional(),
+  usage: SessionUsageSchema.optional(),
+  archived: z.boolean().optional(),
+});
+const PrefsSchema = z.looseObject({ model: z.string().optional() });
+const FileIdSchema = z.string().regex(/^[a-zA-Z0-9_-]+$/);
+const SessionKeySchema = z.string().regex(/^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+$/);
+const LegacyStateSchema = z.looseObject({
+  archived: z.record(FileIdSchema, z.array(FileIdSchema)).optional(),
+  usage: z.record(SessionKeySchema, SessionUsageSchema).optional(),
+  models: z.record(SessionKeySchema, z.string()).optional(),
+  titles: z.record(SessionKeySchema, z.string()).optional(),
+});
 
 /** Usage by conversation index of the assistant message it belongs to. */
-export type SessionUsage = Record<string, Record<string, number | string>>;
+export type SessionUsage = z.infer<typeof SessionUsageSchema>;
+type Entry = z.infer<typeof EntrySchema>;
+type Prefs = z.infer<typeof PrefsSchema>;
 
-/** What the gateway keeps about one conversation. A key left undefined is not written. */
-interface Entry {
-  title?: string;
-  model?: string;
-  usage?: SessionUsage;
-  archived?: boolean;
-}
-
-/** The former single-file layout, read once to migrate it. */
-interface LegacyState {
-  archived: Record<string, string[]>;
-  usage?: Record<string, SessionUsage>;
-  models?: Record<string, string>;
-  titles?: Record<string, string>;
-}
-
-/** What the gateway keeps about one person across conversations. A key left undefined is not written. */
-interface Prefs {
-  /** The model the person chose most recently, in any conversation; a new conversation starts with it. */
-  model?: string;
+function readState<S extends z.ZodType>(schema: S, file: string): z.output<S> {
+  return parseSchema(schema, JSON.parse(readFileSync(file, "utf8")), `gateway state ${file}`);
 }
 
 /**
@@ -99,12 +102,12 @@ export class GatewayStore {
     for (const user of readdirSync(this.dir)) {
       for (const file of readdirSync(resolve(this.dir, user))) {
         if (!file.endsWith(".json")) continue;
-        this.entries.set(`${user}/${file.slice(0, -5)}`, JSON.parse(readFileSync(resolve(this.dir, user, file), "utf8")) as Entry);
+        this.entries.set(`${user}/${file.slice(0, -5)}`, readState(EntrySchema, resolve(this.dir, user, file)));
       }
     }
     for (const file of readdirSync(this.prefsDir)) {
       if (!file.endsWith(".json")) continue;
-      this.prefs.set(file.slice(0, -5), JSON.parse(readFileSync(resolve(this.prefsDir, file), "utf8")) as Prefs);
+      this.prefs.set(file.slice(0, -5), readState(PrefsSchema, resolve(this.prefsDir, file)));
     }
     // Which picture each person has, and how old it is, read once. A name with any other extension is
     // skipped rather than cleaned up: a `.tmp` left by a machine that died mid-write is the only thing
@@ -260,7 +263,7 @@ export class GatewayStore {
   /** The one-file layout becomes per-conversation files; the old file is kept aside, not deleted. */
   private migrate(legacy: string): void {
     if (!existsSync(legacy)) return;
-    const state = JSON.parse(readFileSync(legacy, "utf8")) as LegacyState;
+    const state = readState(LegacyStateSchema, legacy);
     const split = (key: string): [string, string] => {
       const at = key.indexOf("/");
       return [key.slice(0, at), key.slice(at + 1)];

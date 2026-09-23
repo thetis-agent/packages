@@ -3,15 +3,12 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { CapabilityRecord, Corpus } from "@thetis/runtime/contracts";
+import type { Corpus } from "@thetis/runtime/contracts";
+import { CapabilityRecordSchema } from "@thetis/runtime/schemas";
+import { CorpusFileSchema, type CorpusFile } from "./schemas.js";
+import { parseJson, parseJsonLines } from "./json.js";
+export type { CorpusFile } from "./schemas.js";
 
-export interface CorpusFile extends Omit<Corpus, "records"> {
-  records: number;
-  file: string;
-  seed: string;
-  dataset?: { name: string; id: string; revision: string; url: string; license: string; split: string };
-  sampling?: Record<string, unknown>;
-}
 
 export interface LoadedCorpus extends Corpus {
   meta: CorpusFile;
@@ -20,16 +17,13 @@ export interface LoadedCorpus extends Corpus {
 }
 
 export function loadCorpus(dir: string): LoadedCorpus {
-  const meta = JSON.parse(readFileSync(join(dir, "corpus.json"), "utf8")) as CorpusFile;
+  const meta = parseJson(CorpusFileSchema, readFileSync(join(dir, "corpus.json"), "utf8"), `corpus ${dir}/corpus.json`);
   const body = readFileSync(join(dir, meta.file), "utf8");
   const sha = `sha256:${createHash("sha256").update(body).digest("hex")}`;
   if (sha !== meta.sha256) {
     throw new Error(`corpus ${meta.id} does not match its recorded digest: the records say ${sha}, corpus.json says ${meta.sha256}`);
   }
-  const records = body
-    .split("\n")
-    .filter((line) => line.trim())
-    .map((line) => JSON.parse(line) as CapabilityRecord);
+  const records = parseJsonLines(CapabilityRecordSchema, body, `corpus ${dir}/${meta.file}`);
   if (records.length !== meta.records) throw new Error(`corpus ${meta.id} claims ${meta.records} records and holds ${records.length}`);
 
   const canaries: Record<string, string> = {};

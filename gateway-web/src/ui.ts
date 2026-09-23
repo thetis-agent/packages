@@ -6,11 +6,13 @@
 // gateway already holds and that package's effective configuration, fetched from the kernel on every call
 // so a change is live at once; nothing more: no other package's authority.
 import { existsSync, statSync } from "node:fs";
+import { z } from "zod";
+import { parseSchema } from "@thetis/runtime/lib/validation";
 import { readFile, stat } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { KernelClient, PackageInfo, StepEnv, UiCommandDecl, UiCommandEnv, UiCommandResult, UiEntryDecl, UiStream, UserRole } from "@thetis/runtime/contracts";
+import type { KernelClient, PackageInfo, StepEnv, UiCommandDecl, UiCommandEnv, UiEntryDecl, UiStream, UserRole } from "@thetis/runtime/contracts";
 import { HttpError } from "./http.js";
 import { serveFile, within } from "./static.js";
 
@@ -24,6 +26,9 @@ const PACKAGE_NAME = /^@[a-z0-9-]+\/[a-z0-9._-]+$/;
 const SESSION_ID = /^s_[a-f0-9]+$/;
 const RANK: Record<UserRole, number> = { user: 0, admin: 1, system: 2 };
 const RESULT_LIMIT = 262_144;
+const CommandArgsSchema = z.record(z.string(), z.unknown()).optional();
+const CommandResultSchema = z.union([z.string(), z.object({ text: z.string().optional(), data: z.unknown().optional() }), z.undefined()]);
+const PackageEntrySchema = z.object({ main: z.string().optional() });
 /** A subscription carries its arguments in the URL, so they are bounded by what a URL may hold. */
 const ARGS_LIMIT = 4096;
 export const COMMAND_TIMEOUT_MS = 30_000;
@@ -239,8 +244,8 @@ async function loadExport(store: string, pkg: string, name: string): Promise<(..
   const dir = packageDir(store, pkg);
   let fn: unknown;
   try {
-    const manifest = JSON.parse(await readFile(resolve(dir, "package.json"), "utf8")) as { main?: string };
-    const main = resolve(dir, typeof manifest.main === "string" ? manifest.main : "index.js");
+    const manifest = parseSchema(PackageEntrySchema, JSON.parse(await readFile(resolve(dir, "package.json"), "utf8")), `${pkg} manifest`);
+    const main = resolve(dir, manifest.main ?? "index.js");
     const { mtimeMs } = await stat(main);
     fn = ((await import(`${pathToFileURL(main).href}?v=${mtimeMs}`)) as Record<string, unknown>)[name];
   } catch (err) {
@@ -275,7 +280,8 @@ async function resolveCommand(ctx: CommandContext, who: { id: string; role: User
       throw new HttpError(404, "unknown session");
     });
   }
-  if (args !== undefined && !isObject(args)) throw new HttpError(400, "args must be an object");
+  const parsedArgs = CommandArgsSchema.safeParse(args);
+  if (!parsedArgs.success) throw new HttpError(400, "args must be an object");
   // The package's configuration as its own steps and tools receive it. Once per request, never cached:
   // a key set in the panel must reach the next command.
   let config: Record<string, unknown>;
@@ -285,27 +291,34 @@ async function resolveCommand(ctx: CommandContext, who: { id: string; role: User
     throw new HttpError(500, `${pkg.name} configuration could not be read: ${err instanceof Error ? err.message : String(err)}`);
   }
   const env: UiCommandEnv = { ...ctx.env, user: who.id, role: who.role, config, ...(typeof session === "string" ? { session } : {}) };
-  return { pkg, cmd, args: (args as Record<string, unknown> | undefined) ?? {}, env };
+  return { pkg, cmd, args: parsedArgs.data ?? {}, env };
 }
 
 /** `POST api/ext/<scope>/<name>/<verb>`: the shared checks, then the export, then a bounded answer. */
 export async function runCommand(ctx: CommandContext, who: { id: string; role: UserRole }, scope: string, name: string, verb: string, body: Record<string, unknown>): Promise<{ text?: string; data?: unknown }> {
   const { pkg, cmd, args, env } = await resolveCommand(ctx, who, scope, name, verb, "command", body.session, body.args);
   const fn = await loadExport(ctx.store, pkg.name, cmd.export);
-  let result: UiCommandResult;
+  let raw: unknown;
   try {
-    result = (await withTimeout(() => fn(args, env) as Promise<UiCommandResult>, ctx.timeoutMs ?? COMMAND_TIMEOUT_MS, `${pkg.name} did not answer "${verb}" in time`)) as UiCommandResult;
+    raw = await withTimeout(async () => fn(args, env), ctx.timeoutMs ?? COMMAND_TIMEOUT_MS, `${pkg.name} did not answer "${verb}" in time`);
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw new HttpError(400, err instanceof Error ? err.message : String(err));
   }
-  const reply: { text?: string; data?: unknown } = {};
-  if (typeof result === "string") reply.text = result;
-  else if (isObject(result)) {
-    if (typeof result.text === "string") reply.text = result.text;
-    if (result.data !== undefined) reply.data = result.data;
+  const parsed = CommandResultSchema.safeParse(raw);
+  if (!parsed.success) throw new HttpError(502, `${pkg.name} answered "${verb}" with an invalid command result`);
+  const result = parsed.data;
+  const reply = typeof result === "string" ? { text: result } : result ?? {};
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(reply, (_key, value: unknown) => {
+      if (typeof value === "number" && !Number.isFinite(value)) throw new Error("nonfinite result");
+      return value;
+    });
+  } catch {
+    throw new HttpError(502, `${pkg.name} answered "${verb}" with a result that cannot be serialized`);
   }
-  if (Buffer.byteLength(JSON.stringify(reply)) > RESULT_LIMIT) throw new HttpError(502, `${pkg.name} answered "${verb}" with more than 256 KiB`);
+  if (Buffer.byteLength(serialized) > RESULT_LIMIT) throw new HttpError(502, `${pkg.name} answered "${verb}" with more than 256 KiB`);
   return reply;
 }
 

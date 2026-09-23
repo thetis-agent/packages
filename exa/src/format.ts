@@ -1,30 +1,8 @@
 // Turn Exa responses into compact text for a model. The shapes here follow the Exa API
 // reference; every field is optional because the API returns only what was asked for.
 
-export interface ExaResult {
-  title?: string | null;
-  url?: string;
-  id?: string;
-  publishedDate?: string | null;
-  author?: string | null;
-  score?: number | null;
-  text?: string;
-  highlights?: string[];
-  summary?: string;
-  subpages?: ExaResult[];
-  extras?: { links?: string[]; imageLinks?: string[] };
-}
-
-export interface ExaStatus {
-  id?: string;
-  status?: string;
-  source?: string;
-  error?: { tag?: string; httpStatusCode?: number } | string;
-}
-
-export interface Cost {
-  costDollars?: { total?: number };
-}
+import type { AgentRun, Citation, Cost, ExaResult, ExaStatus } from "./schemas.js";
+export type { AgentRun, Citation, Cost, ExaResult, ExaStatus } from "./schemas.js";
 
 export interface FormatOptions {
   /** Cut `text` fields at this many characters. */
@@ -74,14 +52,6 @@ export function formatCost(res: Cost | undefined): string {
   return typeof total === "number" ? `cost: $${total.toFixed(4)}` : "";
 }
 
-export interface Citation {
-  title?: string;
-  url?: string;
-  publishedDate?: string | null;
-  author?: string | null;
-  text?: string;
-}
-
 export function formatCitations(citations: Citation[] | undefined, opts: FormatOptions = {}): string {
   if (!citations?.length) return "";
   const lines = ["sources:"];
@@ -96,18 +66,6 @@ export function formatCitations(citations: Citation[] | undefined, opts: FormatO
 export function formatAnswer(res: { answer?: unknown; citations?: Citation[] } & Cost, opts: FormatOptions = {}): string {
   const answer = typeof res.answer === "string" ? res.answer : JSON.stringify(res.answer ?? null, null, 2);
   return join([`answer:\n${answer}`, formatCitations(res.citations, opts), formatCost(res)]);
-}
-
-export interface AgentRun {
-  id?: string;
-  status?: string;
-  stopReason?: string | null;
-  createdAt?: string;
-  completedAt?: string | null;
-  request?: { query?: string };
-  output?: { text?: string | null; structured?: unknown; grounding?: Array<{ field?: string; citations?: Array<{ url?: string; title?: string }> }> } | null;
-  error?: unknown;
-  costDollars?: { total?: number };
 }
 
 export function formatRun(run: AgentRun, opts: FormatOptions = {}): string {

@@ -6,6 +6,8 @@ import type { BenchClaim, TurnEvent } from "@thetis/runtime/contracts";
 import type { Arena } from "./arena.js";
 import { addressOf, byAddress, readCapture, reconcile, type CaptureLine, type Reconciled } from "./capture.js";
 import type { SuiteDef, Task } from "./suite.js";
+import { BenchHarnessSchema } from "@thetis/runtime/schemas";
+import { parseSchema } from "@thetis/runtime/lib/validation";
 
 const PROBE_KEY = "@thetis/bench-probe";
 const BENCH_KEY = "@thetis/bench";
@@ -96,7 +98,8 @@ export async function runTask(arena: Arena, armId: string, task: Task, attempt: 
 
   const steps = timingsOf(events);
   const record = arena.kernel.sessions.inspect(user, session.id);
-  const harness = (record.harness?.[BENCH_KEY] ?? {}) as { claims?: Record<string, BenchClaim> };
+  const raw = record.harness[BENCH_KEY];
+  const harness = parseSchema(BenchHarnessSchema, raw === undefined ? {} : raw, `bench harness ${session.id}`);
   const claims = harness.claims ?? {};
   const rounds = byAddress(readCapture(arena.capture)).get(addressOf(address)) ?? [];
 

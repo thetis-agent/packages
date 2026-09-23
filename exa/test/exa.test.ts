@@ -27,6 +27,14 @@ function envWith(config: Record<string, unknown>): ToolEnv {
 
 const KEY = "test-key";
 
+test("Exa responses are validated before a formatter trusts nested fields", async () => {
+  const { fetch } = fakeFetch([{ body: { results: [{ title: 7 }] } }, { body: { answer: "reply", citations: [{ title: [] }] } }, { body: { data: "not a list" } }]);
+  const tools = createTools({ fetch });
+  await assert.rejects(tools.search({ query: "query" }, envWith({ apiKey: KEY })), /Exa search.*results.*title/i);
+  await assert.rejects(tools.answer({ query: "query" }, envWith({ apiKey: KEY })), /Exa answer.*citations.*title/i);
+  await assert.rejects(tools.researchList({}, envWith({ apiKey: KEY })), /Exa research list.*data/i);
+});
+
 test("a missing key is one clear sentence", async () => {
   const { fetch, calls } = fakeFetch([]);
   const tools = createTools({ fetch });

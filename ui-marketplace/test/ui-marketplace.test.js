@@ -132,7 +132,7 @@ test("duplicate registry names keep the newest entry's version, source and READM
   const older = entry("@alice/widget", "1.0.0", OLD, { registry: "old", readme: true, source: `https://example.com/old.git#widget@${OLD}`, dir: "widget" });
   const newer = entry("@alice/widget", "2.0.0", NEW, { registry: "new", readme: true, source: `https://example.com/new.git#widget@${NEW}`, dir: "widget" });
   for (const packages of [[older, newer], [newer, older]]) {
-    const index = { version: 1, registries: [], packages };
+    const index = { version: 1, updatedAt: "2026-09-21T00:00:00.000Z", registries: [], packages };
     const { env, cleanup } = fakeEnv({ index });
     try {
       for (const item of packages) {

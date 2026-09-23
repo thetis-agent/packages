@@ -46,5 +46,8 @@
   },
   "devDependencies": {
     "@thetis/runtime": "file:../.."
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
   }
 }

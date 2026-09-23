@@ -4,21 +4,8 @@ import { contentText } from "@thetis/runtime/lib/content";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { PackageStepContext, ProviderCall } from "@thetis/runtime/contracts";
-import type { LastCall } from "./index.js";
-
-interface UsageTurn {
-  id: string;
-  firstMessage: number;
-  at: string;
-  calls: number;
-  status: "running" | "complete" | "failed" | "cancelled";
-  usage: Record<string, number>;
-}
-
-interface Snapshot {
-  lastCall?: LastCall;
-  usage: UsageTurn[];
-}
+import { parseSchema } from "@thetis/runtime/lib/validation";
+import { SnapshotSchema, summarizeRequest, type LastCall, type Snapshot, type UsageTurn } from "./schemas.js";
 
 export class ContextRecorder {
   private pending = Promise.resolve();
@@ -35,10 +22,9 @@ export class ContextRecorder {
     const file = resolve(ctx.env.cwd, "harness-core/context", `${ctx.session.id}.json`);
     let snapshot: Snapshot = { usage: [] };
     try {
-      const saved = JSON.parse(await readFile(file, "utf8")) as Snapshot;
-      if (Array.isArray(saved.usage)) snapshot = saved;
+      snapshot = parseSchema(SnapshotSchema, JSON.parse(await readFile(file, "utf8")), "harness context snapshot");
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") console.warn("Could not read previous context:", err);
+      if (!(err instanceof Error && "code" in err && err.code === "ENOENT")) console.warn("Could not read previous context:", err);
     }
     return new ContextRecorder(ctx, file, snapshot);
   }
@@ -50,7 +36,7 @@ export class ContextRecorder {
     this.snapshot.lastCall = {
       model: call.model, system, systemChars: system.length, tools: call.tools.map((t) => t.name),
       messages: call.messages.length, at: new Date().toISOString(), turn: this.ctx.turn.id,
-      format: "provider-call", request: JSON.parse(JSON.stringify(call)),
+      format: "provider-call", request: { ...structuredClone(call) },
     };
     this.entry.calls++;
     await this.save();
@@ -58,13 +44,9 @@ export class ContextRecorder {
 
   request(body: Record<string, unknown>, at: string): void {
     const previous = this.snapshot.lastCall!;
-    const messages = Array.isArray(body.messages) ? body.messages : [];
-    const tools = Array.isArray(body.tools) ? body.tools : [];
-    const system = messages.filter((m) => m.role === "system" || m.role === "developer")
-      .map((m) => typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map((b: { text?: string }) => b.text ?? "").join("\n") : "").join("\n\n");
+    const summary = summarizeRequest(body);
     this.snapshot.lastCall = {
-      ...previous, model: String(body.model ?? previous.model), system, systemChars: system.length,
-      messages: messages.length, tools: tools.map((t) => t.function?.name ?? t.name ?? "?"),
+      ...previous, ...summary, model: summary.model ?? previous.model, systemChars: summary.system.length,
       at, format: "wire", request: body,
     };
     void this.save();

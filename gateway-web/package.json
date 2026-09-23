@@ -8,6 +8,9 @@
   "scripts": {
     "build": "tsc -b"
   },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
   "peerDependencies": {
     "@thetis/harness-core": "^0.3.1",
     "@thetis/runtime": "^0.2.0"

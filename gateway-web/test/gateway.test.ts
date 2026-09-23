@@ -979,3 +979,13 @@ test("authenticated media and structured HTTP input retain attachments and isola
   assert.deepEqual(rec.conversation[0].content.slice(0, 3), content);
   assert.deepEqual(rec.conversation[1].content, [attachment, opaque]);
 });
+
+test("session updates reject malformed field types instead of silently changing preferences", async () => {
+  const cookie = await cookieFor("alice", "wonderland");
+  const created = await api(cookie, "/alice/api/sessions", { method: "POST" });
+  const { id } = await created.json() as { id: string };
+  for (const [route, body] of [["model", { model: 7 }], ["title", { title: false }], ["archive", { archived: "false" }]]) {
+    const response = await api(cookie, `/alice/api/sessions/${id}/${route}`, { method: "POST", body: JSON.stringify(body) });
+    assert.equal(response.status, 400, `${route} rejects malformed input`);
+  }
+});

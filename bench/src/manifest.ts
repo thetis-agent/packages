@@ -1,29 +1,29 @@
 // Validating `thetis.bench`. Deliberately not in the kernel: the kernel never reads this field, a malformed
 // one cannot hurt a turn, and the useful error — "the adapter you named is not declared as a bench step" —
 // belongs where the author is working, not in the pipeline.
-import type { BenchDecl, StepDecl, ThetisField } from "@thetis/runtime/contracts";
+import { ThetisFieldSchema } from "@thetis/runtime/schemas";
+import { parseSchema } from "@thetis/runtime/lib/validation";
 import { BENCH_PHASE } from "./arena.js";
 
-export function validateBench(name: string, thetis: ThetisField): string[] {
-  const bench: BenchDecl | undefined = thetis.bench;
+export function validateBench(name: string, raw: unknown): string[] {
+  let thetis;
+  try { thetis = parseSchema(ThetisFieldSchema, raw, `${name}: thetis`); }
+  catch (error) { return [error instanceof Error ? error.message : String(error)]; }
+  const bench = thetis.bench;
   if (!bench) return [];
   const problems: string[] = [];
-  const steps: StepDecl[] = thetis.steps ?? [];
+  const steps = thetis.steps ?? [];
   const benchExports = new Set(steps.filter((s) => s.phase === BENCH_PHASE).map((s) => s.export));
 
-  if (!Array.isArray(bench.suites) || !bench.suites.length) {
+  if (!bench.suites.length) {
     problems.push(`${name}: thetis.bench.suites must name at least one suite`);
-  } else if (bench.suites.some((s) => typeof s !== "string" || !s.includes("@"))) {
+  } else if (bench.suites.some((s) => !s.includes("@"))) {
     problems.push(`${name}: every suite is named id@version, for example skill-recall@1`);
   }
 
   for (const role of ["importer", "adapter"] as const) {
     const named = bench[role];
     if (named === undefined) continue;
-    if (typeof named !== "string") {
-      problems.push(`${name}: thetis.bench.${role} must be the name of an export`);
-      continue;
-    }
     if (!benchExports.has(named)) {
       problems.push(
         `${name}: thetis.bench.${role} is "${named}", which is not declared in thetis.steps with phase "${BENCH_PHASE}" — that declaration is how it is called, and it is why it cannot run outside a bench`,

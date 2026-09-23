@@ -1,4 +1,7 @@
 import { wireContent } from "./content.js";
+import { parseSchema } from "@thetis/runtime/lib/validation";
+import { ToolCallSchema } from "@thetis/runtime/schemas";
+import { ModelsResponseSchema, ProviderErrorSchema, StreamChunkSchema, ToolArgumentsSchema } from "./schemas.js";
 // OpenRouter provider: OpenAI-compatible chat completions with SSE streaming and tool calls.
 // Prompt caching is applied at the wire. The policy comes from this package's own `cache` config; a
 // `cache` hint on the call may tune it within the configured `hints` mode.
@@ -77,7 +80,7 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
       // for five minutes on the kernel side. An unbounded one would wedge every call behind it.
       const res = await fetch(`${baseUrl}/models`, { headers, signal: AbortSignal.timeout(requestTimeoutMs) });
       if (!res.ok) throw new Error(`openrouter /models failed: ${res.status} ${await res.text()}`);
-      const body = (await res.json()) as { data: { id: string; name?: string }[] };
+      const body = parseSchema(ModelsResponseSchema, await res.json(), "OpenRouter models");
       return body.data.map((m) => ({ id: m.id, name: m.name }));
     },
 
@@ -138,11 +141,11 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
           if (step.done) break;
           const data = step.value;
           if (data === "[DONE]") break;
-          let chunk: any;
+          let chunk;
           try {
-            chunk = JSON.parse(data);
-          } catch {
-            continue;
+            chunk = parseSchema(StreamChunkSchema, JSON.parse(data), "OpenRouter stream");
+          } catch (error) {
+            return yield { type: "error", message: `OpenRouter stream: ${reason(error)}` };
           }
           if (chunk.error) return yield { type: "error", message: chunk.error.message ?? JSON.stringify(chunk.error) };
           if (typeof chunk.choices?.[0]?.finish_reason === "string") finish = chunk.choices[0].finish_reason;
@@ -155,7 +158,7 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
           // and llama.cpp emit and OpenRouter passes through for some upstreams. Take whichever came. It is
           // yielded as its own kind and never folded into the text: the thinking is not the reply.
           const thought = delta?.reasoning ?? delta?.reasoning_content;
-          if (thought) yield { type: "reasoning", delta: String(thought) };
+          if (thought) yield { type: "reasoning", delta: thought };
           for (const tc of delta?.tool_calls ?? []) {
             const slot = pending.get(tc.index ?? 0) ?? { id: "", name: "", args: "" };
             if (tc.id) slot.id = tc.id;
@@ -169,9 +172,12 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
         // and reasoning may have used the whole allowance with nothing said. Say so instead of ending quietly.
         const cut = stopMessage(finish, body.max_tokens);
         if (cut) return yield { type: "error", message: cut };
-        for (const [i, slot] of [...pending.entries()].sort((a, b) => a[0] - b[0])) {
-          yield { type: "tool_call", call: { id: slot.id || `call_${i}`, name: slot.name, args: parseArgs(slot.args) } };
-        }
+        let calls: ToolCall[];
+        try {
+          calls = [...pending.entries()].sort((a, b) => a[0] - b[0]).map(([i, slot]) =>
+            parseSchema(ToolCallSchema, { id: slot.id || `call_${i}`, name: slot.name, args: parseArgs(slot.args) }, "OpenRouter tool call"));
+        } catch (error) { return yield { type: "error", message: reason(error) }; }
+        for (const toolCall of calls) yield { type: "tool_call", call: toolCall };
       } finally {
         // Reached on a return, on a throw, and on the consumer abandoning the iteration, which is the case
         // that matters: an abandoned request must not leave its socket and its two timers behind.
@@ -192,9 +198,10 @@ export function stopMessage(finish: string | undefined, maxTokens: unknown): str
 /** One sentence for a refused request: OpenRouter's own message and reason when the body is its JSON, else the raw text. */
 export function refusal(status: number, body: string): string {
   try {
-    const parsed = JSON.parse(body) as { error?: { message?: string; metadata?: { reason?: string } } };
-    const message = parsed.error?.message;
-    if (message) return `openrouter ${status}: ${message}${parsed.error?.metadata?.reason ? ` (${parsed.error.metadata.reason})` : ""}`;
+    const parsed = ProviderErrorSchema.safeParse(JSON.parse(body)?.error);
+    if (!parsed.success) return `openrouter ${status}: ${body.slice(0, 500)}`;
+    const message = parsed.data.message;
+    if (message) return `openrouter ${status}: ${message}${parsed.data.metadata?.reason ? ` (${parsed.data.metadata.reason})` : ""}`;
   } catch {
     // not JSON: fall through to the raw text
   }
@@ -317,12 +324,10 @@ async function messageToWire(m: Message, context?: ProviderContext): Promise<Wir
 
 function parseArgs(raw: string): Record<string, unknown> {
   if (!raw.trim()) return {};
-  try {
-    const v = JSON.parse(raw);
-    return v && typeof v === "object" ? v : { value: v };
-  } catch {
-    return { _raw: raw };
-  }
+  let value: unknown;
+  try { value = JSON.parse(raw); }
+  catch { throw new Error("OpenRouter tool arguments must be valid JSON"); }
+  return parseSchema(ToolArgumentsSchema, value, "OpenRouter tool arguments");
 }
 
 /** `touch` is called on every read that returned bytes: it is what tells the stream watchdog the line is alive. */

@@ -7,6 +7,7 @@ import { contentText, normalizeTurnInput } from "@thetis/runtime/lib/content";
 // answers only when the token names this fence's user. What installed packages add to the page (their
 // browser files and commands) is composed and checked in ui.ts and mounted here under `ext/` and `api/`.
 import { randomBytes } from "node:crypto";
+import { z } from "zod";
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { dirname, resolve } from "node:path";
@@ -38,6 +39,9 @@ export interface GatewayOptions {
 
 const COOKIE = "thetis_web";
 const MODELS_TTL_MS = 60_000;
+const ModelRequestSchema = z.looseObject({ model: z.string().trim().max(200, "model id too long").default("") });
+const TitleRequestSchema = z.looseObject({ title: z.string().default("").transform((title) => title.replace(/\s+/g, " ").trim().slice(0, 120)) });
+const ArchiveRequestSchema = z.looseObject({ archived: z.boolean().default(true) });
 /**
  * How large an uploaded avatar may be. It is a 22-pixel tile in the footer and a 34-pixel one in the
  * gutter, so half a megabyte is already far more than the picture can ever show; the number is here to
@@ -226,9 +230,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       }
       if (seg[3] === "model" && seg.length === 4 && method === "POST") {
         await kernel.sessions.inspect(id);
-        const body = await readJson(req);
-        const model = typeof body.model === "string" ? body.model.trim() : "";
-        if (model.length > 200) throw new HttpError(400, "model id too long");
+        const { model } = await readJson(req, ModelRequestSchema);
         store.setModel(user, id, model);
         store.setLastModel(user, model);
         listChanged(user);
@@ -236,8 +238,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       }
       if (seg[3] === "title" && seg.length === 4 && method === "POST") {
         await kernel.sessions.inspect(id);
-        const body = await readJson(req);
-        const title = typeof body.title === "string" ? body.title.replace(/\s+/g, " ").trim().slice(0, 120) : "";
+        const { title } = await readJson(req, TitleRequestSchema);
         store.setTitle(user, id, title);
         listChanged(user);
         return json(res, 200, { id, title: title || null });
@@ -248,10 +249,10 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       }
       if (seg[3] === "archive" && seg.length === 4 && method === "POST") {
         await kernel.sessions.inspect(id);
-        const body = await readJson(req);
-        store.setArchived(user, id, body.archived !== false);
+        const { archived } = await readJson(req, ArchiveRequestSchema);
+        store.setArchived(user, id, archived);
         listChanged(user);
-        return json(res, 200, { id, archived: body.archived !== false });
+        return json(res, 200, { id, archived });
       }
     }
     throw new HttpError(404, "not found");
@@ -348,7 +349,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     };
   }
 
-  async function showSession(user: string, id: string): Promise<Omit<SessionRecord, "turn"> & { status: string; archived: boolean; turn: RunningTurn | null; usage: SessionUsage; model: string | null; title: string | null; children: ChildRecord[] }> {
+  async function showSession(user: string, id: string) {
     const all = await kernel.sessions.list();
     const children = await Promise.all(all.filter((s) => s.parent === id).map((s) => childRecord(user, s.id, descendants(all, s.id))));
     // Read the parent last: a turn may finish while the list or a child's record is on its way back.
@@ -361,7 +362,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
   }
 
   /** Retry when a turn starts or ends during the RPC, so saved history and its live overlay agree. */
-  async function sessionSnapshot(user: string, id: string): Promise<{ rec: Omit<SessionRecord, "turn"> & { status: "idle" | "running" }; turn: RunningTurn | null }> {
+  async function sessionSnapshot(user: string, id: string) {
     for (;;) {
       const running = hub.runningOf(user, id);
       const { turn: marker, ...rec } = await kernel.sessions.inspect(id);

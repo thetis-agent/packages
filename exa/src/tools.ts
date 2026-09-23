@@ -2,7 +2,9 @@
 // reply for the model. `createTools` takes the HTTP and clock dependencies so tests can fake them.
 import type { Tool, ToolEnv } from "@thetis/runtime/contracts";
 import { createClient, ExaError, type ExaClient, type FetchLike, type Query } from "./client.js";
-import { formatAnswer, formatCost, formatResults, formatRun, formatRunList, formatStatuses, join, type AgentRun, type ExaResult, type ExaStatus } from "./format.js";
+import { formatAnswer, formatCost, formatResults, formatRun, formatRunList, formatStatuses, join } from "./format.js";
+import { parseSchema } from "@thetis/runtime/lib/validation";
+import { AgentRunResponseSchema, AnswerResponseSchema, QuerySchema, RequestBodySchema, ResultsResponseSchema, RunListSchema } from "./schemas.js";
 
 export interface ToolDeps {
   fetch?: FetchLike;
@@ -21,7 +23,7 @@ export function createTools(deps: ToolDeps = {}): Record<string, Tool> {
   const sleep = deps.sleep ?? ((ms) => new Promise<void>((done) => setTimeout(done, ms)));
   const now = deps.now ?? (() => Date.now());
   const client = (env: ToolEnv): ExaClient => createClient(env.config, deps.fetch);
-  const defaults = (env: ToolEnv) => (client(env).config.defaults ?? {}) as { numResults?: number; maxCharacters?: number; researchWaitSeconds?: number };
+  const defaults = (env: ToolEnv) => client(env).config.defaults ?? {};
 
   const search: Tool = async (args, env) => {
     const d = defaults(env);
@@ -42,7 +44,7 @@ export function createTools(deps: ToolDeps = {}): Record<string, Tool> {
       additionalQueries: list(args.additionalQueries),
       contents: contentsOf(args, d, { highlights: true }),
     };
-    const res = (await client(env).post("/search", clean(body))) as { results?: ExaResult[]; searchType?: string; costDollars?: { total?: number } };
+    const res = parseSchema(ResultsResponseSchema, await client(env).post("/search", clean(body)), "Exa search");
     return join([formatResults(res.results, { maxCharacters: num(args.maxCharacters) ?? d.maxCharacters }), res.searchType ? `search type: ${res.searchType}` : "", formatCost(res)]);
   };
 
@@ -59,7 +61,7 @@ export function createTools(deps: ToolDeps = {}): Record<string, Tool> {
       subpageTarget: list(args.subpageTarget) ?? str(args.subpageTarget),
       extras: num(args.links) ? { links: num(args.links) } : undefined,
     };
-    const res = (await client(env).post("/contents", clean(body))) as { results?: ExaResult[]; statuses?: ExaStatus[]; costDollars?: { total?: number } };
+    const res = parseSchema(ResultsResponseSchema, await client(env).post("/contents", clean(body)), "Exa contents");
     return join([formatResults(res.results, { maxCharacters: num(args.maxCharacters) ?? d.maxCharacters }), formatStatuses(res.statuses), formatCost(res)]);
   };
 
@@ -69,7 +71,7 @@ export function createTools(deps: ToolDeps = {}): Record<string, Tool> {
     const summary: Args = { query: str(args.query) ?? "Summarize the page: its purpose, its main points, and any key facts, numbers, or dates." };
     if (args.schema && typeof args.schema === "object") summary.schema = args.schema;
     const body: Args = { urls, summary, text: false, maxAgeHours: num(args.maxAgeHours) };
-    const res = (await client(env).post("/contents", clean(body))) as { results?: ExaResult[]; statuses?: ExaStatus[]; costDollars?: { total?: number } };
+    const res = parseSchema(ResultsResponseSchema, await client(env).post("/contents", clean(body)), "Exa summarize");
     return join([formatResults(res.results), formatStatuses(res.statuses), formatCost(res)]);
   };
 
@@ -87,7 +89,7 @@ export function createTools(deps: ToolDeps = {}): Record<string, Tool> {
       excludeText: list(args.excludeText),
       contents: contentsOf(args, d, { highlights: true }),
     };
-    const res = (await client(env).post("/findSimilar", clean(body))) as { results?: ExaResult[]; costDollars?: { total?: number } };
+    const res = parseSchema(ResultsResponseSchema, await client(env).post("/findSimilar", clean(body)), "Exa find similar");
     return join([formatResults(res.results, { maxCharacters: num(args.maxCharacters) ?? d.maxCharacters }), formatCost(res)]);
   };
 
@@ -101,7 +103,7 @@ export function createTools(deps: ToolDeps = {}): Record<string, Tool> {
       userLocation: str(args.userLocation),
       outputSchema: args.outputSchema && typeof args.outputSchema === "object" ? args.outputSchema : undefined,
     };
-    const res = (await client(env).post("/answer", clean(body))) as Parameters<typeof formatAnswer>[0];
+    const res = parseSchema(AnswerResponseSchema, await client(env).post("/answer", clean(body)), "Exa answer");
     return formatAnswer(res, { maxCharacters: num(args.maxCharacters) ?? d.maxCharacters });
   };
 
@@ -116,7 +118,7 @@ export function createTools(deps: ToolDeps = {}): Record<string, Tool> {
       budget: num(args.maxCostDollars) !== undefined ? { maxCostDollars: num(args.maxCostDollars) } : undefined,
     };
     const c = client(env);
-    let run = (await c.post("/agent/runs", clean(body))) as AgentRun;
+    let run = parseSchema(AgentRunResponseSchema, await c.post("/agent/runs", clean(body)), "Exa research");
     const wait = bool(args.wait) ?? true;
     if (!wait || !run.id) return formatRun(run);
     const id = run.id;
@@ -124,7 +126,7 @@ export function createTools(deps: ToolDeps = {}): Record<string, Tool> {
     const started = now();
     while (isPending(run.status) && now() - started < limit) {
       await sleep(POLL_MS);
-      run = (await c.get(`/agent/runs/${encodeURIComponent(id)}`)) as AgentRun;
+      run = parseSchema(AgentRunResponseSchema, await c.get(`/agent/runs/${encodeURIComponent(id)}`), "Exa research poll");
     }
     const text = formatRun(run);
     return isPending(run.status) ? `${text}\n\nstill running after ${Math.round(limit / 1000)} seconds: call exa_research_get with this id later.` : text;
@@ -132,26 +134,26 @@ export function createTools(deps: ToolDeps = {}): Record<string, Tool> {
 
   const researchGet: Tool = async (args, env) => {
     const id = need(args, "id");
-    return formatRun((await client(env).get(`/agent/runs/${encodeURIComponent(id)}`)) as AgentRun);
+    return formatRun(parseSchema(AgentRunResponseSchema, await client(env).get(`/agent/runs/${encodeURIComponent(id)}`), "Exa research get"));
   };
 
   const researchCancel: Tool = async (args, env) => {
     const id = need(args, "id");
-    return formatRun((await client(env).post(`/agent/runs/${encodeURIComponent(id)}/cancel`, {})) as AgentRun);
+    return formatRun(parseSchema(AgentRunResponseSchema, await client(env).post(`/agent/runs/${encodeURIComponent(id)}/cancel`, {}), "Exa research cancel"));
   };
 
   const researchList: Tool = async (args, env) => {
     const query: Query = { limit: num(args.limit), cursor: str(args.cursor) };
-    return formatRunList((await client(env).get("/agent/runs", query)) as Parameters<typeof formatRunList>[0]);
+    return formatRunList(parseSchema(RunListSchema, await client(env).get("/agent/runs", query), "Exa research list"));
   };
 
   const request: Tool = async (args, env) => {
     const method = str(args.method) ?? (args.body ? "POST" : "GET");
     const path = need(args, "path");
-    const body = args.body && typeof args.body === "object" ? (args.body as Args) : undefined;
-    const query = args.query && typeof args.query === "object" ? (args.query as Query) : undefined;
+    const body = args.body === undefined ? undefined : parseSchema(RequestBodySchema, args.body, "Exa request body");
+    const query = args.query === undefined ? undefined : parseSchema(QuerySchema, args.query, "Exa request query");
     const res = await client(env).request(method, path, body, query);
-    return typeof res === "string" ? res : (res as object) ?? "ok";
+    return typeof res === "object" && res !== null ? res : res == null ? "ok" : String(res);
   };
 
   return { search, contents, summarize, findSimilar, answer, research, researchGet, researchCancel, researchList, request };

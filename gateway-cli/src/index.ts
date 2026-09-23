@@ -1077,7 +1077,7 @@ async function render(call: Call, user: string, session: string, input: string, 
       case "step.start":
       case "step.end":
       case "usage":
-        if (verbose) process.stdout.write(dim(`[${e.type} ${JSON.stringify("step" in e ? e.step.id : e.usage)}]`) + "\n");
+        if (verbose) process.stdout.write(dim(`[${e.type} ${JSON.stringify((e.type === "step.start" || e.type === "step.end") ? e.step.id : e.usage)}]`) + "\n");
         break;
       default:
         break;

@@ -31,6 +31,8 @@ Every route matches its own path and nothing beneath it. A predicate that reads 
 | `GET /ext/<scope>/<name>/<path>` | A browser file of an installed package, from under its declared `dir`. |
 | `POST /api/ext/<scope>/<name>/<verb>` | A command an installed package declared. Body `{ session?, args? }`. |
 
+JSON request bodies and stored gateway state are validated with Zod. Arrays, primitives, and incorrectly typed model, title, or archive fields receive HTTP 400. Invalid stored records name the offending field; legacy state is fully validated before migration writes any files. Unknown stored fields survive updates.
+
 ### The `thetis.ui` contract
 
 A package declares `ui` inside the `thetis` field of its manifest. The kernel never reads the field. The gateway reads it from `kernel.packages.list()` on each request and does four things:
@@ -38,7 +40,7 @@ A package declares `ui` inside the `thetis` field of its manifest. The kernel ne
 - serves the package's browser files at `ext/<package>/…`, only from under the declared `dir`, and only `.js`, `.css`, `.svg`, `.json` and `.md`;
 - composes `api/ui`: one entry per package with a valid declaration, in install order, with the entries and verbs above the person's role left out and the hidden entries named;
 - has the page import the declared `entry` and call its default export, `install(ext)`;
-- forwards a declared verb to the named export of the package's `main`, after checking that the package declares the verb, that the person's role clears the command's `role`, and that `session`, when named, is one of the person's own. The export runs inside the person's fence as `(args, env)`, where `env` is the fence environment plus `user`, `role` and `session`. A string answer becomes `{ text }`, an object `{ text?, data? }`, a thrown error `400 { error }`.
+- forwards a declared verb to the named export of the package's `main`, after checking that the package declares the verb, that the person's role clears the command's `role`, and that `session`, when named, is one of the person's own. The export runs inside the person's fence as `(args, env)`, where `env` is the fence environment plus `user`, `role` and `session`. A string answer becomes `{ text }`, an object `{ text?, data? }`, and no answer becomes `{}`. A thrown error returns `400 { error }`; a malformed answer or data that cannot be serialized returns 502.
 
 A bad declaration refuses that package by name; the rest still composes. A `dock`, `places`, `sidebar`, `chips`, `composer`, `shelf` or `statusbar` id belongs to the first installed package that declares it. Panel ids are namespaced by package.
 
