@@ -128,6 +128,30 @@ test("rows: a copy the workspace has not loaded is behind its own disk, index or
   assert.equal(updateBadge(badge, current[0]), null);
 });
 
+test("duplicate registry names keep the newest entry's version, source and README together", async () => {
+  const older = entry("@alice/widget", "1.0.0", OLD, { registry: "old", readme: true, source: `https://example.com/old.git#widget@${OLD}`, dir: "widget" });
+  const newer = entry("@alice/widget", "2.0.0", NEW, { registry: "new", readme: true, source: `https://example.com/new.git#widget@${NEW}`, dir: "widget" });
+  for (const packages of [[older, newer], [newer, older]]) {
+    const index = { version: 1, registries: [], packages };
+    const { env, cleanup } = fakeEnv({ index });
+    try {
+      for (const item of packages) {
+        const dir = join(env.shared, "marketplace", "readme", item.registry);
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "widget.md"), `# ${item.version}`);
+      }
+      const { data } = await commands.show({ name: "@alice/widget" }, env);
+      assert.equal(data.row.version, "2.0.0");
+      assert.equal(data.row.tip, "2.0.0");
+      assert.equal(data.row.source, newer.source);
+      assert.equal(data.row.registry, newer.registry);
+      assert.equal(data.readme, "# 2.0.0");
+    } finally {
+      cleanup();
+    }
+  }
+});
+
 test("rows: a fork carries what it was forked from and how far that has moved, and the badges say the strongest true thing", () => {
   const badge = (text, tone) => ({ text, tone });
   const forkOf = (fork) => ({ ...shipped("@alice/gateway-web", { everyone: false }), version: "0.1.1-fork.1", forkedFrom: { name: fork.name, version: fork.version }, fork });

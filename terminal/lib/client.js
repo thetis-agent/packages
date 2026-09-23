@@ -32,6 +32,7 @@ export async function connect(root) {
     s.once("error", (e) => fail(notRunning(path, e?.code ?? e?.message)));
   });
   socket.setNoDelay(true);
+  socket.setEncoding("utf8");
 
   const pending = new Map();
   const listeners = new Set();
@@ -40,7 +41,7 @@ export async function connect(root) {
   let ended = null;
 
   socket.on("data", (chunk) => {
-    buffer += chunk.toString("utf8");
+    buffer += chunk;
     let nl;
     while ((nl = buffer.indexOf("\n")) !== -1) {
       const line = buffer.slice(0, nl);

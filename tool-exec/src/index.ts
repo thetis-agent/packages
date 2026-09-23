@@ -108,8 +108,7 @@ export const spawnSubagent: Tool = async (args, env) => {
   const child = await env.kernel.sessions.create(env.session.id);
   const label = typeof args.label === "string" ? args.label.replace(/[\]\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) : "";
   const head = `[subagent ${child.id}${label ? ` ${label}` : ""}]`;
-  const stop = () => void env.kernel.sessions.cancel(child.id).catch(() => {});
-  env.signal?.addEventListener("abort", stop, { once: true });
+  if (env.signal?.aborted) return `${head}\nstopped: the parent was stopped before the subagent started.`;
   let reply = "";
   let partial = "";
   let failure: { message: string; code?: string } | undefined;
@@ -120,9 +119,10 @@ export const spawnSubagent: Tool = async (args, env) => {
         if (e.message.content.trim()) reply = e.message.content;
         partial = "";
       } else if (e.type === "error") failure = { message: e.message, code: e.code };
-    });
-  } finally {
-    env.signal?.removeEventListener("abort", stop);
+    }, undefined, env.signal);
+  } catch (err) {
+    if (!env.signal?.aborted && (err as { code?: string })?.code !== "cancelled") throw err;
+    failure = { message: "the subagent was stopped", code: "cancelled" };
   }
   if (failure?.code === "cancelled") {
     const said = partial.trim() || reply.trim();

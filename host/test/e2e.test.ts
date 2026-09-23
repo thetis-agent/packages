@@ -106,7 +106,7 @@ test("harness steps build the system prompt and attach tools", async () => {
   // The version is not pinned: this asserts that the listing carries a version and the description, not
   // which version, so an ordinary bump of a shipped package is not a failing end-to-end test.
   assert.match(listed.text, /@thetis\/tool-exec@\d+\.\d+\.\d+ \(tool\): Tools for the model/);
-  assert.match(listed.text, /@thetis\/terminal@0\.1\.0 \(tool\): Long-lived shell sessions/);
+  assert.match(listed.text, /@thetis\/terminal@\d+\.\d+\.\d+ \(tool\): Long-lived shell sessions/);
 });
 
 test("tool loop: the model runs a command inside the fence and sees the result", async () => {

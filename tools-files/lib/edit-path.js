@@ -1,6 +1,6 @@
 // edit_path: exact-match search-and-replace, written atomically so a crash mid-write
 // never leaves a half-written file behind.
-import { readFile, writeFile, rename, unlink, stat } from "node:fs/promises";
+import { readFile, writeFile, rename, unlink, stat, chmod } from "node:fs/promises";
 import { dirname, basename, resolve } from "node:path";
 import { resolveContained, writeRefusal } from "./paths.js";
 import { numberLine } from "./format.js";
@@ -23,13 +23,16 @@ function lineOfOffset(text, offset) {
   return line;
 }
 
-async function atomicWrite(absolute, content) {
+async function atomicWrite(absolute, content, mode) {
   const tmp = resolve(dirname(absolute), `.${basename(absolute)}.tmp-${process.pid}-${Date.now()}`);
-  await writeFile(tmp, content);
-  await rename(tmp, absolute).catch(async (e) => {
+  try {
+    await writeFile(tmp, content, { mode });
+    // Creation applies the current umask; an edit must retain the file's existing permissions.
+    await chmod(tmp, mode);
+    await rename(tmp, absolute);
+  } finally {
     await unlink(tmp).catch(() => {});
-    throw e;
-  });
+  }
 }
 
 export async function editPath(args, env) {
@@ -67,7 +70,7 @@ export async function editPath(args, env) {
   // The containment check above says this path is writable. When the filesystem disagrees anyway, that
   // disagreement is the thing worth reporting, not the errno. See `writeRefusal`.
   try {
-    await atomicWrite(absolute, updated);
+    await atomicWrite(absolute, updated, st.mode & 0o777);
   } catch (e) {
     throw writeRefusal(e, resolved) ?? e;
   }

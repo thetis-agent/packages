@@ -1,6 +1,6 @@
 {
   "name": "@thetis/tools-plan",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "license": "MIT",
   "description": "Per-conversation todo list and a structured way to ask the user clarifying questions, answered as a form on the gateway page.",
   "type": "module",

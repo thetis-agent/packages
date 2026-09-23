@@ -18,7 +18,7 @@ The page calls `install(ext)` once per package. `ext` is frozen. Its members:
 | `ext.redraw(id?)` | Redraws this package's open dock, chips, and statusbar entries. |
 | `ext.events.watch(fn)` | `fn({ session, turn, seq, event, input? })` for every turn message. Returns an unwatch function. |
 | `ext.conversation` | `current` (the id of the open conversation), `watch(fn)`, `send(text)`, `open(id)`. |
-| `ext.sessions` | `list()`, `watch(fn)`, `filter(fn)`. `filter` narrows the sidebar. `filter(null)` clears it. |
+| `ext.sessions` | `list()`, `watch(fn)`, `filter(fn)`. `filter` narrows the sidebar. `filter(null)` clears it. `onCreate(fn)` watches only conversations created by this page and returns an unwatch function; the shell awaits `fn(id)` before opening or sending. |
 | `ext.open` | `dock(id)`, `place(id, params)`, `shelf(id)`, `panel(id)`. |
 | `ext.dom` | `el(tag, props, ...children)`, `icon`, `clear`, `setHidden`. |
 | `ext.ui` | The panel helpers: tables, badges, fields, buttons, the confirm popover, key and value lists, `section`. |

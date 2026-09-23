@@ -1,6 +1,6 @@
 {
   "name": "@thetis/tool-exec",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "license": "MIT",
   "description": "Tools for the model: install, fork, remove, delete and configure packages, and spawn subagents in your own space. Running commands is @thetis/terminal.",
   "type": "module",

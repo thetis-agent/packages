@@ -109,19 +109,15 @@ export class PipelineRunner {
     if (raw == null) return;
     if (typeof raw !== "object") throw new CodedError(`step ${stepId} returned a non-object result`, "step");
     const r = raw as StepResult;
-    if (r.conversation !== undefined) {
-      if (!Array.isArray(r.conversation) || !r.conversation.every(isMessage)) throw new CodedError(`step ${stepId} returned an invalid conversation`, "step");
-      ctx.conversation = r.conversation;
-    }
+    if (r.conversation !== undefined && (!Array.isArray(r.conversation) || !r.conversation.every(isMessage))) throw new CodedError(`step ${stepId} returned an invalid conversation`, "step");
     if (r.call !== undefined) {
-      const valid = typeof r.call === "object" && typeof r.call.model === "string" && Array.isArray(r.call.messages);
+      const valid = r.call !== null && typeof r.call === "object" && typeof r.call.model === "string" && Array.isArray(r.call.messages);
       if (!valid) throw new CodedError(`step ${stepId} returned an invalid call`, "step");
-      ctx.call = { ...r.call, tools: Array.isArray(r.call.tools) ? r.call.tools : [], params: r.call.params ?? {} };
     }
-    if (r.harness !== undefined) {
-      if (typeof r.harness !== "object" || Array.isArray(r.harness)) throw new CodedError(`step ${stepId} returned an invalid harness`, "step");
-      ctx.harness = r.harness;
-    }
+    if (r.harness !== undefined && (r.harness === null || typeof r.harness !== "object" || Array.isArray(r.harness))) throw new CodedError(`step ${stepId} returned an invalid harness`, "step");
+    if (r.conversation !== undefined) ctx.conversation = r.conversation;
+    if (r.call !== undefined) ctx.call = { ...r.call, tools: Array.isArray(r.call.tools) ? r.call.tools : [], params: r.call.params ?? {} };
+    if (r.harness !== undefined) ctx.harness = r.harness;
   }
 }
 

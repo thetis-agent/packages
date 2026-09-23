@@ -3,8 +3,8 @@
   "package": "@thetis/skills-hybrid",
   "peerGroup": "skills",
   "suite": "assembly-cost@1",
-  "suiteDigest": "sha256:019fb1aad5b44e00d9043800201d2e10ffa8f6758b0ea9ad5bf825113c725d53",
-  "generatedAt": "2026-09-22T09:29:07.040Z",
+  "suiteDigest": "sha256:929f900d568c1dce8ed95d0735b4649316b5b748f3efe85605e1d873f22509e4",
+  "generatedAt": "2026-09-23T09:32:09.349Z",
   "arms": [
     "none",
     "thetis-skills-hybrid",
@@ -14,8 +14,8 @@
   ],
   "report": {
     "version": 1,
-    "generatedAt": "2026-09-22T09:29:07.040Z",
-    "digest": "sha256:019fb1aad5b44e00d9043800201d2e10ffa8f6758b0ea9ad5bf825113c725d53",
+    "generatedAt": "2026-09-23T09:32:09.349Z",
+    "digest": "sha256:929f900d568c1dce8ed95d0735b4649316b5b748f3efe85605e1d873f22509e4",
     "inputs": {
       "probe": "A",
       "suite": {
@@ -46,7 +46,7 @@
         {
           "id": "thetis-skills-hybrid",
           "packages": [
-            "@thetis/skills-hybrid@0.2.1"
+            "@thetis/skills-hybrid@0.2.2"
           ]
         },
         {
@@ -58,13 +58,13 @@
         {
           "id": "thetis-terminal",
           "packages": [
-            "@thetis/terminal@0.1.0"
+            "@thetis/terminal@0.1.1"
           ]
         },
         {
           "id": "thetis-tool-exec",
           "packages": [
-            "@thetis/tool-exec@0.1.0"
+            "@thetis/tool-exec@0.3.1"
           ]
         },
         {
@@ -88,13 +88,13 @@
         {
           "id": "thetis-tools-files",
           "packages": [
-            "@thetis/tools-files@0.1.0"
+            "@thetis/tools-files@0.2.1"
           ]
         },
         {
           "id": "thetis-tools-plan",
           "packages": [
-            "@thetis/tools-plan@0.3.0"
+            "@thetis/tools-plan@0.3.1"
           ]
         },
         {
@@ -102,13 +102,13 @@
           "packages": [
             "@thetis/exa@0.1.0",
             "@thetis/skills-all@0.1.0",
-            "@thetis/skills-hybrid@0.2.1",
+            "@thetis/skills-hybrid@0.2.2",
             "@thetis/skills-l1@0.1.0",
-            "@thetis/terminal@0.1.0",
-            "@thetis/tool-exec@0.1.0",
+            "@thetis/terminal@0.1.1",
+            "@thetis/tool-exec@0.3.1",
             "@thetis/tool-groups@0.2.0",
-            "@thetis/tools-files@0.1.0",
-            "@thetis/tools-plan@0.3.0"
+            "@thetis/tools-files@0.2.1",
+            "@thetis/tools-plan@0.3.1"
           ]
         }
       ],
@@ -184,10 +184,10 @@
           "n": 7
         },
         "assemble_ms": {
-          "mean": 7.428571428571429,
-          "lower": 6.857142857142857,
+          "mean": 7,
+          "lower": 6.142857142857143,
           "upper": 7.857142857142857,
-          "mde": 0.5,
+          "mde": 0.8571428571428568,
           "n": 7
         },
         "non_ascii_ratio": {
@@ -270,10 +270,10 @@
           "n": 7
         },
         "assemble_ms": {
-          "mean": 11.714285714285714,
-          "lower": 10.857142857142858,
-          "upper": 12.428571428571429,
-          "mde": 0.7857142857142856,
+          "mean": 12.571428571428571,
+          "lower": 11.428571428571429,
+          "upper": 14,
+          "mde": 1.2857142857142856,
           "n": 7
         },
         "non_ascii_ratio": {
@@ -356,10 +356,10 @@
           "n": 7
         },
         "assemble_ms": {
-          "mean": 9.285714285714286,
-          "lower": 8.285714285714286,
-          "upper": 10.142857142857142,
-          "mde": 0.9285714285714279,
+          "mean": 11,
+          "lower": 10.142857142857142,
+          "upper": 11.714285714285714,
+          "mde": 0.7857142857142856,
           "n": 7
         },
         "non_ascii_ratio": {
@@ -442,10 +442,10 @@
           "n": 7
         },
         "assemble_ms": {
-          "mean": 10.428571428571429,
-          "lower": 9.714285714285714,
-          "upper": 11.142857142857142,
-          "mde": 0.7142857142857144,
+          "mean": 11.428571428571429,
+          "lower": 10.857142857142858,
+          "upper": 11.857142857142858,
+          "mde": 0.5,
           "n": 7
         },
         "non_ascii_ratio": {
@@ -472,10 +472,10 @@
           "n": 7
         },
         "bytes_tools": {
-          "mean": 4243.142857142857,
+          "mean": 4428,
           "lower": 1631.142857142857,
-          "upper": 7439.571428571428,
-          "mde": 2904.214285714286,
+          "upper": 7901.714285714285,
+          "mde": 3135.285714285714,
           "n": 7
         },
         "bytes_messages": {
@@ -486,17 +486,17 @@
           "n": 7
         },
         "bytes_turn1": {
-          "mean": 6803.714285714285,
+          "mean": 6988.571428571428,
           "lower": 4165.571428571428,
-          "upper": 10019,
-          "mde": 2926.714285714286,
+          "upper": 10477.714285714286,
+          "mde": 3156.071428571429,
           "n": 7
         },
         "bytes_last": {
-          "mean": 6952.428571428572,
+          "mean": 7137.285714285715,
           "lower": 4305.857142857143,
-          "upper": 10188.142857142857,
-          "mde": 2941.142857142857,
+          "upper": 10628,
+          "mde": 3161.0714285714284,
           "n": 7
         },
         "prefix_stable": {
@@ -514,10 +514,10 @@
           "n": 7
         },
         "tools_n": {
-          "mean": 5.857142857142857,
+          "mean": 6.142857142857143,
           "lower": 1.8571428571428572,
-          "upper": 11,
-          "mde": 4.571428571428571,
+          "upper": 11.714285714285714,
+          "mde": 4.928571428571428,
           "n": 7
         },
         "steps_n": {
@@ -528,10 +528,10 @@
           "n": 7
         },
         "assemble_ms": {
-          "mean": 391.42857142857144,
-          "lower": 348.14285714285717,
-          "upper": 448.2857142857143,
-          "mde": 50.071428571428555,
+          "mean": 357.14285714285717,
+          "lower": 346.42857142857144,
+          "upper": 367.57142857142856,
+          "mde": 10.571428571428555,
           "n": 7
         },
         "non_ascii_ratio": {
@@ -672,10 +672,10 @@
         },
         "assemble_ms": {
           "interval": {
-            "mean": 4.285714285714286,
-            "lower": 3.5714285714285716,
-            "upper": 5,
-            "mde": 0.7142857142857142,
+            "mean": 5.571428571428571,
+            "lower": 4.714285714285714,
+            "upper": 6.571428571428571,
+            "mde": 0.9285714285714284,
             "n": 7
           },
           "wins": 7,
@@ -830,16 +830,16 @@
         },
         "assemble_ms": {
           "interval": {
-            "mean": 1.8571428571428572,
-            "lower": 0.7142857142857143,
-            "upper": 3,
-            "mde": 1.1428571428571428,
+            "mean": 4,
+            "lower": 2.5714285714285716,
+            "upper": 5,
+            "mde": 1.2142857142857142,
             "n": 7
           },
           "wins": 6,
-          "ties": 0,
-          "losses": 1,
-          "p": 0.07396301849075462
+          "ties": 1,
+          "losses": 0,
+          "p": 0.0384807596201899
         },
         "non_ascii_ratio": {
           "interval": {
@@ -988,10 +988,10 @@
         },
         "assemble_ms": {
           "interval": {
-            "mean": 3,
-            "lower": 2.142857142857143,
-            "upper": 3.7142857142857144,
-            "mde": 0.7857142857142858,
+            "mean": 4.428571428571429,
+            "lower": 3.857142857142857,
+            "upper": 4.857142857142857,
+            "mde": 0.4999999999999998,
             "n": 7
           },
           "wins": 7,
@@ -1042,10 +1042,10 @@
         },
         "bytes_tools": {
           "interval": {
-            "mean": 4241.142857142857,
+            "mean": 4426,
             "lower": 1629.142857142857,
-            "upper": 7437.571428571428,
-            "mde": 2904.214285714286,
+            "upper": 7859.857142857143,
+            "mde": 3115.357142857143,
             "n": 7
           },
           "wins": 7,
@@ -1068,10 +1068,10 @@
         },
         "bytes_turn1": {
           "interval": {
-            "mean": 5671,
+            "mean": 5855.857142857143,
             "lower": 3060.714285714286,
-            "upper": 8696.142857142857,
-            "mde": 2817.7142857142853,
+            "upper": 9158.285714285714,
+            "mde": 3048.7857142857138,
             "n": 7
           },
           "wins": 7,
@@ -1081,10 +1081,10 @@
         },
         "bytes_last": {
           "interval": {
-            "mean": 5671,
+            "mean": 5855.857142857143,
             "lower": 3060.714285714286,
-            "upper": 8865.285714285714,
-            "mde": 2902.2857142857138,
+            "upper": 9327.42857142857,
+            "mde": 3133.357142857142,
             "n": 7
           },
           "wins": 7,
@@ -1120,10 +1120,10 @@
         },
         "tools_n": {
           "interval": {
-            "mean": 5.857142857142857,
+            "mean": 6.142857142857143,
             "lower": 1.8571428571428572,
-            "upper": 11,
-            "mde": 4.571428571428571,
+            "upper": 11.714285714285714,
+            "mde": 4.928571428571428,
             "n": 7
           },
           "wins": 7,
@@ -1146,10 +1146,10 @@
         },
         "assemble_ms": {
           "interval": {
-            "mean": 384,
-            "lower": 340.14285714285717,
-            "upper": 439.2857142857143,
-            "mde": 49.571428571428555,
+            "mean": 350.14285714285717,
+            "lower": 339.14285714285717,
+            "upper": 361.2857142857143,
+            "mde": 11.071428571428555,
             "n": 7
           },
           "wins": 7,
@@ -1194,10 +1194,10 @@
     },
     "latency": {
       "none": 1,
-      "thetis-skills-hybrid": 1.58,
-      "thetis-skills-all": 1.25,
-      "thetis-skills-l1": 1.4,
-      "all": 52.69
+      "thetis-skills-hybrid": 1.8,
+      "thetis-skills-all": 1.57,
+      "thetis-skills-l1": 1.63,
+      "all": 51.02
     },
     "conformance": {
       "none": {

@@ -4,7 +4,7 @@
 // anything: a row is what a person reads before deciding.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { ahead, behind, shortCommit } from "@thetis/marketplace";
+import { ahead, behind, compareVersions, shortCommit } from "@thetis/marketplace";
 
 const PIN = /@([0-9a-f]{40})$/;
 
@@ -161,7 +161,13 @@ export function mergeRows(installed, entries, index) {
   // An installed row learns what is behind before the index is consulted: a copy whose workspace loaded an
   // older version than the one on disk is behind whether or not any registry carries the package.
   for (const info of installed) byName.set(info.name, withAhead(withUpdate(installedRow(info), newer.get(info.name)), unshared.get(info.name)));
+  // One complete offer per name. Equal versions keep the configured registry order.
+  const offers = new Map();
   for (const entry of entries) {
+    const held = offers.get(entry.name);
+    if (!held || compareVersions(entry.version, held.version) > 0) offers.set(entry.name, entry);
+  }
+  for (const entry of offers.values()) {
     const have = byName.get(entry.name);
     if (!have) {
       byName.set(entry.name, indexRow(entry));

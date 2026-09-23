@@ -47,7 +47,7 @@ test("mark validates like todo_mark: the stage, the id, and the single-active ru
   await assert.rejects(uiMark({ id: "t-9", stage: "done" }, uiEnv), /unknown id\(s\): t-9/);
   await assert.rejects(uiMark({ stage: "done" }, uiEnv), /id is required/);
   const out = await uiMark({ id: "t-1", stage: "active" }, uiEnv);
-  assert.match(out.text, /only one item can be active; t-2 stays active/); // the later item wins, as in todo_mark
-  assert.deepEqual(out.data.items.map((i) => i.stage), ["pending", "active"]);
+  assert.match(out.text, /only one item can be active; t-1 stays active/);
+  assert.deepEqual(out.data.items.map((i) => i.stage), ["active", "pending"]);
   await rm(home, { recursive: true, force: true });
 });

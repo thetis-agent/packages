@@ -333,18 +333,30 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
   }
 
   async function showSession(user: string, id: string): Promise<Omit<SessionRecord, "turn"> & { status: string; archived: boolean; turn: RunningTurn | null; usage: SessionUsage; model: string | null; title: string | null; children: ChildRecord[] }> {
-    const { turn: _marker, ...rec } = await kernel.sessions.inspect(id);
     const all = await kernel.sessions.list();
+    const children = await Promise.all(all.filter((s) => s.parent === id).map((s) => childRecord(user, s.id, descendants(all, s.id))));
+    // Read the parent last: a turn may finish while the list or a child's record is on its way back.
+    const { rec, turn } = await sessionSnapshot(user, id);
     const labels = labelsOf(user, rec);
-    const children = await Promise.all(all.filter((s) => s.parent === id).map((s) => childRecord(user, s.id, labels.get(s.id) ?? null, descendants(all, s.id))));
+    for (const child of children) child.label = labels.get(child.id) ?? null;
     // `turn` is the hub's, never the record's marker: a marker left by an interrupted turn would put the
     // page in a turn nothing will end, while its message is in the conversation already.
-    return { ...rec, archived: store.archived(user).has(id), turn: hub.runningOf(user, id) ?? null, usage: store.usage(user, id), model: store.model(user, id) ?? null, title: store.title(user, id) ?? null, children };
+    return { ...rec, archived: store.archived(user).has(id), turn, usage: store.usage(user, id), model: store.model(user, id) ?? null, title: store.title(user, id) ?? null, children };
   }
 
-  async function childRecord(user: string, id: string, label: string | null, below: string[]): Promise<ChildRecord> {
-    const rec = await kernel.sessions.inspect(id);
-    const turn = hub.runningOf(user, id) ?? null;
+  /** Retry when a turn starts or ends during the RPC, so saved history and its live overlay agree. */
+  async function sessionSnapshot(user: string, id: string): Promise<{ rec: Omit<SessionRecord, "turn"> & { status: "idle" | "running" }; turn: RunningTurn | null }> {
+    for (;;) {
+      const running = hub.runningOf(user, id);
+      const { turn: marker, ...rec } = await kernel.sessions.inspect(id);
+      if (running !== hub.runningOf(user, id)) continue;
+      // No marker means the final save has landed, even if its closing event has not arrived yet.
+      return { rec, turn: marker ? running ?? null : null };
+    }
+  }
+
+  async function childRecord(user: string, id: string, below: string[]): Promise<ChildRecord> {
+    const { rec, turn } = await sessionSnapshot(user, id);
     const cost = costOf(user, [id, ...below]);
     return {
       id: rec.id,
@@ -353,7 +365,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       updatedAt: rec.updatedAt,
       turns: rec.turns,
       status: rec.status,
-      label,
+      label: null,
       task: withoutTurnContext(rec.conversation.find((m) => m.role === "user")?.content ?? turn?.input ?? ""),
       conversation: rec.conversation,
       usage: store.usage(user, id),

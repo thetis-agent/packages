@@ -29,15 +29,14 @@ export function mintItems(plan, rawItems) {
 
 // Enforce "only one active item": if the incoming items introduce a second active one,
 // demote the previously active item to pending and report it in `notes`.
-export function enforceSingleActive(items, notes) {
+export function enforceSingleActive(items, notes, preferredId) {
   const activeIdxs = [];
   for (let i = 0; i < items.length; i++) if (items[i].stage === "active") activeIdxs.push(i);
   if (activeIdxs.length <= 1) return;
-  // keep the last one marked active (most recent instruction wins), demote the rest
-  for (let i = 0; i < activeIdxs.length - 1; i++) {
-    items[activeIdxs[i]].stage = "pending";
-  }
-  notes.push(`only one item can be active; ${items[activeIdxs[activeIdxs.length - 1]].id} stays active, the rest returned to pending`);
+  // Mark requests name their latest activation; newly written/appended items use their array order.
+  const keep = activeIdxs.find((i) => items[i].id === preferredId) ?? activeIdxs.at(-1);
+  for (const i of activeIdxs) if (i !== keep) items[i].stage = "pending";
+  notes.push(`only one item can be active; ${items[keep].id} stays active, the rest returned to pending`);
 }
 
 /**
@@ -54,7 +53,7 @@ export function markStage(plan, ids, stage) {
   const idSet = new Set(ids);
   for (const it of plan.items) if (idSet.has(it.id)) it.stage = stage;
   const notes = [];
-  enforceSingleActive(plan.items, notes);
+  enforceSingleActive(plan.items, notes, stage === "active" ? ids.at(-1) : undefined);
   return notes;
 }
 

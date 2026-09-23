@@ -11,12 +11,12 @@
 // Which package a fork's publish is, and why the question is asked once rather than every time, is in
 // `fork.js`. Both were moved out of here because a removal pushes a branch too and asks the same questions.
 import { cp, mkdir, rm } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, join, normalize } from "node:path";
 import { few, refuse, tail } from "./refuse.js";
 import { pickTarget, verifyOf, workDirOf } from "./config.js";
 import { chooseAs, forkedFrom, originVersion, unscoped } from "./fork.js";
 import { asIdentity, FALLBACK_IDENTITY, git, gitSays, headCommit, identityOf, lines, mustGit } from "./git.js";
-import { assertSound, withOrigin, withVersion } from "./manifest.js";
+import { assertSound, mainOf, withOrigin, withVersion } from "./manifest.js";
 import { locate, resolvePackage } from "./locate.js";
 import { cannotRide, journalRow, notNamed, rider, sortPassengers } from "./passengers.js";
 import { recordPublish } from "./record.js";
@@ -111,7 +111,12 @@ export async function publish(args = {}, env) {
   if (where.mode === "copy") await copyInto(pkg.path, join(where.repo, where.dir));
   if (asOrigin) await env.writeFile(join(where.repo, where.dir, "package.json"), withOrigin(pkg.manifest, origin.name, now));
 
-  const files = dryRun ? await wouldStage(env, where, pkg, now, asOrigin) : await stage(env, where);
+  const artifact = runtimeArtifact(pkg, where);
+  const files = dryRun ? await wouldStage(env, where, pkg, now, asOrigin, artifact) : await stage(env, where, artifact);
+  // Forks run their copied build; a sound local copy is not proof that git included its entrypoint.
+  if (!dryRun && !pkg.manifest.scripts?.build) {
+    await assertSound(pkg.manifest, where.dir, async (path) => (await git(env, where.repo, ["cat-file", "-e", `:${path}`])).code === 0);
+  }
   const message = typeof args.message === "string" && args.message.trim() ? args.message.trim() : `${name} ${now}`;
   // A fence is a container with no ~/.gitconfig, so git would stop the publish halfway through with
   // "please tell me who you are". One is supplied instead, and the answer says which one signed the commit.
@@ -253,8 +258,9 @@ async function copyInto(from, dest) {
 }
 
 /** Stage this package's directory and answer with what is in the index for it. */
-async function stage(env, where) {
+async function stage(env, where, artifact) {
   await mustGit(env, where.repo, ["add", "-A", "--", where.dir], `could not stage ${where.dir}/ in ${where.repo}`);
+  if (artifact) await mustGit(env, where.repo, ["add", "-f", "--", artifact], `could not stage the runtime build in ${artifact}`);
   const diff = await git(env, where.repo, ["diff", "--cached", "--name-only", "--", where.dir]);
   // On a branch with no commit on it yet there is no HEAD to diff against, and git says so rather than
   // treating it as the empty tree. The index itself is then the whole answer.
@@ -267,12 +273,23 @@ async function stage(env, where) {
  * one thing that is not written in a dry run, so the manifest is named explicitly when it would move. An
  * as-origin publish writes its manifest into the copy either way, so there is nothing to make up for.
  */
-async function wouldStage(env, where, pkg, now, asOrigin) {
+async function wouldStage(env, where, pkg, now, asOrigin, artifact) {
   const r = await git(env, where.repo, ["add", "-A", "--dry-run", "--", where.dir]);
-  const files = lines(r)
+  const build = artifact ? await mustGit(env, where.repo, ["add", "-f", "--dry-run", "--", artifact], `could not preview the runtime build in ${artifact}`) : null;
+  const files = [...lines(r), ...(build ? lines(build) : [])]
     .map((l) => /^(?:add|remove)\s+'(.*)'$/.exec(l)?.[1])
     .filter(Boolean);
   const manifest = `${where.dir}/package.json`;
   if (!asOrigin && now !== pkg.version && !files.includes(manifest)) files.push(manifest);
-  return files.sort();
+  return [...new Set(files)].sort();
+}
+
+/** A fork has no build script: its main's output tree must travel even when the registry ignores builds. */
+function runtimeArtifact(pkg, where) {
+  if (!forkedFrom(pkg.manifest) || pkg.manifest.scripts?.build) return null;
+  const entry = mainOf(pkg.manifest);
+  if (!entry) return null;
+  const main = normalize(entry);
+  if (main.startsWith("/") || main === ".." || main.startsWith("../")) return null;
+  return join(where.dir, main.split("/")[0]);
 }

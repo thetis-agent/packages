@@ -1,6 +1,6 @@
 {
   "name": "@thetis/gateway-web",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "license": "MIT",
   "description": "Your browser interface: conversations, the transcript, and the control panel, served from your own space.",
   "type": "module",

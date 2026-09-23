@@ -30,6 +30,7 @@ const BURST_MS = 16;
 const pendingKeys = new Set();
 const pendingSessions = new Set();
 let flushTimer = null;
+let runningSnapshotVersion = 0;
 
 function notifyKey(key) {
   for (const fn of watchers.get(key) ?? []) fn(state[key]);
@@ -89,6 +90,12 @@ export const store = {
     later(["activity"], [id, this.rootOf(id)]);
   },
   isRunning: (id) => state.running.has(id),
+  /** An authoritative reconnect snapshot may cover a whole turn whose events this page missed. */
+  setRunningSnapshot(ids) {
+    runningSnapshotVersion++;
+    this.set({ running: new Set(ids) });
+  },
+  runningSnapshotVersion: () => runningSnapshotVersion,
   isPending: (id) => state.pending.has(id),
   session: (id) => state.sessions.find((s) => s.id === id) || null,
   /** The model in force for a session: the chosen one, else the configured default. */

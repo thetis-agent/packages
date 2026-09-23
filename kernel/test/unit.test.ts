@@ -8,7 +8,7 @@ import { LayeredConfig } from "@thetis/lib/config";
 import { Journal } from "@thetis/lib/journal";
 import { SessionStore } from "@thetis/lib/session-store";
 import { RestartLatch, type ArmResult, type FireReport, type RestartState } from "@thetis/lib/restart";
-import { forkPackage } from "@thetis/lib/pkg-fs";
+import { cloneDirFor, forkPackage } from "@thetis/lib/pkg-fs";
 import { memoryStore, StoreMirror } from "@thetis/lib/store";
 import { UserspaceLayout } from "@thetis/lib/userspace-layout";
 import { UserStore } from "../src/users.js";
@@ -145,6 +145,32 @@ test("runner: a step's events are the turn's, with its package's configuration, 
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+for (const [name, result] of Object.entries({
+  "invalid call": { conversation: [], call: { model: 123, messages: [] } },
+  "invalid harness": { conversation: [], harness: [] },
+  "null call": { conversation: [], call: null },
+  "null harness": { conversation: [], harness: null },
+})) {
+  test(`regression: a step with ${name} preserves the conversation and harness`, async () => {
+    const home = tmp();
+    try {
+      const { r, us, session, store } = runner(home, [pkgs[1]], async () => result);
+      session.conversation = [{ role: "user", content: "previous request" }, { role: "assistant", content: "previous response" }];
+      session.harness = { remembered: true };
+      const input: Message[] = [{ role: "user", content: "new request" }];
+      const expected = [...session.conversation, ...input];
+      const events: TurnEvent[] = [];
+      await r.runTurn(us, session, input, (event) => events.push(event));
+      assert.ok(events.some((event) => event.type === "error" && event.code === "step"));
+      const saved = store.load(us.sessions, session.id)!;
+      assert.deepEqual(saved.conversation, expected, "a rejected result cannot change persisted history");
+      assert.deepEqual(saved.harness, { remembered: true });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+}
 
 test("auth: passwords, tokens, expiry, and revocation", async () => {
   const driver = memoryStore();
@@ -663,6 +689,62 @@ test("packages: a fork says what it was forked from and how far that has moved, 
     assert.deepEqual(manager.listFor(us).map((p) => p.name), ["@alice/gw"], "a refusal removes nothing");
     assert.deepEqual(manager.listFor(us)[0].fork, { name: "@thetis/gw", version: "0.1.1" }, "an origin that is gone has no shipped version to report");
     await assert.rejects(manager.unfork(us, "@thetis/nothing"), (e: { code: string }) => e.code === "invalid");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("regression: Git installs retain a fork's displaced clone and prune unused clones", async () => {
+  const home = tmp();
+  try {
+    const registry = new PackageRegistry(await mirror(memoryStore(), "registry"));
+    const manager = new PackageManager(defaultConfig(home, "/proj"), registry, {} as Fences);
+    const us = new UserspaceLayout(home).ensure("alice");
+    const alice = { id: "alice", role: "user", status: "active", createdAt: "" } as const;
+    // Existing pinned clones avoid invoking Git; the behavior under test is which directory is retained.
+    const clone = (name: string, pin: string) => {
+      const source = `https://example.invalid/${name}.git@${pin.repeat(40)}`;
+      const dir = cloneDirFor(us.store, source);
+      mkdirSync(join(dir, ".git"), { recursive: true });
+      writeFileSync(join(dir, ".git", "HEAD"), pin.repeat(40));
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ name: `@alice/${name}`, version: "1", thetis: { type: "tool" } }));
+      return { source, dir };
+    };
+    const origin = clone("origin", "a");
+    await manager.install(us, alice, origin.source);
+    const fork = join(us.home, "packages", "fork");
+    forkPackage({ from: origin.dir, to: fork, name: "@alice/fork", version: "1-fork.1", origin: { name: "@alice/origin", version: "1" }, root: us.root });
+    await manager.install(us, alice, fork);
+    const unused = clone("unused", "b");
+    const unrelated = clone("unrelated", "c");
+    await manager.install(us, alice, unrelated.source);
+    assert.ok(existsSync(origin.dir), "the displaced origin is still needed to undo the fork");
+    assert.equal(existsSync(unused.dir), false, "unused clones are still pruned");
+    assert.equal((await manager.unfork(us, "@alice/fork")).name, "@alice/origin");
+    assert.deepEqual(manager.installed(us).map((pkg) => pkg.name).sort(), ["@alice/origin", "@alice/unrelated"]);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("regression: unfork refuses a missing displaced origin before removing the installed fork", async () => {
+  const home = tmp();
+  try {
+    const registry = new PackageRegistry(await mirror(memoryStore(), "registry"));
+    const manager = new PackageManager(defaultConfig(home, "/proj"), registry, {} as Fences);
+    const us = new UserspaceLayout(home).ensure("alice");
+    const alice = { id: "alice", role: "user", status: "active", createdAt: "" } as const;
+    const origin = join(us.home, "packages", "origin");
+    mkdirSync(origin, { recursive: true });
+    writeFileSync(join(origin, "package.json"), JSON.stringify({ name: "@alice/origin", version: "1", thetis: { type: "tool" } }));
+    await manager.install(us, alice, origin);
+    const fork = join(us.home, "packages", "fork");
+    forkPackage({ from: origin, to: fork, name: "@alice/fork", version: "1-fork.1", origin: { name: "@alice/origin", version: "1" }, root: us.root });
+    await manager.install(us, alice, fork);
+    rmSync(origin, { recursive: true, force: true });
+    await assert.rejects(manager.unfork(us, "@alice/fork", true), /not here to go back to/);
+    assert.deepEqual(manager.installed(us).map((pkg) => pkg.name), ["@alice/fork"]);
+    assert.ok(existsSync(fork), "a refused unfork preserves the person's files");
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

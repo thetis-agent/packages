@@ -37,6 +37,10 @@ export class FencePool implements Fences {
   handle(stale: Userspace): Promise<FenceHandle> {
     const held = this.handles.get(stale.id);
     if (held) return held;
+    // During the drain the old handle remains usable for nested work. After it is forgotten, its
+    // services must finish stopping before another fence can bind those same socket paths.
+    const closing = this.closing.get(stale.id);
+    if (closing) return closing.then(() => this.handle(stale));
     const us = this.refresh(stale);
     const opening: Promise<FenceHandle> = this.fence
       .open(us, this.rpcFor(us))
@@ -73,6 +77,7 @@ export class FencePool implements Fences {
    */
   async request(us: Userspace, op: string, payload: unknown, onEvent?: EventSink, signal?: AbortSignal): Promise<unknown> {
     const h = await this.handle(us);
+    const opening = this.handles.get(us.id);
     const pending = h.request(op, payload, onEvent, signal);
     let set = this.inflight.get(us.id);
     if (!set) this.inflight.set(us.id, (set = new Set()));
@@ -86,8 +91,9 @@ export class FencePool implements Fences {
       // never become a second way for it to get stuck. The bound is the handle's own: `close` gives the
       // agent `exitGraceMs` after SIGTERM and then SIGKILLs it, so nothing here waits forever.
       if (errorCode(err) === "fence") {
-        this.forget(us.id);
-        void h.close().catch(() => {});
+        // Another request may already have retired this handle and opened its replacement.
+        // Failed fences skip the drain, but replacement requests still wait for their services to stop.
+        if (this.handles.get(us.id) === opening) void this.closeOne(us.id, false);
       }
       throw err;
     } finally {
@@ -97,21 +103,25 @@ export class FencePool implements Fences {
 
   /** Closes one fence, or every fence at once: each drains and waits for its agent, so they are not waited for in turn. */
   async close(id?: string): Promise<void> {
-    const ids = id ? [id] : [...this.handles.keys()];
+    const ids = id ? [id] : [...new Set([...this.handles.keys(), ...this.closing.keys()])];
     await Promise.all(ids.map((key) => this.closeOne(key)));
   }
 
   /** Waits for a quiet moment, then closes. A second close of the same fence while one is under way joins it. */
-  private closeOne(id: string): Promise<void> {
+  private closeOne(id: string, drain = true): Promise<void> {
     const under = this.closing.get(id);
     if (under) return under;
-    const done = this.quiet(id)
+    const done = (drain ? this.quiet(id) : Promise.resolve())
       .then(() => {
         const h = this.handles.get(id);
         this.forget(id);
         return h?.then((x) => x.close()).catch(() => {});
       })
-      .finally(() => this.closing.delete(id));
+      .finally(() => {
+        // An opening fence can finish its hook and stamp metadata after the first forget above.
+        this.forget(id);
+        this.closing.delete(id);
+      });
     this.closing.set(id, done);
     return done;
   }

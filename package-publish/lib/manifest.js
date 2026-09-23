@@ -8,6 +8,12 @@ import { isVersion } from "./semver.js";
 
 const onDisk = (path) => stat(path).then(() => true, () => false);
 
+/** Skill packs need no entrypoint; packages declaring executable exports default to index.js. */
+export function mainOf(manifest) {
+  const needsCode = Boolean(manifest.thetis?.steps?.length || manifest.thetis?.tools?.length || manifest.thetis?.service || manifest.thetis?.export);
+  return typeof manifest.main === "string" && manifest.main.trim() ? manifest.main.trim() : needsCode ? "index.js" : null;
+}
+
 /** The manifest at `dir`, or `{ error }` when there is none or it is not JSON. Never throws. */
 export async function readManifest(env, dir) {
   let text;
@@ -41,14 +47,13 @@ export async function manifestProblem(manifest, dir, exists = onDisk) {
   // `main` is checked when it is declared, and when the manifest declares code to load, because that is
   // when the kernel checks it: a skill pack has no main and needs none, a tool package with no entry file
   // installs and then fails on the first call, somewhere else, for somebody else.
-  const needsCode = Boolean(m.thetis.steps?.length || m.thetis.tools?.length || m.thetis.service || m.thetis.export);
-  const main = typeof m.main === "string" && m.main.trim() ? m.main.trim() : needsCode ? "index.js" : null;
+  const main = mainOf(m);
   if (main && !(await exists(join(dir, main)))) return `${m.name} names main ${main}, which is not in ${dir}. Add the file, or correct main, and publish again.`;
   return null;
 }
 
-export async function assertSound(manifest, dir) {
-  const problem = await manifestProblem(manifest, dir);
+export async function assertSound(manifest, dir, exists) {
+  const problem = await manifestProblem(manifest, dir, exists);
   if (problem) refuse("manifest", problem);
 }
 

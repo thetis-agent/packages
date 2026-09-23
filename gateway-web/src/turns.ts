@@ -57,6 +57,9 @@ export class TurnHub {
    * error (code `busy`, `not-found`) when the turn cannot start, so nothing is recorded in that case.
    */
   start(user: string, session: string, input: string, model?: string): Promise<RunningTurn> {
+    const k = key(user, session);
+    // A second sender must not clear ownership of the first sender's watch events when it is refused.
+    if (this.mine.has(k) || this.running.has(k)) return Promise.reject(Object.assign(new Error(`session ${session} already has a turn in progress`), { code: "busy" }));
     return new Promise((done, fail) => {
       const run: RunningTurn = { session, input, model, startedAt: new Date().toISOString(), events: [] };
       let started = false;

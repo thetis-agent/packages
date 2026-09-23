@@ -17,6 +17,12 @@ import { toast } from "./toast.js";
 
 let shell = null; // { send, openConversation, openDock, openPlace, openShelf, closeShelf, shelfOpen, openPanel }
 const turnWatchers = new Set();
+const creationWatchers = new Set();
+
+/** Only this page's create action invokes these hooks, before opening or sending to the session. */
+export async function notifySessionCreated(id) {
+  for (const fn of creationWatchers) await fn(id);
+}
 
 /** Hands the shell's functions to the seam. Called once, before any extension loads. */
 export function bindShell(functions) {
@@ -119,6 +125,11 @@ export function createExt(extension) {
     sessions: Object.freeze({
       list: () => store.get("sessions"),
       watch: (fn) => store.watch("sessions", fn),
+      /** Setup for a conversation created here. An async callback completes before its first send. */
+      onCreate(fn) {
+        creationWatchers.add(fn);
+        return () => creationWatchers.delete(fn);
+      },
       /** Narrows the sidebar to the sessions `fn` keeps; null shows every session again. */
       filter: (fn) => store.set({ sessionFilter: typeof fn === "function" ? fn : null }),
     }),

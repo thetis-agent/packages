@@ -1,9 +1,31 @@
 # Browser checklist for the web gateway
 
-The browser code has no automated test. This checklist is driven through the Playwright MCP browser
+Focused rendering and event-order regressions run under `node:test`. This wider checklist is driven through the Playwright MCP browser
 against a throwaway data directory (`packages/gateway-web/README.md` §10), and its result goes into the commit
 message of any phase that touches `assets/`. Each step names the DOM it expects, by id or class, so it
 can be checked with a snapshot or `document.querySelector` rather than by eye.
+
+## Automated Chromium regressions
+
+`browser-regressions.mjs` exercises the real browser modules with intercepted API requests and a
+controlled event stream. It needs no running daemon, credentials, or model provider. Install
+`playwright-core` and Chromium outside this checkout, then run from the runtime root:
+
+```sh
+THETIS_PLAYWRIGHT_MODULE=/absolute/path/to/node_modules/playwright-core/index.mjs \
+THETIS_CHROMIUM_EXECUTABLE=/absolute/path/to/chrome \
+node --test packages/gateway-web/test/browser-regressions.mjs
+```
+
+Both overrides are optional when `playwright-core` is already resolvable and its expected Chromium
+binary is installed. The suite stays separate from `npm test`, so normal tests need no browser
+dependency. Failed cases save a screenshot and Playwright trace under a temporary directory; set
+`THETIS_BROWSER_ARTIFACTS` to choose another output directory.
+
+The seven checks cover delayed extension declarations and installation, awaited creation hooks,
+draft restoration after a hook fails, send acknowledgements arriving after turn completion or a
+reconnect snapshot, and live events arriving before a saved conversation response. Request gates
+control event order without sleeps.
 
 ## Setup
 

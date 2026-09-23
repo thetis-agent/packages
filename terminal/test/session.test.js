@@ -33,6 +33,80 @@ test("a command's exit status is the one the shell reported, not one we guessed"
   assert.match(missing.output, /No such file or directory/);
 });
 
+test("a multiline submission waits for its final line and reports its complete output and status", async (t) => {
+  const { session } = await withSession(t);
+  const result = await session.run('printf "first\\n"\nsleep 0.2\nprintf "last\\n"; false', { consumer: "conv" });
+  assert.equal(result.exit, 1);
+  assert.equal(result.running, false);
+  assert.equal(result.output, "first\nlast\n");
+});
+
+test("multiline heredocs and quoted text preserve the session's directory, variables and functions", async (t) => {
+  const { session } = await withSession(t);
+  const script = [
+    "cd /usr",
+    "export THETIS_TERMINAL_TEST='a b'",
+    "greet() { printf '%s\\n' \"$THETIS_TERMINAL_TEST\"; }",
+    "cat <<'DOC'",
+    "quoted 'single' and \"double\", $literal and \\backslash",
+    "DOC",
+    "greet",
+  ].join("\n");
+  const result = await session.run(script, { consumer: "conv" });
+  assert.equal(result.exit, 0);
+  assert.equal(result.output, "quoted 'single' and \"double\", $literal and \\backslash\na b\n");
+  const next = await session.run("pwd; greet; printenv THETIS_TERMINAL_TEST", { consumer: "conv" });
+  assert.equal(next.output, "/usr\na b\na b\n");
+});
+
+test("a multiline submission that outlives its wait stays busy until its final line", async (t) => {
+  const { session } = await withSession(t);
+  const early = await session.run('printf "early\\n"\nsleep 0.5\nprintf "late\\n"; false', { consumer: "conv", timeoutMs: 100 });
+  assert.equal(early.running, true);
+  assert.equal(early.exit, null);
+  await assert.rejects(session.run("echo overlapping", { consumer: "conv" }), /session is busy/);
+  let rest;
+  let output = early.output;
+  do {
+    rest = await session.read("conv", { waitMs: 2000 });
+    output += rest.output;
+  } while (rest.running);
+  assert.equal(rest.exit, 1);
+  assert.equal(output, "early\nlate\n");
+});
+
+test("a multiline fallback command keeps its marker out when Bash's finish mark appears later", async (t) => {
+  // A narrow dumb terminal scrolls the initial prompt marks out of the display. The first call uses
+  // the legacy marker, then sees Bash's command-end mark: completion must still use its own marker.
+  const { session } = await withSession(t, { cols: 20, env: { TERM: "dumb" } });
+  const output = "x".repeat(150);
+  const result = await session.run(`printf '%s\\n' '${output}'\nfalse`, { consumer: "conv" });
+  assert.equal(result.exit, 1);
+  assert.equal(result.output, output + "\n");
+});
+
+test("multiline functions return normally, syntax errors finish, and the next command can run", async (t) => {
+  const { session } = await withSession(t, { env: { TERM: "xterm-256color" } });
+  const returned = await session.run("f() { printf 'before\\n'; return 7; printf 'after\\n'; }\nf", { consumer: "conv" });
+  assert.equal(returned.exit, 7);
+  assert.equal(returned.output, "before\n");
+  const bad = await session.run("printf 'started\\n'\nif then", { consumer: "conv" });
+  assert.equal(bad.exit, 2);
+  assert.equal(bad.running, false);
+  assert.match(bad.output, /syntax error/);
+  const next = await session.run("printf 'still here\\n'", { consumer: "conv" });
+  assert.equal(next.exit, 0);
+  assert.equal(next.output, "still here\n");
+});
+
+test("a shell with echo disabled keeps a literal less-than line in its output", async (t) => {
+  const { session } = await withSession(t);
+  await session.run("stty -echo", { consumer: "conv" });
+  const result = await session.run("printf '<\\n'", { consumer: "conv" });
+  assert.equal(result.exit, 0);
+  assert.equal(result.output, "<\n");
+});
+
 test("a cd carries to the next command, and the move is reported", async (t) => {
   const { session } = await withSession(t);
   const moved = await session.run("cd /etc && pwd", { consumer: "conv" });
@@ -203,10 +277,10 @@ test("a resize at idle is an ioctl on the device: nothing is printed, for the ag
   assert.deepEqual({ applied: applied.applied, deferred: applied.deferred }, { applied: true, deferred: false });
   await new Promise((r) => setTimeout(r, 300));
   // What the pty printed is readline redrawing its prompt in place on SIGWINCH, as it does in any
-  // terminal that was resized: a carriage return, an erase, and the prompt again between its marks.
+  // terminal that was resized: carriage returns, an erase (ESC[K or spaces), and the prompt's marks.
   const raw = session.buffer(before).text;
   assert.doesNotMatch(raw, /stty/, "the raw buffer, which is what the person's emulator gets, has no stty in it");
-  assert.match(raw, /^(\r\u001b\[K\r\u001b\]133;A.*\u001b\]133;B\u001b\\)?$/s, "a prompt redraw, or nothing");
+  assert.match(raw, /^(\r(?:\u001b\[K| *)\r\u001b\]133;A.*\u001b\]133;B\u001b\\)?$/s, "a prompt redraw, or nothing");
   assert.equal((await session.read("conv", {})).output, "", "and the agent is handed nothing");
 
   const next = await session.run("tput lines; tput cols", { consumer: "conv" });

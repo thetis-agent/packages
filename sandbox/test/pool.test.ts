@@ -81,6 +81,35 @@ test("a close with nothing in flight is immediate, and a second close joins the 
   assert.equal(opened[0].closed, true);
 });
 
+test("regression: a request arriving after draining waits for the old fence to finish closing", async () => {
+  let release!: () => void;
+  let began!: () => void;
+  const finish = new Promise<void>((done) => (release = done));
+  const started = new Promise<void>((done) => (began = done));
+  const { fence, opened } = fakeFence(async (rec) => {
+    began();
+    await finish;
+    rec.closed = true;
+  });
+  const pool = new FencePool(fence, () => ({}) as never);
+  await pool.handle(us);
+  const closing = pool.close(us.id);
+  await started;
+  const next = pool.request(us, "next", {});
+  try {
+    await tick();
+    assert.equal(opened.length, 1, "opening a second fence here lets the old service unlink its replacement's socket");
+  } finally {
+    release();
+    await closing;
+    await tick();
+    opened[1]?.answer("next");
+    await next;
+    await pool.close();
+  }
+  assert.equal(opened.length, 2);
+});
+
 test("the pool stamps each fence it opens with the versions it read, and forgets them with the handle", async () => {
   const { fence, opened } = fakeFence();
   let versions: Record<string, string> = { "@thetis/skills-hybrid": "0.2.1" };
@@ -121,6 +150,90 @@ test("a request that fails with a fence error drops the handle and closes it, an
   assert.equal(opened[1].closed, false, "a healthy fence is untouched by any of this");
 });
 
+test("regression: a late error from a retired fence does not forget its replacement", async () => {
+  let closes = 0;
+  const { fence, opened } = fakeFence(async (rec) => { closes++; rec.closed = true; });
+  const pool = new FencePool(fence, () => ({}) as never);
+  const first = pool.request(us, "first", {});
+  const late = pool.request(us, "late", {});
+  await tick();
+  opened[0].fail("first", new CodedError("first failure", "fence"));
+  await assert.rejects(first, /first failure/);
+  const replacement = await pool.handle(us);
+  opened[0].fail("late", new CodedError("late failure", "fence"));
+  await assert.rejects(late, /late failure/);
+  assert.equal(await pool.handle(us), replacement, "the old request must not evict the healthy fence");
+  assert.equal(opened.length, 2);
+  assert.equal(closes, 1, "a late failure must not stop the retired services again");
+  await pool.close();
+});
+
+test("regression: fence-error cleanup reports the error immediately but finishes before a replacement opens", async () => {
+  let release!: () => void;
+  const finish = new Promise<void>((done) => (release = done));
+  let closes = 0;
+  const { fence, opened } = fakeFence(async (rec) => {
+    closes++;
+    await finish;
+    rec.closed = true;
+  });
+  const pool = new FencePool(fence, () => ({}) as never);
+  const first = pool.request(us, "first", {});
+  const late = pool.request(us, "late", {});
+  await tick();
+  opened[0].fail("first", new CodedError("gone", "fence"));
+  await assert.rejects(first, /gone/);
+  const replacement = pool.request(us, "next", {});
+  try {
+    opened[0].fail("late", new CodedError("also gone", "fence"));
+    await assert.rejects(late, /also gone/);
+    await tick();
+    assert.equal(opened.length, 1, "old services still own their socket paths until cleanup finishes");
+    assert.equal(closes, 1, "all failures of the same fence join one cleanup");
+  } finally {
+    release();
+    await tick();
+    opened[1]?.answer("next");
+    await replacement;
+    await pool.close();
+  }
+});
+
+test("regression: closing the pool waits for fence-error cleanup already in progress", async () => {
+  let release!: () => void;
+  const finish = new Promise<void>((done) => (release = done));
+  const { fence, opened } = fakeFence(async (rec) => { await finish; rec.closed = true; });
+  const pool = new FencePool(fence, () => ({}) as never);
+  const first = pool.request(us, "step", {});
+  await tick();
+  opened[0].fail("step", new CodedError("gone", "fence"));
+  await assert.rejects(first, /gone/);
+  let stopped = false;
+  const closing = pool.close().then(() => { stopped = true; });
+  try {
+    await tick();
+    assert.equal(stopped, false, "shutdown must not leave a forgotten fence's cleanup running");
+  } finally {
+    release();
+    await closing;
+  }
+});
+
+test("regression: closing while a fence opens leaves no stale open-time or version metadata", async () => {
+  let release!: () => void;
+  const ready = new Promise<void>((done) => (release = done));
+  const { fence } = fakeFence();
+  const pool = new FencePool(fence, () => ({}) as never, () => ready, undefined, () => ({ "@alice/tool": "1" }));
+  const opening = pool.handle(us);
+  const closing = pool.close(us.id);
+  await tick();
+  release();
+  await opening;
+  await closing;
+  assert.deepEqual(pool.openedAt(), {});
+  assert.deepEqual(pool.loadedVersions(), {});
+});
+
 /** Only a fence error means the agent is gone. Anything else -- a tool that threw, a step that refused -- is
  *  the fence working perfectly and reporting a failure, and closing it over that would cost the person their
  *  gateway, their terminal and their shell sessions for someone else's bug. */
@@ -155,11 +268,6 @@ test("a close that never returns, or throws, costs the caller nothing", async ()
     opened[0].fail("step", new CodedError("gone", "fence"));
     await assert.rejects(first, /gone/);
     assert.ok(Date.now() - started < 100, "the caller is not made to wait for the funeral");
-    const second = pool.request(us, "step", {});
-    await tick();
-    assert.equal(opened.length, 2, "and the workspace still opens again");
-    opened[1].answer("step");
-    await second;
   }
   await tick();
 });

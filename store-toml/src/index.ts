@@ -46,7 +46,8 @@ class TomlDriver implements StoreDriver {
       mkdirSync(dir, { recursive: true });
       return;
     }
-    if (this.privateDirs.has(dir)) return;
+    // clear() may have removed this namespace or an ancestor since its last write.
+    if (this.privateDirs.has(dir) && existsSync(dir)) return;
     const parent = dirname(dir);
     if (parent !== dir && parent.length > this.root.length && parent.startsWith(this.root + sep)) this.ensureDir(parent, true);
     else mkdirSync(parent, { recursive: true });

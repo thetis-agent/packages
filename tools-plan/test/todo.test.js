@@ -67,6 +67,21 @@ test("todo_mark rejects unknown ids", async () => {
   await rm(home, { recursive: true, force: true });
 });
 
+test("marking earlier items active follows the requested order, independent of plan order", async (t) => {
+  const { home, env } = await makeEnv();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await todoWrite({ items: ["first", "second", { text: "third", stage: "active" }] }, env);
+  const earlier = await todoMark({ ids: ["t-1"], stage: "active" }, env);
+  assert.match(earlier, /\[>\] t-1 first/);
+  assert.match(earlier, /\[ \] t-3 third/);
+  assert.match(earlier, /only one item can be active/);
+
+  const several = await todoMark({ ids: ["t-3", "t-2"], stage: "active" }, env);
+  assert.match(several, /\[ \] t-1 first/);
+  assert.match(several, /\[>\] t-2 second/);
+  assert.match(several, /\[ \] t-3 third/);
+});
+
 test("todo_order moves listed ids to the front, keeping the rest in relative order", async () => {
   const { home, env } = await makeEnv();
   await todoWrite({ items: ["a", "b", "c"] }, env);
@@ -83,6 +98,15 @@ test("todo_read on an empty plan renders a zero tally", async () => {
   const out = await todoRead({}, env);
   assert.match(out, /0 done · 0 active · 0 pending/);
   await rm(home, { recursive: true, force: true });
+});
+
+test("todo_order refuses duplicate ids without duplicating or changing the saved plan", async (t) => {
+  const { home, env } = await makeEnv();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await todoWrite({ items: ["first", "second"] }, env);
+  const before = await todoRead({}, env);
+  await assert.rejects(todoOrder({ ids: ["t-1", "t-1"] }, env), /duplicate id/);
+  assert.equal(await todoRead({}, env), before);
 });
 
 test("plans are isolated per session id", async () => {

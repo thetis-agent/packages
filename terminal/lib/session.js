@@ -78,6 +78,13 @@ const INTERRUPT_CHAR = "\u0003";
 
 const sq = (s) => `'${String(s).replaceAll("'", "'\\''")}'`;
 
+// One readline submission must produce one prompt-end mark. Eval keeps cd, exports and functions in
+// this shell, while a Bash ANSI-C string carries multiline source (including heredocs) on one input line.
+function bashScript(source) {
+  const escapes = { "\\": "\\\\", "'": "\\'", "\r": "\\r", "\n": "\\n", "\t": "\\t" };
+  return `eval -- $'${source.replace(/[\\'\r\n\t]/g, (char) => escapes[char])}'`;
+}
+
 /** Remove what an emulator would have consumed. Everything here is display, not content. */
 function stripEscapes(s) {
   let out = "";
@@ -142,7 +149,9 @@ function stripEcho(text, sent, prompted = false) {
   if (!want) return text;
   const nl = text.indexOf("\n");
   const first = (nl === -1 ? text : text.slice(0, nl)).trim();
-  if (first !== want && !(prompted && first.endsWith(want))) return text;
+  // Readline can horizontally scroll a long input line, displaying only a '<'-prefixed suffix.
+  const scrolled = first.length > 1 && first.startsWith("<") && want.endsWith(first.slice(1));
+  if (first !== want && !scrolled && !(prompted && first.endsWith(want))) return text;
   return nl === -1 ? "" : text.slice(nl + 1);
 }
 
@@ -506,12 +515,13 @@ export function openSession({
     // itself is the most likely thing to have pushed the reader off the back of the ring.
     const requested = cursorOf(consumer);
 
-    let sent = line;
-    if (framed) {
+    let sent = bash && /[\r\n]/.test(line) ? bashScript(line) : line;
+    const useMarks = framed;
+    if (useMarks) {
       legacyActive = null;
     } else {
       const marker = legacyMarker(`${id}_${++legacySeq}`);
-      sent = line + marker.suffix;
+      sent += marker.suffix;
       legacyActive = { marker: marker.marker, parse: marker.parse, carry: "", hit: null };
     }
 
@@ -529,13 +539,15 @@ export function openSession({
     const done = finished && !closed;
 
     const hit = legacyActive?.hit ?? null;
-    const stop = !done ? bytes : framed ? endAt ?? bytes : hit ? hit.at : bytes;
-    const resume = !done ? bytes : framed ? endCursor ?? bytes : hit ? hit.end : bytes;
-    const output = stripEcho(forAgent(Math.max(requested, ringStart), stop), sent, !framed);
+    // The shell may reveal its first prompt marks during this command. Keep the framing this
+    // submission actually used, so a newly observed mark cannot expose the fallback marker as output.
+    const stop = !done ? bytes : useMarks ? endAt ?? bytes : hit ? hit.at : bytes;
+    const resume = !done ? bytes : useMarks ? endCursor ?? bytes : hit ? hit.end : bytes;
+    const output = stripEcho(forAgent(Math.max(requested, ringStart), stop), sent, !useMarks);
     setCursor(consumer, resume);
     maybeEmitState();
     return {
-      exit: done ? lastExit : null,
+      exit: done ? hit?.exit ?? lastExit : null,
       running: !done && !closed,
       output,
       cwd: cwdNow,

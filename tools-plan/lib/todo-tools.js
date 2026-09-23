@@ -52,6 +52,7 @@ export async function todoMark(args, env) {
 export async function todoOrder(args, env) {
   const { home, sessionId } = homeAndSession(env);
   const ids = Array.isArray(args.ids) ? args.ids.map(String) : [];
+  if (new Set(ids).size !== ids.length) throw new Error("duplicate ids are not allowed in a plan order.");
   const plan = await loadPlan(home, sessionId);
 
   const missing = ids.filter((id) => !plan.items.some((it) => it.id === id));

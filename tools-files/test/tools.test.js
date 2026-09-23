@@ -2,7 +2,7 @@
 // not-found/not-unique messages, write_path's overwrite refusal, search_files' partial footer.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, mkdir, chmod, stat, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { readPath } from "../lib/read-path.js";
@@ -14,6 +14,22 @@ async function makeHome() {
   const home = await mkdtemp(resolve(tmpdir(), "tf-tools-"));
   return { home, env: { cwd: home, shared: null } };
 }
+
+test("editing and overwriting an executable preserve its mode, including bits outside the current umask", async (t) => {
+  const { home, env } = await makeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const file = resolve(home, "run.sh");
+  await writeFile(file, "#!/bin/sh\necho before\n");
+  await chmod(file, 0o775);
+
+  await editPath({ path: "run.sh", old_text: "before", new_text: "after" }, env);
+  assert.equal((await stat(file)).mode & 0o777, 0o775);
+  assert.equal(await readFile(file, "utf8"), "#!/bin/sh\necho after\n");
+
+  await writePath({ path: "run.sh", contents: "#!/bin/sh\necho replaced\n", overwrite: true }, env);
+  assert.equal((await stat(file)).mode & 0o777, 0o775);
+  assert.equal(await readFile(file, "utf8"), "#!/bin/sh\necho replaced\n");
+});
 
 test("read_path's footer reports the byte budget when it stops the window first", async () => {
   const { home, env } = await makeHome();

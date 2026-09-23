@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { storeConformance } from "@thetis/lib/store-conformance";
@@ -42,6 +42,26 @@ test("toml: a private namespace is 0700 directories and 0600 files, and stays so
   // A non-private namespace stays readable.
   assert.equal(statSync(join(root, "secrets/shared/k.toml")).mode & 0o777, 0o644);
 });
+
+for (const cleared of ["secrets/users/alice", "secrets/users"]) {
+  test(`regression: a private namespace can be reused after clearing ${cleared}`, async () => {
+    const { root, driver } = await fresh();
+    try {
+      const secret = driver.open("secrets/users/alice", { private: true });
+      await secret.set("@alice/provider", { apiKey: "before" });
+      await driver.open(cleared).clear();
+      await secret.set("@alice/provider", { apiKey: "after" });
+      assert.deepEqual(await secret.get("@alice/provider"), { apiKey: "after" });
+      for (const path of ["secrets", "secrets/users", "secrets/users/alice", "secrets/users/alice/@alice"]) {
+        assert.equal(statSync(join(root, path)).mode & 0o777, 0o700, path);
+      }
+      assert.equal(statSync(join(root, "secrets/users/alice/@alice/provider.toml")).mode & 0o777, 0o600);
+    } finally {
+      await driver.close?.();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
 
 test("toml: a leftover temporary file is ignored by list and get", async () => {
   const { root, driver } = await fresh();

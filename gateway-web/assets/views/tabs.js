@@ -83,7 +83,7 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel }) {
     strip.insertBefore(tab, newTab);
     host.append(node);
     const transcript = mountTranscript(root, { session: id, brief: agent, onOpenAgent: (child) => { void open(child); } });
-    const pane = { id, agent, node, tab, dot, label, note, bar, chips, transcript, drawn: { turn: null, seq: 0 }, built: false };
+    const pane = { id, agent, node, tab, dot, label, note, bar, chips, transcript, drawn: { turn: null, seq: 0 }, built: false, restored: false };
     panes.set(id, pane);
     drawChips(pane);
     drawBar(pane);
@@ -93,14 +93,31 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel }) {
   /** Builds a pane's rows from its record. A pane dropped while the record was on its way stays empty. */
   async function load(pane) {
     pane.built = true;
+    // A replacement load also owns prior buffered events if its refresh fails.
+    const loading = { events: pane.loading?.events ?? [] };
+    pane.loading = loading;
     try {
-      const record = await api(`/api/sessions/${pane.id}`);
-      if (!panes.has(pane.id) || !pane.built) return;
+      let record, buffered;
+      for (;;) {
+        const from = loading.events.length;
+        record = await api(`/api/sessions/${pane.id}`);
+        if (panes.get(pane.id) !== pane || !pane.built || pane.loading !== loading) return;
+        buffered = loading.events.slice(from);
+        // A completed turn is now in history and has no sequence watermark. Reread after its end
+        // instead of guessing whether these buffered messages are already in the saved conversation.
+        if (!buffered.some((message) => message.event.type === "turn.end")) break;
+      }
       pane.transcript.restore(record);
+      pane.restored = true;
       pane.drawn = record.turn ? { turn: record.turn.turn || "pending", seq: record.turn.events.at(-1)?.seq ?? 0 } : { turn: null, seq: 0 };
-      store.mark("running", pane.id, Boolean(record.turn));
+      if (!buffered.some((message) => message.session === pane.id)) store.mark("running", pane.id, Boolean(record.turn));
+      pane.loading = null;
+      for (const message of buffered) deliver(pane, message);
     } catch (err) {
-      pane.built = false;
+      if (panes.get(pane.id) !== pane || pane.loading !== loading) return;
+      pane.loading = null;
+      pane.built = pane.restored;
+      for (const message of loading.events) deliver(pane, message);
       toast(err.message, { tone: "error" });
     }
   }
@@ -116,6 +133,8 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel }) {
   function drop(pane) {
     if (!pane?.built) return;
     pane.built = false;
+    pane.restored = false;
+    pane.loading = null;
     pane.drawn = { turn: null, seq: 0 };
     pane.transcript.reset();
   }
@@ -301,10 +320,11 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel }) {
     return Boolean(panes.get(root)?.transcript.revealAgent(id));
   }
 
-  /** One message off the event stream: to the pane of its session, if built, and to the block in every built ancestor's pane. */
-  function applyTurn(message) {
-    const pane = panes.get(message.session);
-    if (pane?.built) {
+  /** A load owns its event buffer until the snapshot and its sequence watermark have been restored. */
+  function deliver(pane, message) {
+    if (!pane?.built) return;
+    if (pane.loading) { pane.loading.events.push(message); return; }
+    if (pane.id === message.session) {
       const turn = message.turn || "pending";
       const seen = turn === pane.drawn.turn && message.seq <= pane.drawn.seq;
       if (!seen) {
@@ -312,10 +332,14 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel }) {
         pane.drawn.seq = message.seq;
         pane.transcript.applyEvent(message.event, message.input);
       }
-    }
+    } else pane.transcript.applyChild(message);
+  }
+
+  /** One message off the event stream: to its own pane and to the block in every built ancestor. */
+  function applyTurn(message) {
+    deliver(panes.get(message.session), message);
     for (let up = message.parent, hops = 0; up && hops < 32; up = store.agent(up)?.parent, hops += 1) {
-      const above = panes.get(up);
-      if (above?.built) above.transcript.applyChild(message);
+      deliver(panes.get(up), message);
     }
   }
 

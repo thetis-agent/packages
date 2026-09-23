@@ -6,11 +6,12 @@ import { applyActivity, countWorking } from "./lib/activity.js";
 import { api, apiBytes, connect } from "./lib/api.js";
 import { avatarFor, repaintPersonAvatars } from "./lib/avatar.js";
 import { $, clear, setHidden } from "./lib/dom.js";
-import { bindShell, broadcastTurn, createExt } from "./lib/ext.js";
+import { bindShell, broadcastTurn, createExt, notifySessionCreated } from "./lib/ext.js";
 import { loadExtensions } from "./lib/loader.js";
 import * as registry from "./lib/registry.js";
 import { store } from "./lib/store.js";
 import { toast } from "./lib/toast.js";
+import { sendTurn } from "./lib/turn-send.js";
 import { mountComposer } from "./views/composer.js";
 import { mountDock } from "./views/dock.js";
 import { mountMenu } from "./views/menu.js";
@@ -82,14 +83,18 @@ async function openAgent(id) {
 }
 
 async function createConversation() {
-  if (store.get("creating")) return;
+  if (store.get("creating")) return null;
   store.set({ creating: true });
   try {
+    await extensionsReady;
     const { id } = await api("/api/sessions", { method: "POST" });
+    await notifySessionCreated(id);
     await refreshList();
     await openConversation(id);
+    return id;
   } catch (err) {
     toast(err.message, { tone: "error" });
+    return null;
   } finally {
     store.set({ creating: false });
   }
@@ -99,16 +104,14 @@ async function createConversation() {
 async function send(text) {
   let id = store.get("current");
   if (!id) {
-    await createConversation();
-    id = store.get("current");
-    if (!id) return;
+    id = await createConversation();
+    if (!id) { composer.restore(text); return; }
   }
   const transcript = tabs.transcriptOf(id);
   store.mark("pending", id, true);
   transcript?.addLocal(text);
   try {
-    await api(`/api/sessions/${id}/send`, { method: "POST", body: { text } });
-    store.mark("running", id, true);
+    await sendTurn(id, text);
   } catch (err) {
     transcript?.failLocal();
     toast(err.status === 409 ? "That conversation is still working on the last message." : err.message, { tone: "error" });
@@ -468,7 +471,7 @@ let opened = false;
 connect({
   onStatus: setStatus,
   onSnapshot: async (snapshot) => {
-    store.set({ running: new Set(snapshot.running.map((r) => r.session)) });
+    store.setRunningSnapshot(snapshot.running.map((r) => r.session));
     // Every running turn's events so far, replayed through the activity model, so the sidebar knows the step.
     // Conversations before their subagents, so a child's events find its parent's record already open.
     const running = [...snapshot.running].sort((a, b) => Number(Boolean(a.parent)) - Number(Boolean(b.parent)));
@@ -503,4 +506,4 @@ api("/api/me").then((me) => store.set({ user: me })).catch(() => {});
 setStatus("connecting");
 composer.loadChoices();
 composer.focus();
-void loadExtensions();
+const extensionsReady = loadExtensions();

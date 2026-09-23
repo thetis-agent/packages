@@ -1,6 +1,6 @@
 {
   "name": "@thetis/package-publish",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "license": "MIT",
   "description": "Publishing a package is its own act and not a side effect of saving one: the version has to move past what the registry already holds, the package has to be sound, and only that package's directory is committed and pushed. Runs in the person's own fence with their own ssh key, so the registry's authentication decides who may publish.",
   "type": "module",

@@ -236,7 +236,7 @@ export class PackageManager {
     const rec = this.registry.get(name);
     const origin = this.installed(us).find((p) => p.name === name)?.forkedFrom?.name;
     assert(rec && origin && rec.userspaces.includes(us.id), `${name} is not a fork installed in ${us.id}`, "invalid");
-    assert(this.displacedDir(us, origin) ?? this.systemPackageDir(origin), `${origin} is not here to go back to; keep ${name}, or install ${origin} from its source first`, "not-found");
+    assert(this.manifestOf(us, origin), `${origin} is not here to go back to; keep ${name}, or install ${origin} from its source first`, "not-found");
     const files = deleteFiles && rec.source.kind === "local" ? resolve(us.home, rec.source.ref) : undefined;
     const back = (await this.uninstall(us, name)) ?? (await this.restore(us, origin));
     assert(back, `${origin} did not come back; install it, or install ${name} again from ${rec.source.ref}`, "not-found");
@@ -364,7 +364,8 @@ export class PackageManager {
    * and a clone is the whole repository, so without this an installation grows by one copy every update.
    */
   private pruneClones(us: Userspace): void {
-    const live = this.registry.installedIn(us.id).filter((r) => r.source.kind === "git").map((r) => cloneSlugOf(r.source.ref));
+    const sources = this.registry.installedIn(us.id).flatMap((r) => r.replacedSource ? [r.source, r.replacedSource] : [r.source]);
+    const live = sources.filter((source) => source.kind === "git").map((source) => cloneSlugOf(source.ref));
     keepOnly(resolve(us.store, "src"), new Set(live));
   }
 

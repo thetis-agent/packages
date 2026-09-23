@@ -71,7 +71,7 @@ export async function show(args, env) {
   const { index, rows } = await rowsOf(env);
   const row = rows.find((r) => r.name === name);
   if (!row) fail(`${name} is not installed here and no registry offers it`);
-  const entry = index?.packages.find((e) => e.name === name);
+  const entry = index?.packages.find((e) => e.name === name && e.registry === row.registry && e.source === row.source);
   const readme = entry ? ((await readReadme(env, entry)) ?? null) : null;
   const assets = readme ? await assetsOf(env, entry, readme) : {};
   return { data: { ...facts(index), row, readme, assets, user: env.user, role: env.role } };
