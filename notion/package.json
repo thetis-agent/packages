@@ -1,0 +1,427 @@
+{
+  "name": "@bitmuse/notion",
+  "version": "0.1.0",
+  "description": "The Notion API as eleven tools \u2014 search, read, write and comment on pages, query and inspect databases, list workspace users \u2014 sharing one client module instead of duplicating it.",
+  "type": "module",
+  "main": "index.js",
+  "thetis": {
+    "type": "tool",
+    "tools": [
+      {
+        "name": "notion_search",
+        "description": "Search a Notion workspace for pages and databases whose TITLE matches a query. Titles only \u2014 this does not search page content. Omit the query to list everything the connection can see. Start here when you need an id: every other notion tool takes ids, and this is how you find them.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Text to match against titles. Omit to list everything shared with the connection."
+            },
+            "filter": {
+              "type": "string",
+              "enum": [
+                "page",
+                "data_source"
+              ],
+              "description": "Return only pages, or only data sources (the queryable tables inside a database). Omit for both."
+            },
+            "sort": {
+              "type": "string",
+              "enum": [
+                "relevance",
+                "last_edited_ascending",
+                "last_edited_descending"
+              ],
+              "description": "Result order. Defaults to relevance."
+            },
+            "in_trash": {
+              "type": "boolean",
+              "description": "Search the trash instead of live content. Defaults to false."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Maximum results to gather, 1-100. Defaults to 20."
+            },
+            "start_cursor": {
+              "type": "string",
+              "description": "Resume from a cursor returned by an earlier call."
+            }
+          },
+          "additionalProperties": false
+        },
+        "export": "notionSearch"
+      },
+      {
+        "name": "notion_page_get",
+        "description": "Read a Notion page: its properties, metadata, and its full content as markdown. Accepts a page id or a Notion URL. This is the tool for reading a page you already have an id for \u2014 use notion_search to find the id first.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "page_id": {
+              "type": "string",
+              "description": "Page id, dashed or bare, or the page URL copied from Notion. A block id also works, and returns that block's subtree."
+            },
+            "include_content": {
+              "type": "boolean",
+              "description": "Fetch the page body as markdown. Defaults to true. Set false when you only need the properties, which is one request instead of two."
+            },
+            "include_properties": {
+              "type": "boolean",
+              "description": "Fetch the page's property values. Defaults to true."
+            },
+            "include_transcript": {
+              "type": "boolean",
+              "description": "For meeting notes, include the full transcript rather than a placeholder. Defaults to false."
+            },
+            "content_offset": {
+              "type": "integer",
+              "description": "First character of the body to return, counting from 0. Use the offset the previous call's footer reported to read on through a page too long to return at once.",
+              "minimum": 0
+            },
+            "content_limit": {
+              "type": "integer",
+              "description": "How many characters of the body to return. Defaults to 18000, which is also the maximum.",
+              "minimum": 200
+            },
+            "find": {
+              "type": "string",
+              "description": "Return only the paragraphs of the body containing this text, each with its character offset, instead of a window. Usually the cheaper way to read a long page."
+            }
+          },
+          "required": [
+            "page_id"
+          ],
+          "additionalProperties": false
+        },
+        "export": "notionPageGet"
+      },
+      {
+        "name": "notion_page_create",
+        "description": "Create a Notion page \u2014 either a sub-page of an existing page, or a new row in a database (give its data source id). Body content is written as markdown. Property values may be given plainly and are coerced to the parent's schema.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "parent_page_id": {
+              "type": "string",
+              "description": "Create the page as a child of this page. Give this or parent_data_source_id, not both."
+            },
+            "parent_data_source_id": {
+              "type": "string",
+              "description": "Create the page as a row in this data source (a database table). Find it with notion_database_list or notion_search. A database id is accepted too and its first data source is used."
+            },
+            "title": {
+              "type": "string",
+              "description": "The page title. Under a data source this fills whichever property is the title property."
+            },
+            "content": {
+              "type": "string",
+              "description": "Page body as markdown. Headings, lists, tables, code fences and to-dos all convert to real Notion blocks."
+            },
+            "properties": {
+              "type": "object",
+              "description": "Property name to value, for a page in a database. Plain values are coerced to the schema; see notion_database_schema for the exact property names.",
+              "additionalProperties": true
+            },
+            "icon": {
+              "type": "string",
+              "description": "An emoji character, or an image URL."
+            }
+          },
+          "additionalProperties": false
+        },
+        "export": "notionPageCreate"
+      },
+      {
+        "name": "notion_page_content",
+        "description": "Change the body of a Notion page using markdown. Modes: 'edit' (search-and-replace exact text \u2014 preferred), 'append', 'prepend', or 'replace' (overwrites the whole page; needs confirm_replace). Read the page with notion_page_get first so the text you search for is exact.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "page_id": {
+              "type": "string",
+              "description": "Page id, or the page URL copied from Notion."
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "edit",
+                "append",
+                "prepend",
+                "replace"
+              ],
+              "description": "How to apply the change. Defaults to 'append'. Use 'edit' for targeted changes."
+            },
+            "content": {
+              "type": "string",
+              "description": "Markdown to add, for append/prepend/replace."
+            },
+            "edits": {
+              "type": "array",
+              "description": "For mode 'edit': the replacements to make. Each old_text must appear in the page exactly, and by default must be unique.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "old_text": {
+                    "type": "string",
+                    "description": "Existing text to find, copied exactly."
+                  },
+                  "new_text": {
+                    "type": "string",
+                    "description": "Replacement markdown. An empty string deletes the matched text."
+                  },
+                  "replace_all": {
+                    "type": "boolean",
+                    "description": "Replace every occurrence rather than failing when old_text matches more than once."
+                  }
+                },
+                "required": [
+                  "old_text",
+                  "new_text"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "confirm_replace": {
+              "type": "boolean",
+              "description": "Required for mode 'replace', which discards the page's existing content. Notion has no undo for this."
+            },
+            "allow_deleting_content": {
+              "type": "boolean",
+              "description": "Permit the edit to remove child pages or databases. Off by default: Notion refuses such an edit rather than destroying nested content."
+            }
+          },
+          "required": [
+            "page_id"
+          ],
+          "additionalProperties": false
+        },
+        "export": "notionPageContent"
+      },
+      {
+        "name": "notion_page_update",
+        "description": "Change a Notion page's property values, icon, cover, lock or trash state. Property values may be given plainly \u2014 {\"Status\": \"Done\", \"Tags\": [\"a\",\"b\"]} \u2014 and are coerced to the schema of the database the page belongs to. Use notion_page_content to change the page body instead.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "page_id": {
+              "type": "string",
+              "description": "Page id, or the page URL copied from Notion."
+            },
+            "properties": {
+              "type": "object",
+              "description": "Property name to new value. Plain values are accepted and coerced: a string for text/select/url, a number for number, true/false for checkbox, an ISO date or {start,end} for date, a list of names for multi_select, a list of page ids for relation. null clears a property. Notion's fully-wrapped form is passed through untouched. Names are case-sensitive; formula, rollup and other computed properties cannot be written.",
+              "additionalProperties": true
+            },
+            "title": {
+              "type": "string",
+              "description": "Convenience for setting the page title without knowing which property holds it."
+            },
+            "icon": {
+              "type": "string",
+              "description": "An emoji character, or an image URL. Pass an empty string to remove the icon."
+            },
+            "cover": {
+              "type": "string",
+              "description": "Cover image URL. Pass an empty string to remove it."
+            },
+            "in_trash": {
+              "type": "boolean",
+              "description": "true moves the page to the trash; false restores it. Notion's trash is recoverable, so this is not a permanent delete."
+            },
+            "is_locked": {
+              "type": "boolean",
+              "description": "Lock or unlock the page against edits in the Notion UI. Does not affect API edits."
+            }
+          },
+          "required": [
+            "page_id"
+          ],
+          "additionalProperties": false
+        },
+        "export": "notionPageUpdate"
+      },
+      {
+        "name": "notion_database_list",
+        "description": "List the Notion databases this connection can see, each with the data source id needed to query it or add rows to it. Optionally filter by title. Use this to find what is available before querying.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Only databases whose title matches this text. Omit for all."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Maximum databases to list, 1-100. Defaults to 25."
+            },
+            "start_cursor": {
+              "type": "string",
+              "description": "Resume from a cursor returned by an earlier call."
+            }
+          },
+          "additionalProperties": false
+        },
+        "export": "notionDatabaseList"
+      },
+      {
+        "name": "notion_database_query",
+        "description": "Query the rows of a Notion database, with optional filters and sorts. Takes a data source id (from notion_database_list). Returns each row's id, title and property values. Check the schema first with notion_database_schema so filter property names and types are right.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "data_source_id": {
+              "type": "string",
+              "description": "The data source to query. A database id is accepted and resolved when the database has just one data source."
+            },
+            "filter": {
+              "type": "object",
+              "description": "A Notion filter object, e.g. {\"property\":\"Status\",\"status\":{\"equals\":\"Done\"}}. Combine with {\"and\":[...]} or {\"or\":[...]}. The inner key must match the property's type. Omit for all rows.",
+              "additionalProperties": true
+            },
+            "sorts": {
+              "type": "array",
+              "description": "Sort order, most significant first, e.g. [{\"property\":\"Due\",\"direction\":\"ascending\"}] or [{\"timestamp\":\"last_edited_time\",\"direction\":\"descending\"}].",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "properties": {
+              "type": "array",
+              "description": "Only return these properties. Worth setting on a wide database: it makes the query faster and the output much shorter.",
+              "items": {
+                "type": "string"
+              }
+            },
+            "is_archived": {
+              "type": "boolean",
+              "description": "Query archived rows instead of live ones. Defaults to false."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Maximum rows to gather across pages, 1-200. Defaults to 25."
+            },
+            "start_cursor": {
+              "type": "string",
+              "description": "Resume from a cursor returned by an earlier call."
+            }
+          },
+          "required": [
+            "data_source_id"
+          ],
+          "additionalProperties": false
+        },
+        "export": "notionDatabaseQuery"
+      },
+      {
+        "name": "notion_database_schema",
+        "description": "Show a Notion database's schema: every property, its type, and the allowed options for select, status and multi-select properties. Read this before writing to a database or building a query filter \u2014 property names and option values must match exactly.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "data_source_id": {
+              "type": "string",
+              "description": "The data source whose schema to read. A database id is accepted and its data sources are listed."
+            }
+          },
+          "required": [
+            "data_source_id"
+          ],
+          "additionalProperties": false
+        },
+        "export": "notionDatabaseSchema"
+      },
+      {
+        "name": "notion_users",
+        "description": "List the people in a Notion workspace with their user ids \u2014 needed to set a 'people' property \u2014 or, with whoami, show which connection the configured token belongs to. Use whoami to check the token works when other calls return 404.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "whoami": {
+              "type": "boolean",
+              "description": "Show the connection this token authenticates as, instead of listing users. Good for verifying the token."
+            },
+            "query": {
+              "type": "string",
+              "description": "Only users whose name or email contains this text, matched here rather than by the API."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Maximum users to gather, 1-100. Defaults to 50."
+            }
+          },
+          "additionalProperties": false
+        },
+        "export": "notionUsers"
+      },
+      {
+        "name": "notion_comment_list",
+        "description": "List the unresolved comments on a Notion page or block, grouped by discussion thread. The discussion ids shown here are what notion_comment_add needs in order to reply to a thread rather than start a new one. Resolved comments are not exposed by the API.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "page_id": {
+              "type": "string",
+              "description": "The page (or block) whose comments to list. A page URL works too."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Maximum comments to gather, 1-100. Defaults to 50."
+            },
+            "start_cursor": {
+              "type": "string",
+              "description": "Resume from a cursor returned by an earlier call."
+            }
+          },
+          "required": [
+            "page_id"
+          ],
+          "additionalProperties": false
+        },
+        "export": "notionCommentList"
+      },
+      {
+        "name": "notion_comment_add",
+        "description": "Add a comment to a Notion page, to a specific block, or as a reply in an existing discussion thread (get discussion ids from notion_comment_list). Comment text supports inline markdown only \u2014 bold, italic, code, links \u2014 not headings, lists or code fences.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "page_id": {
+              "type": "string",
+              "description": "Comment on this page. Give exactly one of page_id, block_id or discussion_id."
+            },
+            "block_id": {
+              "type": "string",
+              "description": "Comment on this specific block \u2014 a paragraph, heading or to-do inside a page."
+            },
+            "discussion_id": {
+              "type": "string",
+              "description": "Reply into this existing discussion thread, from notion_comment_list."
+            },
+            "text": {
+              "type": "string",
+              "description": "The comment body. Inline markdown only."
+            },
+            "display_name": {
+              "type": "string",
+              "description": "Author name to show instead of the connection's own name. Optional."
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false
+        },
+        "export": "notionCommentAdd"
+      }
+    ],
+    "config": {
+      "token": {
+        "type": "string",
+        "secret": true,
+        "required": true,
+        "help": "An internal connection or personal access token from https://www.notion.so/my-integrations. Every notion_* tool reads it."
+      }
+    }
+  }
+}
