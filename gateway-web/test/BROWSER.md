@@ -76,8 +76,10 @@ press does not): open a new tab on the same URL and close the old one before the
 7. **Rename**: click `.pane.is-active .chat-title`. Expect `.session-rename` in the sidebar row; type a
    name, Enter. Expect `.tab-title`, `.chat-title`, the row and `document.title` to carry it.
 8. **Archive**: click `.pane.is-active .archive-chat`. Expect a `.toast` "Conversation archived." with a
-   `.toast-action` Undo, the row under `details.session-archived[open]`, `.tab.is-archived`, and the
-   button's title "Restore this conversation". Click it again: the row returns to its bucket.
+   `.toast-action` Undo, the row under `details.session-archived[open]`, and the tab gone: its neighbour
+   is `.tab.is-active`, or `.pane.is-empty.is-active` when it was the last. Click Undo: the row returns
+   to its bucket and the tab comes back, active. Archive from the sidebar row's menu a conversation with
+   no tab open: no tab changes.
 9. **Control panel as a place**: click `#menu`, then `.menu-item[data-place]`. Expect the menu gone. Expect `#app.is-place`, `#place`
    without `hidden` and `main.main` not displayed, `.place-title` "Control panel", `.place-sub`, and in
    `.place-body` a `.panel-shell` with a `.panel-nav[role=tree]` of `.tree-item[role=treeitem]`s (Packages first, `.is-selected`; then, for an admin,

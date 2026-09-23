@@ -128,14 +128,25 @@ async function stop() {
   }
 }
 
-async function archive(id, archived) {
+/**
+ * Archives or restores a conversation. Archiving one that is open in a tab here closes that tab too:
+ * putting a conversation away and still sitting in it is two answers to one question. The tab is
+ * closed after the list has been refreshed, so the closed-tab hook sees the archive mark and leaves the
+ * record alone. Undo brings the tab back when the archive took one.
+ */
+async function archive(id, archived, { reopen = false } = {}) {
   try {
     await api(`/api/sessions/${id}/archive`, { method: "POST", body: { archived } });
     await refreshList();
     if (archived) {
+      const wasOpen = tabs.list().includes(id);
+      if (wasOpen) tabs.close(id);
       sessions.openArchive();
-      toast("Conversation archived.", { action: { label: "Undo", run: () => archive(id, false) } });
-    } else toast("Conversation restored.", { tone: "good" });
+      toast("Conversation archived.", { action: { label: "Undo", run: () => archive(id, false, { reopen: wasOpen }) } });
+    } else {
+      if (reopen) await openConversation(id);
+      toast("Conversation restored.", { tone: "good" });
+    }
   } catch (err) {
     toast(err.message, { tone: "error" });
   }
