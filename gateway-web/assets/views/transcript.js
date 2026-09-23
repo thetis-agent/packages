@@ -852,10 +852,11 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
         else if (input) userRow(input);
         break;
       case "text": {
+        const delta = event.delta || "";
+        if (!delta) break;
         // The answer has begun, so the thinking is done: fold it rather than leave a wall of it above the reply.
         settleThinking();
         const bubble = openLive();
-        const delta = event.delta || "";
         bubble.text += delta;
         bubble.textNode.appendData(delta); // one text node grown in place, not the whole reply set again per token
         catchUp();
@@ -876,8 +877,10 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
         break;
       }
       case "reasoning": {
+        const delta = event.delta || "";
+        if (!delta) break;
         const box = openThinking();
-        box.textNode.appendData(event.delta || ""); // grown in place, like the live bubble: a long think is many chunks
+        box.textNode.appendData(delta); // grown in place, like the live bubble: a long think is many chunks
         catchUp();
         break;
       }

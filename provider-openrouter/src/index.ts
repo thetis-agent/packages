@@ -150,8 +150,9 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
           if (chunk.error) return yield { type: "error", message: chunk.error.message ?? JSON.stringify(chunk.error) };
           if (typeof chunk.choices?.[0]?.finish_reason === "string") finish = chunk.choices[0].finish_reason;
           const delta = chunk.choices?.[0]?.delta;
-          if (typeof delta?.content === "string") yield { type: "text", delta: delta.content };
-          else if (delta?.content != null) return yield { type: "error", message: "OpenRouter returned an unsupported content delta" };
+          if (typeof delta?.content === "string") {
+            if (delta.content) yield { type: "text", delta: delta.content };
+          } else if (delta?.content != null) return yield { type: "error", message: "OpenRouter returned an unsupported content delta" };
           if (delta?.images || delta?.audio) return yield { type: "error", message: "This OpenRouter adapter does not yet decode generated image or audio streams" };
           // A reasoning model sends its thinking beside the answer, and two spellings are in the wild:
           // `reasoning`, which is OpenRouter's normalization, and `reasoning_content`, which is what DeepSeek

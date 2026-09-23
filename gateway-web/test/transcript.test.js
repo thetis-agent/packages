@@ -135,3 +135,40 @@ test("two media-only inputs are distinguished by their parts when restoring a ru
   record.conversation.push(current);
   assert.deepEqual(drawn(record), ["first.png", "second.png"], "a saved input is drawn only once");
 });
+
+for (const replay of [false, true]) {
+  test(`empty text chunks keep streamed reasoning in one block${replay ? " when replaying a running turn" : ""}`, () => {
+    const parent = new FakeNode("section");
+    const root = new FakeNode("div");
+    parent.append(root);
+    const transcript = mountTranscript(root, { session: "s_1" });
+    const chunks = Array.from({ length: 12 }, (_, i) => `thought ${i} `);
+    const events = chunks.flatMap((delta) => [{ type: "text", delta: "" }, { type: "reasoning", delta }]);
+    if (replay) transcript.restore(midTurn(ASKED, ASKED, events.map((event, i) => ({ seq: i + 1, event }))));
+    else for (const event of events) transcript.applyEvent(event);
+
+    assert.equal(root.querySelectorAll("details.reasoning").length, 1);
+    assert.equal(root.querySelectorAll("details.reasoning[open]").length, 1);
+    assert.equal(root.querySelector(".reasoning-text").textContent, chunks.join(""));
+    assert.equal(root.querySelectorAll(".msg-text.is-live").length, 0);
+
+    transcript.applyEvent({ type: "text", delta: "The answer" });
+    assert.equal(root.querySelectorAll("details.reasoning[open]").length, 0);
+    assert.equal(root.querySelector("details.reasoning > summary").textContent, "Thought for a moment");
+    assert.equal(root.querySelector(".msg-text.is-live").textContent, "The answer");
+  });
+}
+
+test("empty reasoning does not create a row, and a later model response gets its own thinking block", () => {
+  const root = new FakeNode("div");
+  const transcript = mountTranscript(root, { session: "s_1", nested: true });
+  transcript.applyEvent({ type: "reasoning", delta: "" });
+  assert.equal(root.querySelectorAll("details.reasoning").length, 0);
+  transcript.applyEvent({ type: "reasoning", delta: "First response" });
+  transcript.applyEvent({ type: "message", message: { role: "assistant", content: [] } });
+  transcript.applyEvent({ type: "reasoning", delta: "Next response" });
+  assert.equal(root.querySelectorAll("details.reasoning").length, 2);
+  assert.equal(root.querySelectorAll("details.reasoning[open]").length, 1);
+  transcript.applyEvent({ type: "turn.end" });
+  assert.equal(root.querySelectorAll("details.reasoning[open]").length, 0);
+});

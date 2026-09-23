@@ -30,3 +30,16 @@ test("provider extensions remain compatible while tool arguments require objects
   assert.equal(events[0].type, "error");
   if (events[0].type === "error") assert.match(events[0].message, /tool arguments/i);
 });
+
+test("reasoning chunks with empty content do not emit text events", async (t) => {
+  const chunks = Array.from({ length: 12 }, (_, i) => ({ content: "", reasoning: `thought ${i} ` }));
+  const deltas = [{ role: "assistant", content: "" }, ...chunks, { content: "The" }, { content: " " }, { content: "answer" }];
+  const body = deltas.map((delta) => `data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`).join("") + "data: [DONE]\n\n";
+  t.mock.method(globalThis, "fetch", async () => new Response(body));
+  const events: ProviderEvent[] = [];
+  for await (const event of createProvider({ apiKey: "test" }).call(call)) events.push(event);
+  assert.deepEqual(events, [
+    ...chunks.map((chunk) => ({ type: "reasoning", delta: chunk.reasoning })),
+    ...["The", " ", "answer"].map((delta) => ({ type: "text", delta })),
+  ]);
+});
