@@ -1,6 +1,6 @@
 {
   "name": "@thetis/contracts",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "license": "MIT",
   "description": "The types and constants every part of Thetis agrees on: messages, the pipeline, packages, identity, the fence, and what package code sees. No code.",
   "type": "module",

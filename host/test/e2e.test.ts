@@ -109,6 +109,24 @@ test("harness steps build the system prompt and attach tools", async () => {
   assert.match(listed.text, /@thetis\/terminal@\d+\.\d+\.\d+ \(tool\): Long-lived shell sessions/);
 });
 
+test("context capture is readable during the first turn through the real fence", async () => {
+  const s = kernel.sessions.create("alice");
+  let observed = false;
+  for await (const event of kernel.sessions.send("alice", s.id, "slow: first second third")) {
+    if (event.type !== "context.updated" || observed) continue;
+    const record = kernel.sessions.inspect("alice", s.id);
+    assert.equal(record.status, "running");
+    assert.equal(record.turns, 0);
+    assert.equal(record.harness["@thetis/harness-core"], undefined, "the session's after-step has not run yet");
+    const file = join(kernel.userspaces.pathFor("alice").home, "harness-core/context", `${s.id}.json`);
+    const snapshot = JSON.parse(readFileSync(file, "utf8"));
+    assert.match(snapshot.lastCall.request.messages.at(-1).content, /slow: first second third/);
+    assert.equal(snapshot.usage[0].status, "running");
+    observed = true;
+  }
+  assert.ok(observed, "the live snapshot notification crossed the fence before turn.end");
+});
+
 test("tool loop: the model runs a command inside the fence and sees the result", async () => {
   const s = kernel.sessions.create("alice");
   // The first `shell` call opens this conversation's session, whose pty starts in the person's home.

@@ -48,6 +48,8 @@ export interface ProviderCall {
  * thing simply never yields it.
  */
 export type ProviderEvent =
+  /** Optional inspection capture: the serialized request body, without transport headers. */
+  | { type: "request"; body: Record<string, unknown>; at: string }
   | { type: "text"; delta: string }
   | { type: "reasoning"; delta: string }
   | { type: "tool_call"; call: ToolCall }

@@ -63,3 +63,5 @@ The fence side is the pair `Fence` and `FenceHandle`, and the pool `Fences`. The
 ## Tests
 
 The package has no tests of its own. `packages/kernel/test/boundaries.test.ts` checks that its sources import nothing from `@thetis` and that its runtime exports are the four strings above. Run every test with `npm test` from the runtime root.
+
+Providers may emit `{ type: "request", body, at }` for inspection: `body` is the serialized request JSON without transport headers. Harnesses can persist it and emit `{ type: "context.updated" }` after saving; consumers fetch full context on demand. These are data events carried by the existing provider and turn streams, with no new kernel methods.

@@ -94,6 +94,8 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
       const policy = applyHint(resolvePolicy(cacheConfig, call.model), readHint(call.hints?.cache), cacheConfig.hints);
       applyOpenAiCompatible(body, policy);
       if (policy.affinity && cacheConfig.affinity !== false && body.user === undefined) body.user = policy.affinity;
+      const serialized = JSON.stringify(body);
+      if (call.hints?.context === true) yield { type: "request", body: JSON.parse(serialized), at: new Date().toISOString() };
       // Two bounds, and neither of them is a limit on how long a good answer may take. The first covers
       // getting a response at all -- every retry and every wait between them -- and stops the moment the
       // headers arrive. The second covers the open stream, and any byte at all resets it, so a model that
@@ -104,7 +106,7 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
       try {
         let res: Response;
         try {
-          res = await post(`${baseUrl}/chat/completions`, headers, JSON.stringify(body), config.retries ?? 3, request);
+          res = await post(`${baseUrl}/chat/completions`, headers, serialized, config.retries ?? 3, request);
         } catch (err) {
           if (signal?.aborted) return; // the caller gave up; it is not waiting for an explanation
           return yield { type: "error", message: request.reason ?? `openrouter request failed: ${reason(err)}` };

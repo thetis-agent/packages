@@ -1,42 +1,34 @@
 # @thetis/ui-context
 
-The Context dock of the web gateway: what the model received on the last call of the open conversation, as `@thetis/harness-core` recorded it. It is a `ui` package with no build step and no dependencies. Its browser module runs in the page; its one command runs inside the person's own fence, where `@thetis/gateway-web` calls it as the person. Every person gets it by default.
+The Context dock shows the latest model request and the conversation's usage. It runs as a UI package inside the person's workspace, with no build step or dependencies.
 
-## What it provides
+## Views
 
-The manifest declares `type: "ui"` and a `ui` block with `dir: "ui"`, `entry: "index.js"` and `style: "index.css"`.
+- **Request** shows the model, capture time, request parameters, every message and tool definition as expandable JSON, byte sizes and prompt-cache breakpoints. **Copy JSON** copies the entire request. OpenRouter supplies its exact serialized HTTP body after defaults, parameter overrides and cache policy; authentication headers are excluded. Other providers show their complete provider input, labelled as such.
+- **Prompt** shows the captured system/developer instructions as rendered Markdown, with **Copy** and a text-selection fallback.
+- **Usage** shows session cost, prompt/completion/cache/reasoning tokens, the latest call's cache hit share, and a per-turn ledger, newest first. Running, completed, failed, cancelled and interrupted turns retain the usage the provider reported. Missing values appear as unknown rather than zero.
 
-| Slot | Id | Label | Notes |
-|---|---|---|---|
-| `dock` | `context` | Context | `wide: true`. Hint: "What the model received on the last call". |
+The latest request is replaced on every model call, including tool rounds. It is available during the first turn, before the session's after-step runs. This is the most recent request, not a per-turn request archive. Older requests whose full bodies were never captured retain their saved summary. Older accounting saved by the web gateway is included once; unavailable historical usage is identified explicitly.
 
-| Verb | Export | Who may send it | What it does |
-|---|---|---|---|
-| `context` | `uiContext` | any signed-in person | Reads `env.kernel.sessions.inspect(env.session)` and answers `{ turns, lastCall }`. Refuses when no conversation is open. |
+## Data and refresh
 
-`lastCall` is the record `@thetis/harness-core` writes under its own key in `harness` after each call: the model, the time, the system prompt and its length, the tool names offered, and the count of messages in the exchange. It is `null` before the first call. The command computes nothing; the page draws what the harness wrote. The command has no `label` in the manifest.
+The manifest declares a wide `context` dock and the `context` command exported as `uiContext`. The command first calls `env.kernel.sessions.inspect(env.session)` to authorize the conversation. It then reads the harness's atomic snapshot at `home/harness-core/context/<session>.json`, with the legacy `harness["@thetis/harness-core"].lastCall` summary as a fallback. Historical accounting comes from `home/gateway-web/sessions/<user>/<session>.json`.
 
-## Use
+The command returns `{ data: { turns, status, started, lastCall, usage } }`. Active conversations waiting for their first capture show that the turn is running. An existing conversation with no capture says that no capture is available. Only a conversation with no input or turns says nothing has been sent.
 
-The **Context** button in the rail opens the dock. The subtitle reads `turn N · <model> · <chars> chars` once a call has been made, or `turn N` before one. Two tabs:
-
-- **Request** lists the model, when the call was made, how many tools were offered and how many messages were in the exchange, then the tool names as pills.
-- **Prompt** shows the system prompt as rendered markdown in a scrolling block. A **Copy** button in the dock's actions copies it to the clipboard, or selects the block when the clipboard is not available.
-
-Without a conversation the dock says to open one. Before the first call it reads "Nothing has been sent in this conversation yet." A refused request shows its sentence in the body.
-
-The dock asks when the page opens, when the open conversation changes, and when a turn of that conversation ends; never while drawing. One request is in flight at a time, and an answer for a conversation no longer open is dropped.
-
-## Files
-
-| File | Content |
-|---|---|
-| `package.json` | The dock entry and the one command. |
-| `index.js` | `uiContext`. |
-| `ui/index.js` | `install(ext)`: registers the dock, the two tabs, the Copy button, the refresh rules. |
-| `ui/index.css` | The dock's styles, under `.ui-context`. |
-| `test/ui-context.test.js` | The tests. |
+Opening a stale dock, changing conversations, `turn.start`, `context.updated` and `turn.end` refresh the view. The harness emits the small `context.updated` notification only after saving its snapshot; full requests never travel over the turn event stream. A closed dock fetches nothing. Requests coalesce, stale answers are discarded, and **Refresh** is available for manual retry. Expanded rows survive updates within a conversation.
 
 ## Tests
 
-`npm test` from the runtime root runs `test/ui-context.test.js`: the command over a fake kernel (the record, `null` before a call, the refusal without a conversation), the manifest's files, and the browser module over a fake seam (nothing at import, one dock registered, the two tabs drawn, the refresh on conversation change and turn end, coalescing, the dropped late answer). The browser checklist is `packages/gateway-web/test/BROWSER.md`.
+`node --test packages/ui-context/test/ui-context.test.js` from the runtime root exercises session authorization, live capture, historical accounting and the browser's rendering/refresh races. Harness tests cover capture timing, exact request retention and failed/cancelled usage. The host suite verifies capture during the first turn through the real fence; provider tests compare captured JSON to a local HTTP server's received body.
+
+The optional Chromium test uses the actual gateway shell and extension seam, with local fixture responses:
+
+```sh
+THETIS_PLAYWRIGHT_MODULE=/path/to/playwright-core/index.mjs \
+THETIS_CHROMIUM_EXECUTABLE=/path/to/chrome \
+THETIS_BROWSER_ARTIFACTS=/tmp/thetis-context-browser \
+node --test packages/ui-context/test/browser-regressions.mjs
+```
+
+It checks the first-turn state, automatic updates, all three tabs, both copy controls, mobile layout and closed-dock fetching. Failure screenshots and traces are retained.

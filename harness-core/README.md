@@ -14,7 +14,7 @@ Five pipeline steps, declared in `thetis.steps`:
 | `system-prompt` | `prompt` | `systemPrompt` | Appends the guide to `call.system`: the user and the home, what is reachable, file tools against shell, the working style; one extra line when the session has a parent. The skills loader announces the skills, since it knows whether there are any. Nothing of the person's: no `THETIS.md`, no `harness.notes`, no package list, no session id. |
 | `attach-tools` | `tools` | `attachTools` | Adds every tool declared by every installed package to `call.tools`. The first package with a given tool name wins. A tool with no `parameters` gets `{ type: "object", properties: {} }`. |
 | `call` | `execute` | `callModel` | The loop. Sends `call` through `kernel.providers.call`, streams `text`, `reasoning`, `tool.call` and `usage` as they come, appends the assistant message (`message`, with the usage), runs each tool call in this fence, appends the `tool` message to both the conversation and `call.messages`, and calls again until the model answers without tool calls. Watches both of its long waits for silence and asks about them (`stall`, `nudge`). Returns `{ conversation, call }`. |
-| `record-call` | `after` | `recordCall` | Writes `{ model, system, systemChars, tools, messages, at }` to `harness["@thetis/harness-core"].lastCall`, keeps the other fields under that key, and returns only `harness`. |
+| `record-call` | `after` | `recordCall` | Preserves the latest call summary from `callModel` in `harness["@thetis/harness-core"].lastCall`; provides a legacy summary if another execute step made the call. |
 
 No tools, no service, no UI, no bench suites.
 
@@ -37,7 +37,9 @@ Neither of the loop's two long waits is ever simply waited on; see "The nudge" b
 
 A provider's `reasoning` events are forwarded as turn events and nothing more. A reasoning model's thinking is worth watching while it happens — a gateway shows it live, and the web transcript folds it away when the answer starts — but it never joins the streamed text, so it is in no assistant message, in no saved conversation and in nothing sent back on the next turn. Redrawing a record therefore redraws no thinking.
 
-`recordCall` runs after `callModel`, so `model`, `system` and `tools` are the ones that were sent, and `messages` counts `call.messages` after the reply and any tool rounds were appended. The Context dock of the web gateway (`@thetis/ui-context`) reads this record. The step never returns `call`: that is the prefix the provider cache saw, and a record of it must not change it.
+`callModel` saves the request before each model call to `home/harness-core/context/<session>.json`, atomically replacing the previous request. When the provider emits an inspection `request` event, its exact HTTP JSON body replaces the generic provider input. The `context: true` hint opts into this event; no authentication headers are captured. The snapshot also keeps a usage ledger, including partial usage from failed or cancelled turns. Each completed snapshot write emits a small `context.updated` event so an open inspector refreshes during the turn.
+
+`recordCall` preserves the summary returned by `callModel`. `messages` counts the messages sent in the latest request, before its reply was appended. Full JSON lives only in the snapshot file; the small model, system, tools, time and usage summary remains in the session harness for existing inspectors. A provider that does not emit request bodies still has its complete provider input captured. Capture write failures are logged and do not stop the turn.
 
 Steps declared with phase `bench` never run on an ordinary turn; `list_packages` still reports them.
 

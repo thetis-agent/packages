@@ -7,7 +7,7 @@
 .ui-context-tab:hover { color: var(--text); }
 .ui-context-tab.is-active { background: var(--surface-1); color: var(--text); box-shadow: var(--shadow-sm); }
 
-.ui-context-pane { display: flex; flex-direction: column; gap: var(--gap-3); min-height: 0; }
+.ui-context-pane { display: flex; flex-direction: column; gap: var(--gap-3); min-height: 0; overflow: auto; }
 .ui-context-pane.is-prompt { flex: 1 1 auto; }
 
 .ui-context-prompt { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--gap-3) var(--gap-4); border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface-2); font-size: var(--text-sm); line-height: var(--leading); overflow-wrap: anywhere; }
@@ -15,3 +15,18 @@
 
 .ui-context-note { margin: 0; padding: var(--gap-2) 0; color: var(--text-faint); font-size: var(--text-sm); }
 .ui-context-note.is-error { color: var(--err); }
+
+.ui-context-detail { flex-shrink: 0; min-width: 0; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface-2); }
+.ui-context-detail summary { display: flex; align-items: center; gap: var(--gap-2); padding: var(--gap-2) var(--gap-3); cursor: pointer; font-size: var(--text-sm); }
+.ui-context-detail summary::before { content: "▸"; color: var(--text-faint); }
+.ui-context-detail[open] > summary::before { content: "▾"; }
+.ui-context-detail summary:focus-visible { outline: 2px solid var(--text-dim); outline-offset: -2px; }
+.ui-context-role { font-weight: 600; flex-shrink: 0; }
+.ui-context-gist { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
+.ui-context-size { color: var(--text-faint); white-space: nowrap; }
+.ui-context-json { margin: 0; padding: var(--gap-3); white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--text-sm); line-height: var(--leading); background: var(--surface-2); border-radius: var(--r-md); flex-shrink: 0; }
+.ui-context-pane > .kv, .ui-context-pane > .section-head, .ui-context-pane > .tags, .ui-context-pane > .ui-context-note { flex-shrink: 0; }
+@media (max-width: 600px) {
+  .ui-context-detail summary { flex-wrap: wrap; }
+  .ui-context-size { display: none; }
+}

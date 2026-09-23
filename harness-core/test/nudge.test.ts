@@ -1,10 +1,16 @@
 // The nudge: what a turn does when something in it goes quiet, and the guarantee that it can never end up
 // stuck. The numbers here are the shipped ones divided by about a thousand, so a stall that takes two
 // minutes in production takes forty milliseconds in this file and the shapes are the same.
-import { test } from "node:test";
+import { test, after } from "node:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import assert from "node:assert/strict";
 import type { Message, PackageInfo, PackageStepContext, ProviderCall, ProviderEvent, ToolSpec, TurnEvent } from "@thetis/contracts";
 import { callModel, cancelledToolResult, fmtMs, NUDGE_DEFAULTS, nudgeConfig, readDecision } from "../src/index.js";
+
+const contextHome = mkdtempSync(join(tmpdir(), "thetis-context-test-"));
+after(() => rmSync(contextHome, { recursive: true, force: true }));
 
 /** The shipped numbers, scaled down. Everything in this file that waits, waits in tens of milliseconds. */
 const FAST = { modelStallMs: 40, toolStallMs: 40, stallBackoff: 2, stallMaxMs: 400, nudgeMs: 40, nudgeAttempts: 2 };
@@ -60,7 +66,7 @@ function harness(setup: Setup) {
     packages: { has: () => false, get: () => undefined, list: (): PackageInfo[] => [] },
     config: { ...FAST, ...(setup.config ?? {}) },
     env: {
-      cwd: "/home/alice",
+      cwd: mkdtempSync(join(contextHome, "turn-")),
       root: "/root",
       store: "/store",
       shared: "/shared",
@@ -91,7 +97,7 @@ function harness(setup: Setup) {
   return { ctx, events, nudgeCalls, asked: () => asked };
 }
 
-const kinds = (events: TurnEvent[]) => events.map((e) => e.type);
+const kinds = (events: TurnEvent[]) => events.filter((e) => e.type !== "context.updated").map((e) => e.type);
 const firstOf = <T extends TurnEvent["type"]>(events: TurnEvent[], type: T) => events.find((e) => e.type === type) as Extract<TurnEvent, { type: T }> | undefined;
 const allOf = <T extends TurnEvent["type"]>(events: TurnEvent[], type: T) => events.filter((e) => e.type === type) as Extract<TurnEvent, { type: T }>[];
 

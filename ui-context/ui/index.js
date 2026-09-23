@@ -1,28 +1,18 @@
-/* The Context dock: what the model received on the last call of the open conversation, as
- * `@thetis/harness-core` recorded it. Two tabs: Request lists the scalars (model, when, the tools offered,
- * the messages in the exchange) with the tool names as pills; Prompt shows the system prompt as rendered
- * markdown in a scrolling block with a Copy button. The data comes from the package's `context` command.
- *
- * The command reads the whole session record on the server, so it is only sent for a dock somebody is
- * looking at. A conversation change or the end of a turn in the open conversation asks again while the
- * dock is open; while it is closed they only mark what was shown as stale, and the next `draw` — the
- * dock calls it only for the entry it is showing — sends the one request that brings it up to date.
- * Nothing is requested when the page opens: the dock is closed then. `draw` otherwise renders what was
- * last received. One request is in flight at a time; a trigger during one queues a single follow-up,
- * and an answer for a conversation no longer open is dropped. Whether the dock is open is read off the
- * DOM, since the seam does not say: the body node the last draw answered stays connected exactly as long
- * as the dock shows it, because the dock clears its body when it closes or shows another entry. The
- * module defines `install` and does nothing else at import time. */
+/* Fetch context only while its dock is visible. Snapshot notifications refresh during a turn;
+ * stale responses are discarded and overlapping requests coalesce into one follow-up. */
+import { contextViews } from "./views.js";
 
 const NOTHING_YET = "Nothing has been sent in this conversation yet.";
 const TABS = [
   ["request", "Request"],
   ["prompt", "Prompt"],
+  ["usage", "Usage"],
 ];
 
 export default function install(ext) {
   const { el } = ext.dom;
-  const state = { session: null, loaded: false, turns: 0, lastCall: null, error: null };
+  const state = { session: null, loaded: false, turns: 0, status: "idle", started: false, lastCall: null, usage: [], error: null };
+  const views = contextViews(ext);
   let tab = "request";
   let inFlight = null;
   let again = false;
@@ -53,21 +43,25 @@ export default function install(ext) {
         (err) => ({ error: err?.message || "The request failed." })
       )
       .then((data) => {
-        inFlight = null;
         if (session !== ext.conversation.current) return;
         Object.assign(state, {
           session,
           loaded: true,
           turns: Number.isInteger(data.turns) ? data.turns : 0,
+          status: data.status ?? "idle",
+          started: Boolean(data.started || data.turns > 0 || data.status === "running"),
+          usage: Array.isArray(data.usage) ? data.usage : [],
           lastCall: isRecord(data.lastCall) ? data.lastCall : null,
           error: typeof data.error === "string" ? data.error : null,
         });
         ext.redraw("context");
       })
       .finally(() => {
+        inFlight = null;
         if (!again) return;
         again = false;
-        refresh();
+        if (visible()) refresh();
+        else stale = true;
       });
     return inFlight;
   }
@@ -78,9 +72,10 @@ export default function install(ext) {
     if (visible()) refresh();
   }
 
-  ext.conversation.watch(invalidate);
+  ext.conversation.watch(() => { views.reset(); invalidate(); });
   ext.events.watch((message) => {
-    if (message.event?.type === "turn.end" && message.session === ext.conversation.current) invalidate();
+    if (message.session !== ext.conversation.current) return;
+    if (["turn.start", "turn.end", "context.updated"].includes(message.event?.type)) invalidate();
   });
 
   // --- drawing ---
@@ -93,7 +88,10 @@ export default function install(ext) {
     if (current && (stale || !fresh) && !inFlight) refresh();
     const call = fresh ? state.lastCall : null;
     body = el("div", { class: "ui-context" }, tabs(), pane(current, fresh, call));
-    return { title: "Context", subtitle: subtitle(fresh ? state : null, call), body, actions: call && tab === "prompt" ? [copyButton(call.system, body)] : [] };
+    const actions = current ? [ext.ui.button("Refresh", { title: "Refresh context", onClick: invalidate })] : [];
+    if (call && tab === "prompt") actions.unshift(copyButton(call.system ?? "", body, "Copy", ".ui-context-prompt"));
+    if (call?.request && tab === "request") actions.unshift(copyButton(JSON.stringify(call.request, null, 2), body, "Copy JSON", ".ui-context-raw"));
+    return { title: "Context", subtitle: subtitle(fresh ? state : null, call), body, actions };
   }
 
   function tabs() {
@@ -116,52 +114,30 @@ export default function install(ext) {
     if (!current) return note("Open a conversation to see what the model received.");
     if (!fresh) return note("Loading…");
     if (state.error) return note(state.error, "error");
-    if (!call) return note(NOTHING_YET);
-    return tab === "prompt" ? promptPane(call) : requestPane(call);
+    if (tab === "usage") return views.usage(state);
+    if (!call) return note(state.status === "running" ? "The turn is running. Waiting for its first request capture…" : state.started ? "No request capture is available for this conversation yet." : NOTHING_YET);
+    return tab === "prompt" ? views.prompt(call) : views.request(call);
   }
 
-  function requestPane(call) {
-    const tools = Array.isArray(call.tools) ? call.tools.filter((name) => typeof name === "string") : [];
-    return el(
-      "div",
-      { class: "ui-context-pane", role: "tabpanel" },
-      ext.ui.kv([
-        ["Model", el("span", { class: "mono" }, text(call.model))],
-        ["When", when(call.at)],
-        ["Tools offered", String(tools.length)],
-        ["Messages in the exchange", text(call.messages)],
-      ]),
-      ext.ui.section("Tools", tools.length ? `${tools.length} offered on this call` : "No tool was offered on this call."),
-      ext.ui.tags(tools, "dim", "none")
-    );
-  }
-
-  function promptPane(call) {
-    const system = typeof call.system === "string" ? call.system : "";
-    return el(
-      "div",
-      { class: "ui-context-pane is-prompt", role: "tabpanel" },
-      system ? el("div", { class: "ui-context-prompt" }, ext.markdown(system)) : note("The system prompt was empty on this call.")
-    );
-  }
-
-  /** Copies the system prompt; where the clipboard is not available, selects the block so the person can. */
-  function copyButton(system, body) {
-    const button = ext.ui.button("Copy", { title: "Copy the system prompt" });
+  /** Copies the request or prompt; when clipboard access is unavailable, selects its text instead. */
+  function copyButton(content, body, label, selector) {
+    const button = ext.ui.button(label, { title: label === "Copy" ? "Copy the system prompt" : "Copy the whole request body as JSON" });
     button.addEventListener("click", () => {
-      const write = navigator.clipboard?.writeText(system);
-      if (!write) return selectPrompt(body, button);
+      const write = globalThis.navigator?.clipboard?.writeText(content);
+      if (!write) return selectPrompt(body, button, selector);
       write.then(
         () => flash(button, "Copied"),
-        () => selectPrompt(body, button)
+        () => selectPrompt(body, button, selector)
       );
     });
     return button;
   }
 
-  function selectPrompt(body, button) {
-    const block = body.querySelector(".ui-context-prompt");
+  function selectPrompt(body, button, selector) {
+    const block = body.querySelector(selector);
     if (!block) return;
+    const disclosure = block.closest("details");
+    if (disclosure) disclosure.open = true;
     const range = document.createRange();
     range.selectNodeContents(block);
     const selection = window.getSelection();
@@ -188,14 +164,9 @@ export default function install(ext) {
 /** "turn N · model · N chars" when there is a call; the turn count alone before one; nothing without a conversation. */
 function subtitle(state, call) {
   if (!state) return "";
-  const parts = [`turn ${state.turns}`];
+  const parts = [state.status === "running" ? `turn ${state.turns + 1} · running` : `turn ${state.turns}`];
   if (call) parts.push(text(call.model), `${Number.isFinite(call.systemChars) ? call.systemChars.toLocaleString() : "?"} chars`);
   return parts.join(" · ");
-}
-
-function when(iso) {
-  const ms = Date.parse(iso);
-  return Number.isFinite(ms) ? new Date(ms).toLocaleString() : "—";
 }
 
 const text = (value) => (value == null || value === "" ? "—" : String(value));

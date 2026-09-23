@@ -54,6 +54,8 @@ export interface TurnOptions {
  * has no thinking to redraw, and a gateway that does not know the kind can ignore it.
  */
 export type TurnEvent =
+  /** A package has saved a new context snapshot; fetch its body only when inspecting it. */
+  | { type: "context.updated" }
   | { type: "turn.start"; turn: string; session: string }
   | { type: "step.start"; step: StepRef }
   | { type: "step.end"; step: StepRef; ms: number }

@@ -1,6 +1,6 @@
 {
   "name": "@thetis/provider-openrouter",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "license": "MIT",
   "description": "Sends model calls to OpenRouter with streaming, tool calls, and prompt caching.",
   "type": "module",

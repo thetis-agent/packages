@@ -1,4 +1,7 @@
-import { test } from "node:test";
+import { test, after } from "node:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import assert from "node:assert/strict";
 import type { Message, PackageInfo, PackageStepContext, ProviderCall, ProviderEvent, ToolSpec, TurnEvent } from "@thetis/contracts";
 import { attachTools, callModel, recordCall, systemPrompt, turnContext, turnContextLine, TURN_CONTEXT, withoutTurnContext, type LastCall } from "../src/index.js";
@@ -10,6 +13,9 @@ const greet = {
   description: "Says hello",
   thetis: { type: "tool", tools: [{ name: "greet", description: "hi", export: "greet" }] },
 } as unknown as PackageInfo;
+
+const contextHome = mkdtempSync(join(tmpdir(), "thetis-context-test-"));
+after(() => rmSync(contextHome, { recursive: true, force: true }));
 
 /** A turn as the fence hands it to a step, after `callModel`: the reply is already in `call.messages`. */
 function ctxWith(over: Partial<PackageStepContext> = {}): PackageStepContext {
@@ -38,7 +44,7 @@ function ctxWith(over: Partial<PackageStepContext> = {}): PackageStepContext {
     harness: { "@thetis/harness-core": { notes: "keep me" }, "@thetis/prompt-cache": { turns: 3 } },
     packages: { has: (n) => n === greet.name, get: (n) => (n === greet.name ? greet : undefined), list: () => [greet] },
     env: {
-      cwd: "/home/alice",
+      cwd: contextHome,
       root: "/root",
       store: "/store",
       shared: "/shared",
@@ -163,6 +169,7 @@ function loopCtx(script: Script, over: { tools?: ToolSpec[]; hints?: Record<stri
   });
   ctx.env = {
     ...ctx.env,
+    cwd: mkdtempSync(join(contextHome, "turn-")),
     invokeTool: async (ref, args, opts) => {
       const call = { ref: { package: ref.package, export: ref.export, name: ref.name }, args, config: opts.config };
       invoked.push(call);
@@ -192,7 +199,7 @@ test("callModel: a call to a tool the call withheld is resolved against the inst
   assert.deepEqual(out.conversation!.map((m) => m.role), ["user", "assistant", "tool", "assistant", "tool", "assistant"]);
   assert.equal(out.conversation!.at(-1)!.content, "done");
   assert.deepEqual(out.call!.messages, out.conversation, "the call started from the conversation and grew with it");
-  assert.deepEqual(events.map((e) => e.type), ["tool.call", "message", "tool.result", "tool.call", "message", "tool.result", "text", "message"]);
+  assert.deepEqual(events.filter((e) => e.type !== "context.updated").map((e) => e.type), ["tool.call", "message", "tool.result", "tool.call", "message", "tool.result", "text", "message"]);
   assert.ok(!events.some((e) => e.type === "error"), "an unknown tool is the model's problem, not the turn's");
 });
 
@@ -224,7 +231,7 @@ test("callModel: cancel mid-stream keeps the partial text, emits no error, and r
     { role: "user", content: "go" },
     { role: "assistant", content: "one two " },
   ]);
-  assert.deepEqual(events.map((e) => e.type), ["text", "text"], "no error event: the kernel produces the one cancelled error");
+  assert.deepEqual(events.filter((e) => e.type !== "context.updated").map((e) => e.type), ["text", "text"], "no error event: the kernel produces the one cancelled error");
 });
 
 test("callModel: a cancel between tool calls closes the ones that never ran and records the one that did", async () => {
@@ -342,7 +349,7 @@ test("callModel: reasoning is forwarded as its own event and is in no message", 
   };
   const { ctx, events } = loopCtx(script);
   const out = await callModel(ctx);
-  assert.deepEqual(events.map((e) => e.type), ["reasoning", "reasoning", "text", "message"], "each chunk is relayed as it arrives, in order");
+  assert.deepEqual(events.filter((e) => e.type !== "context.updated").map((e) => e.type), ["reasoning", "reasoning", "text", "message"], "each chunk is relayed as it arrives, in order");
   assert.deepEqual(events.filter((e) => e.type === "reasoning").map((e) => (e as { delta: string }).delta), ["let me ", "think"]);
   assert.equal(out.conversation!.at(-1)!.content, "the answer", "the thinking is not part of the reply");
   assert.ok(!JSON.stringify(out.conversation).includes("think"), "and nothing of it is kept in the conversation");
@@ -358,6 +365,56 @@ test("callModel: usage rides on the message event and is emitted on its own; a c
   const out = await callModel(ctx);
   assert.equal(out.conversation!.at(-1)!.content, "saw 2");
   assert.deepEqual(out.call!.messages.map((m) => m.role), ["system", "user", "assistant"]);
-  assert.deepEqual(events.map((e) => e.type), ["text", "usage", "message"]);
-  assert.deepEqual((events.at(-1) as { usage?: unknown }).usage, { input: 3, output: 1 });
+  assert.deepEqual(events.filter((e) => e.type !== "context.updated").map((e) => e.type), ["text", "usage", "message"]);
+  assert.deepEqual((events.find((e) => e.type === "message") as { usage?: unknown }).usage, { input: 3, output: 1 });
+  assert.equal((out.harness!["@thetis/harness-core"] as { lastCall: LastCall }).lastCall.system, "shaped", "the Prompt view includes system messages shaped directly into the request");
+});
+
+test("context is saved before each call, includes the exact wire body, and excludes the subsequent reply", async () => {
+  const snapshots: any[] = [];
+  const wire = { model: "wire/model", stream: true, messages: [{ role: "system", content: [{ type: "text", text: "Cached prompt", cache_control: { type: "ephemeral" } }] }, { role: "user", content: "go" }], tools: [] };
+  const { ctx, events } = loopCtx(async (round, call, emit) => {
+    const saved = read();
+    assert.deepEqual(saved.lastCall.request.messages, call.messages, "the inspector can read the request before the provider answers");
+    assert.equal(saved.usage[0].status, "running");
+    snapshots.push(saved);
+    if (round === 1) emit({ type: "tool_call", call: { id: "c1", name: "unknown", args: {} } });
+    else {
+      emit({ type: "request", body: wire, at: "2026-09-23T12:00:00Z" });
+      emit({ type: "text", delta: "the final reply" });
+    }
+    emit({ type: "usage", usage: { prompt_tokens: 100 * round, completion_tokens: 10, cost: 0.01, cache_read_ratio: 0.5 } });
+  });
+  const read = () => JSON.parse(readFileSync(join(ctx.env.cwd, "harness-core/context/s1.json"), "utf8"));
+  const out = await callModel(ctx);
+  const saved = read();
+  assert.equal(snapshots.length, 2);
+  assert.equal(snapshots[1].lastCall.request.messages.length, 3, "the second request includes the tool result");
+  assert.deepEqual(saved.lastCall.request, wire);
+  assert.equal(saved.lastCall.system, "Cached prompt");
+  assert.equal(saved.lastCall.messages, 2);
+  assert.equal(saved.lastCall.format, "wire");
+  assert.equal(saved.lastCall.at, "2026-09-23T12:00:00Z");
+  assert.doesNotMatch(JSON.stringify(saved.lastCall.request), /the final reply/);
+  assert.deepEqual(saved.usage[0].usage, { prompt_tokens: 300, completion_tokens: 20, cost: 0.02 });
+  assert.equal(saved.usage[0].calls, 2);
+  assert.equal(saved.usage[0].status, "complete");
+  assert.ok(events.some((e) => e.type === "context.updated"));
+  const recorded = await recordCall({ ...ctx, ...out });
+  assert.equal((recorded.harness!["@thetis/harness-core"] as any).lastCall.messages, 2, "the after-step keeps the request count, not the conversation with its reply appended");
+});
+
+test("context keeps reported usage when a later request fails or is cancelled", async () => {
+  for (const cancelled of [false, true]) {
+    const control = new AbortController();
+    const { ctx } = loopCtx(async (_round, _call, emit) => {
+      emit({ type: "usage", usage: { cost: 0.04, prompt_tokens: 123 } });
+      if (cancelled) control.abort();
+      else emit({ type: "error", message: "stream ended" });
+    }, { signal: control.signal });
+    await callModel(ctx);
+    const saved = JSON.parse(readFileSync(join(ctx.env.cwd, "harness-core/context/s1.json"), "utf8"));
+    assert.deepEqual(saved.usage[0].usage, { cost: 0.04, prompt_tokens: 123 });
+    assert.equal(saved.usage[0].status, cancelled ? "cancelled" : "failed");
+  }
 });

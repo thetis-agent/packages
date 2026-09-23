@@ -6,11 +6,12 @@
 // The prompt names no session id, so a subagent's prompt is byte-identical to its parent's apart from one
 // line, and the provider cache the parent warmed serves the child.
 import type { HarnessState, Message, PackageInfo, PackageStepContext, ProviderCall, ProviderEvent, StepResult, ToolCall, ToolSpec, TurnEvent } from "@thetis/contracts";
+import { ContextRecorder } from "./context.js";
 
 /** The key this package keeps its per-session state under; other packages read it by name. */
 const NAME = "@thetis/harness-core";
 
-/** What the provider received on the last turn, as a Context inspector shows it. */
+/** The most recent request, with a small summary also kept in the session harness. */
 export interface LastCall {
   model: string;
   /** The whole system prompt: it is per-session state on disk, and an inspector shows it. */
@@ -18,9 +19,13 @@ export interface LastCall {
   systemChars: number;
   /** The names of the tools that were attached. */
   tools: string[];
-  /** How many messages `call.messages` holds after the turn: the request plus the reply and any tool rounds. */
+  /** Messages in the latest request, before its reply. Legacy records counted the completed exchange. */
   messages: number;
   at: string;
+  turn?: string;
+  format?: "wire" | "provider-call";
+  request?: Record<string, unknown>;
+  usage?: Record<string, number>;
 }
 
 /**
@@ -90,12 +95,13 @@ export async function attachTools(ctx: PackageStepContext): Promise<StepResult> 
 }
 
 /**
- * after: what the provider received this turn, kept in `harness` for a Context inspector, since nothing on the
- * event stream carries it. `callModel` returns `ctx.call` with the reply and the tool rounds appended to
- * `messages`, so `model`, `system` and `tools` here are the ones that were sent. Only `harness` comes back:
- * `call` is the prefix the provider cache saw, and a record of it must not touch it.
+ * after: preserve the latest request summary captured by `callModel`. Another execute step may have
+ * made the call without recording it; retain the legacy summary in that case. Only `harness` comes back:
+ * the request itself must not be changed by recording it.
  */
 export async function recordCall(ctx: PackageStepContext): Promise<StepResult> {
+  const recorded = ownState(ctx.harness).lastCall as LastCall | undefined;
+  if (recorded?.turn === ctx.turn.id) return { harness: ctx.harness };
   const system = ctx.call.system ?? "";
   const lastCall: LastCall = {
     model: ctx.call.model,
@@ -470,7 +476,7 @@ interface Round {
   cancelled?: boolean;
 }
 
-async function callOnce(ctx: PackageStepContext, call: ProviderCall, partial: { text: string }, cfg: NudgeConfig, nth: number): Promise<Round> {
+async function callOnce(ctx: PackageStepContext, call: ProviderCall, partial: { text: string }, cfg: NudgeConfig, nth: number, context: ContextRecorder): Promise<Round> {
   const round: Round = { toolCalls: [] };
   // The stream's own controller, under the turn's: a nudge can end this one request without ending the turn,
   // and everything the turn has already done is kept either way.
@@ -479,7 +485,9 @@ async function callOnce(ctx: PackageStepContext, call: ProviderCall, partial: { 
   const watcher = watch(ctx, cfg, { kind: "model", id: `${ctx.turn.id}#${nth}`, name: call.model }, () => own.abort());
   const onEvent = (e: ProviderEvent) => {
     watcher.touch(); // any event at all is the stream alive: text, thinking, a tool call, an accounting line
-    if (e.type === "text") {
+    if (e.type === "request") {
+      context.request(e.body, e.at);
+    } else if (e.type === "text") {
       partial.text += e.delta;
       ctx.emit({ type: "text", delta: e.delta });
     } else if (e.type === "reasoning") {
@@ -493,6 +501,7 @@ async function callOnce(ctx: PackageStepContext, call: ProviderCall, partial: { 
       ctx.emit({ type: "tool.call", call: e.call });
     } else if (e.type === "usage") {
       round.usage = e.usage;
+      context.usage(e.usage);
       ctx.emit({ type: "usage", usage: e.usage });
     } else if (e.type === "error") round.failure = e.message;
   };
@@ -567,18 +576,26 @@ async function runTool(ctx: PackageStepContext, call: ProviderCall, tc: ToolCall
  */
 export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
   const conversation = [...ctx.conversation];
-  const call: ProviderCall = { ...ctx.call, messages: ctx.call.messages.length ? [...ctx.call.messages] : [...conversation] };
+  const call: ProviderCall = { ...ctx.call, messages: ctx.call.messages.length ? [...ctx.call.messages] : [...conversation], hints: { ...ctx.call.hints, context: true } };
+  const context = await ContextRecorder.open(ctx);
+  const finish = async (status: "complete" | "failed" | "cancelled"): Promise<StepResult> => {
+    await context.finish(status);
+    // Keep the legacy summary for other inspectors, without duplicating the full request in the session.
+    const { request: _request, ...lastCall } = context.lastCall ?? {};
+    return { conversation, call, harness: { ...ctx.harness, [NAME]: { ...ownState(ctx.harness), lastCall } } };
+  };
   const partial = { text: "" };
-  const stop = (reason: string, failure?: string): StepResult => {
+  const stop = (reason: string, failure?: string): Promise<StepResult> => {
     if (partial.text) conversation.push({ role: "assistant", content: partial.text });
     closeDangling(conversation, reason);
     if (failure !== undefined) ctx.emit({ type: "error", message: `provider error: ${failure}`, code: "provider" });
-    return { conversation, call };
+    return finish(failure === undefined ? "cancelled" : "failed");
   };
   const cfg = nudgeConfig(ctx.config ?? {});
   for (let nth = 1; ; nth++) {
     if (ctx.signal.aborted) return stop(STOPPED);
-    const round = await callOnce(ctx, call, partial, cfg, nth);
+    await context.start(call);
+    const round = await callOnce(ctx, call, partial, cfg, nth, context);
     if (round.cancelled) return stop(STOPPED);
     if (round.failure !== undefined) return stop(FAILED, round.failure);
     const assistant: Message = { role: "assistant", content: partial.text };
@@ -596,7 +613,7 @@ export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
       call.messages.push(result);
     }
   }
-  return { conversation, call };
+  return finish("complete");
 }
 
 /** This package's own record in `harness`, or an empty one; whatever else it holds is kept. */
