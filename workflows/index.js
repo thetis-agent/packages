@@ -11,7 +11,7 @@ import { startHost } from "./lib/host.js";
 /** How long a watching stream may hear nothing before it asks the service whether it is still there. */
 export const HEARTBEAT_MS = 20_000;
 
-export const OPS = new Set(["list", "get", "create", "save", "publish", "remove", "validate", "enqueue", "runs", "run", "cancel", "retry", "approve", "queue", "catalog", "titles", "forget"]);
+export const OPS = new Set(["list", "get", "create", "save", "publish", "remove", "validate", "enqueue", "runs", "run", "cancel", "retry", "approve", "queue", "catalog", "conversations", "forget"]);
 
 /**
  * The service. `env` is the `ServiceEnv`. Resolves as soon as the socket listens: the runs are loaded, and

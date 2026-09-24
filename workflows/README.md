@@ -146,17 +146,20 @@ a request `{ "i": 1, "op": "…", ...args }`, an answer `{ "i": 1, "ok": true, "
 | `retry` | `id`, `from?` (step id; default the step it stopped at) | the run, queued again from that step, keeping its vars |
 | `approve` | `id`, `decision` (`approved`/`rejected`), `note?` | the run |
 | `queue` | `paused?` | `{ paused, running: [run ids], queued: n }` |
-| `titles` | — | `{ "<conversation id>": "<title>" }` for every conversation a run opened with a `title` |
+| `conversations` | — | `{ "<conversation id>": { title?, model? } }` for every conversation a run opened: the title it gave and the model its last prompt step ran on there |
+| `forget` | `id` | `{}`; deletes a finished run's record (a run still going is refused) and broadcasts `{ ev: "forgotten", id }` |
 | `catalog` | — | `{ models: [{ id, label? }], defaultModel, projects: [{ id, name }], tools: [{ package, export, name, description }] }` |
 | `subscribe` | — | `{ runs: [run…] }` (latest 50, without `vars`); then events `{ ev: "run", run }` (without `vars`) whenever a run changes, `{ ev: "workflow", id }` when a definition changes, `{ ev: "queue", queue }` |
 
 ## The browser side
 
 The sidebar's derived title is the kernel's summary of the first message, newlines collapsed, so a title
-line sent first would run into the prompt. Names live in the web page's own store, so the browser module
-names them: on every page load and list change it asks the service's `titles` once per unnamed conversation it
-has not seen and posts each title to the page's own `api/sessions/<id>/title`. A name the person gave is never
-changed (`ui/titles.js`).
+line sent first would run into the prompt; and a turn the page only watched carries no model. Names and
+models live in the web page's own store, so the browser module applies them: on every page load and list
+change it asks the service's `conversations` once per conversation that lacks a name or a model, and posts
+what is missing to the page's own `api/sessions/<id>/title` and `api/sessions/<id>/model` (with
+`remember: false`, so the person's default for new conversations is untouched). A name or model the person
+chose is never changed (`ui/titles.js`).
 
 Two UI verbs, both thin clients of the socket:
 

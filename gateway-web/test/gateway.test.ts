@@ -634,6 +634,17 @@ test("a chosen model sticks: a new conversation starts with the person's last ch
   assert.equal(((await (await api(bob, "/bob/api/sessions", { method: "POST" })).json()) as { model: string | null }).model, null, "one person's choice is not another's");
 });
 
+test("a model set with remember false names the conversation's model without changing the person's default", async () => {
+  const cookie = await cookieFor("alice", "wonderland");
+  const create = async () => (await (await api(cookie, "/alice/api/sessions", { method: "POST" })).json()) as { id: string; model: string | null };
+  const before = (await create()).model;
+  const one = await create();
+  assert.equal((await api(cookie, `/alice/api/sessions/${one.id}/model`, { method: "POST", body: JSON.stringify({ model: "workflow-model", remember: false }) })).status, 200);
+  const row = ((await (await api(cookie, "/alice/api/sessions")).json()) as { id: string; model?: string }[]).find((s) => s.id === one.id)!;
+  assert.equal(row.model, "workflow-model");
+  assert.equal((await create()).model, before, "a new conversation still starts with the person's own choice");
+});
+
 test("isolation: bob's cookie is refused at alice's gateway, and alice's session is unknown at bob's", async () => {
   const alice = await cookieFor("alice", "wonderland");
   const bob = await cookieFor("bob", "builder");

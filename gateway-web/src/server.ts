@@ -39,7 +39,8 @@ export interface GatewayOptions {
 
 const COOKIE = "thetis_web";
 const MODELS_TTL_MS = 60_000;
-const ModelRequestSchema = z.looseObject({ model: z.string().trim().max(200, "model id too long").default("") });
+/** `remember: false` sets this conversation's model without making it the person's default for new ones (a workflow naming its own conversations). */
+const ModelRequestSchema = z.looseObject({ model: z.string().trim().max(200, "model id too long").default(""), remember: z.boolean().default(true) });
 const TitleRequestSchema = z.looseObject({ title: z.string().default("").transform((title) => title.replace(/\s+/g, " ").trim().slice(0, 120)) });
 const ArchiveRequestSchema = z.looseObject({ archived: z.boolean().default(true) });
 /**
@@ -230,9 +231,9 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       }
       if (seg[3] === "model" && seg.length === 4 && method === "POST") {
         await kernel.sessions.inspect(id);
-        const { model } = await readJson(req, ModelRequestSchema);
+        const { model, remember } = await readJson(req, ModelRequestSchema);
         store.setModel(user, id, model);
-        store.setLastModel(user, model);
+        if (remember) store.setLastModel(user, model);
         listChanged(user);
         return json(res, 200, { id, model: model || null });
       }

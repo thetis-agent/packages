@@ -362,10 +362,16 @@ export function createService(env, { broadcast = () => {}, user } = {}) {
         .map(withoutVars);
     },
 
-    /** `{ "<conversation id>": "<title>" }` for every conversation a run opened with a title. */
-    async titles() {
+    /**
+     * What the page should know about the conversations runs opened: `{ "<id>": { title?, model? } }`, the
+     * title the run gave it and the model its last prompt step ran on there.
+     */
+    async conversations() {
       const out = {};
-      for (const r of runs.values()) Object.assign(out, r.titles ?? {});
+      for (const r of runs.values()) {
+        for (const [id, title] of Object.entries(r.titles ?? {})) (out[id] ??= {}).title = title;
+        for (const h of r.history ?? []) if (h.type === "prompt" && h.conversation && h.model) (out[h.conversation] ??= {}).model = h.model;
+      }
       return out;
     },
 

@@ -259,3 +259,14 @@ test("forget refuses a run still going, and deletes a finished one's record with
   await assert.rejects(client.request("run", { id }), /There is no run/);
   await until(() => events.some((e) => e.ev === "forgotten" && e.id === id), 1000, "the forgotten event");
 });
+
+test("conversations answers the title and the last model of every conversation a run opened", async (t) => {
+  const { client } = await withHost(t);
+  const draft = await client.request("create", { name: "Fix" });
+  await client.request("save", { id: draft.id, definition: definition(draft.id) });
+  await client.request("publish", { id: draft.id });
+  const { runs } = await client.request("enqueue", { id: draft.id, text: "bug-7" });
+  await until(async () => (await client.request("run", { id: runs[0].id })).state === "done", 3000, "the run to finish");
+  const run = await client.request("run", { id: runs[0].id });
+  assert.deepEqual(await client.request("conversations", {}), { [run.conversations[0]]: { title: "Fix bug-7", model: "fable" } });
+});
