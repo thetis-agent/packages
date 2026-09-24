@@ -111,7 +111,7 @@ the kernel does not list. Publishing refuses a definition with errors.
                  "toolCalls": 33, "tokens": 112480, "cost": 3.58, "ms": 540000,
                  "breaches": 0, "note": "…", "activity": ["shell: dotnet test …", "…"] } ],
   "cost": 13.61, "costCapUsd": 40,
-  "conversations": ["s_…"], "createdAt": "…", "updatedAt": "…"
+  "conversations": ["s_…"], "titles": { "s_…": "Bug 1083: …" }, "createdAt": "…", "updatedAt": "…"
 }
 ```
 
@@ -146,10 +146,17 @@ a request `{ "i": 1, "op": "…", ...args }`, an answer `{ "i": 1, "ok": true, "
 | `retry` | `id`, `from?` (step id; default the step it stopped at) | the run, queued again from that step, keeping its vars |
 | `approve` | `id`, `decision` (`approved`/`rejected`), `note?` | the run |
 | `queue` | `paused?` | `{ paused, running: [run ids], queued: n }` |
+| `titles` | — | `{ "<conversation id>": "<title>" }` for every conversation a run opened with a `title` |
 | `catalog` | — | `{ models: [{ id, label? }], defaultModel, projects: [{ id, name }], tools: [{ package, export, name, description }] }` |
 | `subscribe` | — | `{ runs: [run…] }` (latest 50, without `vars`); then events `{ ev: "run", run }` (without `vars`) whenever a run changes, `{ ev: "workflow", id }` when a definition changes, `{ ev: "queue", queue }` |
 
 ## The browser side
+
+The sidebar's derived title is the kernel's summary of the first message, newlines collapsed, so a title
+line sent first would run into the prompt. Names live in the web page's own store, so the browser module
+names them: on every page load and list change it asks the service's `titles` once per unnamed conversation it
+has not seen and posts each title to the page's own `api/sessions/<id>/title`. A name the person gave is never
+changed (`ui/titles.js`).
 
 Two UI verbs, both thin clients of the socket:
 

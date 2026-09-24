@@ -339,7 +339,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       createdAt: s.createdAt,
       updatedAt: running ? running.startedAt : s.updatedAt,
       turns: s.turns,
-      title: named ?? clip(headingOf(withoutTurnContextTail(s.first) || running?.input || ""), 60),
+      title: named ?? clip(withoutTurnContextTail(s.first) || running?.input || "", 60),
       named: named !== undefined,
       preview: clip(withoutTurnContextTail(s.last) || running?.input || "", 120),
       archived: archived.has(s.id),
@@ -520,16 +520,6 @@ function totalCost(usage: SessionUsage): number | undefined {
   let total: number | undefined;
   for (const u of Object.values(usage)) if (typeof u.cost === "number") total = (total ?? 0) + u.cost;
   return total;
-}
-
-/**
- * What a derived title is made from: a first message that opens with a short line and then a blank line has
- * a heading, and the heading is the title ("Bug 1083: …" above a workflow's prompt, "# Plan" above notes).
- * Anything else is the message itself, clipped as before.
- */
-function headingOf(text: string): string {
-  const m = /^\s*([^\n]{1,120})\n[ \t]*\n/.exec(text);
-  return m ? m[1] : text;
 }
 
 /** One line of plain text for a sidebar row: markdown markers dropped, whitespace collapsed. */

@@ -58,6 +58,7 @@ test("a full run: tool, parse, prompt on a new conversation, the same conversati
   assert.equal(new Set(kernel.sends.map((s) => s.session)).size, 1);
   assert.equal(kernel.sends[0].input, "Fix: Bug A\n\nPlan the fix for https://notion.so/bug-a.");
   assert.deepEqual(run.conversations, [kernel.sends[0].session]);
+  assert.deepEqual(run.titles, { [kernel.sends[0].session]: "Fix: Bug A" }, "the title is kept for the page to name the conversation");
   const assignments = JSON.parse(await env.readFile("projects/sessions.json"));
   assert.deepEqual(assignments, { [kernel.sends[0].session]: "p_624f67bc" });
 

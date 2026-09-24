@@ -362,6 +362,13 @@ export function createService(env, { broadcast = () => {}, user } = {}) {
         .map(withoutVars);
     },
 
+    /** `{ "<conversation id>": "<title>" }` for every conversation a run opened with a title. */
+    async titles() {
+      const out = {};
+      for (const r of runs.values()) Object.assign(out, r.titles ?? {});
+      return out;
+    },
+
     async run({ id } = {}) {
       return structuredClone(need(id));
     },

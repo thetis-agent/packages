@@ -47,26 +47,6 @@ async function serve(kernel: KernelClient, store: GatewayStore) {
   return { get, close };
 }
 
-test("a first message that opens with a heading line is titled by the heading alone", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "gw-store-"));
-  const store = new GatewayStore(dir);
-  const at = "2026-01-01T00:00:00.000Z";
-  const summaries: Summary[] = [
-    { id: "s_h", user: "alice", createdAt: at, updatedAt: at, turns: 1, first: "Bug 1083 · verify\n\nYou are verifying a fix someone else made.", last: "ok", running: false },
-    { id: "s_p", user: "alice", createdAt: at, updatedAt: "2026-01-02T00:00:00.000Z", turns: 1, first: "Make it so I can drag and drop images\ninto the text box please", last: "ok", running: false },
-  ];
-  const { kernel } = fakeKernel(summaries);
-  const { get, close } = await serve(kernel, store);
-  try {
-    const list = (await get("/api/sessions")) as { id: string; title: string }[];
-    const byId = Object.fromEntries(list.map((s) => [s.id, s.title]));
-    assert.equal(byId.s_h, "Bug 1083 · verify");
-    assert.equal(byId.s_p, "Make it so I can drag and drop images into the text box ple…", "no blank line after the first line: the message, clipped as before");
-  } finally {
-    await close();
-  }
-});
-
 test("the session list comes from the summaries: titles, previews and running from the kernel's fields, no record read", async () => {
   const dir = mkdtempSync(join(tmpdir(), "gw-store-"));
   const store = new GatewayStore(dir);

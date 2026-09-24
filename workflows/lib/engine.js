@@ -354,6 +354,9 @@ async function promptStep(ctx, id, step, resume) {
       await assignProject(ctx, conversation);
       const title = fill(step.title, scope).trim();
       message = title ? `${title}\n\n${body}` : body;
+      // The web page names conversations itself (its store, not the kernel's record), so the title is kept
+      // here for the page to apply: see the `titles` op and ui/titles.js.
+      if (title) run.titles = { ...(run.titles ?? {}), [conversation]: title.replace(/\s+/g, " ").slice(0, 120) };
     } else {
       conversation = run.vars?.[conv]?.conversation;
       if (typeof conversation !== "string" || !conversation) {
