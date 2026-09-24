@@ -135,6 +135,19 @@ export function openRun(host, ctx, { id }) {
       const choices = retryChoices(run, def);
       const from = el("select", { class: "input", "aria-label": "Retry from step" }, ...choices.map((sid) => el("option", { value: sid }, `from ${def.steps[sid]?.label || sid}`)));
       actHost.append(from, button(ext, "Retry", { icon: "retry", disabled: busy || !choices.length, onClick: () => act("Retry", "retry", from.value ? { from: from.value } : {}, `Queued again from ${from.value}.`) }));
+      const forget = button(ext, "Remove from list", { icon: "x", disabled: busy });
+      forget.addEventListener("click", async () => {
+        const ok = await ext.ui.confirm(forget, { title: "Remove this run from the list?", lines: [["Run", `${run.name} #${run.number}`], ["State", run.state]], note: "Its record is deleted. The conversations it opened stay, and so does anything it committed.", confirmLabel: "Remove", tone: "warn" });
+        if (!ok) return;
+        try {
+          await call("forget", { id });
+          ext.toast("The run is removed from the list.", { tone: "ok" });
+          go.library();
+        } catch (err) {
+          ext.toast(err?.message || "The run could not be removed.", { tone: "error" });
+        }
+      });
+      actHost.append(forget);
     }
   }
 

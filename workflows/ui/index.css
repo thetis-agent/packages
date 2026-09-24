@@ -183,10 +183,11 @@ button.wf-crumb:hover { color: var(--text); background: var(--surface-3); }
 }
 .wf-name-input:hover { border-color: var(--hairline-strong); }
 .wf-name-input:focus { outline: none; border-color: var(--accent-edge); background: var(--surface-2); box-shadow: 0 0 0 3px var(--glow); }
-.wf-bar-version { flex: 0 1 auto; display: flex; align-items: center; gap: var(--gap-2); min-width: 0; }
+/* The version block takes only the room left over, so the hint shortens (ellipsis) before the bar wraps. */
+.wf-bar-version { flex: 1 1 0; display: flex; align-items: center; gap: var(--gap-2); min-width: 0; }
 .wf-version { font-family: var(--mono); font-size: var(--text-xs); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; padding: 1px 8px; border: 1px solid var(--hairline-strong); border-radius: var(--r-pill); }
 .wf-bar-hint { font-size: var(--text-xs); color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.wf-bar-tools { margin-left: auto; display: flex; align-items: center; gap: var(--gap-2); flex-wrap: wrap; justify-content: flex-end; }
+.wf-bar-tools { flex: none; margin-left: auto; display: flex; align-items: center; gap: var(--gap-2); flex-wrap: wrap; justify-content: flex-end; }
 .wf-save { font-size: var(--text-xs); color: var(--text-faint); white-space: nowrap; }
 .wf-save.is-err { color: var(--err); white-space: normal; }
 .wf-cap { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--text-dim); white-space: nowrap; }

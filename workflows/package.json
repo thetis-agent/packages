@@ -1,6 +1,6 @@
 {
   "name": "@thetis/workflows",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "license": "MIT",
   "description": "Workflows: graphs of prompts, tool calls, parsing and branches that run unattended in your own conversations, with a visual editor and a run view.",
   "type": "module",

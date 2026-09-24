@@ -17,6 +17,9 @@ import { renderInspector } from "./inspector.js";
 import { button, chooser, crumbs, iconButton } from "./parts.js";
 import { FLOW_FIELDS, GROUPS, TYPES, budgetLine, freshId, newStep, nodeSummary, removeStep, renameStep } from "./steps.js";
 
+/** The version hint: shortened by the bar when room runs out, so the whole sentence is its tooltip too. */
+const hint = (text) => { const span = document.createElement("span"); span.className = "wf-bar-hint"; span.title = text; span.textContent = text; return span; };
+
 const SAVE_DELAY = 700;
 
 export function openEditor(host, ctx, { id }) {
@@ -467,7 +470,7 @@ export function openEditor(host, ctx, { id }) {
       "header",
       { class: "wf-bar" },
       crumbs(ext, [{ label: "Workflows", onClick: () => { void flush(); go.library(); } }, { node: nameInput }]),
-      el("div", { class: "wf-bar-version" }, versionText, el("span", { class: "wf-bar-hint" }, running ? `${running} run${running === 1 ? "" : "s"} in progress keep${running === 1 ? "s" : ""} the version queued with` : "A run keeps the version it was queued with")),
+      el("div", { class: "wf-bar-version" }, versionText, hint(running ? `${running} run${running === 1 ? "" : "s"} in progress keep${running === 1 ? "s" : ""} the version queued with` : "A run keeps the version it was queued with")),
       el("div", { class: "wf-bar-tools" }, saveText, el("label", { class: "wf-cap", for: "wf-cap", title: "Cost cap per run, in US dollars" }, "Cap $", capInput), validateBtn, publishBtn, inspToggle)
     );
     issuesHost = el("div", { class: "wf-issues", id: "wf-issues", hidden: true, role: "region", "aria-label": "Validation issues" });

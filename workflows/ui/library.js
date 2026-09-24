@@ -294,7 +294,7 @@ export function openLibrary(host, ctx) {
   }
 
   const unlisten = feed.listen((change) => {
-    if (change.kind === "snapshot" || change.kind === "run" || change.kind === "status") queueRunsDraw();
+    if (change.kind === "snapshot" || change.kind === "run" || change.kind === "forgotten" || change.kind === "status") queueRunsDraw();
     if (change.kind === "run" || change.kind === "workflow") {
       if (change.kind === "workflow") inputs.delete(change.id);
       scheduleRefresh(); // the counts and "last run" come from `list`

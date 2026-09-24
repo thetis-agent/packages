@@ -20,9 +20,9 @@ import {
   writeDraft,
 } from "./definition.js";
 import { firstError, validate } from "./validate.js";
-import { ACTIVE, isActive, newRun, newestFirst, oldestFirst, readQueue, readRuns, writeQueue, writeRun, withoutVars } from "./runs.js";
+import { ACTIVE, isActive, newRun, newestFirst, oldestFirst, readQueue, readRuns, runPath, writeQueue, writeRun, withoutVars } from "./runs.js";
 import { decide, executeRun, retry } from "./engine.js";
-import { list as listDir, readJson } from "./files.js";
+import { list as listDir, readJson, remove as removeFile } from "./files.js";
 
 export const DEFAULT_CONCURRENCY = 1;
 export const DEFAULT_COST_CAP = 40;
@@ -371,6 +371,20 @@ export function createService(env, { broadcast = () => {}, user } = {}) {
 
     async run({ id } = {}) {
       return structuredClone(need(id));
+    },
+
+    /** Deletes a finished run's record: the list is the person's to tidy. A run still going is refused. */
+    async forget({ id } = {}) {
+      const run = need(id);
+      if (isActive(run) || executing.has(id)) fail(`Run ${id} is ${run.state}; cancel it before removing it from the list.`);
+      const w = writers.get(id);
+      if (w?.busy) await w.busy.catch(() => {});
+      writers.delete(id);
+      runs.delete(id);
+      await removeFile(home, runPath(id));
+      broadcast({ ev: "forgotten", id });
+      log(`workflows: removed run ${id} from the list`);
+      return {};
     },
 
     async cancel({ id } = {}) {

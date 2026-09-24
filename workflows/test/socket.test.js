@@ -242,3 +242,20 @@ test("every op the service answers can be called from the page", async () => {
   const answered = Object.keys(service.ops).filter((op) => op !== "subscribe");
   assert.deepEqual(answered.filter((op) => !OPS.has(op)), [], "an op the page's `call` verb refuses");
 });
+
+test("forget refuses a run still going, and deletes a finished one's record with an event", async (t) => {
+  const { client, home } = await withHost(t, { script: () => [{ hang: true }] });
+  const draft = await client.request("create", { name: "Tidy" });
+  await client.request("save", { id: draft.id, definition: definition(draft.id) });
+  await client.request("publish", { id: draft.id });
+  const { runs } = await client.request("enqueue", { id: draft.id, text: "one" });
+  const id = runs[0].id;
+  await assert.rejects(client.request("forget", { id }), /cancel it before removing it/);
+  await client.request("cancel", { id });
+  const events = [];
+  await client.subscribe((e) => events.push(e));
+  assert.deepEqual(await client.request("forget", { id }), {});
+  await assert.rejects(stat(resolve(home, "workflows/runs", `${id}.json`)), /ENOENT/);
+  await assert.rejects(client.request("run", { id }), /There is no run/);
+  await until(() => events.some((e) => e.ev === "forgotten" && e.id === id), 1000, "the forgotten event");
+});

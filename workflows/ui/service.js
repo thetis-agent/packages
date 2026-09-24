@@ -41,6 +41,9 @@ export function createService(ext) {
       } else if (event.ev === "run" && event.run?.id) {
         runs.set(event.run.id, { ...runs.get(event.run.id), ...event.run });
         emit({ kind: "run", run: event.run });
+      } else if (event.ev === "forgotten" && event.id) {
+        runs.delete(event.id);
+        emit({ kind: "forgotten", id: event.id });
       } else if (event.ev === "workflow") {
         emit({ kind: "workflow", id: event.id });
       } else if (event.ev === "queue" && event.queue) {
