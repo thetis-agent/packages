@@ -1,6 +1,6 @@
 {
   "name": "@thetis/projects",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "license": "MIT",
   "description": "Named workspaces: zero or more project directories, standing instructions, and a per-project set of tools, chosen from a switcher in the web gateway's sidebar.",
   "type": "module",

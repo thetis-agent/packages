@@ -288,7 +288,10 @@ export function openRun(host, ctx, { id }) {
     if (!lines.length) return null;
     const list = el("ol", { class: "wf-activity" }, ...lines.slice(live ? -8 : 0).map((line) => el("li", { class: "wf-mono" }, svgIcon("terminal", { size: 11 }), el("span", {}, line))));
     if (live) return el("div", { class: "wf-live" }, el("span", { class: "wf-live-h" }, el("span", { class: "wf-pulse", "aria-hidden": "true" }), "Live · latest tool calls"), list);
-    return el("details", { class: "wf-text" }, el("summary", {}, `Tool calls (${lines.length})`), list);
+    // The run keeps only the last few calls of a step; say so when the step made more.
+    const total = Number(h.toolCalls) || lines.length;
+    const label = total > lines.length ? `Last ${lines.length} of ${total} tool calls` : `Tool calls (${lines.length})`;
+    return el("details", { class: "wf-text" }, el("summary", {}, label), list);
   }
 
   function selectStep(sid, fromCanvas) {

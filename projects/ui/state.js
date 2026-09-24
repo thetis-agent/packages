@@ -3,7 +3,8 @@
  * missing or blocked). Choosing a project narrows the sidebar through `ext.sessions.filter`; the filter
  * reads the live map, so a new assignment shows as soon as the filter is set again. The shell's local
  * creation event assigns a conversation to the chosen project before opening or sending to it. A list
- * update may come from another browser tab, so it never assigns anything. Watchers are told after every
+ * update may come from another browser tab, so it never assigns anything; a conversation the map has no entry
+ * for makes the map be read again once, because a workflow's service may have assigned it. Watchers are told after every
  * change; the switcher and the place redraw from here. */
 
 const KEY = "thetis.project";
@@ -43,8 +44,27 @@ export function createState(ext) {
     }
   };
 
+  // A conversation this page has not seen may have been assigned by someone else: a workflow run opens
+  // conversations and assigns them from its service. The first time the filter meets an id the map has
+  // no entry for, the map is read again (once per id, and one read for a burst of them).
+  const checked = new Set();
+  let recheck = null;
+  function unseen(id) {
+    if (checked.has(id)) return;
+    checked.add(id);
+    clearTimeout(recheck);
+    recheck = setTimeout(() => void refresh(), 400);
+  }
+
   function applyFilter() {
-    ext.sessions.filter(chosen ? (s) => assignments[s.id] === chosen : null);
+    ext.sessions.filter(
+      chosen
+        ? (s) => {
+            if (!(s.id in assignments)) unseen(s.id);
+            return assignments[s.id] === chosen;
+          }
+        : null,
+    );
   }
 
   /** Reads the list again. Errors go to the console: the switcher shows what it last knew. */

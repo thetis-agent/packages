@@ -95,3 +95,30 @@ test("a list captured before creation cannot replace a successful project assign
   assert.equal(own.state.assignments.s_9, projects[0].id);
   assert.equal(own.state.projects[0].conversations, 1);
 });
+
+test("a conversation assigned by someone else is picked up the first time the filter meets it", async () => {
+  let server = {};
+  let reads = 0;
+  let filter = null;
+  const ext = {
+    conversation: { current: null },
+    sessions: { list: () => [], filter: (fn) => { filter = fn; }, watch: () => {}, onCreate: () => () => {} },
+    request: async () => { reads++; return { data: { projects: structuredClone(projects), assignments: { ...server } } }; },
+    toast: () => {},
+  };
+  const state = createState(ext);
+  await state.refresh();
+  state.choose(projects[0].id);
+  // A workflow's service assigns a conversation this page has never seen.
+  server = { s_wf: projects[0].id };
+  assert.equal(filter({ id: "s_wf" }), false, "unknown until the map is read again");
+  assert.equal(filter({ id: "s_other" }), false);
+  const before = reads;
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(reads - before, 1, "one read for a burst of unseen ids");
+  assert.equal(filter({ id: "s_wf" }), true);
+  filter({ id: "s_other" });
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  assert.equal(reads - before, 1, "an id already checked never causes another read");
+});
