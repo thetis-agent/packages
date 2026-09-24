@@ -12,7 +12,7 @@ Suites: [`assembly-cost@1`](#suite-assembly-cost-v1), [`tool-recall@1`](#suite-t
 What a package costs the prompt before anything is retrieved: bytes by segment, how much of the prefix survives a turn, and how long assembly takes. No gold, no corpus, no adapter — any package with a step or a tool can opt in.
 
 7 tasks (2 of them controls), probe A.
-Generated 2026-09-23T09:32:09.349Z. Digest `sha256:929f900d568c…`.
+Generated 2026-09-24T10:14:29.083Z. Digest `sha256:1524f1c081c0…`.
 
 ### Compared
 
@@ -20,11 +20,11 @@ Only numbers every arm can produce appear here, and only those on which the arms
 
 | arm | bytes_system | bytes_tools | bytes_turn1 | bytes_last | prefix_stable | tools_n | steps_n | non_ascii_ratio |
 |---|---|---|---|---|---|---|---|---|
-| none | 1027 ±0 | 2 ±0 | 1132.7 ±21 | 1281.4 ±42.3 | 1.001 ±0 | 0 ±0 | 12 ±0 | 0 ±0 |
-| **thetis-tool-groups** | 1055 ±0 | 825 ±0 | 1983.7 ±20.6 | 2132.4 ±43 | 1.001 ±0 | 1 ±0 | 20 ±0 | 0 ±0 |
-| thetis-tool-groups-lexical | 1071 ±0 | 825 ±0 | 1999.7 ±21.7 | 2148.4 ±42.4 | 1.001 ±0 | 1 ±0 | 20 ±0 | 0 ±0 |
-| thetis-tool-groups-fusion | 1069 ±0 | 825 ±0 | 1997.7 ±21 | 2146.4 ±41.1 | 1.001 ±0 | 1 ±0 | 20 ±0 | 0 ±0 |
-| all | 2456.9 ±1.929 | 4428 ±3135.3 | 6988.6 ±3156.1 | 7137.3 ±3161.1 | 1 ±0 | 6.143 ±4.929 | 38 ±0 | 0.010 ±0 |
+| none | 1027 ±0 | 2 ±0 | 1166.7 ±21 | 1383.4 ±42.3 | 1.001 ±0 | 0 ±0 | 12 ±0 | 0 ±0 |
+| **thetis-tool-groups** | 1055 ±0 | 825 ±0 | 2017.7 ±20.6 | 2234.4 ±43 | 1.001 ±0 | 1 ±0 | 20 ±0 | 0 ±0 |
+| thetis-tool-groups-lexical | 1071 ±0 | 825 ±0 | 2033.7 ±21.7 | 2250.4 ±42.4 | 1.001 ±0 | 1 ±0 | 20 ±0 | 0 ±0 |
+| thetis-tool-groups-fusion | 1069 ±0 | 825 ±0 | 2031.7 ±21 | 2248.4 ±41.1 | 1.001 ±0 | 1 ±0 | 20 ±0 | 0 ±0 |
+| all | 2456.9 ±1.929 | 4428 ±3135.3 | 7022.6 ±3156.1 | 7239.3 ±3161.1 | 1 ±0 | 6.143 ±4.929 | 38 ±0 | 0.010 ±0 |
 
 ![assembly-cost@1 comparison](bench/assembly-cost-v1/chart.svg)
 
@@ -69,10 +69,10 @@ Two reports are comparable only when these match.
 |---|---|
 | suite | assembly-cost@1 (sha256:9efc984d505f…) |
 | corpus | none |
-| arms | none; thetis-tool-groups (@thetis/tool-groups@0.2.0); thetis-tool-groups-lexical (@thetis/tool-groups@0.2.0); thetis-tool-groups-fusion (@thetis/tool-groups@0.2.0); all (@thetis/exa@0.1.0, @thetis/skills-all@0.1.0, @thetis/skills-hybrid@0.2.2, @thetis/skills-l1@0.1.0, @thetis/terminal@0.1.1, @thetis/tool-exec@0.3.1, @thetis/tool-groups@0.2.0, @thetis/tools-files@0.2.1, @thetis/tools-plan@0.3.1) |
+| arms | none; thetis-tool-groups (@thetis/tool-groups@0.2.1); thetis-tool-groups-lexical (@thetis/tool-groups@0.2.1); thetis-tool-groups-fusion (@thetis/tool-groups@0.2.1); all (@thetis/exa@0.1.0, @thetis/skills-all@0.1.0, @thetis/skills-hybrid@0.2.3, @thetis/skills-l1@0.1.0, @thetis/terminal@0.1.2, @thetis/tool-exec@0.3.2, @thetis/tool-groups@0.2.1, @thetis/tools-files@0.2.1, @thetis/tools-plan@0.3.1) |
 | model | none — this probe needs no model |
 | sandbox | auto |
-| scorer | @thetis/bench@0.4.0 |
+| scorer | @thetis/bench@0.4.1 |
 
 ### Notes
 
@@ -91,7 +91,7 @@ Regenerate with `npm run bench -- run assembly-cost@1`. This section is rewritte
 Given a request, which tool groups did the harness put in the call, and what did the rest cost? Every arm gets the same corpus of tool groups as installed packages; a routing arm decides which to attach, and is scored on the canaries in the tool segment against the groups the task names.
 
 75 tasks (6 of them controls), probe A.
-Generated 2026-09-22T08:10:36.530Z. Digest `sha256:8b219c56bf47…`.
+Generated 2026-09-24T10:15:53.286Z. Digest `sha256:bb8925f47a3d…`.
 
 ### Compared
 
@@ -99,10 +99,10 @@ Only numbers every arm can produce appear here, and only those on which the arms
 
 | arm | bytes_system | bytes_tools | bytes_turn1 | bytes_last | tools_n | steps_n | non_ascii_ratio | direct_n | route_recall | route_precision | route_f1 | routed_nothing | surface_tools |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| none | 1027 ±0 | 15106 ±0 | 16231.1 ±4.400 | 16374.3 ±8.880 | 110 ±0 | 14 ±0 | 0 ±0 | 21 ±0 | 1 ±0 | 0.051 ±0.002 | 0.098 ±0.003 | 0 ±0 | 110 ±0 |
-| **thetis-tool-groups** | 3180.6 ±0.420 | 2673.7 ±138.9 | 5952.5 ±143.3 | 6095.6 ±150.8 | 14.3 ±1.007 | 22 ±0 | 0.019 ±0 | 2.120 ±0.140 | 0.790 ±0.091 | 0.688 ±0.091 | 0.720 ±0.089 | 0.087 ±0.065 | 13.3 ±1.067 |
-| thetis-tool-groups-lexical | 3198.6 ±0.420 | 2174.5 ±122.9 | 5471.3 ±125.6 | 5614.4 ±113.7 | 10.7 ±0.847 | 22 ±0 | 0.019 ±0 | 1.480 ±0.140 | 0.413 ±0.109 | 0.391 ±0.109 | 0.396 ±0.106 | 0.551 ±0.116 | 9.707 ±0.853 |
-| thetis-tool-groups-fusion | 3194.1 ±0.480 | 2812.1 ±156.6 | 6104.3 ±156.2 | 6247.5 ±163.4 | 15.3 ±1.113 | 22 ±0 | 0.019 ±0 | 2.293 ±0.160 | 0.819 ±0.087 | 0.623 ±0.087 | 0.688 ±0.082 | 0.087 ±0.065 | 14.3 ±1.120 |
+| none | 1027 ±0 | 15106 ±0 | 16265.1 ±4.400 | 16476.3 ±8.880 | 110 ±0 | 14 ±0 | 0 ±0 | 21 ±0 | 1 ±0 | 0.051 ±0.002 | 0.098 ±0.003 | 0 ±0 | 110 ±0 |
+| **thetis-tool-groups** | 3180.6 ±0.420 | 2673.7 ±138.9 | 5986.5 ±143.3 | 6197.6 ±150.8 | 14.3 ±1.007 | 22 ±0 | 0.019 ±0 | 2.120 ±0.140 | 0.790 ±0.091 | 0.688 ±0.091 | 0.720 ±0.089 | 0.087 ±0.065 | 13.3 ±1.067 |
+| thetis-tool-groups-lexical | 3198.6 ±0.420 | 2174.5 ±122.9 | 5505.3 ±125.6 | 5716.4 ±113.7 | 10.7 ±0.847 | 22 ±0 | 0.019 ±0 | 1.480 ±0.140 | 0.413 ±0.109 | 0.391 ±0.109 | 0.396 ±0.106 | 0.551 ±0.116 | 9.707 ±0.853 |
+| thetis-tool-groups-fusion | 3194.1 ±0.480 | 2812.1 ±156.6 | 6138.3 ±156.2 | 6349.5 ±163.4 | 15.3 ±1.113 | 22 ±0 | 0.019 ±0 | 2.293 ±0.160 | 0.819 ±0.087 | 0.623 ±0.087 | 0.688 ±0.082 | 0.087 ±0.065 | 14.3 ±1.120 |
 
 ![tool-recall@1 comparison](bench/tool-recall-v1/chart.svg)
 
@@ -123,9 +123,9 @@ Absolute milliseconds are not committed: the fence opens lazily, the sandbox mod
 | arm | steps | assembly vs floor |
 |---|---|---|
 | none | 14 | floor |
-| thetis-tool-groups | 22 | 2.6× |
-| thetis-tool-groups-lexical | 22 | 2.2× |
-| thetis-tool-groups-fusion | 22 | 2.4× |
+| thetis-tool-groups | 22 | 2.4× |
+| thetis-tool-groups-lexical | 22 | 2.3× |
+| thetis-tool-groups-fusion | 22 | 3.1× |
 
 ### Conformance
 
@@ -144,10 +144,10 @@ Two reports are comparable only when these match.
 |---|---|
 | suite | tool-recall@1 (sha256:18cf90fb4e4d…) |
 | corpus | tool-groups@1, 21 records |
-| arms | none; thetis-tool-groups (@thetis/tool-groups@0.2.0); thetis-tool-groups-lexical (@thetis/tool-groups@0.2.0); thetis-tool-groups-fusion (@thetis/tool-groups@0.2.0) |
+| arms | none; thetis-tool-groups (@thetis/tool-groups@0.2.1); thetis-tool-groups-lexical (@thetis/tool-groups@0.2.1); thetis-tool-groups-fusion (@thetis/tool-groups@0.2.1) |
 | model | none — this probe needs no model |
 | sandbox | auto |
-| scorer | @thetis/bench@0.4.0 |
+| scorer | @thetis/bench@0.4.1 |
 
 ### Notes
 
