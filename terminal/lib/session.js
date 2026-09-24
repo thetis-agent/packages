@@ -151,6 +151,9 @@ function stripEcho(text, sent, prompted = false) {
   const first = (nl === -1 ? text : text.slice(0, nl)).trim();
   // Readline can horizontally scroll a long input line, displaying only a '<'-prefixed suffix.
   const scrolled = first.length > 1 && first.startsWith("<") && want.endsWith(first.slice(1));
+  // With the terminal's echo off (`stty -echo`) the line is not shown, only the Enter that ended it. An
+  // echoing terminal always shows the command first, so an empty first line can only be that Enter.
+  if (nl !== -1 && first === "" && text.slice(0, nl).trim() === "") return text.slice(nl + 1);
   if (first !== want && !scrolled && !(prompted && first.endsWith(want))) return text;
   return nl === -1 ? "" : text.slice(nl + 1);
 }
