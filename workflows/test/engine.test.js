@@ -14,7 +14,7 @@ async function go(t, definition, script, { input = "https://notion.so/bug-a", ca
   t.after(f.done);
   run = run ?? newRun({ definition, input, number: 1, costCapUsd: cap, id: "r_0000000001" });
   const saves = [];
-  const deps = { kernel, env: f.env, save: (r) => saves.push(structuredClone(r)), touch: () => {}, user: "alice", graceMs: 2000 };
+  const deps = { kernel, env: f.env, save: (r) => saves.push(structuredClone(r)), touch: () => {}, user: "alice", graceMs: 2000, transientWaitMs: 1 };
   await executeRun(run, definition, deps);
   return { run, kernel, env: f.env, home: f.home, invoked: f.invoked, saves, deps };
 }
@@ -207,10 +207,57 @@ test("rejecting an approval with no onReject cancels the run", async (t) => {
 
 test("an error event fails the step and the run", async (t) => {
   const definition = def({ work: { type: "prompt", model: "opus", prompt: "x", budget: { toolCalls: 9 }, next: "finish" }, finish: { type: "done", summary: "" } });
-  const { run } = await go(t, definition, () => [{ type: "error", message: "provider error: 529 overloaded", code: "provider" }]);
+  const { run } = await go(t, definition, () => [{ type: "error", message: "the model refused the request: context too long", code: "provider" }]);
   assert.equal(run.state, "failed");
-  assert.match(run.reason, /Step "work" failed: provider error: 529 overloaded/);
+  assert.match(run.reason, /Step "work" failed: the model refused the request: context too long/);
   assert.equal(run.history[0].status, "failed");
+});
+
+test("provider trouble continues the same conversation, keeping the step's budget; the third time fails", async (t) => {
+  const definition = def({ work: { type: "prompt", model: "opus", prompt: "x", budget: { toolCalls: 3 }, next: "finish" }, finish: { type: "done", summary: "{{work.text}}" } });
+  const timeout = { type: "error", message: "provider error: no response from openrouter within 180s", code: "provider" };
+  const { run, kernel } = await go(t, definition, (call) => (call.n === 0 ? [toolCall("read"), toolCall("read"), timeout] : reply("Plan written.")));
+  assert.equal(run.state, "done", run.reason);
+  assert.equal(run.reason, "Plan written.");
+  assert.equal(kernel.sends.length, 2);
+  assert.equal(kernel.sends[1].session, kernel.sends[0].session);
+  assert.equal(kernel.sends[1].input, CONTINUE_MESSAGE);
+  assert.equal(run.history[0].breaches, 0);
+
+  // The budget carries across the continuation: two calls before the trouble, two after, over a budget of three.
+  const over = await go(t, definition, (call) => (call.n === 0 ? [toolCall("a"), toolCall("b"), timeout] : call.n === 1 ? [toolCall("c"), toolCall("d")] : reply("ok")));
+  assert.equal(over.run.history[0].breaches, 1, "the carried count breached the budget");
+
+  const down = await go(t, definition, () => [timeout]);
+  assert.equal(down.run.state, "failed");
+  assert.equal(down.kernel.sends.length, 3);
+  assert.match(down.run.reason, /no response from openrouter/);
+});
+
+test("retrying a run at the prompt step it failed in continues that conversation", async (t) => {
+  const definition = def({ work: { type: "prompt", model: "opus", prompt: "x", conversation: "new", next: "finish" }, finish: { type: "done", summary: "{{work.text}}" } });
+  let down = true;
+  const { run, kernel, deps } = await go(t, definition, () => (down ? [{ type: "error", message: "provider error: 503", code: "provider" }] : reply("Recovered.")));
+  assert.equal(run.state, "failed");
+  const conversation = run.history[0].conversation;
+  const opened = kernel.creates ?? null;
+  down = false;
+  retry(run, definition);
+  assert.equal(run.state, "queued");
+  assert.equal(run.history[0].status, "running");
+  await executeRun(run, definition, deps);
+  assert.equal(run.state, "done", run.reason);
+  assert.equal(run.reason, "Recovered.");
+  assert.equal(kernel.sends.at(-1).session, conversation);
+  assert.equal(kernel.sends.at(-1).input, CONTINUE_MESSAGE);
+  assert.equal(run.conversations.length, 1, "no new conversation");
+  assert.equal(run.resume, undefined);
+  void opened;
+
+  // From another step, or a step that never opened a conversation, a retry starts that step afresh.
+  run.state = "failed";
+  retry(run, definition, "work");
+  assert.equal(run.resume, undefined);
 });
 
 test("a rejected send fails the run; a tool error takes onError or fails", async (t) => {

@@ -84,6 +84,11 @@ For a `prompt` step the engine counts, from the turn's events: `tool.call` event
    the same conversation on the same model, with the budget counters reset;
 2. **second breach** — the turn is cancelled and the run goes to `onBreach`.
 
+A turn that fails with provider trouble (no response, a timeout, a rate limit, 429 or 5xx, overloaded) is
+not the step's failure: after a wait (30 s, then 60 s) the same conversation is sent *"Your previous turn was
+interrupted. Continue where you left off."*, at most twice, with the budget counters carried over. Any other
+error, or a third, fails the step.
+
 The cost of a run is the sum of `usage.cost` over its turns. When it reaches the cap the running turn is
 cancelled and the run ends as needs-you with the reason `Cost cap of $X reached`.
 
@@ -143,7 +148,7 @@ a request `{ "i": 1, "op": "…", ...args }`, an answer `{ "i": 1, "ok": true, "
 | `runs` | `workflow?`, `limit?` | `[run…]` newest first, without `vars` |
 | `run` | `id` | the full run |
 | `cancel` | `id` | the run (a running turn is cancelled) |
-| `retry` | `id`, `from?` (step id; default the step it stopped at) | the run, queued again from that step, keeping its vars |
+| `retry` | `id`, `from?` (step id; default the step it stopped at) | the run, queued again from that step, keeping its vars; retried at the `prompt` step it failed in, that step's conversation is continued (the continue message) rather than started again |
 | `approve` | `id`, `decision` (`approved`/`rejected`), `note?` | the run |
 | `queue` | `paused?` | `{ paused, running: [run ids], queued: n }` |
 | `conversations` | — | `{ "<conversation id>": { title?, model? } }` for every conversation a run opened: the title it gave and the model its last prompt step ran on there |

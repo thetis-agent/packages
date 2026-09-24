@@ -14,7 +14,11 @@ import { sourcesOf } from "./validate.js";
 import { isProjectId } from "./definition.js";
 
 export const DEFAULT_NUDGE = "Budget reached. Stop exploring and finish now with what you have; say plainly what is unverified.";
-export const CONTINUE_MESSAGE = "Your previous turn was interrupted by a restart. Continue where you left off.";
+export const CONTINUE_MESSAGE = "Your previous turn was interrupted. Continue where you left off.";
+/** A turn that fails this way is the provider's trouble, not the step's: the conversation is continued. */
+export const TRANSIENT_ERROR = /provider error|no response|timed? ?out|rate.?limit|overloaded|\b(429|5\d\d)\b|ECONNRESET|ETIMEDOUT|socket hang up|fetch failed/i;
+export const TRANSIENT_RETRIES = 2;
+export const TRANSIENT_WAIT_MS = 30_000;
 /** Steps one execution may take before it is judged to be going round a cycle with no loop step in it. */
 export const MAX_STEPS = 1000;
 /** How long a cancelled turn is given to end on its own before the send is abandoned. */
@@ -88,7 +92,9 @@ export async function executeRun(run, definition, deps) {
   const aborted = () => deps.signal?.aborted === true;
   run.state = "running";
   run.reason = "";
-  let resume = deps.resume === true;
+  // `retry` marks a run whose failed prompt step should continue its conversation rather than start over.
+  let resume = deps.resume === true || run.resume === true;
+  delete run.resume;
   if (resume) {
     // An entry left running by the stopped service belongs to the current step only if it is the last one;
     // anything else left running is stale and is closed as interrupted.
@@ -188,14 +194,15 @@ const route = (target, state, reason) => (typeof target === "string" && target ?
  *
  * Answers `{ kind }`: `done` (with `reply`), `breach`, `cap`, `error` (with `message`) or `aborted`.
  */
-async function turn(ctx, { conversation, message, model, entry, budget }) {
+async function turn(ctx, { conversation, message, model, entry, budget, seg: carried }) {
   const { run, kernel, deps } = ctx;
   const own = new AbortController();
   const onOuter = () => own.abort();
   deps.signal?.addEventListener("abort", onOuter, { once: true });
   if (deps.signal?.aborted) own.abort();
   const cap = Number(run.costCapUsd);
-  const seg = { toolCalls: 0, tokens: 0 };
+  const seg = carried ?? { toolCalls: 0, tokens: 0, startedAt: Date.now() };
+  seg.startedAt ??= Date.now();
   let stop = null; // "breach" | "cap"
   let failure = null;
   let reply = "";
@@ -262,7 +269,7 @@ async function turn(ctx, { conversation, message, model, entry, budget }) {
   };
 
   if (budget?.minutes) {
-    clock = setTimeout(() => halt("breach"), budget.minutes * 60_000);
+    clock = setTimeout(() => halt("breach"), Math.max(0, budget.minutes * 60_000 - (Date.now() - seg.startedAt)));
     clock.unref?.();
   }
   if (Number.isFinite(cap) && cap > 0 && run.cost >= cap) {
@@ -281,12 +288,24 @@ async function turn(ctx, { conversation, message, model, entry, budget }) {
   }
   if (deps.signal?.aborted) return { kind: "aborted", reply };
   if (stop === "cap" || (Number.isFinite(cap) && cap > 0 && run.cost >= cap)) return { kind: "cap", reply };
-  if (failure) return { kind: "error", message: failure, reply };
+  if (failure) return { kind: "error", message: failure, reply, seg };
   if (stop === "breach") return { kind: "breach", reply };
   return { kind: "done", reply };
 }
 
 const round = (n) => Math.round(n * 1e6) / 1e6;
+
+/** Waits `ms`, or less if the run is aborted; true when the wait ran its course. */
+function pause(ctx, ms) {
+  const signal = ctx.deps.signal;
+  if (signal?.aborted) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const done = (ok) => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); resolve(ok); };
+    const onAbort = () => done(false);
+    const timer = setTimeout(() => done(true), ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
 const capReason = (run) => `Cost cap of ${dollars(Number(run.costCapUsd))} reached`;
 
 // ---- the steps ----
@@ -333,8 +352,11 @@ async function promptStep(ctx, id, step, resume) {
 
   if (entry && conversation) {
     // Resume: a finished turn is taken as the step's result; anything else is continued once.
+    // A step retried after a failure is continued, never taken as finished: its last reply was not its result.
+    const retried = entry.retried === true;
+    delete entry.retried;
     const rec = await waitIdle(ctx, conversation, 0);
-    const done = rec && rec.status !== "running" && !rec.turn ? finishedReply(rec) : null;
+    const done = !retried && rec && rec.status !== "running" && !rec.turn ? finishedReply(rec) : null;
     if (done !== null) return finishPrompt(ctx, id, step, entry, conversation, done);
     if (rec?.status === "running") {
       await kernel.sessions.cancel(conversation).catch(() => {});
@@ -369,14 +391,28 @@ async function promptStep(ctx, id, step, resume) {
   }
   await ctx.save();
 
+  let seg;
+  let transient = 0;
   for (;;) {
-    const out = await turn(ctx, { conversation, message, model, entry, budget });
+    const out = await turn(ctx, { conversation, message, model, entry, budget, seg });
+    seg = undefined;
     if (out.reply) reply = out.reply;
     if (out.kind === "aborted") return { end: null };
     if (out.kind === "cap") {
       close(ctx, entry, "failed", capReason(run));
       saveVars(ctx, id, entry, conversation, reply);
       return { end: "needs", reason: capReason(run) };
+    }
+    if (out.kind === "error" && TRANSIENT_ERROR.test(out.message) && transient < TRANSIENT_RETRIES) {
+      // The work so far is in the conversation; losing it to a provider hiccup would throw away the step.
+      transient++;
+      entry.note = `Provider trouble (${out.message.slice(0, 120)}); continuing the conversation, attempt ${transient} of ${TRANSIENT_RETRIES}.`;
+      await ctx.save();
+      if (!(await pause(ctx, (ctx.deps.transientWaitMs ?? TRANSIENT_WAIT_MS) * transient))) return { end: null };
+      await waitIdle(ctx, conversation);
+      seg = out.seg;
+      message = CONTINUE_MESSAGE;
+      continue;
     }
     if (out.kind === "error") {
       close(ctx, entry, "failed", out.message);
@@ -608,6 +644,15 @@ export function retry(run, definition, from, now = nowIso()) {
   if (["queued", "running", "waiting"].includes(run.state)) throw new Error(`Run ${run.id} is ${run.state}; only an ended run can be retried. Cancel it first.`);
   const step = from ?? run.step;
   if (!definition.steps?.[step]) throw new Error(`Version ${run.version} of this workflow has no step "${step}".`);
+  // Retried at the prompt step it failed in: that conversation holds the work so far, so it is continued.
+  const last = run.history?.at(-1);
+  if (last && last.step === step && last.type === "prompt" && last.status === "failed" && last.conversation && definition.steps[step].type === "prompt") {
+    last.status = "running";
+    delete last.endedAt;
+    last.note = "Retried; continuing its conversation.";
+    last.retried = true;
+    run.resume = true;
+  }
   run.state = "queued";
   run.step = step;
   run.reason = "";

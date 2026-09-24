@@ -213,7 +213,7 @@ test("stop lets go of a running run without cancelling it; the next start resume
   const again = await startWorkflows(f.env);
   t.after(() => again.stop());
   await until(() => kernel.sends.length === 2, 2000, "the continue message");
-  assert.match(kernel.sends[1].input, /interrupted by a restart/);
+  assert.match(kernel.sends[1].input, /interrupted/);
 });
 
 test("uiCall checks the op, and uiWatch yields the snapshot then events", async (t) => {
