@@ -1,0 +1,55 @@
+{
+  "name": "@thetis/workflows",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Workflows: graphs of prompts, tool calls, parsing and branches that run unattended in your own conversations, with a visual editor and a run view.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "thetis": {
+    "type": "tool",
+    "config": {
+      "concurrency": {
+        "type": "number",
+        "default": 1,
+        "help": "How many runs go at once. Runs that share a working tree must not overlap, so the default is one."
+      },
+      "costCapUsd": {
+        "type": "number",
+        "default": 40,
+        "help": "The cost cap for a run whose workflow names none, in US dollars. A run that reaches it is stopped and handed to you."
+      }
+    },
+    "service": {
+      "export": "startWorkflows"
+    },
+    "ui": {
+      "dir": "ui",
+      "entry": "index.js",
+      "style": "index.css",
+      "places": [
+        {
+          "id": "workflows",
+          "label": "Workflows",
+          "hint": "Build workflows and watch their runs",
+          "icon": "M4 4h5v4H4z M11 12h5v4h-5z M6.5 8v2.5a1.5 1.5 0 0 0 1.5 1.5h3"
+        }
+      ],
+      "commands": [
+        {
+          "verb": "call",
+          "export": "uiCall",
+          "label": "Ask the workflow service"
+        },
+        {
+          "verb": "watch",
+          "export": "uiWatch",
+          "label": "Watch runs as they change",
+          "stream": true
+        }
+      ]
+    }
+  }
+}
