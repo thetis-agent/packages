@@ -15,9 +15,13 @@ export function toName(ids, titles) {
   return ids.filter((id) => typeof titles?.[id] === "string" && titles[id].trim()).map((id) => ({ id, title: titles[id].trim() }));
 }
 
-export function nameRunConversations(ext, { post = defaultPost, delayMs = 800 } = {}) {
+const MAX_RETRIES = 5;
+
+export function nameRunConversations(ext, { post = defaultPost, delayMs = 800, retryMs = 3000 } = {}) {
+  const RETRY_MS = retryMs;
   const checked = new Set();
   let timer = null;
+  let retries = 0;
 
   async function pass() {
     const ids = toCheck(ext.sessions?.list?.(), checked);
@@ -27,9 +31,16 @@ export function nameRunConversations(ext, { post = defaultPost, delayMs = 800 } 
     try {
       titles = (await ext.request("call", { args: { op: "titles" } }))?.data ?? {};
     } catch {
-      for (const id of ids) checked.delete(id); // the service is not up yet: try again on the next change
+      // The service is not up yet (a reload), or refused: ask again later, not only on the next list change.
+      for (const id of ids) checked.delete(id);
+      retries += 1;
+      if (retries <= MAX_RETRIES) {
+        clearTimeout(timer);
+        timer = setTimeout(() => void pass(), RETRY_MS * retries);
+      }
       return;
     }
+    retries = 0;
     for (const { id, title } of toName(ids, titles)) {
       try {
         await post(id, title);

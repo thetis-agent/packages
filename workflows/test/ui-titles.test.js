@@ -31,3 +31,16 @@ test("a run's conversations are named once, a person's name is left alone, and t
   assert.equal(asks, 2);
   assert.deepEqual(posted.at(-1), ["s_verify", "Bug 1083 · verify"]);
 });
+
+test("a refused ask is retried on its own, without waiting for the list to change", async () => {
+  let asks = 0;
+  const posted = [];
+  const ext = {
+    sessions: { list: () => [{ id: "s_plan", named: false }], watch: () => {} },
+    request: async () => { asks++; if (asks === 1) throw new Error("the workflow service is not running"); return { data: { s_plan: "Bug 1: x" } }; },
+  };
+  nameRunConversations(ext, { delayMs: 5, retryMs: 10, post: async (id, title) => { posted.push([id, title]); } });
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(asks, 2);
+  assert.deepEqual(posted, [["s_plan", "Bug 1: x"]]);
+});

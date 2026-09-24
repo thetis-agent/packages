@@ -232,3 +232,13 @@ test("uiCall checks the op, and uiWatch yields the snapshot then events", async 
   const end = await it.next();
   assert.equal(end.done, true);
 });
+
+test("every op the service answers can be called from the page", async () => {
+  const { createService } = await import("../lib/service.js");
+  const { OPS } = await import("../index.js");
+  const { makeEnv } = await import("./helpers.js");
+  const { env } = await makeEnv();
+  const service = createService(env, {});
+  const answered = Object.keys(service.ops).filter((op) => op !== "subscribe");
+  assert.deepEqual(answered.filter((op) => !OPS.has(op)), [], "an op the page's `call` verb refuses");
+});
