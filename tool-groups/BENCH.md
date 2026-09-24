@@ -12,7 +12,7 @@ Suites: [`assembly-cost@1`](#suite-assembly-cost-v1), [`tool-recall@1`](#suite-t
 What a package costs the prompt before anything is retrieved: bytes by segment, how much of the prefix survives a turn, and how long assembly takes. No gold, no corpus, no adapter — any package with a step or a tool can opt in.
 
 7 tasks (2 of them controls), probe A.
-Generated 2026-09-24T10:14:29.083Z. Digest `sha256:1524f1c081c0…`.
+Generated 2026-09-24T13:05:34.669Z. Digest `sha256:69ba88895906…`.
 
 ### Compared
 
@@ -69,7 +69,7 @@ Two reports are comparable only when these match.
 |---|---|
 | suite | assembly-cost@1 (sha256:9efc984d505f…) |
 | corpus | none |
-| arms | none; thetis-tool-groups (@thetis/tool-groups@0.2.1); thetis-tool-groups-lexical (@thetis/tool-groups@0.2.1); thetis-tool-groups-fusion (@thetis/tool-groups@0.2.1); all (@thetis/exa@0.1.0, @thetis/skills-all@0.1.0, @thetis/skills-hybrid@0.2.3, @thetis/skills-l1@0.1.0, @thetis/terminal@0.1.2, @thetis/tool-exec@0.3.2, @thetis/tool-groups@0.2.1, @thetis/tools-files@0.2.1, @thetis/tools-plan@0.3.1) |
+| arms | none; thetis-tool-groups (@thetis/tool-groups@0.2.1); thetis-tool-groups-lexical (@thetis/tool-groups@0.2.1); thetis-tool-groups-fusion (@thetis/tool-groups@0.2.1); all (@thetis/exa@0.1.0, @thetis/skills-all@0.1.0, @thetis/skills-hybrid@0.2.3, @thetis/skills-l1@0.1.0, @thetis/terminal@0.1.3, @thetis/tool-exec@0.3.2, @thetis/tool-groups@0.2.1, @thetis/tools-files@0.2.1, @thetis/tools-plan@0.3.1) |
 | model | none — this probe needs no model |
 | sandbox | auto |
 | scorer | @thetis/bench@0.4.1 |
