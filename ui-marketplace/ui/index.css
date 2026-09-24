@@ -1,4 +1,4 @@
-/* @thetis/ui-marketplace: the gallery and the package page. Everything is scoped under .mk-; the tokens,
+/* @thetis/ui-marketplace: the gallery, the package page and the registries page. Everything is scoped under .mk-; the tokens,
  * .place-page, .input, .btn, .badge, .card, .kv, .tags, .panel-hint and the markdown classes come from the shell. */
 
 /* --- the gallery ------------------------------------------------------------- */
@@ -128,9 +128,50 @@
 .cf-missing, .cf-error { margin: 0; color: var(--err); font-size: var(--text-xs); }
 .cf-row.is-missing .cf-key code { color: var(--err); }
 
+/* --- the registries page: one card per registry, the add form on top, the key and its test ------------
+   The card rows are @thetis/ui-admin's SSH keys layout (a small caps label, the value beside it), so a key
+   reads the same in the two places it is shown. */
+
+.mk-reg { display: flex; flex-direction: column; gap: var(--gap-3); max-width: 60rem; }
+.mk-reg-list { display: flex; flex-direction: column; gap: var(--gap-3); }
+.mk-reg-card.is-fresh { border-color: var(--accent-edge); }
+.mk-reg-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mk-reg-name { font-size: var(--text-md); font-weight: 600; }
+.mk-reg-body { display: flex; flex-direction: column; gap: 12px; }
+.mk-reg-row { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; align-items: start; }
+.mk-reg-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); padding-top: 7px; }
+.mk-reg-value, .mk-reg-value-stack { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.mk-reg-value p { margin: 0; font-size: var(--text-xs); }
+.mk-reg-value > code { padding-top: 5px; }
+.mk-reg-keyline { align-items: center; flex-wrap: wrap; }
+.mk-reg-fp { font-family: var(--mono); font-size: var(--text-xs); color: var(--text-dim); overflow-wrap: anywhere; }
+.mk-reg-pubkey-row { align-items: center; }
+.mk-reg-pubkey { flex: 1 1 auto; min-width: 0; font-family: var(--mono); font-size: var(--text-xs); }
+.mk-reg-url { font-family: var(--mono); }
+.mk-reg-refresh { padding-top: 5px; font-size: var(--text-sm); }
+.mk-reg-refresh.is-ok { color: var(--text-dim); }
+.mk-reg-refresh.is-err { color: var(--err); }
+.mk-reg-refresh.is-dim { color: var(--text-faint); }
+.mk-reg-test { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; font-size: var(--text-sm); }
+.mk-reg-pre { margin: 0; width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: var(--r-md); background: var(--surface-2); font-family: var(--mono); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-dim); }
+.mk-reg-box { margin-top: 4px; padding: 10px 12px; border: 1px dashed var(--hairline-strong); border-radius: var(--r-md); display: flex; flex-direction: column; gap: 10px; }
+.mk-reg-form .card-body { display: flex; flex-direction: column; gap: 12px; }
+.mk-reg-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: var(--gap-4); align-items: start; }
+.mk-reg-grid .field { min-width: 0; }
+.mk-reg-modes { display: flex; flex-direction: column; gap: 8px; text-transform: none; letter-spacing: 0; font-weight: 400; }
+.mk-reg-modes > .row { align-items: center; gap: var(--gap-4); }
+.mk-reg-chooser { display: flex; flex-direction: column; gap: 6px; font-size: var(--text-sm); color: var(--text); }
+.mk-reg-choice { display: flex; align-items: baseline; gap: 8px; cursor: pointer; font-size: var(--text-sm); color: var(--text); }
+.mk-reg-choice input { accent-color: var(--accent); }
+.mk-reg-material { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: var(--text-xs); resize: vertical; }
+.mk-reg-keep { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.mk-reg-tick { accent-color: var(--accent); }
+
 @media (max-width: 900px) {
   .mk-page { flex-direction: column; }
   .mk-side { flex: none; position: static; width: 100%; }
   .mk-readme { padding-right: 0; }
   .mk-note { margin-left: 0; white-space: normal; }
+  .mk-reg-grid, .mk-reg-row { grid-template-columns: minmax(0, 1fr); }
+  .mk-reg-label { padding-top: 0; }
 }

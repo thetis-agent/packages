@@ -4,10 +4,17 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { repoRoute } from "@thetis/runtime/lib/git-url";
 import { assert } from "./error.js";
 
-/** A grant list as it arrives from a socket: at most 16 keys, each an absolute normalized path. Answers `{ key, hosts? }[]`. */
-export function parseSshGrants(raw) {
+/**
+ * A grant list as it arrives from a socket: at most 16 keys, each an absolute normalized path. Answers
+ * `{ key, hosts?, repo? }[]`. `repo` belongs to the system's grants alone, and every one of them carries it:
+ * a repository key is the installation's, scoped to one repository, and a person's key is theirs for
+ * wherever they take it. So `system` says whose list this is -- a person's with a `repo` is refused, and so
+ * is a system grant without one or with a url that is not a hosted repository.
+ */
+export function parseSshGrants(raw, { system = false } = {}) {
   assert(Array.isArray(raw) && raw.length <= 16, "ssh grants must be a list of at most 16 entries", "invalid");
   return raw.map((g) => {
     const key = String(g?.key ?? "");
@@ -15,7 +22,10 @@ export function parseSshGrants(raw) {
     const hosts = g?.hosts === undefined ? undefined : g.hosts;
     assert(hosts === undefined || Array.isArray(hosts), `invalid hosts for ${key}: a list of known_hosts lines`, "invalid");
     const lines = hosts?.map((h) => String(h).trim()).filter(Boolean) ?? [];
-    return { key, ...(lines.length ? { hosts: lines } : {}) };
+    const repo = g?.repo === undefined ? undefined : String(g.repo).trim();
+    if (system) assert(repo && repoRoute(repo), `a system ssh grant is a repository key and names its repository: ${key} has ${repo ? `an unusable repo ${repo}` : "none"}`, "invalid");
+    else assert(repo === undefined, `a person's ssh grant names no repository: ${key} has repo ${repo}; repository keys are the installation's (repoKeygen, repoImport)`, "invalid");
+    return { key, ...(lines.length ? { hosts: lines } : {}), ...(repo ? { repo } : {}) };
   });
 }
 
@@ -74,11 +84,12 @@ function isFile(path) {
  * the userspace, so it is agent-held like any other grant and the fence still cannot read it.
  *
  * An existing key is kept rather than replaced: generating over one that is already registered somewhere
- * would silently break whatever trusts it. Answers `{ key, publicKey, fingerprint }`.
+ * would silently break whatever trusts it. `name` is the file under `dir`, `id_ed25519` for a person's own
+ * key and the repository's alias for a repository key. Answers `{ key, publicKey, fingerprint }`.
  */
-export function generateKey(dir, comment) {
+export function generateKey(dir, comment, name = "id_ed25519") {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const key = join(dir, "id_ed25519");
+  const key = join(dir, name);
   if (!existsSync(key)) {
     const gen = spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-C", comment, "-f", key], { encoding: "utf8" });
     assert(gen.status === 0, `ssh-keygen failed: ${(gen.stderr ?? "").trim() || `exit ${gen.status}`}`, "invalid");

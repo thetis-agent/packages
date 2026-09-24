@@ -1,6 +1,6 @@
 {
   "name": "@thetis/ui-marketplace",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "license": "MIT",
   "description": "The marketplace place of the web gateway: a gallery of what the registries offer and what is installed, and one page per package.",
   "type": "module",
@@ -46,7 +46,14 @@
         { "verb": "install-for", "export": "installFor", "label": "Install for a person", "role": "admin" },
         { "verb": "remove-for", "export": "removeFor", "label": "Remove from a person's setup", "role": "admin" },
         { "verb": "promote", "export": "promote", "label": "Make a package the default for everyone", "role": "admin" },
-        { "verb": "people", "export": "people", "label": "List the people", "role": "admin" }
+        { "verb": "people", "export": "people", "label": "List the people", "role": "admin" },
+        { "verb": "registries", "export": "registries", "label": "The registries, how each is authenticated, and its last refresh", "role": "admin" },
+        { "verb": "registry-add", "export": "registryAdd", "label": "Add a registry, with a key when it is private", "role": "admin" },
+        { "verb": "registry-edit", "export": "registryEdit", "label": "Rename a registry or change its url", "role": "admin" },
+        { "verb": "registry-remove", "export": "registryRemove", "label": "Remove a registry and revoke its key", "role": "admin" },
+        { "verb": "registry-key", "export": "registryKey", "label": "Give a registry a repository key", "role": "admin" },
+        { "verb": "registry-key-revoke", "export": "registryKeyRevoke", "label": "Revoke a repository key", "role": "admin" },
+        { "verb": "registry-test", "export": "registryTest", "label": "Try reading a registry with its key", "role": "admin" }
       ]
     }
   }

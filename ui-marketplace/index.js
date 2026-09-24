@@ -354,3 +354,9 @@ export async function unpublish(args, env) {
   });
   return { data: { ...out, dryRun: !!args.dryRun, with: named } };
 }
+
+// ---- registries: which repositories the marketplace mirrors, and the key each one is reached with ----
+//
+// Admin verbs, in lib/registries.js: the configured list merged with host-grants' repository keys and the
+// index's last refresh, and the writes that change one of those facts.
+export { registries, registryAdd, registryEdit, registryKey, registryKeyRevoke, registryRemove, registryTest } from "./lib/registries.js";

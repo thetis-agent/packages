@@ -303,7 +303,8 @@ export function mountSsh(ext, root, who = {}) {
       form ? formCard() : null,
       grants.length ? el("div", { class: "ua-keys" }, ...grants.map(keyCard)) : el("div", { class: "card ua-empty" }, el("div", { class: "card-body" }, people.length ? `${person}'s workspace has no key. New key makes one for it; Import key takes one that already exists.` : "No person has a workspace here.")),
       person === me ? tryCard() : null,
-      el("p", { class: "panel-hint" }, "A grant names one key file, never a directory: the person's fence gets the use of that key through its own ssh-agent and cannot copy it. A change closes the person's fence; it reopens on their next request with the new keys and known hosts, and their services restart.")
+      el("p", { class: "panel-hint" }, "A grant names one key file, never a directory: the person's fence gets the use of that key through its own ssh-agent and cannot copy it. A change closes the person's fence; it reopens on their next request with the new keys and known hosts, and their services restart."),
+      el("p", { class: "panel-hint" }, "These are people's keys. A private registry's key belongs to the installation and is managed under Marketplace → Registries.")
     );
   }
 

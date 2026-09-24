@@ -3,7 +3,7 @@
 // and going nowhere silently is the thing this package was written to stop.
 import { resolve } from "node:path";
 import { refuse } from "./refuse.js";
-import { slugOfUrl } from "./git-url.js";
+import { slugOfUrl } from "@thetis/runtime/lib/git-url";
 
 export const DEFAULT_WORK_DIR = "publish";
 

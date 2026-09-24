@@ -694,7 +694,7 @@ test("panel: the built-in sections are the same for everyone; a package's admin 
   for (const path of ["users", "models", "journal", "config", "packages"]) assert.equal((await api(root, `/root/api/admin/${path}`)).status, 404, `api/admin/${path} is gone`);
   const marketplaceUi = ((await (await api(root, "/root/api/ui")).json()) as { extensions: { package: string; places: { id: string; order: number }[]; commands: string[] }[] }).extensions.find((e) => e.package === "@thetis/ui-marketplace");
   assert.deepEqual(marketplaceUi?.places.map((e) => [e.id, e.order]), [["marketplace", 20]]);
-  assert.deepEqual(marketplaceUi?.commands, ["search", "show", "install", "remove", "delete", "update", "unfork", "publish-targets", "publish", "unpublish", "config-show", "config-list", "config-set", "config-unset", "fence-reload", "install-everyone", "install-for", "remove-for", "promote", "people"]);
+  assert.deepEqual(marketplaceUi?.commands, ["search", "show", "install", "remove", "delete", "update", "unfork", "publish-targets", "publish", "unpublish", "config-show", "config-list", "config-set", "config-unset", "fence-reload", "install-everyone", "install-for", "remove-for", "promote", "people", "registries", "registry-add", "registry-edit", "registry-remove", "registry-key", "registry-key-revoke", "registry-test"]);
   const marketplaceForAlice = ((await (await api(alice, "/alice/api/ui")).json()) as { extensions: { package: string; places: { id: string }[]; commands: string[] }[] }).extensions.find((e) => e.package === "@thetis/ui-marketplace");
   assert.deepEqual(marketplaceForAlice?.places.map((e) => e.id), ["marketplace"], "the place is everyone's");
   assert.deepEqual(marketplaceForAlice?.commands, ["search", "show", "install", "remove", "delete", "update", "unfork", "publish-targets", "publish", "unpublish", "config-show", "config-list", "config-set", "config-unset", "fence-reload"], "the admin verbs are not; a person's own configuration is, and so is reloading their own workspace: publishing is a person's own act too, and answers `available: false` where nothing can publish");
@@ -903,6 +903,7 @@ test("marketplace: search and show read the index and the README copies in the s
   assert.match(String(unknown.error), /not installed here and no registry offers it/);
   assert.equal((await market(bob, "bob", "update", { name: "@thetis/harness-core" })).status, 400, "a shipped package is never behind");
   assert.equal((await market(bob, "bob", "people")).status, 403, "the people picker is an admin's");
+  assert.equal((await market(bob, "bob", "registries")).status, 403, "the registries and their keys are an admin's");
   assert.deepEqual(((await market(root, "root", "people")).data as { id: string }[]).map((p) => p.id).sort(), ["alice", "bob", "root"]);
   assert.equal((await api(alice, "/alice/api/marketplace?q=x")).status, 404, "the gateway's own marketplace route is gone");
   const models = await admin(root, "root", "models");

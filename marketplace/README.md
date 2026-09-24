@@ -60,6 +60,18 @@ Trust a second registry:
 }
 ```
 
+### A private registry
+
+A registry the installation cannot read anonymously is reached with a **repository key**: an SSH key that belongs to this installation, not to a person, and is scoped to exactly one repository. Make one on the command line,
+
+```sh
+thetis repo-key generate git@github.com:thirteen-games/thetis-packages.git
+```
+
+or under **Marketplace → Registries** in the web gateway (`@thetis/ui-marketplace`), where adding a registry offers *Authentication: None | SSH key*. Either prints the key's public half; add it to the repository as a read-only deploy key, and `thetis repo-key test <url>` or the page's **Test** says whether the repository answers. The key is `@thetis/host-grants`'s to hold: the system fence's ssh-agent offers it for that repository and no other, which is the fence this service clones in, so the refresh needs nothing else.
+
+There is no configuration field for this. Whether a registry uses SSH is derived from whether a repository key exists for its url, matched with `sameRepository` from `@thetis/runtime/lib/git-url`, so `git@github.com:o/r.git` and `https://github.com/o/r` share one key. A field saying "ssh" would go on saying it after the key was revoked; the key is the fact, so the key is what is read. The registry entry stays `{ name, url }`, and a url in any spelling works, because the system fence's git rewrites every spelling of that repository to the route the key is offered on.
+
 Install the service into a running daemon, then see what is behind its registry and update:
 
 ```sh

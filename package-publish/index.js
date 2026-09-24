@@ -15,7 +15,8 @@ export { unpublish } from "./lib/unpublish.js";
 export { targets } from "./lib/targets.js";
 export { Refusal } from "./lib/refuse.js";
 export { bumpVersion, compareVersions, isVersion } from "./lib/semver.js";
-export { repoKey, sameRepository } from "./lib/git-url.js";
+// One normal form for the whole installation: the repository keys the system fence holds are matched by it too.
+export { repoKey, sameRepository, slugOfUrl } from "@thetis/runtime/lib/git-url";
 export { pickTarget, targetsOf, workDirOf } from "./lib/config.js";
 export { lastPublish, lastRemoval, packageRecord } from "./lib/record.js";
 export { forkedFrom } from "./lib/fork.js";

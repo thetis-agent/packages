@@ -14,6 +14,7 @@ import { ControlServer, controlSocketPath, createKernel, migrateStore, readContr
 import { configPath, createControlHandler, defaultConfig, loadConfig, redact, saveConfig, type SessionRef } from "@thetis/runtime/kernel";
 import { parseDotEnv } from "@thetis/runtime/lib/config";
 import { errorMessage } from "@thetis/runtime/lib/error";
+import { parseHosted, repoRoute } from "@thetis/runtime/lib/git-url";
 import { connectRpcSocket } from "@thetis/runtime/lib/ndjson-socket";
 import { assertHomeFitsSockets, homeSocketWarning } from "@thetis/runtime/lib/socket-paths";
 import { isSupervised, type Pending, type RestartState } from "@thetis/runtime/lib/restart";
@@ -69,6 +70,15 @@ usage: thetis <command> [options]
                                        keep it with the kernel under that name and grant it to the person's fence;
                                        prints the public half and its fingerprint. A key with a passphrase is refused
   ssh revoke <user> <key>
+  repo-key list                        the installation's repository keys: one per repository, held by the system
+                                       fence's agent and offered for that repository alone; never a person's
+  repo-key generate <url> [--no-scan]  make a key for one repository (a private registry, say) and print its public half
+                                       and fingerprint, to add to that repository as a read-only deploy key. The host
+                                       keys are fetched with ssh-keyscan unless --no-scan; an existing key is kept
+  repo-key import <url> [--no-scan] < key
+                                       keep a private key read from stdin as that repository's key instead
+  repo-key test <url>                  try the key against the repository from the host: git ls-remote, nothing else
+  repo-key revoke <url> [--keep-key]   forget the repository's key; the key file goes too unless --keep-key
   publish <package> --to <target> [--version <v> | --bump patch|minor|major] [--as origin|itself]
           [--with <name>]... [--dry-run]
                                        put a package in a registry at a new version: check the manifest, refuse a
@@ -119,6 +129,8 @@ type Call = KernelRpc;
 type MountState = Mount & { present?: boolean; kind?: "dir" | "file" | "none" };
 /** A grant as `host.grants.sshList` answers it: whether the key is on the host, and its public half when it is. */
 type SshGrantState = SshGrant & { present?: boolean; publicKey?: string | null; fingerprint?: string | null };
+/** A repository key as `host.grants.repoList` answers it: the repository, its alias, and whether the key is on the host. */
+type RepoKeyState = { repo: string; key: string; alias: string; hosts?: string[]; present: boolean; publicKey: string | null; fingerprint: string | null };
 /** What making or importing a key answers: where it is, and the half to register wherever it is going. */
 type MadeKey = { key: string; publicKey: string; fingerprint: string | null };
 
@@ -302,6 +314,8 @@ async function dispatch(call: Call, cmd: string, args: Args, shared: string): Pr
       return mountsCmd(call, args, user);
     case "ssh":
       return sshCmd(call, args, user);
+    case "repo-key":
+      return repoKeyCmd(call, args);
     case "config":
       return configCmd(call, args, user);
     case "publish":
@@ -578,6 +592,60 @@ async function sshCmd(call: Call, args: Args, user: string | undefined): Promise
     default:
       throw new Error(`unknown ssh subcommand: ${sub}`);
   }
+}
+
+/**
+ * Repository keys: the installation's, not a person's. Each is an ssh grant on the system userspace that
+ * names one repository, and the system fence offers it for that repository and no other -- GitHub takes
+ * the first key that authenticates as anybody, so a key offered for the wrong repository is a refused
+ * fetch. A person installing from such a repository never holds the key: the system fence fetches and the
+ * files are handed over. Whether a registry "uses ssh" is never written down anywhere; it is whether a key
+ * exists here for its url, which is what `list` shows.
+ */
+async function repoKeyCmd(call: Call, args: Args): Promise<void> {
+  const [, sub, repo] = args._;
+  const scan = !args["no-scan"];
+  if (sub && sub !== "list" && !repo) throw new Error(`repo-key ${sub} needs <url>`);
+  const deployKey = (k: RepoKeyState) => {
+    print(k.publicKey ?? "");
+    print(`${k.repo}${k.fingerprint ? ` (${k.fingerprint})` : ""}: add it as a read-only deploy key${deployKeysUrl(k.repo)}`);
+    if (!k.hosts?.length) print(`warning: no known hosts for ${k.repo}; the system fence meets the host for the first time on its first fetch`);
+  };
+  switch (sub) {
+    case "list":
+    case undefined: {
+      for (const k of (await call("host.grants.repoList", {})) as RepoKeyState[]) {
+        print([k.repo, k.fingerprint ?? "", k.present ? "" : "missing", `${(k.hosts ?? []).length} known host(s)`, k.key].filter(Boolean).join("\t"));
+      }
+      return;
+    }
+    case "generate":
+      return deployKey((await call("host.grants.repoKeygen", { repo, scan })) as RepoKeyState);
+    case "import": {
+      // The material goes over the control socket once and the host keeps it; never this shell's history.
+      if (process.stdin.isTTY) throw new Error("repo-key import reads the private key from stdin: thetis repo-key import <url> < key");
+      const privateKey = await readStdin();
+      return deployKey((await call("host.grants.repoImport", { repo, privateKey, scan })) as RepoKeyState);
+    }
+    case "test": {
+      const r = (await call("host.grants.repoTest", { repo })) as { repo: string; ok: boolean; head?: string; error?: string };
+      if (!r.ok) throw new Error(`${r.repo}: ${r.error || "refused"}`);
+      return print(`${r.repo}: ok${r.head ? `, HEAD ${r.head}` : ""}`);
+    }
+    case "revoke": {
+      const keepKey = !!args["keep-key"];
+      const rest = (await call("host.grants.repoRevoke", { repo, keepKey })) as RepoKeyState[];
+      return print(`revoked the key for ${repo}${keepKey ? " (the key file is kept)" : ""}; ${rest.length} repository key(s) left`);
+    }
+    default:
+      throw new Error(`unknown repo-key subcommand: ${sub}`);
+  }
+}
+
+/** Where GitHub keeps a repository's deploy keys, as a suffix to the hint; nothing for any other host. */
+function deployKeysUrl(repo: string): string {
+  const route = repoRoute(repo);
+  return route?.host === "github.com" ? ` at https://github.com/${parseHosted(repo)?.path}/settings/keys` : "";
 }
 
 /** The known_hosts lines for a grant: those given with --host, plus those ssh-keyscan finds for --scan. */

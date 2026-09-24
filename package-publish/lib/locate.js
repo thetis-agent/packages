@@ -12,14 +12,14 @@
 // whatever else is lying around in the tree.
 //
 // Detection is exactly: the resolved package path is inside a git work tree, that tree has an `origin`,
-// and `origin` and the target's url are the same repository by `git-url.js`. Anything less certain falls
+// and `origin` and the target's url are the same repository by `@thetis/runtime/lib/git-url`. Anything less certain falls
 // to the copy path, which is safe wherever it lands because it commits in a clone of our own making.
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, realpath, rm } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { refuse } from "./refuse.js";
 import { safeName } from "./config.js";
-import { sameRepository } from "./git-url.js";
+import { sameRepository } from "@thetis/runtime/lib/git-url";
 import { currentBranch, git, lines, mustGit, originOf, out, refExists, topLevelOf } from "./git.js";
 import { manifestProblem, readManifest } from "./manifest.js";
 import { compareVersions } from "./semver.js";

@@ -9,7 +9,7 @@
  * Installed packages come first, then what the registries offer. The search runs on the server through
  * the `search` command, because the index and its ranking live there; the page only keeps the last query
  * so coming back from a package page shows the same list. Clicking a card re-opens the place with the
- * package's name. */
+ * package's name. An admin also gets **Registries** at the end of the toolbar, the page in registries.js. */
 
 import { aheadBadge, stateBadge, updateBadge } from "./badges.js";
 
@@ -35,7 +35,9 @@ export function openGallery(ext, root) {
   const chips = el("div", { class: "mk-chips", role: "group", "aria-label": "Package type" });
   const note = el("p", { class: "mk-note" });
   const cards = el("div", { class: "mk-cards" });
-  const page = el("div", { class: "place-page mk-gallery" }, el("div", { class: "mk-toolbar" }, input, chips, note), cards);
+  // The admins' way to the registries themselves; nobody else can send those verbs, so nobody else sees it.
+  const registriesBtn = ext.can("registries") ? ext.ui.button("Registries", { title: "Which registries are mirrored, and the key each private one is read with", onClick: () => ext.open.place("marketplace", { view: "registries" }) }) : null;
+  const page = el("div", { class: "place-page mk-gallery" }, el("div", { class: "mk-toolbar" }, input, chips, note, registriesBtn), cards);
   root.append(page);
 
   async function load() {
@@ -109,7 +111,7 @@ export function openGallery(ext, root) {
     if (!rows.length) {
       put(cards, el("div", { class: "mk-empty" }, last.q || last.type ? "No package matches." : "Nothing is installed here, and no registry is configured."));
     } else put(cards, ...rows.map(card));
-    if (!facts.indexed) put(cards, el("p", { class: "panel-hint mk-hint" }, "No marketplace index yet. Registries are configured under packages[\"@thetis/marketplace\"].registries; the service refreshes them on a timer."));
+    if (!facts.indexed) put(cards, el("p", { class: "panel-hint mk-hint" }, `No marketplace index yet. ${registriesBtn ? "Registries are set under Registries above" : "Registries are configured under packages[\"@thetis/marketplace\"].registries"}; the service refreshes them on a timer.`));
   }
 
   void load();
