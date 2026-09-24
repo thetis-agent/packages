@@ -99,6 +99,36 @@ test("multiline functions return normally, syntax errors finish, and the next co
   assert.equal(next.output, "still here\n");
 });
 
+test("a `!` in a command line is literal, not a history expansion", async (t) => {
+  const { session } = await withSession(t);
+  const result = await session.run('printf "%s\\n" "Failed!" | grep -E "Failed!|Passed!"', { consumer: "conv", timeoutMs: 5000 });
+  assert.equal(result.running, false);
+  assert.equal(result.exit, 0);
+  assert.equal(result.rejected, false);
+  assert.equal(result.output, "Failed!\n");
+});
+
+test("a line the shell refuses to run ends at once as not run, and the session stays usable", async (t) => {
+  const { session } = await withSession(t);
+  // History expansion is the known way to make bash refuse a line and skip PROMPT_COMMAND; a person
+  // may turn it back on, so the refusal itself must still end the command.
+  assert.equal((await session.run("set -H", { consumer: "conv" })).exit, 0);
+  const started = Date.now();
+  const refused = await session.run('echo "a!zzqq"', { consumer: "conv", timeoutMs: 20_000 });
+  assert.ok(Date.now() - started < 10_000, "the refusal is the answer; it does not wait out the timeout");
+  assert.equal(refused.running, false);
+  assert.equal(refused.rejected, true);
+  assert.equal(refused.exit, null, "a line that never ran has no status to report");
+  assert.match(refused.output, /event not found/);
+  const read = await session.read("conv");
+  assert.equal(read.running, false);
+  assert.equal(read.rejected, true);
+  const next = await session.run("printf 'still here\\n'", { consumer: "conv" });
+  assert.equal(next.exit, 0);
+  assert.equal(next.rejected, false);
+  assert.equal(next.output, "still here\n");
+});
+
 test("a shell with echo disabled keeps a literal less-than line in its output", async (t) => {
   const { session } = await withSession(t);
   await session.run("stty -echo", { consumer: "conv" });

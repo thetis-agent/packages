@@ -249,6 +249,7 @@ export function openSession({
   let command = null;
   let since = null;
   let lastExit = null;
+  let lastRejected = false; // the last command ended with the shell refusing its line, so it never ran
   let cwdNow = cwd;
   let lastOutputAt = Date.now();
   let lastActivityAt = Date.now();
@@ -264,6 +265,7 @@ export function openSession({
   let endToken = -1;
 
   let atPrompt = false; // a command-start mark has been seen and nothing has been submitted since
+  let promptOwed = false; // the running command went in before the prompt it follows had been drawn
   let internalBusy = false; // a command this package sent (a fallback resize); never reported as anyone's command
   let internalFrom = 0;
   let pendingResize = null; // a fallback resize waiting for the next idle; the device path never defers
@@ -390,11 +392,26 @@ export function openSession({
     switch (mark.kind) {
       case "prompt-start":
         promptFrom = mark.at;
+        // A prompt while a command is out, with no finished mark before it: bash refused the line before
+        // running it (a failed history expansion is the known case) and skipped PROMPT_COMMAND. The
+        // command is over, and it has no status to report, because it never ran. Without this the
+        // session stays busy until someone interrupts it. A prompt that was still owed when the line
+        // went in (the person typed before it was drawn) is that earlier prompt, not a refusal.
+        if (running && !promptOwed && !legacyActive) {
+          running = false;
+          holder = null;
+          lastExit = null;
+          lastRejected = true;
+          endAt = mark.at;
+          endCursor = mark.at;
+          endToken = cmdToken;
+        }
         break;
       case "command-start":
         if (promptFrom !== null) addSkip(promptFrom, mark.end);
         promptFrom = null;
         atPrompt = true;
+        promptOwed = false;
         break;
       case "command-end":
         if (internalBusy) {
@@ -404,6 +421,7 @@ export function openSession({
           running = false;
           holder = null;
           lastExit = mark.exit;
+          lastRejected = false;
           endAt = mark.at;
           endCursor = mark.end;
           endToken = cmdToken;
@@ -441,6 +459,7 @@ export function openSession({
       running = false;
       holder = null;
       lastExit = hit.exit;
+      lastRejected = false;
       if (hit.cwd) cwdNow = hit.cwd;
       endToken = cmdToken;
       flushPendingResize(); // an unframed shell has no mark to wake the fallback on; the marker line is its end
@@ -526,6 +545,7 @@ export function openSession({
     }
 
     const token = ++cmdToken;
+    promptOwed = !atPrompt;
     atPrompt = false;
     running = true;
     holder = who;
@@ -548,6 +568,7 @@ export function openSession({
     maybeEmitState();
     return {
       exit: done ? hit?.exit ?? lastExit : null,
+      rejected: done && useMarks && lastRejected,
       running: !done && !closed,
       output,
       cwd: cwdNow,
@@ -692,7 +713,7 @@ export function openSession({
       const output = forAgent(Math.max(requested, ringStart), bytes);
       setCursor(consumer, bytes);
       lastActivityAt = Date.now();
-      return { output, running, exit: running ? null : lastExit, dropped: Math.max(0, ringStart - requested) };
+      return { output, running, exit: running ? null : lastExit, rejected: !running && lastRejected, dropped: Math.max(0, ringStart - requested) };
     },
 
     /** Raw input: a passphrase, a `y`, a line for a REPL, or a person's keystrokes from the browser. */
@@ -707,6 +728,7 @@ export function openSession({
         command = text;
         since = Date.now();
         cmdToken++;
+        promptOwed = !atPrompt;
       }
       if (submit) atPrompt = false;
       writeRaw(submit ? `${text}\n` : text);

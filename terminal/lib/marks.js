@@ -45,6 +45,10 @@ export function initFile({ rc, rows = 24, cols = 120 } = {}) {
     `[ -t 0 ] && stty rows ${Number(rows) | 0} cols ${Number(cols) | 0} 2>/dev/null`,
     "[ -t 0 ] && printf '\\033]7770;tty=%s\\007' \"$(tty)\" 2>/dev/null",
     rc ? `[ -r ${sq(rc)} ] && . ${sq(rc)}` : "# no rc file for this person",
+    // History expansion off, and after the person's rc so it cannot turn it back on. With it on, a `!` in
+    // an ordinary command line (`grep "Failed!"`) makes bash refuse the whole line, and a refused line
+    // skips PROMPT_COMMAND, so no command-finished mark ever comes. A person who wants `!!` can `set -H`.
+    "set +H",
     "__thetis_pre() { __thetis_st=$?; return $__thetis_st; }",
     "__thetis_post() {",
     "  local s=${__thetis_st:-0}",

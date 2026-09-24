@@ -129,6 +129,13 @@ test("the init file appends to PROMPT_COMMAND instead of clobbering it, in both 
   assert.match(text, /\$\{PS1:-/);
 });
 
+test("the init file turns history expansion off after the person's rc, so their rc cannot undo it", () => {
+  const text = initFile({ rc: "/home/someone/.bashrc" });
+  const rc = text.indexOf(". '/home/someone/.bashrc'");
+  const off = text.indexOf("\nset +H\n");
+  assert.ok(rc > 0 && off > rc);
+});
+
 test("a rc path with a quote in it is still quoted safely", () => {
   assert.match(initFile({ rc: "/home/o'brien/.bashrc" }), /'\/home\/o'\\''brien\/\.bashrc'/);
 });

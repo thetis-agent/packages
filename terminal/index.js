@@ -198,6 +198,10 @@ function notes(out) {
 
 const assemble = (status, body, out) => [status, body, ...(notes(out).length ? [notes(out).join("\n")] : [])].join("\n\n");
 
+/** The shell gave its prompt back without running the line: no status exists, and saying "exit 0" would
+ *  claim a run that never happened. */
+const REJECTED = "Not run: the shell refused the line before running it, so it has no exit status. Its reason is below.";
+
 /** `shell`: the exit status, the output, then the notes. */
 export const shell = tool(async (args, env) => {
   const cmd = wantString(args.cmd, "cmd is the command line to run, as a string.").trim();
@@ -221,9 +225,11 @@ export const shell = tool(async (args, env) => {
     ? background
       ? "Started in the background, and it is still running. Collect what it prints with shell_read."
       : "Still running: the wait ran out and the command was not killed. Collect the rest with shell_read, answer it with shell_send, or stop it with shell_interrupt."
-    : typeof out.exit === "number"
-      ? `exit ${out.exit}`
-      : "Finished, with no exit status: this shell does not report one.";
+    : out.rejected
+      ? REJECTED
+      : typeof out.exit === "number"
+        ? `exit ${out.exit}`
+        : "Finished, with no exit status: this shell does not report one.";
   return assemble(status, printed(out.output, "(it printed nothing)"), out);
 });
 
@@ -234,9 +240,11 @@ export const shellRead = tool(async (args, env) => {
   const out = await call(env.root, "read", { id, waitMs, consumer: cursor(env) });
   const status = out.running
     ? "Still running. Read again for more, or stop it with shell_interrupt."
-    : typeof out.exit === "number"
-      ? `Nothing is running now; the last command in this session ended with exit ${out.exit}.`
-      : "Nothing is running now, and this shell reports no exit status.";
+    : out.rejected
+      ? `Nothing is running now. ${REJECTED}`
+      : typeof out.exit === "number"
+        ? `Nothing is running now; the last command in this session ended with exit ${out.exit}.`
+        : "Nothing is running now, and this shell reports no exit status.";
   return assemble(status, printed(out.output, "(nothing new since your last read)"), out);
 });
 
