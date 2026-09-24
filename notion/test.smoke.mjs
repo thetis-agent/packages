@@ -11,6 +11,11 @@ assert.equal(
   notion.normalizeId("1f2e3d4c5b6a7f8e9d0c1b2a3f4e5d6c", "page_id"),
   "1f2e3d4c-5b6a-7f8e-9d0c-1b2a3f4e5d6c"
 );
+assert.equal(
+  notion.normalizeId("https://app.notion.com/p/team/Server-2-0-34f0d0be14cb800486d9ca4e01cb65b0?p=3c30d0be14cb81a69079c5ab8faab4b6&pm=s", "page_id"),
+  "3c30d0be-14cb-81a6-9079-c5ab8faab4b6",
+  "a peeked page is the ?p= id, not the database in the path"
+);
 assert.throws(() => notion.normalizeId("not-an-id", "page_id"));
 console.log("normalizeId: ok");
 

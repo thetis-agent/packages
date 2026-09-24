@@ -1,6 +1,6 @@
 {
   "name": "@bitmuse/notion",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The Notion API as eleven tools \u2014 search, read, write and comment on pages, query and inspect databases, list workspace users \u2014 sharing one client module instead of duplicating it.",
   "type": "module",
   "main": "index.js",

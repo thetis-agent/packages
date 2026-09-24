@@ -262,14 +262,19 @@ function explainError(status, text) {
  * Accepts a bare id with or without dashes, and any Notion URL — the app
  * slugifies titles with dashes and puts the id last, so both
  * `https://www.notion.so/My-Page-1f2e3d...` and
- * `https://app.notion.com/p/1f2e3d...` reduce to the same thing. URLs are what
+ * `https://app.notion.com/p/1f2e3d...` reduce to the same thing. A link copied
+ * from a database view names the database in its path and the page in `?p=`,
+ * so that parameter wins. URLs are what
  * a person actually has to hand, so accepting them is not a nicety.
  */
 export function normalizeId(raw, what) {
   const trimmed = (raw ?? "").trim();
   if (!trimmed) throw new Error(`missing required argument '${what}'`);
 
-  const core = trimmed.split(/[?#]/)[0].replace(/\/+$/, "");
+  // A page opened from a database view ("peek") keeps the database in the path and the page in `?p=`;
+  // the page is what the person meant.
+  const peek = /[?&]p=([0-9a-fA-F-]{32,36})(?:[&#]|$)/.exec(trimmed);
+  const core = peek ? peek[1] : trimmed.split(/[?#]/)[0].replace(/\/+$/, "");
   const segment = core.split("/").pop() ?? core;
 
   const compact = segment.replace(/-/g, "");
