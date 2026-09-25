@@ -135,6 +135,37 @@ test("fence-reload targets one workspace, `_system` included, and status reads t
   assert.equal(calls.length, 3, "a refused reload never reaches the kernel");
 });
 
+test("overview: the checkout line says the strongest true thing, and the workspaces behind the disk are named", async () => {
+  const { checkoutLine, behindWorkspaces } = await import("../ui/overview.js");
+  const rt = { branch: "main", commit: "8309ab0", dirty: false, upstream: "origin/main", behind: 0, fetched: false, error: null };
+  assert.deepEqual(checkoutLine("runtime", rt), { text: "main @ 8309ab0", note: "at origin/main as of the last fetch", tone: "ok" });
+  assert.deepEqual(checkoutLine("runtime", { ...rt, fetched: true }), { text: "main @ 8309ab0", note: "up to date with origin/main", tone: "ok" });
+  assert.deepEqual(checkoutLine("runtime", { ...rt, behind: 3 }), { text: "main @ 8309ab0", note: "3 behind origin/main", tone: "warn" });
+  assert.deepEqual(checkoutLine("runtime", { ...rt, behind: 3, dirty: true }).note, "uncommitted changes: update by hand", "dirty outranks behind: the update would refuse");
+  assert.deepEqual(checkoutLine("runtime", { ...rt, error: "main tracks no upstream branch" }).tone, "warn");
+  assert.deepEqual(checkoutLine("packages", { commit: "dad30dc", pinned: "dad30dc", behind: 0, dirty: false, error: null }), { text: "@ dad30dc", note: "at the pinned commit", tone: "ok" });
+  assert.deepEqual(checkoutLine("packages", { commit: "df132f6", pinned: "dad30dc", behind: 1, dirty: false, error: null }).note, "1 behind the pinned dad30dc");
+  assert.deepEqual(checkoutLine("packages", null), { text: "unknown", tone: "dim" });
+  assert.deepEqual(behindWorkspaces({ workspaces: [{ user: "a", stale: false, changed: [] }, { user: "b", stale: true, changed: [] }, { user: "c", stale: false, changed: [{ name: "@thetis/x" }] }] }), ["b", "c"]);
+  assert.deepEqual(behindWorkspaces(null), []);
+});
+
+test("update-check, update-run and update-progress reach the host package, and only fetch when asked", async () => {
+  const { env, calls } = fakeEnv({ "host.update.check": (a) => ({ fetched: a.fetch }), "host.update.apply": { state: "started" }, "host.update.progress": { last: null } });
+  assert.deepEqual((await commands.updateCheck({}, env)).data, { fetched: false });
+  assert.deepEqual((await commands.updateCheck({ fetch: true }, env)).data, { fetched: true });
+  assert.deepEqual((await commands.updateCheck({ fetch: "yes" }, env)).data, { fetched: false }, "only a real true reaches the remotes");
+  assert.deepEqual((await commands.updateRun({ build: false }, env)).data, { state: "started" });
+  assert.deepEqual((await commands.updateProgress({}, env)).data, { last: null });
+  assert.deepEqual(calls.map((c) => [c.method, c.args]), [
+    ["host.update.check", { fetch: false }],
+    ["host.update.check", { fetch: true }],
+    ["host.update.check", { fetch: false }],
+    ["host.update.apply", {}],
+    ["host.update.progress", {}],
+  ], "the browser's arguments never reach the host: build is not a thing a page can turn off");
+});
+
 test("restart-request sends the trimmed reason and passes the latch's own sentence back", async () => {
   const { env, calls } = fakeEnv({ "restart.request": (a) => ({ state: "refused", why: "policy", message: `Refused, and nothing was restarted: ... \`Restart=on-failure\` ... reason was ${a.reason}` }) });
   const out = await commands.restartRequest({ reason: "  the kernel changed  " }, env);

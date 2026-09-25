@@ -178,7 +178,7 @@ export function mountPackages(root, { user }, shell) {
   function addBlock() {
     const input = el("input", { class: "input", type: "text", placeholder: "packages/<name>, a git URL, or url#dir", "aria-label": "Package source", spellcheck: "false" });
     const go = button("Put it in place", { tone: "primary", onClick: () => void add() });
-    const block = el("div", { class: "card add-block" }, el("div", { class: "card-head" }, "Add a package from a source"), el("div", { class: "card-body" }, el("div", { class: "row" }, input, go), el("p", { class: "text-faint" }, `An admin can also name a shipped package, such as @thetis/gateway-web; anyone else's package.json must be scoped @${user}/<name>. Building can take a minute.`)));
+    const block = el("div", { class: "card add-block" }, el("div", { class: "card-head" }, "Add a package from a source"), el("div", { class: "card-body" }, el("div", { class: "row" }, input, go), el("p", { class: "text-faint" }, `A system package goes in by name, such as @thetis/skills-orleans, already built. Anything else is a path under your home or a git source, built here: name your own @${user}/<name>, though a scope is only a name and the kernel checks none but @thetis, which is the installation's. Building can take a minute.`)));
     async function add() {
       const source = input.value.trim();
       if (!source) return input.focus();

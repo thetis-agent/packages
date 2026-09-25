@@ -1,7 +1,7 @@
 /* Activity: the kernel's journal, newest first. Operator acts, mounts, turns, and services, each with who
  * did it and to whom. Read by field name; a row's data is shown as it was recorded. */
 
-const KINDS = ["", "user.create", "user.remove", "user.role", "user.status", "user.password", "mounts", "package.install", "package.uninstall", "package.promote", "package.everyone", "turn.start", "turn.end", "service.start", "service.stop", "service.fail"];
+const KINDS = ["", "user.create", "user.remove", "user.role", "user.status", "user.password", "mounts", "package.install", "package.uninstall", "package.promote", "package.everyone", "update.start", "update.done", "update.fail", "turn.start", "turn.end", "service.start", "service.stop", "service.fail"];
 const LIMIT = 300;
 
 export function mountActivity(ext, root) {

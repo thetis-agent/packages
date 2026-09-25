@@ -30,6 +30,12 @@ export function sentence(entry, name) {
       return `promoted ${d.name ?? name} to ${d.promoted ?? "a system package"}${Array.isArray(d.userspaces) ? ` for ${d.userspaces.length} workspace${d.userspaces.length === 1 ? "" : "s"}` : ""}${kept(d)}`;
     case "package.everyone":
       return d.on === false ? `${t} is no longer the default for everyone` : `made ${t} the default for everyone${kept(d)}`;
+    case "update.start":
+      return `update of the installation started${d.from ? ` from runtime ${d.from.runtime}, packages ${d.from.packages}` : ""}`;
+    case "update.done":
+      return `installation updated${d.to ? ` to runtime ${d.to.runtime}, packages ${d.to.packages}` : ""}`;
+    case "update.fail":
+      return `update of the installation failed${d.error ? `: ${d.error}` : ""}`;
     case "service.start":
       return `service started for ${t}`;
     case "service.stop":

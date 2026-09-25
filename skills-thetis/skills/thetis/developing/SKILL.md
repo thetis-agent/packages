@@ -104,6 +104,8 @@ For configuration, `CONFIG_TIERS` in `src/kernel/config.ts` declares per key whi
 
 The installer follows the same rule: an update builds, runs `thetis config reload` and `thetis reload --all`, and asks the daemon for a restart only when the systemd unit changed or `thetis status --json` reports `daemon.stale`.
 
+The control panel's **Overview** does the same from the browser, through `@thetis/host-update` on the host: **Check for updates** fetches and lists the incoming commits of the runtime and of the packages submodule, **Update now** pulls, moves the submodule to the pinned commit, runs `npm ci` and the build, and writes its record to `$THETIS_HOME/update/last.json` as it goes. Nothing running changes by itself: the card then offers **Reload N workspaces** and **Restart the daemon**. Node, the OS packages and the systemd unit stay the installer's.
+
 ## Testing something that crosses the fence
 
 Add a case to `test/host/e2e.test.ts`, which shares one kernel and collects events from `kernel.sessions.send(...)`. **Run it through the real agent. Do not mock the fence.** That suite exists because the fence is where the interesting failures are.

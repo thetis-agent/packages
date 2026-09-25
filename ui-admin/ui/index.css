@@ -45,3 +45,6 @@
 .ua-pkg-head { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ua-pkg-facts dd.is-warn { color: var(--warn); }
 .ua-pkg-facts dd.is-err { color: var(--err); }
+.ua-install .ua-incoming, .ua-install .ua-steps { margin: 4px 0 0; padding-left: 18px; font-size: var(--text-sm); }
+.ua-install .ua-incoming li, .ua-install .ua-steps li { margin: 2px 0; }
+.ua-error { color: var(--danger, #c33); margin: 0; }

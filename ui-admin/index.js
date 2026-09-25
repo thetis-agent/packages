@@ -244,6 +244,25 @@ export async function restartRequest(args, env) {
   return { data: await call(env, "restart.request", { reason }) };
 }
 
+/**
+ * The installation itself, through the host package @thetis/host-update, which alone can reach the checkout.
+ * `update-check` says where the runtime and its packages stand against their upstream, reaching the remotes
+ * only with `fetch: true`, so a page can draw on open without a network round trip. `update-run` starts the
+ * pull and build and answers at once; `update-progress` reads the record it writes as it goes. Nothing here
+ * puts anything into service: the page offers the reload and the restart for that, as everywhere else.
+ */
+export async function updateCheck(args, env) {
+  return { data: await call(env, "host.update.check", { fetch: args.fetch === true }) };
+}
+
+export async function updateRun(_args, env) {
+  return { data: await call(env, "host.update.apply", {}) };
+}
+
+export async function updateProgress(_args, env) {
+  return { data: await call(env, "host.update.progress", {}) };
+}
+
 // The package page's own commands live beside this file: git questions in git.js, the people and the fleet in
 // fleet.js. Each is one export the manifest names.
 export { packageCommit, packageDiff, packageLog, packagePush, packageReadme } from "./git.js";

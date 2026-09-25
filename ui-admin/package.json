@@ -1,6 +1,6 @@
 {
   "name": "@thetis/ui-admin",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "license": "MIT",
   "description": "The admin sections of the web gateway's control panel: people, models, configuration, mounts, activity, workspaces, and overview.",
   "type": "module",
@@ -309,6 +309,24 @@
           "verb": "restart-request",
           "export": "restartRequest",
           "label": "Ask the daemon to restart",
+          "role": "admin"
+        },
+        {
+          "verb": "update-check",
+          "export": "updateCheck",
+          "label": "Where the runtime and its packages stand against their upstream",
+          "role": "admin"
+        },
+        {
+          "verb": "update-run",
+          "export": "updateRun",
+          "label": "Pull and build the installation on the host",
+          "role": "admin"
+        },
+        {
+          "verb": "update-progress",
+          "export": "updateProgress",
+          "label": "How the running update is going",
           "role": "admin"
         }
       ]

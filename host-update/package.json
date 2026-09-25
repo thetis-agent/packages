@@ -1,0 +1,23 @@
+{
+  "name": "@thetis/host-update",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Updates the installation itself from the control panel: the runtime checkout and its packages submodule are pulled, dependencies installed and the build run, on the host, where the checkout lives. A host package: loaded by the daemon per call as host.update.<export>, never installed into a fence.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "devDependencies": {
+    "@thetis/runtime": "file:../.."
+  },
+  "thetis": {
+    "type": "host",
+    "host": {
+      "name": "update"
+    }
+  },
+  "peerDependencies": {
+    "@thetis/runtime": "^0.2.0"
+  }
+}
