@@ -1,7 +1,7 @@
 // Generates package.json. Run: node manifest.mjs  (from this directory)
 // The tool descriptions live here as JS so they can be edited without fighting
 // JSON escaping; the output file is what the kernel reads.
-import { writeFileSync, readFileSync, existsSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync, utimesSync } from "node:fs";
 
 const S = (description, extra = {}) => ({ type: "string", description, ...extra });
 const B = (description) => ({ type: "boolean", description });
@@ -117,7 +117,7 @@ const tools = [
   },
   {
     name: "grafana_folder_save",
-    description: "Create a folder, or rename/move one that exists. With a uid that exists the folder is updated (title, parent); with a new or absent uid a folder is created. Nested folders need the nestedFolders feature, which Grafana Cloud has on.",
+    description: "Create a folder, or rename/move one that exists. With a uid that exists: a different title renames it and a parent_uid different from its current parent moves it (empty string = to the root); with a new or absent uid a folder is created. Nested folders need the nestedFolders feature, which Grafana Cloud has on.",
     parameters: obj(
       {
         title: S("The folder title."),
@@ -417,4 +417,7 @@ const manifest = {
 };
 
 writeFileSync(`${dir}package.json`, JSON.stringify(manifest, null, 2) + "\n");
+// The agent imports main with ?v=<its mtime>, so an edit to tools.js or
+// client.js alone is invisible until index.js changes too. Touch it.
+utimesSync(`${dir}index.js`, new Date(), new Date());
 console.log(`wrote package.json: ${tools.length} tools, ${Object.keys(config).length} config keys, version ${manifest.version}`);

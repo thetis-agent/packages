@@ -172,7 +172,22 @@ mock(({ method, path, body }) => {
   return { uid: "f1", title: "Operations", version: 3, url: "/dashboards/f/f1/" };
 });
 out = await tools.folderSave({ uid: "f1", title: "Operations" }, env);
-assert.match(out, /updated folder "Operations" uid=f1 version=3/);
+assert.match(out, /updated folder uid=f1: renamed to "Operations"\. version=3/);
+assert.equal(calls.length, 2, "no move call when parent_uid not given");
+// Move: PUT ignores parentUid, so a separate POST .../move is required.
+mock(({ method, path, body }) => {
+  if (method === "GET") return { uid: "f1", title: "Operations", version: 3, parentUid: "p1" };
+  assert.equal(method, "POST");
+  assert.equal(path, "/api/folders/f1/move");
+  assert.deepEqual(body, { parentUid: "" });
+  return { uid: "f1", title: "Operations", version: 4, url: "/dashboards/f/f1/" };
+});
+out = await tools.folderSave({ uid: "f1", title: "Operations", parent_uid: "" }, env);
+assert.match(out, /moved to the root/);
+assert.equal(calls.length, 2, "same title: no PUT, only the move");
+mock(() => ({ uid: "f1", title: "Operations", version: 3, parentUid: "p1" }));
+out = await tools.folderSave({ uid: "f1", title: "Operations", parent_uid: "p1" }, env);
+assert.match(out, /nothing changed/);
 console.log("folder_save: ok");
 
 // --- datasource update merges, strips secure fields ---------------------------------------
@@ -211,6 +226,18 @@ out = await tools.query({ datasource_uid: "prom", expr: "up" }, env);
 assert.match(out, /A: 1 frame\(s\)/);
 assert.match(out, /2 rows × 2 fields \[Time:time, Value:number\]/);
 assert.match(out, /2023-11-14T22:13:20\.000Z  \|  1/);
+mock(() => ({
+  results: {
+    A: {
+      frames: [
+        { schema: { fields: [{ name: "labels", type: "other" }, { name: "Line", type: "string" }] }, data: { values: [[{ job: "api", level: "info" }], ["hello"]] } },
+      ],
+    },
+  },
+}));
+out = await tools.query({ datasource_uid: "loki", expr: "{job=\"api\"}" }, env);
+assert.match(out, /\{"job":"api","level":"info"\}  \|  hello/, "object cells render as JSON, not [object Object]");
+assert.ok(!out.includes("[object Object]"));
 console.log("query: ok");
 
 // --- alert rule create sets provenance header and defaults --------------------------------------
@@ -377,6 +404,11 @@ mock(({ method, path, headers }) => {
 });
 await tools.alertRuleGroup({ folder_uid: "f", group: "g", delete: "true" }, env);
 console.log("boolean/list args as strings: ok");
+
+// --- folder.not-empty 400 gets its own hint ------------------------------------------------------------------
+mock(() => ({ status: 400, body: { message: "Folder cannot be deleted: folder is not empty", messageId: "folder.not-empty" } }));
+await assert.rejects(tools.folderDelete({ uid: "f" }, env), /force_delete_rules/);
+console.log("folder not-empty hint: ok");
 
 // --- invalid namespace 403 gets its own hint ----------------------------------------------------------------
 mock(() => ({ status: 403, body: { message: "invalid namespace", messageId: "authn.invalid-namespace" } }));

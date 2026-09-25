@@ -1,6 +1,6 @@
 {
   "name": "@bitmuse/grafana",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Grafana's HTTP API as tools: search, read, save and version dashboards, manage folders, data sources, annotations, alert rules, contact points, notification policies, mute timings and templates, run queries, and call any other endpoint, against one configured Grafana Cloud stack or self-hosted instance.",
   "keywords": [
     "grafana",
@@ -304,7 +304,7 @@
       },
       {
         "name": "grafana_folder_save",
-        "description": "Create a folder, or rename/move one that exists. With a uid that exists the folder is updated (title, parent); with a new or absent uid a folder is created. Nested folders need the nestedFolders feature, which Grafana Cloud has on.",
+        "description": "Create a folder, or rename/move one that exists. With a uid that exists: a different title renames it and a parent_uid different from its current parent moves it (empty string = to the root); with a new or absent uid a folder is created. Nested folders need the nestedFolders feature, which Grafana Cloud has on.",
         "parameters": {
           "type": "object",
           "properties": {

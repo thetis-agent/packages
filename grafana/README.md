@@ -13,7 +13,7 @@ Cloud stack or self-hosted instance, sharing one client module.
 | `grafana_dashboard_versions` | `GET …/versions[/:v]`, `POST …/restore` | History, one version's model, restore. |
 | `grafana_dashboard_permissions` | `GET/POST /api/dashboards/uid/:uid/permissions` | Read or replace the ACL. |
 | `grafana_folder_list` | `GET /api/folders[/:uid]` | List (nested with `parent_uid`) or read one. |
-| `grafana_folder_save` | `POST /api/folders`, `PUT /api/folders/:uid` | Create, rename, move. |
+| `grafana_folder_save` | `POST /api/folders`, `PUT /api/folders/:uid`, `POST /api/folders/:uid/move` | Create, rename, move. |
 | `grafana_folder_delete` | `DELETE /api/folders/:uid` | Delete with contents. |
 | `grafana_datasource_list` | `GET /api/datasources[/uid/:uid[/health]]` | List, read one, health check. |
 | `grafana_datasource_save` | `POST /api/datasources`, `PUT /api/datasources/uid/:uid` | Create, or merge-update. |
@@ -111,18 +111,29 @@ integer, boolean and list argument goes through `intArg` / `boolArg` /
 `listArg` in `client.js` before it reaches a request. Lists also accept
 `"a, b"` and `'["a","b"]'`.
 
+**Moving a folder is not a PUT.** `PUT /api/folders/:uid` silently ignores
+`parentUid` (confirmed on Cloud 13.3); `POST /api/folders/:uid/move` is the
+call. `grafana_folder_save` does the right one for each of title and parent.
+
 ## Verified against
 
-Grafana Cloud 13.3.0 (2026-09-25): every read tool; folder create/rename;
-dashboard create, edit-in-place (`set`, `panels_add`), versions, permissions,
-delete; annotations create/list/delete; contact point create/merge-update/
-delete; alert rule create/merge-update/delete, rule group read, yaml export;
-mute timing and template create/read/delete; policy tree replace and reset;
-`grafana_request` against `/apis/folder.grafana.app` with the stack namespace.
-`grafana_query` returned well-formed empty frames because the stack had no
-samples yet; not verified with data.
+Grafana Cloud 13.3.0 (2026-09-25), every tool with at least one live call:
+reads of everything; folder create, rename, move to root, nested list, delete,
+delete refused on a folder holding rules then forced; dashboard create,
+edit-in-place (`set`, `panels_add`, `panels_remove`), versions list/read/
+restore, permissions read/replace, delete; data source create, merge-update,
+health, delete (testdata plugin); `grafana_query` with real rows from Loki
+and testdata; annotations create (point, region, on a panel), list, update,
+delete; contact point create/merge-update/delete; alert rule create/
+merge-update/delete, rule group read and interval change, yaml export; mute
+timing and template create/read/delete; policy tree replace and reset;
+`grafana_request` on teams and on `/apis/folder.grafana.app` with the stack
+namespace.
 
 ## Development
 
 `package.json` is generated: edit `manifest.mjs` and run `node manifest.mjs`.
+That also touches `index.js`, because the agent imports `main` keyed on its
+mtime and an edit to `tools.js` alone is otherwise not picked up. Run it after
+any change, then `install_package` again.
 `node test.smoke.mjs` runs the mocked-fetch tests; no Grafana needed.

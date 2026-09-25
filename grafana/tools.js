@@ -360,13 +360,24 @@ export async function folderSave(args, env) {
       if (!/returned 404/.test(e.message)) throw e;
     }
     if (f) {
-      const r = await c.put(`/api/folders/${encodeURIComponent(a.uid)}`, {
-        title,
-        version: f.version,
-        overwrite: boolArg(a.overwrite),
-        parentUid: a.parent_uid !== undefined ? a.parent_uid || "" : undefined,
-      });
-      return `updated folder "${r.title}" uid=${r.uid} version=${r.version ?? "?"} ${c.link(r.url ?? "")}`;
+      const did = [];
+      let r = f;
+      if (title !== f.title) {
+        r = await c.put(`/api/folders/${encodeURIComponent(a.uid)}`, {
+          title,
+          version: f.version,
+          overwrite: boolArg(a.overwrite),
+        });
+        did.push(`renamed to "${r.title}"`);
+      }
+      // PUT ignores parentUid; moving is its own endpoint. Grafana Cloud 13
+      // confirmed: a PUT with parentUid "" left the folder where it was.
+      if (a.parent_uid !== undefined && a.parent_uid !== null && (a.parent_uid || "") !== (f.parentUid ?? "")) {
+        r = await c.post(`/api/folders/${encodeURIComponent(a.uid)}/move`, { parentUid: a.parent_uid || "" });
+        did.push(a.parent_uid ? `moved under ${a.parent_uid}` : "moved to the root");
+      }
+      if (!did.length) return `folder "${f.title}" uid=${f.uid} already has that title and parent; nothing changed.`;
+      return `updated folder uid=${r.uid}: ${did.join(", ")}. version=${r.version ?? "?"} ${c.link(r.url ?? "")}`;
     }
   }
   const r = await c.post("/api/folders", {
@@ -502,9 +513,11 @@ function formatQueryResult(r, raw) {
 }
 
 function fmtCell(v, type) {
+  if (v === null || v === undefined) return "";
   if (type === "time" && typeof v === "number") return new Date(v).toISOString();
   if (typeof v === "number") return Number.isInteger(v) ? String(v) : v.toPrecision(6);
-  return clip(String(v ?? ""), 60);
+  if (typeof v === "object") return clip(JSON.stringify(v), 80);
+  return clip(String(v), 80);
 }
 
 // ---------------------------------------------------------------------------

@@ -211,6 +211,10 @@ export function explainError(status, text, method, path) {
       "version you sent is behind the stored one. Read it again and resend with overwrite.";
   } else if (status === 409) {
     hint = "Conflict: a resource with that uid or name already exists, or the version is stale.";
+  } else if (status === 400 && messageId === "folder.not-empty") {
+    hint =
+      "The folder still holds alert rules (dashboards and subfolders go with it, rules do not). " +
+      "Pass force_delete_rules: true to grafana_folder_delete, or delete the rules first.";
   } else if (status === 400 && /provenance/i.test(message)) {
     hint =
       "The resource was provisioned by another source (Terraform, files, or this API without " +
