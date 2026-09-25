@@ -65,20 +65,19 @@ Your code reads the result as `env.config` in a tool, or `ctx.config` in a step.
 
 A tool with `"group": "<id>"` sits in that group instead of its package's, so a package can host several groups. A group only tools declare takes its brief from the first such tool's description. A skill whose `metadata.tags` carry `tool-group:<id>` admits the group when the skill is pinned or universal. See `thetis/using`.
 
-A kernel registry record, in `$THETIS_HOME/registry.json`:
+A kernel registry record, one document per package name in the store's `registry` namespace:
 
 ```json
 {
   "name": "@alice/hello",
-  "version": "0.1.0",
-  "type": "loader",
-  "owner": "alice",
-  "source": { "kind": "local", "ref": "packages/hello" },
-  "userspaces": ["alice"]
+  "installs": {
+    "alice": { "version": "0.1.0", "type": "loader", "source": { "kind": "local", "ref": "packages/hello" } },
+    "bob": { "version": "0.1.0", "type": "loader", "source": { "kind": "git", "ref": "https://…/packages.git#hello@<commit>" } }
+  }
 }
 ```
 
-`kind` is `system`, `local`, or `git`. `ref` is the system directory, the local path relative to home, or the git source with its pin. A fork's record also carries `forkedFrom`, `replaced`, and `replacedSource`. A record with no userspaces is deleted.
+One entry per workspace, and no owner: a scope is a namespace. `kind` is `system`, `local`, or `git`. `ref` is the system directory, the local path relative to home, or the git source with its pin. A fork's record carries `forkedFrom`, and the entry of a workspace where it displaced its origin carries `replaced` and `replacedSource`. `everyone` marks the default for everyone. A record whose last entry is removed is deleted.
 
 What package code sees for each installed package, `PackageInfo`, from `ctx.packages.list()` or `env.kernel.packages.list()`: `{ name, version, type, description, root, thetis, source?, forkedFrom?, everyone?, everyoneBy?, replaced? }`. `source.kind` is `system` for a package shipped or promoted here, `git` or `local` otherwise. `everyone` is `true` when every person gets the package by default, and `everyoneBy` says who decided that: `config` (the `systemPackages["*"]` list), `promoted`, or `marked` (an admin). `env.kernel.packages.catalog()` lists every system package on disk in the same shape, whether or not this workspace has it; anyone may install one of those by name.
 

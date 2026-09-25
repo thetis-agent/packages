@@ -408,7 +408,8 @@ export function actionsFor(ext, view, host) {
     hints.push(`The registry holds a newer commit (${row.update.from} → ${row.update.to}). Nothing changes until you take it, and the copy you have keeps working if the new one fails to build.`);
   }
   if (row.installed) add("Remove", "warn", remove);
-  if (own) {
+  // Delete goes by where the files are, not by the name: a copy under this person's home is theirs to delete, whatever scope it was given.
+  if (row.local) {
     add("Delete", "warn", del);
     hints.push(row.replaced ? `Remove or Delete puts ${row.replaced} back in place.` : "Delete removes the package and its files under packages/.");
   }
@@ -428,11 +429,12 @@ export function actionsFor(ext, view, host) {
     } else if (row.everyoneBy === "promoted") hints.push("It is everyone's default because it was promoted. Removing the promoted copy from the host is what undoes that.");
     else hints.push('It is everyone\'s default by the installation\'s configuration (systemPackages "*"), which the control panel edits.');
   }
-  if (admin && !row.system && !own && row.source && !notInstallable) {
+  if (admin && !row.system && !row.installed && row.source && !notInstallable) {
     add("Install for everyone", "quiet", installEveryone);
     hints.push("It is installed for you, becomes a system package under @thetis, and every person gets it now and later.");
   }
-  if (admin && own) {
+  // Any copy of the admin's own that is not the installation's can be promoted, whatever its scope is called.
+  if (admin && row.installed && !row.system) {
     add("Make it the default for everyone", "quiet", promote);
     hints.push("Making it the default copies the package under @thetis as a system package, adds it for every person, and removes your own copy.");
   }

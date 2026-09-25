@@ -76,7 +76,7 @@ A pin is exactly forty hexadecimal characters. Install a package with `install_p
 
 A **system package** is one shipped in `<root>/packages` or promoted into `$THETIS_HOME/packages`. It is already on disk and already built. Send its name, `@thetis/<name>`, and the kernel links that copy into your workspace. Anyone can do this, admin or not. On an installation whose registry is the same repository the checkout ships, nearly every package in the index is also a system package, and the marketplace installs it by name, never by clone.
 
-The ownership rules apply to a *source*. A `@thetis/*` package installed from a git URL or a directory is an admin's act. A `@<user>/*` package installs for that user only.
+A scope is a namespace, not an owner: anyone installs any registry source into their own workspace, and each workspace's copy is its own entry in the kernel registry. The one rule is about `@thetis`: a *source* (a git URL or a directory) whose manifest claims it is an admin's to install.
 
 ## Update
 
@@ -116,7 +116,7 @@ A card says three things apart. **System** or **System · everyone**: the packag
 | Install | anyone | `install { source }`. A system package by name. Anything else by its pinned source. The popover says what the package's type brings. A host package or a storage driver has no Install. |
 | Remove | anyone | `remove { name }`. Out of your workspace only. A system package stays on disk, and Install puts it back. |
 | Update to version | anyone, when behind | `update { name }` |
-| Delete | the owner of a `@<user>/*` package | `delete { name }` |
+| Delete | anyone, for a copy under their own home | `delete { name }` |
 | Go back to what a fork was copied from | anyone | `unfork { name }` |
 | Make it the default for everyone | admins, on a system package | `install-everyone { source: name }`. Every person gets it now and later. |
 | Stop it being the default | admins, on a system package an admin marked | `unmark-everyone { name }`. New people stop getting it. Everyone who has it keeps it. A default the configuration or a promotion made is not undone here. |

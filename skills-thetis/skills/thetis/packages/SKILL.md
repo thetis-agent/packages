@@ -121,14 +121,13 @@ export async function startService(env) {
 
 Declare it with `"service": { "export": "startService" }`. `env` is the step environment plus `config` and `log`. The service runs while the package is installed and the fence is open. `thetis serve` starts every service. A one-shot CLI command does not. Do not write to `process.stdout` from a service or a step. It corrupts the protocol. Write to `stderr` with `console.error` or `env.log`.
 
-## Scopes and ownership
+## Scopes are namespaces
 
-| Scope | Owner | Rule |
-|---|---|---|
-| `@thetis/*` | The system | Shipped in `<root>/packages` or promoted into `$THETIS_HOME/packages`. Anyone installs one by name into their own workspace: the copy is already on disk and already built. Installing a `@thetis/*` package from a git URL or a directory is an admin's act. |
-| `@<user>/*` | That user | Only that user installs it, and only into that user's userspace. |
+A scope is a label the author chose. It does not say who owns the package, and the kernel does not check it against who installs. Anyone installs any source into their own workspace. The registry keeps one entry per workspace, so two people holding the same name from different sources, or at different pins, never touch each other's entry.
 
-Name your packages `@<your user id>/<name>`. A wrong scope fails with the code `unauthorized`.
+One scope has a meaning. `@thetis/*` is the installation's: the kernel resolves those names on disk, in `<root>/packages` or `$THETIS_HOME/packages`. Anyone installs a `@thetis/*` package by name, because the copy is already there and already built. Only an admin installs a *source* (a git URL or a directory) whose manifest claims `@thetis`. The refusal has the code `unauthorized`.
+
+Name your own packages `@<your user id>/<name>`. That is the convention a fork follows, and it keeps names apart between people. Nothing enforces it.
 
 ## Sources of a package
 
@@ -138,13 +137,13 @@ Name your packages `@<your user id>/<name>`. A wrong scope fails with the code `
 |---|---|---|
 | A path | Anything that is not a URL or a system name | Resolved against home. Must stay inside the userspace root. |
 | A git URL | Starts with `http://`, `https://`, `git@`, `git://`, `ssh://`, or `file://`, or ends with `.git`. `#<dir>` names a directory inside the repository. `@<commit>` pins one commit of 40 hexadecimal characters. | A shallow clone into `store/src/<slug>`. With a pin, `store/src/<slug>-<commit prefix>`. |
-| A system name | `@thetis/<name>` with no further `/` | Links the shipped package. Admin only. |
+| A system name | `@thetis/<name>` with no further `/` | Links the shipped or promoted package. Anyone. |
 
 ## The install procedure
 
 1. Get the package directory.
 2. Read and validate `package.json`.
-3. Check ownership.
+3. Check the namespace: a source claiming `@thetis` needs an admin.
 4. Check `peerDependencies`. Each peer must be installed in this userspace. `@thetis/runtime` is provided by the platform. Failure code: `peer`.
 5. Build inside the fence. With `scripts.build`: `npm install --no-audit --no-fund && npm run build`. Else with `dependencies`: `npm install --omit=dev --no-audit --no-fund`. Else nothing. The timeout is 300000 milliseconds. A non-zero exit fails with the code `build`.
 6. Make sure the `main` file exists.
@@ -162,7 +161,7 @@ The fence has no host loopback and, in network mode `none`, no network. An `npm 
   src/<slug>/
 ```
 
-The kernel keeps `$THETIS_HOME/registry.json` in the service plane. You cannot read it from the fence. Each record has `name`, `version`, `type`, `owner`, `source` (`{ kind, ref }` with `kind` `system`, `local`, or `git`), and `userspaces`. A fork's record also has `forkedFrom`, `replaced`, and `replacedSource`. Read your installed packages with `env.kernel.packages.list()`, or with the `list_packages` tool. Read the system packages on disk, installed or not, with `env.kernel.packages.catalog()`.
+The kernel keeps `$THETIS_HOME/registry.json` in the service plane. You cannot read it from the fence. Each record has `name`, `everyone` when it is the default for everyone, `forkedFrom` for a fork, and `installs`: one entry per workspace, `{ version, type, source, replaced?, replacedSource? }`, with `source` `{ kind, ref }` and `kind` `system`, `local`, or `git`. There is no owner. A record whose last entry is removed is deleted. Read your installed packages with `env.kernel.packages.list()`, or with the `list_packages` tool. Read the system packages on disk, installed or not, with `env.kernel.packages.catalog()`.
 
 ## The cycle from a conversation
 

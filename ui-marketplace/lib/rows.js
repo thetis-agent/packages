@@ -11,6 +11,8 @@
 // already built, and open to anyone by name. `installed` is whether it is in this person's workspace.
 // `everyone` is whether every person gets it by default, with `everyoneBy` saying who decided that -- the
 // configuration, a promotion, or an admin's mark -- because only the mark can be taken back from a page.
+// `own` is the person's namespace, a label; `local` is a copy under their home, which is what Delete and
+// the kernel go by. The registry keeps one entry per workspace, so a name says nothing about whose it is.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { ahead, behind, compareVersions, shortCommit } from "@thetis/marketplace";
@@ -107,6 +109,9 @@ export function installedRow(info, installed = true) {
     everyone: !!info.everyone,
     everyoneBy: info.everyoneBy ?? null,
     own: false,
+    // A copy that lives under this person's home. Delete goes by this and not by the name: the files are
+    // theirs by where they are, and a scope is only what the author called the package.
+    local: info.source?.kind === "local",
     pin: pinOf(info),
     license: licenseOf(info.root),
     available: false,
@@ -150,6 +155,7 @@ export function indexRow(entry) {
     everyone: false,
     everyoneBy: null,
     own: false,
+    local: false,
     pin: null,
     license: null,
     available: true,
