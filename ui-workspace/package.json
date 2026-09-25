@@ -1,0 +1,55 @@
+{
+  "name": "@thetis/ui-workspace",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "The Workspace place of the web gateway: a file browser and editor over the home, the shared directory and the directories of the person's projects, with a Files dock beside the chat and file links in the transcript.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "test:browser": "node --test test/browser.mjs"
+  },
+  "dependencies": {
+    "@thetis/projects": "^0.2.2",
+    "@thetis/tools-files": "^0.2.1"
+  },
+  "thetis": {
+    "type": "ui",
+    "ui": {
+      "dir": "ui",
+      "entry": "index.js",
+      "style": "index.css",
+      "places": [
+        {
+          "id": "workspace",
+          "label": "Workspace",
+          "hint": "Your home, the shared directory, and the directories of your projects",
+          "icon": "M2.5 5.5A1.5 1.5 0 0 1 4 4h3.6L9.4 6h6.6a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 16 16H4a1.5 1.5 0 0 1-1.5-1.5v-9Z",
+          "order": 30
+        }
+      ],
+      "dock": [
+        {
+          "id": "files",
+          "label": "Files",
+          "hint": "This project's directories, then Home and Shared",
+          "icon": "M2.5 5.5A1.5 1.5 0 0 1 4 4h3.6L9.4 6h6.6a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 16 16H4a1.5 1.5 0 0 1-1.5-1.5v-9Z",
+          "order": 105
+        }
+      ],
+      "commands": [
+        { "verb": "roots", "export": "roots", "label": "The spaces this fence can reach and the state of each project directory" },
+        { "verb": "list", "export": "list", "label": "List one directory" },
+        { "verb": "stat", "export": "stat", "label": "The facts about one path" },
+        { "verb": "read", "export": "read", "label": "Read a text file" },
+        { "verb": "write", "export": "write", "label": "Write a text file, refusing to overwrite an edit made elsewhere" },
+        { "verb": "mkdir", "export": "mkdir", "label": "Make a directory" },
+        { "verb": "rename", "export": "rename", "label": "Rename a file or directory in place" },
+        { "verb": "delete", "export": "del", "label": "Delete a file or a directory tree" },
+        { "verb": "count", "export": "count", "label": "Count the files and bytes under a path" },
+        { "verb": "resolve", "export": "resolve", "label": "Say which of these paths can be reached, and where" },
+        { "verb": "bind", "export": "bind", "label": "Bind a host directory into my fence", "role": "admin" }
+      ]
+    }
+  }
+}

@@ -1,0 +1,125 @@
+/* @thetis/ui-workspace — the Files dock, the transcript links and the dialogs. Everything sits on the
+ * shell's tokens; `.card`, `.popover`, `.kv`, `.ghost-btn`, `.icon-btn` and the `.tool-*` card come from
+ * the shell, `.ws-mode` and `.ws-dot` from index.css (the explorer). */
+
+/* ---- the Files dock ---- */
+
+.ws-dock { display: flex; flex-direction: column; gap: var(--gap-2); min-height: 0; }
+.ws-dock-tree { min-height: 0; }
+.ws-dock-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gap-1) var(--gap-3);
+  padding: var(--gap-2) 0 0;
+  border-top: 1px solid var(--hairline);
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+.ws-dock-legend-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+
+/* ---- links in the transcript ---- */
+
+.ws-link {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0 5px;
+  margin: -1px 0;
+  border: 1px solid var(--accent-edge);
+  border-radius: var(--r-sm);
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: inherit;
+  line-height: 1.5;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: baseline;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.ws-link:hover, .ws-link:focus-visible { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent-hot); border-color: var(--accent); outline: none; }
+.ws-link:focus-visible { box-shadow: 0 0 0 2px var(--glow); }
+.ws-link.is-cut { border-right-style: dashed; }
+/* Inline, not inline-block, in the gist: an atomic box is dropped whole by the head's ellipsis, inline text is cut through. */
+.tool-gist .ws-link { display: inline; font-size: var(--text-xs); margin: 0; padding: 1px 5px; white-space: inherit; overflow: visible; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.tool.is-bad .ws-link { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent); background: var(--err-wash); }
+
+.ws-open {
+  flex: none;
+  appearance: none;
+  padding: 0 7px;
+  margin-left: auto;
+  border: 1px solid var(--accent-edge);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  line-height: 1.6;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.ws-open:hover, .ws-open:focus-visible { background: var(--accent-wash); color: var(--accent-hot); outline: none; }
+.ws-open + .tool-took, .ws-open + .tool-status { margin-left: 0; }
+.tool-took + .ws-open { margin-left: 0; }
+
+.ws-touched {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: 6px 0 2px 12px;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+.ws-touched-label { flex: none; margin-right: 2px; }
+.ws-touched .ws-link { font-size: var(--text-xs); margin: 0; }
+
+/* ---- the upload card ---- */
+
+.ws-uploads {
+  position: absolute;
+  right: var(--gap-4);
+  bottom: var(--gap-4);
+  z-index: 5;
+  width: min(360px, calc(100% - 2 * var(--gap-4)));
+  box-shadow: var(--shadow-lg);
+}
+.ws-uploads.is-floating { position: fixed; z-index: 55; }
+.ws-uploads-head { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-2); }
+.ws-uploads-actions { display: inline-flex; gap: var(--gap-1); }
+.ws-uploads-list { max-height: 40vh; overflow: auto; display: flex; flex-direction: column; }
+.ws-upload-row { padding: 8px 14px 10px; border-bottom: 1px solid var(--hairline); font-size: var(--text-sm); }
+.ws-upload-row:last-child { border-bottom: 0; }
+.ws-upload-line { display: flex; align-items: baseline; gap: var(--gap-2); min-width: 0; }
+.ws-upload-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: var(--text-xs); color: var(--text); }
+.ws-upload-size { flex: none; color: var(--text-faint); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.ws-upload-status { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); font-size: var(--text-xs); }
+.ws-upload-row[data-state="done"] .ws-upload-status { color: var(--ok); }
+.ws-upload-row[data-state="err"] .ws-upload-status { color: var(--err); }
+.ws-upload-row[data-state="warn"] .ws-upload-status { color: var(--warn); }
+.ws-upload-row[data-state="muted"] .ws-upload-status, .ws-upload-row[data-state="muted"] .ws-upload-name { color: var(--text-faint); }
+.ws-upload-bar { height: 3px; margin-top: 6px; border-radius: var(--r-pill); background: var(--hairline); overflow: hidden; }
+.ws-upload-fill { width: var(--ws-progress, 0%); height: 100%; border-radius: var(--r-pill); background: var(--accent); transition: width var(--med) var(--ease); }
+.ws-upload-row[data-state="done"] .ws-upload-fill { background: var(--ok); }
+.ws-upload-row[data-state="err"] .ws-upload-fill { width: 100%; background: var(--err); }
+.ws-upload-row[data-state="muted"] .ws-upload-bar, .ws-upload-row[data-state="queued"] .ws-upload-bar { opacity: .5; }
+
+/* ---- the delete confirm's extras (inside the shell's .popover-note) ---- */
+
+.ws-del { display: flex; flex-direction: column; gap: 6px; }
+.ws-del-line { display: block; }
+.ws-del-line.is-warn { color: var(--warn); }
+.ws-del-ack { display: flex; align-items: flex-start; gap: var(--gap-2); margin-top: 2px; color: var(--text); cursor: pointer; }
+.ws-del-ack input { margin: 3px 0 0; accent-color: var(--err); }
+
+@media (max-width: 760px) {
+  .ws-uploads { right: var(--gap-3); bottom: var(--gap-3); width: calc(100% - 2 * var(--gap-3)); }
+}
