@@ -129,7 +129,10 @@ export const spawnSubagent: Tool = async (args, env) => {
     const said = partial.trim() || reply.trim();
     return `${head}\nstopped: the subagent was stopped before it finished.${said ? `\nWhat it had said so far:\n${said}` : ""}`;
   }
-  if (failure) return `${head}\nerror: ${failure.message}`;
+  if (failure) {
+    const said = partial.trim() || reply.trim();
+    return `${head}\nerror: ${failure.message}${said ? `\nWhat it had said so far:\n${said}` : ""}\nFiles it wrote before failing are still there; look before starting the work again.`;
+  }
   return `${head}\n${reply}`;
 };
 

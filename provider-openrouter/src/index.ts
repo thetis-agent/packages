@@ -127,6 +127,7 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
         beat.unref?.();
 
         const pending = new Map<number, { id: string; name: string; args: string }>();
+        let lastProgress = 0;
         let finish: string | undefined;
         const lines: AsyncIterable<string> = sse(res.body, () => (lastByte = Date.now()));
         const reading = lines[Symbol.asyncIterator]();
@@ -166,6 +167,14 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
             if (tc.function?.name) slot.name += tc.function.name;
             if (tc.function?.arguments) slot.args += tc.function.arguments;
             pending.set(tc.index ?? 0, slot);
+            // A tool call is only yielded whole, at the end of the stream, and its arguments can take minutes to
+            // arrive: a model writing a 50 KB file sends nothing else meanwhile. To whoever watches the stream
+            // that is indistinguishable from a wedged request, and was cancelled as one. So the arguments
+            // arriving are reported as they grow, a few times a minute, as a sign of life and of progress.
+            if (Date.now() - lastProgress >= TOOL_PROGRESS_MS) {
+              lastProgress = Date.now();
+              yield { type: "extension", name: "tool_call.progress", data: { index: tc.index ?? 0, name: slot.name, chars: slot.args.length } };
+            }
           }
           if (chunk.usage) yield { type: "usage", usage: normalizeUsage(chunk.usage) };
         }
@@ -188,6 +197,9 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
     },
   };
 }
+
+/** How often a tool call whose arguments are still arriving is reported as `tool_call.progress`. */
+export const TOOL_PROGRESS_MS = 5_000;
 
 /** Why a reply ended early, when the reason is one the caller should act on; undefined for a normal stop. */
 export function stopMessage(finish: string | undefined, maxTokens: unknown): string | undefined {

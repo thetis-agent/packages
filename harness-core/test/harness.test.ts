@@ -6,7 +6,7 @@ import { join } from "node:path";
 import assert from "node:assert/strict";
 import type { Message, PackageInfo, PackageStepContext, ProviderCall, ProviderEvent, ToolSpec, TurnEvent } from "@thetis/runtime/contracts";
 import { ContextRecorder } from "../src/context.js";
-import { attachTools, callModel, recordCall, systemPrompt, turnContext, turnContextLine, TURN_CONTEXT, withoutTurnContext, type LastCall } from "../src/index.js";
+import { attachTools, callModel, recordCall, systemPrompt, toolBatches, turnContext, turnContextLine, TURN_CONTEXT, withoutTurnContext, type LastCall } from "../src/index.js";
 
 const greet = {
   name: "@thetis/greet",
@@ -480,4 +480,43 @@ test("context ignores corrupt snapshots and summarizes unknown wire layouts with
     assert.deepEqual(saved.lastCall.request, body);
     assert.equal(warnings.length, 1);
   } finally { console.warn = warn; }
+});
+
+test("attachTools carries concurrent: true from the manifest, and nothing when it is not set", async () => {
+  const spawner = { ...greet, name: "@thetis/spawner", thetis: { type: "tool", tools: [{ name: "spawn", description: "", export: "spawn", concurrent: true }, { name: "plain", description: "", export: "plain" }] } } as unknown as PackageInfo;
+  const ctx = ctxWith({ call: { model: "m", messages: [], tools: [], params: {} }, packages: { has: () => true, get: () => spawner, list: () => [spawner] } });
+  const tools = (await attachTools(ctx)).call!.tools;
+  assert.equal(tools.find((t) => t.name === "spawn")?.concurrent, true);
+  assert.equal("concurrent" in tools.find((t) => t.name === "plain")!, false);
+});
+
+test("toolBatches: adjacent calls to concurrent tools run together; everything else keeps its order, one at a time", () => {
+  const spec = (name: string, concurrent?: boolean): ToolSpec => ({ name, description: "", parameters: {}, package: "@a/p", export: name, ...(concurrent ? { concurrent } : {}) });
+  const call: ProviderCall = { model: "m", messages: [], tools: [spec("spawn", true), spec("write")], params: {} };
+  const tc = (id: string, name: string) => ({ id, name, args: {} });
+  const batches = toolBatches(call, [tc("1", "spawn"), tc("2", "spawn"), tc("3", "write"), tc("4", "spawn"), tc("5", "write"), tc("6", "write")]);
+  assert.deepEqual(batches.map((b) => b.map((c) => c.id)), [["1", "2"], ["3"], ["4"], ["5"], ["6"]]);
+});
+
+test("callModel: concurrent tool calls run at once and their results are recorded in the order they were asked", async () => {
+  const script: Script = async (round, _call, onEvent) => {
+    if (round > 1) return onEvent({ type: "text", delta: "done" });
+    for (const id of ["a", "b", "c"]) onEvent({ type: "tool_call", call: { id, name: "spawn", args: { id } } });
+  };
+  const spec: ToolSpec = { name: "spawn", description: "", parameters: {}, package: "@a/p", export: "spawn", concurrent: true };
+  let running = 0;
+  let peak = 0;
+  const { ctx } = loopCtx(script, {
+    tools: [spec],
+    invoke: async (call) => {
+      peak = Math.max(peak, ++running);
+      // The first asked finishes last: the record must still follow the order of the calls.
+      await new Promise((r) => setTimeout(r, call.args.id === "a" ? 30 : 5));
+      running--;
+      return `child ${call.args.id}`;
+    },
+  });
+  const out = await callModel(ctx);
+  assert.equal(peak, 3, "all three were running at the same time");
+  assert.deepEqual(toolResults(out.conversation), [["spawn", "child a"], ["spawn", "child b"], ["spawn", "child c"]]);
 });

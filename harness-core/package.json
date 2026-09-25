@@ -1,6 +1,6 @@
 {
   "name": "@thetis/harness-core",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "license": "MIT",
   "description": "The default harness: the system prompt, the turn context line, every installed tool attached to the call, and the loop that sends it and runs the tools.",
   "type": "module",

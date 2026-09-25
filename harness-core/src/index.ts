@@ -76,7 +76,7 @@ export async function attachTools(ctx: PackageStepContext): Promise<StepResult> 
   for (const pkg of ctx.packages.list()) {
     for (const t of pkg.thetis.tools ?? []) {
       if (tools.some((x) => x.name === t.name)) continue;
-      tools.push({ name: t.name, description: t.description, parameters: t.parameters ?? { type: "object", properties: {} }, package: pkg.name, export: t.export });
+      tools.push(toolSpec(pkg.name, t));
     }
   }
   return { call: { ...ctx.call, tools } };
@@ -450,9 +450,22 @@ function withheldTool(call: ProviderCall, packages: readonly PackageInfo[], name
   if (!Array.isArray(withheld) || !withheld.includes(name)) return undefined;
   for (const pkg of packages) {
     const t = pkg.thetis.tools?.find((x) => x.name === name);
-    if (t) return { name, description: t.description, parameters: t.parameters ?? { type: "object", properties: {} }, package: pkg.name, export: t.export };
+    if (t) return toolSpec(pkg.name, t);
   }
   return undefined;
+}
+
+type ToolDecl = NonNullable<PackageInfo["thetis"]["tools"]>[number];
+
+/**
+ * A declared tool as the call carries it. `concurrent: true` in the manifest says that calls to it may run
+ * beside each other in one round (see `runTools`); it is carried only when set, so the spec stays the shape
+ * every provider already maps.
+ */
+function toolSpec(pkg: string, t: ToolDecl): ToolSpec {
+  const spec: ToolSpec = { name: t.name, description: t.description, parameters: t.parameters ?? { type: "object", properties: {} }, package: pkg, export: t.export };
+  if ((t as { concurrent?: unknown }).concurrent === true) spec.concurrent = true;
+  return spec;
 }
 
 /** One request to the provider: the streamed text, the tool calls it asked for, and how it ended. */
@@ -601,15 +614,37 @@ export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
     call.messages.push(assistant);
     ctx.emit({ type: "message", message: assistant, usage: round.usage });
     if (!assistant.toolCalls?.length) break;
-    for (const tc of assistant.toolCalls) {
+    for (const batch of toolBatches(call, assistant.toolCalls)) {
       if (ctx.signal.aborted) return stop(STOPPED);
-      const result = await runTool(ctx, call, tc, cfg);
-      if (!result) return stop(STOPPED);
-      conversation.push(result);
-      call.messages.push(result);
+      const results = await Promise.all(batch.map((tc) => runTool(ctx, call, tc, cfg)));
+      // Results are recorded in the order the model asked, whatever order they finished in; a stop
+      // keeps the ones that had come back and `closeDangling` answers the rest.
+      for (const result of results) {
+        if (!result) continue;
+        conversation.push(result);
+        call.messages.push(result);
+      }
+      if (results.some((r) => !r)) return stop(STOPPED);
     }
   }
   return finish("complete");
+}
+
+/**
+ * One round's tool calls, split into what runs together. Calls run one after another, as the model wrote
+ * them, except that a run of adjacent calls to tools declared `concurrent` runs at once: five subagents
+ * asked for in one breath are five subagents working, not one working while four wait. A tool is only
+ * declared so when calls to it cannot step on each other; everything else keeps the order it was given.
+ */
+export function toolBatches(call: ProviderCall, toolCalls: ToolCall[]): ToolCall[][] {
+  const concurrent = (tc: ToolCall) => call.tools.find((t) => t.name === tc.name)?.concurrent === true;
+  const batches: ToolCall[][] = [];
+  for (const tc of toolCalls) {
+    const last = batches[batches.length - 1];
+    if (last && concurrent(tc) && concurrent(last[0])) last.push(tc);
+    else batches.push([tc]);
+  }
+  return batches;
 }
 
 const HarnessRecordSchema = z.record(z.string(), z.unknown());

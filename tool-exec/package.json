@@ -1,6 +1,6 @@
 {
   "name": "@thetis/tool-exec",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "license": "MIT",
   "description": "Tools for the model: install, fork, remove, delete and configure packages, and spawn subagents in your own space. Running commands is @thetis/terminal.",
   "type": "module",
@@ -168,7 +168,8 @@
       },
       {
         "name": "spawn_subagent",
-        "description": "Start a subagent session in your userspace (same files and packages), send it a task, and return its final reply. The person watches the subagent work under its label. The first line of the result names it: [subagent <id> <label>]. Stopping your turn stops the subagent. A subagent may spawn subagents of its own.",
+        "concurrent": true,
+        "description": "Start a subagent session in your userspace (same files and packages), send it a task, and return its final reply. Several spawn_subagent calls in one reply run at the same time. The person watches the subagent work under its label. The first line of the result names it: [subagent <id> <label>]. Stopping your turn stops the subagent. A subagent may spawn subagents of its own.",
         "parameters": {
           "type": "object",
           "properties": {
