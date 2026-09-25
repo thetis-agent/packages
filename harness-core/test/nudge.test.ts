@@ -504,3 +504,16 @@ for (const fixture of GUARANTEE) {
     }
   });
 }
+
+// ---- an empty reply is not the end of a turn ----
+test("a provider that ends its stream with nothing is a provider failure, not the model finishing: the turn says so and records no empty message", async () => {
+  // The production incident: a stream cut under the reply came back as an empty assistant message, the loop
+  // took the absence of tool calls as the model being done, and a turn twenty-five minutes in stopped with
+  // nothing said and nothing recorded as wrong.
+  const { ctx, events } = harness({ script: () => Promise.resolve() });
+  const out = await within(3_000, callModel(ctx));
+  assert.match(firstOf(events, "error")!.message, /provider error: the model returned an empty reply: no text and no tool call/);
+  assert.equal(firstOf(events, "error")!.code, "provider");
+  assert.deepEqual(out.conversation!.map((m) => m.role), ["user"], "no empty assistant message is invented");
+  assert.equal(allOf(events, "message").length, 0);
+});

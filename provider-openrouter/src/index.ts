@@ -108,8 +108,16 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
       // headers arrive. The second covers the open stream, and any byte at all resets it, so a model that
       // thinks for twenty minutes while sending SSE keepalives is never touched by it. What they rule out is
       // the one shape neither of them describes: a socket that is open and silent, for ever.
+      // One attempt per pass. A stream that the connection cuts before the provider has sent a single byte
+      // of the reply is made again, as a refused request is; see the end of the loop for why only that case.
+      for (let attempt = 0; ; attempt++) {
       const request = requestScope(signal, requestTimeoutMs);
       let beat: ReturnType<typeof setInterval> | undefined;
+      // Whether anything at all has reached the consumer from this attempt: text, reasoning, a tool call's
+      // progress, usage. Once it has, the attempt cannot be quietly made again.
+      let produced = false;
+      let saidText = false;
+      let ended: "done" | "cut" = "cut";
       try {
         let res: Response;
         try {
@@ -141,7 +149,10 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
           }
           if (step.done) break;
           const data = step.value;
-          if (data === "[DONE]") break;
+          if (data === "[DONE]") {
+            ended = "done";
+            break;
+          }
           let chunk;
           try {
             chunk = parseSchema(StreamChunkSchema, JSON.parse(data), "OpenRouter stream");
@@ -152,7 +163,10 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
           if (typeof chunk.choices?.[0]?.finish_reason === "string") finish = chunk.choices[0].finish_reason;
           const delta = chunk.choices?.[0]?.delta;
           if (typeof delta?.content === "string") {
-            if (delta.content) yield { type: "text", delta: delta.content };
+            if (delta.content) {
+              produced = saidText = true;
+              yield { type: "text", delta: delta.content };
+            }
           } else if (delta?.content != null) return yield { type: "error", message: "OpenRouter returned an unsupported content delta" };
           if (delta?.images || delta?.audio) return yield { type: "error", message: "This OpenRouter adapter does not yet decode generated image or audio streams" };
           // A reasoning model sends its thinking beside the answer, and two spellings are in the wild:
@@ -160,7 +174,10 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
           // and llama.cpp emit and OpenRouter passes through for some upstreams. Take whichever came. It is
           // yielded as its own kind and never folded into the text: the thinking is not the reply.
           const thought = delta?.reasoning ?? delta?.reasoning_content;
-          if (thought) yield { type: "reasoning", delta: thought };
+          if (thought) {
+            produced = true;
+            yield { type: "reasoning", delta: thought };
+          }
           for (const tc of delta?.tool_calls ?? []) {
             const slot = pending.get(tc.index ?? 0) ?? { id: "", name: "", args: "" };
             if (tc.id) slot.id = tc.id;
@@ -171,28 +188,50 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
             // arrive: a model writing a 50 KB file sends nothing else meanwhile. To whoever watches the stream
             // that is indistinguishable from a wedged request, and was cancelled as one. So the arguments
             // arriving are reported as they grow, a few times a minute, as a sign of life and of progress.
+            produced = true;
             if (Date.now() - lastProgress >= TOOL_PROGRESS_MS) {
               lastProgress = Date.now();
               yield { type: "extension", name: "tool_call.progress", data: { index: tc.index ?? 0, name: slot.name, chars: slot.args.length } };
             }
           }
-          if (chunk.usage) yield { type: "usage", usage: normalizeUsage(chunk.usage) };
+          if (chunk.usage) {
+            produced = true;
+            yield { type: "usage", usage: normalizeUsage(chunk.usage) };
+          }
+        }
+        // A stream that ends with neither the provider's [DONE] nor a finish_reason was cut under the reply:
+        // the connection dropped, or the upstream gave up without a word. Before this the adapter ended
+        // quietly and the harness took the empty message as the model finishing, so a turn simply stopped
+        // mid-work and nothing anywhere said so. With nothing received yet the request is made again, as a
+        // refused one is; with part of a reply received it cannot be, and the turn is told. A [DONE] without
+        // a finish_reason is taken as the provider's word that it finished; the empty-reply check below
+        // still stands over it.
+        if (finish === undefined && ended === "cut") {
+          if (!produced && attempt < (config.retries ?? 3) && !signal?.aborted) continue;
+          return yield { type: "error", message: `the connection closed before the reply finished${produced ? ", part-way through it" : `, before any of it arrived, ${attempt + 1} times`}: no finish reason was sent` };
         }
         // A reply cut off at the output limit is not an answer: its tool call arguments are half a JSON document,
         // and reasoning may have used the whole allowance with nothing said. Say so instead of ending quietly.
         const cut = stopMessage(finish, body.max_tokens);
         if (cut) return yield { type: "error", message: cut };
+        // A finished reply that says nothing and calls nothing is not the model finishing either: a turn that
+        // ended on it would end mid-work with nothing to show, which reads as the agent dying. The reason is
+        // named so the person can see what came back.
+        if (!saidText && !pending.size) return yield { type: "error", message: `the model returned an empty reply (finish_reason: ${finish ?? "none"}${produced ? ", reasoning only" : ""})` };
         let calls: ToolCall[];
         try {
           calls = [...pending.entries()].sort((a, b) => a[0] - b[0]).map(([i, slot]) =>
             parseSchema(ToolCallSchema, { id: slot.id || `call_${i}`, name: slot.name, args: parseArgs(slot.args) }, "OpenRouter tool call"));
         } catch (error) { return yield { type: "error", message: reason(error) }; }
         for (const toolCall of calls) yield { type: "tool_call", call: toolCall };
+        return;
       } finally {
-        // Reached on a return, on a throw, and on the consumer abandoning the iteration, which is the case
-        // that matters: an abandoned request must not leave its socket and its two timers behind.
+        // Reached on a return, on a throw, on a retry's `continue`, and on the consumer abandoning the
+        // iteration, which is the case that matters: an abandoned request must not leave its socket and its
+        // two timers behind.
         if (beat) clearInterval(beat);
         request.release();
+      }
       }
     },
   };

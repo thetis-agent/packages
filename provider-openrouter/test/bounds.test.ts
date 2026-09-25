@@ -124,3 +124,77 @@ test("the model list is bounded too: it is on the path of every call that has to
     await site.close();
   }
 });
+
+// ---- a stream cut under the reply ----
+//
+// The incident: a turn on production stopped mid-work, twice, with an empty assistant message and no error.
+// The upstream connection had closed with no finish_reason, the adapter ended quietly, and the harness took
+// the empty message as the model finishing. A cut before anything arrived is made again; a cut after part of
+// the reply is reported; a reply that finishes empty is reported.
+async function cutting(plan: ((n: number) => string[])): Promise<{ url: string; requests: () => number; close: () => Promise<void> }> {
+  let n = 0;
+  const open: import("node:net").Socket[] = [];
+  const server = createServer((req, res) => {
+    req.resume();
+    n += 1;
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    for (const line of plan(n)) res.write(line);
+    res.end();
+  });
+  server.on("connection", (socket) => open.push(socket));
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  const port = (server.address() as { port: number }).port;
+  return { url: `http://127.0.0.1:${port}`, requests: () => n, close: () => new Promise<void>((done) => { for (const s of open) s.destroy(); server.close(() => done()); }) };
+}
+
+const chunk = (delta: Record<string, unknown>, finish?: string) => `data: ${JSON.stringify({ choices: [{ delta, ...(finish ? { finish_reason: finish } : {}) }] })}\n\n`;
+
+test("a stream cut before any of the reply arrived is made again, and the reply that then comes is the reply", async () => {
+  const site = await cutting((n) => (n === 1 ? [] : [chunk({ content: "hello" }, "stop"), "data: [DONE]\n\n"]));
+  try {
+    const provider = createProvider({ apiKey: "k", baseUrl: site.url, retries: 2, requestTimeoutMs: 5_000, streamStallMs: 5_000, cache: { enabled: false } });
+    const events = await collect(provider.call(CALL));
+    assert.deepEqual(events.map((e) => e.type), ["text"]);
+    assert.equal(site.requests(), 2, "one cut, one answer");
+  } finally {
+    await site.close();
+  }
+});
+
+test("a stream cut every time is an error that says how many times, not an empty reply", async () => {
+  const site = await cutting(() => []);
+  try {
+    const provider = createProvider({ apiKey: "k", baseUrl: site.url, retries: 2, requestTimeoutMs: 5_000, streamStallMs: 5_000, cache: { enabled: false } });
+    const events = await collect(provider.call(CALL));
+    assert.deepEqual(events.map((e) => e.type), ["error"]);
+    assert.match((events[0] as { message: string }).message, /closed before the reply finished, before any of it arrived, 3 times/);
+    assert.equal(site.requests(), 3);
+  } finally {
+    await site.close();
+  }
+});
+
+test("a stream cut part-way through the reply is not made again: what arrived is kept and the error says it was cut", async () => {
+  const site = await cutting(() => [chunk({ content: "half an ans" })]);
+  try {
+    const provider = createProvider({ apiKey: "k", baseUrl: site.url, retries: 2, requestTimeoutMs: 5_000, streamStallMs: 5_000, cache: { enabled: false } });
+    const events = await collect(provider.call(CALL));
+    assert.deepEqual(events.map((e) => e.type), ["text", "error"]);
+    assert.match((events[1] as { message: string }).message, /closed before the reply finished, part-way through it/);
+    assert.equal(site.requests(), 1, "a retry would duplicate what the consumer already has");
+  } finally {
+    await site.close();
+  }
+});
+
+test("a reply that finishes with no text and no tool call is an error naming the finish reason", async () => {
+  const site = await cutting(() => [chunk({ reasoning: "hmm" }, "stop"), "data: [DONE]\n\n"]);
+  try {
+    const provider = createProvider({ apiKey: "k", baseUrl: site.url, requestTimeoutMs: 5_000, streamStallMs: 5_000, cache: { enabled: false } });
+    const events = await collect(provider.call(CALL));
+    assert.deepEqual(events.map((e) => e.type), ["reasoning", "error"]);
+    assert.match((events[1] as { message: string }).message, /empty reply \(finish_reason: stop, reasoning only\)/);
+  } finally {
+    await site.close();
+  }
+});

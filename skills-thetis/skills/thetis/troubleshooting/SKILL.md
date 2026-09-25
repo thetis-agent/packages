@@ -180,6 +180,10 @@ The provider retries `429`, `408`, `409`, `425`, `5xx`, and a `402` that names `
 | The installed packages | The `list_packages` tool, or `env.kernel.packages.list()` | |
 | The kernel registry | The store, under `registry` | On the host only: `thetis packages list --user <id>`. |
 
+## A turn that stops mid-work with nothing said
+
+Since provider-openrouter 0.3.4 and harness-core 0.3.4 this ends the turn with an error instead of a silent empty message. `the connection closed before the reply finished, before any of it arrived, N times: no finish reason was sent` means the provider's stream was cut before the model said anything; the request was made again `retries` times first. `... part-way through it ...` means the cut came after part of the reply, which is kept. `the model returned an empty reply (finish_reason: stop)` means the provider finished with no text and no tool call. In every case send the next message to carry on; nothing about the conversation is broken.
+
 ## Sources
 
 - src/kernel/packages/manager.ts

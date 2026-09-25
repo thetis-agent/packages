@@ -610,6 +610,10 @@ export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
     const assistant = partial.message();
     partial = new ContentStream();
     if (round.toolCalls.length) assistant.toolCalls = round.toolCalls;
+    // A reply with nothing in it -- no text, no tool call -- is not the model finishing; it is a provider
+    // that ended its stream with nothing, and a turn that took it as the end stopped mid-work with nothing
+    // said. The provider adapter says so itself now; this is the same rule for every provider.
+    if (!assistant.content.length && !assistant.toolCalls?.length) return stop(FAILED, "the model returned an empty reply: no text and no tool call");
     conversation.push(assistant);
     call.messages.push(assistant);
     ctx.emit({ type: "message", message: assistant, usage: round.usage });
