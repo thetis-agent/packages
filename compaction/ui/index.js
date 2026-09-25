@@ -330,6 +330,11 @@ export default function install(ext) {
 
   function liveCard(session, data) {
     const { phase } = data;
+    // A replayed event after a reload reaches the transcript but not `ext.events.watch`, so the chip learns
+    // the phase here as well: a page opened mid-compaction says "compacting…" like one that watched it start.
+    if (BUSY.has(phase)) phases.set(session, phase);
+    else phases.delete(session);
+    ext.redraw();
     if (phase === "skipped" || phase === "reset") {
       // One-off notes: they belong to no card in progress and are never updated.
       const card = makeCard(phase === "reset" ? "is-reset" : "is-skipped");
