@@ -6,6 +6,7 @@
  * place like any other. */
 
 import { $, el, icon, onClickOutside } from "../lib/dom.js";
+import { moveFocus } from "../lib/menu.js";
 import * as registry from "../lib/registry.js";
 
 export function mountMenu({ openPlace, currentPlace }) {
@@ -42,17 +43,7 @@ export function mountMenu({ openPlace, currentPlace }) {
   }
 
   function navigate(e) {
-    const list = items();
-    if (!list.length) return;
-    const at = list.indexOf(document.activeElement);
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      const step = e.key === "ArrowDown" ? 1 : -1;
-      list[(at + step + list.length) % list.length].focus();
-    } else if (e.key === "Home" || e.key === "End") {
-      e.preventDefault();
-      list[e.key === "Home" ? 0 : list.length - 1].focus();
-    }
+    moveFocus(items(), e);
   }
 
   function onKey(e) {

@@ -2,6 +2,8 @@ import { contentText, hasMedia, renderContent } from "../lib/content.js";
 /* One conversation's transcript. Draws saved messages and applies live turn events on top:
  * `text` grows a live bubble under a caret, `tool.call` opens a card that `tool.result` fills and settles,
  * `message` settles the bubble into rendered markdown with a usage footnote, `error` becomes a note.
+ * A settled bubble, live or restored, is then offered to the registered renderers once more as
+ * `message.rendered`, so a package may decorate its text; the answer is ignored, the bubble stays the shell's.
  * `stall` and `nudge` are the waiting made visible: a stall turns the running card amber with a line saying
  * what has gone quiet and for how long, and the nudge that follows says what was decided and by whom, in
  * two plainly different looks, because a stall read as a hang is the thing all of this exists to prevent.
@@ -246,6 +248,7 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     // The harness ends each input with a [Turn context: ...] line for the model; the person did not type it.
     const node = row("user", el("div", { class: "msg-text" }, ...renderContent(text, { markdown: false, strip: TURN_CONTEXT })));
     if (brief) node.classList.add("is-brief");
+    decorated(node, "user");
     return node;
   }
 
@@ -257,15 +260,30 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
 
   // ---- registered renderers: a tool row a package draws instead of the card ----
 
+  function rendererContext(restored) {
+    return { session, el, icon, markdown: renderMarkdown, restored, whenAnswered: (fn) => answered.push(fn) };
+  }
+
   /** Offers a tool event to the renderers. True when one took it (and drew, or chose not to). Nothing is offered from a nested instance. */
   function rendered(event, restored) {
     if (nested) return false;
-    const ctx = { session, el, icon, markdown: renderMarkdown, restored, whenAnswered: (fn) => answered.push(fn) };
-    const out = renderTranscript(event, ctx);
+    const out = renderTranscript(event, rendererContext(restored));
     if (!out) return false;
     run = null; // a renderer's row is message-level, like a bubble, not part of a tool run
     if (out instanceof Node) place(out);
     return true;
+  }
+
+  /**
+   * Offers a complete bubble to the renderers as `message.rendered`: `node` is its `.msg-text`, `restored`
+   * says it was built from the record rather than settled live. Whatever they answer is ignored — a
+   * renderer decorates the text in place (links, say) and never replaces the row. A nested instance offers
+   * its child's bubbles too, under the child's session id.
+   */
+  function decorated(row, role) {
+    const node = row?.querySelector(".msg-text");
+    if (!node) return;
+    renderTranscript({ type: "message.rendered", role, session, node, restored: restoring }, rendererContext(restoring));
   }
 
   /**
@@ -312,13 +330,14 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     settled = { node: bubble.node, text };
     const foot = usageLine(usage, liveModel());
     if (foot) bubble.node.append(foot);
+    decorated(bubble.node, "assistant");
     catchUp();
   }
 
   function assistantRow(text, usage, model) {
     if (!contentText(text).trim() && !hasMedia(text)) return;
     const textEl = el("div", { class: "msg-text" }, ...renderContent(text));
-    row("assistant", textEl, usageLine(usage, model));
+    decorated(row("assistant", textEl, usageLine(usage, model)), "assistant");
   }
 
   /** The model this conversation answers with, for the footnote of a live reply. */

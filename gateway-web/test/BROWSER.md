@@ -772,8 +772,14 @@ make `.devhome3/system-packages` with a symlink per directory of `packages/` plu
 `"model": "echo"`, `"door": {"host": "127.0.0.1", "port": 8803}`, `"systemPackagesDir": "<runtime>/.devhome3/system-packages"`,
 add `"@thetis/provider-echo"` to `systemPackages._system`, `packages["@thetis/provider-echo"] = {"tag": "t1"}`,
 `packages["@thetis/gateway-login"] = {"secure": false}`, and `fence.readOnly` listing `<runtime>/packages`,
-`<runtime>/node_modules`, `<runtime>/.devhome3/packages`, `<runtime>/.devhome3/system-packages` and
-`<runtime>/test/host/fixtures`. The cue `spawn: <task>` makes the echo model call `spawn_subagent`
+`<runtime>/node_modules`, `<runtime>/dist/src`, `<runtime>/package.json`, `<runtime>/.devhome3/packages`,
+`<runtime>/.devhome3/system-packages` and `<runtime>/test/host/fixtures`. Setting `fence.readOnly`
+replaces the kernel's default list rather than adding to it, so every path a fence needs must be named
+there: without `<runtime>/dist/src` and `<runtime>/package.json` the fence's userspace agent cannot import
+the runtime and the gateway never comes up. One login session per browser: signing in as a second person
+in another tab of the same browser logs the first tab out, so a pass that needs two people at once gives
+the second one its own browser context (a Playwright context, or another browser profile). The cue
+`spawn: <task>` makes the echo model call `spawn_subagent`
 with the label `helper`; a task of `slow: w1 w2 …` streams one word every 50 ms, so a child of eighty words
 runs for four seconds. The echo provider reports no usage, so every meta line and cost is empty here.
 
@@ -1418,3 +1424,192 @@ the page — and read `browser_network_requests` after each step: what is checke
 
 Stop the daemon by the pid on `.devhome-empty/thetis.sock` (`ss -lxp | grep devhome-empty`), release
 `/tmp/thetis-browser.lock`, and delete `.devhome-empty`.
+
+## Raw commands, the menu primitive, message decoration (2026-09-25)
+
+Three seams for `@thetis/ui-workspace`, checked from the console without it (**The seam, without a
+package** shows the shape): `kind: "raw"` commands under `/raw`, `ext.ui.menu`, and the `message.rendered`
+offer to transcript renderers. The gateway's own tests cover the route and the fake DOM; what is checked
+here is the browser's part — placement, focus, the upload's progress, and a download landing as one.
+
+120. **The floating menu**: with a conversation open, run from `browser_evaluate`:
+     `const { createExt } = await import("/dev/assets/lib/ext.js"); const ext = createExt({ package: "@test/probe", commands: [], raw: [] }); window.__close = ext.ui.menu(document.querySelector("#new-chat"), [{ label: "Open", key: "Enter", run: () => console.log("open") }, "-", { label: "Locked", disabled: true, run() {} }, { label: "Delete…", key: "Del", danger: true, run: () => console.log("delete") }]);`
+     Expect one `body > .menu.is-floating[role="menu"]` placed just below `#new-chat` and inside the
+     viewport (`getBoundingClientRect().bottom <= innerHeight`), three `.menu-item[role="menuitem"]` and one
+     `.menu-sep`, `.menu-key` "Enter" after the first label, the last row `.is-danger` in the error colour,
+     the middle row `[disabled]` and faint, and `document.activeElement` the first row. ArrowDown lands on
+     "Delete…" (the disabled row is skipped), ArrowDown again wraps to "Open"; Escape closes the menu,
+     leaves the conversation as it was, and returns the focus to `#new-chat`. Open it again at a point
+     (`ext.ui.menu({ x: innerWidth - 20, y: innerHeight - 20 }, …)`): the menu is pulled back inside the
+     window on both axes. Open it once more at the button, then again at the point without closing:
+     exactly one `.menu` on the page. A click on the transcript closes it; a click on "Delete…" logs
+     `delete` and closes it. With the control panel open (`#place`), Escape on an open menu closes the
+     menu and not the panel.
+121. **A raw download**: install `@thetis/ui-workspace` (or any package declaring `kind: "raw"`) and,
+     from the console, `ext.raw.url("raw", { path: "~/notes.md" })` answers
+     `api/ext/<package>/raw/raw?args=%7B…%7D`. `fetch` of it answers 200 with `cache-control: no-store`,
+     `content-security-policy: default-src 'none'; sandbox`, the export's `content-type` and `etag`, and
+     the file's bytes; `location.assign(ext.raw.url("raw", { path, download: true }))` saves the file
+     through the browser's download and does not navigate the page away. A verb the package does not
+     declare raw throws before any request (`declares no raw command`).
+122. **A raw upload with progress**: `ext.raw.put("upload", { dir: "~", name: "big.bin" }, new Blob([new Uint8Array(3 * 1024 * 1024)]), { onProgress: (p) => console.log(p.loaded, p.total) })`
+     logs a rising `loaded` up to `total` and resolves with `{ data: { path, size, etag, … } }`. The same
+     with a Blob over the command's `maxBytes` rejects with the sentence `That upload is larger than N KB.`
+     and `status` 413, and nothing is written. An `AbortController` aborted mid-way rejects with an
+     `AbortError`; the network log shows the PUT cancelled.
+123. **Message decoration**: register `registry.addRenderer("@test/probe", (e) => { if (e.type === "message.rendered") { console.log(e.role, e.session, e.restored, e.node.className); e.node.append(Object.assign(document.createElement("b"), { textContent: " ✓" })); } })`
+     from `/dev/assets/lib/registry.js`, then send `hello`. Expect `user <session> false msg-text` at once
+     and `assistant <session> false msg-text` when the reply settles — not while it streams (`.msg-text.is-live`
+     carries no ✓) — and the ✓ inside each `.msg-text`, the row otherwise unchanged (still one
+     `.msg.is-assistant`, the `.msg-usage` footnote below). Reload: the same two lines with `restored: true`,
+     and a subagent's replies inside `details.agent` decorated under the child's session id.
+
+## The Workspace place, the Files dock and file links (2026-09-25)
+
+`@thetis/ui-workspace` on the cost-free recipe of **Subagents on the page**: `.devhomeW` at the runtime
+root, door 8807, `model: "echo"`, `envFile` opted out with an empty `.devhomeW/.env`, `fence.readOnly`
+exactly as that section lists it (`<runtime>/dist/src` and `<runtime>/package.json` included, for the
+reason given there), `@thetis/ui-workspace` in `systemPackages["*"]`, and the echo
+provider's file cues (`read: <path>` → `read_path`, `list: <path>` → `get_directory`). Two people: `dev`
+(admin) and `rae` (member). Fixtures in a directory outside the checkout, `<F>`: `<F>/nova` (README.md with
+a fenced `ts` block and `![map](docs/map.png)`; `src/tide.ts`, `src/island.ts`; `docs/` with 13 small
+`.md` files, `map.png` and `logo.svg`; `.git/HEAD`; a 5 MB and an 11 MB text file, the 11 MB one ending
+in a marker line; `nova.sqlite`; `pkg/` holding `README.md`, `lib/a.js`, `lib/b.js`, `.git/HEAD` and
+`node_modules/dep/index.js`) bound `thetis mounts add dev <F>/nova`; `<F>/nova-assets` (README.md,
+sky.glsl) bound `--ro`; `/srv/games/orleans`, absent on the host and bound for nobody. Projects have no
+CLI: write `userspaces/dev/home/projects/p_0a1b2c3d.json` (`{ id, name: "Nova", directories: [nova,
+nova-assets, /srv/games/orleans], tools: { disable: [] }, skills: { disable: [] }, createdAt, updatedAt }`)
+and the same shape for rae with `<F>/nova` alone under `p_0a1b2c3e`. Signing in as a second person in
+another tab signs the first tab out, so the member step comes last. Screenshots want dark mode
+(`page.emulateMedia({ colorScheme: "dark" })` through `browser_run_code_unsafe`).
+
+124. **The menu and the roots**: sign in as dev at 1440 px, click `#menu`. Expect `.menu-item[data-place]`
+     in the order Control panel, Marketplace, **Workspace** (`@thetis/ui-workspace#workspace`, order 30),
+     Project. The rail lists `[data-dock]` Todo, Context, Tools, **Files** (`@thetis/ui-workspace#files`,
+     order 105), Skills. Open Workspace: `#place .ws-explorer` with `.tree-item.ws-root` rows Home
+     (`.ws-mode.is-rw`, `.ws-sub` the home path) and Shared (`.ws-mode.is-ro`), a `.ws-group` "Projects",
+     the project row `.tree-item.ws-project` "Nova" expanded, under it `nova` (`is-rw`), `nova-assets`
+     (`is-ro`) and `orleans` (`.is-broken`, no pill, `.ws-sub` "/srv/games"). Between the project row and
+     its directories one `.ws-note.is-warn.ws-summary` "1 of 3 directories is not usable. An agent in this
+     project cannot read it."; under the orleans row `.ws-note.is-err[role=note]` "Not mounted. An agent
+     cannot read this directory." with a button **Bind now**.
+125. **Expand, dotfiles, filter**: click the nova row's `.tree-toggle`. Expect one `list` call and the
+     children at `aria-level="3"`, directories first (`docs`, `pkg`, `src`), then files, and no `.git`.
+     Check `.ws-check-input` (the "dotfiles" label): `.git` appears; uncheck: it goes. Type `big` into the
+     `.ws-filter` text field: the root, project and mount rows stay, only `big11.txt` and `big5.txt` remain
+     under nova; clear it and the tree is whole again.
+126. **Markdown, rendered and as source**: click `README.md`. Expect `.ws-tab.is-active` (`.ws-tab-name`
+     "README.md", `.ws-tab-path` "…/ws-fixtures/nova", `.ws-tab-dirty` hidden), in `.ws-tabs-right` a
+     `.ws-seg` with `.ws-seg-btn[aria-pressed=true]` "Rendered" and "Source", the visible `.ws-pane >
+     .ws-view.ws-view-markdown > .ws-rendered.md` with the shell's `.md-h`, the fence's `pre > code` holding
+     `tok-keyword` spans, and `img.md-img[src^="api/ext/@thetis/ui-workspace/raw/raw?args="]` with
+     `naturalWidth` 64. The `.ws-strip` reads path, "mount · rw", "Markdown", "233 B", "Saved … ago",
+     "UTF-8", "LF". Click Source: `.cm-editor` with the first `.cm-line` "# Nova",
+     `localStorage["thetis.workspace.dev.mode:md"]` = `source`.
+127. **Highlighting and the editor's keys**: open `src/tide.ts`. Expect the visible `.cm-editor` with
+     `tok-keyword`, `tok-string`, `tok-typeName`, `tok-comment` spans in the shell's colours, `.ws-strip-lang`
+     "TypeScript", `.ws-strip-cursor` "Ln 1, Col 1", and Save / Revert / Download / More… in
+     `.ws-tabs-right`. Click into `.cm-content`, press End, type ` EDITED`: the tab gains `is-dirty`, the
+     dot shows, `.ws-strip-saved` "Unsaved changes", one `sessionStorage` key
+     `thetis.workspace.buffer:<path>`. Type a line starting with `//`: the slash stays in the editor and
+     the sidebar's `[aria-label="Search conversations"]` stays empty. Ctrl+S: `is-dirty` gone, "Saved just
+     now", the buffer key gone; `head -1` of the file on disk shows the edit.
+128. **A change on disk under a dirty buffer**: type another line (do not save), then from the shell
+     `echo "// FROM SHELL" >> <F>/nova/src/tide.ts`. Within 6 s expect `.ws-banner.is-warn[role=alert]`
+     "This file changed on disk just now while you were editing." with Show diff, Load theirs, Keep mine.
+     Show diff adds a `.ws-diff` unified diff (`--- theirs`, `+++ mine`); Load theirs leaves the buffer
+     clean with the shell's line and without yours, and no banner.
+129. **A read-only root, and Copy to Home**: open `nova-assets/README.md` and switch to Source. Expect
+     `.ws-tab.is-active.is-ro` with both `.ws-tab-lock` and `.ws-tab-close`, `.cm-content[contenteditable=false]`,
+     `.ws-banner.is-info[role=note]` "mount is read-only for you. You can read and download this file. To
+     change it, copy it to Home or ask an admin." with **Copy to Home** (also in `.ws-tabs-right`; the
+     Rendered view shows neither), `.ws-strip-saved` "Read-only". Click Copy to Home: a new active tab
+     "README.md" with `.ws-tab-path` "…/home/nova-assets", the strip path `nova-assets/README.md` and root
+     "Home · rw", and on disk `.devhomeW/userspaces/dev/home/nova-assets/README.md` — never a `~`
+     directory under the home.
+130. **Large text, previews, no preview**: click `big11.txt`. Expect `.ws-view.ws-view-text` with a
+     read-only `.cm-editor` whose first line is the file's first line, and `.ws-banner.is-info` "This file
+     is 11 MB, more than the editor opens; this is its first 4 MB, read-only." with **Show last 4 MB**;
+     click it: the banner says "its last 4 MB", the button reads "Show first 4 MB", and Ctrl+End shows the
+     marker line. `map.png`: `.ws-view.ws-view-image` with `img.ws-img[src^="api/ext/…/raw/raw?"]` at
+     64 × 48, a facts line "map.png 6.2 KB 64 × 48", and `.ws-seg-btn` Fit (pressed) and 1:1 — 1:1 makes the
+     image 64 px wide. `logo.svg`: `.ws-view.ws-view-svg` with `img.ws-img[src^="blob:"]` (the raw route
+     serves SVG as `text/plain`; the script inside never runs). `nova.sqlite`: `.ws-view.ws-view-none`,
+     a facts card "No preview for this file type." and a Download button only.
+131. **The raw route, checked with `fetch` from `browser_evaluate`**: `api/ext/@thetis/ui-workspace/raw/raw?args=<json>`
+     with `{ path }` answers 200, `cache-control: no-store`, an `etag` "<mtimeMs>-<size>", and the bytes:
+     README.md as `text/markdown` with `content-disposition: inline; filename="README.md"`, map.png as
+     `image/png` inline, logo.svg as `text/plain` inline (and `image/svg+xml` attachment with
+     `download: true`), nova.sqlite as `application/octet-stream` attachment whether or not `download` is
+     set, `{ path: big11, part: "tail" }` exactly 4 194 304 bytes; `/etc/passwd` answers 400 with the
+     sentence "… is outside the space…". `…/zip/raw?args={"path":<F>/nova/docs}` answers 200,
+     `application/zip`, `attachment; filename="docs.zip"`; saved through base64 and `unzip -l`, it lists the
+     15 files of docs and `unzip -t` finds no errors. Right-click `pkg` and choose **Download as zip**
+     (its label fills in "3 files, … ; .git and node_modules are skipped"): the browser saves `pkg.zip`
+     (the MCP browser reports "Downloaded file pkg.zip") holding `pkg/lib/a.js`, `pkg/lib/b.js`,
+     `pkg/README.md` and no `.git` or `node_modules` entry. Click Download on the sqlite tab: a download
+     of the file, no toast.
+132. **Uploads**: build a `DataTransfer` in the page with two `File`s (`one.txt`, `two.txt`) and dispatch
+     `dragover` then `drop` on the `src` row. Expect `.is-drop` on the row during the dragover, then the
+     `.ws-uploads.card[role=status]` in the place's corner with one `.ws-upload-row` per file reading
+     "one.txt 11 B Done" and "two.txt 11 B Done" (`progress` at 100), Cancel remaining and Hide, and both
+     files in the src listing and on disk. Drop a `README.md` on the nova row: the shell's confirm
+     `.popover[role=dialog]` "Replace README.md?" with the directory, "New size 20 B", "The file already
+     there is overwritten. There is no trash: it cannot be undone.", Cancel and **Replace**; Replace shows
+     the row "README.md 20 B Replaced", a toast "Uploaded README.md to nova.", and the new bytes on disk.
+     Drop a 70 MB `File` (`new File([new ArrayBuffer(70 * 1024 * 1024)], "huge.bin")`): the row reads
+     "huge.bin 70 MB Over 64 MB" and no PUT is sent (nothing on disk). Right-click `pkg` → **Upload files
+     here…** opens a file chooser (`browser_file_upload` with a file under the MCP's allowed root): the
+     file lands in `pkg/` and the listing shows it.
+133. **Delete, and `.git`**: right-click `docs` → **Delete…** (`.is-danger`). Expect
+     `.popover[role=dialog]` "Delete docs?" with Folder / In / "Contains 15 files (6.4 KB)", "There is no
+     trash: it cannot be undone.", a checkbox "Delete docs and everything in it" and **Delete** disabled until
+     it is checked. Confirm: the row is gone, the open `map.png` and `logo.svg` tabs close, a toast "Deleted
+     docs", and the directory is gone on disk while `<F>/nova/.git/HEAD` stays. Show dotfiles, right-click
+     `.git` → **New file**, type `hook.txt`, Enter: a toast "<F>/nova/.git/hook.txt names a .git path,
+     which is protected from write and delete." and nothing on disk. (If the inline `.ws-inline-input`
+     does not appear right after toggling dotfiles, wait a second and ask again.)
+134. **One file menu, three hosts**: right-click `src/tide.ts` in the explorer: `body > .menu.is-floating[role=menu]`
+     with Download, Copy path, Rename (F2), Delete… (Del, `.is-danger`); Escape closes the menu and leaves
+     `#place` open. A folder adds New file (n), New folder, Upload files here…, Download as zip. Escape
+     the place, click the rail's Files button: `.dock` 360 px wide holding `.ws-explorer.is-compact`, the
+     head "Files" with the subtitle "Home and Shared" when the conversation has no project, `.ws-group`
+     headers "Workspace" and "Nova", the Open the Workspace and Refresh the directories actions. Right-click
+     `tide.ts` there: the same items with **Open in Workspace** first. Click the row: `#place` opens with
+     the `tide.ts` tab active, the row `.is-selected` and `src` expanded; Escape closes the place and the
+     dock is still open with its rows.
+135. **File links in the transcript**: with a conversation open send `read: <F>/nova/src/tide.ts` (type
+     into `#input` and press Enter). Expect `details.tool[data-tool]` for `read_path` whose `.tool-gist`
+     holds `a.ws-link[data-path="<F>/nova/src/tide.ts"]` and whose head carries `button.ws-open[data-path]`,
+     and under the run's body a `.ws-touched` "Files in this run:" with one `a.ws-link` for the path. Send
+     `list: <F>/nova/src`: a `get_directory` card linked the same way, its own strip naming the directory.
+     Click a link: the Workspace opens on `tide.ts` (`.ws-tab.is-active`, the row selected, the editor
+     visible); Escape returns to the conversation. Right-click the link: `body > .menu.is-floating` with
+     Open in Workspace, **Reveal in Files**, Download, Copy path, Rename, Delete…; Reveal in Files opens the
+     dock with `.dock .tree-item[data-path$="/src/tide.ts"].is-selected` inside the dock's viewport.
+136. **Bind now**: as dev, click **Bind now** on the orleans row. Expect the button disabled, a toast
+     "Binding orleans… your workspace restarts; the row updates when it is back.", and within a few seconds,
+     with no Refresh and no "Bad Gateway" toast, the note reading "Bound, but the host path is gone."
+     (the state `skipped`) and a toast "orleans: Bound, but the host path is gone."; `thetis mounts list`
+     shows `dev /srv/games/orleans rw skipped (not on the host)`. (The network log still shows the bind
+     request's 502: the fence closes on it, by design.) With a directory that exists on the host the row
+     turns to a `.ws-mode.is-rw` pill instead.
+137. **The control panel**: open Control panel → Packages → `@thetis/gateway-web`. Expect the version
+     row "0.12.0" and the scope line "0.12.0 here, 0.11.3 published" (a dev home loads the disk version
+     fresh, so no "reload to" badge).
+138. **A phone**: resize to 390 × 844 and open Workspace. Expect `.ws-place` with the explorer at the full
+     width and no editor; click `tide.ts`: `.ws-place.is-file` with `.ws-back` "Files", the tabs, the
+     editor and the strip, and `document.documentElement.scrollWidth` 390; Back restores the list. (The
+     right cluster of the tab bar is clipped at this width: the Download and ⋯ buttons sit past 390 px.)
+139. **A member**: in a new tab sign in as rae (this signs dev's tab out) and open Workspace. Expect Home,
+     Shared and the Nova group expanded with `.ws-note.ws-summary` "1 of 1 directory is not usable…" and,
+     under the `.is-broken` nova row, `.ws-note.is-err` "Not mounted. An agent cannot read this directory.
+     Ask an admin for:" with `code.ws-note-cmd` `thetis mounts add rae <F>/nova` and no button.
+     `localStorage` keys are `thetis.workspace.rae.expanded`, `.hidden`, `.explorer`, `.mode:<lang>`, and
+     rae's `expanded` names only rae's own paths.
+140. **Console**: the whole pass logs only resource errors that the steps provoked — a 400 on
+     `…/ui-workspace/write` (the `.git` refusal), a 400 on the raw route for a path outside every root or
+     a missing image, and the 502 on `bind` — and no uncaught exception or warning.
+
+Stop the daemon by the pid on `.devhomeW/thetis.sock` (`ss -lxp | grep devhomeW`), release
+`/tmp/thetis-browser.lock`, and delete `.devhomeW`.

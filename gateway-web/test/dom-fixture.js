@@ -58,6 +58,26 @@ export class FakeNode {
     for (const fn of this.listeners?.get(event.type) ?? []) fn(event);
     return true;
   }
+  /** A click as a person makes it: the node's own listeners, then the document's (what `onClickOutside` hears). */
+  click() {
+    const event = { type: "click", target: this, composedPath: () => ancestors(this), preventDefault() {}, stopPropagation() {} };
+    this.dispatchEvent(event);
+    document.dispatchEvent(event);
+  }
+  focus() {
+    if (this.attrs.disabled !== undefined) return;
+    document.activeElement = this;
+  }
+  contains(node) {
+    return ancestors(node).includes(this);
+  }
+  /** The box a test gave the node as `rect`, or nothing at the origin. */
+  getBoundingClientRect() {
+    const r = this.rect ?? { left: 0, top: 0, width: 0, height: 0 };
+    return { ...r, right: r.left + r.width, bottom: r.top + r.height, x: r.left, y: r.top };
+  }
+  get offsetWidth() { return this.rect?.width ?? 0; }
+  get offsetHeight() { return this.rect?.height ?? 0; }
   insertBefore(node, before) {
     const at = this.children.indexOf(before);
     node.parentElement = this;
@@ -117,6 +137,13 @@ export class FakeNode {
 
 const dashed = (key) => key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 
+/** The node and its ancestors, nearest first: what `composedPath` answers. */
+function ancestors(node) {
+  const out = [];
+  for (let at = node; at; at = at.parentElement) out.push(at);
+  return out;
+}
+
 function* descendants(node) {
   for (const child of node.children) {
     if (child.tag === "#text") continue;
@@ -157,13 +184,26 @@ function matchesPath(node, path, scope) {
 }
 
 globalThis.Node = FakeNode;
+globalThis.Element = FakeNode;
+const documentListeners = new Map(); // event name -> Set of listeners; the capture flag is not modelled
 globalThis.document = {
   body: new FakeNode("body"),
+  activeElement: null,
   createElement: (tag) => new FakeNode(tag),
   createElementNS: (_ns, tag) => new FakeNode(tag),
   createTextNode: (text) => Object.assign(new FakeNode("#text"), { text }),
   getElementById: (id) => [...descendants(document.body)].find((node) => node.attrs.id === id) ?? null,
+  addEventListener(name, fn) {
+    if (!documentListeners.has(name)) documentListeners.set(name, new Set());
+    documentListeners.get(name).add(fn);
+  },
+  removeEventListener(name, fn) { documentListeners.get(name)?.delete(fn); },
+  dispatchEvent(event) {
+    for (const fn of [...(documentListeners.get(event.type) ?? [])]) fn(event);
+    return true;
+  },
 };
+globalThis.window ??= { innerWidth: 1280, innerHeight: 800, addEventListener() {}, removeEventListener() {} };
 globalThis.requestAnimationFrame = (fn) => {
   fn();
   return 1;

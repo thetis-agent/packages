@@ -4,12 +4,15 @@
  * module, the event stream or the views. Registrations are checked against the package's declaration by
  * the registry; requests go to `api/ext/<package>/<verb>`; the conversation and session facts come from
  * the store through narrow readers; `send` travels the composer's own path, so the pending row and the
- * failure handling apply to an ask form's answers as they do to a typed message. `bindShell` is called
- * once by app.js with the shell functions; `broadcastTurn` feeds every `events.watch` listener. */
+ * failure handling apply to an ask form's answers as they do to a typed message. A package that declared
+ * a raw command gets `ext.raw`: a URL the browser may fetch or navigate to, and an upload with progress.
+ * `bindShell` is called once by app.js with the shell functions; `broadcastTurn` feeds every `events.watch`
+ * listener. */
 
-import { api } from "./api.js";
+import { api, ApiError } from "./api.js";
 import { clear, el, icon, setHidden } from "./dom.js";
 import { renderMarkdown } from "./markdown.js";
+import { openMenu } from "./menu.js";
 import * as ui from "./panel-ui.js";
 import * as registry from "./registry.js";
 import { store } from "./store.js";
@@ -41,12 +44,59 @@ export function broadcastTurn(message) {
 }
 
 const DOM = Object.freeze({ el, icon, clear, setHidden });
-const UI = Object.freeze({ ...ui, section: ui.heading });
+const UI = Object.freeze({ ...ui, section: ui.heading, menu: openMenu });
+
+/**
+ * The raw seam of one package: `url(verb, args)` names the route the browser fetches, navigates to or
+ * puts in an `img`, relative like a stream's; `put(verb, args, blob, { onProgress, signal })` sends the
+ * blob as the whole body and resolves with the parsed JSON reply. An XMLHttpRequest, because `fetch` has
+ * no upload progress: `onProgress({ loaded, total })` follows the bytes on their way up. A refusal rejects
+ * with the server's sentence; a cancel rejects with an `AbortError`.
+ */
+function rawSeam(pkg, raws) {
+  const url = (verb, args, { session } = {}) => {
+    if (!raws.has(verb)) throw new Error(`${pkg} declares no raw command "${verb}".`);
+    const query = new URLSearchParams({ args: JSON.stringify(args ?? {}) });
+    if (session) query.set("session", session);
+    return `api/ext/${pkg}/${verb}/raw?${query}`;
+  };
+  const put = (verb, args, blob, { onProgress, signal, session } = {}) =>
+    new Promise((resolve, reject) => {
+      const at = url(verb, args, { session });
+      const xhr = new XMLHttpRequest();
+      const cancelled = () => Object.assign(new Error("The upload was cancelled."), { name: "AbortError" });
+      if (signal?.aborted) return reject(cancelled());
+      xhr.open("PUT", at);
+      xhr.responseType = "text";
+      xhr.setRequestHeader("accept", "application/json");
+      if (onProgress) xhr.upload.addEventListener("progress", (event) => onProgress({ loaded: event.loaded, total: event.lengthComputable ? event.total : blob?.size ?? 0 }));
+      xhr.addEventListener("load", () => {
+        let data = null;
+        try {
+          data = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+        } catch {
+          data = null;
+        }
+        if (xhr.status === 401) {
+          location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search)}`);
+          return reject(new ApiError(401, "Signed out."));
+        }
+        if (xhr.status < 200 || xhr.status >= 300) return reject(new ApiError(xhr.status, (data && data.error) || xhr.statusText || "Request failed."));
+        resolve(data ?? {});
+      });
+      xhr.addEventListener("error", () => reject(new ApiError(0, "Not connected.")));
+      xhr.addEventListener("abort", () => reject(cancelled()));
+      signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+      xhr.send(blob);
+    });
+  return Object.freeze({ url, put });
+}
 
 export function createExt(extension) {
   const pkg = extension.package;
   const verbs = new Set(extension.commands ?? []);
   const streams = new Set(extension.streams ?? []);
+  const raws = new Set(extension.raw ?? []);
   const slot = (name) => (id, impl) => registry.register(name, pkg, id, impl);
 
   const ext = {
@@ -63,7 +113,7 @@ export function createExt(extension) {
     transcript: (render) => registry.addRenderer(pkg, render),
 
     /** Whether this package declares `verb` and the person's role clears it: how a UI hides an admin's control. */
-    can: (verb) => verbs.has(verb) || streams.has(verb),
+    can: (verb) => verbs.has(verb) || streams.has(verb) || raws.has(verb),
 
     async request(verb, { session, args } = {}) {
       if (!verbs.has(verb)) throw new Error(`${pkg} declares no command "${verb}".`);
@@ -149,6 +199,8 @@ export function createExt(extension) {
     dom: DOM,
     ui: UI,
     toast,
+    /** Only for a package that declared a raw command; a module must guard `ext.raw?.url` on an older gateway. */
+    ...(raws.size ? { raw: rawSeam(pkg, raws) } : {}),
     /** The shell's renderer. `opts.image(src)` may turn a relative image path into a URL; one argument still works. */
     markdown: (text, opts) => renderMarkdown(text, opts),
   };

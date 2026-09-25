@@ -347,7 +347,10 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
     draw();
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "/" && !event.ctrlKey && !event.metaKey && !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) {
+    // Typing goes where the person is typing: a field, a textarea, or anything editable (the workspace
+    // editor is a contenteditable), so a "/" in a path or a comment stays there.
+    const typing = document.activeElement && (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName) || document.activeElement.isContentEditable);
+    if (event.key === "/" && !event.ctrlKey && !event.metaKey && !typing) {
       event.preventDefault();
       search.focus();
     }

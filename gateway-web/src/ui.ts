@@ -4,16 +4,19 @@
 // still composes. A package's browser files are served only from under its own declared directory. A
 // declared command runs an export of the package's `main` as the person, with the fence environment the
 // gateway already holds and that package's effective configuration, fetched from the kernel on every call
-// so a change is live at once; nothing more: no other package's authority.
+// so a change is live at once; nothing more: no other package's authority. A command declared
+// `kind: "raw"` answers bytes rather than JSON — a file to download, an upload to keep — and has a route of
+// its own; the checks in front of it are the same ones, from the same function.
 import { existsSync, statSync } from "node:fs";
 import { z } from "zod";
 import { parseSchema } from "@thetis/runtime/lib/validation";
 import { readFile, stat } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import { resolve } from "node:path";
+import { Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import type { KernelClient, PackageInfo, StepEnv, UiCommandDecl, UiCommandEnv, UiEntryDecl, UiStream, UserRole } from "@thetis/runtime/contracts";
-import { HttpError } from "./http.js";
+import { BODY_LIMIT, HttpError } from "./http.js";
 import { serveFile, within } from "./static.js";
 
 export const SLOTS = ["dock", "panel", "places", "sidebar", "chips", "composer", "shelf", "statusbar"] as const;
@@ -32,6 +35,32 @@ const PackageEntrySchema = z.object({ main: z.string().optional() });
 /** A subscription carries its arguments in the URL, so they are bounded by what a URL may hold. */
 const ARGS_LIMIT = 4096;
 export const COMMAND_TIMEOUT_MS = 30_000;
+/** The most a raw command may declare as `maxBytes`: what one PUT may carry, held in memory whole. */
+export const RAW_BODY_LIMIT = 512 * 1024 * 1024;
+/** Headers a raw answer may not set: the gateway's own, or ones that would let a package speak for the origin. */
+const RESERVED_HEADERS = new Set(["set-cookie", "cache-control", "content-security-policy", "transfer-encoding", "connection"]);
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+/** How a declared command is called: a JSON command (the default), or a raw one that carries bytes. */
+export type UiCommandKind = "json" | "raw";
+/** A validated command: the manifest's declaration with `kind` settled, and `maxBytes` filled for a raw one. */
+export interface UiCommandSpec extends UiCommandDecl {
+  kind: UiCommandKind;
+  /** Raw only: the most one PUT to this command may carry. Default 1 MiB. */
+  maxBytes?: number;
+}
+/** What a raw export answers a GET with. `status` defaults to 200; `Cache-Control` and the policy are the gateway's. */
+export interface RawAnswer {
+  status: number;
+  headers: Record<string, string>;
+  body: Readable | Buffer | string;
+}
+/** What the raw export receives as its third argument. */
+export interface RawRequest {
+  method: "GET" | "PUT";
+  /** PUT only: the body, read whole, at most `maxBytes`. */
+  body?: Buffer;
+}
 
 /** A validated declaration: every field checked, defaults filled, nothing the manifest did not say. */
 export interface UiSpec {
@@ -39,7 +68,7 @@ export interface UiSpec {
   entry?: string;
   style?: string;
   slots: Record<Slot, UiEntryDecl[]>;
-  commands: UiCommandDecl[];
+  commands: UiCommandSpec[];
 }
 
 /** One extension as the browser sees it. Command exports and roles stay here; the page gets verbs. */
@@ -52,6 +81,8 @@ export interface UiExtension extends Record<Slot, UiEntryDecl[]> {
   commands: string[];
   /** The verbs declared with `stream: true`. The page subscribes to these; they are not in `commands`. */
   streams: string[];
+  /** The verbs declared with `kind: "raw"`. The page reaches these through `ext.raw`; they are not in `commands`. */
+  raw: string[];
   /** Entries above the person's role, as `<slot>:<id>`, so the page can tell "hidden" from "never declared". */
   hidden: string[];
 }
@@ -130,17 +161,25 @@ function entry(raw: unknown, slot: Slot): UiEntryDecl {
   return out;
 }
 
-function command(raw: unknown): UiCommandDecl {
+function command(raw: unknown): UiCommandSpec {
   if (!isObject(raw) || typeof raw.verb !== "string" || !ID.test(raw.verb)) fail("a command has no valid verb");
   const what = `command "${raw.verb}"`;
   if (typeof raw.export !== "string" || !EXPORT.test(raw.export)) fail(`${what} needs an export name`);
   if (raw.stream !== undefined && typeof raw.stream !== "boolean") fail(`${what} stream must be true or false`);
-  const out: UiCommandDecl = { verb: raw.verb, export: raw.export };
+  if (raw.kind !== undefined && raw.kind !== "json" && raw.kind !== "raw") fail(`${what} kind must be json or raw`);
+  const kind: UiCommandKind = raw.kind === "raw" ? "raw" : "json";
+  if (kind === "raw" && raw.stream) fail(`${what} cannot both stream and be raw`);
+  if (raw.maxBytes !== undefined) {
+    if (kind !== "raw") fail(`${what} maxBytes is for raw commands only`);
+    if (typeof raw.maxBytes !== "number" || !Number.isInteger(raw.maxBytes) || raw.maxBytes < 1 || raw.maxBytes > RAW_BODY_LIMIT) fail(`${what} maxBytes must be a whole number of bytes between 1 and ${RAW_BODY_LIMIT}`);
+  }
+  const out: UiCommandSpec = { verb: raw.verb, export: raw.export, kind };
   const label = text(raw.label, `${what} label`, 80);
   const need = role(raw.role, what);
   if (label !== undefined) out.label = label;
   if (need !== undefined) out.role = need;
   if (raw.stream !== undefined) out.stream = raw.stream;
+  if (kind === "raw") out.maxBytes = typeof raw.maxBytes === "number" ? raw.maxBytes : BODY_LIMIT;
   return out;
 }
 
@@ -181,8 +220,8 @@ export function validateUi(info: PackageInfo, store: string): { ui: UiSpec } | {
 /**
  * Everything the page may draw, in install order. A shared slot id belongs to the first package that
  * declared it; a later claimant is refused by name. Entries and commands above the person's role are
- * left out, as the panel's sections are today. A streaming verb is listed in `streams` and not in
- * `commands`, because the two are different routes and the page must know which one it may use.
+ * left out, as the panel's sections are today. A streaming verb is listed in `streams` and a raw one in
+ * `raw`, neither in `commands`, because each is a different route and the page must know which one it may use.
  */
 export function composeUi(packages: PackageInfo[], role: UserRole, store: string): { extensions: UiExtension[]; refused: UiRefusal[] } {
   const extensions: UiExtension[] = [];
@@ -203,7 +242,7 @@ export function composeUi(packages: PackageInfo[], role: UserRole, store: string
     }
     for (const slot of SHARED) for (const e of ui.slots[slot]) claimed.set(`${slot}:${e.id}`, pkg.name);
     const mine = ui.commands.filter((c) => clears(role, c.role));
-    const ext = { package: pkg.name, version: pkg.version, base: `ext/${pkg.name}/`, commands: mine.filter((c) => !c.stream).map((c) => c.verb), streams: mine.filter((c) => c.stream).map((c) => c.verb) } as UiExtension;
+    const ext = { package: pkg.name, version: pkg.version, base: `ext/${pkg.name}/`, commands: mine.filter((c) => !c.stream && c.kind !== "raw").map((c) => c.verb), streams: mine.filter((c) => c.stream).map((c) => c.verb), raw: mine.filter((c) => c.kind === "raw").map((c) => c.verb) } as UiExtension;
     if (ui.entry !== undefined) ext.entry = ui.entry;
     if (ui.style !== undefined) ext.style = ui.style;
     for (const slot of SLOTS) ext[slot] = ui.slots[slot].filter((e) => clears(role, e.role));
@@ -263,16 +302,41 @@ function withTimeout<T>(run: () => Promise<T>, ms: number, message: string): Pro
   return Promise.race([Promise.resolve().then(run), clock]).finally(() => clearTimeout(timer));
 }
 
+type Seam = "command" | "stream" | "raw";
+
+/** The seam a declaration belongs to: the three routes never share a verb. */
+function seamOf(cmd: UiCommandSpec): Seam {
+  return cmd.stream ? "stream" : cmd.kind === "raw" ? "raw" : "command";
+}
+
+/** The sentence for a verb reached through the wrong route, naming the right one. */
+function wrongSeam(verb: string, have: Seam, want: Seam): string {
+  if (have === "stream") return `"${verb}" streams; subscribe to it`;
+  if (have === "raw") return `"${verb}" is raw; use its raw route`;
+  return want === "stream" ? `"${verb}" does not stream` : `"${verb}" is not raw`;
+}
+
+/** `args` as the stream and raw routes carry them: a JSON object in the query, bounded by what a URL may hold. */
+export function argsFromQuery(query: URLSearchParams): unknown {
+  const raw = query.get("args") ?? undefined;
+  if (raw !== undefined && raw.length > ARGS_LIMIT) throw new HttpError(400, `args must be at most ${ARGS_LIMIT} characters`);
+  try {
+    return raw === undefined ? undefined : JSON.parse(raw);
+  } catch {
+    throw new HttpError(400, "args must be an object");
+  }
+}
+
 /**
- * The checks both command routes run, in order: the package is installed here with a valid `ui` that
+ * The checks every command route runs, in order: the package is installed here with a valid `ui` that
  * declares this verb for this seam, the person's role clears it, a named session is one of their own,
- * and `args` is an object. One copy, so a subscription can never skip a check a command makes.
+ * and `args` is an object. One copy, so a subscription or an upload can never skip a check a command makes.
  */
-async function resolveCommand(ctx: CommandContext, who: { id: string; role: UserRole }, scope: string, name: string, verb: string, seam: "command" | "stream", session: unknown, args: unknown): Promise<{ pkg: PackageInfo; cmd: UiCommandDecl; args: Record<string, unknown>; env: UiCommandEnv }> {
+async function resolveCommand(ctx: CommandContext, who: { id: string; role: UserRole }, scope: string, name: string, verb: string, seam: Seam, session: unknown, args: unknown): Promise<{ pkg: PackageInfo; cmd: UiCommandSpec; args: Record<string, unknown>; env: UiCommandEnv }> {
   const { pkg, ui } = extensionOf(await ctx.kernel.packages.list(), ctx.store, scope, name);
   const cmd = ID.test(verb) ? ui.commands.find((c) => c.verb === verb) : undefined;
   if (!cmd) throw new HttpError(404, `${pkg.name} does not declare the command "${verb}"`);
-  if ((cmd.stream ? "stream" : "command") !== seam) throw new HttpError(400, cmd.stream ? `"${verb}" streams; subscribe to it` : `"${verb}" does not stream`);
+  if (seamOf(cmd) !== seam) throw new HttpError(400, wrongSeam(verb, seamOf(cmd), seam));
   if (!clears(who.role, cmd.role)) throw new HttpError(403, `only an ${cmd.role} can send "${verb}"`);
   if (session !== undefined) {
     if (typeof session !== "string" || !SESSION_ID.test(session)) throw new HttpError(404, "unknown session");
@@ -308,7 +372,11 @@ export async function runCommand(ctx: CommandContext, who: { id: string; role: U
   const parsed = CommandResultSchema.safeParse(raw);
   if (!parsed.success) throw new HttpError(502, `${pkg.name} answered "${verb}" with an invalid command result`);
   const result = parsed.data;
-  const reply = typeof result === "string" ? { text: result } : result ?? {};
+  return bounded(pkg, verb, typeof result === "string" ? { text: result } : result ?? {});
+}
+
+/** A JSON reply the page may be handed: finite numbers only, and at most 256 KiB once serialized. */
+function bounded(pkg: PackageInfo, verb: string, reply: { text?: string; data?: unknown }): { text?: string; data?: unknown } {
   let serialized: string;
   try {
     serialized = JSON.stringify(reply, (_key, value: unknown) => {
@@ -322,6 +390,55 @@ export async function runCommand(ctx: CommandContext, who: { id: string; role: U
   return reply;
 }
 
+/** Checks what a raw export answered a GET with; anything but `{ status?, headers, body }` is a 502 naming the package. */
+function rawAnswer(pkg: PackageInfo, verb: string, raw: unknown): RawAnswer {
+  const bad = (): never => {
+    throw new HttpError(502, `${pkg.name} answered "${verb}" with an invalid raw answer`);
+  };
+  if (!isObject(raw)) return bad();
+  const status = raw.status === undefined ? 200 : raw.status;
+  if (typeof status !== "number" || !Number.isInteger(status) || status < 200 || status > 599) return bad();
+  if (!isObject(raw.headers)) return bad();
+  const headers: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw.headers)) {
+    const name = key.toLowerCase();
+    if (!HEADER_NAME.test(name) || typeof value !== "string" || /[\r\n\0]/.test(value)) return bad();
+    if (!RESERVED_HEADERS.has(name)) headers[name] = value;
+  }
+  const body = raw.body;
+  if (!(body instanceof Readable) && !Buffer.isBuffer(body) && typeof body !== "string") return bad();
+  return { status, headers, body };
+}
+
+/**
+ * `GET|PUT api/ext/<scope>/<name>/<verb>/raw`: the same checks, with the arguments in the query as a stream
+ * carries them, then the export called as `(args, env, { method, body? })`. A GET answers `{ status?, headers,
+ * body }` and the body is handed back unconsumed — a stream has no size cap and no timeout, because how long
+ * a download takes is the file's business — with `env.signal` aborted when the browser lets go. A PUT carries
+ * the body whole, at most the command's `maxBytes`, read only once every check has passed (`body` may be a
+ * reader for that reason); what the export returns becomes `data` of a JSON reply, bounded like a command's.
+ */
+export async function runRaw(ctx: CommandContext, who: { id: string; role: UserRole }, scope: string, name: string, verb: string, req: { method: "GET"; args?: unknown; session?: unknown; signal?: AbortSignal }): Promise<RawAnswer>;
+export async function runRaw(ctx: CommandContext, who: { id: string; role: UserRole }, scope: string, name: string, verb: string, req: { method: "PUT"; args?: unknown; session?: unknown; body: Buffer | ((maxBytes: number) => Promise<Buffer>) }): Promise<{ text?: string; data?: unknown }>;
+export async function runRaw(ctx: CommandContext, who: { id: string; role: UserRole }, scope: string, name: string, verb: string, req: { method: "GET" | "PUT"; args?: unknown; session?: unknown; signal?: AbortSignal; body?: Buffer | ((maxBytes: number) => Promise<Buffer>) }): Promise<RawAnswer | { text?: string; data?: unknown }> {
+  const { pkg, cmd, args, env } = await resolveCommand(ctx, who, scope, name, verb, "raw", req.session, req.args);
+  const fn = await loadExport(ctx.store, pkg.name, cmd.export);
+  const limit = cmd.maxBytes ?? BODY_LIMIT;
+  const call = async (request: RawRequest, signal?: AbortSignal): Promise<unknown> => {
+    try {
+      return await fn(args, signal ? { ...env, signal } : env, request);
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      throw new HttpError(400, err instanceof Error ? err.message : String(err));
+    }
+  };
+  if (req.method === "GET") return rawAnswer(pkg, verb, await call({ method: "GET" }, req.signal));
+  const body = typeof req.body === "function" ? await req.body(limit) : req.body ?? Buffer.alloc(0);
+  if (body.length > limit) throw new HttpError(413, `That upload is larger than ${Math.round(limit / 1024)} KB.`);
+  const result = await withTimeout(() => call({ method: "PUT", body }), ctx.timeoutMs ?? COMMAND_TIMEOUT_MS, `${pkg.name} did not answer "${verb}" in time`);
+  return bounded(pkg, verb, result === undefined ? {} : { data: result });
+}
+
 /**
  * `GET api/ext/<scope>/<name>/<verb>/stream`: the same checks, with the arguments and the session in the
  * query because an `EventSource` sends no body, then the iterable the export answers with. It is handed
@@ -329,15 +446,7 @@ export async function runCommand(ctx: CommandContext, who: { id: string; role: U
  * is the package's own business for as long as the browser holds it open.
  */
 export async function openStream(ctx: CommandContext, who: { id: string; role: UserRole }, scope: string, name: string, verb: string, query: URLSearchParams, signal: AbortSignal): Promise<AsyncIterable<unknown>> {
-  const raw = query.get("args") ?? undefined;
-  if (raw !== undefined && raw.length > ARGS_LIMIT) throw new HttpError(400, `args must be at most ${ARGS_LIMIT} characters`);
-  let parsed: unknown;
-  try {
-    parsed = raw === undefined ? undefined : JSON.parse(raw);
-  } catch {
-    throw new HttpError(400, "args must be an object");
-  }
-  const { pkg, cmd, args, env } = await resolveCommand(ctx, who, scope, name, verb, "stream", query.get("session") ?? undefined, parsed);
+  const { pkg, cmd, args, env } = await resolveCommand(ctx, who, scope, name, verb, "stream", query.get("session") ?? undefined, argsFromQuery(query));
   const fn = (await loadExport(ctx.store, pkg.name, cmd.export)) as UiStream;
   let items: AsyncIterable<unknown>;
   try {

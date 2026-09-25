@@ -172,3 +172,37 @@ test("empty reasoning does not create a row, and a later model response gets its
   transcript.applyEvent({ type: "turn.end" });
   assert.equal(root.querySelectorAll("details.reasoning[open]").length, 0);
 });
+
+test("a complete bubble is offered to the renderers as message.rendered, restored and live, and their answer changes nothing", async () => {
+  const { addRenderer } = await import("../assets/lib/registry.js");
+  const seen = [];
+  addRenderer("@test/links", (event, ctx) => {
+    if (event.type !== "message.rendered") return null;
+    seen.push({ role: event.role, session: event.session, restored: event.restored, text: event.node.textContent, ctxSession: ctx.session });
+    event.node.append(Object.assign(new FakeNode("a"), { attrs: { class: "ws-link" } }));
+    return event.node; // a Node answer replaces a tool card; here it must not replace the bubble
+  });
+  const parent = new FakeNode("section");
+  const root = new FakeNode("div");
+  parent.append(root);
+  const transcript = mountTranscript(root, { session: "s_1" });
+  transcript.restore({ id: "s_1", conversation: EARLIER, usage: {}, children: [], turn: null });
+  assert.deepEqual(seen, [
+    { role: "user", session: "s_1", restored: true, text: "hello", ctxSession: "s_1" },
+    { role: "assistant", session: "s_1", restored: true, text: "hi", ctxSession: "s_1" },
+  ]);
+  assert.equal(root.querySelectorAll(".msg").length, 2, "the rows are the shell's; nothing was added or replaced");
+  assert.equal(root.querySelectorAll(".msg > .msg-text > a.ws-link").length, 2, "and the renderer decorated the text in place");
+  seen.length = 0;
+  transcript.applyEvent({ type: "turn.start" }, "what now?");
+  assert.deepEqual(seen, [{ role: "user", session: "s_1", restored: false, text: "what now?", ctxSession: "s_1" }]);
+  seen.length = 0;
+  transcript.applyEvent({ type: "text", delta: "stream" });
+  transcript.applyEvent({ type: "text", delta: "ing" });
+  assert.deepEqual(seen, [], "a bubble still growing is not offered");
+  transcript.applyEvent({ type: "message", message: { role: "assistant", content: "streaming" } });
+  assert.deepEqual(seen, [{ role: "assistant", session: "s_1", restored: false, text: "streaming", ctxSession: "s_1" }], "settled once, when the message lands");
+  seen.length = 0;
+  transcript.applyEvent({ type: "turn.end" });
+  assert.deepEqual(seen, [], "and not again at the turn's end");
+});

@@ -1,7 +1,8 @@
 // The extension seam of the gateway: `thetis.ui` composed from installed packages, a package's browser
 // files served under its own segment, and its declared commands run as the person. First the composition
 // rules on hand-built package lists against a scratch store, then the routes through the door as alice,
-// with the fixtures under test/host/fixtures installed into her own space.
+// with the fixtures under test/host/fixtures installed into her own space. The raw seam (`kind: "raw"`:
+// a download or an upload, bytes rather than JSON) is exercised with a package written into her home here.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { exec as cpExec } from "node:child_process";
@@ -9,6 +10,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symli
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
@@ -21,12 +23,14 @@ import { createLogin } from "@thetis/gateway-login";
 import { clientFromRpc } from "../src/client.js";
 import { createGateway } from "../src/server.js";
 import { GatewayStore } from "../src/store.js";
-import { composeUi, type UiExtension } from "../src/ui.js";
+import { HttpError } from "../src/http.js";
+import { composeUi, runRaw, type UiExtension } from "../src/ui.js";
 
 const PROJECT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const FIXTURES = resolve(PROJECT, "test/host/fixtures");
 const PEOPLE = ["alice", "bob", "root"] as const;
 const GOOD = "@alice/ui-good";
+const RAW = "@alice/ui-raw";
 
 let home: string;
 let scratch: string;
@@ -125,6 +129,77 @@ test("composeUi: a streaming verb is listed in streams, never in commands, and f
   const asAdmin = composeUi([streamer, bad], "admin", scratch);
   assert.deepEqual(asAdmin.extensions[0].commands, ["plain"]);
   assert.deepEqual(asAdmin.extensions[0].streams, ["tail", "watch"]);
+});
+
+test("composeUi: a raw verb is listed in raw, never in commands; kind and maxBytes are checked; the role filters it", () => {
+  const rawer = pkg("@t/rawer", { commands: [{ verb: "plain", export: "a" }, { verb: "up", export: "b", kind: "raw", maxBytes: 64 * 1024 * 1024 }, { verb: "down", export: "c", kind: "raw" }, { verb: "keep", export: "d", kind: "raw", role: "admin" }, { verb: "json", export: "e", kind: "json" }] as never });
+  const badKind = pkg("@t/bad-kind", { commands: [{ verb: "up", export: "b", kind: "bytes" }] as never });
+  const badMax = pkg("@t/bad-max", { commands: [{ verb: "up", export: "b", kind: "raw", maxBytes: 0 }] as never });
+  const hugeMax = pkg("@t/huge-max", { commands: [{ verb: "up", export: "b", kind: "raw", maxBytes: 512 * 1024 * 1024 + 1 }] as never });
+  const fracMax = pkg("@t/frac-max", { commands: [{ verb: "up", export: "b", kind: "raw", maxBytes: 1.5 }] as never });
+  const jsonMax = pkg("@t/json-max", { commands: [{ verb: "up", export: "b", maxBytes: 10 }] as never });
+  const rawStream = pkg("@t/raw-stream", { commands: [{ verb: "up", export: "b", kind: "raw", stream: true }] as never });
+  const asUser = composeUi([rawer, badKind, badMax, hugeMax, fracMax, jsonMax, rawStream], "user", scratch);
+  assert.deepEqual(asUser.extensions.map((e) => e.package), ["@t/rawer"]);
+  assert.deepEqual(asUser.extensions[0].commands, ["plain", "json"], "a raw verb is not a command; kind json is the default");
+  assert.deepEqual(asUser.extensions[0].raw, ["up", "down"], "the admin-only raw verb is not listed for a user");
+  assert.deepEqual(asUser.extensions[0].streams, []);
+  const why = Object.fromEntries(asUser.refused.map((r) => [r.package, r.message]));
+  assert.equal(why["@t/bad-kind"], 'command "up" kind must be json or raw');
+  assert.match(why["@t/bad-max"], /command "up" maxBytes must be a whole number of bytes between 1 and 536870912/);
+  assert.match(why["@t/huge-max"], /maxBytes must be a whole number/);
+  assert.match(why["@t/frac-max"], /maxBytes must be a whole number/);
+  assert.equal(why["@t/json-max"], 'command "up" maxBytes is for raw commands only');
+  assert.equal(why["@t/raw-stream"], 'command "up" cannot both stream and be raw');
+  assert.equal(asUser.refused.length, 6);
+  const asAdmin = composeUi([rawer], "admin", scratch);
+  assert.deepEqual(asAdmin.extensions[0].raw, ["up", "down", "keep"]);
+  const plain = composeUi([pkg("@t/no-raw", { commands: [{ verb: "a", export: "a" }] })], "user", scratch);
+  assert.deepEqual(plain.extensions[0].raw, [], "always a list, so the page can test it");
+});
+
+test("runRaw: a PUT hands the export the body and answers its return as data; a GET hands back the stream it answered", async () => {
+  const root = join(scratch, "node_modules", "@test", "rawcmd");
+  mkdirSync(root, { recursive: true });
+  writeFileSync(join(root, "package.json"), JSON.stringify({ type: "module", main: "index.js" }));
+  writeFileSync(
+    join(root, "index.js"),
+    [
+      "import { Readable } from 'node:stream';",
+      "export const up = (args, env, req) => ({ method: req.method, size: req.body.length, text: req.body.toString(), name: args.name, user: env.user, session: env.session ?? null });",
+      "export const down = (args, env, req) => ({ status: 206, headers: { 'Content-Type': 'text/plain', ETag: 'e1', 'Set-Cookie': 'nope=1' }, body: Readable.from([Buffer.from('a'), Buffer.from('b'), args.name ?? '']) });",
+      "export const bytes = () => ({ headers: {}, body: Buffer.from('raw') });",
+      "export const nothing = () => undefined;",
+      "export const shape = () => ({ headers: { 'x-bad': 'a\\nb' }, body: 'x' });",
+    ].join("\n")
+  );
+  const commands = [{ verb: "up", export: "up", kind: "raw", maxBytes: 16 }, { verb: "down", export: "down", kind: "raw" }, { verb: "bytes", export: "bytes", kind: "raw" }, { verb: "nothing", export: "nothing", kind: "raw" }, { verb: "shape", export: "shape", kind: "raw" }, { verb: "json", export: "up" }];
+  const ctx = {
+    store: scratch,
+    env: {} as never,
+    kernel: { packages: { list: async () => [{ name: "@test/rawcmd", version: "1.0.0", type: "tool", root, thetis: { type: "tool", ui: { commands } } }] }, config: { effective: async () => ({}) } } as never,
+  };
+  const who = { id: "alice", role: "user" as const };
+  assert.deepEqual(await runRaw(ctx, who, "@test", "rawcmd", "up", { method: "PUT", args: { name: "x" }, body: Buffer.from("hello") }), { data: { method: "PUT", size: 5, text: "hello", name: "x", user: "alice", session: null } });
+  let askedFor = 0;
+  assert.deepEqual(await runRaw(ctx, who, "@test", "rawcmd", "up", { method: "PUT", args: {}, body: async (limit) => { askedFor = limit; return Buffer.from("hi"); } }), { data: { method: "PUT", size: 2, text: "hi", name: undefined, user: "alice", session: null } });
+  assert.equal(askedFor, 16, "a reader is told the command's maxBytes, so the route reads no more than that");
+  await assert.rejects(runRaw(ctx, who, "@test", "rawcmd", "up", { method: "PUT", body: Buffer.alloc(17) }), (e: unknown) => e instanceof HttpError && e.status === 413 && e.message === "That upload is larger than 0 KB.");
+  assert.deepEqual(await runRaw(ctx, who, "@test", "rawcmd", "nothing", { method: "PUT", body: Buffer.alloc(0) }), {}, "no answer is an empty reply, as for a command");
+  const down = await runRaw(ctx, who, "@test", "rawcmd", "down", { method: "GET", args: { name: "c" } });
+  assert.equal(down.status, 206);
+  assert.deepEqual(down.headers, { "content-type": "text/plain", etag: "e1" }, "header names are lowercased; a cookie is not a package's to set");
+  assert.ok(down.body instanceof Readable, "the stream comes back unconsumed");
+  const chunks: Buffer[] = [];
+  for await (const chunk of down.body) chunks.push(Buffer.from(chunk as Buffer | string));
+  assert.equal(Buffer.concat(chunks).toString(), "abc");
+  const bytes = await runRaw(ctx, who, "@test", "rawcmd", "bytes", { method: "GET" });
+  assert.equal(bytes.status, 200, "the status defaults to 200");
+  assert.deepEqual(bytes.body, Buffer.from("raw"));
+  await assert.rejects(runRaw(ctx, who, "@test", "rawcmd", "nothing", { method: "GET" }), (e: unknown) => e instanceof HttpError && e.status === 502 && /invalid raw answer/.test(e.message));
+  await assert.rejects(runRaw(ctx, who, "@test", "rawcmd", "shape", { method: "GET" }), (e: unknown) => e instanceof HttpError && e.status === 502, "a header value with a line break in it");
+  await assert.rejects(runRaw(ctx, who, "@test", "rawcmd", "json", { method: "GET" }), (e: unknown) => e instanceof HttpError && e.status === 400 && e.message === '"json" is not raw');
+  await assert.rejects(runRaw(ctx, who, "@test", "rawcmd", "up", { method: "GET", args: [1] }), (e: unknown) => e instanceof HttpError && e.status === 400 && e.message === "args must be an object");
 });
 
 // ---- through the door ----
@@ -230,6 +305,40 @@ before(async () => {
   mkdirSync(join(packages, "plain"));
   writeFileSync(join(packages, "plain", "package.json"), JSON.stringify({ name: "@alice/plain", version: "0.1.0", type: "module", main: "index.js", thetis: { type: "tool" } }));
   writeFileSync(join(packages, "plain", "index.js"), "export const nothing = 1;");
+  // The raw seam's package: a download, an upload and the ways each can go wrong, each behind one verb.
+  mkdirSync(join(packages, "ui-raw", "ui"), { recursive: true });
+  writeFileSync(join(packages, "ui-raw", "ui", "index.js"), "export default () => {};");
+  writeFileSync(
+    join(packages, "ui-raw", "package.json"),
+    JSON.stringify({
+      name: RAW, version: "0.1.0", type: "module", main: "index.js",
+      thetis: { type: "tool", ui: { dir: "ui", entry: "index.js", commands: [
+        { verb: "echo", export: "uiEcho" },
+        { verb: "upload", export: "uiUpload", kind: "raw", maxBytes: 2048 },
+        { verb: "blob", export: "uiBlob", kind: "raw" },
+        { verb: "flow", export: "uiFlow", kind: "raw" },
+        { verb: "hold", export: "uiHold", kind: "raw" },
+        { verb: "bad-raw", export: "uiBad", kind: "raw" },
+        { verb: "boom-raw", export: "uiBoom", kind: "raw" },
+        { verb: "slow-raw", export: "uiSlow", kind: "raw" },
+        { verb: "admin-raw", export: "uiBlob", kind: "raw", role: "admin" },
+      ] } },
+    })
+  );
+  writeFileSync(
+    join(packages, "ui-raw", "index.js"),
+    [
+      "import { Readable } from 'node:stream';",
+      "export const uiEcho = (args) => ({ text: 'hi ' + args.name });",
+      "export const uiUpload = (args, env, req) => ({ method: req.method, size: req.body.length, head: req.body.subarray(0, 4).toString('latin1'), name: args.name, user: env.user, session: env.session ?? null });",
+      "export const uiBlob = (args) => ({ headers: { 'Content-Type': 'text/plain; charset=utf-8', ETag: 'abc', 'Set-Cookie': 'nope=1', 'Cache-Control': 'max-age=999' }, body: 'hello ' + (args.name ?? 'nobody') });",
+      "export const uiFlow = () => ({ status: 206, headers: { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename=\"a.bin\"' }, body: Readable.from([Buffer.from([0, 1]), Buffer.from([2, 255])]) });",
+      "export const uiHold = (args, env) => { const body = new Readable({ read() {} }); body.push('first'); env.signal.addEventListener('abort', () => { env.writeFile('ui-raw-abort.txt', String(env.signal.aborted)); }); return { headers: { 'content-type': 'text/plain' }, body }; };",
+      "export const uiBad = () => ({ nope: 1 });",
+      "export const uiBoom = () => { throw new Error('no'); };",
+      "export const uiSlow = () => new Promise(() => {});",
+    ].join("\n")
+  );
 
   const rpcFor = (us: Userspace) => createRpcHandler(us, kernel, createControlHandler(kernel), async (u) => ({ model: kernel.config.model, models: await kernel.providers.listModels(u) }));
   const assets = join(home, "assets");
@@ -411,6 +520,92 @@ test("stream: the checks of a command, and the two that keep the two seams apart
   assert.equal((await get(`${path}/ticks/stream?args=${encodeURIComponent(JSON.stringify({ pad: "x".repeat(4096) }))}`)).status, 400, "args over 4 KiB");
   assert.equal((await fetch(`${base}${path}/ticks/stream`)).status, 401, "the route needs the cookie");
   assert.equal((await api(bob, `${path}/ticks/stream`)).status, 401, "bob's cookie at alice's gateway");
+});
+
+test("raw: an upload is read up to the command's maxBytes and answered as data; a download carries the export's headers under the gateway's policy", async () => {
+  const alice = await cookieFor("alice", "wonderland");
+  const bob = await cookieFor("bob", "builder");
+  assert.equal((await api(alice, "/alice/api/packages", { method: "POST", body: JSON.stringify({ source: "packages/ui-raw" }) })).status, 201);
+  const listed = (await ui(alice)).extensions.find((e) => e.package === RAW)!;
+  assert.deepEqual(listed.commands, ["echo"], "a raw verb is not a command");
+  assert.deepEqual(listed.raw, ["upload", "blob", "flow", "hold", "bad-raw", "boom-raw", "slow-raw"], "the admin-only one is not listed for alice");
+  const { id: session } = (await (await api(alice, "/alice/api/sessions", { method: "POST" })).json()) as { id: string };
+  const { id: bobs } = (await (await api(bob, "/bob/api/sessions", { method: "POST" })).json()) as { id: string };
+  const path = `/alice/api/ext/${RAW}`;
+  const at = (verb: string, args?: unknown, extra = "") => `${path}/${verb}/raw?${args === undefined ? "" : `args=${encodeURIComponent(JSON.stringify(args))}`}${extra}`;
+  const put = (url: string, body: BodyInit, headers: Record<string, string> = {}) => api(alice, url, { method: "PUT", body, headers: { "content-type": "application/octet-stream", ...headers } });
+
+  // The upload: the body whole, the export's return as `data`, the session checked like a command's.
+  const png = Buffer.concat([Buffer.from("\x89PNG", "latin1"), Buffer.alloc(100, 7)]);
+  const up = await put(at("upload", { name: "a.png" }, `&session=${session}`), png);
+  const upText = await up.text();
+  assert.equal(up.status, 200, upText);
+  assert.deepEqual(JSON.parse(upText), { data: { method: "PUT", size: 104, head: "\x89PNG", name: "a.png", user: "alice", session } });
+  assert.deepEqual(await (await put(at("upload"), "")).json(), { data: { method: "PUT", size: 0, head: "", user: "alice", session: null } }, "no arguments and an empty body are both allowed");
+  const tooBig = await put(at("upload", { name: "b.bin" }), Buffer.alloc(2049));
+  assert.equal(tooBig.status, 413);
+  assert.deepEqual(await tooBig.json(), { error: "That upload is larger than 2 KB." });
+  assert.equal((await put(at("upload"), "x", { "sec-fetch-site": "cross-site" })).status, 403, "a PUT is a write and must be same-site");
+  assert.equal((await put(at("upload", {}, `&session=${bobs}`), "x")).status, 404, "another person's session");
+  assert.equal((await put(at("upload", [1]), "x")).status, 400, "args that are not an object");
+  assert.equal((await put(at("upload", { pad: "x".repeat(4096) }), "x")).status, 400, "args over 4 KiB");
+  const slow = await put(at("slow-raw"), "x");
+  assert.equal(slow.status, 504, "the command timeout applies to a PUT");
+  assert.match(((await slow.json()) as { error: string }).error, /did not answer "slow-raw" in time/);
+
+  // The download: status and headers from the export, `no-store` and the media policy from the gateway.
+  const blob = await api(alice, at("blob", { name: "x" }));
+  assert.equal(blob.status, 200);
+  assert.equal(blob.headers.get("content-type"), "text/plain; charset=utf-8");
+  assert.equal(blob.headers.get("etag"), "abc");
+  assert.equal(blob.headers.get("cache-control"), "no-store", "the export's cache header did not win");
+  assert.equal(blob.headers.get("content-security-policy"), "default-src 'none'; sandbox");
+  assert.equal(blob.headers.get("set-cookie"), null, "a package cannot set a cookie on this origin");
+  assert.equal(blob.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(await blob.text(), "hello x");
+  const flow = await api(alice, at("flow"));
+  assert.equal(flow.status, 206, "the export's status is served");
+  assert.equal(flow.headers.get("content-disposition"), 'attachment; filename="a.bin"');
+  assert.deepEqual(new Uint8Array(await flow.arrayBuffer()), new Uint8Array([0, 1, 2, 255]), "a stream is piped whole");
+  assert.equal((await api(alice, at("flow"), { method: "POST" })).status, 404, "only GET and PUT reach the raw route");
+  const bad = await api(alice, at("bad-raw"));
+  assert.equal(bad.status, 502);
+  assert.match(((await bad.json()) as { error: string }).error, /invalid raw answer/);
+  const boom = await api(alice, at("boom-raw"));
+  assert.equal(boom.status, 400);
+  assert.deepEqual(await boom.json(), { error: "no" });
+
+  // The browser letting go of a download aborts the export's signal.
+  const marker = join(sysenv, "ui-raw-abort.txt");
+  rmSync(marker, { force: true });
+  const control = new AbortController();
+  const held = await fetch(`${base}${at("hold")}`, { headers: { cookie: alice }, signal: control.signal });
+  assert.equal(held.status, 200);
+  const reader = held.body!.getReader();
+  assert.equal(Buffer.from((await reader.read()).value!).toString(), "first");
+  control.abort();
+  for (let i = 0; i < 200 && !existsSync(marker); i++) await new Promise((done) => setTimeout(done, 20));
+  assert.equal(readFileSync(marker, "utf8"), "true", "the export's abort listener ran");
+
+  // The checks of a command, and the ones that keep the three seams apart.
+  const forbidden = await api(alice, at("admin-raw"));
+  assert.equal(forbidden.status, 403);
+  assert.match(((await forbidden.json()) as { error: string }).error, /only an admin can send "admin-raw"/);
+  assert.equal((await api(alice, at("nope"))).status, 404, "an undeclared verb");
+  const notRaw = await api(alice, at("echo"));
+  assert.equal(notRaw.status, 400);
+  assert.deepEqual(await notRaw.json(), { error: '"echo" is not raw' });
+  const asCommand = await post(alice, `${path}/blob`, {});
+  assert.equal(asCommand.status, 400);
+  assert.equal(asCommand.body.error, '"blob" is raw; use its raw route');
+  const asStream = await api(alice, `${path}/blob/stream`);
+  assert.equal(asStream.status, 400);
+  assert.deepEqual(await asStream.json(), { error: '"blob" is raw; use its raw route' });
+  assert.equal((await api(alice, `/alice/api/ext/${GOOD}/ticks/raw`)).status, 400, "a stream is not raw either");
+  assert.equal((await fetch(`${base}${at("blob")}`)).status, 401, "the route needs the cookie");
+  assert.equal((await api(bob, at("blob"))).status, 401, "bob's cookie at alice's gateway");
+  assert.equal((await api(alice, `/alice/api/packages/${encodeURIComponent(RAW)}`, { method: "DELETE" })).status, 200);
+  assert.equal((await api(alice, at("blob"))).status, 404, "gone with the package");
 });
 
 test("api/ui drops a package after it is removed", async () => {

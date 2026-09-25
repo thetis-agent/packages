@@ -11,6 +11,7 @@ import { z } from "zod";
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { dirname, resolve } from "node:path";
+import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import type { KernelClient, Message, ModelChoices, SessionRecord, SessionSummaryRef, StepEnv, UserRole } from "@thetis/runtime/contracts";
 import { withoutTurnContext } from "@thetis/harness-core";
@@ -19,7 +20,7 @@ import { handlePanel } from "./panel.js";
 import { serveFile } from "./static.js";
 import { sniffImage, type GatewayStore, type SessionUsage } from "./store.js";
 import { TurnHub, type RunningTurn } from "./turns.js";
-import { composeUi, openStream, runCommand, serveExt } from "./ui.js";
+import { argsFromQuery, composeUi, openStream, runCommand, runRaw, serveExt } from "./ui.js";
 
 export interface GatewayOptions {
   /** Directory of the static assets. Defaults to the package's `assets/`. */
@@ -153,6 +154,21 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       const abort = new AbortController();
       req.on("close", () => abort.abort());
       return pump(res, await openStream(ctx, who!, seg[2], seg[3], seg[4], url.searchParams, abort.signal), abort.signal);
+    }
+    if (seg[1] === "ext" && seg.length === 6 && seg[5] === "raw" && (method === "GET" || method === "PUT")) {
+      if (!storeDir || !opts.env) throw new HttpError(404, "no extensions here");
+      const ctx = { kernel, env: opts.env, store: storeDir, timeoutMs: opts.commandTimeoutMs };
+      const args = argsFromQuery(url.searchParams);
+      const session = url.searchParams.get("session") ?? undefined;
+      if (method === "PUT") {
+        // The body is read only once the checks have passed, and only up to the command's own `maxBytes`:
+        // a refused upload is refused before its bytes are held, as `/api/media` holds nothing over its cap.
+        const body = (maxBytes: number) => readBytes(req, maxBytes, "That upload");
+        return json(res, 200, await runRaw(ctx, who!, seg[2], seg[3], seg[4], { method: "PUT", args, session, body }));
+      }
+      const abort = new AbortController();
+      const answer = await runRaw(ctx, who!, seg[2], seg[3], seg[4], { method: "GET", args, session, signal: abort.signal });
+      return sendRaw(req, res, answer, abort);
     }
     if (seg[1] === "media" && seg.length === 2 && method === "POST") {
       const bytes = await readBytes(req, MAX_ASSET_BYTES, "That attachment");
@@ -464,6 +480,30 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       unsubscribe();
       set!.delete(onList);
     });
+  }
+
+  /**
+   * A raw command's GET answer: the export's status and headers, under the gateway's own `no-store` and the
+   * policy `/api/media` serves under — the bytes came from a package, and a page that carried script must
+   * not run as this origin. A Buffer or string ends the response; a Readable is piped and destroyed when the
+   * browser lets go, which also aborts the signal the export was given. Once the headers are out an error
+   * can only cut the connection: the JSON refusal belongs to whatever failed before them.
+   */
+  function sendRaw(req: IncomingMessage, res: ServerResponse, answer: { status: number; headers: Record<string, string>; body: Readable | Buffer | string }, abort: AbortController): void {
+    res.writeHead(answer.status, { ...answer.headers, "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'; sandbox" });
+    const { body } = answer;
+    if (!(body instanceof Readable)) return void res.end(body);
+    const letGo = () => {
+      if (!res.writableFinished) abort.abort(); // a download that finished was not let go of
+      if (!body.destroyed) body.destroy();
+    };
+    req.on("close", letGo);
+    res.on("close", letGo);
+    body.once("error", (err) => {
+      log(`[gateway-web] ${req.method} ${req.url}: the raw body failed: ${err instanceof Error ? err.message : String(err)}`);
+      res.destroy();
+    });
+    body.pipe(res);
   }
 
   /**
