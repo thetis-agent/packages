@@ -520,3 +520,90 @@ test("callModel: concurrent tool calls run at once and their results are recorde
   assert.equal(peak, 3, "all three were running at the same time");
   assert.deepEqual(toolResults(out.conversation), [["spawn", "child a"], ["spawn", "child b"], ["spawn", "child c"]]);
 });
+
+// ---- the round hook: what `call.hints.beforeRound` names is offered every round after the first ----
+
+const HOOK = { package: "@x/compaction", export: "beforeRound" };
+/** Two tool rounds and a reply: the hook is due before rounds 2 and 3. Each round reports a usage and records what it was sent. */
+function hookScript(sent: Message[][]): Script {
+  return async (round, call, onEvent) => {
+    sent.push([...call.messages]);
+    if (round < 3) onEvent({ type: "tool_call", call: { id: `c${round}`, name: "t", args: {} } });
+    else onEvent({ type: "text", delta: "done" });
+    onEvent({ type: "usage", usage: { prompt_tokens: 100 * round, completion_tokens: 5 } });
+  };
+}
+const HOOK_TOOL = { name: "t", description: "", parameters: {}, package: "@a/p", export: "t" };
+
+test("callModel: the round hook the hint names is called from round 2 with the live state, its messages are what the next request carries, and its harness is the step's", async () => {
+  const sent: Message[][] = [];
+  const seen: { round: number; priced: number; usage: unknown; conversation: number; messages: number; harness: unknown; turn: unknown; emits: boolean }[] = [];
+  const summary: Message = { role: "user", content: textContent("[summary of what came before]") };
+  const { ctx, invoked, configs } = loopCtx(hookScript(sent), {
+    tools: [HOOK_TOOL],
+    hints: { beforeRound: HOOK },
+    invoke: async ({ ref, args }) => {
+      if (ref.name !== "beforeRound") return "ran t";
+      const a = args as unknown as { round: number; priced: number; usage: unknown; conversation: Message[]; call: ProviderCall; harness: Record<string, unknown>; turn: unknown; emit: unknown };
+      seen.push({ round: a.round, priced: a.priced, usage: a.usage, conversation: a.conversation.length, messages: a.call.messages.length, harness: a.harness, turn: a.turn, emits: typeof a.emit === "function" });
+      // Round 2 compacts: the tail from the previous cut onward stays, a note stands for the rest. Round 3 only writes state.
+      if (a.round === 2) return { call: { messages: [summary, ...a.call.messages.slice(1)] }, harness: { ...a.harness, "@x/compaction": { cut: 1 } } };
+      return { harness: { ...a.harness, "@x/compaction": { cut: 1, seen: 3 } } };
+    },
+  });
+  ctx.harness = { "@other/state": { keep: true } };
+  const out = await callModel(ctx);
+  assert.deepEqual(invoked.filter((i) => i.ref.name === "beforeRound").map((i) => [i.ref.package, i.ref.export, i.config]), [["@x/compaction", "beforeRound", { for: "@x/compaction" }], ["@x/compaction", "beforeRound", { for: "@x/compaction" }]], "invoked under its own package, with that package's configuration");
+  assert.ok(configs.includes("@x/compaction"));
+  assert.deepEqual(seen.map((s) => [s.round, s.priced, s.usage, s.conversation, s.messages, s.emits]), [
+    [2, 1, { prompt_tokens: 100, completion_tokens: 5 }, 3, 3, true], // round 1 sent the one user message; the conversation now holds user, assistant, tool
+    [3, 3, { prompt_tokens: 200, completion_tokens: 5 }, 5, 5, true], // round 2 sent the hook's three; two more rows since
+  ]);
+  assert.deepEqual(seen[0].harness, { "@other/state": { keep: true } }, "the first hook sees the step's harness");
+  assert.deepEqual(seen[1].harness, { "@other/state": { keep: true }, "@x/compaction": { cut: 1 } }, "the second sees what the first wrote");
+  assert.deepEqual(seen[0].turn, { id: ctx.turn.id });
+  assert.deepEqual(sent.map((m) => m.map((x) => x.role)), [["user"], ["user", "assistant", "tool"], ["user", "assistant", "tool", "assistant", "tool"]]);
+  assert.equal(contentText(sent[1][0].content), "[summary of what came before]", "round 2 was sent the hook's messages, whole");
+  assert.equal(contentText(sent[2][0].content), "[summary of what came before]", "and the loop kept appending to them");
+  assert.deepEqual(out.harness!["@x/compaction"], { cut: 1, seen: 3 }, "the last hook's harness is the step's");
+  assert.deepEqual(out.harness!["@other/state"], { keep: true });
+  assert.ok((out.harness!["@thetis/harness-core"] as { lastCall: LastCall }).lastCall, "merged with this package's own key");
+  assert.equal(contentText(out.conversation!.at(-1)!.content), "done");
+  assert.equal(out.conversation!.length, 6, "the conversation is the log, untouched by the projection");
+});
+
+test("callModel: a hook that throws or answers garbage is logged, and the turn completes as if there were none", async () => {
+  const sent: Message[][] = [];
+  const logged: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => logged.push(args.map(String).join(" "));
+  try {
+    const { ctx, invoked } = loopCtx(hookScript(sent), {
+      tools: [HOOK_TOOL],
+      hints: { beforeRound: HOOK },
+      invoke: async ({ ref, args }) => {
+        if (ref.name !== "beforeRound") return "ran t";
+        if ((args as { round: number }).round === 2) throw new Error("summarizer down");
+        return { call: { messages: "not an array" } };
+      },
+    });
+    const out = await callModel(ctx);
+    assert.equal(invoked.filter((i) => i.ref.name === "beforeRound").length, 2, "still asked every round");
+    assert.equal(contentText(out.conversation!.at(-1)!.content), "done");
+    assert.deepEqual(sent.map((m) => m.length), [1, 3, 5], "every request carried the loop's own messages");
+    assert.equal(logged.length, 2);
+    assert.match(logged[0], /@x\/compaction beforeRound failed; round 2 proceeds unchanged: summarizer down/);
+    assert.match(logged[1], /@x\/compaction beforeRound answered something unusable; round 3 proceeds unchanged: call\.messages/);
+    assert.deepEqual(Object.keys(out.harness!), ["@thetis/harness-core"], "nothing of the failed hook's is kept");
+  } finally {
+    console.error = original;
+  }
+});
+
+test("callModel: without the hint, no hook is invoked; only the tools are", async () => {
+  const sent: Message[][] = [];
+  const { ctx, invoked, configs } = loopCtx(hookScript(sent), { tools: [HOOK_TOOL] });
+  await callModel(ctx);
+  assert.deepEqual(invoked.map((i) => i.ref.name), ["t", "t"]);
+  assert.deepEqual(configs, ["@a/p", "@a/p"]);
+});

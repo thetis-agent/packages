@@ -1,7 +1,9 @@
 import { z } from "zod";
 
 export const ModelsResponseSchema = z.looseObject({
-  data: z.array(z.looseObject({ id: z.string().min(1), name: z.string().optional() })),
+  // `context_length` is the model's window in tokens; a package that sizes a request against the window
+  // (compaction) reads it as `contextLength`. OpenRouter lists it for nearly every model, but not for all.
+  data: z.array(z.looseObject({ id: z.string().min(1), name: z.string().optional(), context_length: z.number().int().positive().optional() })),
 });
 
 export const ProviderErrorSchema = z.looseObject({

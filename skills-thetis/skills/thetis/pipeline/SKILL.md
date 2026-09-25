@@ -23,10 +23,10 @@ The kernel gives no meaning to phase names. The intended use:
 
 | Phase | Intended use |
 |---|---|
-| `history` | Compact, trim, or rewrite the conversation. Set `call.messages`. |
+| `history` | Trim or rewrite the conversation. A step that compacts sets `call.messages` to the projection it sends instead of the saved log. |
 | `prompt` | Build `call.system`. Inject memory or skills. Set `call.model` or `call.params`. |
 | `tools` | Attach tools to `call.tools`. |
-| `call` | Steps that shape the request just before it is sent: scoping, cache hints. |
+| `call` | Steps that shape the request just before it is sent: scoping, cache hints. `@thetis/compaction` compacts here rather than in `history`, because its summarization request needs `call.system` and `call.tools` to share the cached prefix with the turn's own request. |
 | `execute` | Make the call. The `call` step of `@thetis/harness-core` runs here: the provider request, the tool loop. |
 | `after` | Read the model output. Write memory. Update `harness`. |
 

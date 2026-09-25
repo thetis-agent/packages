@@ -61,3 +61,13 @@ test("reasoning chunks with empty content do not emit text events", async (t) =>
     ...["The", " ", "answer"].map((delta) => ({ type: "text", delta })),
   ]);
 });
+
+test("models carries OpenRouter's context_length as contextLength, and leaves the key out when the listing has none", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => Response.json({ data: [{ id: "vendor/big", name: "Big", context_length: 1_000_000, pricing: { prompt: "0" } }, { id: "vendor/plain" }] }));
+  const models = await createProvider({ apiKey: "test" }).models();
+  assert.equal(models[0].id, "vendor/big");
+  assert.equal(models[0].contextLength, 1_000_000);
+  assert.equal("pricing" in models[0], false, "only what the descriptor names is passed on");
+  assert.equal(models[1].id, "vendor/plain");
+  assert.equal("contextLength" in models[1], false, "no window listed, no key");
+});

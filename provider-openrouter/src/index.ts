@@ -81,7 +81,8 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
       const res = await fetch(`${baseUrl}/models`, { headers, signal: AbortSignal.timeout(requestTimeoutMs) });
       if (!res.ok) throw new Error(`openrouter /models failed: ${res.status} ${await res.text()}`);
       const body = parseSchema(ModelsResponseSchema, await res.json(), "OpenRouter models");
-      return body.data.map((m) => ({ id: m.id, name: m.name }));
+      // The key is left out when OpenRouter lists no window, so a descriptor never says `contextLength: undefined`.
+      return body.data.map((m) => ({ id: m.id, name: m.name, ...(m.context_length !== undefined ? { contextLength: m.context_length } : {}) }));
     },
 
     async *call(call: ProviderCall, signal?: AbortSignal, context?: ProviderContext): AsyncIterable<ProviderEvent> {

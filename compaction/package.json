@@ -1,0 +1,124 @@
+{
+  "name": "@thetis/compaction",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Automatic context compaction: summarizes the older part of a long conversation into one note when the next request nears the model's window, keeps the recent tail verbatim, and never edits the record.",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test dist/test/"
+  },
+  "thetis": {
+    "type": "loader",
+    "config": {
+      "enabled": {
+        "type": "boolean",
+        "default": true,
+        "help": "Compact automatically when the next request would exceed threshold × window. Off, an existing summary is still sent until it is reset from the Compaction dock."
+      },
+      "threshold": {
+        "type": "number",
+        "default": 0.75,
+        "help": "The fraction of the model's context window at which compaction starts. Well before 1.0: at the window the provider refuses the request."
+      },
+      "window": {
+        "type": "number",
+        "default": 200000,
+        "help": "The context window, in tokens, assumed for a model the provider reports no context length for and `windows` does not name."
+      },
+      "windows": {
+        "type": "object",
+        "help": "Per-model windows in tokens, keyed by model id or id prefix (longest key wins), for example { \"anthropic/\": 400000 }. A key here overrides what the provider reports: the way to compact a 1M-token model earlier."
+      },
+      "keepTokens": {
+        "type": "number",
+        "default": 20000,
+        "help": "How much of the most recent conversation, in estimated tokens, is always sent verbatim after the summary."
+      },
+      "minShedTokens": {
+        "type": "number",
+        "default": 20000,
+        "help": "A compaction that would summarize less than this, in estimated tokens, is not worth breaking the prompt cache for and is skipped."
+      },
+      "summaryModel": {
+        "type": "string",
+        "help": "The model that writes the summary. Unset means the conversation's own model, which reads the cached prefix and so costs only the summary; a different model re-reads the whole history at full price."
+      },
+      "summaryMaxTokens": {
+        "type": "number",
+        "default": 16000,
+        "help": "max_tokens of the summarization request. Reasoning counts against it on models that think."
+      },
+      "summaryTimeoutMs": {
+        "type": "number",
+        "default": 240000,
+        "help": "How long one summarization request may take before it is abandoned and counted as a failure. Keep it under the fence's 300 s step deadline."
+      },
+      "maxFailures": {
+        "type": "number",
+        "default": 3,
+        "help": "Consecutive failed attempts after which automatic compaction pauses for the conversation. A manual request from the dock tries again."
+      }
+    },
+    "steps": [
+      {
+        "id": "compact",
+        "phase": "call",
+        "export": "compact"
+      }
+    ],
+    "ui": {
+      "dir": "ui",
+      "entry": "index.js",
+      "style": "index.css",
+      "chips": [
+        {
+          "id": "context",
+          "order": 40
+        }
+      ],
+      "dock": [
+        {
+          "id": "compaction",
+          "label": "Compaction",
+          "icon": "M3 5h14 M3 10h9 M3 15h5 M14 12l3 3-3 3",
+          "hint": "How much of the context window is used, and what has been summarized"
+        }
+      ],
+      "commands": [
+        {
+          "verb": "compaction-state",
+          "export": "uiState",
+          "label": "Read the context and compaction state of a conversation"
+        },
+        {
+          "verb": "compaction-request",
+          "export": "uiRequest",
+          "label": "Ask for a compaction at the start of the next message"
+        },
+        {
+          "verb": "compaction-reset",
+          "export": "uiReset",
+          "label": "Send the full history again from the next message"
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "peerDependencies": {
+    "@thetis/runtime": "^0.2.0"
+  },
+  "devDependencies": {
+    "@thetis/runtime": "file:../.."
+  }
+}

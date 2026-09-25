@@ -80,6 +80,9 @@ export function addRenderer(pkg, render) {
   renderers.push({ package: pkg, render });
 }
 
+/** Whether any transcript renderer is registered at all: the transcript skips offers that nobody could take. */
+export const hasRenderers = () => renderers.length > 0;
+
 /** Asks a package to redraw: a dock, chip or statusbar entry by id, or everything it registered. */
 export function redraw(pkg, id) {
   notify({ kind: "redraw", package: pkg, id: id ?? null });

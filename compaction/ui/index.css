@@ -1,0 +1,79 @@
+/* Styles of @thetis/compaction's page pieces, linked once by the gateway. Everything is scoped under
+   this package's `cmp-` classes and `.compaction-card`, and built from the shell's theme tokens
+   (theme.css), so the dock, the chip and the transcript card look like the page they sit in and never
+   restyle it. No widths are computed here: the meter is forty cells with classes, because the page's
+   CSP forbids inline styles. */
+
+/* --- the chip: the mono `ctx 14%`, amber from 60% of the window, red from the trigger --- */
+.cmp-chip.is-warn { color: var(--warn); }
+.cmp-chip.is-err { color: var(--err); }
+.cmp-chip.is-busy { color: var(--accent); animation: pulse 1.4s var(--ease) infinite; }
+
+/* --- the dock --- */
+.cmp-dock { display: flex; flex-direction: column; gap: var(--gap-4); min-height: 0; overflow: auto; }
+.cmp-dock > * { flex-shrink: 0; }
+.cmp-note { margin: 0; padding: var(--gap-2) 0; color: var(--text-faint); font-size: var(--text-sm); }
+.cmp-note.is-error { color: var(--err); }
+
+/* The meter: cells fill with the accent, the tick marks the trigger, and the whole bar takes the tone of
+   the chip so the two never disagree. */
+.cmp-meter { display: flex; flex-direction: column; gap: var(--gap-2); }
+.cmp-bar { display: grid; grid-template-columns: repeat(40, 1fr); gap: 1px; height: 8px; border-radius: var(--r-pill); overflow: hidden; }
+.cmp-cell { background: var(--surface-3); }
+.cmp-cell.is-on { background: var(--accent); }
+.cmp-meter.is-warn .cmp-cell.is-on { background: var(--warn); }
+.cmp-meter.is-err .cmp-cell.is-on { background: var(--err); }
+.cmp-cell.is-tick { box-shadow: inset 0 0 0 1px var(--text); }
+.cmp-numbers { display: flex; justify-content: space-between; gap: var(--gap-3); flex-wrap: wrap; font-size: var(--text-xs); color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.cmp-meter.is-warn .cmp-numbers > :first-child { color: var(--warn); }
+.cmp-meter.is-err .cmp-numbers > :first-child { color: var(--err); }
+.cmp-trigger { color: var(--text-faint); }
+.cmp-model { font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmp-model:empty { display: none; }
+
+.cmp-sentence { display: flex; flex-direction: column; gap: var(--gap-1); }
+.cmp-lead { margin: 0; color: var(--text); font-size: var(--text-sm); line-height: var(--leading); }
+.cmp-lead.is-busy { color: var(--accent); }
+.cmp-failure { margin: 0; color: var(--err); font-size: var(--text-xs); line-height: 1.5; overflow-wrap: anywhere; }
+
+.cmp-actions { display: flex; flex-direction: column; gap: var(--gap-2); }
+.cmp-row { display: flex; align-items: center; gap: var(--gap-2); flex-wrap: wrap; }
+.cmp-row .btn { flex: none; }
+.cmp-focus { flex: 1 1 160px; }
+.cmp-pending { margin: 0; padding: var(--gap-2) var(--gap-3); border: 1px solid var(--accent-edge); border-radius: var(--r-md); background: var(--accent-wash); color: var(--text); font-size: var(--text-xs); line-height: 1.5; }
+.cmp-hint { margin: 0; color: var(--text-faint); font-size: var(--text-xs); line-height: 1.5; }
+
+/* Folds: the dock's summary and the card's "Show summary" share one look, ui-context's. */
+.cmp-fold { min-width: 0; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface-2); }
+.cmp-fold > summary { display: flex; align-items: center; gap: var(--gap-2); padding: var(--gap-2) var(--gap-3); cursor: pointer; font-size: var(--text-sm); list-style: none; }
+.cmp-fold > summary::-webkit-details-marker { display: none; }
+.cmp-fold > summary::before { content: "▸"; color: var(--text-faint); }
+.cmp-fold[open] > summary::before { content: "▾"; }
+.cmp-fold > summary:focus-visible { outline: 2px solid var(--text-dim); outline-offset: -2px; }
+.cmp-fold-label { flex: 1 1 auto; min-width: 0; }
+.cmp-fold-aside { color: var(--text-faint); font-size: var(--text-xs); white-space: nowrap; }
+.cmp-summary, .cmp-card-summary { padding: 0 var(--gap-3) var(--gap-3); font-size: var(--text-sm); line-height: var(--leading); overflow-wrap: anywhere; }
+.cmp-summary > :last-child, .cmp-card-summary > :last-child { margin-bottom: 0; }
+
+.cmp-history { display: flex; flex-direction: column; gap: var(--gap-2); }
+.cmp-ledger { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--gap-1); font-size: var(--text-xs); color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.cmp-ledger-row { padding: 3px 0; border-bottom: 1px solid var(--hairline); overflow-wrap: anywhere; }
+.cmp-ledger-row:last-child { border-bottom: 0; }
+.cmp-ledger-row.is-failed { color: var(--err); }
+.cmp-ledger-row.is-reset { color: var(--text-faint); font-style: italic; }
+
+/* --- the transcript card: one row per compaction, its dot saying which phase it is in --- */
+.compaction-card { display: flex; align-items: flex-start; gap: var(--gap-3); padding: var(--gap-2) var(--gap-3); border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface-2); color: var(--text-dim); font-size: var(--text-sm); line-height: 1.5; }
+.compaction-card .cmp-dot { flex: none; width: 7px; height: 7px; margin-top: 6px; border-radius: 50%; background: var(--text-faint); }
+.compaction-card.is-busy { border-color: var(--accent-edge); }
+.compaction-card.is-busy .cmp-dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); animation: pulse 1.4s var(--ease) infinite; }
+.compaction-card.is-busy .cmp-card-text { color: var(--accent); }
+.compaction-card.is-done .cmp-dot { background: var(--ok); }
+.compaction-card.is-failed { border-color: color-mix(in srgb, var(--err) 45%, transparent); }
+.compaction-card.is-failed .cmp-dot { background: var(--err); }
+.compaction-card.is-failed .cmp-card-text { color: var(--err); }
+.compaction-card.is-skipped .cmp-dot { background: var(--warn); }
+.compaction-card.is-reset { font-style: italic; }
+.cmp-card-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-2); }
+.cmp-card-text { overflow-wrap: anywhere; }
+.cmp-card-fold { background: var(--surface-1); }

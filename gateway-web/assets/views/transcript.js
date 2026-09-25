@@ -28,7 +28,7 @@ import { avatarFor } from "../lib/avatar.js";
 import { clear, el, icon } from "../lib/dom.js";
 import { gist, usageLine } from "../lib/transcript-format.js";
 import { renderMarkdown } from "../lib/markdown.js";
-import { renderTranscript } from "../lib/registry.js";
+import { hasRenderers, renderTranscript } from "../lib/registry.js";
 import { store } from "../lib/store.js";
 import { toast } from "../lib/toast.js";
 
@@ -264,7 +264,11 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     return { session, el, icon, markdown: renderMarkdown, restored, whenAnswered: (fn) => answered.push(fn) };
   }
 
-  /** Offers a tool event to the renderers. True when one took it (and drew, or chose not to). Nothing is offered from a nested instance. */
+  /**
+   * Offers an event to the renderers: a tool event, a live `extension` event, or a `marker` on restore.
+   * True when one took it (and drew, or chose not to). Nothing is offered from a nested instance. A
+   * renderer's row is message-level, so it ends the tool run either way.
+   */
   function rendered(event, restored) {
     if (nested) return false;
     const out = renderTranscript(event, rendererContext(restored));
@@ -945,6 +949,11 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
         failLocal();
         run = null;
         break;
+      case "extension":
+        // A package's own event, live: offered to the renderers (a compaction draws its card from these) and
+        // otherwise nothing, since the shell has no row for an event it does not understand.
+        rendered(event, false);
+        break;
       default:
         break;
     }
@@ -956,7 +965,16 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     restoring = true;
     childRecords = new Map((record.children ?? []).map((c) => [c.id, c]));
     if (childRecords.size) store.setAgents(agentsOfRecord(record));
-    (record.conversation ?? []).forEach((message, index) => drawMessage(message, record.usage?.[index]));
+    // A marker is offered before each saved message and once after the last, so a package can draw
+    // something that belongs between messages rather than to one (a compaction's card at its cut). The
+    // check is on the registry, not per offer: with nothing registered, a long conversation pays nothing.
+    const conversation = record.conversation ?? [];
+    const marker = !nested && hasRenderers() ? (index) => rendered({ type: "marker", index, session, record }, true) : () => false;
+    conversation.forEach((message, index) => {
+      marker(index);
+      drawMessage(message, record.usage?.[index]);
+    });
+    marker(conversation.length);
     settleTools("no result");
     run = null;
     if (record.turn) {

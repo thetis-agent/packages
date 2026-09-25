@@ -13,7 +13,7 @@ The page calls `install(ext)` once per package. `ext` is frozen. Its members:
 | `ext.composer(id, { mount })` | `mount(root)` draws beside the model picker. |
 | `ext.shelf(id, { mount })` | `mount(root)` draws the drawer. The shell owns the grip and the close. |
 | `ext.statusbar(id, { draw })` | `draw(node)` draws the item. |
-| `ext.transcript(render)` | `render(event, ctx)` returns a Node for a tool row, or nothing to fall through. `ctx` is `{ session, el, icon, markdown, restored }`. |
+| `ext.transcript(render)` | `render(event, ctx)` returns a Node for a tool row, or nothing to fall through. `ctx` is `{ session, el, icon, markdown, restored }`. Besides tool events and `message.rendered`, it is offered a live `extension` event as the turn emitted it, `{ type: "extension", name, data }`, and on restore a `{ type: "marker", index, session, record }` before the saved message at `index` and once after the last (`index` = the conversation's length); a Node answered to either is placed as its own row. Markers come only when a renderer is registered, and only from the top-level transcript. |
 | `ext.request(verb, { session, args })` | Sends one of the package's own verbs. Resolves to `{ text, data }`. Rejects with an Error whose message is the server's sentence. A verb the package did not declare throws at once. |
 | `ext.redraw(id?)` | Redraws this package's open dock, chips, and statusbar entries. |
 | `ext.events.watch(fn)` | `fn({ session, turn, seq, event, input? })` for every turn message. Returns an unwatch function. |
@@ -23,7 +23,7 @@ The page calls `install(ext)` once per package. `ext` is frozen. Its members:
 | `ext.dom` | `el(tag, props, ...children)`, `icon`, `clear`, `setHidden`. |
 | `ext.ui` | The panel helpers: tables, badges, fields, buttons, the confirm popover, key and value lists, `section`. |
 | `ext.toast(text, opts)` | A toast. |
-| `ext.markdown(text, opts)` | The shell's markdown renderer. Returns a Node. Never uses `innerHTML`. |
+| `ext.markdown(text, opts)` | The shell's markdown renderer. Returns a list of block nodes (append them with `el(..., ...blocks)` or `node.append(...blocks)`). Never uses `innerHTML`. |
 
 A registration whose id is not in the package's declaration is ignored. A throwing `draw`, `mount`, `open`, or `render` is caught and reported once per package per slot. A transcript renderer that returns nothing falls through to the next one, then to the built-in row.
 

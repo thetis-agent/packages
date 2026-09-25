@@ -11,7 +11,9 @@ import type { HarnessState, Message, PackageInfo, PackageStepContext, ProviderCa
 import { ContextRecorder } from "./context.js";
 import { z } from "zod";
 import { LastCallSchema, type LastCall } from "./schemas.js";
+import { RoundHookRefSchema, RoundHookResultSchema, type RoundHookArgs, type RoundHookResult } from "./round.js";
 export type { LastCall } from "./schemas.js";
+export type { RoundHookArgs, RoundHookRef, RoundHookResult } from "./round.js";
 
 /** The key this package keeps its per-session state under; other packages read it by name. */
 const NAME = "@thetis/harness-core";
@@ -565,6 +567,32 @@ async function runTool(ctx: PackageStepContext, call: ProviderCall, tc: ToolCall
 }
 
 /**
+ * Offers the round to the package `call.hints.beforeRound` names, before every request after the first.
+ * The hook runs in this fence like a tool, under its own package's effective configuration, and both waits
+ * (the configuration read, the hook itself) end on the turn's signal: a stop is never held up by a hook,
+ * and the loop rechecks the signal after this returns. Whatever else goes wrong -- a throw, a rejection,
+ * an unusable answer -- is one line on the console and `undefined`: the round then proceeds exactly as it
+ * would have without the hook, because a package that manages the conversation's size must never be the
+ * reason a turn fails. There is no package name in here: the hint decides who is called.
+ */
+async function beforeRound(ctx: PackageStepContext, args: RoundHookArgs): Promise<RoundHookResult | undefined> {
+  const ref = RoundHookRefSchema.safeParse(args.call.hints?.beforeRound).data;
+  if (!ref) return undefined;
+  try {
+    const config = await untilAborted(ctx.signal, ctx.env.kernel.config.effective(ref.package));
+    const raw = await untilAborted(ctx.signal, ctx.env.invokeTool({ ...ref, name: "beforeRound" }, args as unknown as Record<string, unknown>, { session: ctx.session, config, signal: ctx.signal }));
+    if (raw === undefined || raw === null) return undefined;
+    const parsed = RoundHookResultSchema.safeParse(raw);
+    if (parsed.success) return parsed.data as RoundHookResult;
+    console.error(`${ref.package} beforeRound answered something unusable; round ${args.round} proceeds unchanged: ${parsed.error.issues.map((i) => `${i.path.join(".") || "value"}: ${i.message}`).join("; ")}`);
+  } catch (err) {
+    if (ctx.signal.aborted || isCancelled(err)) return undefined; // the person's stop, not the hook's failure; the loop sees the signal next
+    console.error(`${ref.package} beforeRound failed; round ${args.round} proceeds unchanged: ${errorMessage(err)}`);
+  }
+  return undefined;
+}
+
+/**
  * execute: send the call, append the assistant message, run what the model asked for, and loop until it stops.
  * The provider is reached through the kernel (`kernel.providers.call`), which routes to the provider's own fence:
  * this fence never sees the key. A tool runs here, in the caller's fence, under its package's effective
@@ -586,11 +614,14 @@ export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
   const conversation = [...ctx.conversation];
   const call: ProviderCall = { ...ctx.call, messages: ctx.call.messages.length ? [...ctx.call.messages] : [...conversation], hints: { ...ctx.call.hints, context: true } };
   const context = await ContextRecorder.open(ctx);
+  // The live harness: the step's input until a round hook replaces it, and what the result is built on,
+  // so a hook's state (a compaction's cut and summary) is saved with the turn and not lost to the loop.
+  let harness: HarnessState = ctx.harness;
   const finish = async (status: "complete" | "failed" | "cancelled"): Promise<StepResult> => {
     await context.finish(status);
     // Keep the legacy summary for other inspectors, without duplicating the full request in the session.
     const { request: _request, ...lastCall } = context.lastCall ?? {};
-    return { conversation, call, harness: { ...ctx.harness, [NAME]: { ...ownState(ctx.harness), lastCall } } };
+    return { conversation, call, harness: { ...harness, [NAME]: { ...ownState(harness), lastCall } } };
   };
   let partial = new ContentStream();
   const stop = (reason: string, failure?: string): Promise<StepResult> => {
@@ -601,10 +632,23 @@ export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
     return finish(failure === undefined ? "cancelled" : "failed");
   };
   const cfg = nudgeConfig(ctx.config ?? {});
+  // What the previous request was: how many of `call.messages` it carried and what the provider counted
+  // for it. Together they let a round hook price the next request without re-estimating the whole of it.
+  let priced = 0;
+  let usage: Record<string, number> | undefined;
   for (let nth = 1; ; nth++) {
     if (ctx.signal.aborted) return stop(STOPPED);
+    if (nth > 1) {
+      const hooked = await beforeRound(ctx, { conversation, call, harness, round: nth, usage, priced, turn: { id: ctx.turn.id }, emit: ctx.emit });
+      if (ctx.signal.aborted) return stop(STOPPED);
+      // Whole replacements, copied: the loop goes on appending to `call.messages`, and the hook's own array is its own.
+      if (hooked?.call?.messages) call.messages = [...hooked.call.messages];
+      if (hooked?.harness) harness = hooked.harness;
+    }
+    priced = call.messages.length;
     await context.start(call);
     const round = await callOnce(ctx, call, partial, cfg, nth, context);
+    usage = round.usage;
     if (round.cancelled) return stop(STOPPED);
     if (round.failure !== undefined) return stop(FAILED, round.failure);
     const assistant = partial.message();

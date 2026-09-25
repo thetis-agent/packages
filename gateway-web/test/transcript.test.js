@@ -173,6 +173,57 @@ test("empty reasoning does not create a row, and a later model response gets its
   assert.equal(root.querySelectorAll("details.reasoning[open]").length, 0);
 });
 
+test("markers are offered at every index on restore, with the record, and only once a renderer is registered", async () => {
+  const { addRenderer, hasRenderers } = await import("../assets/lib/registry.js");
+  assert.equal(hasRenderers(), false, "nothing registered yet: the restore below offers no marker and pays nothing for it");
+  const parent = new FakeNode("section");
+  const root = new FakeNode("div");
+  parent.append(root);
+  const transcript = mountTranscript(root, { session: "s_1" });
+  const record = { id: "s_1", conversation: EARLIER, usage: {}, children: [], turn: null, harness: { "@x/compaction": { cut: 1 } } };
+  transcript.restore(record);
+  assert.deepEqual(root.children.map((n) => n.attrs.class), ["msg is-user", "msg is-assistant"], "the shell's rows and nothing between them");
+  const seen = [];
+  addRenderer("@test/markers", (event, ctx) => {
+    if (event.type !== "marker") return null;
+    seen.push({ index: event.index, session: event.session, sameRecord: event.record === record, restored: ctx.restored });
+    if (event.index !== event.record.harness["@x/compaction"].cut) return null;
+    return Object.assign(new FakeNode("div"), { attrs: { class: "compaction-card" } });
+  });
+  assert.equal(hasRenderers(), true);
+  transcript.restore(record);
+  assert.deepEqual(seen, [
+    { index: 0, session: "s_1", sameRecord: true, restored: true },
+    { index: 1, session: "s_1", sameRecord: true, restored: true },
+    { index: 2, session: "s_1", sameRecord: true, restored: true },
+  ], "before each message and once after the last");
+  assert.deepEqual(root.children.map((n) => n.attrs.class), ["msg is-user", "compaction-card", "msg is-assistant"], "the Node answered at the cut sits between the messages as its own row");
+});
+
+test("a live extension event reaches a renderer and its Node is placed; one nobody takes draws nothing", async () => {
+  const { addRenderer } = await import("../assets/lib/registry.js");
+  const seen = [];
+  addRenderer("@test/ext", (event) => {
+    if (event.type !== "extension") return null;
+    seen.push(event);
+    return event.name === "@x/compaction" ? Object.assign(new FakeNode("div"), { attrs: { class: "compaction-card is-busy" } }) : null;
+  });
+  const parent = new FakeNode("section");
+  const root = new FakeNode("div");
+  parent.append(root);
+  const transcript = mountTranscript(root, { session: "s_1" });
+  transcript.restore({ id: "s_1", conversation: EARLIER, usage: {}, children: [], turn: null });
+  transcript.applyEvent({ type: "turn.start" }, "go");
+  transcript.applyEvent({ type: "extension", name: "@x/compaction", data: { phase: "planning" } });
+  transcript.applyEvent({ type: "extension", name: "@y/other", data: {} });
+  transcript.applyEvent({ type: "text", delta: "after" });
+  assert.deepEqual(seen.map((e) => e.name), ["@x/compaction", "@y/other"]);
+  const classes = root.children.map((n) => n.attrs.class);
+  assert.ok(classes.includes("compaction-card is-busy"), `the renderer's row is on the page: ${classes.join(", ")}`);
+  assert.equal(classes.filter((c) => c.includes("compaction-card")).length, 1, "and the untaken event drew nothing");
+  assert.ok(classes.indexOf("compaction-card is-busy") > classes.indexOf("msg is-user"), "placed after the person's message, before the reply");
+});
+
 test("a complete bubble is offered to the renderers as message.rendered, restored and live, and their answer changes nothing", async () => {
   const { addRenderer } = await import("../assets/lib/registry.js");
   const seen = [];

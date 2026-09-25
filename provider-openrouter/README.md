@@ -8,7 +8,7 @@ One provider export, declared as `"thetis": { "type": "provider", "export": "cre
 
 | Export | Use |
 |---|---|
-| `createProvider(config)` | Returns `{ models(), call(call, signal?) }`. `models()` calls `GET /models` and returns every id, so the kernel resolves any OpenRouter model id to this provider. `call()` posts to `/chat/completions` with `stream: true` and `usage: { include: true }` and yields `text`, `reasoning`, `tool_call`, `usage` and `error` events. With `call.hints.context: true`, it first yields a `request` event containing the exact serialized JSON body and capture time, after defaults and cache policy have been applied; transport/authentication headers are excluded. `signal` is the caller giving up, and it stops the HTTP request itself. |
+| `createProvider(config)` | Returns `{ models(), call(call, signal?) }`. `models()` calls `GET /models` and returns every id, so the kernel resolves any OpenRouter model id to this provider. Each descriptor also carries `contextLength`, OpenRouter's `context_length` in tokens, when the listing has one, so a package that sizes a request against the model's window can read it from `kernel.models()`. `call()` posts to `/chat/completions` with `stream: true` and `usage: { include: true }` and yields `text`, `reasoning`, `tool_call`, `usage` and `error` events. With `call.hints.context: true`, it first yields a `request` event containing the exact serialized JSON body and capture time, after defaults and cache policy have been applied; transport/authentication headers are excluded. `signal` is the caller giving up, and it stops the HTTP request itself. |
 
 No steps, no tools, no service, no UI, no bench suites.
 
