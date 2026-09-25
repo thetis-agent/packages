@@ -32,7 +32,7 @@ The summary request is the projected prefix up to the cut with the instructions 
 
 ## Measuring
 
-The window is, in order, the longest matching key of `windows`, the `contextLength` the provider reports for the model, or `window`. The trigger is `floor(window × threshold)`. The size of the next request is the provider's own `prompt_tokens` for the last request, plus an estimate of the messages added since, whenever that count describes the projection about to be sent: same model, taken after the projection last changed, and counting no more messages than the projection has. Otherwise the estimate stands alone (`ceil(chars / 4)` over every string a message carries) and the state view says so. A count taken before the last compaction describes a history that no longer exists, and trusting it is how a compaction loop starts. The model list is cached in the fence for five minutes.
+The window is the longest matching key of `windows` when one names the model, taken as it is; otherwise the smaller of what the provider reports for the model (`contextLength`) and `window`, or `window` alone when the provider reports nothing. `window` is a ceiling on purpose: the number on the configuration page is the number compaction works to, and a 1M-token model is compacted as if it had 200k unless `windows` says otherwise. The trigger is `floor(window × threshold)`. The size of the next request is the provider's own `prompt_tokens` for the last request, plus an estimate of the messages added since, whenever that count describes the projection about to be sent: same model, taken after the projection last changed, and counting no more messages than the projection has. Otherwise the estimate stands alone (`ceil(chars / 4)` over every string a message carries) and the state view says so. A count taken before the last compaction describes a history that no longer exists, and trusting it is how a compaction loop starts. The model list is cached in the fence for five minutes.
 
 ## Configuration
 
@@ -42,7 +42,7 @@ The window is, in order, the longest matching key of `windows`, the `contextLeng
 |---|---|---|
 | `enabled` | `true` | Compact automatically when the next request would exceed `threshold × window`. Off, an existing summary is still sent until it is reset from the Compaction dock. |
 | `threshold` | `0.75` | The fraction of the model's context window at which compaction starts. Well before 1.0: at the window the provider refuses the request. |
-| `window` | `200000` | The context window, in tokens, assumed for a model the provider reports no context length for and `windows` does not name. |
+| `window` | `200000` | The most context, in tokens, compaction ever plans against: a model that reports less uses its own, one that reports more is compacted as if it had this; also the window assumed when the provider reports none. |
 | `windows` | not set | Per-model windows in tokens, keyed by model id or id prefix (longest key wins), for example `{ "anthropic/": 400000 }`. A key here overrides what the provider reports: the way to compact a 1M-token model earlier. |
 | `keepTokens` | `20000` | How much of the most recent conversation, in estimated tokens, is always sent verbatim after the summary. |
 | `minShedTokens` | `20000` | A compaction that would summarize less than this, in estimated tokens, is not worth breaking the prompt cache for and is skipped. |

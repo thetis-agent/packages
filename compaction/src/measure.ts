@@ -11,7 +11,14 @@ import { estimate } from "./select.js";
 /** The one field this package reads off a descriptor beyond its id; not every provider reports it. */
 const DescriptorWindowSchema = z.looseObject({ id: z.string(), contextLength: z.number().positive().optional() });
 
-/** Configured windows win over the provider (the way to compact a 1M model earlier); the longest key wins among them. */
+/**
+ * The window compaction plans against. A configured `windows` entry for the model (longest key wins) is
+ * taken as it is. Otherwise `window` is a ceiling on what the provider reports: a model that reports less
+ * gets its own figure, and one that reports more (a 1M Claude model) is planned as if it had `window`. The
+ * ceiling is the whole point of the setting: the number a person sees on the configuration page is the
+ * number compaction works to, and a model's real window is at most a quality and cost choice, never the
+ * one thing that decides when a conversation is summarized.
+ */
 export function windowFor(model: string, config: Pick<Config, "window" | "windows">, descriptors: ModelDescriptor[]): number {
   let best: { key: string; window: number } | undefined;
   for (const [key, window] of Object.entries(config.windows ?? {})) {
@@ -20,7 +27,7 @@ export function windowFor(model: string, config: Pick<Config, "window" | "window
   if (best) return best.window;
   const found = descriptors.find((d) => d.id === model);
   const reported = found ? DescriptorWindowSchema.safeParse(found).data?.contextLength : undefined;
-  return reported ?? config.window;
+  return reported === undefined ? config.window : Math.min(reported, config.window);
 }
 
 /** What harness-core leaves under its own key after every turn; only the fields this package reads. */

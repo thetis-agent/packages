@@ -96,6 +96,10 @@ test("windowFor prefers the longest configured prefix, then the descriptor, then
   assert.equal(windowFor("openai/gpt", config, descriptors), 128_000);
   assert.equal(windowFor("bare", config, descriptors), 200_000, "a descriptor without contextLength falls through");
   assert.equal(windowFor("unknown", config, []), 200_000);
+  // A model that reports more than `window` is planned as if it had `window`: the setting is a ceiling, so
+  // the number on the configuration page is the number compaction works to, whatever the provider says.
+  assert.equal(windowFor("anthropic/claude-fable", { window: 200_000, windows: {} }, [{ id: "anthropic/claude-fable", contextLength: 1_000_000 }]), 200_000, "the ceiling holds over a larger reported window");
+  assert.equal(windowFor("anthropic/claude-fable", { window: 200_000, windows: { "anthropic/": 400_000 } }, [{ id: "anthropic/claude-fable", contextLength: 1_000_000 }]), 400_000, "a configured window is taken as it is");
 });
 
 test("measure trusts the provider count only when it describes the current projection", () => {

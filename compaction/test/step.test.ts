@@ -275,13 +275,22 @@ test("a fence without storage, and a kernel without models, are not errors", asy
   assert.equal(stateOf(result.harness).cut, 8, "the configured window of 1000 applied");
 });
 
-test("the window comes from the descriptor when configuration does not name the model", async () => {
+test("the window comes from the descriptor when it is under the configured ceiling and configuration does not name the model", async () => {
   const provider = fakeProvider(summaryEvents());
   const env = fakeEnv({ provider, models: { model: "vendor/model", models: [{ id: "vendor/model", contextLength: 100_000 }] } });
-  const { ctx } = stepCtx({ conversation: conversationOf(10), env });
+  const { ctx } = stepCtx({ conversation: conversationOf(10), env, config: { window: 1_000_000 } });
   const result = await compact(ctx);
   assert.equal(provider.sent.length, 0, "1000 of 100k is nowhere near the trigger");
   assert.equal(stateOf(result.harness).cut, 0);
+});
+
+test("a descriptor larger than the configured window is capped to it: the configuration page's number is the one compaction works to", async () => {
+  const provider = fakeProvider(summaryEvents());
+  const env = fakeEnv({ provider, models: { model: "vendor/model", models: [{ id: "vendor/model", contextLength: 1_000_000 }] } });
+  const { ctx } = stepCtx({ conversation: conversationOf(10), env, config: { window: 1000 } });
+  const result = await compact(ctx);
+  assert.equal(provider.sent.length, 1, "1000 tokens of a 1000-token ceiling is over the trigger, whatever the model reports");
+  assert.ok(stateOf(result.harness).cut > 0);
 });
 
 test("a dangling tool call in the conversation is never summarized over", async () => {
