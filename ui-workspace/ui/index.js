@@ -179,7 +179,8 @@ function openPlace(ext, model, root, params) {
         size: file.size,
         saved: file.mtime,
         dirty: Boolean(tab?.dirty),
-        readOnly: pane.entry?.mode === "ro" || file.writable === false,
+        // Read-only for the person when the root says so, or when the editor refused the size.
+        readOnly: pane.entry?.mode === "ro" || file.writable === false || file.tooLarge === true,
         encoding: "UTF-8",
         eol: typeof file.text === "string" ? detectEol(file.text) : "",
         cursor: null,

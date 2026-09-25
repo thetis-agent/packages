@@ -174,6 +174,44 @@ function rootLabel(file) {
   return root || "This directory";
 }
 
+/** Whether the root the file sits on refuses writes for this person (a size-only read-only is not this). */
+export const isReadOnlyRoot = (file) => Boolean(file && (file.writable === false || file.mode === "ro"));
+
+/** The sentence of the read-only notice, shared by the editor and the rendered markdown view. */
+export const readOnlySentence = (file) => `${rootLabel(file)} is read-only for you. You can read and download this file. To change it, copy it to Home or ask an admin.`;
+
+/**
+ * Writes a copy of `text` under the home at the home-relative target `homeCopyPath` names, and answers the
+ * absolute path the write landed on (from the answer, else home + target). Throws with a sentence when the
+ * write is refused. Shared by the editor's banner and the rendered markdown view's.
+ */
+export async function copyToHome({ model, file, text, session }) {
+  const roots = model.rootsCached?.(session) ?? (await model.roots?.({ session }).catch(() => null));
+  const target = homeCopyPath(file, roots);
+  const answer = await model.write(target, String(text ?? ""), {});
+  if (answer && answer.ok === false) throw new Error(answer.message ?? `${target} was not written.`);
+  // The write answer names the copy by its absolute path; the tab opens on that, never on the relative form.
+  return typeof answer?.path === "string" ? answer.path : roots?.home?.path ? `${roots.home.path.replace(/\/+$/, "")}/${target}` : target;
+}
+
+/**
+ * The read-only notice for a file on a read-only root: the info banner (`.ws-banner.is-info[data-banner=
+ * readonly]`, with a Copy to Home button) and a second Copy to Home button for the tabs' right cluster.
+ * `onCopy()` runs for either button.
+ */
+export function readOnlyNotice(ext, file, onCopy) {
+  const { el } = ext.dom;
+  const banner = el(
+    "div",
+    { class: "ws-banner is-info", "data-banner": "readonly", role: "note" },
+    el("span", { class: "ws-banner-ic" }, ext.dom.icon(ICON_LOCK, { size: 15, width: 1.6 })),
+    el("span", { class: "ws-banner-text" }, readOnlySentence(file)),
+    el("span", { class: "ws-banner-acts" }, ext.ui.button("Copy to Home", { onClick: () => onCopy() }))
+  );
+  const control = ext.ui.button("Copy to Home", { title: "Write a copy under your home and open it", onClick: () => onCopy() });
+  return { banner, control };
+}
+
 /* ---------- the editor ---------- */
 
 /**
@@ -182,6 +220,8 @@ function rootLabel(file) {
  * - `file`: `stat` data plus `text` and `etag`; `path` is the key everywhere.
  * - `line`: 1-based line to reveal once mounted.
  * - `readOnly`: forces read-only; otherwise `file.writable === false` or `file.mode === "ro"` does.
+ * - `readOnlyReason`: `"size"` when the file is read-only only because the editor opens a window of it: no
+ *   read-only-root banner and no Copy to Home then (the large-file banner stands alone).
  * - `banner`: an element for banners; otherwise a `.ws-banners` is prepended to `host`.
  * - `active`: whether stat polling runs now (default true); `setActive` changes it.
  * - `session`: the conversation the roots are read for (Copy to Home needs the roots to name its target).
@@ -191,7 +231,9 @@ export function createEditor(host, opts) {
   const { ext, model, file, onDirty, onSaved, onCursor, onReloaded } = opts;
   const { el } = ext.dom;
   const path = file.path;
-  const readOnly = Boolean(opts.readOnly ?? (file.writable === false || file.mode === "ro"));
+  const readOnly = Boolean(opts.readOnly ?? isReadOnlyRoot(file));
+  // The root's refusal is the person's to work around (Copy to Home); a size-only read-only is not.
+  const roRoot = readOnly && opts.readOnlyReason !== "size";
 
   let loaded = String(file.text ?? "");
   let etag = file.etag ?? null;
@@ -217,8 +259,8 @@ export function createEditor(host, opts) {
 
   const saveButton = readOnly ? null : ext.ui.button("Save", { tone: "primary", title: "Save (Ctrl+S)", onClick: () => save() });
   const revertButton = readOnly ? null : ext.ui.button("Revert", { title: "Back to the saved text", onClick: () => revert() });
-  const copyButton = readOnly ? ext.ui.button("Copy to Home", { title: "Write a copy under your home and open it", onClick: () => copyToHome() }) : null;
-  const controls = el("span", { class: "ws-controls" }, saveButton, revertButton, copyButton);
+  const notice = roRoot ? readOnlyNotice(ext, file, () => copyHome()) : null;
+  const controls = el("span", { class: "ws-controls" }, saveButton, revertButton, notice?.control ?? null);
   const syncControls = () => {
     if (saveButton) saveButton.disabled = !dirty || saving;
     if (revertButton) revertButton.disabled = !dirty;
@@ -249,10 +291,9 @@ export function createEditor(host, opts) {
     showBanner("error", "err", ICON_ERR, message, [ext.ui.button("Dismiss", { onClick: () => hideBanner("error") })]);
   }
 
-  if (readOnly) {
-    showBanner("readonly", "info", ICON_LOCK, `${rootLabel(file)} is read-only for you. You can read and download this file. To change it, copy it to Home or ask an admin.`, [
-      ext.ui.button("Copy to Home", { onClick: () => copyToHome() }),
-    ]);
+  if (notice) {
+    banners.set("readonly", notice.banner);
+    bannerSlot.append(notice.banner);
   }
 
   /* state */
@@ -365,14 +406,9 @@ export function createEditor(host, opts) {
     adopt(loaded, etag);
   }
 
-  async function copyToHome() {
+  async function copyHome() {
     try {
-      const roots = model.rootsCached?.(opts.session) ?? (await model.roots?.({ session: opts.session }).catch(() => null));
-      const target = homeCopyPath(file, roots);
-      const answer = await model.write(target, currentText(), {});
-      if (answer && answer.ok === false) return showError(answer.message ?? `${target} was not written.`);
-      // The write answer names the copy by its absolute path; the tab opens on that, never on the relative form.
-      const written = typeof answer?.path === "string" ? answer.path : roots?.home?.path ? `${roots.home.path.replace(/\/+$/, "")}/${target}` : target;
+      const written = await copyToHome({ model, file, text: currentText(), session: opts.session });
       model.tabs?.open?.(written);
     } catch (err) {
       showError(err?.message ?? String(err));

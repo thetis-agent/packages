@@ -151,14 +151,26 @@
   .ws-place.is-file .ws-editor { display: flex; flex: 1 1 auto; max-width: 100%; }
   .ws-back { display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 0 10px; font: inherit; font-size: var(--text-sm); color: var(--text-dim); background: transparent; border: 0; border-right: 1px solid var(--hairline); cursor: pointer; }
   .ws-back:hover { color: var(--text); background: var(--surface-2); }
-  /* nothing in the file view may push the page wider than the phone: tabs scroll, names and paths ellipse */
+  /* nothing in the file view may push the page wider than the phone: tabs scroll, names and paths ellipse,
+     and the right cluster (view toggle, Save, Copy to Home, Download, ⋯) wraps under the tabs, on screen */
   .ws-editor-top, .ws-tabs-host, .ws-tabs { min-width: 0; max-width: 100%; }
-  .ws-tabs-list { overflow-x: auto; }
+  .ws-tabs { flex-wrap: wrap; }
+  .ws-tabs-list { flex: 1 1 100%; overflow-x: auto; }
   .ws-tab { flex: 0 1 auto; min-width: 0; max-width: 200px; }
   .ws-tab-name, .ws-tab-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ws-tab-path { display: none; }
-  .ws-tabs-right { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+  .ws-tabs-right { flex: 1 1 100%; flex-wrap: wrap; justify-content: flex-end; min-width: 0; min-height: 32px; margin-left: 0; padding: 2px var(--gap-2); border-top: 1px solid var(--hairline); }
+  .ws-tabs-right:empty { display: none; }
+  .ws-tabs-right .ws-controls, .ws-tabs-right .ws-controls-editor { flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
   .ws-tabs-right .btn { padding: 4px 8px; }
+  .ws-back { align-self: stretch; }
+  /* the list: a row may scroll inside the tree, but its pills stay on screen; the name ellipses, not the pills */
+  .ws-tree { min-width: 0; max-width: 100%; }
+  .ws-row { white-space: nowrap; }
+  .ws-row .tree-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ws-row .ws-mode, .ws-row .ws-dot, .ws-row .tree-count, .ws-row .ws-more { flex: none; }
+  .ws-note { max-width: 100%; }
+  .ws-note-cmd { white-space: normal; word-break: break-all; }
   .ws-body, .ws-pane, .ws-view { max-width: 100%; min-width: 0; }
   .ws-strip-host { max-width: 100%; min-width: 0; }
   .ws-strip { max-width: 100%; overflow: hidden; }

@@ -95,7 +95,8 @@ Watches `ext.conversation` to redraw the dock.
   `hidden: boolean` (dotfiles), `filter: string`, `selected: path | null`, explorer width
   (`localStorage["thetis.workspace.<user>.explorer"]`, default 280). `<user>` is `roots.user` from the
   first roots answer (`model.user`); before it the state is in memory, then the stored state is adopted
-  once. The old unscoped keys are never read.
+  once. The old unscoped keys are never read, and the first run with a known user deletes them
+  (`isUnscopedKey`).
 - Tabs: `tabs.list()` → `[{ path, name, dirty, kind: "editor"|"viewer", line? }]`, `tabs.open(path,
   { line, activate = true })`, `tabs.close(path)`, `tabs.active()`, `tabs.markDirty(path, dirty)`.
   Dirty buffers live in `sessionStorage["thetis.workspace.<user>.buffer:<path>"]` until saved or reverted.
@@ -137,7 +138,10 @@ per-project headers in the dock. Bind now: a 502 / "not connected" failure is th
 renders a "Show all" row. Keyboard as the shell's tree (arrows, Home, End, Enter, Space, F2, Delete,
 `n`). Right-click and a hover `⋯` (`button.ws-more`) open `fileMenu(entry, "explorer", …)`. Drag-over
 a folder row adds `.is-drop`; drop uploads through `dialogs.upload`. Inline rename and new file/folder
-use a `.field.mono` in the row; Enter commits, Escape cancels. Selection follows `model.selected`.
+use a `.field.mono` in the row; Enter commits, Escape cancels; the pending entry lives in the explorer's
+`editing` state and the row is drawn from it on every draw, so a listing answering under the field
+brings it back with its text (a blur only cancels once the field is still on the page a tick later).
+Selection follows `model.selected`.
 
 `tabs.js` — `mountTabs(host, { model, onActivate, onClose })` with `.ws-tabs > .ws-tab[.is-active]`
 (`span.ws-tab-name`, `span.ws-tab-path`, `span.ws-tab-dirty`, `span.ws-tab-lock` on ro files, and
@@ -157,7 +161,12 @@ buffer reloads silently; with a dirty buffer shows the banner. Gutter marks chan
 loaded text (a simple line diff is enough). The poll stops for good when a stat fails with 401/403. Read-only
 files render with `EditorView.editable.of(false)` and the info banner; Copy to Home writes a
 home-relative target (`homeCopyPath(file, roots)`: `shared/<rel>`, `<mount name>/<rel>`, else
-`copies/<name>`; never `~/`) and opens the copy by the absolute `path` the write answers. A `keydown`
+`copies/<name>`; never `~/`) and opens the copy by the absolute `path` the write answers; `model.write`
+then invalidates every ancestor listing of that path up to the root. `copyToHome({ model, file, text,
+session })`, `readOnlyNotice(ext, file, onCopy)` (the `[data-banner=readonly]` banner plus a control
+button) and `isReadOnlyRoot(file)` are exported and shared with the viewer's rendered markdown view.
+`readOnlyReason: "size"` makes a read-only editor without the root notice and without Copy to Home (the
+viewer passes it for a tooLarge window). A `keydown`
 listener on the editor's root stops propagation of plain printable keys so the shell's single-key
 shortcuts never fire while typing.
 
@@ -165,7 +174,9 @@ shortcuts never fire while typing.
 Markdown: Rendered (`ext.markdown(text)` with images resolved through `ext.raw.url("raw", {path})`;
 without `ext.raw` the resolver answers null and the shell's `.md-img-missing` becomes a
 `.ws-img-missing` box with the alt text and "Images need the raw file route, which this gateway does
-not have yet." — no request,
+not have yet." — no request; with `ext.raw`, an `img` the raw route refuses is swapped on its one
+`error` for the same box with "The image was not found at <rel>.", so nothing is asked again; the
+rendered view of a file on a read-only root shows `readOnlyNotice` and its Copy to Home control,
 code fences highlighted with `highlightToDom` from the vendor bundle when the grammar is loaded) or
 Source (an editor). Images/svg/pdf/audio: the raw URL in `img`/`object`/`audio` with Fit / 1:1;
 binary or unknown: the facts card with Download; `tooLarge` text: read-only viewer of the head with
@@ -212,7 +223,8 @@ handle, then `.ws-editor` column: tabs, banner, body, strip); phone (`max-width:
 stacks, `.ws-explorer-col` is the full-width list, `.ws-place.is-file` hides it and shows `.ws-editor`
 full width with the `.ws-back` button ("Files") at the head of the tab bar; nothing in the file view
 exceeds the viewport (`document.documentElement.scrollWidth <= 390` at 390 px: tabs scroll, names and
-the strip's path ellipse). Editor tokens: `.cm-editor` background `var(--bg)`, gutter `var(--surface-1)`, active line
+the strip's path ellipse, `.ws-tabs-right` wraps under the tabs so its controls stay on screen, and a
+tree row's `.tree-label` ellipses so its pills stay visible). Editor tokens: `.cm-editor` background `var(--bg)`, gutter `var(--surface-1)`, active line
 `var(--surface-2)`, selection `var(--accent-wash)`, cursor `var(--accent)`; `tok-keyword` accent-hot,
 `tok-string` ok, `tok-comment` text-faint, `tok-heading` accent, etc. `.ws-uploads` card bottom-right.
 

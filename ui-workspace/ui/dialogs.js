@@ -192,7 +192,7 @@ async function pump(ext) {
       const batch = job.batch;
       try {
         if (panel.controller.signal.aborted) setStatus(job, "Cancelled", "muted");
-        else if (job.file.size > MAX_UPLOAD) setStatus(job, "Over 64 MB", "err");
+        else if (job.file.size > MAX_UPLOAD) { setStatus(job, "Over 64 MB", "err"); panel.failures += 1; } // a mark the card must keep, like any failure
         else await sendOne(ext, job);
       } catch (err) {
         if (panel?.controller.signal.aborted) setStatus(job, "Cancelled", "muted");

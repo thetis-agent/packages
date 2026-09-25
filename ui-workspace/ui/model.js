@@ -16,6 +16,14 @@
  * with what was done meanwhile. The old unscoped keys are never read. */
 const PREFIX = "thetis.workspace.";
 export const storageKey = (user, name) => (user ? `${PREFIX}${user}.${name}` : null);
+
+/** Whether a key is one of the old unscoped ones (`thetis.workspace.expanded`, `.mode:<lang>`, `.buffer:<path>` …). */
+export function isUnscopedKey(store, key) {
+  if (typeof key !== "string" || !key.startsWith(PREFIX)) return false;
+  const rest = key.slice(PREFIX.length);
+  if (store === "session") return rest === "tabs" || rest.startsWith("buffer:");
+  return rest === "expanded" || rest === "hidden" || rest === "explorer" || rest.startsWith("mode:");
+}
 const DEFAULT_WIDTH = 280;
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 640;
@@ -206,9 +214,32 @@ export function createModel(ext) {
    * The first `roots` answer names the person: the state they stored earlier is read once and merged with
    * what was done in memory meanwhile (open folders are united, tabs are appended, a choice made here wins).
    */
+  /** The keys of a Storage, read defensively (a blocked store answers nothing). */
+  function keysOf(store) {
+    try {
+      const s = store();
+      if (!s) return [];
+      const out = [];
+      for (let i = 0; i < s.length; i++) out.push(s.key(i));
+      return out.filter((k) => typeof k === "string");
+    } catch {
+      return [];
+    }
+  }
+
+  /** The old unscoped keys, from before storage was per person: never read, and dropped on the first run with a known user. */
+  function purgeUnscoped() {
+    const drop = (store, keep) => {
+      for (const k of keysOf(store)) if (!keep(k)) writeText(store, k, null);
+    };
+    drop(local, (k) => !isUnscopedKey("local", k));
+    drop(session, (k) => !isUnscopedKey("session", k));
+  }
+
   function adopt(id) {
     if (user || typeof id !== "string" || !id) return;
     user = id;
+    purgeUnscoped();
     const before = { expanded: expanded.size, hidden, width, tabs: tabs.length, active: activePath };
     for (const p of readJSON(local, key("expanded"), []) || []) if (typeof p === "string") expanded.add(p);
     if (!touched.hidden) hidden = Boolean(readJSON(local, key("hidden"), false));
@@ -408,8 +439,10 @@ export function createModel(ext) {
           emit({ kind: "tabs", path });
         }
         model.invalidate(parentOf(path));
-        // A relative path (a Copy to Home target) resolves against home on the server, which names the file.
-        if (typeof out.path === "string" && out.path !== path) model.invalidate(parentOf(out.path));
+        // A relative path (a Copy to Home target) resolves against home on the server, which names the file;
+        // the write may have made every directory on the way, so each ancestor's listing is dropped up to the
+        // root, and the tree re-lists the open ones.
+        if (typeof out.path === "string" && out.path !== path) for (let p = parentOf(out.path); p; p = parentOf(p)) model.invalidate(p);
       }
       return out;
     },

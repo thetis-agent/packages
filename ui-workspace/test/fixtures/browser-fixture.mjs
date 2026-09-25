@@ -28,6 +28,9 @@ export const ORLEANS = "/srv/games/orleans";
 export const USER = "rae";
 export const INLINE_LIMIT = 200_000;
 export const MAX_TEXT = 4 * 1024 * 1024;
+export const MAX_UPLOAD = 64 * 1024 * 1024;
+export const PNG_1PX = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+const MEDIA = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", pdf: "application/pdf", mp3: "audio/mpeg" };
 
 const LANGUAGES = { ts: "ts", tsx: "tsx", js: "js", jsx: "jsx", mjs: "js", json: "json", md: "md", html: "html", css: "css", py: "py", sh: "sh", toml: "toml", yaml: "yaml", yml: "yaml" };
 const IMAGES = new Set(["png", "jpg", "jpeg", "gif", "webp"]);
@@ -256,8 +259,60 @@ export function createFs() {
     bind({ path, mode }) {
       return { ok: true, path, mode };
     },
+
+    // ---- the raw exports, as the gateway calls them: (args, { method, body }) ----
+
+    upload({ dir, name, replace }, { body }) {
+      const d = contained(dir, { write: true });
+      if (node(dir)?.kind !== "dir") throw new Error(`${d.display} is not a directory.`);
+      if (typeof name !== "string" || !name || name.includes("/")) throw new Error("An upload needs a file name without a slash.");
+      const path = `${d.absolute}/${name}`;
+      const existing = node(path);
+      if (existing && !replace) return { exists: true, path };
+      fs.file(path, body.toString("utf8"), { size: body.length });
+      const n = node(path);
+      return { path, size: n.size, etag: etagOf(n), replaced: Boolean(existing) };
+    },
+    /** The bytes of a file: its text, a 1×1 PNG for an image, zero bytes for the rest; `part` windows the text. */
+    raw({ path, download, part }) {
+      const r = contained(path);
+      const n = node(path);
+      if (!n) throw new Error(`${r.display} does not exist.`);
+      if (n.kind !== "file") throw new Error(`${r.display} is a directory; download it as a zip instead.`);
+      const named = kindOf(nameOf(r.absolute));
+      const ext = nameOf(r.absolute).includes(".") ? nameOf(r.absolute).slice(nameOf(r.absolute).lastIndexOf(".") + 1).toLowerCase() : "";
+      let body = named.preview === "image" ? Buffer.from(PNG_1PX, "base64") : Buffer.from(n.text ?? "");
+      if (body.length < n.size && named.preview !== "image") body = Buffer.concat([body, Buffer.alloc(n.size - body.length)]);
+      if (part === "head") body = body.subarray(0, MAX_TEXT);
+      else if (part === "tail") body = body.subarray(Math.max(0, body.length - MAX_TEXT));
+      const inline = ["image", "svg", "pdf", "audio", "text", "markdown"].includes(named.preview) && !download;
+      const type = named.preview === "image" ? MEDIA[ext] ?? "application/octet-stream" : named.preview === "pdf" ? "application/pdf" : named.preview === "none" ? "application/octet-stream" : "text/plain; charset=utf-8";
+      return {
+        status: 200,
+        headers: { "content-type": type, "content-length": String(body.length), "content-disposition": inline ? "inline" : `attachment; filename="${nameOf(r.absolute)}"`, etag: etagOf(n), "cache-control": "no-store" },
+        body,
+      };
+    },
+    zip({ path }) {
+      const r = contained(path);
+      if (node(path)?.kind !== "dir") throw new Error(`${r.display} is not a directory.`);
+      const body = Buffer.from("PK\u0005\u0006" + "\0".repeat(18), "latin1"); // an empty zip: the end-of-central-directory record alone
+      return { status: 200, headers: { "content-type": "application/zip", "content-disposition": `attachment; filename="${nameOf(r.absolute)}.zip"`, "cache-control": "no-store" }, body };
+    },
   };
   return fs;
+}
+
+/** About 6 MB of numbered lines, so the head and the tail windows can be told apart. */
+function hugeText() {
+  const parts = [];
+  let bytes = 0;
+  for (let i = 1; bytes < 6 * 1024 * 1024; i++) {
+    const line = `line-${i} ${"·".repeat(20)}\n`;
+    parts.push(line);
+    bytes += Buffer.byteLength(line);
+  }
+  return parts.join("");
 }
 
 /** The tree every case starts from. */
@@ -265,6 +320,9 @@ export function seedFs() {
   const fs = createFs();
   fs.dir(HOME)
     .file(`${HOME}/README.md`, "# Rae\n\nHello **world**.\n\n![chart](img/chart.png)\n\n```js\nconst tide = 1;\n```\n")
+    .file(`${HOME}/broken.md`, "# Broken\n\n![chart](img/chart.png)\n\n![missing](img/nope.png)\n")
+    .dir(`${HOME}/img`)
+    .file(`${HOME}/img/chart.png`, "", { size: 70 })
     .file(`${HOME}/notes.txt`, "one\ntwo\nthree\n")
     .file(`${HOME}/.secret`, "s=1\n")
     .dir(`${HOME}/src`)
@@ -275,7 +333,8 @@ export function seedFs() {
     .dir(`${HOME}/big`, { more: true })
     .file(`${HOME}/big/a.txt`, "a\n")
     .file(`${HOME}/big/b.txt`, "b\n")
-    .file(`${HOME}/huge.log`, "", { size: 6 * 1024 * 1024 })
+    .file(`${HOME}/huge.log`, hugeText())
+    .file(`${HOME}/data.csv`, Array.from({ length: 5000 }, (_, i) => `${i + 1},row-${i + 1},${"x".repeat(40)}`).join("\n") + "\n")
     .file(`${HOME}/photo.png`, "", { size: 1234 })
     .file(`${HOME}/blob.bin`, "", { size: 4096 })
     .dir(SHARED)
@@ -283,6 +342,8 @@ export function seedFs() {
     .file(`${SHARED}/guide.md`, "# Guide\n")
     .dir(NOVA)
     .file(`${NOVA}/README.md`, "# Nova\n")
+    .dir(`${NOVA}/src`)
+    .file(`${NOVA}/src/tide.ts`, Array.from({ length: 12 }, (_, i) => `export const nova${i + 1} = ${i + 1};`).join("\n") + "\n")
     .dir(`${NOVA}/docs`)
     .file(`${NOVA}/docs/plan.md`, "# Plan\n\n1. Ship.\n");
   return fs;
@@ -298,8 +359,9 @@ export function declaration(role) {
     base: `ext/${NAME}/`,
     entry: ui.entry,
     style: ui.style,
-    commands: ui.commands.filter((c) => clears(c.role) && !c.stream).map((c) => c.verb),
+    commands: ui.commands.filter((c) => clears(c.role) && !c.stream && c.kind !== "raw").map((c) => c.verb),
     streams: ui.commands.filter((c) => clears(c.role) && c.stream).map((c) => c.verb),
+    raw: ui.commands.filter((c) => clears(c.role) && c.kind === "raw").map((c) => c.verb),
     dock: (ui.dock ?? []).filter((e) => clears(e.role)),
     panel: [],
     places: (ui.places ?? []).filter((e) => clears(e.role)),
@@ -347,10 +409,14 @@ export async function withPage(browser, name, options, run) {
   page.on("console", (message) => { if (message.type() === "error") errors.push(`console.error: ${message.text()}`); });
   const id = "s_aaaa";
   const session = { id, title: "Browser regression", named: true, turns: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), project: "p_nova" };
-  const conversation = [{ role: "user", content: "Earlier question" }, { role: "assistant", content: "Earlier reply" }];
+  const conversation = options.conversation ?? [{ role: "user", content: "Earlier question" }, { role: "assistant", content: "Earlier reply" }];
+  // Further restored conversations (`others: [{ id, title, conversation }]`), listed after the first and opened from the sidebar by a case.
+  const others = (options.others ?? []).map((o, i) => ({ session: { ...session, id: o.id, title: o.title ?? `Other ${i + 1}`, updatedAt: new Date(Date.now() - 60_000 * (i + 1)).toISOString() }, conversation: o.conversation ?? [] }));
+  const moduleGate = deferred(), moduleRequested = deferred(); // `holdModule`: the entry module is not served until the case releases it
+  const state = { uploadCap: MAX_UPLOAD }; // the gateway's maxBytes for `upload`, lowered by a case to see the 413
   const fs = options.fs ?? seedFs();
   const calls = [];     // every package command: { verb, args, session }
-  const raw = [];       // any hit on a raw route, which this gateway version does not have
+  const raw = [];       // every raw route hit: { method, verb, args, size?, status }
   const overrides = new Map(); // verb -> handler(args, { fs, session, next })
 
   if (options.localStorage) await page.addInitScript((entries) => { for (const [k, v] of Object.entries(entries)) localStorage.setItem(k, v); }, options.localStorage);
@@ -384,13 +450,33 @@ export async function withPage(browser, name, options, run) {
         if (api === "me") return route.fulfill({ json: { user: USER, role } });
         if (api === "models") return route.fulfill({ json: { model: "echo", models: [{ id: "echo", name: "Echo" }] } });
         if (api === "ui") return route.fulfill({ json: { extensions: [declaration(role)], refused: [] } });
-        if (api === "sessions" && method === "GET") return route.fulfill({ json: [session] });
+        if (api === "sessions" && method === "GET") return route.fulfill({ json: [session, ...others.map((o) => o.session)] });
         if (api === `sessions/${id}`) return route.fulfill({ json: { ...session, conversation, children: [], usage: {}, turn: null } });
+        const other = others.find((o) => api === `sessions/${o.session.id}`);
+        if (other) return route.fulfill({ json: { ...other.session, conversation: other.conversation, children: [], usage: {}, turn: null } });
         if (api.startsWith(`ext/${NAME}/`)) {
           const rest = api.slice(`ext/${NAME}/`.length);
-          if (rest.includes("/raw") || rest.startsWith("upload") || rest.startsWith("zip")) {
-            raw.push({ method, path: rest });
-            return route.fulfill({ status: 404, json: { error: "no such route in this gateway version" } });
+          if (rest.endsWith("/raw")) {
+            const verb = rest.slice(0, -"/raw".length);
+            const args = JSON.parse(url.searchParams.get("args") || "{}");
+            const hit = { method, verb, args, status: 200 };
+            raw.push(hit);
+            try {
+              if (method === "PUT") {
+                const body = route.request().postDataBuffer() ?? Buffer.alloc(0);
+                hit.size = body.length;
+                if (body.length > state.uploadCap) {
+                  hit.status = 413;
+                  return route.fulfill({ status: 413, json: { error: `That upload is larger than ${Math.floor(state.uploadCap / 1024)} KB.` } });
+                }
+                return route.fulfill({ json: { data: fs[verb](args, { method, body }) } });
+              }
+              const answer = fs[verb](args, { method });
+              return route.fulfill({ status: answer.status ?? 200, headers: { ...answer.headers, "cache-control": "no-store" }, body: answer.body });
+            } catch (err) {
+              hit.status = 400;
+              return route.fulfill({ status: 400, json: { error: err?.message || String(err) } });
+            }
           }
           const verb = rest;
           const body = route.request().postDataJSON() ?? {};
@@ -407,6 +493,10 @@ export async function withPage(browser, name, options, run) {
       }
       if (pathname.includes(`/ext/${NAME}/`)) {
         const rel = normalize(decodeURIComponent(pathname.split(`/ext/${NAME}/`)[1])).replace(/^(\.\.[/\\])+/, "");
+        if (rel === manifest.thetis.ui.entry) {
+          moduleRequested.resolve();
+          if (options.holdModule) await moduleGate.promise;
+        }
         const body = await readFile(join(UI, rel));
         return route.fulfill({ body, contentType: TYPES[extname(rel)] || "application/octet-stream" });
       }
@@ -445,12 +535,18 @@ export async function withPage(browser, name, options, run) {
       await page.locator(`${scope} .tree-item[data-path="${path}"][aria-expanded="true"]`).waitFor();
     },
     /** Right-clicks a node and returns the menu's labels once it is up. */
+    /** Right-clicks a node and returns the labels of the shell's floating menu once it is up. */
     async contextMenu(locator) {
       await locator.click({ button: "right" });
-      await page.locator(".menu.ws-menu").waitFor();
-      return page.locator(".menu.ws-menu .menu-item .menu-label").allInnerTexts();
+      await page.locator(".menu.is-floating").waitFor();
+      return page.locator(".menu.is-floating .menu-item .menu-label").allInnerTexts();
     },
-    menuItem: (label) => page.locator(".menu.ws-menu .menu-item", { has: page.locator(".menu-label", { hasText: label }) }),
+    menuItem: (label) => page.locator(".menu.is-floating .menu-item", { has: page.locator(".menu-label", { hasText: label }) }),
+    rawFor: (verb) => raw.filter((r) => r.verb === verb),
+    setUploadCap: (bytes) => { state.uploadCap = bytes; },
+    /** Resolves once the page has asked for the entry module; with `holdModule`, `releaseModule()` then lets it load. */
+    moduleRequested: moduleRequested.promise,
+    releaseModule: moduleGate.resolve,
   };
 
   try {
@@ -458,7 +554,10 @@ export async function withPage(browser, name, options, run) {
     await page.waitForFunction(() => window.reviewEvents);
     await page.evaluate(() => { reviewEmit("open", {}); reviewEmit("snapshot", { running: [] }); });
     await page.locator(`.pane[data-session="${id}"]`).waitFor();
-    await page.getByText("Earlier reply", { exact: true }).last().waitFor();
+    // The rows the record draws as `.msg`: the person's messages and the replies that said something (a
+    // reply that only called tools draws cards, and a tool message draws into its card).
+    const rows = conversation.filter((m) => m.role === "user" || (m.role === "assistant" && String(typeof m.content === "string" ? m.content : "").trim())).length;
+    if (rows) await page.locator(`.pane[data-session="${id}"] .msg`).nth(rows - 1).waitFor();
     await page.locator(`.rail-btn[data-dock="${KEY.dock}"]`).waitFor();
     await run(f);
     assert.deepEqual(errors, [], "the browser and the fixture should report no errors");

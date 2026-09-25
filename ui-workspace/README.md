@@ -103,21 +103,26 @@ says so) and offers Show diff, Load theirs and Keep mine (a forced write). The p
 stat answers 401 or 403 (the session is gone). Files on a read-only root open with `editable` off and an
 info banner whose Copy to Home writes a copy under the home at a home-relative path (`shared/<path under
 the shared root>`, `<mount name>/<path under the mount>`, else `copies/<name>`; never `~/`, which the
-server does not expand) and opens the copy by the absolute path the write answers. A character typed in
+server does not expand), opens the copy by the absolute path the write answers, and drops the listing of
+every directory on the way so the tree shows the new folder at once. The same notice and Copy to Home
+appear on the Rendered view of a markdown file on a read-only root. A file read-only for its size alone
+(over 4 MB, opened as a window) gets the large-file banner by itself: no read-only-root notice and no
+Copy to Home, and the strip says Read-only. A character typed in
 the editor never reaches the shell's single-key shortcuts. A read-only tab keeps its lock glyph and closes
 like any other.
 
 **Viewer.** What a tab shows depends on the `preview` word from `stat`. Markdown starts Rendered (the
 shell's own renderer, with relative images resolved against the file's directory through the raw
-route, or, without the raw route, drawn as a placeholder box with the alt text and no request, and code
-fences coloured by the same grammars as the editor) and a Rendered | Source segment in
+route, or, without the raw route, drawn as a placeholder box with the alt text and no request; an image
+the raw route refuses becomes the same box on its one error, "The image was not found at <path>.", and is
+never asked for again; and code fences coloured by the same grammars as the editor) and a Rendered | Source segment in
 the tab bar switches to the editor; the last choice per language is remembered. Images and SVGs show
 on a checkerboard with Fit | 1:1, PDFs inline, audio with controls, each with a facts line. Anything
 binary or unknown gets a facts card with Download. A text file over 4 MB opens read-only on its first
 4 MB with a "Show last 4 MB" button. The strip under the view reads path, root and mode, language,
 size, the saved state ("Saved 3 min ago", "Unsaved changes", "Read-only"), then cursor, encoding and
-line ends. When the gateway has no raw route yet, previews, uploads and downloads say so in a sentence
-instead of failing.
+line ends. On a gateway older than 0.12.0 (no raw command kind), previews, uploads and downloads say so in a
+sentence instead of failing.
 
 **The Files dock.** The rail's Files button (dock order 105, after the shell's own docks and before
 Skills) opens a 360 px dock: the same explorer in compact mode,
@@ -135,8 +140,10 @@ link pill (the full path on `data-path` even when the gist cut it short, a read'
 line) and an Open pill joins the head; once a run has a result, a "Files in this run" strip under it
 lists every distinct path the run touched, in first-seen order. A click opens the Workspace at the
 path and line; a right-click asks `resolve` whether the path is reachable and, if so, opens the file
-menu. Prose in message bubbles is linked once the shell offers a `message.rendered` hook; `findPaths`
-and `linkifyText` in `ui/links.js` are ready for it.
+menu. Paths in message bubbles (the person's and the model's) become links too: when the shell offers a
+settled bubble through `message.rendered`, the candidates are collected text node by text node (never
+inside code fences or existing links), confirmed with one `resolve` call per bubble, and only the
+reachable ones are linked; a made-up path stays plain text.
 
 **One file menu.** `ui/file-menu.js` builds the item list once for every host (explorer, dock, chat)
 from the entry's kind and mode, and `ui/menu.js` opens it (through the shell's `ext.ui.menu` when
@@ -156,4 +163,6 @@ Storage keys, all guarded and scoped to the person the `roots` answer names (`<u
 on one browser never share open folders, tabs or unsaved text: `localStorage`
 `thetis.workspace.<user>.expanded`, `.hidden`, `.explorer`, `.mode:<language>`; `sessionStorage`
 `thetis.workspace.<user>.tabs`, `.buffer:<path>`. Until the user is known the state is held in memory,
-then the stored state is read once and merged; the old unscoped keys are never read.
+then the stored state is read once and merged; the old unscoped keys are never read, and the first run
+with a known user deletes them. On a phone the tab bar's right cluster wraps under the tabs so Download
+and ⋯ stay on screen, and a tree row's name ellipses so its pills stay visible.

@@ -8,10 +8,10 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { ago, changedLines, detectEol, homeCopyPath, isAuthError, isPlainTypingKey, unifiedDiff, writerName } from "../ui/editor.js";
+import { ago, changedLines, copyToHome, detectEol, homeCopyPath, isAuthError, isPlainTypingKey, isReadOnlyRoot, readOnlySentence, unifiedDiff, writerName } from "../ui/editor.js";
 import { canonical, GRAMMARS, grammarFor, hasGrammar, languageLabel, loadLanguage } from "../ui/lang.js";
 import { savedText } from "../ui/strip.js";
-import { formatSize, modeKey, rememberedMode, rememberMode, resolveRelative } from "../ui/viewer.js";
+import { formatSize, imageNotFound, modeKey, rememberedMode, rememberMode, resolveRelative } from "../ui/viewer.js";
 
 const ui = fileURLToPath(new URL("../ui/", import.meta.url));
 
@@ -84,6 +84,33 @@ test("homeCopyPath answers a home-relative target, never ~/: shared/<rel>, <moun
   assert.equal(homeCopyPath({ path: "/x/y.txt", root: "home" }), "copies/y.txt");
   assert.equal(homeCopyPath({ path: "/srv/shared/p.txt", root: "shared" }, null), "copies/p.txt", "shared without the roots is still never ~/");
   for (const file of [{ path: "/srv/shared/p.txt", root: "shared" }, { path: "/srv/games/nova/a", root: "mount" }]) assert.doesNotMatch(homeCopyPath(file, roots), /^[~/]/, "relative, so the server resolves it against home");
+});
+
+test("a read-only root is the root's refusal, never the size; the notice sentence names the root", () => {
+  assert.equal(isReadOnlyRoot({ root: "shared", writable: false, mode: "ro" }), true);
+  assert.equal(isReadOnlyRoot({ root: "mount", writable: true, mode: "rw", tooLarge: true }), false, "a large file on a rw mount is not on a read-only root");
+  assert.equal(isReadOnlyRoot(null), false);
+  assert.equal(readOnlySentence({ root: "shared" }), "Shared is read-only for you. You can read and download this file. To change it, copy it to Home or ask an admin.");
+  assert.equal(readOnlySentence({ root: "mount" }), "mount is read-only for you. You can read and download this file. To change it, copy it to Home or ask an admin.");
+  assert.equal(imageNotFound("img/nope.png"), "The image was not found at img/nope.png.");
+});
+
+test("copyToHome writes the home-relative target through the model and answers the absolute path the write names", async () => {
+  const writes = [];
+  const roots = { user: "rae", home: { path: "/home/rae" }, shared: { path: "/srv/shared" }, projects: [], mounts: [] };
+  const model = {
+    rootsCached: () => roots,
+    write: async (path, text) => (writes.push([path, text]), { ok: true, path: `/home/rae/${path}`, etag: "1-1" }),
+  };
+  const file = { path: "/srv/shared/policy.txt", root: "shared", writable: false, mode: "ro" };
+  assert.equal(await copyToHome({ model, file, text: "policy", session: "s" }), "/home/rae/shared/policy.txt");
+  assert.deepEqual(writes, [["shared/policy.txt", "policy"]]);
+  const noPath = { rootsCached: () => roots, write: async () => ({ ok: true, etag: "1-1" }) };
+  assert.equal(await copyToHome({ model: noPath, file, text: "" }), "/home/rae/shared/policy.txt", "without a path in the answer, home + target");
+  const refused = { rootsCached: () => roots, write: async () => ({ ok: false, message: "home is full." }) };
+  await assert.rejects(copyToHome({ model: refused, file, text: "" }), /home is full\./);
+  const late = { rootsCached: () => null, roots: async () => roots, write: async (path) => ({ ok: true, path: `/home/rae/${path}` }) };
+  assert.equal(await copyToHome({ model: late, file, text: "" }), "/home/rae/shared/policy.txt", "the roots are asked when not cached");
 });
 
 test("the stat poll stops on a signed-out answer only", () => {

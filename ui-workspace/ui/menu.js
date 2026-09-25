@@ -23,6 +23,25 @@ export function closeMenu() {
 export function openMenu(at, items, { onClose } = {}) {
   if (ext?.ui?.menu && typeof ext.ui.menu === "function") {
     const out = ext.ui.menu(at, items, { onClose });
+    // The shell draws `hint` once and knows nothing of `hintLater`: fill those rows in when the
+    // promise answers, finding each by its label in the floating menu the shell appended.
+    for (const item of items) {
+      if (!item || typeof item.hintLater !== "function") continue;
+      Promise.resolve()
+        .then(() => item.hintLater())
+        .then((text) => {
+          const rows = document.querySelectorAll(".menu.is-floating .menu-item");
+          const row = [...rows].find((r) => r.querySelector(".menu-label")?.textContent === item.label);
+          if (!row) return;
+          let hint = row.querySelector(".menu-hint");
+          if (!hint && text) {
+            hint = ext.dom.el("span", { class: "menu-hint" });
+            (row.querySelector(".menu-text") ?? row).append(hint);
+          }
+          if (hint) hint.textContent = text || "";
+        })
+        .catch(() => {});
+    }
     if (typeof out === "function") return out;
     if (out && typeof out.close === "function") return () => out.close();
     return () => {};

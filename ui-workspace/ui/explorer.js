@@ -299,9 +299,13 @@ export function mountExplorer(host, { model, ext, session = null, onOpen, compac
         finish(false);
       }
     });
-    // Leaving the field cancels; a redraw that replaces the field keeps `editing`, so it comes back with its text.
+    // Leaving the field cancels. A redraw that replaces the field (a listing answering while the field is up)
+    // keeps `editing`, so the field comes back with its text: the check waits a tick, by which time a field a
+    // redraw removed is disconnected, and a field still on the page without the focus really was left.
     input.addEventListener("blur", () => {
-      if (input.isConnected) finish(false);
+      setTimeout(() => {
+        if (!done && input.isConnected && document.activeElement !== input) finish(false);
+      }, 0);
     });
     return el("span", { class: "field mono ws-inline" }, input);
   }
@@ -484,13 +488,27 @@ export function mountExplorer(host, { model, ext, session = null, onOpen, compac
     if (editing) {
       const input = tree.querySelector(".ws-inline-input");
       if (input) {
-        input.focus();
+        // The field may be a fresh node drawn from `editing` (a listing landed under it): the focus comes
+        // back without the tree scrolling sideways, a rename keeps its name selected, a new entry keeps its
+        // caret at the end of what was typed so far.
+        input.focus({ preventScroll: true });
+        input.closest(".tree-item")?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
         if (editing.type === "rename") {
           const dotAt = input.value.lastIndexOf(".");
           input.setSelectionRange(0, dotAt > 0 ? dotAt : input.value.length);
-        }
-      } else editing = null; // the row is gone (collapsed, filtered, deleted): nothing to edit
+        } else input.setSelectionRange(input.value.length, input.value.length);
+      } else if (editing.type === "new" && canHoldNew(editing.dir)) {
+        // The folder is drawn but closed (a redraw folded it): open it again and the field returns from state.
+        model.setExpanded(editing.dir, true, { silent: true });
+        scheduleDraw();
+      } else editing = null; // the row is gone (filtered, deleted): nothing to edit
     } else if (hadFocus && focused) present(focused)?.focus();
+  }
+
+  /** Whether a drawn folder row can carry the pending new-entry field. */
+  function canHoldNew(dir) {
+    const node = nodesByKey.get(dir);
+    return Boolean(node && node.t === "entry" && node.entry.kind === "dir" && !node.broken);
   }
 
   function scheduleDraw() {

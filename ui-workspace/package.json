@@ -48,7 +48,10 @@
         { "verb": "delete", "export": "del", "label": "Delete a file or a directory tree" },
         { "verb": "count", "export": "count", "label": "Count the files and bytes under a path" },
         { "verb": "resolve", "export": "resolve", "label": "Say which of these paths can be reached, and where" },
-        { "verb": "bind", "export": "bind", "label": "Bind a host directory into my fence", "role": "admin" }
+        { "verb": "bind", "export": "bind", "label": "Bind a host directory into my fence", "role": "admin" },
+        { "verb": "upload", "export": "upload", "label": "Upload one file into a directory", "kind": "raw", "maxBytes": 67108864 },
+        { "verb": "raw", "export": "raw", "label": "Read one file as itself, for previews and downloads", "kind": "raw" },
+        { "verb": "zip", "export": "zip", "label": "Download a directory as a zip", "kind": "raw" }
       ]
     }
   }

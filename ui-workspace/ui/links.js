@@ -3,8 +3,13 @@
  * the path in a files tool's gist becomes a link, an Open pill joins the head, and once a run has a
  * result a "Files in this run" strip lists every distinct path the run touched. Clicks open the
  * Workspace at the path (and line); a right-click asks `resolve` whether the path is reachable and
- * offers the file menu. `findPaths` and `linkifyText` are the prose half, pure and ready for the
- * message hook the shell does not offer yet. `menu.js`, `file-menu.js` and `dock.js` are imported on
+ * offers the file menu. Prose is linked too: when the shell offers a settled bubble as `message.rendered`,
+ * `bubbleCandidates` picks the path-shaped runs out of its text, one `resolve` per bubble asks which are
+ * reachable (answers cached for the page), and `linkifyText` links only those, so a made-up path stays
+ * plain text. What the shell drew before this module registered, or draws again when a conversation is
+ * re-opened from its record, was offered to nobody: a sweep over the panes (`sweep`, once at install and
+ * then from one MutationObserver) reads those cards and bubbles back and applies the same decoration.
+ * `menu.js`, `file-menu.js` and `dock.js` are imported on
  * the first right-click, not at load, so this module stands alone in tests and while they land. */
 
 import { bindDialogs, basename, confirmDelete, copyPath, downloadFile, downloadZip } from "./dialogs.js";
@@ -112,7 +117,8 @@ export function makeLink(text, path, line) {
   return h("a", { class: "ws-link", href: "#", "data-path": path, "data-line": n == null ? null : String(n), title: n ? `${path}:${n}` : path }, text);
 }
 
-const SKIP = new Set(["A", "SCRIPT", "STYLE", "TEXTAREA", "INPUT", "BUTTON", "SVG"]);
+// Never rewritten: links and controls, and fenced blocks (`pre`), which quote output rather than name files.
+const SKIP = new Set(["A", "SCRIPT", "STYLE", "TEXTAREA", "INPUT", "BUTTON", "SVG", "PRE"]);
 
 /**
  * Walks the text nodes under `node` and turns confirmed paths into `a.ws-link`, leaving links, scripts and
@@ -139,6 +145,68 @@ export function linkifyText(node, resolved) {
   };
   walk(node);
   return made;
+}
+
+// ---- prose in a bubble: what to ask about, then what to link ----
+
+/**
+ * The distinct candidate paths in a bubble's text runs, in order of appearance, taken text node by text node
+ * (a path split by markup is not a path) and never from the subtrees `linkifyText` leaves alone.
+ */
+export function bubbleCandidates(node) {
+  const out = [];
+  const seen = new Set();
+  const walk = (n) => {
+    if (!n) return;
+    if (n.nodeType === 3) {
+      for (const c of findPaths(n.nodeValue ?? n.data ?? "")) {
+        if (seen.has(c.path)) continue;
+        seen.add(c.path);
+        out.push(c.path);
+      }
+      return;
+    }
+    if (n.nodeType !== 1 && n.nodeType !== 11) return;
+    if (SKIP.has(String(n.tagName ?? n.nodeName ?? "").toUpperCase())) return;
+    if (n.classList && (n.classList.contains("ws-link") || n.classList.contains("ws-touched"))) return;
+    for (const child of Array.from(n.childNodes ?? [])) walk(child);
+  };
+  walk(node);
+  return out;
+}
+
+const LINKED = "data-ws-linked";
+const cacheKey = (session, path) => `${session ?? ""}\n${path}`;
+
+/**
+ * Links the confirmed paths in one bubble. `resolve(paths)` answers `{ [path]: answer | null }` (the model's
+ * `resolve`); `cache` (a Map) remembers every answer for the page, so a path is asked about once, and a
+ * bubble with nothing to ask sends nothing. A bubble is decorated once (`data-ws-linked`). Returns the links.
+ */
+export async function decorateBubble(node, { session = null, resolve, cache = new Map() } = {}) {
+  if (!node || typeof node.getAttribute !== "function" || node.getAttribute(LINKED)) return [];
+  node.setAttribute(LINKED, "1");
+  const candidates = bubbleCandidates(node);
+  if (!candidates.length) return [];
+  const ask = candidates.filter((p) => !cache.has(cacheKey(session, p)));
+  if (ask.length) {
+    let answers = {};
+    try {
+      answers = (await resolve(ask)) ?? {};
+    } catch (err) {
+      console.warn("ui-workspace: the paths in a message could not be checked:", err);
+      node.removeAttribute(LINKED); // nothing was linked; a later offer may try again
+      return [];
+    }
+    for (const p of ask) cache.set(cacheKey(session, p), answers[p] ?? null);
+  }
+  const resolved = new Map();
+  for (const p of candidates) {
+    const answer = cache.get(cacheKey(session, p));
+    if (answer) resolved.set(p, answer);
+  }
+  if (!resolved.size) return [];
+  return linkifyText(node, resolved);
 }
 
 // ---- pure: where the path sits in the shell's gist line ----
@@ -210,35 +278,79 @@ function lineOf(call) {
   return Number.isFinite(offset) && offset > 1 ? offset : null;
 }
 
+// The card is read and changed through its child lists, not selectors: the same shape the shell draws
+// (`details.tool > summary.tool-head > .tool-name, .tool-gist, .tool-status`; then `.tool-label` + `pre`
+// pairs), and a test's DOM shim can stand in for the document.
+const hasClass = (n, cls) => n?.nodeType === 1 && Boolean(n.classList?.contains(cls));
+const childWithClass = (node, cls) => Array.from(node?.childNodes ?? []).find((n) => hasClass(n, cls)) ?? null;
+const textOf = (n) => String(n?.textContent ?? "");
+
+function closestRun(card) {
+  for (let n = card?.parentNode; n; n = n.parentNode) if (hasClass(n, "tool-run")) return n;
+  return null;
+}
+
+/**
+ * The `{ id, name, args }` a drawn tool card stands for, read back from the card: the id from `data-tool`,
+ * the name from `.tool-name`, the arguments from the `pre` under the "arguments" label (the JSON the shell
+ * printed). Null when the tool is not one of `FILE_TOOLS`, the card has no arguments, or they do not parse.
+ */
+export function readCall(card) {
+  if (!card || typeof card.getAttribute !== "function") return null;
+  const id = card.getAttribute("data-tool");
+  const name = textOf(childWithClass(childWithClass(card, "tool-head"), "tool-name")).trim();
+  if (!id || !FILE_TOOLS.has(name)) return null;
+  const children = Array.from(card.childNodes ?? []);
+  const label = children.findIndex((n) => hasClass(n, "tool-label") && textOf(n).trim() === "arguments");
+  const pre = label < 0 ? null : children.slice(label + 1).find((n) => n.nodeType === 1) ?? null;
+  if (!hasClass(pre, "tool-pre")) return null;
+  let args;
+  try {
+    args = JSON.parse(textOf(pre));
+  } catch {
+    return null;
+  }
+  if (!args || typeof args !== "object" || Array.isArray(args)) return null;
+  return { id, name, args };
+}
+
 function wrapGist(gistEl, args, path, line) {
   const textNode = Array.from(gistEl.childNodes).find((n) => n.nodeType === 3);
   if (!textNode) return false;
-  const span = gistSpan(textNode.data, args);
+  const text = String(textNode.nodeValue ?? textNode.data ?? "");
+  const span = gistSpan(text, args);
   if (!span) return false;
-  const mid = textNode.splitText(span.start);
-  mid.splitText(span.end - span.start);
-  const link = makeLink(mid.data, path, line);
+  const link = makeLink(text.slice(span.start, span.end), path, line);
   if (!span.full) link.classList.add("is-cut");
-  mid.replaceWith(link);
+  const parts = [];
+  if (span.start > 0) parts.push(document.createTextNode(text.slice(0, span.start)));
+  parts.push(link);
+  if (span.end < text.length) parts.push(document.createTextNode(text.slice(span.end)));
+  textNode.replaceWith(...parts);
   return true;
 }
 
-function decorateCall(session, call, path) {
-  const card = cardFor(session, call.id);
-  if (!card) return false;
-  if (card.dataset.wsLinked) return true;
-  card.dataset.wsLinked = "1";
+/**
+ * Decorates one drawn card for `call` (a files tool with a `path` argument): the path in the gist becomes
+ * a link, an Open pill joins the head before the status, and the path is remembered on the card's run for
+ * the strip. Once per card (`data-ws-linked`); a call without a path leaves it alone. True when decorated.
+ */
+export function decorateCard(card, call) {
+  const path = pathOf(call);
+  if (!card || !path || typeof card.getAttribute !== "function") return false;
+  if (card.getAttribute(LINKED)) return true;
+  card.setAttribute(LINKED, "1");
   const line = lineOf(call);
-  const head = card.querySelector(":scope > .tool-head");
-  const gistEl = head?.querySelector(".tool-gist");
+  const head = childWithClass(card, "tool-head");
+  const gistEl = childWithClass(head, "tool-gist");
   if (gistEl) wrapGist(gistEl, call.args, path, line);
   if (head) {
     const open = h("button", { type: "button", class: "ws-open", "data-path": path, "data-line": line == null ? null : String(line), title: `Open ${path}${line ? `:${line}` : ""} in the Workspace` }, "Open");
-    const status = head.querySelector(".tool-status");
-    if (status) status.before(open);
+    const status = childWithClass(head, "tool-status");
+    if (status) head.insertBefore(open, status);
     else head.append(open);
   }
-  const run = card.closest("details.tool-run");
+  const run = closestRun(card);
   if (run) {
     let set = runPaths.get(run);
     if (!set) runPaths.set(run, (set = new Set()));
@@ -247,24 +359,137 @@ function decorateCall(session, call, path) {
   return true;
 }
 
-/** Appends or refreshes the run's `.ws-touched` strip after `.tool-run-body`. Idempotent. */
-function refreshTouched(session, id) {
-  const card = cardFor(session, id);
-  if (!card) return true; // a card the shell made from the result has no path of ours
-  const run = card.closest("details.tool-run");
+function decorateCall(session, call) {
+  const card = cardFor(session, call.id);
+  return card ? decorateCard(card, call) : false;
+}
+
+/**
+ * Draws or refreshes a run's `.ws-touched` strip after its `.tool-run-body`: every distinct path the run's
+ * decorated cards named, first-seen order. Nothing when the run named no path. Idempotent: the strip is
+ * one element and its links are replaced, never added to. Returns the strip, or null.
+ */
+export function touchedStrip(run) {
   const set = run && runPaths.get(run);
-  if (!set?.size) return true;
-  let strip = run.querySelector(":scope > .ws-touched");
+  if (!set?.size) return null;
+  let strip = childWithClass(run, "ws-touched");
   if (!strip) {
     strip = h("div", { class: "ws-touched" }, h("span", { class: "ws-touched-label" }, "Files in this run:"));
-    const body = run.querySelector(":scope > .tool-run-body");
-    if (body) body.after(strip);
+    const body = childWithClass(run, "tool-run-body");
+    const next = body ? run.childNodes[Array.prototype.indexOf.call(run.childNodes, body) + 1] : null;
+    if (next) run.insertBefore(strip, next);
     else run.append(strip);
   }
-  for (const old of strip.querySelectorAll(":scope > a.ws-link")) old.remove();
+  for (const old of Array.from(strip.childNodes).filter((n) => hasClass(n, "ws-link"))) strip.removeChild(old);
   for (const path of set) strip.append(makeLink(path, path, null));
-  strip.dataset.count = String(set.size);
+  strip.setAttribute("data-count", String(set.size));
+  return strip;
+}
+
+function refreshTouched(session, id) {
+  const card = cardFor(session, id);
+  if (card) touchedStrip(closestRun(card)); // a card the shell made from the result alone has no path of ours
   return true;
+}
+
+// ---- the catch-up sweep: what the shell drew without offering ----
+//
+// The shell offers `tool.call`, `tool.result` and `message.rendered` to the renderers as it draws, live or
+// from a record. Anything drawn before this module registered (the page's first restore usually lands
+// first) was offered to nobody, and a conversation re-opened from the sidebar is drawn again from its
+// record. So the installed renderer is backed by a sweep over the panes: once at install, and then for
+// every subtree the shell adds under `#panes`, through one MutationObserver. The sweep reads a card the
+// way the shell wrote it and applies the same decoration the live path does, so the two are
+// interchangeable and idempotent: a card is marked once, a bubble is marked once, a path is asked about
+// once per page. Only rows inside a `.pane[data-session]` are touched, never the place's own editor.
+
+const PANE = ".pane[data-session]";
+const CARD = "details.tool[data-tool]";
+const BUBBLE = ".msg-text";
+const examined = new WeakSet(); // cards read once and found to name no path: not read again
+
+/** A card whose run has its result: the shell's status is no longer "running" and no result is awaited. */
+function settledCard(card) {
+  if (card.classList.contains("is-running") || card.hasAttribute("data-await")) return false;
+  const status = childWithClass(childWithClass(card, "tool-head"), "tool-status");
+  const word = textOf(status).trim();
+  return word !== "running" && word !== "…";
+}
+
+/** The elements `selector` names in `root`'s subtree, or `root`'s own nearest such ancestor when it sits inside one. */
+function hits(root, selector) {
+  const own = root.closest?.(selector);
+  return own ? [own] : Array.from(root.querySelectorAll?.(selector) ?? []);
+}
+
+/** The session a bubble belongs to: a subagent's block names its child, otherwise the pane's conversation. */
+function sessionOf(node) {
+  const block = node.closest("details.agent");
+  if (block) return block.getAttribute("data-agent") || null;
+  return node.closest(PANE)?.getAttribute("data-session") || null;
+}
+
+/**
+ * Decorates every undecorated card and settled bubble under `root` (or the card or bubble `root` sits in).
+ * `linkBubble(node, session)` is the bubble decoration bound to the page's cache. Nested subagent blocks
+ * are skipped for cards, as the shell offers nothing from a child's block; their bubbles are linked under
+ * the child's id, as the shell offers them.
+ */
+export function sweep(root, linkBubble) {
+  if (!root || root.nodeType !== 1 || typeof root.querySelectorAll !== "function") return;
+  const runs = new Set();
+  for (const card of hits(root, CARD)) {
+    if (!card.closest(PANE) || card.closest("details.agent")) continue;
+    if (!card.getAttribute(LINKED) && !examined.has(card)) {
+      const call = readCall(card);
+      if (!call || !decorateCard(card, call)) examined.add(card);
+    }
+    const run = closestRun(card);
+    if (run && settledCard(card)) runs.add(run);
+  }
+  for (const run of runs) {
+    const set = runPaths.get(run);
+    if (!set?.size) continue;
+    const strip = childWithClass(run, "ws-touched");
+    if (!strip || strip.getAttribute("data-count") !== String(set.size)) touchedStrip(run);
+  }
+  if (typeof linkBubble !== "function") return;
+  for (const bubble of hits(root, BUBBLE)) {
+    if (bubble.getAttribute(LINKED) || bubble.classList.contains("is-live") || !bubble.closest(PANE)) continue;
+    const session = sessionOf(bubble);
+    if (session) linkBubble(bubble, session);
+  }
+}
+
+/**
+ * Sweeps the panes once, then watches them: every subtree the shell adds is swept a microtask later, the
+ * targets of one batch coalesced (a target inside another is covered by it). The observer lives as long
+ * as the page; nothing disconnects it. Returns it, or null where there is none to install.
+ */
+function watchPanes(linkBubble) {
+  const host = (typeof document.getElementById === "function" && document.getElementById("panes")) || document.body || null;
+  if (!host) return null;
+  sweep(host, linkBubble);
+  if (typeof MutationObserver !== "function") return null;
+  let pending = null; // the targets of the batches since the last flush
+  const flush = () => {
+    const targets = [...pending];
+    pending = null;
+    for (const target of targets) {
+      if (target.nodeType !== 1 || !target.isConnected) continue;
+      if (targets.some((other) => other !== target && other.nodeType === 1 && other.contains(target))) continue;
+      sweep(target, linkBubble);
+    }
+  };
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      if (!record.addedNodes.length) continue;
+      if (!pending) { pending = new Set(); queueMicrotask(flush); }
+      pending.add(record.target);
+    }
+  });
+  observer.observe(host, { childList: true, subtree: true });
+  return observer;
 }
 
 // ---- clicks and the right-click menu ----
@@ -343,23 +568,32 @@ function wireDocument(ext, model) {
   });
 }
 
-/** Registers the transcript renderer and the document listeners. Returns the renderer for tests. */
+/**
+ * Registers the transcript renderer and the document listeners, sweeps what the shell has already drawn,
+ * and watches the panes for what it draws without offering. Returns the renderer for tests.
+ */
 export function installLinks(ext, model) {
   bindDialogs(ext, model);
   wireDocument(ext, model);
+  const resolved = new Map(); // `${session}\n${path}` -> the resolve answer or null, for the page
+  // A settled bubble, user's or assistant's: link the paths the workspace confirms, never replace the row.
+  const linkBubble = (node, session) => void decorateBubble(node, { session, cache: resolved, resolve: (paths) => model.resolve(paths, { session }) });
   const render = (event, ctx) => {
     if (!event || !ctx?.session) return undefined;
+    if (event.type === "message.rendered") {
+      if (event.node) linkBubble(event.node, event.session ?? ctx.session);
+      return undefined;
+    }
     if (event.type === "tool.call") {
       const call = event.call ?? {};
-      if (!FILE_TOOLS.has(call.name) || !call.id) return undefined;
-      const path = pathOf(call);
-      if (!path) return undefined;
-      later(() => decorateCall(ctx.session, call, path));
+      if (!FILE_TOOLS.has(call.name) || !call.id || !pathOf(call)) return undefined;
+      later(() => decorateCall(ctx.session, call));
     } else if (event.type === "tool.result" && event.id) {
       later(() => refreshTouched(ctx.session, event.id));
     }
     return undefined; // never a Node: the shell's card stays
   };
   ext.transcript(render);
+  watchPanes(linkBubble);
   return render;
 }

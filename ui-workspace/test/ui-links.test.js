@@ -189,3 +189,161 @@ test("ui/dock.js, links.js, dialogs.js pass node --check", () => {
     assert.equal(out.status, 0, `${file}: ${out.stderr}`);
   }
 });
+
+// ---- prose in a bubble: bubbleCandidates and decorateBubble over the shim ----
+
+const { bubbleCandidates, decorateBubble } = await import("../ui/links.js");
+
+// The shim's elements need getAttribute/setAttribute/removeAttribute for the linked mark (they have the first two).
+ShimElement.prototype.removeAttribute = function (k) { delete this.attrs[k]; };
+
+function bubble(...children) {
+  const node = new ShimElement("div");
+  node.className = "msg-text";
+  node.append(...children.map((c) => (typeof c === "string" ? new ShimText(c) : c)));
+  return node;
+}
+function tagged(tag, text) {
+  const node = new ShimElement(tag);
+  node.append(new ShimText(text));
+  return node;
+}
+const links = (node) => {
+  const out = [];
+  const walk = (n) => { if (n.nodeType === 1 && n.tagName === "A") out.push(n); for (const c of n.childNodes ?? []) walk(c); };
+  walk(node);
+  return out;
+};
+
+test("bubbleCandidates: distinct paths from the text runs, none from links, buttons or fenced blocks", () => {
+  const node = bubble("See src/tide.ts:7 and /nope/x.ts, then src/tide.ts again. ", tagged("code", "~/notes.md"), " ", tagged("pre", "/etc/hosts"), tagged("a", "/already/linked.js"));
+  assert.deepEqual(bubbleCandidates(node), ["src/tide.ts", "/nope/x.ts", "~/notes.md"]);
+  assert.deepEqual(bubbleCandidates(bubble("nothing path-shaped here")), []);
+});
+
+test("decorateBubble: asks resolve once for the candidates, links only the confirmed, keeps the rest as text", async () => {
+  const asked = [];
+  const resolve = async (paths) => { asked.push(paths); return { "src/tide.ts": { absolute: "/srv/games/nova/src/tide.ts", kind: "file", mode: "rw" }, "/nope/x.ts": null }; };
+  const node = bubble("Edit src/tide.ts:7; /nope/x.ts does not exist.");
+  const made = await decorateBubble(node, { session: "s_1", resolve });
+  assert.deepEqual(asked, [["src/tide.ts", "/nope/x.ts"]]);
+  assert.equal(made.length, 1);
+  assert.equal(links(node).length, 1);
+  assert.deepEqual([made[0].getAttribute("data-path"), made[0].getAttribute("data-line"), made[0].textContent], ["/srv/games/nova/src/tide.ts", "7", "src/tide.ts:7"]);
+  assert.equal(node.textContent, "Edit src/tide.ts:7; /nope/x.ts does not exist.", "the words are unchanged; only wrapping differs");
+  assert.equal(node.getAttribute("data-ws-linked"), "1");
+  assert.deepEqual(await decorateBubble(node, { session: "s_1", resolve }), [], "a bubble is decorated once");
+  assert.equal(asked.length, 1);
+});
+
+test("decorateBubble: the cache answers for a second bubble, a bubble without candidates asks nothing, a failed ask is retried later", async () => {
+  const cache = new Map();
+  let calls = 0;
+  const resolve = async (paths) => { calls += 1; return Object.fromEntries(paths.map((p) => [p, p === "/nope/x.ts" ? null : { absolute: p, kind: "file", mode: "ro" }])); };
+  await decorateBubble(bubble("first: /srv/shared/a.md and /nope/x.ts"), { session: "s_1", resolve, cache });
+  assert.equal(calls, 1);
+  const second = bubble("again /srv/shared/a.md, plus /srv/shared/b.md");
+  await decorateBubble(second, { session: "s_1", resolve, cache });
+  assert.equal(calls, 2, "only the new path is asked about");
+  assert.equal(links(second).length, 2);
+  await decorateBubble(bubble("/nope/x.ts once more, and /srv/shared/a.md"), { session: "s_1", resolve, cache });
+  assert.equal(calls, 2, "everything was cached: nothing asked");
+  await decorateBubble(bubble("no paths at all"), { session: "s_1", resolve, cache });
+  assert.equal(calls, 2, "nothing to ask about");
+  const failing = bubble("/srv/shared/c.md");
+  await decorateBubble(failing, { session: "s_1", resolve: async () => { throw new Error("no answer"); }, cache });
+  assert.equal(links(failing).length, 0);
+  assert.equal(failing.getAttribute("data-ws-linked"), null, "a failed ask leaves the bubble for a later offer");
+  await decorateBubble(failing, { session: "s_1", resolve, cache });
+  assert.equal(links(failing).length, 1);
+});
+
+// ---- restored cards: reading a drawn card back, and decorating it once ----
+
+const { decorateCard, readCall, touchedStrip } = await import("../ui/links.js");
+
+/** A card the way the shell draws it: `details.tool > summary.tool-head > .tool-name .tool-gist .tool-took .tool-status`, then label + pre pairs. */
+function shellCard(id, name, args, { status = "done", result = "ok" } = {}) {
+  const card = new ShimElement("details");
+  card.className = "tool";
+  card.setAttribute("data-tool", id);
+  const head = new ShimElement("summary");
+  head.className = "tool-head";
+  head.append(tagged("span", name), tagged("span", gist(args && typeof args === "object" ? args : {}, 90)), tagged("span", ""), tagged("span", status));
+  head.childNodes[0].className = "tool-name";
+  head.childNodes[1].className = "tool-gist";
+  head.childNodes[2].className = "tool-took";
+  head.childNodes[3].className = "tool-status";
+  card.append(head);
+  if (args !== null) {
+    card.append(tagged("div", "arguments"), tagged("pre", typeof args === "string" ? args : JSON.stringify(args, null, 2)));
+    card.childNodes[1].className = "tool-label";
+    card.childNodes[2].className = "tool-pre";
+  }
+  if (result !== null) {
+    const n = card.childNodes.length;
+    card.append(tagged("div", "result"), tagged("pre", result));
+    card.childNodes[n].className = "tool-label";
+    card.childNodes[n + 1].className = "tool-pre";
+  }
+  return card;
+}
+function shellRun(...cards) {
+  const run = new ShimElement("details");
+  run.className = "tool-run";
+  const body = new ShimElement("div");
+  body.className = "tool-run-body";
+  body.append(...cards);
+  run.append(tagged("summary", "2 tool calls"), body);
+  run.childNodes[0].className = "tool-run-head";
+  return run;
+}
+const kids = (node, cls) => node.childNodes.filter((n) => n.nodeType === 1 && n.classList.contains(cls));
+
+test("readCall: the id, the name and the parsed arguments of a drawn files-tool card; null otherwise", () => {
+  const args = { path: "/home/rae/src/tide.ts", offset: 7, limit: 3 };
+  assert.deepEqual(readCall(shellCard("c_read", "read_path", args, { result: '{"path": "/not/the/arguments"}' })), { id: "c_read", name: "read_path", args }, "the arguments pre, never the result pre");
+  assert.equal(readCall(shellCard("c_bash", "bash", { command: "ls" })), null, "not a files tool");
+  assert.equal(readCall(shellCard("c_broken", "read_path", "{ not json")), null, "arguments that do not parse");
+  assert.equal(readCall(shellCard("c_bare", "get_directory", null)), null, "no arguments drawn");
+  assert.equal(readCall(shellCard("c_list", "find_files", "[1, 2]")), null, "arguments that are not an object");
+  assert.equal(readCall(shellCard("", "read_path", args)), null, "no id");
+  assert.equal(readCall(null), null);
+});
+
+test("decorateCard and touchedStrip: a restored card is decorated once, the run's strip is one element with distinct paths", () => {
+  const tide = "/home/rae/src/tide.ts";
+  const read = shellCard("c_read", "read_path", { path: tide, offset: 7, limit: 3 });
+  const edit = shellCard("c_edit", "edit_path", { path: tide, old: "a", new: "b" });
+  const dir = shellCard("c_dir", "get_directory", { path: "/home/rae/src" });
+  const run = shellRun(read, edit, dir);
+  const head = (card) => kids(card, "tool-head")[0];
+  const gistOf = (card) => kids(head(card), "tool-gist")[0];
+
+  assert.equal(decorateCard(read, readCall(read)), true);
+  assert.equal(decorateCard(read, readCall(read)), true, "a second pass answers true and changes nothing");
+  assert.equal(read.getAttribute("data-ws-linked"), "1");
+  assert.equal(links(gistOf(read)).length, 1, "one link in the gist");
+  assert.equal(links(gistOf(read))[0].getAttribute("data-path"), tide);
+  assert.equal(links(gistOf(read))[0].getAttribute("data-line"), "7", "a read's offset is the line");
+  assert.equal(gistOf(read).textContent, gist({ path: tide, offset: 7, limit: 3 }, 90), "the gist reads as before");
+  const pills = kids(head(read), "ws-open");
+  assert.equal(pills.length, 1, "one Open pill");
+  assert.equal(pills[0].getAttribute("data-path"), tide);
+  assert.equal(head(read).childNodes.indexOf(pills[0]), head(read).childNodes.indexOf(kids(head(read), "tool-status")[0]) - 1, "the pill sits before the status");
+
+  assert.equal(touchedStrip(run)?.getAttribute("data-count"), "1", "the run knows the read's path");
+  assert.equal(decorateCard(edit, readCall(edit)), true);
+  assert.equal(decorateCard(dir, readCall(dir)), true);
+  const bash = shellCard("c_bash", "bash", { command: "ls" });
+  assert.equal(decorateCard(bash, readCall(bash)), false, "a card that is not a files tool is left alone");
+  assert.equal(bash.getAttribute("data-ws-linked"), null);
+
+  touchedStrip(run);
+  const strip = touchedStrip(run);
+  assert.equal(kids(run, "ws-touched").length, 1, "one strip however often it is refreshed");
+  assert.equal(run.childNodes.indexOf(strip), run.childNodes.indexOf(kids(run, "tool-run-body")[0]) + 1, "the strip follows the run body");
+  assert.deepEqual(links(strip).map((a) => a.getAttribute("data-path")), [tide, "/home/rae/src"], "distinct paths, first-seen order, never doubled");
+  assert.equal(strip.getAttribute("data-count"), "2");
+  assert.equal(touchedStrip(shellRun(shellCard("c_x", "bash", { command: "ls" }))), null, "a run that named no path gets no strip");
+});

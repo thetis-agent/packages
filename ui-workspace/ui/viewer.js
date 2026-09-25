@@ -10,12 +10,14 @@
  * per language is kept in localStorage `thetis.workspace.<user>.mode:<language>` (guarded like the model's;
  * nothing is stored before the roots have named the person). */
 
-import { createEditor } from "./editor.js";
+import { copyToHome, createEditor, isReadOnlyRoot, readOnlyNotice } from "./editor.js";
 import { hasGrammar, loadCore, loadLanguage } from "./lang.js";
 import { storageKey } from "./model.js";
 
 const UNAVAILABLE = "not available in this gateway version";
 const IMAGES_NEED_RAW = "Images need the raw file route, which this gateway does not have yet.";
+/** The sentence under a relative image the raw route answered with an error. */
+export const imageNotFound = (rel) => `The image was not found at ${rel}.`;
 
 const MODES = Object.freeze({
   markdown: ["rendered", "source"],
@@ -107,6 +109,7 @@ export function createViewer(host, opts) {
   let editor = null;
   let mode = null;
   let blobUrl = null;
+  let notice = null; // the read-only notice of the rendered markdown view
 
   const bannerSlot = opts.banner ?? host.querySelector(":scope > .ws-banners") ?? el("div", { class: "ws-banners" });
   if (!bannerSlot.isConnected && !opts.banner) host.prepend(bannerSlot);
@@ -144,13 +147,14 @@ export function createViewer(host, opts) {
     editorControls.replaceChildren();
   }
 
-  function mountEditor(initialText, { readOnly, banner = bannerSlot, onLoaded } = {}) {
+  function mountEditor(initialText, { readOnly, readOnlyReason, banner = bannerSlot, onLoaded } = {}) {
     editor = createEditor(element, {
       ext,
       model,
       file: { ...file, text: initialText, etag },
       line: opts.line,
       readOnly: opts.readOnly ?? readOnly,
+      readOnlyReason,
       banner,
       active: opts.active,
       session: opts.session,
@@ -188,6 +192,31 @@ export function createViewer(host, opts) {
     return el("div", { class: "ws-facts-card" }, ext.ui.card(baseName(file.display ?? path), ext.ui.kv(pairs), el("p", {}, sentence), ...children, el("div", { class: "card-actions" }, downloadButton())));
   }
 
+  /* the read-only notice: the rendered view of a file on a read-only root offers Copy to Home like the editor */
+  function dropNotice() {
+    if (!notice) return;
+    notice.banner.remove();
+    notice.control.remove();
+    notice = null;
+  }
+  function showNotice() {
+    dropNotice();
+    if (!isReadOnlyRoot(file)) return;
+    notice = readOnlyNotice(ext, file, async () => {
+      try {
+        const written = await copyToHome({ model, file, text: text ?? "", session: opts.session });
+        model.tabs?.open?.(written);
+      } catch (err) {
+        ext.toast(err?.message ?? String(err), { tone: "error" });
+      }
+    });
+    bannerSlot.append(notice.banner);
+    editorControls.append(notice.control);
+  }
+
+  /** The placeholder drawn where a relative image cannot be shown: the alt text and one sentence why. */
+  const imagePlaceholder = (alt, note, title) => el("span", { class: "ws-img-missing", role: "img", "aria-label": alt, title }, el("span", { class: "ws-img-missing-alt" }, alt), el("span", { class: "ws-img-missing-note" }, note));
+
   /* markdown */
   async function renderMarkdown() {
     const body = el("div", { class: "ws-rendered md" });
@@ -200,19 +229,33 @@ export function createViewer(host, opts) {
     const hasRaw = typeof ext.raw?.url === "function";
     // Without the raw route there is nothing an `img` could fetch: the page origin does not serve files,
     // so the resolver answers null and the shell draws the alt text, which becomes the placeholder below.
+    const relOf = new Map(); // raw URL -> the relative src it came from
     const image = (src) => {
       const resolved = resolveRelative(path, src);
       if (!resolved || !hasRaw) return null;
-      return ext.raw.url("raw", { path: resolved });
+      const url = ext.raw.url("raw", { path: resolved });
+      relOf.set(url, src);
+      return url;
     };
     const blocks = ext.markdown(text, { image });
     body.append(...[].concat(blocks ?? []));
     if (!hasRaw) {
       for (const missing of body.querySelectorAll(".md-img-missing")) {
         const alt = missing.textContent || missing.getAttribute("title") || "image";
-        missing.replaceWith(el("span", { class: "ws-img-missing", role: "img", "aria-label": alt, title: missing.getAttribute("title") }, el("span", { class: "ws-img-missing-alt" }, alt), el("span", { class: "ws-img-missing-note" }, IMAGES_NEED_RAW)));
+        missing.replaceWith(imagePlaceholder(alt, IMAGES_NEED_RAW, missing.getAttribute("title")));
+      }
+    } else {
+      // A relative image the raw route refuses (not there, outside the roots) becomes the placeholder on its
+      // one error; the element goes with it, so nothing asks again.
+      for (const img of body.querySelectorAll("img.md-img")) {
+        const rel = relOf.get(img.getAttribute("src"));
+        if (!rel) continue;
+        const swap = () => img.replaceWith(imagePlaceholder(img.getAttribute("alt") || rel, imageNotFound(rel), rel));
+        if (img.complete && img.naturalWidth === 0) swap();
+        else img.addEventListener("error", swap, { once: true });
       }
     }
+    showNotice();
     highlightFences(body);
   }
 
@@ -316,12 +359,14 @@ export function createViewer(host, opts) {
     const sentence = () => `This file is ${formatSize(file.size)}, more than the editor opens; this is its ${part === "head" ? "first" : "last"} 4 MB, read-only.`;
     const note = el("span", { class: "ws-banner-text" }, sentence());
     bannerSlot.append(el("div", { class: "ws-banner is-info", "data-banner": "large" }, note, el("span", { class: "ws-banner-acts" }, button)));
-    mountEditor(text, { readOnly: true });
+    // Read-only because of the size alone: the large-file banner stands by itself, with no Copy to Home.
+    mountEditor(text, { readOnly: true, readOnlyReason: "size" });
   }
 
   /* modes */
   function render() {
     dropEditor();
+    dropNotice();
     element.replaceChildren();
     for (const node of bannerSlot.querySelectorAll('[data-banner="large"]')) node.remove();
     switch (preview) {
@@ -364,6 +409,7 @@ export function createViewer(host, opts) {
     if (destroyed) return;
     destroyed = true;
     dropEditor();
+    dropNotice();
     if (blobUrl) URL.revokeObjectURL(blobUrl);
     for (const node of bannerSlot.querySelectorAll('[data-banner="large"]')) node.remove();
     element.remove();

@@ -115,7 +115,7 @@ test("manifest: ids, orders, labels and every declared export exist", () => {
   assert.deepEqual(ui.places.map((p) => [p.id, p.order]), [["workspace", 30]]);
   assert.deepEqual(ui.dock.map((p) => [p.id, p.order]), [["files", 105]], "after the docks that default to 100, before Skills at 110");
   const verbs = ui.commands.map((c) => c.verb);
-  assert.deepEqual(verbs, ["roots", "list", "stat", "read", "write", "mkdir", "rename", "delete", "count", "resolve", "bind"]);
+  assert.deepEqual(verbs, ["roots", "list", "stat", "read", "write", "mkdir", "rename", "delete", "count", "resolve", "bind", "upload", "raw", "zip"]);
   for (const c of ui.commands) {
     assert.match(c.verb, ID);
     assert.ok(c.label && c.label.length <= 80, c.verb);
@@ -123,7 +123,13 @@ test("manifest: ids, orders, labels and every declared export exist", () => {
   }
   assert.equal(ui.commands.find((c) => c.verb === "bind").role, "admin");
   assert.equal(ui.commands.find((c) => c.verb === "delete").export, "del");
-  for (const v of ["upload", "raw", "zip"]) assert.ok(!verbs.includes(v) && typeof ws[v] === "function");
+  for (const v of ["upload", "raw", "zip"]) {
+    const c = ui.commands.find((x) => x.verb === v);
+    assert.equal(c.kind, "raw", `${v} is a raw command`);
+    assert.equal(typeof ws[v], "function");
+  }
+  assert.equal(ui.commands.find((c) => c.verb === "upload").maxBytes, 64 * 1024 * 1024);
+  for (const v of ["raw", "zip"]) assert.equal(ui.commands.find((c) => c.verb === v).maxBytes, undefined);
   assert.deepEqual([ws.INLINE_LIMIT, ws.WRITE_INLINE_LIMIT, ws.MAX_UPLOAD], [200_000, 800_000, 64 * 1024 * 1024]);
 });
 

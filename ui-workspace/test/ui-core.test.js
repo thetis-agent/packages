@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { fileMenu, tidy, zipHint } from "../ui/file-menu.js";
 import { ICONS, iconFor } from "../ui/icons.js";
 import { STATE_SENTENCES, bindCommand, bindOutcome, directoryState, isRestartError, sentenceFor, summarySentence } from "../ui/explorer.js";
-import { createModel, formatBytes, isWithin, joinPath, nameOf, parentOf, rootOf, storageKey } from "../ui/model.js";
+import { createModel, formatBytes, isUnscopedKey, isWithin, joinPath, nameOf, parentOf, rootOf, storageKey } from "../ui/model.js";
 import { toastOnce } from "../ui/dialogs.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -296,6 +296,19 @@ test("model: listings are cached per dotfile setting, invalidated after a write 
   assert.equal(model.listing("/home/rae"), null);
 });
 
+test("model: a write that lands elsewhere than asked (a relative Copy to Home target) drops every ancestor's listing up to the root", async () => {
+  const t = fakeExt({ answers: { list: (args) => ({ path: args.path, entries: [], more: false }), write: (args) => ({ ok: true, path: `/home/rae/${args.path}`, etag: "1-1" }) } });
+  const model = createModel(t.ext);
+  for (const dir of ["/", "/home", "/home/rae", "/home/rae/src", "/srv"]) await model.list(dir);
+  const dropped = [];
+  model.watch((e) => e.kind === "list" && dropped.push(e.path));
+  await model.write("shared/policy.txt", "copy");
+  assert.deepEqual(dropped, ["shared", "/home/rae/shared", "/home/rae", "/home", "/"], "the relative parent, then each ancestor of the absolute path");
+  for (const dir of ["/home/rae", "/home", "/"]) assert.equal(model.listing(dir), null, dir);
+  assert.notEqual(model.listing("/home/rae/src"), null, "a listing off the path stays");
+  assert.notEqual(model.listing("/srv"), null);
+});
+
 test("model: readText takes the inline text, and without ext.raw refuses a large file in a sentence", async () => {
   const small = fakeExt({ answers: { read: { path: "/a/b.txt", inline: true, text: "hi", etag: "1-2", size: 2 } } });
   const out = await createModel(small.ext).readText("/a/b.txt");
@@ -392,17 +405,28 @@ function fakeStorage(seed = {}) {
   const map = new Map(Object.entries(seed));
   return {
     map,
+    get length() {
+      return map.size;
+    },
+    key: (i) => [...map.keys()][i] ?? null,
     getItem: (k) => (map.has(k) ? map.get(k) : null),
     setItem: (k, v) => map.set(k, String(v)),
     removeItem: (k) => map.delete(k),
   };
 }
 
+test("isUnscopedKey names the old keys and nothing else", () => {
+  for (const k of ["thetis.workspace.expanded", "thetis.workspace.hidden", "thetis.workspace.explorer", "thetis.workspace.mode:md", "thetis.workspace.mode:"]) assert.equal(isUnscopedKey("local", k), true, k);
+  for (const k of ["thetis.workspace.tabs", "thetis.workspace.buffer:/a/b.txt"]) assert.equal(isUnscopedKey("session", k), true, k);
+  for (const k of ["thetis.workspace.rae.expanded", "thetis.workspace.rae.mode:md", "thetis.workspace.tabs", "thetis.other", "expanded", null]) assert.equal(isUnscopedKey("local", k), false, String(k));
+  for (const k of ["thetis.workspace.rae.tabs", "thetis.workspace.expanded", "thetis.workspace.rae.buffer:/x"]) assert.equal(isUnscopedKey("session", k), false, k);
+});
+
 test("model: storage keys carry the user; nothing is stored before the roots name one, and the old unscoped keys are never read", async () => {
   assert.equal(storageKey("rae", "expanded"), "thetis.workspace.rae.expanded");
   assert.equal(storageKey(null, "expanded"), null);
-  const local = fakeStorage({ "thetis.workspace.expanded": JSON.stringify(["/old/unscoped"]), "thetis.workspace.rae.expanded": JSON.stringify(["/home/rae/stored"]), "thetis.workspace.rae.hidden": "true", "thetis.workspace.rae.explorer": "333" });
-  const session = fakeStorage({ "thetis.workspace.rae.tabs": JSON.stringify({ active: "/home/rae/s.md", list: [{ path: "/home/rae/s.md", name: "s.md", kind: "viewer" }] }), "thetis.workspace.rae.buffer:/home/rae/s.md": "unsaved" });
+  const local = fakeStorage({ "thetis.workspace.expanded": JSON.stringify(["/old/unscoped"]), "thetis.workspace.hidden": "true", "thetis.workspace.explorer": "500", "thetis.workspace.mode:md": "source", "thetis.other": "kept", "thetis.workspace.rae.expanded": JSON.stringify(["/home/rae/stored"]), "thetis.workspace.rae.hidden": "true", "thetis.workspace.rae.explorer": "333", "thetis.workspace.bob.expanded": "[]" });
+  const session = fakeStorage({ "thetis.workspace.tabs": "{}", "thetis.workspace.buffer:/old.txt": "old", "thetis.workspace.rae.tabs": JSON.stringify({ active: "/home/rae/s.md", list: [{ path: "/home/rae/s.md", name: "s.md", kind: "viewer" }] }), "thetis.workspace.rae.buffer:/home/rae/s.md": "unsaved" });
   globalThis.localStorage = local;
   globalThis.sessionStorage = session;
   try {
@@ -418,7 +442,8 @@ test("model: storage keys carry the user; nothing is stored before the roots nam
     model.tabs.open("/home/rae/mine.ts");
     model.tabs.setBuffer("/home/rae/mine.ts", "typed early");
     assert.equal([...local.map.keys()].filter((k) => k.startsWith("thetis.workspace.rae.")).length, 3, "the store is untouched until the user is known");
-    assert.equal(session.map.size, 2);
+    assert.equal(session.map.size, 4);
+    assert.ok(local.map.has("thetis.workspace.expanded"), "the old keys are untouched until then too");
     await model.roots({ session: "s1" });
     assert.equal(model.user, "rae");
     assert.deepEqual([...model.expanded].sort(), ["/home/rae/mine", "/home/rae/stored"], "stored folders are adopted, mine are kept, the unscoped key is ignored");
@@ -429,7 +454,10 @@ test("model: storage keys carry the user; nothing is stored before the roots nam
     assert.equal(model.tabs.buffer("/home/rae/mine.ts"), "typed early");
     assert.equal(session.map.get("thetis.workspace.rae.buffer:/home/rae/mine.ts"), "typed early", "the early buffer moved into the scoped store");
     assert.deepEqual(JSON.parse(local.map.get("thetis.workspace.rae.expanded")).sort(), ["/home/rae/mine", "/home/rae/stored"]);
-    assert.equal(local.map.get("thetis.workspace.expanded"), JSON.stringify(["/old/unscoped"]), "the old key is left as it was");
+    for (const k of ["thetis.workspace.expanded", "thetis.workspace.hidden", "thetis.workspace.explorer", "thetis.workspace.mode:md"]) assert.equal(local.map.has(k), false, `the stale unscoped key ${k} is dropped on the first run with a known user`);
+    for (const k of ["thetis.workspace.tabs", "thetis.workspace.buffer:/old.txt"]) assert.equal(session.map.has(k), false, `${k} is dropped`);
+    assert.equal(local.map.get("thetis.other"), "kept", "keys that are not the workspace's are not touched");
+    assert.equal(local.map.get("thetis.workspace.bob.expanded"), "[]", "another person's scoped state stays");
     model.setExpanded("/home/rae/later", true);
     assert.ok(JSON.parse(local.map.get("thetis.workspace.rae.expanded")).includes("/home/rae/later"));
     model.setExplorerWidth(400);
