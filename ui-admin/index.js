@@ -110,13 +110,13 @@ export async function packageInfo(args, env) {
   const name = packageName(args.name);
   const installed = await env.kernel.packages.list();
   const info = await installedPackage(env, name);
-  const { version, type, description, everyone, forkedFrom, replaced, source } = info;
+  const { version, type, description, everyone, everyoneBy, forkedFrom, replaced, source } = info;
   const root = realRoot(info.root);
   const [registry, git] = await Promise.all([registryWord(env, info), gitWord(env, root)]);
   const dependencies = dependenciesOf(root);
   // What else installed here names this package: read from each one's package.json, the way node resolves it.
   const dependents = installed.filter((p) => p.name !== name && dependenciesOf(realRoot(p.root)).includes(name)).map((p) => p.name);
-  return { data: { name, version, type, description, root, everyone: Boolean(everyone), forkedFrom: forkedFrom ?? null, replaced: replaced ?? null, source: source ?? null, loaded: loadedWord(info, version), registry, git, dependencies, dependents } };
+  return { data: { name, version, type, description, root, everyone: Boolean(everyone), everyoneBy: everyoneBy ?? null, forkedFrom: forkedFrom ?? null, replaced: replaced ?? null, source: source ?? null, loaded: loadedWord(info, version), registry, git, dependencies, dependents } };
 }
 
 /**

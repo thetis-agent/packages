@@ -1,8 +1,8 @@
 {
   "name": "@thetis/ui-marketplace",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "license": "MIT",
-  "description": "The marketplace place of the web gateway: a gallery of what the registries offer and what is installed, and one page per package.",
+  "description": "The marketplace place of the web gateway: a gallery of what is installed, what the installation ships, and what the registries offer, and one page per package.",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -21,7 +21,7 @@
         {
           "id": "marketplace",
           "label": "Marketplace",
-          "hint": "What the registries offer, and what is installed here",
+          "hint": "What is installed, what the installation ships, and what the registries offer",
           "icon": "M2.5 5.5A1.5 1.5 0 0 1 4 4h3.6L9.4 6h6.6a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 16 16H4a1.5 1.5 0 0 1-1.5-1.5v-9Z",
           "order": 20
         }
@@ -29,8 +29,8 @@
       "commands": [
         { "verb": "search", "export": "search", "label": "Search the index and what is installed" },
         { "verb": "show", "export": "show", "label": "Read one package" },
-        { "verb": "install", "export": "install", "label": "Install for me" },
-        { "verb": "remove", "export": "remove", "label": "Remove from my setup" },
+        { "verb": "install", "export": "install", "label": "Install into my workspace" },
+        { "verb": "remove", "export": "remove", "label": "Remove from my workspace" },
         { "verb": "delete", "export": "del", "label": "Delete one of my packages with its files" },
         { "verb": "update", "export": "update", "label": "Update to the registry's commit" },
         { "verb": "unfork", "export": "unfork", "label": "Go back to the package this was forked from" },
@@ -42,10 +42,11 @@
         { "verb": "config-set", "export": "configSet", "label": "Set one configuration key for me" },
         { "verb": "config-unset", "export": "configUnset", "label": "Clear one configuration key for me" },
         { "verb": "fence-reload", "export": "fenceReload", "label": "Reload my workspace" },
-        { "verb": "install-everyone", "export": "installEveryone", "label": "Install for everyone", "role": "admin" },
+        { "verb": "install-everyone", "export": "installEveryone", "label": "Make a package the default for everyone", "role": "admin" },
+        { "verb": "unmark-everyone", "export": "unmarkEveryone", "label": "Stop a package being the default for everyone", "role": "admin" },
         { "verb": "install-for", "export": "installFor", "label": "Install for a person", "role": "admin" },
-        { "verb": "remove-for", "export": "removeFor", "label": "Remove from a person's setup", "role": "admin" },
-        { "verb": "promote", "export": "promote", "label": "Make a package the default for everyone", "role": "admin" },
+        { "verb": "remove-for", "export": "removeFor", "label": "Remove from a person's workspace", "role": "admin" },
+        { "verb": "promote", "export": "promote", "label": "Promote a person's package to a system package for everyone", "role": "admin" },
         { "verb": "people", "export": "people", "label": "List the people", "role": "admin" },
         { "verb": "registries", "export": "registries", "label": "The registries, how each is authenticated, and its last refresh", "role": "admin" },
         { "verb": "registry-add", "export": "registryAdd", "label": "Add a registry, with a key when it is private", "role": "admin" },

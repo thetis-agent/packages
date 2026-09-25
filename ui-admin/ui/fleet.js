@@ -22,7 +22,9 @@ import { reloadWorkspace } from "./workspaces.js";
 const TYPES = ["tool", "loader", "ui", "service", "provider", "skill"];
 const SHOW = [["everything", "everything"], ["drift", "drift only"], ["configured", "with configuration"]];
 const GROUP = [["scope", "scope"], ["type", "type"], ["registry", "registry"]];
-const SCOPE_LABEL = { everyone: "Everyone", system: "System", some: "Only some people" };
+// `everyone` is a system package that is everyone's default; `system` here is the other meaning of the word, a
+// package only the system workspace holds (a provider, the sign-in page); `some` is everything else.
+const SCOPE_LABEL = { everyone: "Default for everyone", system: "System workspace only", some: "Some people" };
 
 /** What a person's cell says about a package there, or "none" when the package is not installed for them. */
 export function cellState(entry) {

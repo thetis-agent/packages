@@ -1,17 +1,17 @@
 /* The gallery: one toolbar row (a search box, one chip per package type, a note on the index) and a card per
- * package (its name, the state badge, an update on offer and unpublished work, two lines of description,
+ * package (its name, whose it is and whether it is installed, an update on offer and unpublished work, two lines of description,
  * then version · type · registry; the fork and bench badges wait for the page). An installed package whose configuration is missing something
  * carries the kernel's one sentence about it, from one `config-list` call after the rows, so a card that
  * cannot work says so before its page is opened. A card says nothing here that a package's own page does
  * not also say: `publish_targets` answers what this workspace published only when it is asked about one
  * package, and one such question per card would reach every registry once per card. The badge is the
  * index's own statement instead, which is true of every row at once and costs nothing.
- * Installed packages come first, then what the registries offer. The search runs on the server through
+ * Installed packages come first, then the system packages the person does not have, then what the registries offer. The search runs on the server through
  * the `search` command, because the index and its ranking live there; the page only keeps the last query
  * so coming back from a package page shows the same list. Clicking a card re-opens the place with the
  * package's name. An admin also gets **Registries** at the end of the toolbar, the page in registries.js. */
 
-import { aheadBadge, stateBadge, updateBadge } from "./badges.js";
+import { aheadBadge, installedBadge, stateBadge, updateBadge } from "./badges.js";
 
 /** Kept across opens: the query a person came back to. */
 const last = { q: "", type: "" };
@@ -87,17 +87,19 @@ export function openGallery(ext, root) {
   function drawNote() {
     clear(note);
     const installed = rows.filter((r) => r.installed).length;
-    if (!facts.indexed) return note.append(`${installed} installed · no marketplace index yet`);
+    const system = rows.filter((r) => r.system).length;
+    const here = `${installed} in your workspace · ${system} system`;
+    if (!facts.indexed) return note.append(`${here} · no marketplace index yet`);
     const names = facts.registries.map((r) => r.name).join(", ") || "none";
     const failed = facts.registries.filter((r) => r.error).length;
-    note.append(facts.registries.length === 1 ? "registry " : "registries ", el("code", {}, names), ` · refreshed ${when(facts.updatedAt) || "never"} · ${facts.total} ${facts.total === 1 ? "package" : "packages"}${failed ? ` · ${failed} failed to refresh` : ""}`);
+    note.append(`${here} · `, facts.registries.length === 1 ? "registry " : "registries ", el("code", {}, names), ` · refreshed ${when(facts.updatedAt) || "never"} · ${facts.total} ${facts.total === 1 ? "package" : "packages"}${failed ? ` · ${failed} failed to refresh` : ""}`);
   }
 
   function card(r) {
     return el(
       "button",
       { type: "button", class: `mk-card${r.installed ? " is-installed" : ""}`, "data-name": r.name, onClick: () => ext.open.place("marketplace", { name: r.name }) },
-      el("div", { class: "mk-card-head" }, el("code", { class: "mk-card-name" }, r.name), el("div", { class: "tags" }, stateBadge(badge, r), updateBadge(badge, r), aheadBadge(badge, r))),
+      el("div", { class: "mk-card-head" }, el("code", { class: "mk-card-name" }, r.name), el("div", { class: "tags" }, stateBadge(badge, r), installedBadge(badge, r), updateBadge(badge, r), aheadBadge(badge, r))),
       el("p", { class: "mk-card-desc" }, r.description || "No description."),
       r.installed && summaries.get(r.name)?.broken ? el("span", { class: "mk-card-broken" }, summaries.get(r.name).summary) : null,
       el("span", { class: "mk-card-meta" }, [r.version, r.type, r.registry].filter(Boolean).join(" · "))
@@ -109,7 +111,7 @@ export function openGallery(ext, root) {
     drawNote();
     clear(cards);
     if (!rows.length) {
-      put(cards, el("div", { class: "mk-empty" }, last.q || last.type ? "No package matches." : "Nothing is installed here, and no registry is configured."));
+      put(cards, el("div", { class: "mk-empty" }, last.q || last.type ? "No package matches." : "Nothing is installed here, nothing is shipped here, and no registry is configured."));
     } else put(cards, ...rows.map(card));
     if (!facts.indexed) put(cards, el("p", { class: "panel-hint mk-hint" }, `No marketplace index yet. ${registriesBtn ? "Registries are set under Registries above" : "Registries are configured under packages[\"@thetis/marketplace\"].registries"}; the service refreshes them on a timer.`));
   }

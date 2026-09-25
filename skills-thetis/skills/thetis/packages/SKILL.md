@@ -125,7 +125,7 @@ Declare it with `"service": { "export": "startService" }`. `env` is the step env
 
 | Scope | Owner | Rule |
 |---|---|---|
-| `@thetis/*` | The system | Shipped in `<root>/packages` or promoted into `$THETIS_HOME/packages`. Only an admin or the system user installs one. |
+| `@thetis/*` | The system | Shipped in `<root>/packages` or promoted into `$THETIS_HOME/packages`. Anyone installs one by name into their own workspace: the copy is already on disk and already built. Installing a `@thetis/*` package from a git URL or a directory is an admin's act. |
 | `@<user>/*` | That user | Only that user installs it, and only into that user's userspace. |
 
 Name your packages `@<your user id>/<name>`. A wrong scope fails with the code `unauthorized`.
@@ -162,7 +162,7 @@ The fence has no host loopback and, in network mode `none`, no network. An `npm 
   src/<slug>/
 ```
 
-The kernel keeps `$THETIS_HOME/registry.json` in the service plane. You cannot read it from the fence. Each record has `name`, `version`, `type`, `owner`, `source` (`{ kind, ref }` with `kind` `system`, `local`, or `git`), and `userspaces`. A fork's record also has `forkedFrom`, `replaced`, and `replacedSource`. Read your installed packages with `env.kernel.packages.list()`, or with the `list_packages` tool.
+The kernel keeps `$THETIS_HOME/registry.json` in the service plane. You cannot read it from the fence. Each record has `name`, `version`, `type`, `owner`, `source` (`{ kind, ref }` with `kind` `system`, `local`, or `git`), and `userspaces`. A fork's record also has `forkedFrom`, `replaced`, and `replacedSource`. Read your installed packages with `env.kernel.packages.list()`, or with the `list_packages` tool. Read the system packages on disk, installed or not, with `env.kernel.packages.catalog()`.
 
 ## The cycle from a conversation
 

@@ -106,9 +106,10 @@ test("package-activity: a fleet-wide install says who it left alone, and why", (
   const forks = [{ user: "bob", fork: "@bob/gateway-web" }];
   assert.equal(
     sentence({ kind: "package.everyone", target: "@thetis/gateway-web", data: { userspaces: ["root"], forks } }),
-    "installed @thetis/gateway-web for everyone, except bob, who holds a fork of it",
+    "made @thetis/gateway-web the default for everyone, except bob, who holds a fork of it",
   );
-  assert.equal(sentence({ kind: "package.everyone", target: "@thetis/gateway-web", data: { userspaces: ["root", "bob"] } }), "installed @thetis/gateway-web for everyone");
+  assert.equal(sentence({ kind: "package.everyone", target: "@thetis/gateway-web", data: { userspaces: ["root", "bob"] } }), "made @thetis/gateway-web the default for everyone");
+  assert.equal(sentence({ kind: "package.everyone", target: "@thetis/gateway-web", data: { on: false } }), "@thetis/gateway-web is no longer the default for everyone");
   assert.equal(
     sentence({ kind: "package.promote", target: "alice", data: { name: "@alice/gw", promoted: "@thetis/gw", userspaces: ["root"], forks } }),
     "promoted @alice/gw to @thetis/gw for 1 workspace, except bob, who holds a fork of it",

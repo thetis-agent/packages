@@ -1,13 +1,18 @@
-/* The actions a package page offers, and the confirm popover in front of each: Install for me, Update or
- * Reload my workspace or Go back to the package this was forked from, Remove, Delete (a package of one's
- * own, with its files), Publish to a registry -- with the packages already on the branch that a push would
- * carry with it, ticked one by one or named as the reason it cannot go, and, for a fork whose origin the
- * registry already holds, the two publishes it could be, each with the version control that belongs to it
- * -- Take out of a registry, which is the one act here that takes something away from everybody else, and
- * for an admin Install for everyone, Make it the default for everyone, and Install for a person. Update, Reload and Go back are the three kinds of behind: a
- * registry holding a newer commit is installed, files on disk the workspace has not read are already installed and are put
- * into service by reloading the workspace, and a fork's origin has moved on without it, which going back
- * to that origin takes. Every popover states the facts a person should read first and one sentence on what
+/* The actions a package page offers, and the confirm popover in front of each. For anyone: Install and
+ * Remove -- one pair, whatever the package is, with the popover saying what the install of *this kind* of
+ * package does: a system package is linked already built, a registry's offer is cloned and built in the
+ * person's own space, and what it brings depends on its type (skills, tools, steps, a service, a place on
+ * the page). Update or Reload my workspace or Go back to the package this was forked from, the three kinds
+ * of behind: a registry holding a newer commit is installed, files on disk the workspace has not read are
+ * put into service by reloading the workspace, and a fork's origin has moved on without it, which going
+ * back takes. Delete, for a package of one's own, with its files. Publish to a registry -- with the
+ * packages already on the branch that a push would carry with it, ticked one by one or named as the reason
+ * it cannot go, and, for a fork whose origin the registry already holds, the two publishes it could be --
+ * and Take out of a registry, the one act here that takes something away from everybody else. For an admin,
+ * under the person's own actions: Make it the default for everyone and Stop it being the default, which
+ * are the two states of one system package; Install for everyone, which turns a registry's offer into a
+ * system package; and Install for a person. A host package and a storage driver have no Install at all,
+ * and the hint says why. Every popover states the facts a person should read first and one sentence on what
  * happens next; nothing is sent until they confirm. After an action the place is re-opened on the page, or
  * on the gallery when the package is gone from here. */
 
@@ -37,8 +42,43 @@ async function settle(ext, name, deadline = Date.now() + SETTLE_MS) {
   }
 }
 
-/** A shipped @thetis package installs by name, already built; anything else by its registry source. */
-const sourceOf = (row) => (row.name.startsWith("@thetis/") ? row.name : row.source);
+/** A system package installs by name, already built; anything else by its registry source. */
+const sourceOf = (row) => (row.system ? row.name : row.source);
+
+/**
+ * What installing a package of this type does for the person, in one sentence. The flow is the type's:
+ * a skill pack is offered to the agent, a tool is offered to the agent, a loader runs in the turn, a
+ * service starts at once, a ui package appears on the page. Said in the popover and in the hint under
+ * the buttons, so "Install" never has to be taken on faith.
+ */
+export function whatItBrings(type) {
+  switch (type) {
+    case "skill":
+      return "Its skills are offered to your agent from your next turn.";
+    case "tool":
+      return "Its tools are offered to your agent from your next turn.";
+    case "loader":
+      return "Its steps run in your turns from the next one.";
+    case "provider":
+      return "Its models are yours to pick from your next turn.";
+    case "service":
+      return "Its service starts in your workspace at once.";
+    case "gateway":
+      return "Its service starts in your workspace at once and answers for you.";
+    case "ui":
+      return "Its places and panels are on the page the next time it loads.";
+    case "skill-type":
+      return "Its library is there for the packages that need it from your next turn.";
+    default:
+      return "It is live on your next turn.";
+  }
+}
+
+/** The types nothing installs into a workspace, each with why. The page offers no Install for these and says this instead. */
+export const NOT_INSTALLABLE = {
+  host: "A host package is loaded by the daemon by name and is never installed into a workspace.",
+  storage: "A storage driver runs on the host and is chosen by storage.driver in the configuration; it is never installed into a workspace.",
+};
 
 const count = (n) => `${n} ${n === 1 ? "person" : "people"}`;
 
@@ -124,14 +164,20 @@ export function actionsFor(ext, view, host) {
     }
   }
 
+  /**
+   * Into the person's own workspace. The popover says which of the two installs this is, because they cost
+   * different things: a system package is already here and already built, so the install is a link and is
+   * over at once; a registry's offer is cloned and built in the person's own space and takes a minute.
+   */
   function installMe(anchor) {
+    const how = row.system ? "Nothing is fetched or built: the installation's copy is linked into your workspace." : "It is cloned from the registry and built in your own space.";
     return run(
       anchor,
-      { title: "Install for you?", lines: [["package", `${row.name}@${row.version}`], ["from", row.registry || "a source"], ["for", "you only"]], note: "It is live on the next turn.", confirmLabel: "Install" },
-      "Installing… this can take a minute.",
+      { title: `Install ${row.name}?`, lines: [["package", `${row.name}@${row.version}`], ["from", row.system ? "this installation" : row.registry || "a source"], ["into", "your workspace"]], note: `${how} ${whatItBrings(row.type)}`, confirmLabel: "Install" },
+      row.system ? "Installing…" : "Installing… this can take a minute.",
       () => ext.request("install", { args: { source: sourceOf(row) } }),
       (r) => {
-        ext.toast(`${r.name}@${r.version} is in place for you.`, { tone: "good" });
+        ext.toast(`${r.name}@${r.version} is in your workspace.`, { tone: "good" });
         go(r.name);
       }
     );
@@ -237,26 +283,46 @@ export function actionsFor(ext, view, host) {
   function installFor(anchor, who) {
     return run(
       anchor,
-      { title: `Install for ${who}?`, lines: [["package", `${row.name}@${row.version}`], ["from", row.registry || "a source"], ["for", who]], note: "It is live on their next turn.", confirmLabel: "Install" },
+      { title: `Install for ${who}?`, lines: [["package", `${row.name}@${row.version}`], ["from", row.system ? "this installation" : row.registry || "a source"], ["into", `${who}'s workspace`]], note: `${row.system ? "The installation's copy is linked into their workspace." : "It is cloned and built in their space."} It is live on their next turn.`, confirmLabel: "Install" },
       `Installing for ${who}… this can take a minute.`,
       () => ext.request("install-for", { args: { user: who, source: sourceOf(row) } }),
       (r) => {
-        ext.toast(`${r.name}@${r.version} is in place for ${who}.`, { tone: "good" });
+        ext.toast(`${r.name}@${r.version} is in ${who}'s workspace.`, { tone: "good" });
         go(row.name);
       }
     );
   }
 
+  /**
+   * A system package becomes everyone's default: marked, and linked into every person now. The same verb on
+   * a registry's offer first installs it for the admin and then promotes it, which is what makes it a system
+   * package; the popover says which of the two is about to happen.
+   */
   function installEveryone(anchor) {
-    const shipped = row.name.startsWith("@thetis/");
     return run(
       anchor,
-      { title: "Install for everyone?", lines: [["package", `${row.name}@${row.version}`], ["from", row.registry || "a source"], ["for", "everyone, now and later"]], note: shipped ? "Every person gets it on their next turn, and every new person is set up with it." : "It is installed for you and then made the default under @thetis for everyone.", confirmLabel: "Install for everyone" },
-      "Installing for everyone… this can take a minute.",
+      row.system
+        ? { title: "Make it the default for everyone?", lines: [["package", `${row.name}@${row.version}`], ["for", "everyone, now and later"]], note: "Every person gets it on their next turn, and every new person is set up with it. Anyone can still remove it from their own workspace.", confirmLabel: "Make it the default" }
+        : { title: "Install for everyone?", lines: [["package", `${row.name}@${row.version}`], ["from", row.registry || "a source"], ["for", "everyone, now and later"]], note: "It is installed for you, copied under @thetis as a system package, and set up for every person now and later.", confirmLabel: "Install for everyone" },
+      row.system ? "Making it the default for everyone…" : "Installing for everyone… this can take a minute.",
       () => ext.request("install-everyone", { args: { source: sourceOf(row) } }),
       (r) => {
-        ext.toast(`${r.name} is installed for everyone (${count(r.userspaces?.length ?? 0)}).${forksNote(r)}`, { tone: r.forks?.length ? "warn" : "good" });
+        ext.toast(`${r.name} is the default for everyone (${count(r.userspaces?.length ?? 0)}).${forksNote(r)}`, { tone: r.forks?.length ? "warn" : "good" });
         go(r.name);
+      }
+    );
+  }
+
+  /** The mark comes off. Nobody loses the package: new people stop being set up with it, and that is all. */
+  function unmarkEveryone(anchor) {
+    return run(
+      anchor,
+      { title: "Stop it being the default for everyone?", lines: [["package", row.name], ["now", "everyone gets it"], ["after", "each person installs it"]], note: "New people are no longer set up with it. Everyone who has it keeps it; a person removes it from their own page.", confirmLabel: "Stop being the default", tone: "warn" },
+      "Taking the mark off…",
+      () => ext.request("unmark-everyone", { args: { name: row.name } }),
+      () => {
+        ext.toast(`${row.name} is no longer the default for everyone.`, { tone: "good" });
+        go(row.name);
       }
     );
   }
@@ -265,7 +331,7 @@ export function actionsFor(ext, view, host) {
     const base = row.name.slice(row.name.indexOf("/") + 1);
     return run(
       anchor,
-      { title: "Make it the default for everyone?", lines: [["package", row.name], ["becomes", `@thetis/${base}`], ["for", "everyone, now and later"]], note: `Everyone gets @thetis/${base} on their next turn. Your own copy ${row.name} is removed.`, confirmLabel: "Make it the default" },
+      { title: "Make it a system package for everyone?", lines: [["package", row.name], ["becomes", `@thetis/${base}`], ["for", "everyone, now and later"]], note: `A copy goes under @thetis as a system package. Everyone gets @thetis/${base} on their next turn. Your own copy ${row.name} is removed.`, confirmLabel: "Make it the default" },
       "Making it the default…",
       () => ext.request("promote", { args: { user, name: row.name } }),
       (r) => {
@@ -275,20 +341,26 @@ export function actionsFor(ext, view, host) {
     );
   }
 
+  /**
+   * Out of the person's own workspace, and nothing more. A system package is the installation's, so it stays
+   * on disk and Install puts it back; one that is everyone's default stays everyone's, and the popover says
+   * so, because "remove" on a package marked for everyone reads as though it might undo the mark.
+   */
   function remove(anchor) {
+    const stops = "What it brings stops on your next turn; a service it runs stops now.";
     const note = row.replaced
       ? `Its files stay in place; only the link is removed. ${row.replaced} comes back on the next turn.`
-      : row.scope === "everyone"
-        ? "This is a system package. Steps and tools it brings stop on the next turn; an admin can add it back."
-        : "Its files stay in place; only the link is removed. Steps and tools it brings stop on the next turn.";
+      : row.system
+        ? `It leaves your workspace only: the installation keeps its copy, and Install puts it back. ${stops}${row.everyone ? " It stays the default for everyone else, and a new person still gets it." : ""}`
+        : `Its files stay in place; only the link is removed. ${stops}`;
     return run(
       anchor,
-      { title: "Remove this package?", lines: [["package", row.name], ["from", "your own setup"]], note, confirmLabel: "Remove", tone: "warn" },
+      { title: "Remove this package?", lines: [["package", row.name], ["from", "your workspace"]], note, confirmLabel: "Remove", tone: "warn" },
       "Removing…",
       () => ext.request("remove", { args: { name: row.name } }),
       () => {
-        ext.toast(`${row.name} was removed.`, { tone: "good" });
-        go(row.available ? row.name : row.replaced || null);
+        ext.toast(`${row.name} is out of your workspace.`, { tone: "good" });
+        go(row.available || row.system ? row.name : row.replaced || null);
       }
     );
   }
@@ -313,9 +385,13 @@ export function actionsFor(ext, view, host) {
     return b;
   };
 
-  if (!row.installed) {
-    add("Install for me", "primary", installMe);
-    hints.push(row.name.startsWith("@thetis/") ? "A shipped package is linked already built. It is live on the next turn." : "The package is cloned from its registry and built in your own space. It is live on your next turn.");
+  // One Install, whatever the package is, and none at all for the two types nothing installs into a
+  // workspace. The hint says what kind of install this is and what the package's type brings.
+  const notInstallable = NOT_INSTALLABLE[row.type];
+  if (!row.installed && notInstallable) hints.push(notInstallable);
+  else if (!row.installed) {
+    add("Install", "primary", installMe);
+    hints.push(`${row.system ? "A system package: shipped with this installation and already built, so installing it links the installation's copy into your workspace." : `Cloned from ${row.registry || "its registry"} and built in your own space.`} ${whatItBrings(row.type)}`);
   }
   if (row.update?.apply === "unfork") {
     add(`Go back to ${row.update.origin}`, "primary", unforkMe);
@@ -331,24 +407,40 @@ export function actionsFor(ext, view, host) {
     add(`Update to ${row.update.version}`, "primary", updateMe);
     hints.push(`The registry holds a newer commit (${row.update.from} → ${row.update.to}). Nothing changes until you take it, and the copy you have keeps working if the new one fails to build.`);
   }
-  if (admin && row.scope !== "everyone" && (row.source || row.name.startsWith("@thetis/"))) {
-    add("Install for everyone", "primary", installEveryone);
-    hints.push("Everyone gets it now, and every new person from then on.");
-  }
-  if (admin && row.installed && row.scope === "me" && !row.name.startsWith("@thetis/")) {
-    add("Make it the default for everyone", "primary", promote);
-    hints.push(`Making it the default copies the package under @thetis, adds it for every person, and removes your own copy.`);
-  }
   if (row.installed) add("Remove", "warn", remove);
   if (own) {
     add("Delete", "warn", del);
     hints.push(row.replaced ? `Remove or Delete puts ${row.replaced} back in place.` : "Delete removes the package and its files under packages/.");
   }
 
+  // The admin's actions come after the person's own, and they are about everyone, never about this
+  // workspace: Install and Remove above already are that. A system package is either everyone's default
+  // or not, and the one button here flips it -- when it can. `everyoneBy` says who made it everyone's,
+  // and a mark the configuration or a promotion made is not this page's to undo, so the hint says where
+  // that is undone rather than drawing a button that would refuse.
+  if (admin && row.system && !notInstallable) {
+    if (!row.everyone) {
+      add("Make it the default for everyone", "quiet", installEveryone);
+      hints.push("Every person gets it now, and every new person is set up with it.");
+    } else if (row.everyoneBy === "marked") {
+      add("Stop it being the default", "quiet", unmarkEveryone);
+      hints.push("It is everyone's default by an admin's mark. Taking the mark off stops new people being set up with it; everyone who has it keeps it.");
+    } else if (row.everyoneBy === "promoted") hints.push("It is everyone's default because it was promoted. Removing the promoted copy from the host is what undoes that.");
+    else hints.push('It is everyone\'s default by the installation\'s configuration (systemPackages "*"), which the control panel edits.');
+  }
+  if (admin && !row.system && !own && row.source && !notInstallable) {
+    add("Install for everyone", "quiet", installEveryone);
+    hints.push("It is installed for you, becomes a system package under @thetis, and every person gets it now and later.");
+  }
+  if (admin && own) {
+    add("Make it the default for everyone", "quiet", promote);
+    hints.push("Making it the default copies the package under @thetis as a system package, adds it for every person, and removes your own copy.");
+  }
+
   // An admin installs for one person from a picker: the people, then a button naming the chosen one.
   let picker = null;
   const others = (people || []).filter((p) => p.id !== user);
-  if (admin && others.length && row.scope !== "everyone" && (row.source || row.name.startsWith("@thetis/"))) {
+  if (admin && others.length && !row.everyone && !notInstallable && (row.source || row.system)) {
     const select = el("select", { class: "input mk-person", "aria-label": "Person" }, ...others.map((p) => el("option", { value: p.id }, p.id)));
     const b = button(`Install for ${select.value}`, { tone: "quiet" });
     select.addEventListener("change", () => {

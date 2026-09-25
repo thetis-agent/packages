@@ -224,6 +224,9 @@ export function openPage(ext, root, params) {
     return el("span", {}, el("code", {}, doc.version ? `${doc.name}@${doc.version}` : doc.name), ` ${where}`, doc.at ? el("span", { class: "text-dim" }, ` · ${when(doc.at)}`) : null);
   }
 
+  /** Who made a system package everyone's default, as a clause: the one fact that decides whether an admin can undo it here. */
+  const everyoneBy = (r) => (r.everyoneBy === "config" ? " · by the installation's configuration" : r.everyoneBy === "promoted" ? " · promoted" : r.everyoneBy === "marked" ? " · marked by an admin" : "");
+
   function benchRows(r) {
     const bench = r.bench;
     if (!bench?.suites?.length) return [];
@@ -267,7 +270,10 @@ export function openPage(ext, root, params) {
         view.config ? sentence : null,
         kv([
           ...versionRows(r, publishedLine),
-          !r.installed && !r.available && ["state", el("span", { class: "text-faint" }, "not installed")],
+          // The three facts the badges say short, in full: whether it is here, whose it is, and who gets it.
+          ["state", r.installed ? "in your workspace" : el("span", { class: "text-faint" }, "not in your workspace")],
+          r.system && ["system", r.everyone ? `everyone's default${everyoneBy(r)}` : "optional: each person installs it"],
+          r.own && ["owner", "you"],
           ["type", r.type],
           r.license && ["license", r.license],
           r.forkedFrom && ["forked from", el("code", {}, `${r.forkedFrom.name}@${r.forkedFrom.version}`)],

@@ -516,7 +516,8 @@ with `devpass123`, `users add bob` with `bobpass123`, `serve` with the pid kept,
     "Whose" picker. Click the exa row: the card on the right shows the description and the button **Open in
     the marketplace**; click it: the Marketplace place opens on "Marketplace › @thetis/exa". No console errors.
 35. **As bob**: sign in as `bob` / `bobpass123` in the same tab and open the Marketplace. Expect the exa card
-    **Everyone**. Open `@thetis/bench-probe`: **Install for me** only, no picker, no admin action. The crumb
+    **System · everyone** and **Installed**. Open `@thetis/bench-probe`: **System**, no **Installed**, one
+    **Install** button, no picker, no admin action; confirm it and expect **Installed** and **Remove**. The crumb
     returns to the gallery; Escape closes the place and `#app` loses `is-place`. From a shell with bob's
     cookie, `POST /bob/api/ext/@thetis/ui-marketplace/install-everyone` and `.../people` with
     `sec-fetch-site: same-origin` answer `403 {"error":"only an admin can send \"…\""}`; `GET /bob/api/admin/users`

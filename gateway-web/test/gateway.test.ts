@@ -705,7 +705,7 @@ test("panel: the built-in sections are the same for everyone; a package's admin 
   for (const path of ["users", "models", "journal", "config", "packages"]) assert.equal((await api(root, `/root/api/admin/${path}`)).status, 404, `api/admin/${path} is gone`);
   const marketplaceUi = ((await (await api(root, "/root/api/ui")).json()) as { extensions: { package: string; places: { id: string; order: number }[]; commands: string[] }[] }).extensions.find((e) => e.package === "@thetis/ui-marketplace");
   assert.deepEqual(marketplaceUi?.places.map((e) => [e.id, e.order]), [["marketplace", 20]]);
-  assert.deepEqual(marketplaceUi?.commands, ["search", "show", "install", "remove", "delete", "update", "unfork", "publish-targets", "publish", "unpublish", "config-show", "config-list", "config-set", "config-unset", "fence-reload", "install-everyone", "install-for", "remove-for", "promote", "people", "registries", "registry-add", "registry-edit", "registry-remove", "registry-key", "registry-key-revoke", "registry-test"]);
+  assert.deepEqual(marketplaceUi?.commands, ["search", "show", "install", "remove", "delete", "update", "unfork", "publish-targets", "publish", "unpublish", "config-show", "config-list", "config-set", "config-unset", "fence-reload", "install-everyone", "unmark-everyone", "install-for", "remove-for", "promote", "people", "registries", "registry-add", "registry-edit", "registry-remove", "registry-key", "registry-key-revoke", "registry-test"]);
   const marketplaceForAlice = ((await (await api(alice, "/alice/api/ui")).json()) as { extensions: { package: string; places: { id: string }[]; commands: string[] }[] }).extensions.find((e) => e.package === "@thetis/ui-marketplace");
   assert.deepEqual(marketplaceForAlice?.places.map((e) => e.id), ["marketplace"], "the place is everyone's");
   assert.deepEqual(marketplaceForAlice?.commands, ["search", "show", "install", "remove", "delete", "update", "unfork", "publish-targets", "publish", "unpublish", "config-show", "config-list", "config-set", "config-unset", "fence-reload"], "the admin verbs are not; a person's own configuration is, and so is reloading their own workspace: publishing is a person's own act too, and answers `available: false` where nothing can publish");
@@ -786,13 +786,17 @@ test("packages: a person installs their own package, an admin promotes it, and e
   assert.ok(mine.some((p) => p.name === "@alice/hello" && p.scope === "me" && p.description === ""));
   assert.ok(mine.some((p) => p.name === "@thetis/harness-core" && p.scope === "everyone" && p.description.startsWith("The default harness")));
   assert.ok((await api(alice, "/alice/api/packages", { method: "POST", body: JSON.stringify({ source: "packages/nope" }) })).status >= 400, "a bad path is refused");
-  assert.ok((await api(alice, "/alice/api/packages", { method: "POST", body: JSON.stringify({ source: "@thetis/gateway-web" }) })).status >= 400, "a user cannot install a system package");
+  // A system package is the installation's and already built: anyone links one into their own workspace by name.
+  const herself = await api(alice, "/alice/api/packages", { method: "POST", body: JSON.stringify({ source: "@thetis/gateway-cli" }) });
+  assert.equal(herself.status, 201, `a user installs a system package for herself: ${await herself.text()}`);
+  assert.equal((await api(alice, "/alice/api/packages/%40thetis%2Fgateway-cli", { method: "DELETE" })).status, 200);
+  assert.ok((await api(alice, "/alice/api/packages", { method: "POST", body: JSON.stringify({ source: "@thetis/nope" }) })).status >= 400, "a name nothing shipped or promoted has is refused");
 
   // The admin verbs of @thetis/ui-marketplace replace the gateway's old /api/admin/packages routes.
   assert.equal((await api(root, "/root/api/admin/packages?user=alice")).status, 404, "api/admin is gone");
   const forAlice = await market(root, "root", "install-for", { user: "alice", source: "@thetis/prompt-cache" });
   assert.equal(forAlice.status, 200, `an admin installs a system package for a user: ${forAlice.error}`);
-  assert.equal((forAlice.data as { name: string; scope: string }).scope, "me");
+  assert.deepEqual([(forAlice.data as { system: boolean; everyone: boolean }).system, (forAlice.data as { system: boolean; everyone: boolean }).everyone], [true, false], "a system package, not everyone's");
   assert.ok(((await (await api(alice, "/alice/api/packages")).json()) as { name: string }[]).some((p) => p.name === "@thetis/prompt-cache"));
   const refused = await market(alice, "alice", "promote", { user: "alice", name: "@alice/hello" });
   assert.equal(refused.status, 403);
@@ -869,10 +873,12 @@ test("marketplace: search and show read the index and the README copies in the s
   // No index yet: the rows are what is installed, and the answer says so.
   const bare = await market(alice, "alice", "search", { q: "" });
   assert.equal(bare.status, 200, bare.error);
-  const bareData = bare.data as { indexed: boolean; updatedAt: string | null; total: number; rows: { name: string; installed: boolean }[]; role: string; user: string };
+  const bareData = bare.data as { indexed: boolean; updatedAt: string | null; total: number; rows: { name: string; installed: boolean; system: boolean }[]; role: string; user: string };
   assert.equal(bareData.indexed, false);
   assert.equal(bareData.updatedAt, null);
-  assert.ok(bareData.rows.length > 0 && bareData.rows.every((r) => r.installed));
+  // No index: what is installed here and what the installation ships, and nothing else.
+  assert.ok(bareData.rows.length > 0 && bareData.rows.every((r) => r.installed || r.system));
+  assert.ok(bareData.rows.some((r) => r.installed) && bareData.rows.some((r) => !r.installed && r.system), "both kinds are listed");
   assert.equal(bareData.user, "alice");
   assert.equal(bareData.role, "user");
   const index = {
@@ -887,9 +893,11 @@ test("marketplace: search and show read the index and the README copies in the s
   writeFileSync(join(sysenv, "shared", "marketplace", "readme", "local", "greet.md"), "# greet\n\nSays hello.\n");
   const found = await market(alice, "alice", "search", { q: "hello" });
   assert.equal(found.status, 200, found.error);
-  const foundData = found.data as { indexed: boolean; total: number; rows: { name: string; installed: boolean; available: boolean; registry: string }[] };
+  const foundData = found.data as { indexed: boolean; total: number; rows: { name: string; installed: boolean; available: boolean; registry: string | null; system: boolean }[] };
   assert.equal(foundData.total, 2);
-  assert.deepEqual(foundData.rows.map((r) => [r.name, r.installed, r.available, r.registry]), [["@thetis/greet", false, true, "local"]]);
+  // Two rows match "hello": the promoted @thetis/hello alice removed from her workspace earlier -- a system
+  // package on disk, hers to install again by name -- and the registry's @thetis/greet, which "Says hello".
+  assert.deepEqual(foundData.rows.map((r) => [r.name, r.installed, r.available, r.registry, r.system]), [["@thetis/hello", false, false, null, true], ["@thetis/greet", false, true, "local", false]]);
   const all = (await market(root, "root", "search", {})).data as { updatedAt: string; rows: { name: string; installed: boolean }[]; role: string };
   assert.equal(all.updatedAt, index.updatedAt);
   assert.equal(all.role, "admin");
@@ -900,18 +908,21 @@ test("marketplace: search and show read the index and the README copies in the s
   // A page: the row, the README copy, and who is looking. No README is null, not an error.
   const page = await market(bob, "bob", "show", { name: "@thetis/greet" });
   assert.equal(page.status, 200, page.error);
-  const pageData = page.data as { row: { name: string; installed: boolean; tools: { name: string }[]; readme: boolean; scope: null }; readme: string; user: string };
+  const pageData = page.data as { row: { name: string; installed: boolean; tools: { name: string }[]; readme: boolean; system: boolean }; readme: string; user: string };
   assert.equal(pageData.readme, "# greet\n\nSays hello.\n");
   assert.deepEqual(pageData.row.tools, [{ name: "greet", description: "" }]);
-  assert.equal(pageData.row.scope, null);
+  assert.equal(pageData.row.system, false, "a registry's offer that is not on disk here");
   assert.equal(pageData.user, "bob");
   assert.equal(((await market(bob, "bob", "show", { name: "@thetis/memo" })).data as { readme: unknown }).readme, null);
-  const own = (await market(bob, "bob", "show", { name: "@thetis/harness-core" })).data as { row: { installed: boolean; scope: string; license: string | null; tools: { name: string; description: string }[] } };
-  assert.equal(own.row.scope, "everyone");
+  const own = (await market(bob, "bob", "show", { name: "@thetis/harness-core" })).data as { row: { installed: boolean; system: boolean; everyone: boolean; everyoneBy: string; license: string | null; tools: { name: string; description: string }[] } };
+  assert.deepEqual([own.row.system, own.row.everyone, own.row.everyoneBy], [true, true, "config"], "shipped, everyone's, and by the configuration's word");
+  // The catalog: a system package bob does not have is a row of its own, and bob may install it by name.
+  const catalogued = (await market(bob, "bob", "show", { name: "@thetis/prompt-cache" })).data as { row: { installed: boolean; system: boolean; everyone: boolean } };
+  assert.deepEqual([catalogued.row.installed, catalogued.row.system], [false, true], "on disk, not in bob's workspace");
   assert.equal(own.row.license, "MIT", "an installed copy's license comes from its package.json");
   const unknown = await market(bob, "bob", "show", { name: "@thetis/nope" });
   assert.equal(unknown.status, 400);
-  assert.match(String(unknown.error), /not installed here and no registry offers it/);
+  assert.match(String(unknown.error), /not installed here, not shipped here, and no registry offers it/);
   assert.equal((await market(bob, "bob", "update", { name: "@thetis/harness-core" })).status, 400, "a shipped package is never behind");
   assert.equal((await market(bob, "bob", "people")).status, 403, "the people picker is an admin's");
   assert.equal((await market(bob, "bob", "registries")).status, 403, "the registries and their keys are an admin's");

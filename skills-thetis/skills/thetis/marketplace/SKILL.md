@@ -72,9 +72,11 @@ The index is the latest. An install is a copy at one commit. Each entry's `sourc
 https://github.com/thetis-agent/packages.git#tools-files@ae6fdfd733a5b1c46eb6f26e8a1d249182dcf1ce
 ```
 
-A pin is exactly forty hexadecimal characters. Install a package with `install_package { source }` and that pinned source. The kernel fetches that one commit into `store/src/<slug>-<commit prefix>`. The pin is recorded, so a later refresh does not move it. A shipped `@thetis/*` package is sent by name, so the built copy is linked and not cloned.
+A pin is exactly forty hexadecimal characters. Install a package with `install_package { source }` and that pinned source. The kernel fetches that one commit into `store/src/<slug>-<commit prefix>`. The pin is recorded, so a later refresh does not move it.
 
-The ownership rules apply. A `@thetis/*` package installs for an admin. A `@<user>/*` package installs for that user only.
+A **system package** is one shipped in `<root>/packages` or promoted into `$THETIS_HOME/packages`. It is already on disk and already built. Send its name, `@thetis/<name>`, and the kernel links that copy into your workspace. Anyone can do this, admin or not. On an installation whose registry is the same repository the checkout ships, nearly every package in the index is also a system package, and the marketplace installs it by name, never by clone.
+
+The ownership rules apply to a *source*. A `@thetis/*` package installed from a git URL or a directory is an admin's act. A `@<user>/*` package installs for that user only.
 
 ## Update
 
@@ -105,20 +107,24 @@ From package code, `behind(installed, index)` in the library lists both kinds, e
 
 ## The Marketplace place
 
-The place is the item **Marketplace** in the sidebar's menu. The gallery shows a search box, one chip per type, and one card per package with the badges **Only me**, **Everyone**, or **Available**. A package page shows the README copy, the facts, what the package brings, and the actions the role allows.
+The place is the item **Marketplace** in the sidebar's menu. The gallery shows a search box, one chip per type, and one card per package. Installed packages come first, then the system packages you do not have, then what the registries offer.
+
+A card says three things apart. **System** or **System · everyone**: the package is the installation's, and whether every person gets it by default. **Mine**: a package of your own scope. `from <registry>`: an offer that is not on disk here. **Installed**: it is in your workspace. A package page shows the README copy, the facts, what the package brings, and the actions the role allows.
 
 | Action | Who | Command |
 |---|---|---|
-| Install for me | anyone | `install { source }` |
+| Install | anyone | `install { source }`. A system package by name. Anything else by its pinned source. The popover says what the package's type brings. A host package or a storage driver has no Install. |
+| Remove | anyone | `remove { name }`. Out of your workspace only. A system package stays on disk, and Install puts it back. |
 | Update to version | anyone, when behind | `update { name }` |
-| Remove | anyone | `remove { name }` |
 | Delete | the owner of a `@<user>/*` package | `delete { name }` |
-| Install for everyone | admins | `install-everyone { source }` |
-| Make it the default for everyone | admins | `promote { user, name }` |
 | Go back to what a fork was copied from | anyone | `unfork { name }` |
+| Make it the default for everyone | admins, on a system package | `install-everyone { source: name }`. Every person gets it now and later. |
+| Stop it being the default | admins, on a system package an admin marked | `unmark-everyone { name }`. New people stop getting it. Everyone who has it keeps it. A default the configuration or a promotion made is not undone here. |
+| Install for everyone | admins, on a registry's offer | `install-everyone { source }`. Installed for the admin, then promoted into a system package. |
+| Make it the default for everyone | admins, on their own package | `promote { user, name }` |
 | Install for a person | admins | `install-for { user, source }`, `remove-for { user, name }` |
 
-`search { q?, type? }` and `show { name }` read the index. `people` lists the people an admin may install for. Every action sits behind a confirm popover.
+`search { q?, type? }` and `show { name }` read the index and the kernel's catalog of system packages. `people` lists the people an admin may install for. Every action sits behind a confirm popover.
 
 ## The library
 

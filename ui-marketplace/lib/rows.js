@@ -1,7 +1,16 @@
-// One row per package name, from two lists: what is installed here (`env.kernel.packages.list()`) and
-// what the index in the shared directory offers. An installed package comes first and keeps its own
-// facts; the index adds where it came from and whether the registry has moved on. Nothing here changes
-// anything: a row is what a person reads before deciding.
+// One row per package name, from three lists: what is installed here (`env.kernel.packages.list()`), the
+// system packages on disk whether or not this person has them (`env.kernel.packages.catalog()`), and what
+// the index in the shared directory offers. An installed package comes first and keeps its own facts; a
+// system package the person does not have comes next, installable by name; the index adds where a package
+// came from and whether the registry has moved on. Nothing here changes anything: a row is what a person
+// reads before deciding.
+//
+// A row says three separate things, and the old `scope` said them as one word, which is how "Only me" came
+// to sit on a package shipped with the installation and "Available" on one a person could not install.
+// `system` is whose the package is: the installation's, shipped in the checkout or promoted into it, linked
+// already built, and open to anyone by name. `installed` is whether it is in this person's workspace.
+// `everyone` is whether every person gets it by default, with `everyoneBy` saying who decided that -- the
+// configuration, a promotion, or an admin's mark -- because only the mark can be taken back from a page.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { ahead, behind, compareVersions, shortCommit } from "@thetis/marketplace";
@@ -80,8 +89,11 @@ function benchOf(info) {
   return { suites: bench.suites ?? [], ...(bench.peerGroup ? { peerGroup: bench.peerGroup } : {}), reports: benchReports(info.root, bench.report) };
 }
 
-/** An installed package as a row. `tools` keeps the descriptions; the page shows them as pills with a title. */
-export function installedRow(info) {
+/**
+ * A package the kernel knows -- installed here, or a system package on disk -- as a row. `tools` keeps the
+ * descriptions; the page shows them as pills with a title. `own` is filled by `mergeRows`, which knows who is asking.
+ */
+export function installedRow(info, installed = true) {
   return {
     name: info.name,
     version: info.version,
@@ -90,8 +102,11 @@ export function installedRow(info) {
     keywords: [],
     registry: null,
     source: null,
-    installed: true,
-    scope: info.everyone ? "everyone" : "me",
+    installed,
+    system: info.source?.kind === "system",
+    everyone: !!info.everyone,
+    everyoneBy: info.everyoneBy ?? null,
+    own: false,
     pin: pinOf(info),
     license: licenseOf(info.root),
     available: false,
@@ -117,7 +132,10 @@ export function installedRow(info) {
   };
 }
 
-/** An index entry as a row: not installed here, offered by its registry. */
+/** A system package this person does not have, as a row: on disk, already built, installable by name. */
+export const catalogRow = (info) => installedRow(info, false);
+
+/** An index entry as a row: not installed here and not on disk, offered by its registry. */
 export function indexRow(entry) {
   return {
     name: entry.name,
@@ -128,7 +146,10 @@ export function indexRow(entry) {
     registry: entry.registry,
     source: entry.source,
     installed: false,
-    scope: null,
+    system: false,
+    everyone: false,
+    everyoneBy: null,
+    own: false,
     pin: null,
     license: null,
     available: true,
@@ -147,12 +168,17 @@ export function indexRow(entry) {
 }
 
 /**
- * Installed rows first, then what the registries offer that is not installed; one row per name. An
- * installed row that the index also carries learns its registry, its source and the registry's tip, and
- * whether the commit it is pinned to is behind; one whose workspace is running an older version than the
- * files on disk is behind its own disk, index or no index.
+ * Installed rows first, then the system packages this person does not have, then what the registries offer
+ * that is neither; one row per name. A row that the index also carries learns its registry, its source and
+ * the registry's tip, and an installed one whether the commit it is pinned to is behind; one whose
+ * workspace is running an older version than the files on disk is behind its own disk, index or no index.
+ *
+ * `catalog` is the kernel's list of system packages on disk. On an installation whose registry is the same
+ * repository the checkout ships, nearly every offer in the index is also on disk, and the row is then a
+ * system row: an install of it is a link by name, not a clone. `user` is who is asking, so a row can say
+ * the package is their own.
  */
-export function mergeRows(installed, entries, index) {
+export function mergeRows(installed, entries, index, { catalog = [], user = "" } = {}) {
   const byName = new Map();
   const newer = new Map(behind(installed, index).map((b) => [b.name, b]));
   // The two directions, read off the same two lists. `behind` is what this installation is missing;
@@ -161,6 +187,7 @@ export function mergeRows(installed, entries, index) {
   // An installed row learns what is behind before the index is consulted: a copy whose workspace loaded an
   // older version than the one on disk is behind whether or not any registry carries the package.
   for (const info of installed) byName.set(info.name, withAhead(withUpdate(installedRow(info), newer.get(info.name)), unshared.get(info.name)));
+  for (const info of catalog) if (!byName.has(info.name)) byName.set(info.name, catalogRow(info));
   // One complete offer per name. Equal versions keep the configured registry order.
   const offers = new Map();
   for (const entry of entries) {
@@ -176,10 +203,11 @@ export function mergeRows(installed, entries, index) {
     const merged = { ...have, registry: entry.registry, source: entry.source, available: true, tip: entry.version, readme: !!entry.readme, keywords: entry.keywords ?? [], description: have.description || entry.description || "" };
     byName.set(entry.name, withAhead(withUpdate(merged, newer.get(entry.name)), unshared.get(entry.name)));
   }
-  return [...byName.values()];
+  const mine = user ? `@${user}/` : null;
+  return [...byName.values()].map((r) => (mine && r.installed && r.name.startsWith(mine) ? { ...r, own: true } : r));
 }
 
-/** The page's own filter for installed packages, the same rule the index search uses for a name match. */
+/** The page's own filter for the rows the index does not carry, the same rule the index search uses for a name match. */
 export function matchesQuery(info, terms, type) {
   if (type && info.type !== type) return false;
   const hay = `${info.name} ${info.type} ${info.description ?? ""}`.toLowerCase();

@@ -1,9 +1,9 @@
 // The commands of @thetis/ui-marketplace, one per verb the manifest declares. The gateway runs them as
 // the person, inside the person's own fence, with the `StepEnv` it holds plus `user` and `role`. The
 // index and the README copies are read from the shared directory through `@thetis/marketplace`; a
-// person's own packages go through `env.kernel.packages`; the admin verbs go through
-// `env.kernel.operator.call`, which the gateway allows only past the declared role and the kernel only
-// for an admin's fence. Nothing here trusts the browser: `env.user` says who asked.
+// person's own packages, and the catalog of system packages on disk, go through `env.kernel.packages`;
+// the admin verbs go through `env.kernel.operator.call`, which the gateway allows only past the declared
+// role and the kernel only for an admin's fence. Nothing here trusts the browser: `env.user` says who asked.
 import { readIndex, readReadme, readReadmeAsset, search as searchIndex } from "@thetis/marketplace";
 import { installedRow, matchesQuery, mergeRows } from "./lib/rows.js";
 
@@ -23,14 +23,29 @@ function facts(index) {
   return { updatedAt: index?.updatedAt ?? null, registries: index?.registries ?? [], total: index?.packages.length ?? 0, indexed: !!index };
 }
 
+/**
+ * The system packages on disk, whether or not this person has them. A kernel from before the question
+ * existed has no answer, and then the gallery lists what is installed and what the registries offer, as it
+ * did before; nothing here fails for the lack of it.
+ */
+async function catalogOf(env) {
+  if (typeof env.kernel.packages.catalog !== "function") return [];
+  try {
+    return await env.kernel.packages.catalog();
+  } catch {
+    return [];
+  }
+}
+
 async function rowsOf(env) {
-  const [installed, index] = await Promise.all([env.kernel.packages.list(), readIndex(env)]);
-  return { installed, index, rows: mergeRows(installed, index?.packages ?? [], index) };
+  const [installed, catalog, index] = await Promise.all([env.kernel.packages.list(), catalogOf(env), readIndex(env)]);
+  return { installed, index, rows: mergeRows(installed, index?.packages ?? [], index, { catalog, user: env.user }) };
 }
 
 /**
- * Every package known here, installed first, narrowed by `q` and `type`. The index does the search with its
- * ranking; an installed package that the index does not carry is matched on its name, type and description.
+ * Every package known here -- installed first, then the system packages on disk, then the registries'
+ * offers -- narrowed by `q` and `type`. The index does the search with its ranking; a row the index does
+ * not carry is matched on its name, type and description.
  */
 export async function search(args, env) {
   const q = typeof args.q === "string" ? args.q.trim() : "";
@@ -40,7 +55,7 @@ export async function search(args, env) {
   if (q || type) {
     const hits = new Set(index ? searchIndex(index, q, { type, limit: 200 }).map((e) => e.name) : []);
     const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
-    shown = rows.filter((r) => hits.has(r.name) || (r.installed && matchesQuery(r, terms, type)));
+    shown = rows.filter((r) => hits.has(r.name) || ((r.installed || r.system) && matchesQuery(r, terms, type)));
   }
   return { data: { ...facts(index), rows: shown, user: env.user, role: env.role } };
 }
@@ -70,7 +85,7 @@ export async function show(args, env) {
   const name = packageName(args.name);
   const { index, rows } = await rowsOf(env);
   const row = rows.find((r) => r.name === name);
-  if (!row) fail(`${name} is not installed here and no registry offers it`);
+  if (!row) fail(`${name} is not installed here, not shipped here, and no registry offers it`);
   const entry = index?.packages.find((e) => e.name === name && e.registry === row.registry && e.source === row.source);
   const readme = entry ? ((await readReadme(env, entry)) ?? null) : null;
   const assets = readme ? await assetsOf(env, entry, readme) : {};
@@ -166,9 +181,21 @@ export async function fenceReload(_args, env) {
   return { data: await call(env, "fence.reload", { user: env.user }) };
 }
 
-/** A shipped `@thetis/<name>` is marked for everyone and linked into every person; anything else is installed for the admin and promoted. */
+/** A system package, sent by name, is marked as everyone's default and linked into every person; anything else is installed for the admin and promoted. */
 export async function installEveryone(args, env) {
   return { data: await call(env, "packages.installEveryone", { source: sourceOf(args.source) }) };
+}
+
+/**
+ * The other direction: a system package stops being everyone's default. New people are no longer seeded
+ * with it; everyone who has it keeps it, because taking a package out of a running workspace is that
+ * person's decision. The kernel refuses a name the configuration or a promotion made everyone's, and its
+ * sentence says what to edit instead.
+ */
+export async function unmarkEveryone(args, env) {
+  const name = packageName(args.name);
+  await call(env, "packages.unmarkEveryone", { name });
+  return { data: { name } };
 }
 
 export async function installFor(args, env) {

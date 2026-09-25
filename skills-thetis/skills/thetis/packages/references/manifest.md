@@ -80,6 +80,6 @@ A kernel registry record, in `$THETIS_HOME/registry.json`:
 
 `kind` is `system`, `local`, or `git`. `ref` is the system directory, the local path relative to home, or the git source with its pin. A fork's record also carries `forkedFrom`, `replaced`, and `replacedSource`. A record with no userspaces is deleted.
 
-What package code sees for each installed package, `PackageInfo`, from `ctx.packages.list()` or `env.kernel.packages.list()`: `{ name, version, type, description, root, thetis, forkedFrom?, everyone?, replaced? }`. `everyone` is `true` when every person gets the package.
+What package code sees for each installed package, `PackageInfo`, from `ctx.packages.list()` or `env.kernel.packages.list()`: `{ name, version, type, description, root, thetis, source?, forkedFrom?, everyone?, everyoneBy?, replaced? }`. `source.kind` is `system` for a package shipped or promoted here, `git` or `local` otherwise. `everyone` is `true` when every person gets the package by default, and `everyoneBy` says who decided that: `config` (the `systemPackages["*"]` list), `promoted`, or `marked` (an admin). `env.kernel.packages.catalog()` lists every system package on disk in the same shape, whether or not this workspace has it; anyone may install one of those by name.
 
 Sources: src/kernel/packages/manifest.ts, src/contracts/config.ts, src/contracts/packages.ts.

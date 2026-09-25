@@ -29,7 +29,7 @@ export function sentence(entry, name) {
     case "package.promote":
       return `promoted ${d.name ?? name} to ${d.promoted ?? "a system package"}${Array.isArray(d.userspaces) ? ` for ${d.userspaces.length} workspace${d.userspaces.length === 1 ? "" : "s"}` : ""}${kept(d)}`;
     case "package.everyone":
-      return `installed ${t} for everyone${kept(d)}`;
+      return d.on === false ? `${t} is no longer the default for everyone` : `made ${t} the default for everyone${kept(d)}`;
     case "service.start":
       return `service started for ${t}`;
     case "service.stop":

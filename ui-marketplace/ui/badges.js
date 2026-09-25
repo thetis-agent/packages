@@ -1,12 +1,23 @@
-/* The badges a row carries, the same on a card and on a page: its state (Only me, Everyone, Available),
- * a fork's origin, an update or a reload on offer, whether the work here has been published anywhere, and
- * what the benchmarks say. `badge` is the shell's, handed in so this module needs nothing of the seam. */
+/* The badges a row carries, the same on a card and on a page: whose the package is (System, Mine, or a
+ * registry's offer), whether it is in this person's workspace, a fork's origin, an update or a reload on
+ * offer, whether the work here has been published anywhere, and what the benchmarks say. `badge` is the
+ * shell's, handed in so this module needs nothing of the seam. */
 
+/**
+ * Whose the package is. A system package is the installation's -- shipped in the checkout or promoted into
+ * it -- and says so whether or not this person has it, and whether or not it is everyone's default; the
+ * default is a clause on the same badge, because "System" and "Everyone" were two badges for one fact
+ * and a person read them as two kinds of package. A registry's offer names the registry; a person's own
+ * package says so.
+ */
 export function stateBadge(badge, r) {
-  if (r.scope === "everyone") return badge("Everyone", "accent");
-  if (r.installed) return badge("Only me", "dim");
-  return badge(r.registry ? `Available · ${r.registry}` : "Available", "ok");
+  if (r.system) return badge(r.everyone ? "System · everyone" : "System", "accent");
+  if (r.own) return badge("Mine", "dim");
+  return badge(r.registry ? `from ${r.registry}` : "from a registry", "dim");
 }
+
+/** In this person's workspace, or nothing: the Install button is what says the other half. */
+export const installedBadge = (badge, r) => (r.installed ? badge("Installed", "ok") : null);
 
 /**
  * What a fork is, against the package it was copied from as that package stands now. "fork of X 0.1.1" is
@@ -130,4 +141,4 @@ export function benchBadge(badge, r) {
  * is the longer and the truer of the two, so the update badge stands down for it here. The gallery, which
  * draws no fork badge, keeps the terse one.
  */
-export const stateBadges = (badge, r) => [stateBadge(badge, r), forkBadge(badge, r), r.update?.apply === "unfork" ? null : updateBadge(badge, r), aheadBadge(badge, r), benchBadge(badge, r)].filter(Boolean);
+export const stateBadges = (badge, r) => [stateBadge(badge, r), installedBadge(badge, r), forkBadge(badge, r), r.update?.apply === "unfork" ? null : updateBadge(badge, r), aheadBadge(badge, r), benchBadge(badge, r)].filter(Boolean);

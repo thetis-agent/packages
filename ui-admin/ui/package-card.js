@@ -1,6 +1,6 @@
 /* The package card at the top of a package's settings page: what this copy is and where it stands, from
  * `package-info`. Every line is a fact the kernel, the marketplace index or git reported, said in words:
- * the version and type; whether everyone has it or only this person; where the copy came from (shipped
+ * the version and type; whether it is a system package and whether every person gets it by default; where the copy came from (shipped
  * with Thetis, a path in the home, or a registry repository with the commit it is pinned to); what it was
  * forked from and what it replaces; the version the workspace loaded when its fence opened, said only
  * when the files on disk have moved past it, because then a reload is what puts the new one into service;
@@ -23,7 +23,9 @@ function splitSource(ref) {
 export function packageFacts(info) {
   const facts = [];
   facts.push(["version", `${info.version} · ${info.type}`]);
-  facts.push(["scope", info.everyone ? "everyone has it" : "only you"]);
+  // A system package is the installation's whether or not it is everyone's default; the default is the second fact, with whose word made it so.
+  const by = info.everyoneBy === "config" ? " by the configuration" : info.everyoneBy === "promoted" ? " by promotion" : info.everyoneBy === "marked" ? " by an admin's mark" : "";
+  facts.push(["default", info.everyone ? `everyone gets it${by}` : info.source?.kind === "system" ? "optional: each person installs it" : "only the people it was installed for"]);
   const src = info.source;
   if (!src) facts.push(["source", "unknown"]);
   else if (src.kind === "system") facts.push(["source", "shipped with Thetis"]);
@@ -70,7 +72,7 @@ export function packageCard(ext, info) {
   const { el } = ext.dom;
   const { badge, button, card, confirm } = ext.ui;
   const lines = packageFacts(info);
-  const marks = [info.everyone ? badge("Everyone", "accent") : badge("Only me", "dim"), info.forkedFrom ? badge("fork", "warn") : null, updateBadge(badge, info), info.git?.ahead ? badge("not pushed", "warn") : null, info.git?.changed ? badge("uncommitted", "warn") : null].filter(Boolean);
+  const marks = [info.source?.kind === "system" ? badge(info.everyone ? "System · everyone" : "System", "accent") : badge(info.everyone ? "Everyone" : "Some people", "dim"), info.forkedFrom ? badge("fork", "warn") : null, updateBadge(badge, info), info.git?.ahead ? badge("not pushed", "warn") : null, info.git?.changed ? badge("uncommitted", "warn") : null].filter(Boolean);
 
   /**
    * Reload that workspace: the only thing that puts a version the fence has not read into service. Behind a

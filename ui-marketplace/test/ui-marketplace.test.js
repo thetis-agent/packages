@@ -11,8 +11,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as commands from "../index.js";
 import { mergeRows, withAhead, withUpdate } from "../lib/rows.js";
-import { aheadBadge, forkBadge, publishRecord, updateBadge } from "../ui/badges.js";
-import { blockerLines, passengersOf } from "../ui/actions.js";
+import { aheadBadge, forkBadge, installedBadge, publishRecord, stateBadge, updateBadge } from "../ui/badges.js";
+import { NOT_INSTALLABLE, blockerLines, passengersOf, whatItBrings } from "../ui/actions.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
@@ -26,7 +26,7 @@ const fromRegistry = (name, commit) => ({ name, version: "0.1.0", type: "tool", 
 const entry = (name, version, commit, extra = {}) => ({ name, version, type: "tool", description: `${name} from the registry`, keywords: ["k"], registry: "thetis", url: REPO, dir: name.slice(8), commit, source: `${REPO}#${name.slice(8)}@${commit}`, steps: [], tools: ["t"], service: false, ...extra });
 
 /** An env with a shared directory holding `index`, `installed` behind the kernel, and an operator that records calls. */
-function fakeEnv({ installed = [], index, readmes = {}, answers = {}, role = "user", user = "alice", reports = {}, effective = {}, tools = {} } = {}) {
+function fakeEnv({ installed = [], catalog, index, readmes = {}, answers = {}, role = "user", user = "alice", reports = {}, effective = {}, tools = {} } = {}) {
   const shared = mkdtempSync(join(tmpdir(), "ui-market-"));
   mkdirSync(join(shared, "marketplace", "readme", "thetis"), { recursive: true });
   if (index) writeFileSync(join(shared, "marketplace", "index.json"), JSON.stringify(index));
@@ -48,6 +48,8 @@ function fakeEnv({ installed = [], index, readmes = {}, answers = {}, role = "us
     kernel: {
       packages: {
         list: async () => installed,
+        // The catalog is asked only when the kernel has the question; an env without it is the older kernel.
+        ...(catalog ? { catalog: async () => (catalog instanceof Error ? Promise.reject(catalog) : catalog) } : {}),
         install: async (source) => {
           calls.push({ method: "install", source });
           return { ...shipped("@thetis/new"), everyone: false, source: { kind: "git", ref: source } };
@@ -94,7 +96,7 @@ async function captured(fn) {
 test("rows: installed first, then the registry's; a shared name learns its registry and whether it is behind", () => {
   const index = { version: 1, updatedAt: "2026-09-14T00:00:00.000Z", registries: [{ name: "thetis", url: REPO }], packages: [entry("@thetis/exa", "0.2.0", NEW), entry("@thetis/memo", "0.1.0", OLD)] };
   const rows = mergeRows([shipped("@thetis/harness-core"), fromRegistry("@thetis/exa", OLD)], index.packages, index);
-  assert.deepEqual(rows.map((r) => [r.name, r.installed, r.available, r.scope]), [["@thetis/harness-core", true, false, "everyone"], ["@thetis/exa", true, true, "me"], ["@thetis/memo", false, true, null]]);
+  assert.deepEqual(rows.map((r) => [r.name, r.installed, r.available, r.system, r.everyone]), [["@thetis/harness-core", true, false, true, true], ["@thetis/exa", true, true, false, false], ["@thetis/memo", false, true, false, false]]);
   const exa = rows[1];
   assert.equal(exa.pin, "1111111");
   assert.equal(exa.tip, "0.2.0");
@@ -106,6 +108,46 @@ test("rows: installed first, then the registry's; a shared name learns its regis
   assert.deepEqual(rows[0].tools, [{ name: "t", description: "a tool" }]);
   assert.deepEqual(rows[2].tools, [{ name: "t", description: "" }], "the index knows names only");
   assert.equal(withUpdate({ name: "x" }, undefined).update, undefined, "nothing newer says nothing");
+});
+
+test("rows: a system package nobody here has is a row of its own, installable by name, and the badges say whose it is and whether it is here", () => {
+  const badge = (text, tone) => ({ text, tone });
+  const index = { version: 1, updatedAt: "2026-09-25T00:00:00.000Z", registries: [{ name: "thetis", url: REPO }], packages: [entry("@thetis/skills-orleans", "0.1.0", NEW, { type: "skill" }), entry("@thetis/memo", "0.1.0", OLD)] };
+  const catalog = [
+    { ...shipped("@thetis/skills-orleans"), type: "skill", thetis: { type: "skill" }, everyone: undefined },
+    { ...shipped("@thetis/harness-core"), everyoneBy: "config" },
+    { ...shipped("@thetis/hello"), everyoneBy: "promoted" },
+    { ...shipped("@thetis/host-grants"), type: "host", thetis: { type: "host" }, everyone: undefined },
+  ];
+  const rows = mergeRows([shipped("@thetis/harness-core", { everyoneBy: "config" }), { ...fromRegistry("@alice/mine", OLD), source: { kind: "local", ref: "packages/mine" } }], index.packages, index, { catalog, user: "alice" });
+  assert.deepEqual(
+    rows.map((r) => [r.name, r.installed, r.system, r.everyone, r.everyoneBy, r.own, r.available]),
+    [
+      ["@thetis/harness-core", true, true, true, "config", false, false],
+      ["@alice/mine", true, false, false, null, true, false],
+      // Installed first, then what is on disk and not here, then the registry's offers. The shipped
+      // skill pack is on disk *and* in the index: one row, a system row, which is what lets a person who is
+      // not an admin install it -- by name, as the kernel allows anyone -- rather than by a git source.
+      ["@thetis/skills-orleans", false, true, false, null, false, true],
+      ["@thetis/hello", false, true, true, "promoted", false, false],
+      ["@thetis/host-grants", false, true, false, null, false, false],
+      ["@thetis/memo", false, false, false, null, false, true],
+    ]
+  );
+  const orleans = rows.find((r) => r.name === "@thetis/skills-orleans");
+  assert.equal(orleans.registry, "thetis", "the row learns the registry's word");
+  assert.equal(orleans.readme, false);
+  assert.deepEqual(stateBadge(badge, orleans), { text: "System", tone: "accent" });
+  assert.equal(installedBadge(badge, orleans), null, "not here: the Install button says the other half");
+  assert.deepEqual(stateBadge(badge, rows[0]), { text: "System · everyone", tone: "accent" }, "one badge for the two facts that used to be two kinds of package");
+  assert.deepEqual(installedBadge(badge, rows[0]), { text: "Installed", tone: "ok" });
+  assert.deepEqual(stateBadge(badge, rows[1]), { text: "Mine", tone: "dim" });
+  assert.deepEqual(stateBadge(badge, rows[5]), { text: "from thetis", tone: "dim" });
+  assert.equal(whatItBrings("skill"), "Its skills are offered to your agent from your next turn.");
+  assert.match(NOT_INSTALLABLE.host, /never installed into a workspace/);
+  // No catalog, no user: the rows are what they were, and nothing is anybody's own.
+  const bare = mergeRows([shipped("@thetis/harness-core")], [], undefined);
+  assert.deepEqual([bare[0].system, bare[0].everyone, bare[0].own], [true, true, false]);
 });
 
 test("rows: a copy the workspace has not loaded is behind its own disk, index or no index, and the badge says reload", () => {
@@ -206,6 +248,23 @@ test("search: no index answers the installed rows and says so; a query narrows t
   } finally {
     t.cleanup();
   }
+  // The system packages on disk are rows too, and a query reaches them by name whether or not the index carries them.
+  const shippedHere = fakeEnv({ installed: [shipped("@thetis/harness-core")], index, catalog: [shipped("@thetis/harness-core"), { ...shipped("@thetis/skills-orleans"), type: "skill", thetis: { type: "skill" }, everyone: undefined }] });
+  try {
+    const all = (await commands.search({}, shippedHere.env)).data;
+    assert.deepEqual(all.rows.map((r) => [r.name, r.installed, r.system]), [["@thetis/harness-core", true, true], ["@thetis/skills-orleans", false, true], ["@thetis/exa", false, false], ["@thetis/memo", false, false]]);
+    assert.deepEqual((await commands.search({ q: "orleans" }, shippedHere.env)).data.rows.map((r) => r.name), ["@thetis/skills-orleans"], "a system package's name matches without the index");
+    assert.deepEqual((await commands.show({ name: "@thetis/skills-orleans" }, shippedHere.env)).data.row.system, true, "and its page is a system page");
+  } finally {
+    shippedHere.cleanup();
+  }
+  // A catalog that fails is no catalog: the gallery is what it was, not an error.
+  const broken = fakeEnv({ installed: [shipped("@thetis/harness-core")], catalog: new Error("no") });
+  try {
+    assert.deepEqual((await commands.search({}, broken.env)).data.rows.map((r) => r.name), ["@thetis/harness-core"]);
+  } finally {
+    broken.cleanup();
+  }
 });
 
 test("show: the row with its README copy, null without one; an unknown name is refused", async () => {
@@ -227,7 +286,7 @@ test("show: the row with its README copy, null without one; an unknown name is r
     const memo = (await commands.show({ name: "@thetis/memo" }, t.env)).data;
     assert.equal(memo.readme, null);
     assert.deepEqual(memo.assets, {});
-    await assert.rejects(commands.show({ name: "@thetis/nope" }, t.env), /not installed here and no registry offers it/);
+    await assert.rejects(commands.show({ name: "@thetis/nope" }, t.env), /not installed here, not shipped here, and no registry offers it/);
     await assert.rejects(commands.show({ name: "nope" }, t.env), /looks like @scope\/name/);
   } finally {
     t.cleanup();
@@ -298,20 +357,24 @@ test("the admin verbs send one operator method each, with the arguments checked 
   });
   try {
     assert.deepEqual((await commands.installEveryone({ source: "@thetis/exa" }, t.env)).data, { name: "@thetis/exa", userspaces: ["alice", "bob"] });
-    assert.equal((await commands.installFor({ user: "bob", source: "@thetis/exa" }, t.env)).data.scope, "me");
+    assert.deepEqual([(await commands.installFor({ user: "bob", source: "@thetis/exa" }, t.env)).data.system, (await commands.installFor({ user: "bob", source: "@thetis/exa" }, t.env)).data.everyone], [true, false]);
     assert.deepEqual((await commands.removeFor({ user: "bob", name: "@thetis/exa" }, t.env)).data, { user: "bob", name: "@thetis/exa" });
+    assert.deepEqual((await commands.unmarkEveryone({ name: "@thetis/exa" }, t.env)).data, { name: "@thetis/exa" });
     assert.equal((await commands.promote({ user: "alice", name: "@alice/hello" }, t.env)).data.name, "@thetis/hello");
     assert.deepEqual((await commands.people({}, t.env)).data, [{ id: "root", role: "admin", status: "active" }, { id: "bob", role: "user", status: "active" }], "the system user is not a person to install for");
     assert.deepEqual(t.calls, [
       { method: "packages.installEveryone", args: { source: "@thetis/exa" } },
       { method: "packages.install", args: { user: "bob", source: "@thetis/exa" } },
+      { method: "packages.install", args: { user: "bob", source: "@thetis/exa" } },
       { method: "packages.uninstall", args: { user: "bob", name: "@thetis/exa" } },
+      { method: "packages.unmarkEveryone", args: { name: "@thetis/exa" } },
       { method: "packages.promote", args: { user: "alice", name: "@alice/hello" } },
       { method: "users.list", args: {} },
     ]);
     await assert.rejects(commands.installFor({ user: "Bob!", source: "x" }, t.env), /user must be/);
     await assert.rejects(commands.promote({ user: "alice", name: "hello" }, t.env), /looks like @scope\/name/);
     await assert.rejects(commands.installEveryone({}, t.env), /source is required/);
+    await assert.rejects(commands.unmarkEveryone({ name: "exa" }, t.env), /looks like @scope\/name/);
   } finally {
     t.cleanup();
   }

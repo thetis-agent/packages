@@ -219,7 +219,7 @@ test("package-info: the record, the registry's word and the checkout, each said 
     },
   };
   const out = await commands.packageInfo({ name: "@alice/hello" }, env);
-  assert.deepEqual(out.data, { name: "@alice/hello", version: "0.1.0-fork.1", type: "loader", description: "Says hello.", root: "/home/alice/packages/hello", everyone: false, forkedFrom: { name: "@thetis/hello", version: "0.1.0" }, replaced: "@thetis/hello", source: { kind: "local", ref: "packages/hello" }, loaded: null, registry: null, git: { branch: "main", upstream: "origin/main", ahead: 2, behind: 1, changed: 2, commit: "abc1234" }, dependencies: [], dependents: [] });
+  assert.deepEqual(out.data, { name: "@alice/hello", version: "0.1.0-fork.1", type: "loader", description: "Says hello.", root: "/home/alice/packages/hello", everyone: false, everyoneBy: null, forkedFrom: { name: "@thetis/hello", version: "0.1.0" }, replaced: "@thetis/hello", source: { kind: "local", ref: "packages/hello" }, loaded: null, registry: null, git: { branch: "main", upstream: "origin/main", ahead: 2, behind: 1, changed: 2, commit: "abc1234" }, dependencies: [], dependents: [] });
   assert.ok(execs[0].includes("'/home/alice/packages/hello'") && execs[0].endsWith("-- ."), "git is asked about this package's files only");
   const bare = await commands.packageInfo({ name: "@alice/hello" }, { ...env, exec: async () => ({ code: 128, stdout: "", stderr: "not a git repository" }) });
   assert.equal(bare.data.git, null);
@@ -239,9 +239,9 @@ test("the package card's facts: source, fork, registry and checkout in words", a
   const { packageFacts } = await import("../ui/package-card.js");
   const base = { name: "@thetis/exa", version: "0.1.0", type: "tool", root: "/srv/packages/exa", everyone: true, forkedFrom: null, replaced: null, source: { kind: "system", ref: "exa" }, registry: null, git: null };
   const words = (info) => Object.fromEntries(packageFacts(info).map(([k, v, tone]) => [k, tone ? `${v} [${tone}]` : v]));
-  assert.deepEqual(words(base), { version: "0.1.0 · tool", scope: "everyone has it", source: "shipped with Thetis", registry: "not in the marketplace index", checkout: "not in a git checkout", files: "/srv/packages/exa" });
+  assert.deepEqual(words(base), { version: "0.1.0 · tool", default: "everyone gets it", source: "shipped with Thetis", registry: "not in the marketplace index", checkout: "not in a git checkout", files: "/srv/packages/exa" });
   const git = words({ ...base, everyone: false, source: { kind: "git", ref: "https://x/registry.git#exa@0123456789abcdef" }, registry: { registry: "main", version: "0.2.0", commit: "fedcba9876543210", update: { version: "0.2.0", installed: "0123456789abcdef", available: "fedcba9876543210", source: "https://x/registry.git#exa@fedcba9876543210" } }, git: { branch: "main", upstream: "origin/main", ahead: 1, behind: 0, changed: 0, commit: "0123456" } });
-  assert.equal(git.scope, "only you");
+  assert.equal(git.default, "only the people it was installed for");
   assert.equal(git.source, "https://x/registry.git · exa · pinned to 0123456");
   assert.match(git.registry, /^main holds 0\.2\.0 \(fedcba9\); this copy is 0123456: an update is on offer in the marketplace \[warn\]$/);
   assert.equal(git.checkout, "on main · at 0123456 · 1 commit not pushed · nothing uncommitted here [warn]");
