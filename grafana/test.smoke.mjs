@@ -325,14 +325,63 @@ console.log("annotations: ok");
 // --- health: token failure is reported, not thrown ------------------------------------------------------------
 mock(({ path }) => {
   if (path === "/api/health") return { version: "12.1.0", commit: "abc", database: "ok" };
+  if (path === "/api/frontend/settings") return { namespace: "stacks-999" };
   return { status: 401, body: { message: "invalid API key" } };
 });
 out = await tools.health({}, env);
 assert.match(out, /version: 12\.1\.0/);
 assert.match(out, /token check FAILED: .*401/);
 assert.match(out, /glsa_/);
+assert.match(out, /configured "stacks-123" but the instance reports "stacks-999"/);
 assert.ok(!out.includes(TOKEN));
 console.log("health: ok");
+
+// --- integer args arrive as strings ------------------------------------------------------------------------
+mock(({ body }) => {
+  assert.strictEqual(body.panelId, 7, "panel_id string coerced to a number for Grafana's int64 binder");
+  return { id: 1 };
+});
+await tools.annotationCreate({ text: "x", dashboard_uid: "d", panel_id: "7" }, env);
+await assert.rejects(tools.annotationCreate({ text: "x", panel_id: "seven" }, env), /panel_id must be an integer/);
+mock(({ method, path }) => {
+  assert.equal(method, "DELETE");
+  assert.equal(path, "/api/annotations/42");
+  return { message: "deleted" };
+});
+await tools.annotationDelete({ id: "42" }, env);
+console.log("integer args as strings: ok");
+
+// --- booleans and lists arrive as strings too ------------------------------------------------------------------
+mock(({ query }) => {
+  assert.deepEqual(query.getAll("tag"), ["a", "b"]);
+  assert.equal(query.get("starred"), "true");
+  return [];
+});
+await tools.search({ tags: "a, b", starred: "true" }, env);
+mock(({ query }) => {
+  assert.deepEqual(query.getAll("tag"), ["x"]);
+  return [];
+});
+await tools.search({ tags: '["x"]' }, env);
+mock(({ method, path, body }) => {
+  if (method === "GET") return { dashboard: structuredClone(dash), meta: {} };
+  assert.deepEqual(body.dashboard.panels.map((p) => p.id), [1], "panels_remove as a string list");
+  assert.equal(body.overwrite, true);
+  return { uid: "abc", version: 5, url: "/d/abc" };
+});
+await tools.dashboardSave({ uid: "abc", panels_remove: "3", overwrite: "true" }, env);
+mock(({ method, path, headers }) => {
+  assert.equal(method, "DELETE");
+  assert.equal(path, "/api/v1/provisioning/folder/f/rule-groups/g");
+  return {};
+});
+await tools.alertRuleGroup({ folder_uid: "f", group: "g", delete: "true" }, env);
+console.log("boolean/list args as strings: ok");
+
+// --- invalid namespace 403 gets its own hint ----------------------------------------------------------------
+mock(() => ({ status: 403, body: { message: "invalid namespace", messageId: "authn.invalid-namespace" } }));
+await assert.rejects(tools.request({ path: "/apis/folder.grafana.app/v1/namespaces/{namespace}/folders" }, env), /stacks-<stack id>/);
+console.log("invalid namespace hint: ok");
 
 // --- non-JSON body is returned raw (exports) -------------------------------------------------------------
 mock(() => ({ status: 200, body: "apiVersion: 1\ngroups: []\n" }));

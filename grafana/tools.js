@@ -17,6 +17,9 @@ import {
   requireString,
   clampInt,
   toEpochMs,
+  boolArg,
+  listArg,
+  intArg,
   provenanceHeaders,
 } from "./client.js";
 
@@ -39,7 +42,33 @@ export async function health(args, env) {
   } catch (e) {
     lines.push(`token check FAILED: ${e.message}`);
   }
-  lines.push(`app-platform namespace configured: ${c.namespace}`);
+  // The app-platform namespace is not something a person should have to know.
+  // Grafana's frontend settings carry it; fall back to probing the folder API.
+  let actual;
+  try {
+    const s = await c.get("/api/frontend/settings");
+    if (typeof s.namespace === "string" && s.namespace) actual = s.namespace;
+  } catch {
+    // settings need no special permission, but never let this fail health
+  }
+  if (!actual) {
+    try {
+      await c.get(`${c.apis("folder.grafana.app")}/folders`, { limit: 1 });
+      actual = c.namespace;
+    } catch (e) {
+      if (/invalid namespace/i.test(e.message)) actual = undefined;
+    }
+  }
+  if (actual && actual !== c.namespace) {
+    lines.push(
+      `app-platform namespace: configured "${c.namespace}" but the instance reports "${actual}". ` +
+        `Set the \`namespace\` key on this package to "${actual}" (configure_package) or /apis calls through grafana_request will get 403.`
+    );
+  } else if (actual) {
+    lines.push(`app-platform namespace: ${actual} (configured and confirmed)`);
+  } else {
+    lines.push(`app-platform namespace configured: ${c.namespace} (could not confirm it against the instance)`);
+  }
   return lines.join("\n");
 }
 
@@ -53,11 +82,11 @@ export async function search(args, env) {
   const query = {
     query: a.query || undefined,
     type: a.type === "dashboard" ? "dash-db" : a.type === "folder" ? "dash-folder" : undefined,
-    tag: Array.isArray(a.tags) && a.tags.length ? a.tags : undefined,
-    folderUIDs: Array.isArray(a.folder_uids) && a.folder_uids.length ? a.folder_uids : undefined,
+    tag: listArg(a.tags, "tags"),
+    folderUIDs: listArg(a.folder_uids, "folder_uids"),
     dashboardUIDs:
-      Array.isArray(a.dashboard_uids) && a.dashboard_uids.length ? a.dashboard_uids : undefined,
-    starred: a.starred === true ? true : undefined,
+      listArg(a.dashboard_uids, "dashboard_uids"),
+    starred: boolArg(a.starred) ? true : undefined,
     limit,
     page: a.page ? clampInt(a.page, 1, 1, 1_000_000) : undefined,
   };
@@ -98,7 +127,8 @@ function summarizeDashboard(dash, meta, c) {
   out.push(`panels (${panels.length}):`);
   for (const p of panels) {
     const ds = p.datasource ? (typeof p.datasource === "string" ? p.datasource : p.datasource.uid) : "";
-    out.push(`  #${p.id} ${p.type} "${p.title ?? ""}"${ds ? ` ds=${ds}` : ""}${p._row ? ` (in row "${p._row}")` : ""}`);
+    const id = p.id === undefined || p.id === null ? "#? (no id)" : `#${p.id}`;
+    out.push(`  ${id} ${p.type} "${p.title ?? ""}"${ds ? ` ds=${ds}` : ""}${p._row ? ` (in row "${p._row}")` : ""}`);
     for (const t of p.targets ?? []) {
       const expr = t.expr ?? t.query ?? t.rawSql ?? t.target ?? "";
       if (expr) out.push(`      ${t.refId ?? ""}: ${clip(String(expr).replace(/\s+/g, " "), 160)}`);
@@ -141,7 +171,7 @@ export async function dashboardGet(args, env) {
     const { _row, ...clean } = p;
     return json(clean);
   }
-  if (args?.full) return json({ dashboard: dash, meta: r.meta });
+  if (boolArg(args?.full)) return json({ dashboard: dash, meta: r.meta });
   return summarizeDashboard(dash, r.meta, c);
 }
 
@@ -174,7 +204,7 @@ export async function dashboardSave(args, env) {
   let dashboard = asObject(a.dashboard, "dashboard");
   const set = asObject(a.set, "set");
   const panelsAdd = a.panels_add !== undefined ? asObject(a.panels_add, "panels_add") : undefined;
-  const panelsRemove = Array.isArray(a.panels_remove) ? a.panels_remove.map(Number) : [];
+  const panelsRemove = listArg(a.panels_remove, "panels_remove", { items: "integer" }) ?? [];
   const editing = !!(set || panelsAdd || panelsRemove.length);
 
   if (!dashboard && !editing) {
@@ -222,7 +252,7 @@ export async function dashboardSave(args, env) {
 
   const body = {
     dashboard,
-    overwrite: a.overwrite === true,
+    overwrite: boolArg(a.overwrite),
     message: a.message || undefined,
   };
   if (a.folder_uid !== undefined && a.folder_uid !== null) body.folderUid = a.folder_uid || "";
@@ -250,12 +280,12 @@ export async function dashboardVersions(args, env) {
   const a = args ?? {};
   if (a.restore_version !== undefined && a.restore_version !== null) {
     const r = await c.post(`/api/dashboards/uid/${encodeURIComponent(uid)}/restore`, {
-      version: Number(a.restore_version),
+      version: intArg(a.restore_version, "restore_version"),
     });
     return `restored dashboard uid=${uid} to version ${a.restore_version}; now version=${r.version ?? "?"} ${c.link(r.url ?? "")}`;
   }
   if (a.version !== undefined && a.version !== null) {
-    const r = await c.get(`/api/dashboards/uid/${encodeURIComponent(uid)}/versions/${Number(a.version)}`);
+    const r = await c.get(`/api/dashboards/uid/${encodeURIComponent(uid)}/versions/${intArg(a.version, "version")}`);
     return json(r);
   }
   const limit = clampInt(a.limit, 20, 1, 1000);
@@ -333,7 +363,7 @@ export async function folderSave(args, env) {
       const r = await c.put(`/api/folders/${encodeURIComponent(a.uid)}`, {
         title,
         version: f.version,
-        overwrite: a.overwrite === true,
+        overwrite: boolArg(a.overwrite),
         parentUid: a.parent_uid !== undefined ? a.parent_uid || "" : undefined,
       });
       return `updated folder "${r.title}" uid=${r.uid} version=${r.version ?? "?"} ${c.link(r.url ?? "")}`;
@@ -351,7 +381,7 @@ export async function folderDelete(args, env) {
   const c = client(env);
   const uid = requireString(args?.uid, "uid");
   const r = await c.delete(`/api/folders/${encodeURIComponent(uid)}`, {
-    forceDeleteRules: args?.force_delete_rules === true ? true : undefined,
+    forceDeleteRules: boolArg(args?.force_delete_rules) ? true : undefined,
   });
   return `deleted folder uid=${uid}${r.title ? ` "${r.title}"` : ""} and everything in it. ${r.message ?? ""}`.trim();
 }
@@ -363,7 +393,7 @@ export async function datasourceList(args, env) {
   const c = client(env);
   const a = args ?? {};
   if (a.uid) {
-    if (a.health) {
+    if (boolArg(a.health)) {
       const h = await c.get(`/api/datasources/uid/${encodeURIComponent(a.uid)}/health`);
       return `datasource ${a.uid} health: ${h.status ?? "?"} — ${h.message ?? ""}`.trim();
     }
@@ -439,7 +469,7 @@ export async function query(args, env) {
   }));
   const body = { queries, from: String(a.from ?? "now-1h"), to: String(a.to ?? "now") };
   const r = await c.post("/api/ds/query", body);
-  return formatQueryResult(r, a.raw === true);
+  return formatQueryResult(r, boolArg(a.raw));
 }
 
 function formatQueryResult(r, raw) {
@@ -489,9 +519,9 @@ export async function annotationList(args, env) {
     to: toEpochMs(a.to, "to"),
     limit,
     dashboardUID: a.dashboard_uid || undefined,
-    panelId: a.panel_id ?? undefined,
+    panelId: intArg(a.panel_id, "panel_id"),
     type: a.type || undefined,
-    tags: Array.isArray(a.tags) && a.tags.length ? a.tags : undefined,
+    tags: listArg(a.tags, "tags"),
   });
   if (!Array.isArray(r) || !r.length) return "no annotations match.";
   return r
@@ -512,10 +542,10 @@ export async function annotationCreate(args, env) {
   const body = {
     text,
     dashboardUID: a.dashboard_uid || undefined,
-    panelId: a.panel_id ?? undefined,
+    panelId: intArg(a.panel_id, "panel_id"),
     time: toEpochMs(a.time, "time") ?? Date.now(),
     timeEnd: toEpochMs(a.time_end, "time_end"),
-    tags: Array.isArray(a.tags) ? a.tags : undefined,
+    tags: listArg(a.tags, "tags"),
   };
   const r = await c.post("/api/annotations", body);
   return `created annotation id=${r.id} at ${new Date(body.time).toISOString()}${body.dashboardUID ? ` on dashboard ${body.dashboardUID}` : " (org-wide)"}.`;
@@ -524,22 +554,24 @@ export async function annotationCreate(args, env) {
 export async function annotationUpdate(args, env) {
   const c = client(env);
   const a = args ?? {};
-  if (a.id === undefined || a.id === null) throw new Error("id is required");
+  const id = intArg(a.id, "id");
+  if (id === undefined) throw new Error("id is required");
   const body = {};
   if (a.text !== undefined) body.text = a.text;
-  if (a.tags !== undefined) body.tags = a.tags;
+  if (a.tags !== undefined) body.tags = listArg(a.tags, "tags") ?? [];
   if (a.time !== undefined) body.time = toEpochMs(a.time, "time");
   if (a.time_end !== undefined) body.timeEnd = toEpochMs(a.time_end, "time_end");
   if (!Object.keys(body).length) throw new Error("nothing to change: give text, tags, time or time_end");
-  const r = await c.patch(`/api/annotations/${encodeURIComponent(a.id)}`, body);
-  return `updated annotation id=${a.id} (${Object.keys(body).join(", ")}). ${r.message ?? ""}`.trim();
+  const r = await c.patch(`/api/annotations/${id}`, body);
+  return `updated annotation id=${id} (${Object.keys(body).join(", ")}). ${r.message ?? ""}`.trim();
 }
 
 export async function annotationDelete(args, env) {
   const c = client(env);
-  if (args?.id === undefined || args.id === null) throw new Error("id is required");
-  const r = await c.delete(`/api/annotations/${encodeURIComponent(args.id)}`);
-  return `deleted annotation id=${args.id}. ${r.message ?? ""}`.trim();
+  const id = intArg(args?.id, "id");
+  if (id === undefined) throw new Error("id is required");
+  const r = await c.delete(`/api/annotations/${id}`);
+  return `deleted annotation id=${id}. ${r.message ?? ""}`.trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -552,13 +584,13 @@ export async function alertRuleList(args, env) {
   const c = client(env);
   const a = args ?? {};
   if (a.uid) {
-    if (a.export) {
+    if (boolArg(a.export)) {
       const r = await c.get(`${PROV}/alert-rules/${encodeURIComponent(a.uid)}/export`, { format: a.export_format || "yaml" });
       return typeof r._raw === "string" ? r._raw : json(r);
     }
     return json(await c.get(`${PROV}/alert-rules/${encodeURIComponent(a.uid)}`));
   }
-  if (a.export) {
+  if (boolArg(a.export)) {
     const r = await c.get(`${PROV}/alert-rules/export`, { format: a.export_format || "yaml", folderUid: a.folder_uid || undefined, group: a.group || undefined });
     return typeof r._raw === "string" ? r._raw : json(r);
   }
@@ -592,7 +624,7 @@ export async function alertRuleSave(args, env) {
   const rule = asObject(a.rule, "rule");
   if (!rule) throw new Error("rule is required: the ProvisionedAlertRule JSON (title, ruleGroup, folderUID, condition, data[], for, noDataState, execErrState, labels, annotations)");
   const set = asObject(a.set, "set");
-  const headers = provenanceHeaders(a.disable_provenance !== false);
+  const headers = provenanceHeaders(boolArg(a.disable_provenance, true));
   const uid = a.uid || rule.uid;
 
   if (uid) {
@@ -635,20 +667,20 @@ export async function alertRuleGroup(args, env) {
   const folder = requireString(a.folder_uid, "folder_uid");
   const group = requireString(a.group, "group");
   const path = `${PROV}/folder/${encodeURIComponent(folder)}/rule-groups/${encodeURIComponent(group)}`;
-  if (a.delete === true) {
+  if (boolArg(a.delete)) {
     await c.delete(path, undefined, provenanceHeaders(true));
     return `deleted rule group ${folder}/${group} and every rule in it.`;
   }
   if (a.interval !== undefined || a.rules !== undefined) {
     const cur = await c.get(path);
     const body = { ...cur };
-    if (a.interval !== undefined) body.interval = Number(a.interval);
+    if (a.interval !== undefined) body.interval = intArg(a.interval, "interval");
     if (a.rules !== undefined) {
       const rules = asObject(a.rules, "rules");
       if (!Array.isArray(rules)) throw new Error("rules must be an array of rule objects");
       body.rules = rules;
     }
-    const r = await c.put(path, body, undefined, provenanceHeaders(a.disable_provenance !== false));
+    const r = await c.put(path, body, undefined, provenanceHeaders(boolArg(a.disable_provenance, true)));
     return `rule group ${folder}/${group}: interval=${r.interval}s, ${Array.isArray(r.rules) ? r.rules.length : "?"} rules.`;
   }
   const r = await c.get(path);
@@ -660,8 +692,8 @@ export async function alertRuleGroup(args, env) {
 export async function contactPointList(args, env) {
   const c = client(env);
   const a = args ?? {};
-  if (a.export) {
-    const r = await c.get(`${PROV}/contact-points/export`, { format: a.export_format || "yaml", name: a.name || undefined, decrypt: a.decrypt === true ? true : undefined });
+  if (boolArg(a.export)) {
+    const r = await c.get(`${PROV}/contact-points/export`, { format: a.export_format || "yaml", name: a.name || undefined, decrypt: boolArg(a.decrypt) ? true : undefined });
     return typeof r._raw === "string" ? r._raw : json(r);
   }
   const list = await c.get(`${PROV}/contact-points`, { name: a.name || undefined });
@@ -678,7 +710,7 @@ export async function contactPointSave(args, env) {
   const a = args ?? {};
   const cp = asObject(a.contact_point, "contact_point");
   if (!cp) throw new Error("contact_point is required: { name, type, settings, disableResolveMessage? }");
-  const headers = provenanceHeaders(a.disable_provenance !== false);
+  const headers = provenanceHeaders(boolArg(a.disable_provenance, true));
   const uid = a.uid || cp.uid;
   if (uid) {
     const list = await c.get(`${PROV}/contact-points`);
@@ -707,16 +739,16 @@ export async function contactPointDelete(args, env) {
 export async function notificationPolicies(args, env) {
   const c = client(env);
   const a = args ?? {};
-  if (a.reset === true) {
+  if (boolArg(a.reset)) {
     await c.delete(`${PROV}/policies`);
     return "notification policy tree reset to the default and unlocked for UI editing.";
   }
   const tree = asObject(a.tree, "tree");
   if (tree) {
-    await c.put(`${PROV}/policies`, tree, undefined, provenanceHeaders(a.disable_provenance !== false));
+    await c.put(`${PROV}/policies`, tree, undefined, provenanceHeaders(boolArg(a.disable_provenance, true)));
     return `notification policy tree replaced: root receiver "${tree.receiver}", ${countRoutes(tree)} nested route(s).`;
   }
-  if (a.export) {
+  if (boolArg(a.export)) {
     const r = await c.get(`${PROV}/policies/export`, { format: a.export_format || "yaml" });
     return typeof r._raw === "string" ? r._raw : json(r);
   }
@@ -750,7 +782,7 @@ export async function muteTimings(args, env) {
       const name = a.name || mt.name;
       if (!name) throw new Error("a mute timing needs a name");
       mt.name = name;
-      const headers = provenanceHeaders(a.disable_provenance !== false);
+      const headers = provenanceHeaders(boolArg(a.disable_provenance, true));
       let exists = false;
       try {
         await c.get(`${PROV}/mute-timings/${encodeURIComponent(name)}`);
@@ -790,7 +822,7 @@ export async function templates(args, env) {
     case "save": {
       const name = requireString(a.name, "name");
       if (typeof a.template !== "string") throw new Error("template is required: the Go template text");
-      const r = await c.put(`${PROV}/templates/${encodeURIComponent(name)}`, { template: a.template }, undefined, provenanceHeaders(a.disable_provenance !== false));
+      const r = await c.put(`${PROV}/templates/${encodeURIComponent(name)}`, { template: a.template }, undefined, provenanceHeaders(boolArg(a.disable_provenance, true)));
       return `saved template "${r.name ?? name}" (${a.template.length} chars).`;
     }
     case "delete":

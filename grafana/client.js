@@ -189,6 +189,11 @@ export function explainError(status, text, method, path) {
       "The token was rejected. Check the `token` configured for this package: a Grafana " +
       "service account token starts with `glsa_`. A Grafana Cloud *access policy* token " +
       "(`glc_`) is for the Cloud API, not for the instance's HTTP API, and will not work here.";
+  } else if (status === 403 && (messageId === "authn.invalid-namespace" || /invalid namespace/i.test(message))) {
+    hint =
+      "The namespace in the /apis path is not this instance's. On Grafana Cloud it is " +
+      "`stacks-<stack id>` (grafana_health reports it); on self-hosted it is `default`. Set the " +
+      "`namespace` key on this package, or write the right one into the path.";
   } else if (status === 403) {
     hint =
       "The service account lacks the permission this call needs. Give it a higher basic role " +
@@ -260,6 +265,65 @@ export function asObject(value, name) {
 export function requireString(value, name) {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${name} is required`);
   return value.trim();
+}
+
+/**
+ * An integer argument, whether it arrived as a number or as the string a tool
+ * host sometimes sends ("1"). Undefined, null and "" mean not given. Anything
+ * else that is not an integer is an error naming the argument.
+ */
+export function intArg(value, name) {
+  if (value === undefined || value === null || value === "") return undefined;
+  const n = typeof value === "number" ? value : Number(String(value).trim());
+  if (!Number.isInteger(n)) throw new Error(`${name} must be an integer, got ${clip(String(value), 40)}`);
+  return n;
+}
+
+/**
+ * A boolean argument, whether it arrived as a boolean or as the string a tool
+ * host sometimes sends ("true"). Undefined, null and "" give `def`.
+ */
+export function boolArg(value, def = false) {
+  if (value === undefined || value === null || value === "") return def;
+  if (typeof value === "boolean") return value;
+  const s = String(value).trim().toLowerCase();
+  if (s === "true" || s === "1" || s === "yes") return true;
+  if (s === "false" || s === "0" || s === "no") return false;
+  return def;
+}
+
+/**
+ * A list argument, whether it arrived as an array, as a JSON string of one,
+ * or as a comma-separated string. Undefined, null, "" and [] give undefined,
+ * so callers can pass the result straight into a query or body and have the
+ * key omitted.
+ */
+export function listArg(value, name, { items = "string" } = {}) {
+  if (value === undefined || value === null || value === "") return undefined;
+  let list = value;
+  if (typeof value === "string") {
+    const s = value.trim();
+    if (s.startsWith("[")) {
+      try {
+        list = JSON.parse(s);
+      } catch (e) {
+        throw new Error(`${name} looks like JSON but does not parse: ${e.message}`);
+      }
+    } else {
+      list = s.split(",").map((x) => x.trim()).filter(Boolean);
+    }
+  }
+  if (!Array.isArray(list)) list = [list];
+  if (!list.length) return undefined;
+  if (items === "integer") return list.map((x, i) => intArg(x, `${name}[${i}]`));
+  if (items === "object") {
+    return list.map((x, i) => {
+      const o = asObject(x, `${name}[${i}]`);
+      if (!o) throw new Error(`${name}[${i}] must be an object`);
+      return o;
+    });
+  }
+  return list.map((x) => String(x));
 }
 
 export function clampInt(value, def, min, max) {

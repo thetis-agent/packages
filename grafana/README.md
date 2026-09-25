@@ -104,6 +104,24 @@ header a caller passes.
 JSON is cut at 18 000 characters with a note saying so; a list that hits its
 limit says how to get the rest instead of pretending it was everything.
 
+**Arguments may arrive as strings.** The tool host sometimes passes `"1"` for
+an integer and `"true"` for a boolean. Grafana's JSON binder rejects a string
+where it wants an int64 (`400 bad request data` on `panelId`), so every
+integer, boolean and list argument goes through `intArg` / `boolArg` /
+`listArg` in `client.js` before it reaches a request. Lists also accept
+`"a, b"` and `'["a","b"]'`.
+
+## Verified against
+
+Grafana Cloud 13.3.0 (2026-09-25): every read tool; folder create/rename;
+dashboard create, edit-in-place (`set`, `panels_add`), versions, permissions,
+delete; annotations create/list/delete; contact point create/merge-update/
+delete; alert rule create/merge-update/delete, rule group read, yaml export;
+mute timing and template create/read/delete; policy tree replace and reset;
+`grafana_request` against `/apis/folder.grafana.app` with the stack namespace.
+`grafana_query` returned well-formed empty frames because the stack had no
+samples yet; not verified with data.
+
 ## Development
 
 `package.json` is generated: edit `manifest.mjs` and run `node manifest.mjs`.

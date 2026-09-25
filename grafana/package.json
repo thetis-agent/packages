@@ -1,6 +1,6 @@
 {
   "name": "@bitmuse/grafana",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Grafana's HTTP API as tools: search, read, save and version dashboards, manage folders, data sources, annotations, alert rules, contact points, notification policies, mute timings and templates, run queries, and call any other endpoint, against one configured Grafana Cloud stack or self-hosted instance.",
   "keywords": [
     "grafana",
