@@ -167,7 +167,7 @@ export function mountFleet(ext, root, { refresh, onOpen, user } = {}) {
     const ok = await confirm(anchor, {
       title: `Reload ${list.length} ${list.length === 1 ? "workspace" : "workspaces"}?`,
       lines: list.map((w) => [w.user === user ? `${w.user} (you)` : w.user, w.changed.map((c) => `${c.name} ${c.loaded} → ${c.onDisk}`).join(", ")]),
-      note: "Each workspace closes and opens again on the code on disk now: its services, its provider and the agent itself. Every open shell session in it stops; conversations and files are untouched. Your own workspace goes last, and this page waits for it to answer again.",
+      note: "Each workspace closes and opens again on the code on disk now: its services, its provider and the agent itself. Every open shell session in it stops; conversations and files are untouched, and a workspace with a turn running is left alone and named. Your own workspace goes last, and this page waits for it to answer again.",
       confirmLabel: "Reload",
       tone: "warn",
     });
@@ -176,7 +176,9 @@ export function mountFleet(ext, root, { refresh, onOpen, user } = {}) {
     let done = 0;
     for (const w of list) {
       const out = await reloadWorkspace(ext, w.user, { onLost: () => ext.toast(`${w.user} is reloading. Waiting for the workspace to answer again…`, { tone: "good" }) });
-      if (out.state === "refused") ext.toast(`${w.user}: ${out.message}`, { tone: "error" });
+      // A turn running there is left alone: a sweep across the fleet is no place to cancel somebody's work.
+      if (out.state === "busy") ext.toast(`${w.user} was left alone: ${out.message}. Reload it from Workspaces when the turn ends, or cancel the turn there.`, { tone: "warn" });
+      else if (out.state === "refused") ext.toast(`${w.user}: ${out.message}`, { tone: "error" });
       else if (out.state === "silent") ext.toast(`${w.user} ${out.message.replace(/^It /, "")}`, { tone: "error" });
       else done += 1;
     }

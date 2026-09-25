@@ -121,10 +121,13 @@ test("mounts-list asks for one person or everyone; mounts-set checks the list th
 
 test("fence-reload targets one workspace, `_system` included, and status reads the whole installation", async () => {
   const { env, calls } = fakeEnv({ "fence.reload": (a) => ({ user: a.user, services: a.user === "_system" ? [] : ["@thetis/gateway-web"] }), status: { daemon: { stale: false }, restart: null, workspaces: [{ user: "bob", stale: true }] } });
+  assert.deepEqual(await commands.fenceReload({ user: "bob", force: true }, env), { data: { user: "bob", services: ["@thetis/gateway-web"] } });
   assert.deepEqual(await commands.fenceReload({ user: "bob" }, env), { data: { user: "bob", services: ["@thetis/gateway-web"] } });
   assert.deepEqual(await commands.fenceReload({ user: "_system" }, env), { data: { user: "_system", services: [] } }, "_system is a legal target here, unlike a mount");
   assert.deepEqual(await commands.status({}, env), { data: { daemon: { stale: false }, restart: null, workspaces: [{ user: "bob", stale: true }] } });
   assert.deepEqual(calls, [
+    // force travels only when it is true: the kernel refuses a reload over a running turn unless it is asked to cancel it.
+    { method: "fence.reload", args: { user: "bob", force: true } },
     { method: "fence.reload", args: { user: "bob" } },
     { method: "fence.reload", args: { user: "_system" } },
     { method: "status", args: {} },
@@ -132,7 +135,7 @@ test("fence-reload targets one workspace, `_system` included, and status reads t
   await refuses(commands.fenceReload, { user: "Bad Id" }, env, /user must be lowercase letters, digits and dashes/);
   await refuses(commands.fenceReload, { user: "_other" }, env, /user must be lowercase/);
   await refuses(commands.fenceReload, {}, env, /user must be lowercase/);
-  assert.equal(calls.length, 3, "a refused reload never reaches the kernel");
+  assert.equal(calls.length, 4, "a refused reload never reaches the kernel");
 });
 
 test("overview: the checkout line says the strongest true thing, and the workspaces behind the disk are named", async () => {

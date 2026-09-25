@@ -335,9 +335,11 @@ test("fence-reload names the person who sent it and nobody else", async () => {
     assert.deepEqual((await commands.fenceReload({}, t.env)).data, { user: "alice", services: ["@thetis/gateway-web"] });
     // The browser cannot ask for anyone else's: the id comes from the fence, so an argument is ignored.
     await commands.fenceReload({ user: "bob" }, t.env);
+    await commands.fenceReload({ force: true }, t.env);
     assert.deepEqual(t.calls, [
       { method: "fence.reload", args: { user: "alice" } },
       { method: "fence.reload", args: { user: "alice" } },
+      { method: "fence.reload", args: { user: "alice", force: true } },
     ]);
   } finally {
     t.cleanup();

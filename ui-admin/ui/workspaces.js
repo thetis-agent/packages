@@ -58,12 +58,23 @@ export async function settle(ext, deadline = Date.now() + SETTLE_MS) {
  * expected success, not a failure, so `onLost` is called once the waiting starts. The fleet page reloads
  * several workspaces through this same function, so both places wait the same way.
  */
-export async function reloadWorkspace(ext, target, { onLost } = {}) {
+/** The kernel's refusal for a workspace with a turn running in it: not a failure, a question for the person. */
+export function isBusy(err) {
+  return /has a turn running/.test(err?.message ?? "");
+}
+
+/**
+ * One reload, and what it answered: `done` with the services restarted and the turns cancelled, `busy` when a
+ * turn runs there and `force` was not given, `refused` with the kernel's sentence, `returned` when the
+ * fence answering this page closed and the new one answered, `silent` when it never did.
+ */
+export async function reloadWorkspace(ext, target, { onLost, force = false } = {}) {
   try {
-    const out = await ext.request("fence-reload", { args: { user: target } });
-    return { state: "done", services: out?.data?.services ?? [] };
+    const out = await ext.request("fence-reload", { args: { user: target, ...(force ? { force: true } : {}) } });
+    return { state: "done", services: out?.data?.services ?? [], cancelled: out?.data?.cancelled ?? [] };
   } catch (err) {
     // A refused verb answers at once and names its reason; a closed gateway never answers at all.
+    if (isBusy(err)) return { state: "busy", message: err.message };
     if (!isLost(err)) return { state: "refused", message: err.message };
     onLost?.();
     if (await settle(ext)) return { state: "returned", services: [] };
@@ -104,9 +115,19 @@ export function mountWorkspaces(ext, root, { user }) {
    * answering this request, so a lost request is the expected success, not a failure: the page then waits
    * until the new workspace answers, and after the deadline the row says what to run on the host.
    */
-  async function reload(target) {
+  async function reload(target, anchor, force = false) {
     lost.delete(target);
-    const out = await reloadWorkspace(ext, target, { onLost: () => ext.toast(`${target} is reloading. Waiting for the workspace to answer again…`, { tone: "good" }) });
+    const out = await reloadWorkspace(ext, target, { force, onLost: () => ext.toast(`${target} is reloading. Waiting for the workspace to answer again…`, { tone: "good" }) });
+    // A turn is running there. The kernel refused rather than kill it, and killing it is what a reload used to
+    // do: two and a half hours of a turn once died that way, recorded no further than what it was asked. So this
+    // is a second question, not a failure: cancel the turn, which ends it as a cancel with what it has said and
+    // done kept, and then reload.
+    if (out.state === "busy") {
+      const ok = await confirm(anchor, { title: "Cancel the running turn and reload?", lines: [["workspace", target]], note: `${out.message}. Cancelling ends the turn as a cancel: what it has said and done so far is kept, and the conversation stays.`, confirmLabel: "Cancel the turn and reload", tone: "warn" });
+      if (ok) return reload(target, anchor, true);
+      return void (await load());
+    }
+    if (out.cancelled?.length) ext.toast(`Cancelled the turn running in ${out.cancelled.join(", ")}.`, { tone: "warn" });
     if (out.state === "done") ext.toast(out.services.length ? `${target} was reloaded: ${out.services.join(", ")} restarted.` : `${target} was reloaded. Nobody runs a service there, so it reopens on the next request.`, { tone: "good" });
     else if (out.state === "refused") {
       ext.toast(out.message, { tone: "error" });
@@ -133,7 +154,7 @@ export function mountWorkspaces(ext, root, { user }) {
         ? "The providers and the sign-in page restart on the code that is on disk now."
         : `${me ? "Your" : `${row.user}'s`} gateway, terminal and every service in the workspace restart on the code that is on disk now.`,
       "Every open shell session in it stops, and whatever is running in one stops with it.",
-      "Conversations and files are untouched.",
+      "Conversations and files are untouched. A turn running there is refused, and can then be cancelled and the reload forced.",
       row.user === SYSTEM ? "The sign-in page is unavailable for a second; anyone already signed in is unaffected." : null,
       me ? "This is the workspace serving this page, so the page will wait for it to answer again." : null,
     ]
@@ -293,7 +314,7 @@ export function mountWorkspaces(ext, root, { user }) {
                 if (!(await ask(b, r))) return;
                 b.disabled = true;
                 try {
-                  await reload(r.user);
+                  await reload(r.user, b);
                 } finally {
                   b.disabled = false;
                 }

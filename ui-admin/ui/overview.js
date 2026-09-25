@@ -103,14 +103,14 @@ export function mountOverview(ext, root, { user } = {}) {
   /** Every workspace behind the disk, the admin's own last: reloading it closes the fence answering this page. */
   async function reloadAll(anchor) {
     const behind = behindWorkspaces(status).sort((a, b) => (a === user ? 1 : b === user ? -1 : a.localeCompare(b)));
-    const ok = await confirm(anchor, { title: `Reload ${behind.length} workspace${behind.length === 1 ? "" : "s"}?`, lines: [["workspaces", behind.join(", ")]], note: "Each closes and opens again on the code on disk. Every open shell session in it ends; conversations and files are untouched. Yours goes last, and this page reconnects on its own.", confirmLabel: "Reload", tone: "warn" });
+    const ok = await confirm(anchor, { title: `Reload ${behind.length} workspace${behind.length === 1 ? "" : "s"}?`, lines: [["workspaces", behind.join(", ")]], note: "Each closes and opens again on the code on disk. Every open shell session in it ends; conversations and files are untouched, and a workspace with a turn running is left alone and named. Yours goes last, and this page reconnects on its own.", confirmLabel: "Reload", tone: "warn" });
     if (!ok) return;
     const stop = busy(install, "Reloading workspaces…");
     const said = [];
     try {
       for (const who of behind) {
         const r = await reloadWorkspace(ext, who, { onLost: () => stop() });
-        said.push(`${who}: ${r.state}${r.message ? ` (${r.message})` : ""}`);
+        said.push(`${who}: ${r.state === "busy" ? "left alone, a turn is running" : r.state}${r.message && r.state !== "busy" ? ` (${r.message})` : ""}`);
       }
     } finally {
       stop();

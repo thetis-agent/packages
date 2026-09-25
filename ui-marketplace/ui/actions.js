@@ -190,22 +190,29 @@ export function actionsFor(ext, view, host) {
    * fence answering it is expected to be lost: that is the success, and the page waits for the new
    * workspace rather than reporting a failure. After the deadline it says what to do instead.
    */
-  async function reloadMe(anchor) {
-    const ok = await confirm(anchor, {
+  async function reloadMe(anchor, force = false) {
+    const ok = force || (await confirm(anchor, {
       title: "Reload your workspace?",
       lines: [["package", row.name], ["loaded", `${row.update.installed} in your workspace`], ["on disk", row.update.available]],
-      note: "Your workspace closes and opens again on the code on disk, so its services, its provider and the agent itself are the new ones. The fence is gone for a second: every open shell session in it ends, and this page reconnects on its own. Conversations and files are untouched.",
+      note: "Your workspace closes and opens again on the code on disk, so its services, its provider and the agent itself are the new ones. The fence is gone for a second: every open shell session in it ends, and this page reconnects on its own. Conversations and files are untouched; a turn of yours still running is refused unless you cancel it.",
       confirmLabel: "Reload",
       tone: "warn",
-    });
+    }));
     if (!ok) return;
     const stop = busy(host, "Reloading your workspace… the page reconnects when it answers.");
     try {
       let services = [];
       try {
-        const out = await ext.request("fence-reload");
+        const out = await ext.request("fence-reload", { args: force ? { force: true } : {} });
         services = out?.data?.services ?? [];
       } catch (err) {
+        // A turn of yours is running. The kernel refused rather than kill it; cancelling ends it as a cancel
+        // with what it has said and done kept, and that is offered here as the second question it is.
+        if (/has a turn running/.test(err?.message ?? "")) {
+          stop();
+          const again = await confirm(anchor, { title: "Cancel your running turn and reload?", lines: [["workspace", "yours"]], note: `${err.message}. Cancelling ends the turn as a cancel: what it has said and done so far is kept, and the conversation stays.`, confirmLabel: "Cancel the turn and reload", tone: "warn" });
+          return again ? reloadMe(anchor, true) : undefined;
+        }
         if (!lostGateway(err)) throw err;
         if (!(await settle(ext, row.name))) {
           ext.toast(`Your workspace has not answered for ${SETTLE_MS / 1000} seconds. Reload this page, or ask an admin to reload the workspace.`, { tone: "error" });

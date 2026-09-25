@@ -14,7 +14,7 @@
 // repository, held by the system fence's agent, never by a person's. See lib/repo-keys.js.
 import { rmSync } from "node:fs";
 import { resolve } from "node:path";
-import { assert } from "./lib/error.js";
+import { assert, fail } from "./lib/error.js";
 import { browseDirectories, parseMountList, withPresence } from "./lib/mounts.js";
 import { describeRepoKeys, directUrl, grantFor, keyscan, mergeHosts, routeOf, testKey } from "./lib/repo-keys.js";
 import { describeKeys, generateKey, importKey, parseSshGrants } from "./lib/ssh.js";
@@ -43,8 +43,23 @@ async function grant(args, env, kind, value, records, row) {
   const target = targetOf(args, env, kind);
   records.set(target.id, value);
   env.journal({ kind, target: target.id, data: { [kind]: row(value) }, ...(args.actor ? { actor: String(args.actor) } : {}) });
-  await env.reloadFence(target.id);
+  await reloadOrDefer(env, target.id, kind);
   return value;
+}
+
+/**
+ * The reload that carries a grant into the fence, or the reason it did not. The kernel refuses to reload a
+ * workspace with a turn running in it -- killing somebody's turn for a mount would be the wrong trade -- and
+ * the grant is recorded all the same: the fence reads it when it next opens. The sentence says both halves,
+ * because a person who reads only "refused" would grant it again.
+ */
+async function reloadOrDefer(env, id, what) {
+  try {
+    await env.reloadFence(id);
+  } catch (err) {
+    if (err?.code !== "busy") throw err;
+    fail(`${what} recorded for ${id}; it reaches the workspace at its next reload, because ${err.message}`, "busy");
+  }
 }
 
 /** The person a grant is for: known, and not the system userspace, which takes none. */
@@ -204,7 +219,7 @@ async function repoGrant(args, env, key, hosts) {
 async function systemGrant(args, env, grants, row) {
   env.records.ssh.set(SYSTEM_USER, parseSshGrants(grants, { system: true }));
   systemJournal(args, env, row);
-  await env.reloadFence(SYSTEM_USER);
+  await reloadOrDefer(env, SYSTEM_USER, "repo key");
 }
 
 function systemJournal(args, env, row) {

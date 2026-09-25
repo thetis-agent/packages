@@ -224,7 +224,8 @@ export async function mountsSet(args, env) {
  */
 export async function fenceReload(args, env) {
   const user = args.user === SYSTEM ? SYSTEM : userId(args.user, "user");
-  return { data: await call(env, "fence.reload", { user }) };
+  // `force` cancels the turns running there first; without it the kernel refuses while one runs, naming the session.
+  return { data: await call(env, "fence.reload", { user, ...(args.force === true ? { force: true } : {}) }) };
 }
 
 /** What the daemon and every workspace are running, and whether the code on disk is newer than that. */

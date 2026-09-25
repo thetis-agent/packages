@@ -30,7 +30,8 @@ usage: thetis <command> [options]
   init                                 create the data dir and default config
   serve                                run the kernel, its control socket, and every installed service until stopped
   status [--json]                      what is running, and whether it is the code that is on disk now; --json the raw report
-  reload --user <id> | --all           put the code on disk into service: that workspace's fence closes and opens again
+  reload --user <id> | --all [--force] put the code on disk into service: that workspace's fence closes and opens again;
+                                       refused while a turn runs there, unless --force cancels it first (its partial result is kept)
                                        their gateway, terminal and every service start over, and open shell sessions die;
                                        --all does everyone, _system last, so the sign-in page blips once at the end
   restart [--reason <text>] [--yes]    ask the running daemon to restart itself: it waits for every turn
@@ -417,18 +418,22 @@ async function reloadCmd(call: Call, args: Args, user: string | undefined): Prom
   if (all && user) throw new Error("reload takes --user <id> or --all, not both");
   if (!all && !user) throw new Error("reload needs --user <id>, or --all for everyone");
   const targets = all ? await reloadOrder(call) : [user!];
+  const force = args.force === true;
   let failed = false;
   for (const id of targets) {
     try {
-      const done = (await call("fence.reload", { user: id })) as { services: string[]; down?: { name: string; error: string }[] };
+      const done = (await call("fence.reload", { user: id, force })) as { services: string[]; cancelled?: string[]; down?: { name: string; error: string }[] };
+      // A turn cancelled for the reload is named: it ended as a cancel with what it had, and its owner will want to know why.
+      if (done.cancelled?.length) print(`cancelled the turn running in ${done.cancelled.join(", ")} for ${id}`);
       print(`reloaded ${id}	${done.services.join(" ") || "no services; the fence reopens on the next request"}`);
       // A reload that brought everything back except one thing has to say so here, at the moment someone is
       // watching it, rather than leaving it to be noticed in `thetis status` or not at all.
       for (const d of done.down ?? []) print(`${d.name} did not start: ${d.error}`);
     } catch (err) {
       failed = true;
+      const busy = (err as { code?: string })?.code === "busy" || /has a turn running/.test(errorMessage(err));
       print(`${id} did not reload: ${errorMessage(err)}
-Try it again: thetis reload --user ${id}`);
+${busy ? `Wait for the turn, or cancel it and reload: thetis reload --user ${id} --force` : `Try it again: thetis reload --user ${id}`}`);
     }
   }
   if (failed) process.exitCode = 1;

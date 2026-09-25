@@ -19,7 +19,7 @@ The command line talks to a running kernel through the control socket `$THETIS_H
 | `packages.unmarkEveryone` | `name` | A system package stops being everyone's default. New people are not seeded with it. Everyone who has it keeps it. Refused when the configuration or a promotion made it everyone's. |
 | `packages.installEveryone` | `source`, `actor` | Installs a package for every person, now and later. Returns `{ name, userspaces, forks }`, as `packages.promote` does: a person holding a fork of the package keeps it and is named in `forks` and in the journal row. |
 | `sessions.delete` | `user`, `session` | Removes the session record; a running turn is cancelled first. |
-| `fence.reload` | `user` | Closes that person's fence and opens it again on the code on disk. |
+| `fence.reload` | `user`, `force` | Closes that person's fence and opens it again on the code on disk. Refused with the code `busy` while a turn runs there, naming the session; with `force: true` the turns are cancelled first and their closing save waited for. Answers `{ user, cancelled, services, down }`. |
 | `restart.request`, `restart.status`, `restart.cancel` | `reason` | The daemon's own restart latch. |
 | `status` | | `{ daemon, restart, workspaces }`: what each process runs and whether the code on disk is newer. |
 | `host.<name>.<export>` | the export's own | Any other method is dispatched to a host package: `host.grants.mountsList`, `mountsBrowse`, `mountsSet`, `sshList`, `sshKeygen`, `sshImport`, `sshSet` are answered by `@thetis/host-grants`. Admin or the control socket only; journalled without the arguments. |

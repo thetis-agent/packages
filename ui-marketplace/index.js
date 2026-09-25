@@ -177,8 +177,9 @@ const call = (env, method, a = {}) => env.kernel.operator.call(method, a);
  * and never an argument, so this verb can only ever name the person who sent it; the kernel allows anyone
  * `fence.reload` for their own id and an admin for anyone's, and the operator channel is where it lives.
  */
-export async function fenceReload(_args, env) {
-  return { data: await call(env, "fence.reload", { user: env.user }) };
+export async function fenceReload(args, env) {
+  // `force` cancels the person's own running turn first; without it the kernel refuses while one runs.
+  return { data: await call(env, "fence.reload", { user: env.user, ...(args.force === true ? { force: true } : {}) }) };
 }
 
 /** A system package, sent by name, is marked as everyone's default and linked into every person; anything else is installed for the admin and promoted. */

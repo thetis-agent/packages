@@ -87,7 +87,7 @@ export function packageCard(ext, info) {
       const ok = await confirm(reload, {
         title: "Reload this workspace?",
         lines: [["workspace", who], ["applies", `${info.name} ${info.loaded.version} → ${info.version}`], ["keeps", "conversations and files"]],
-        note: "The fence closes and opens again on the code on disk now, so its services, its provider and the agent itself are the new ones. Every open shell session in it stops; conversations and files are untouched.",
+        note: "The fence closes and opens again on the code on disk now, so its services, its provider and the agent itself are the new ones. Every open shell session in it stops; conversations and files are untouched. A turn running there is refused, and Workspaces is where it can be cancelled and the reload forced.",
         confirmLabel: "Reload",
         tone: "warn",
       });

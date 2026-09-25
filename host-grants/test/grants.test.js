@@ -115,3 +115,20 @@ test("sshKeygen and sshImport: the key lands under <home>/fence-keys/<user>, is 
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test("a grant into a workspace with a turn running is recorded and deferred, and the sentence says both", async () => {
+  const { env } = fakeEnv();
+  env.reloadFence = async (user) => {
+    throw Object.assign(new Error(`${user} has a turn running in s_1: wait for it to end, or reload with force to cancel it`), { code: "busy" });
+  };
+  try {
+    await assert.rejects(grants.mountsSet({ user: "alice", mounts: [{ path: "/srv/x", mode: "ro" }] }, env), (e) => e.code === "busy" && /mounts recorded for alice; it reaches the workspace at its next reload, because alice has a turn running/.test(e.message));
+    assert.deepEqual(env.records.mounts.get("alice"), [{ path: "/srv/x", mode: "ro" }], "the record is written all the same: the fence reads it when it next opens");
+    env.reloadFence = async () => {
+      throw Object.assign(new Error("boom"), { code: "fence" });
+    };
+    await assert.rejects(grants.mountsSet({ user: "alice", mounts: [] }, env), /boom/, "any other failure of the reload is the failure it is");
+  } finally {
+    rmSync(env.home, { recursive: true, force: true });
+  }
+});
