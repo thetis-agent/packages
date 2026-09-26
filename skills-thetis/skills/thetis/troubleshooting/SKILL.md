@@ -138,7 +138,7 @@ A package that installed but does not act: the change is live on the next turn, 
 - A service that throws is recorded in the journal as `service.fail`. The agent's `stderr` shows the message.
 - A service must not write to `process.stdout`. Use `env.log`.
 - A service listens on a unix socket under `run/`, not on a port.
-- A fence closes when an admin changes the mounts or the ssh grants (`host.grants.mountsSet`, `host.grants.sshSet`). The services restart with it.
+- A fence closes when its mounts or its ssh grants change (`host.grants.mountsSet`, `host.grants.sshSet`): an admin changes mounts, and the person or an admin changes ssh keys. The services restart with it.
 
 ## A provider error
 

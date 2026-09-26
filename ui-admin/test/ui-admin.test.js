@@ -51,6 +51,61 @@ test("users, models, config and journal read through the operator", async () => 
   assert.deepEqual(calls[6].args, { limit: 200, kind: undefined }, "200 rows by default, every kind");
 });
 
+test("the manifest's role table: a user sees their own account, models, mounts, keys and activity; the rest is an admin's", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  const panel = Object.fromEntries(manifest.thetis.ui.panel.map((e) => [e.id, e.role ?? null]));
+  assert.deepEqual(panel, { account: null, people: "admin", models: null, configuration: "admin", mounts: null, ssh: null, activity: null, workspaces: "admin", overview: "admin" });
+  assert.deepEqual(manifest.thetis.ui.panel.find((e) => e.id === "account"), { id: "account", label: "Account", note: "Who you are here, and your password.", order: 15 });
+  const open = ["account", "password-change", "models", "journal", "mounts-list", "ssh-list", "ssh-set", "ssh-keygen", "ssh-import", "ssh-scan", "ssh-test"];
+  for (const c of manifest.thetis.ui.commands) {
+    assert.equal(c.role ?? null, open.includes(c.verb) ? null : "admin", `${c.verb}'s role`);
+    assert.equal(typeof commands[c.export], "function", `${c.verb} names an export that exists: ${c.export}`);
+  }
+  assert.deepEqual(open.filter((v) => !manifest.thetis.ui.commands.some((c) => c.verb === v)), [], "every open verb is declared");
+});
+
+test("models: an admin reads the system's through the operator; a user reads their own fence's, with their own providers named", async () => {
+  const { env, calls } = fakeEnv({ models: [{ id: "echo" }], "config.get": { model: "echo" } });
+  const kernelModels = { model: "sonnet", models: [{ id: "sonnet", provider: "@thetis/provider-anthropic" }, { id: "local", provider: "@bob/provider-local" }] };
+  env.role = "user";
+  env.user = "bob";
+  env.kernel.models = async () => kernelModels;
+  env.kernel.packages = { list: async () => [{ name: "@bob/provider-local", type: "provider" }, { name: "@thetis/ui-admin", type: "ui" }] };
+  assert.deepEqual(await commands.models({}, env), { data: { model: "sonnet", models: kernelModels.models, mine: true, own: ["@bob/provider-local"] } });
+  assert.deepEqual(calls, [], "a user's models never touch the operator");
+  env.kernel.packages = { list: async () => Promise.reject(new Error("no")) };
+  assert.deepEqual((await commands.models({}, env)).data.own, [], "an unreadable package list marks nothing");
+  env.role = "admin";
+  assert.deepEqual(await commands.models({}, env), { data: { model: "echo", models: [{ id: "echo" }] } });
+  assert.deepEqual(calls.map((c) => c.method), ["models", "config.get"]);
+});
+
+test("account answers who is asking from env, and password-change sends env.user with the current password", async () => {
+  const { env, calls } = fakeEnv({ "users.passwd": null }, "bob");
+  env.role = "user";
+  assert.deepEqual(await commands.account({ user: "root", role: "admin" }, env), { data: { user: "bob", role: "user" } }, "arguments never name the account");
+  assert.deepEqual(await commands.passwordChange({ id: "root", current: "old-one", password: "new-one" }, env), { data: { id: "bob" } });
+  assert.deepEqual(calls, [{ method: "users.passwd", args: { id: "bob", password: "new-one", current: "old-one" } }], "the id is env.user, never the argument");
+  await refuses(commands.passwordChange, { current: "", password: "new-one" }, env, /current password is needed/);
+  await refuses(commands.passwordChange, { password: "new-one" }, env, /current password is needed/);
+  await refuses(commands.passwordChange, { current: "old-one", password: "" }, env, /new password is empty/);
+  await refuses(commands.passwordChange, { current: "old-one", password: 12345678 }, env, /new password is empty/);
+  assert.equal(calls.length, 1, "a refused change never reaches the kernel");
+  const refused = fakeEnv({ "users.passwd": new Error("the current password was refused") }, "bob");
+  await refuses(commands.passwordChange, { current: "wrong", password: "new-one" }, refused.env, /current password was refused/);
+});
+
+test("your own mounts in words: bound, not bound and why, or not known; and the command that drops one", async () => {
+  const { mountSentence, removeCommand } = await import("../ui/mounts.js");
+  assert.deepEqual(mountSentence({ path: "/srv/a", mode: "rw", present: true, kind: "dir" }), { tone: "ok", broken: false, text: "Bound read-write, at the same path." });
+  assert.deepEqual(mountSentence({ path: "/srv/b", mode: "ro", present: true, kind: "dir" }), { tone: "ok", broken: false, text: "Bound read-only, at the same path." });
+  assert.deepEqual(mountSentence({ path: "/srv/gone", mode: "rw", present: false, kind: "none" }), { tone: "err", broken: true, text: "Not bound: the host has no directory at this path, so your workspace opened without it." });
+  assert.equal(mountSentence({ path: "/etc/hosts", mode: "ro", present: false, kind: "file" }).text, "Not bound: the host has a file at this path, not a directory, so your workspace opened without it.");
+  assert.equal(mountSentence({ path: "/srv/c", mode: "ro" }).broken, false, "an older kernel's row claims neither");
+  assert.match(mountSentence({ path: "/srv/c", mode: "ro" }).text, /does not say whether the host has it/);
+  assert.equal(removeCommand("bob", "/srv/gone"), "thetis mounts remove bob /srv/gone");
+});
+
 test("user-create makes the person, then sets the password only when one was given", async () => {
   const { env, calls } = fakeEnv({ "users.create": (a) => ({ id: a.id, role: a.role, status: "active" }) });
   assert.deepEqual(await commands.userCreate({ id: "carol", role: "admin", password: "carolpass1" }, env), { data: { id: "carol", role: "admin", status: "active" } });
@@ -371,11 +426,13 @@ test("the browser modules parse, and the entry defines install and nothing else"
   assert.equal(mod.default.name, "install");
 });
 
-test("install registers exactly the eight declared entries, each mounting through the seam; configuration also answers children", async () => {
+test("install registers exactly the nine declared entries, each mounting through the seam; configuration also answers children", async () => {
   const { default: install } = await import("../ui/index.js");
   const panels = {};
   install({ panel: (id, impl) => (panels[id] = impl) });
-  assert.deepEqual(Object.keys(panels), ["people", "models", "configuration", "mounts", "ssh", "activity", "workspaces", "overview"]);
+  assert.deepEqual(Object.keys(panels), ["account", "people", "models", "configuration", "mounts", "ssh", "activity", "workspaces", "overview"]);
+  const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  assert.deepEqual(Object.keys(panels).sort(), manifest.thetis.ui.panel.map((e) => e.id).sort(), "every declared entry is registered, and nothing else");
   for (const impl of Object.values(panels)) assert.equal(typeof impl.mount, "function");
   assert.equal(typeof panels.configuration.children, "function");
   for (const [id, impl] of Object.entries(panels)) if (id !== "configuration") assert.equal(impl.children, undefined);

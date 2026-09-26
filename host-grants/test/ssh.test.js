@@ -3,10 +3,10 @@
 // key, and never overwritten; and a generated key private, kept, and never world-readable.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describeKeys, generateKey, importKey, parseSshGrants, withKeyPresence } from "../lib/ssh.js";
+import { describeKeys, generateKey, importKey, isWithin, parseSshGrants, withKeyPresence } from "../lib/ssh.js";
 
 test("grants are parsed strictly and deduplicate nothing: the lines are kept as given, blanks dropped", () => {
   assert.deepEqual(parseSshGrants([{ key: "/k", hosts: ["a", " ", "a", "b"] }]), [{ key: "/k", hosts: ["a", "a", "b"] }]);
@@ -69,4 +69,31 @@ test("an existing key is kept, because generating over a registered one breaks i
   assert.equal(again.publicKey, first.publicKey, "the public half a person registered has to survive");
   assert.equal(readFileSync(first.key, "utf8"), before);
   rmSync(join(dir, ".."), { recursive: true, force: true });
+});
+
+test("isWithin: strictly inside by path and by real path, so neither .., a shared prefix, nor a symlink climbs out", () => {
+  const root = mkdtempSync(join(tmpdir(), "thetis-within-"));
+  try {
+    const dir = join(root, "alice");
+    mkdirSync(dir);
+    mkdirSync(`${dir}-evil`);
+    mkdirSync(join(root, "bob"));
+    for (const f of [join(dir, "k"), `${dir}-evil/k`, join(root, "bob", "k")]) writeFileSync(f, "");
+    assert.equal(isWithin(dir, join(dir, "k")), true);
+    assert.equal(isWithin(`${dir}/`, join(dir, "k")), true, "a trailing separator on the directory changes nothing");
+    assert.equal(isWithin(dir, `${dir}/../bob/k`), false, "..");
+    assert.equal(isWithin(dir, `${dir}-evil/k`), false, "a sibling sharing the prefix");
+    assert.equal(isWithin(dir, dir), false, "the directory itself");
+    assert.equal(isWithin(dir, join(dir, "missing")), false, "a path that is not there");
+    symlinkSync(join(root, "bob", "k"), join(dir, "out"));
+    symlinkSync(join(root, "bob"), join(dir, "sub"));
+    symlinkSync(join(root, "nowhere"), join(dir, "dangling"));
+    assert.equal(isWithin(dir, join(dir, "out")), false, "a symlink pointing out");
+    assert.equal(isWithin(dir, join(dir, "sub", "k")), false, "through a symlinked directory");
+    assert.equal(isWithin(dir, join(dir, "dangling")), false, "a dangling symlink");
+    symlinkSync(join(dir, "k"), join(dir, "in"));
+    assert.equal(isWithin(dir, join(dir, "in")), true, "a symlink that stays inside");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

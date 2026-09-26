@@ -2,8 +2,8 @@
 // and the keys the host makes or takes in for one person. The store itself is the kernel's record
 // (`env.records.ssh`); `knownHostsOf`, which the fence uses, stays in @thetis/runtime/lib.
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
 import { repoRoute } from "@thetis/runtime/lib/git-url";
 import { assert } from "./error.js";
 
@@ -66,6 +66,22 @@ export function fingerprintOf(publicKey) {
   const run = spawnSync("ssh-keygen", ["-lf", "-"], { encoding: "utf8", input: `${publicKey}\n` });
   const token = run.status === 0 ? run.stdout.split(/\s+/).find((t) => t.startsWith("SHA256:")) : undefined;
   return token ?? null;
+}
+
+/**
+ * Whether `path` is something on the host strictly inside `dir`: resolved, so `..` cannot climb out, and
+ * compared with a trailing separator, so `<dir>-other` is not inside `<dir>`. Then compared again by real
+ * path, so a symlink inside that points out does not count, and a path that is not there is not inside
+ * anything. The directory itself is not inside itself.
+ */
+export function isWithin(dir, path) {
+  const inside = (d, p) => p.startsWith(d.endsWith(sep) ? d : d + sep);
+  if (!inside(resolve(dir), resolve(path))) return false;
+  try {
+    return inside(realpathSync(dir), realpathSync(path));
+  } catch {
+    return false;
+  }
 }
 
 function isFile(path) {

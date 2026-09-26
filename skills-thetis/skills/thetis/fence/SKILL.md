@@ -3,7 +3,7 @@ name: fence
 description: The fence around your userspace: what bubblewrap binds and hides, mounts, network modes, Docker, cgroup limits, timeouts, and what fails inside it. Use when a path is read-only or missing, the network or a container is unreachable, npm install fails, a process was killed, or you ask what package code can reach.
 metadata:
   title: The fence
-  tags: [fence, sandbox, bwrap, bubblewrap, mounts, readonly, hidden, egress, network, docker, compose, containers, limits, cgroup, timeout, environment, isolation, security]
+  tags: [fence, sandbox, bwrap, bubblewrap, mounts, ssh, keys, readonly, hidden, egress, network, docker, compose, containers, limits, cgroup, timeout, environment, isolation, security]
   related: [thetis/using, thetis/configuration, thetis/troubleshooting]
   version: 1
 ---
@@ -59,7 +59,13 @@ The kernel does not pass its own environment. Secrets in the host environment do
 
 ## Mounts
 
-A mount is an admin's grant of one host directory into one person's fence at the same path. Only an admin sets mounts: `thetis mounts add <user> <path> [--ro]`, `thetis mounts remove <user> <path>`, or the operator method `host.grants.mountsSet`, answered by the host package `@thetis/host-grants`. The path must be absolute and normalized. A user has at most 32 mounts. A change closes the fence. The fence reopens with the new binds on the next request, and the services restart.
+A mount is an admin's grant of one host directory into one person's fence at the same path. Only an admin sets mounts: `thetis mounts add <user> <path> [--ro]`, `thetis mounts remove <user> <path>`, the **Mounts** section of the control panel, or the operator method `host.grants.mountsSet`, answered by the host package `@thetis/host-grants`. The path must be absolute and normalized. A user has at most 32 mounts. A change closes the fence. The fence reopens with the new binds on the next request, and the services restart.
+
+Each person sees their own mounts in the **Mounts** section of the control panel, read only. Each row says if the mount is bound. When the host has no directory at the path, the fence opens without that mount, and the row says so.
+
+## SSH keys
+
+An ssh grant names one key file on the host. The fence's own `ssh-agent` holds the key, so you can use it and you cannot read it. Each person manages their own keys in the **SSH keys** section of the control panel: make a new key, import a key, add the hosts a key may reach, try a connection, and revoke a key. A key the host makes or imports for a person is in `<home>/fence-keys/<id>/`. An admin can also grant a key from another path. The person can revoke that key, but only an admin can grant it again. A change closes the fence, as a mount change does.
 
 A mount is a hole in the fence, opened on purpose. The kernel does not check what the directory holds. The file tools and `@thetis/projects` read `THETIS_MOUNTS` to know what you can reach.
 

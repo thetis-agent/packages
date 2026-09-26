@@ -686,18 +686,18 @@ async function market(cookie: string, user: string, verb: string, args: Record<s
   return { status: res.status, data: body.data, error: body.error };
 }
 
-test("panel: the built-in sections are the same for everyone; a package's admin sections and verbs follow the role", async () => {
+test("panel: the built-in sections are the same for everyone; a package's sections and verbs follow the role", async () => {
   const alice = await cookieFor("alice", "wonderland");
   const root = await cookieFor("root", "rootpass1");
   assert.deepEqual((await (await api(alice, "/alice/api/panel")).json()).sections, ["packages"]);
   assert.deepEqual((await (await api(root, "/root/api/panel")).json()).sections, ["packages"], "the admin sections come from @thetis/ui-admin, not from api/panel");
   const uiOf = async (cookie: string, user: string) => ((await (await api(cookie, `/${user}/api/ui`)).json()) as { extensions: { package: string; panel: { id: string; order: number }[]; commands: string[] }[] }).extensions.find((e) => e.package === "@thetis/ui-admin");
   const forRoot = await uiOf(root, "root");
-  assert.deepEqual(forRoot?.panel.map((e) => [e.id, e.order]), [["people", 20], ["models", 30], ["configuration", 32], ["mounts", 35], ["ssh", 36], ["activity", 40], ["workspaces", 45], ["overview", 50]]);
-  assert.deepEqual(forRoot?.commands, ["users", "user-create", "user-role", "user-status", "user-password", "user-remove", "models", "config", "config-list", "package-info", "package-log", "package-commit", "package-diff", "package-push", "package-readme", "package-where", "package-activity", "package-update", "package-fork", "package-promote", "package-remove", "package-install-for", "fleet", "config-show", "config-set", "config-unset", "config-reload", "journal", "mounts-list", "mounts-set", "mounts-browse", "ssh-list", "ssh-set", "ssh-keygen", "ssh-import", "ssh-scan", "ssh-test", "fence-reload", "status", "restart-request", "update-check", "update-run", "update-progress"]);
+  assert.deepEqual(forRoot?.panel.map((e) => [e.id, e.order]), [["account", 15], ["people", 20], ["models", 30], ["configuration", 32], ["mounts", 35], ["ssh", 36], ["activity", 40], ["workspaces", 45], ["overview", 50]]);
+  assert.deepEqual(forRoot?.commands, ["users", "user-create", "user-role", "user-status", "user-password", "user-remove", "account", "password-change", "models", "config", "config-list", "package-info", "package-log", "package-commit", "package-diff", "package-push", "package-readme", "package-where", "package-activity", "package-update", "package-fork", "package-promote", "package-remove", "package-install-for", "fleet", "config-show", "config-set", "config-unset", "config-reload", "journal", "mounts-list", "mounts-set", "mounts-browse", "ssh-list", "ssh-set", "ssh-keygen", "ssh-import", "ssh-scan", "ssh-test", "fence-reload", "status", "restart-request", "update-check", "update-run", "update-progress"]);
   const forAlice = await uiOf(alice, "alice");
-  assert.deepEqual(forAlice?.panel, [], "installed for everyone, but a user sees no admin section");
-  assert.deepEqual(forAlice?.commands, [], "and no admin verb");
+  assert.deepEqual(forAlice?.panel.map((e) => [e.id, e.order]), [["account", 15], ["models", 30], ["mounts", 35], ["ssh", 36], ["activity", 40]], "installed for everyone; a user sees the sections about themselves and no admin section");
+  assert.deepEqual(forAlice?.commands, ["account", "password-change", "models", "journal", "mounts-list", "ssh-list", "ssh-set", "ssh-keygen", "ssh-import", "ssh-scan", "ssh-test"], "and only the verbs the kernel answers about themselves");
   const refused = await admin(alice, "alice", "users");
   assert.equal(refused.status, 403, "a user is refused a role-admin verb by the gateway");
   assert.match(String(refused.error), /admin/);

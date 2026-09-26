@@ -1,6 +1,6 @@
 # The operator methods
 
-The command line talks to a running kernel through the control socket `$THETIS_HOME/thetis.sock` with these methods. An admin's fence reaches the same table through `env.kernel.operator.call(method, args)`. The kernel checks the role on every call and records the fence's user as the actor. `user` names the target user. It defaults to `_system`. Every method that changes something writes one journal row.
+The command line talks to a running kernel through the control socket `$THETIS_HOME/thetis.sock` with these methods. An admin's fence reaches the same table through `env.kernel.operator.call(method, args)`. A user's fence reaches a few of them, only about that user (see the end of this page). The kernel checks the role on every call and records the fence's user as the actor. `user` names the target user. It defaults to `_system`. Every method that changes something writes one journal row.
 
 | Method | Arguments | Effect |
 |---|---|---|
@@ -10,7 +10,7 @@ The command line talks to a running kernel through the control socket `$THETIS_H
 | `users.remove` | `id` | Removes the user, closes the fence, deletes the userspace directory. |
 | `users.setStatus` | `id`, `status` | `active` or `suspended`. |
 | `users.setRole` | `id`, `role` | `admin` or `user`. |
-| `users.passwd` | `id`, `password` | Sets the password. Revokes every token of the user. |
+| `users.passwd` | `id`, `password`, `current` | Sets the password. Revokes every token of the user. From a user's fence, `id` must be that user and `current` is required. A `current` that is sent is always checked, an admin's too. |
 | `packages.list` | `user` | The packages installed in that user's userspace. |
 | `packages.install` | `user`, `source`, `actor` | Installs into that user's userspace. `actor` names who installs; only its role matters, and only for a source claiming `@thetis`, which needs an admin. Refused with the code `fork` when that userspace already holds a fork of the package, naming the fork. |
 | `packages.uninstall` | `user`, `name` | Removes the package from that user's userspace. |
@@ -22,8 +22,8 @@ The command line talks to a running kernel through the control socket `$THETIS_H
 | `fence.reload` | `user`, `force` | Closes that person's fence and opens it again on the code on disk. Refused with the code `busy` while a turn runs there, naming the session; with `force: true` the turns are cancelled first and their closing save waited for. Answers `{ user, cancelled, services, down }`. |
 | `restart.request`, `restart.status`, `restart.cancel` | `reason` | The daemon's own restart latch. |
 | `status` | | `{ daemon, restart, workspaces }`: what each process runs and whether the code on disk is newer. |
-| `host.<name>.<export>` | the export's own | Any other method is dispatched to a host package: `host.grants.mountsList`, `mountsBrowse`, `mountsSet`, `sshList`, `sshKeygen`, `sshImport`, `sshSet` are answered by `@thetis/host-grants`. Admin or the control socket only; journalled without the arguments. |
-| `journal.tail` | `limit`, `kind`, `target`, `actor_filter` | The newest journal rows, newest first. `limit` at most 1000, default 200. |
+| `host.<name>.<export>` | the export's own | Any other method is dispatched to a host package: `host.grants.mountsList`, `mountsBrowse`, `mountsSet`, `sshList`, `sshKeygen`, `sshImport`, `sshSet` are answered by `@thetis/host-grants`. Admin or the control socket, or a user for the exports a host package declares self (for `@thetis/host-grants`: `mountsList`, `sshList`, `sshSet`, `sshKeygen`, `sshImport`), with `user` pinned to the caller. Journalled without the arguments. |
+| `journal.tail` | `limit`, `kind`, `target`, `actor_filter` | The newest journal rows, newest first. `limit` at most 1000, default 200. For a user, only the rows where they are the actor or the target. |
 | `config.get` | | The configuration with secrets replaced. |
 | `models` | `user` | Every model the providers visible to that userspace serve. |
 | `sessions.create` | `user`, `parent` | Creates a session. |
@@ -32,7 +32,7 @@ The command line talks to a running kernel through the control socket `$THETIS_H
 | `sessions.cancel` | `user`, `session` | Stops the running turn. |
 | `sessions.send` | `user`, `session`, `input`, `model` | Runs one turn and streams the events. `model` names the model for that turn. |
 
-A method no table and no host package answers fails with the code `rpc`. A fence whose user has the role `user` is refused with `only an admin may use operator methods`.
+A method no table and no host package answers fails with the code `rpc`. A fence whose user has the role `user` may call `users.passwd` for itself, `journal.tail`, the self exports of a host package, and `fence.reload` of its own fence. It is refused every other operator method with `only an admin may use operator methods`.
 
 The methods a fence calls as itself, without `operator.`: `packages.install`, `packages.uninstall`, `packages.delete`, `packages.list`, `sessions.create`, `sessions.ask`, `sessions.send`, `sessions.cancel`, `sessions.delete`, `sessions.list`, `sessions.inspect`, `sessions.watch`, `models`, `providers.call`, `store.*`, `config.*`, `auth.login`, `auth.authenticate`, and `auth.logout`. `auth.login` is answered only for the system userspace. Both tables are frozen seams, snapshotted by `test/architecture.test.mjs`.
 

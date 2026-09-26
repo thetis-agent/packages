@@ -1,10 +1,10 @@
 # @thetis/host-grants
 
-The grants an admin makes into one person's fence: host directories bound at their own path (mounts), and ssh keys that fence's own agent holds. Both need the host itself -- a directory to browse, a key file to write under `<home>/fence-keys/<user>`, a path whose presence to check -- and a fence cannot do any of that, so they live here rather than in the kernel. And the installation's own repository keys: one ssh key per repository, held by the system fence, so a private registry can be installed from without lending anyone's key. Plain ECMAScript with no build step; the one dependency is `@thetis/runtime/lib/git-url`, which says what repository a url names.
+The grants into one person's fence: host directories bound at their own path (mounts), and ssh keys that fence's own agent holds. An admin grants both; a person reads their own mounts and manages their own keys. Both need the host itself -- a directory to browse, a key file to write under `<home>/fence-keys/<user>`, a path whose presence to check -- and a fence cannot do any of that, so they live here rather than in the kernel. And the installation's own repository keys: one ssh key per repository, held by the system fence, so a private registry can be installed from without lending anyone's key. Plain ECMAScript with no build step; the one dependency is `@thetis/runtime/lib/git-url`, which says what repository a url names.
 
 ## What it provides
 
-A package of type `host`, named `grants`. Not installable: the daemon loads it from the shipped or the promoted packages and calls one export per operator method `host.grants.<export>`, importing the entry again whenever its file changes, so an edit is live on the next call without a reload. The kernel admits the call when the caller is an admin (through a fence) or the operator (at the control socket), and journals `host.call` without the arguments; each export then checks the target, writes the kernel's record, journals the grant itself, and reopens the fence so the grant reaches it.
+A package of type `host`, named `grants`. Not installable: the daemon loads it from the shipped or the promoted packages and calls one export per operator method `host.grants.<export>`, importing the entry again whenever its file changes, so an edit is live on the next call without a reload. The kernel admits the call when the caller is an admin (through a fence) or the operator (at the control socket), or when a person calls an export listed in `thetis.host.self` about themselves (below), and journals `host.call` without the arguments; each export then checks the target, writes the kernel's record, journals the grant itself, and reopens the fence so the grant reaches it.
 
 Every export is `(args, env) => Promise<unknown>`, with `env` the `HostEnv` of `@thetis/runtime/contracts`: `home`, the `users` table, the `records` (`mounts` and `ssh`, one list per person with `get`, `all`, `set`), `journal(row)`, `reloadFence(user)` and `log`. `args.user` names the target; `_system` takes no mount and no ssh grant through these (its keys are repository keys, below), and an unknown user is `not-found`.
 
@@ -17,6 +17,14 @@ Every export is `(args, env) => Promise<unknown>`, with `env` the `HostEnv` of `
 | `sshKeygen` | `user`, `ssh?: [{ hosts }]` | `{ key, publicKey, fingerprint }`: a key of the person's own under `fence-keys/<user>/id_ed25519`, kept if it exists, granted with the known hosts |
 | `sshImport` | `user`, `name`, `privateKey`, `hosts?` | `{ key, publicKey, fingerprint }`: the material written once as `fence-keys/<user>/<name>`, proved a key by ssh-keygen, granted; never overwritten, never journalled |
 | `sshSet` | `user`, `ssh: [{ key, hosts? }]` | the list as written, with presence; at most 16 keys, each an absolute normalized path |
+
+## A person's own calls
+
+The manifest's `thetis.host.self` lists the exports a person with the `user` role may call about themselves: `mountsList`, `sshList`, `sshSet`, `sshKeygen` and `sshImport`. For such a call the kernel pins the target -- `args.user` and `args.actor` are the caller's id whatever the call said -- and sets `args.self = true`. So a person reads only their own mounts and keys, and makes or takes in keys only under their own `fence-keys/<user>/`.
+
+`sshSet` is the one that needs a rule of its own, since its list names paths. In a self call every key in the new list must be either already granted to that person -- they may keep it, drop it, or give it other hosts -- or a file under `fence-keys/<user>/`, checked by resolved path with a trailing separator and again by real path, so neither `..`, a sibling sharing the prefix, nor a symlink pointing out counts. Anything else is `unauthorized`: "a person may grant only keys the host made or took in for them; ask an admin to grant <path>". A key an admin lent them can therefore be revoked by them but not granted back. An admin's `sshSet` is not checked this way.
+
+`mountsSet`, `mountsBrowse` and every `repo*` export are admin-only. The kernel never lets a self call reach them; they refuse one anyway (`unauthorized`), and a self call that arrives without a `user` is refused rather than answered for everyone.
 
 ## Repository keys
 
@@ -40,7 +48,7 @@ A person's grant with `repo` is refused by `sshSet`, and `sshSet`, `sshKeygen` a
 
 A key kept for a person outlives every call here but not the person: `removeUser` in `@thetis/runtime` deletes `fence-keys/<user>` with the rest of what is keyed to the id, so a removed id that is added again is a person with no key rather than one silently holding the last occupant's.
 
-The journal rows are `mounts` (`{ mounts: [{ path, mode }] }`), `ssh` (`{ ssh: [key paths] }`) and, for a repository key, `ssh` on `_system` (`{ repo, key }`, the key being its path), with the admin as `actor` when the call came through a fence. Key material is never in an answer, a refusal, a log line or the journal.
+The journal rows are `mounts` (`{ mounts: [{ path, mode }] }`), `ssh` (`{ ssh: [key paths] }`) and, for a repository key, `ssh` on `_system` (`{ repo, key }`, the key being its path), with the caller (the admin, or the person in a call about themselves) as `actor` when the call came through a fence. Key material is never in an answer, a refusal, a log line or the journal.
 
 ## Callers
 
@@ -52,7 +60,7 @@ The journal rows are `mounts` (`{ mounts: [{ path, mode }] }`), `ssh` (`{ ssh: [
 index.js          the twelve exports
 lib/repo-keys.js  routeOf, grantFor, describeRepoKeys, keyscan, mergeHosts, directUrl, testKey
 lib/mounts.js     parseMountList, withPresence, statOf, browseDirectories
-lib/ssh.js        parseSshGrants, describeKeys, publicKeyOf, fingerprintOf, generateKey, importKey, KEY_NAME
+lib/ssh.js        parseSshGrants, describeKeys, publicKeyOf, fingerprintOf, generateKey, importKey, KEY_NAME, isWithin
 lib/error.js      fail and assert, errors with a code the operator channel carries
 test/             the exports over a fake env, and the mechanism on its own
 ```

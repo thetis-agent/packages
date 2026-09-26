@@ -1,5 +1,6 @@
 /* People: who can sign in and what they may do. Your own account is not offered here: another admin,
- * or the host, changes that one. Every change goes through one command and reloads the list. */
+ * or the host, changes its role and status, and your own password is changed under Account. Every
+ * change goes through one command and reloads the list. */
 
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
 
@@ -77,8 +78,8 @@ export function mountPeople(ext, root, { user }) {
     clear(detailEl);
     const p = people.find((x) => x.id === selected);
     if (!p) return put(detailEl, el("div", { class: "panel-hint" }, "Select a person to change what they may do."));
-    if (p.id === user) return put(detailEl, card(el("code", {}, p.id), el("p", { class: "text-dim" }, "This is you. Your own role, status and password are changed by another admin or on the host.")));
-    const roleBtn = button(p.role === "admin" ? "Make a user" : "Make an admin", { onClick: () => void change(roleBtn, "role", { role: p.role === "admin" ? "user" : "admin" }, `${p.id} becomes ${p.role === "admin" ? "a user: no control panel beyond their own packages." : "an admin: people, promotion, everyone's packages."}`) });
+    if (p.id === user) return put(detailEl, card(el("code", {}, p.id), el("p", { class: "text-dim" }, "This is you. Your own role and status are changed by another admin or on the host; your password is changed under Account.")));
+    const roleBtn = button(p.role === "admin" ? "Make a user" : "Make an admin", { onClick: () => void change(roleBtn, "role", { role: p.role === "admin" ? "user" : "admin" }, `${p.id} becomes ${p.role === "admin" ? "a user: their own packages, keys and account, and nobody else's." : "an admin: people, promotion, everyone's packages."}`) });
     const statusBtn = button(p.status === "active" ? "Suspend" : "Activate", { tone: p.status === "active" ? "warn" : "quiet", onClick: () => void change(statusBtn, "status", { status: p.status === "active" ? "suspended" : "active" }, p.status === "active" ? `${p.id} cannot sign in or start turns until activated again.` : `${p.id} can sign in and start turns again.`) });
     const pw = el("input", { class: "input", type: "password", placeholder: "new password (8+ characters)", "aria-label": "New password", autocomplete: "new-password" });
     const pwBtn = button("Set password", { onClick: () => void setPassword(pw) });

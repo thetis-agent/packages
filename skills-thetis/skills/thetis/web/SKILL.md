@@ -146,7 +146,7 @@ The shell draws the header and the close button. `open` returns an unmount funct
 | `@thetis/tools-plan` | The Todo dock, the todo chip, the transcript renderers for `todo_*` and `ask_user`, the commands `plan` and `mark`. |
 | `@thetis/ui-tools` | The Tools dock. Command `tools`. |
 | `@thetis/ui-context` | The Context dock. Command `context`. |
-| `@thetis/ui-admin` | The People, Models, Mounts, Activity, and Overview panel sections, and eleven admin commands. |
+| `@thetis/ui-admin` | The Account, People, Models, Mounts, SSH keys, Activity, Workspaces, and Overview panel sections, and their commands. Everyone sees Account, Models, Mounts, SSH keys, and Activity, each about themselves: their password, the models they can use, their own mounts, their own ssh keys, and the journal rows about them. The other sections are for an admin. |
 | `@thetis/ui-marketplace` | The Marketplace place and sixteen commands, `fence-reload` (a person reloading their own workspace) among them. |
 | `@thetis/projects` | The sidebar head switcher and the Project place. Seven commands. |
 

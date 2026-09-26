@@ -112,3 +112,22 @@ test("the section's helpers: the host of a known_hosts line, a grant's hosts, a 
   assert.deepEqual(hostsOf({ key: "/k" }), []);
   assert.equal(keyName("/home/fence-keys/bob/id_ed25519"), "id_ed25519");
 });
+
+test("a key of the person's own is one under their fence-keys directory; anything else an admin granted", async () => {
+  const { isOwnKey } = await import("../ui/ssh.js");
+  assert.equal(isOwnKey("/opt/zero/data/fence-keys/bob/id_ed25519", "bob"), true);
+  assert.equal(isOwnKey("/opt/zero/data/fence-keys/bob/github", "bob"), true);
+  assert.equal(isOwnKey("/opt/zero/data/fence-keys/bobby/id_ed25519", "bob"), false, "another person's directory is not bob's");
+  assert.equal(isOwnKey("/opt/zero/data/fence-keys/alice/id_ed25519", "bob"), false);
+  assert.equal(isOwnKey("/home/alice/.ssh/deploy", "bob"), false);
+  assert.equal(isOwnKey("/opt/zero/data/fence-keys/bob/id_ed25519", ""), false);
+  assert.equal(isOwnKey("", "bob"), false);
+});
+
+test("a user's ssh verbs pass their own id through; the kernel pins it whatever is sent", async () => {
+  const { env, calls } = fakeEnv({ "host.grants.sshList": (a) => ({ [a.user]: [] }), "host.grants.sshSet": () => [] }, { user: "bob" });
+  env.role = "user";
+  assert.deepEqual(await commands.sshList({ user: "bob" }, env), { data: { bob: [] } });
+  await commands.sshSet({ user: "bob", ssh: [] }, env);
+  assert.deepEqual(calls.map((c) => [c.method, c.args.user]), [["host.grants.sshList", "bob"], ["host.grants.sshSet", "bob"]]);
+});

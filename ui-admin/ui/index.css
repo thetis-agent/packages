@@ -12,6 +12,7 @@
 .ua-kv-title { font-size: var(--text-xs); color: var(--text-dim); }
 .ua-pre { margin: 0; padding: 10px; border-radius: var(--r-md); background: var(--surface-2); font-family: var(--mono); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
 .ua-mounts .ua-path { min-width: 260px; font-family: var(--mono); }
+.ua-own-mounts td:first-child { width: 45%; }
 .ua-mounts td:last-child, .ua-workspaces td:last-child { text-align: right; white-space: nowrap; }
 .ua-line { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ua-code { display: flex; flex-direction: column; gap: 4px; }
@@ -21,6 +22,9 @@
 .ua-reason { width: 100%; box-sizing: border-box; }
 .ua-configuration .toolbar .input { min-width: 220px; }
 .ua-broken { margin: 0; color: var(--err); font-size: var(--text-sm); }
+/* Account: the password form stacks its fields, at a width a password needs. */
+.ua-password { display: flex; flex-direction: column; gap: 12px; max-width: 360px; }
+.ua-password .input { width: 100%; box-sizing: border-box; }
 
 /* --- the configuration form: kept identical to @thetis/ui-marketplace's copy ------------------------- */
 

@@ -1,8 +1,8 @@
 {
   "name": "@thetis/host-grants",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "license": "MIT",
-  "description": "The admin grants that need the host: which host directories are bound into a person's fence, which ssh keys its agent holds, and the installation's repository keys -- one ssh key per repository, held by the system fence. A host package: loaded by the daemon per call as host.grants.<export>, never installed into a fence.",
+  "description": "The grants that need the host: which host directories are bound into a person's fence, which ssh keys its agent holds, and the installation's repository keys -- one ssh key per repository, held by the system fence. An admin grants them; a person manages their own keys and reads their own mounts. A host package: loaded by the daemon per call as host.grants.<export>, never installed into a fence.",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -14,7 +14,14 @@
   "thetis": {
     "type": "host",
     "host": {
-      "name": "grants"
+      "name": "grants",
+      "self": [
+        "mountsList",
+        "sshList",
+        "sshSet",
+        "sshKeygen",
+        "sshImport"
+      ]
     }
   },
   "peerDependencies": {

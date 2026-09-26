@@ -1,9 +1,12 @@
 // The commands of @thetis/ui-admin: thin wrappers over `env.kernel.operator.call(...)`, one per verb the
 // manifest declares. Each one checks its arguments the way the gateway's old `/api/admin/*` routes did,
 // so a refusal is a plain sentence before the kernel sees anything, and answers `{ data }`. The gateway
-// runs a command only when the person's role clears the declared one (admin, for every verb here); the
-// kernel allows an operator method only when the fence's own user is an admin. Nothing here trusts the
-// browser: the person's own id comes from `env.user`, never from the arguments.
+// runs a command only when the person's role clears the declared one; most verbs here declare admin, and
+// the ones a user may send too (account, password-change, models, journal, mounts-list and the ssh verbs)
+// declare none. The kernel is the authority either way: it allows an operator method from a user's fence
+// only for that user (their own password, their own journal rows, their own grants, pinning `user` to
+// them), and everything else only from an admin's. Nothing here trusts the browser: the person's own id
+// comes from `env.user`, never from the arguments.
 import { isAbsolute, resolve } from "node:path";
 import { dependenciesOf, gitWord, installedPackage, realRoot } from "./git.js";
 
@@ -76,10 +79,49 @@ export async function userRemove(args, env) {
   return { data: { id } };
 }
 
-/** The default model and what every provider in the system userspace serves. */
+/**
+ * Who is signed in here, as the gateway ran this command: the id and the role. A signed-in person is
+ * necessarily active, so there is no status to fetch, and no kernel surface is added for it.
+ */
+export async function account(_args, env) {
+  return { data: { user: env.user, role: env.role } };
+}
+
+/**
+ * The signed-in person's own password. The id is `env.user`, never an argument; `current` proves the
+ * person is the one at the keyboard, because a fence left open is not the password (the kernel checks it
+ * for a user and ignores it for an admin). Success forgets every sign-in token of theirs, this browser's
+ * included, so the page sends them to sign in again.
+ */
+export async function passwordChange(args, env) {
+  if (typeof args.current !== "string" || !args.current) fail("your current password is needed to change it");
+  if (typeof args.password !== "string" || !args.password) fail("the new password is empty");
+  await call(env, "users.passwd", { id: env.user, password: args.password, current: args.current });
+  return { data: { id: env.user } };
+}
+
+/**
+ * The default model and the models the providers serve. An admin reads the system's through the operator;
+ * a user reads what their own fence can call (their own providers, then the system's) from `env.kernel.models()`,
+ * which needs no admin. `own` names the providers installed in the person's own workspace, from their own
+ * package list, so the page can mark those models as theirs without guessing from a package name.
+ */
 export async function models(_args, env) {
+  if (env.role === "user") {
+    const [{ model, models: list }, own] = await Promise.all([env.kernel.models(), ownProviders(env)]);
+    return { data: { model, models: list, mine: true, own } };
+  }
   const [list, config] = await Promise.all([call(env, "models"), call(env, "config.get")]);
   return { data: { model: config.model, models: list } };
+}
+
+/** The provider packages installed in this fence's own workspace. A list that cannot be read marks nothing. */
+async function ownProviders(env) {
+  try {
+    return (await env.kernel.packages.list()).filter((p) => p.type === "provider").map((p) => p.name);
+  } catch {
+    return [];
+  }
 }
 
 /** The configuration as the kernel reports it, secrets already replaced. */
@@ -181,7 +223,7 @@ export async function journal(args, env) {
   return { data: await call(env, "journal.tail", { limit, kind }) };
 }
 
-/** Every person's mounts as `{ <user>: [{ path, mode }] }`, or one person's with `user`. */
+/** Every person's mounts as `{ <user>: [{ path, mode, present, kind }] }`, or one person's with `user`; a user's fence always gets its own. */
 export async function mountsList(args, env) {
   const user = args.user ? userId(args.user, "user") : undefined;
   return { data: await call(env, "host.grants.mountsList", user ? { user } : {}) };
@@ -271,8 +313,11 @@ export { fleet, packageActivity, packageFork, packageInstallFor, packagePromote,
 
 // ---- ssh: which keys a person's fence may use, and where they may go ----
 //
-// The seven mount and ssh verbs reach `@thetis/host-grants`, a host package the daemon runs as
-// `host.grants.<export>`: the kernel admits an admin and journals the call, the package does the work.
+// The mount and ssh verbs reach `@thetis/host-grants`, a host package the daemon runs as
+// `host.grants.<export>`: the kernel admits an admin, or a user for the exports the package declares a
+// person may call on themselves (mountsList and the ssh ones), pinning `user` to that person whatever was
+// sent; it journals the call, and the package does the work. A user's sshSet may keep or drop what an
+// admin granted, and grant again only keys from their own key directory.
 // A grant names one key file on the host; the kernel loads it into that fence's own ssh-agent, so the
 // fence signs with the key and never reads it. Every write below replaces the person's list whole, the way
 // the command line does, and closes that person's fence: it reopens with an agent holding the new list.
@@ -352,8 +397,8 @@ export async function sshScan(args, env) {
 }
 
 /**
- * Whether this fence can reach a host as git: runs in the admin's own workspace, with the admin's own
- * grants, so it answers for nobody else. A refused key and a successful greeting both come back as words.
+ * Whether this fence can reach a host: runs in the caller's own workspace, with the caller's own grants,
+ * so it answers for nobody else. A refused key and a successful greeting both come back as words.
  */
 export async function sshTest(args, env) {
   // Any user at any host: a code host's git user, or a login on a server. The target is checked here so

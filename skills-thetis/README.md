@@ -20,7 +20,7 @@ Twelve skills under `skills/thetis/`. None is universal: the loader puts one bri
 | `thetis/web` | The `thetis.ui` field, the slots, the commands, the browser seam, a dock and a place. |
 | `thetis/bench` | Opting in, the two seams, running a suite, what the numbers mean and do not mean. |
 | `thetis/configuration` | The data directory, every field of `thetis.config.json`, per-package configuration, secrets. |
-| `thetis/fence` | What the sandbox binds, hidden paths, mounts, network modes, limits, what fails and why. |
+| `thetis/fence` | What the sandbox binds, hidden paths, mounts, ssh keys, network modes, limits, what fails and why. |
 | `thetis/troubleshooting` | Error codes, failed steps, refused tools, failed installs, services, providers, where the records are. |
 
 Longer reference material sits beside the skill that uses it: `packages/references/manifest.md`, `packages/references/operator-methods.md`, `pipeline/references/turn-events.md`, and `web/references/ext-seam.md`.

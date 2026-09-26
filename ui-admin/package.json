@@ -1,8 +1,8 @@
 {
   "name": "@thetis/ui-admin",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "license": "MIT",
-  "description": "The admin sections of the web gateway's control panel: people, models, configuration, mounts, activity, workspaces, and overview.",
+  "description": "The control panel's sections beyond Packages: the account, models, mounts, SSH keys and activity for everyone, each scoped to the person; people, configuration, workspaces and overview for an admin.",
   "type": "module",
   "main": "index.js",
   "thetis": {
@@ -13,6 +13,12 @@
       "style": "index.css",
       "panel": [
         {
+          "id": "account",
+          "label": "Account",
+          "note": "Who you are here, and your password.",
+          "order": 15
+        },
+        {
           "id": "people",
           "label": "People",
           "note": "Who can sign in, and what they may do.",
@@ -22,8 +28,7 @@
         {
           "id": "models",
           "label": "Models",
-          "note": "Which model answers by default, and what the providers serve.",
-          "role": "admin",
+          "note": "Which models answer, and which providers serve them.",
           "order": 30
         },
         {
@@ -37,22 +42,19 @@
         {
           "id": "mounts",
           "label": "Mounts",
-          "note": "Which host directories are bound into whose space.",
-          "role": "admin",
+          "note": "Which host directories are bound into a workspace.",
           "order": 35
         },
         {
           "id": "ssh",
           "label": "SSH keys",
-          "note": "Which keys each person's workspace may use, and where they may go.",
-          "role": "admin",
+          "note": "Which keys a workspace may use, and where they may go.",
           "order": 36
         },
         {
           "id": "activity",
           "label": "Activity",
           "note": "What happened: who did what, and when.",
-          "role": "admin",
           "order": 40
         },
         {
@@ -108,10 +110,19 @@
           "role": "admin"
         },
         {
+          "verb": "account",
+          "export": "account",
+          "label": "Who you are here"
+        },
+        {
+          "verb": "password-change",
+          "export": "passwordChange",
+          "label": "Change your own password"
+        },
+        {
           "verb": "models",
           "export": "models",
-          "label": "List the models",
-          "role": "admin"
+          "label": "List the models"
         },
         {
           "verb": "config",
@@ -236,14 +247,12 @@
         {
           "verb": "journal",
           "export": "journal",
-          "label": "Read the journal",
-          "role": "admin"
+          "label": "Read the journal"
         },
         {
           "verb": "mounts-list",
           "export": "mountsList",
-          "label": "List the mounts",
-          "role": "admin"
+          "label": "List the mounts"
         },
         {
           "verb": "mounts-set",
@@ -260,38 +269,32 @@
         {
           "verb": "ssh-list",
           "export": "sshList",
-          "label": "List the keys granted to each person's workspace",
-          "role": "admin"
+          "label": "List the keys granted to each person's workspace"
         },
         {
           "verb": "ssh-set",
           "export": "sshSet",
-          "label": "Set a person's ssh grants",
-          "role": "admin"
+          "label": "Set a person's ssh grants"
         },
         {
           "verb": "ssh-keygen",
           "export": "sshKeygen",
-          "label": "Make a person a key of their own",
-          "role": "admin"
+          "label": "Make a person a key of their own"
         },
         {
           "verb": "ssh-import",
           "export": "sshImport",
-          "label": "Upload a person's private key",
-          "role": "admin"
+          "label": "Upload a person's private key"
         },
         {
           "verb": "ssh-scan",
           "export": "sshScan",
-          "label": "Find a host's known_hosts lines",
-          "role": "admin"
+          "label": "Find a host's known_hosts lines"
         },
         {
           "verb": "ssh-test",
           "export": "sshTest",
-          "label": "Try reaching a host as git from this workspace",
-          "role": "admin"
+          "label": "Try reaching a host as git from this workspace"
         },
         {
           "verb": "fence-reload",

@@ -1,5 +1,6 @@
 /* Mounts: which host directories are bound into whose fence, at their host path, read-write or read-only.
- * One table of every person's mounts, and a form that adds one. Every change sends that person's whole
+ * A user sees only their own, read-only, each in one sentence that says whether it is really there. An
+ * admin sees one table of every person's mounts, and a form that adds one. Every change sends that person's whole
  * list through `mounts-set`, as the command line does; the kernel closes the person's fence, which
  * reopens with the new binds and restarts their services, so the page says that before it sends.
  *
@@ -8,7 +9,74 @@
  * until the table says which. The path is picked, not typed, for the same reason — the picker cannot
  * offer a directory that is not there. */
 
-export function mountMounts(ext, root) {
+/**
+ * One mount of your own, said in one sentence from what the server found at the path (`present`, `kind`
+ * from host-grants' withPresence), never guessed here. `broken` is true when the fence opened without it;
+ * a kernel older than those fields says so rather than claiming either.
+ */
+export function mountSentence(m) {
+  const how = m.mode === "rw" ? "read-write" : "read-only";
+  if (m.present === undefined) return { tone: "dim", broken: false, text: `Written down ${how}; this installation does not say whether the host has it.` };
+  if (m.present) return { tone: "ok", broken: false, text: `Bound ${how}, at the same path.` };
+  if (m.kind === "file") return { tone: "err", broken: true, text: "Not bound: the host has a file at this path, not a directory, so your workspace opened without it." };
+  return { tone: "err", broken: true, text: "Not bound: the host has no directory at this path, so your workspace opened without it." };
+}
+
+/** The command an admin runs on the host to drop a mount that is not there, in the CLI's own words. */
+export const removeCommand = (user, path) => `thetis mounts remove ${user} ${path}`;
+
+/**
+ * A user's own mounts, read-only: a person cannot bind a host directory, only see what an admin bound and
+ * whether it is really in their workspace. The rows come from `mounts-list`, which the kernel answers for
+ * the caller alone.
+ */
+function mountOwnMounts(ext, root, me) {
+  const { el, clear } = ext.dom;
+  const { badge, busy, heading, put, table } = ext.ui;
+  let list = [];
+  const wrap = el("div", { class: "panel-col ua-own-mounts" });
+  root.append(el("div", { class: "panel-cols" }, wrap));
+
+  async function load() {
+    const stop = busy(wrap, "Reading your mounts…");
+    try {
+      const out = await ext.request("mounts-list", { args: { user: me } });
+      list = Array.isArray(out.data?.[me]) ? out.data[me] : [];
+    } catch (err) {
+      ext.toast(err.message, { tone: "error" });
+    } finally {
+      stop();
+    }
+    draw();
+  }
+
+  function draw() {
+    clear(wrap);
+    const said = list.map((m) => ({ ...m, said: mountSentence(m) }));
+    const broken = said.filter((m) => m.said.broken);
+    put(
+      wrap,
+      el("div", { class: "toolbar" }, heading("Your mounts", `${list.length} ${list.length === 1 ? "mount" : "mounts"}`)),
+      broken.length ? el("p", { class: "ua-broken" }, `${broken.length === 1 ? "One mount is" : `${broken.length} mounts are`} not in your workspace: ${broken.length === 1 ? "it was" : "they were"} granted, but the host has no directory there.`) : null,
+      table(
+        [
+          { key: "path", label: "Host path", render: (m) => el("code", { class: "ua-wrap" }, m.path) },
+          { key: "mode", label: "Mode", render: (m) => badge(m.mode === "rw" ? "read-write" : "read-only", m.mode === "rw" ? "warn" : "dim") },
+          { key: "state", label: "In your workspace", render: (m) => el("span", { class: m.said.broken ? "ua-refused" : "text-dim" }, m.said.text) },
+        ],
+        said,
+        { rowKey: (m) => m.path, empty: "Nothing from the host is bound into your workspace." }
+      ),
+      broken.length ? el("div", { class: "panel-hint" }, el("p", {}, "An admin can change this in Mounts, or put the directory back on the host. On the host, an admin drops a mount that is not there with:"), el("pre", { class: "ua-pre" }, broken.map((m) => removeCommand(me, m.path)).join("\n"))) : null,
+      el("p", { class: "panel-hint" }, "A mount is a host directory bound into your workspace at the same path. Only an admin binds one; it appears the next time your workspace opens.")
+    );
+  }
+
+  void load();
+}
+
+export function mountMounts(ext, root, who = {}) {
+  if (who.role === "user") return mountOwnMounts(ext, root, who.user);
   const { el, clear } = ext.dom;
   const { badge, busy, button, confirm, field, heading, pickDirectory, put, table } = ext.ui;
   let people = [];

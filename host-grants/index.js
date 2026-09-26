@@ -1,14 +1,20 @@
-// The grants an admin makes into one person's fence: host directories bound at their own path, and ssh
-// keys the fence's agent holds. Both need the host -- a directory to browse, a key file to write under
-// `<home>/fence-keys`, a path whose presence to check -- so they live here, a host package the daemon
-// loads per call as `host.grants.<export>`. The kernel has already checked that the caller is an admin
-// or the operator and journalled the call; what each export does is checked and journalled again here,
-// with the grant itself, never a key's material.
+// The grants into one person's fence: host directories bound at their own path, and ssh keys the fence's
+// agent holds. Both need the host -- a directory to browse, a key file to write under `<home>/fence-keys`,
+// a path whose presence to check -- so they live here, a host package the daemon loads per call as
+// `host.grants.<export>`. The kernel admits a call from an admin or the operator to any export, and a
+// person's call about themselves to the exports the manifest lists in `thetis.host.self` (`mountsList`,
+// `sshList`, `sshSet`, `sshKeygen`, `sshImport`); it journals the call, and what each export does is
+// checked and journalled again here, with the grant itself, never a key's material.
 //
 // Every export is `(args, env)`. `args.user` names the target person (`_system` when absent, which no
-// grant accepts); `args.actor` is the admin who called through a fence, absent for the operator at the
-// socket. `env.records` are the kernel's own mount and ssh records: writing one is the grant, and
-// `env.reloadFence` is what makes it reach the fence.
+// grant accepts); `args.actor` is who called through a fence, absent for the operator at the socket.
+// For a person's call about themselves the kernel pins both to the caller and sets `args.self`: such a
+// call reads that person's mounts and keys and manages their keys, and `sshSet` then grants only keys the
+// host made or took in for them, or ones already theirs (`selfGrantable`). Nothing here widens a self
+// call: without a pinned user it is refused, never answered for everyone, and the admin-only exports
+// refuse it outright (`adminOnly`), though the kernel should never let one through. `env.records` are the
+// kernel's own mount and ssh records: writing one is the grant, and `env.reloadFence` is what makes it
+// reach the fence.
 //
 // Repository keys (`repo*`) are the one kind of ssh grant `_system` takes: the installation's key for one
 // repository, held by the system fence's agent, never by a person's. See lib/repo-keys.js.
@@ -17,11 +23,26 @@ import { resolve } from "node:path";
 import { assert, fail } from "./lib/error.js";
 import { browseDirectories, parseMountList, withPresence } from "./lib/mounts.js";
 import { describeRepoKeys, directUrl, grantFor, keyscan, mergeHosts, routeOf, testKey } from "./lib/repo-keys.js";
-import { describeKeys, generateKey, importKey, parseSshGrants } from "./lib/ssh.js";
+import { describeKeys, generateKey, importKey, isWithin, parseSshGrants } from "./lib/ssh.js";
 
 const SYSTEM_USER = "_system";
 
-const userOf = (args) => String(args.user ?? SYSTEM_USER);
+/**
+ * A person's call about themselves, which the kernel marks with `self`. Anything but an explicit false
+ * counts, so a flag that arrives in some other spelling narrows the call rather than widening it.
+ */
+const isSelf = (args) => args.self !== undefined && args.self !== false && args.self !== "false";
+
+/** The target: `args.user`, else `_system`. A self call without its pinned user names nobody and is refused. */
+function userOf(args) {
+  assert(!isSelf(args) || args.user, "a call about oneself names its caller as the user, and this one names nobody", "unauthorized");
+  return String(args.user ?? SYSTEM_USER);
+}
+
+/** An export only an admin or the operator may call. The kernel admits no self call to one; this refuses it again. */
+function adminOnly(args, what) {
+  assert(!isSelf(args), `${what} is an admin's to call, not a person's about themselves`, "unauthorized");
+}
 
 /**
  * One person's grants, or everyone's, each entry carrying what the host says about it now. Both listings
@@ -29,7 +50,7 @@ const userOf = (args) => String(args.user ?? SYSTEM_USER);
  * about one person or all of them.
  */
 function listing(args, records, state) {
-  const lists = args.user ? { [userOf(args)]: records.get(userOf(args)) } : records.all();
+  const lists = args.user || isSelf(args) ? { [userOf(args)]: records.get(userOf(args)) } : records.all();
   return Object.fromEntries(Object.entries(lists).map(([u, list]) => [u, state(list)]));
 }
 
@@ -70,6 +91,21 @@ function targetOf(args, env, kind) {
   return target;
 }
 
+/**
+ * What a person may grant themselves: keys already theirs -- to keep, drop, or give other hosts -- and
+ * files under the directory where the host keeps the keys it made or took in for them. Any other path is
+ * a host credential, and lending one is an admin's call. An admin's list is not checked here.
+ */
+function selfGrantable(args, env, ssh) {
+  if (!isSelf(args)) return;
+  const user = userOf(args);
+  const held = new Set(env.records.ssh.get(user).map((g) => g.key));
+  const dir = keyDir(env, user);
+  for (const { key } of ssh) {
+    assert(held.has(key) || isWithin(dir, key), `a person may grant only keys the host made or took in for them; ask an admin to grant ${key}`, "unauthorized");
+  }
+}
+
 /** Where the host keeps the keys it made or took in for one person. */
 const keyDir = (env, user) => resolve(env.home, "fence-keys", user);
 
@@ -91,11 +127,13 @@ export async function mountsList(args, env) {
 
 /** The directories under `path` (default `/`), hidden ones too with `all`. The host filesystem is the admin's to see: a person's fence shows only what is bound into it. */
 export async function mountsBrowse(args) {
+  adminOnly(args, "mountsBrowse");
   return browseDirectories(String(args.path ?? "/"), { all: args.all === true || args.all === "true" });
 }
 
 /** Replaces one person's mounts with `mounts`. The answer carries presence: a caller learns at once that a path it named is not there to bind. */
 export async function mountsSet(args, env) {
+  adminOnly(args, "mountsSet");
   return withPresence(await grant(args, env, "mounts", parseMountList(args.mounts), env.records.mounts, (v) => v));
 }
 
@@ -130,9 +168,14 @@ export async function sshImport(args, env) {
   return ownKey(args, env, made, parseSshGrants([{ key: "/hosts", hosts: args.hosts ?? [] }])[0]?.hosts);
 }
 
-/** Replaces one person's grants with `ssh`. The key paths are the grant; the key material is never read here and never journalled. */
+/**
+ * Replaces one person's grants with `ssh`. The key paths are the grant; the key material is never read here
+ * and never journalled. A person setting their own list may name only what `selfGrantable` allows.
+ */
 export async function sshSet(args, env) {
-  return describeKeys(await grant(args, env, "ssh", parseSshGrants(args.ssh), env.records.ssh, (v) => v.map((g) => g.key)));
+  const ssh = parseSshGrants(args.ssh);
+  selfGrantable(args, env, ssh);
+  return describeKeys(await grant(args, env, "ssh", ssh, env.records.ssh, (v) => v.map((g) => g.key)));
 }
 
 /**
@@ -140,7 +183,8 @@ export async function sshSet(args, env) {
  * and what the host holds for it now. A registry "uses SSH" exactly when one of these names its url -- the
  * key is the state, so nothing else records the intention.
  */
-export async function repoList(_args, env) {
+export async function repoList(args, env) {
+  adminOnly(args, "repoList");
   return describeRepoKeys(env.records.ssh.get(SYSTEM_USER));
 }
 
@@ -151,6 +195,7 @@ export async function repoList(_args, env) {
  * `publicKey` is what gets added as a read-only deploy key.
  */
 export async function repoKeygen(args, env) {
+  adminOnly(args, "repoKeygen");
   const { route, hosts } = repoArgs(args, env);
   const made = generateKey(keyDir(env, SYSTEM_USER), `thetis@${route.key}`, route.alias);
   return repoGrant(args, env, made.key, hosts);
@@ -161,6 +206,7 @@ export async function repoKeygen(args, env) {
  * by ssh-keygen, granted like `repoKeygen`. Refused when the file is there: revoke it first.
  */
 export async function repoImport(args, env) {
+  adminOnly(args, "repoImport");
   const { route, hosts } = repoArgs(args, env);
   const made = importKey(keyDir(env, SYSTEM_USER), route.alias, String(args.privateKey ?? ""));
   return repoGrant(args, env, made.key, hosts);
@@ -171,6 +217,7 @@ export async function repoImport(args, env) {
  * `{ repo, ok, head?, error? }`, `error` in the far end's own words. No grant is `not-found`.
  */
 export async function repoTest(args, env) {
+  adminOnly(args, "repoTest");
   const route = routeOf(args.repo);
   const grant = grantFor(env.records.ssh.get(SYSTEM_USER), args.repo);
   assert(grant, `no repository key for ${route.key}`, "not-found");
@@ -183,6 +230,7 @@ export async function repoTest(args, env) {
  * way. Answers the repository keys that are left.
  */
 export async function repoRevoke(args, env) {
+  adminOnly(args, "repoRevoke");
   const route = routeOf(args.repo);
   const keepKey = args.keepKey === true || args.keepKey === "true";
   const grants = env.records.ssh.get(SYSTEM_USER);
