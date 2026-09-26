@@ -149,6 +149,7 @@ The shell draws the header and the close button. `open` returns an unmount funct
 | `@thetis/ui-admin` | The Account, People, Models, Mounts, SSH keys, Activity, Workspaces, and Overview panel sections, and their commands. Everyone sees Account, Models, Mounts, SSH keys, and Activity, each about themselves: their password, the models they can use, their own mounts, their own ssh keys, and the journal rows about them. The other sections are for an admin. |
 | `@thetis/ui-marketplace` | The Marketplace place and sixteen commands, `fence-reload` (a person reloading their own workspace) among them. |
 | `@thetis/projects` | The sidebar head switcher and the Project place. Seven commands. |
+| `@thetis/effort` | The Effort pill beside the model picker (`composer` slot). Commands `effort-state`, `effort-set`, `effort-models`. |
 
 ## Sources
 

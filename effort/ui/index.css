@@ -1,0 +1,66 @@
+/* Styles of @thetis/effort's pill, linked once by the gateway. Scoped under `.ef-` and built from the
+   shell's theme tokens (theme.css) so the pill reads as the model picker's sibling: the same pill shape,
+   the same list above it. The dot turns from the accent to the muted text when thinking is off. No
+   inline style: the page's CSP forbids it. */
+
+.ef-pill { position: relative; min-width: 0; }
+.ef-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  padding: 4px 9px 4px 8px;
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.ef-btn:hover { background: var(--surface-3); color: var(--text); border-color: var(--hairline-strong); }
+.ef-btn .ef-caret { width: 10px; height: 10px; flex: none; opacity: .6; transition: transform var(--med) var(--ease); }
+.ef-pill.is-open .ef-btn { background: var(--surface-3); color: var(--text); border-color: var(--accent-edge); }
+.ef-pill.is-open .ef-caret { transform: rotate(180deg); }
+.ef-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--text-faint); }
+.ef-pill.is-chosen .ef-dot { background: var(--accent); }
+.ef-pill.is-off .ef-dot { background: var(--text-faint); box-shadow: inset 0 0 0 1.5px var(--text-dim); }
+.ef-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ef-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: min(300px, calc(100vw - 32px));
+  max-width: min(380px, calc(100vw - 32px));
+  max-height: min(380px, 60vh);
+  overflow-y: auto;
+  padding: var(--gap-1);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+  animation: rise var(--med) var(--ease);
+}
+.ef-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 9px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.ef-item:hover, .ef-item:focus-visible { background: var(--surface-3); color: var(--text); outline: none; }
+.ef-item.is-selected { background: var(--accent-wash); }
+.ef-item-label { font-size: var(--text-sm); color: var(--text); }
+.ef-item.is-selected .ef-item-label { color: var(--accent); font-weight: 600; }
+.ef-item-note { font-size: var(--text-xs); color: var(--text-faint); overflow-wrap: anywhere; }

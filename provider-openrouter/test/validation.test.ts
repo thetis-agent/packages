@@ -70,4 +70,25 @@ test("models carries OpenRouter's context_length as contextLength, and leaves th
   assert.equal("pricing" in models[0], false, "only what the descriptor names is passed on");
   assert.equal(models[1].id, "vendor/plain");
   assert.equal("contextLength" in models[1], false, "no window listed, no key");
+  assert.equal("reasoning" in models[0], false, "no reasoning listed, no key");
+});
+
+test("models carries OpenRouter's reasoning descriptor under camelCase, only for the models that have one", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({
+      data: [
+        { id: "vendor/thinker", reasoning: { mandatory: false, default_enabled: true, supported_efforts: ["max", "xhigh", "high", "medium", "low", null], default_effort: "high" } },
+        { id: "vendor/forced", reasoning: { mandatory: true, supports_max_tokens: true } },
+        { id: "vendor/bare", reasoning: {} },
+        { id: "vendor/plain" },
+        { id: "vendor/nulled", reasoning: null },
+      ],
+    }),
+  );
+  const models = await createProvider({ apiKey: "test" }).models();
+  assert.deepEqual(models[0].reasoning, { mandatory: false, defaultEnabled: true, defaultEffort: "high", supportedEfforts: ["max", "xhigh", "high", "medium", "low"] }, "null inside the allowlist is dropped");
+  assert.deepEqual(models[1].reasoning, { mandatory: true, supportsMaxTokens: true }, "only the fields OpenRouter sent, and mandatory always");
+  assert.deepEqual(models[2].reasoning, { mandatory: false }, "an empty descriptor still says the model thinks and can be told not to");
+  assert.equal("reasoning" in models[3], false);
+  assert.equal("reasoning" in models[4], false, "a null descriptor is no descriptor");
 });

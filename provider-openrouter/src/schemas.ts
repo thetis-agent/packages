@@ -1,9 +1,22 @@
 import { z } from "zod";
 
+/**
+ * OpenRouter's description of a model's reasoning: which `reasoning.effort` values it takes, what it does
+ * when asked nothing, and whether thinking can be turned off at all. Present only on models that think;
+ * a package that offers an effort choice (the effort pill) reads it from `kernel.models()` as `reasoning`.
+ */
+export const ModelReasoningSchema = z.looseObject({
+  mandatory: z.boolean().optional(),
+  default_enabled: z.boolean().optional(),
+  default_effort: z.string().nullish(),
+  supported_efforts: z.array(z.string().nullable()).nullish(),
+  supports_max_tokens: z.boolean().optional(),
+});
+
 export const ModelsResponseSchema = z.looseObject({
   // `context_length` is the model's window in tokens; a package that sizes a request against the window
   // (compaction) reads it as `contextLength`. OpenRouter lists it for nearly every model, but not for all.
-  data: z.array(z.looseObject({ id: z.string().min(1), name: z.string().optional(), context_length: z.number().int().positive().optional() })),
+  data: z.array(z.looseObject({ id: z.string().min(1), name: z.string().optional(), context_length: z.number().int().positive().optional(), reasoning: ModelReasoningSchema.nullish() })),
 });
 
 export const ProviderErrorSchema = z.looseObject({

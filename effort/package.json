@@ -1,0 +1,30 @@
+{
+  "name": "@thetis/effort",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "How hard the model thinks: a per-conversation reasoning effort, chosen from a pill beside the model picker and sent as the request's reasoning parameter.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "thetis": {
+    "type": "loader",
+    "steps": [
+      { "id": "apply-effort", "phase": "call", "export": "applyEffort" }
+    ],
+    "ui": {
+      "dir": "ui",
+      "entry": "index.js",
+      "style": "index.css",
+      "composer": [
+        { "id": "effort", "label": "Effort", "hint": "How hard the model thinks in this conversation", "order": 110 }
+      ],
+      "commands": [
+        { "verb": "effort-state", "export": "uiState", "label": "Read the effort chosen for a conversation" },
+        { "verb": "effort-set", "export": "uiSet", "label": "Choose the effort for a conversation" },
+        { "verb": "effort-models", "export": "uiModels", "label": "List which efforts each model accepts" }
+      ]
+    }
+  }
+}

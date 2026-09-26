@@ -1,7 +1,8 @@
 import { wireContent } from "./content.js";
 import { parseSchema } from "@thetis/runtime/lib/validation";
 import { ToolCallSchema } from "@thetis/runtime/schemas";
-import { ModelsResponseSchema, ProviderErrorSchema, StreamChunkSchema, ToolArgumentsSchema } from "./schemas.js";
+import { ModelReasoningSchema, ModelsResponseSchema, ProviderErrorSchema, StreamChunkSchema, ToolArgumentsSchema } from "./schemas.js";
+import type { z } from "zod";
 // OpenRouter provider: OpenAI-compatible chat completions with SSE streaming and tool calls.
 // Prompt caching is applied at the wire. The policy comes from this package's own `cache` config; a
 // `cache` hint on the call may tune it within the configured `hints` mode.
@@ -81,8 +82,14 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
       const res = await fetch(`${baseUrl}/models`, { headers, signal: AbortSignal.timeout(requestTimeoutMs) });
       if (!res.ok) throw new Error(`openrouter /models failed: ${res.status} ${await res.text()}`);
       const body = parseSchema(ModelsResponseSchema, await res.json(), "OpenRouter models");
-      // The key is left out when OpenRouter lists no window, so a descriptor never says `contextLength: undefined`.
-      return body.data.map((m) => ({ id: m.id, name: m.name, ...(m.context_length !== undefined ? { contextLength: m.context_length } : {}) }));
+      // The keys are left out when OpenRouter lists no window or no reasoning, so a descriptor never says
+      // `contextLength: undefined`, and a model that does not think carries no `reasoning` at all.
+      return body.data.map((m) => ({
+        id: m.id,
+        name: m.name,
+        ...(m.context_length !== undefined ? { contextLength: m.context_length } : {}),
+        ...(m.reasoning ? { reasoning: describeReasoning(m.reasoning) } : {}),
+      }));
     },
 
     async *call(call: ProviderCall, signal?: AbortSignal, context?: ProviderContext): AsyncIterable<ProviderEvent> {
@@ -246,6 +253,38 @@ export function stopMessage(finish: string | undefined, maxTokens: unknown): str
   if (finish === "length") return `the reply stopped at the output limit${typeof maxTokens === "number" ? ` of ${maxTokens} tokens (max_tokens)` : ""}; reasoning counts against it, so raise defaults.max_tokens or ask for less at once`;
   if (finish === "content_filter") return "the provider's content filter stopped the reply";
   return undefined;
+}
+
+/**
+ * What a model descriptor says about reasoning, in this provider's own words. OpenRouter's fields are
+ * passed through under camelCase, and only the ones it sent: `supportedEfforts` is the allowlist in
+ * descending order, or absent when the model exposes no effort choice; `null` inside it (OpenRouter's
+ * "any value") is dropped. `mandatory` is always answered, false when OpenRouter did not say, because a
+ * page deciding whether to offer "off" must not have to guess.
+ */
+export function describeReasoning(r: z.infer<typeof ModelReasoningSchema>): ModelReasoning {
+  const efforts = Array.isArray(r.supported_efforts) ? r.supported_efforts.filter((e): e is string => typeof e === "string" && e.length > 0) : undefined;
+  return {
+    mandatory: r.mandatory === true,
+    ...(typeof r.default_enabled === "boolean" ? { defaultEnabled: r.default_enabled } : {}),
+    ...(typeof r.default_effort === "string" && r.default_effort ? { defaultEffort: r.default_effort } : {}),
+    ...(efforts && efforts.length ? { supportedEfforts: efforts } : {}),
+    ...(r.supports_max_tokens === true ? { supportsMaxTokens: true } : {}),
+  };
+}
+
+/** The `reasoning` field a model descriptor carries when the model thinks. */
+export interface ModelReasoning {
+  /** True when the model rejects `effort: "none"`: thinking cannot be turned off. */
+  mandatory: boolean;
+  /** Whether the model thinks when the request says nothing about reasoning. */
+  defaultEnabled?: boolean;
+  /** The effort OpenRouter pre-selects; `"none"` means off unless asked. */
+  defaultEffort?: string;
+  /** The `reasoning.effort` values the model accepts, highest first. Absent when the model exposes no effort choice. */
+  supportedEfforts?: string[];
+  /** True when `reasoning.max_tokens` is accepted (Anthropic-style). */
+  supportsMaxTokens?: true;
 }
 
 /** One sentence for a refused request: OpenRouter's own message and reason when the body is its JSON, else the raw text. */
