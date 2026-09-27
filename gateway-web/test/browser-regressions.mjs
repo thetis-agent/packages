@@ -409,6 +409,7 @@ test("a phone: the rail is a Panels menu, a place closes the drawer, Escape take
     assert.equal(await f.page.locator(".panel-tree").isVisible(), false, "the tree gives way to the select");
     assert.ok((await select.locator("option").allInnerTexts()).some((t) => t.trim() === "Extensions"));
     await f.page.getByRole("button", { name: "Manage extensions" }).waitFor();
+    assert.equal(await f.page.locator(".panel-page tr.is-clickable, #place tr.is-clickable", { hasText: "@review/extras" }).count() > 0, true, "every installed extension is listed on the section itself");
 
     // Drawer over the place: Escape closes the drawer first, then the place.
     await f.page.locator("#place .chat-menu").click();

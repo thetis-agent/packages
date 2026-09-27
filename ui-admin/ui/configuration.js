@@ -1,8 +1,8 @@
 /* The pages under Extensions in the control panel (the manifest declares this entry `under: "packages"`,
- * the shell's built-in section). `configurationChildren` answers the tree: first "All extensions", the page
- * every extension is reached from, then only the extensions that ask for something: an update ready (to
- * install, or for people who have not applied it yet) or a setting that is missing. Everything else is one
- * row on the All extensions page, not a row in the tree, so the tree's count is of what needs doing.
+ * the shell's built-in section). `configurationChildren` answers the tree: first "All extensions", the table
+ * of every extension, then every extension by name, so each is one click from the control panel. The ones that
+ * ask for something -- an update ready (to install, or for people who have not applied it yet) or a setting
+ * that is missing -- carry a mark, and only the marks are counted, so the tree's count is of what needs doing.
  * `mountConfiguration` draws All extensions (`fleet.js` in its simple view) for the first child and an
  * extension's page (`package-page.js`) for any other; `mountSettings` is the settings form alone, the page's
  * Settings tab, drawn with the shared form so the state of every key is the kernel's and is said in the row.
@@ -41,9 +41,9 @@ export function markOf(p, report) {
 }
 
 /**
- * The children under Extensions, for the tree: All extensions first, then the extensions that ask for
- * something, each with its one mark. An installation where `fleet` cannot answer still lists the ones whose
- * configuration is missing something.
+ * The children under Extensions, for the tree: All extensions first, then every extension by name, the ones
+ * that ask for something with their one mark. An installation where `fleet` cannot answer still lists the
+ * ones the configuration report knows.
  */
 export async function configurationChildren(ext) {
   const [list, fleet] = await Promise.all([ext.request("config-list").catch(() => ({ data: [] })), ext.request("fleet").catch(() => ({ data: null }))]);
@@ -54,7 +54,7 @@ export async function configurationChildren(ext) {
   const kids = [];
   for (const name of names) {
     const said = markOf(byName.get(name) ?? null, reports.get(name) ?? null);
-    if (said) kids.push({ id: name, label: shortName(name), note: said.note, mark: said.mark });
+    kids.push(said ? { id: name, label: shortName(name), note: said.note, mark: said.mark } : { id: name, label: shortName(name), note: stateWord("current") });
   }
   kids.sort((a, b) => a.label.localeCompare(b.label));
   return [{ id: FLEET, label: "All extensions", kind: "page", note: "Every extension installed here" }, ...kids];

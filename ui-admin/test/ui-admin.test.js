@@ -497,7 +497,7 @@ test("the tree an admin reads: Overview, People, Extensions, Models, Access, Act
   assert.deepEqual(tabsFor("user").map((t) => t.label), ["Mounts", "SSH keys"], "registries are the installation's: a user has no tab for them");
 });
 
-test("configurationChildren: All extensions first, then only the extensions that ask for something, each with one mark", async () => {
+test("configurationChildren: All extensions first, then every extension, the ones that ask for something with one mark", async () => {
   const { configurationChildren, FLEET, markOf } = await import("../ui/configuration.js");
   const reports = [
     { package: "@thetis/exa", summary: "apiKey is required and not set", broken: true, keys: [{ key: "apiKey" }] },
@@ -518,9 +518,10 @@ test("configurationChildren: All extensions first, then only the extensions that
   assert.deepEqual(kids[0], { id: "*", label: "All extensions", kind: "page", note: "Every extension installed here" });
   assert.deepEqual(
     kids.slice(1).map((k) => [k.id, k.label, k.mark]),
-    [["@bitmuse/moo", "@bitmuse/moo", "err"], ["@thetis/compaction", "compaction", "warn"], ["@thetis/exa", "exa", "err"], ["@thetis/skills-hybrid", "skills-hybrid", "warn"]],
-    "a copy of one's own and an extension that is up to date ask for nothing: they are rows on All extensions"
+    [["@bitmuse/moo", "@bitmuse/moo", "err"], ["@thetis/compaction", "compaction", "warn"], ["@thetis/exa", "exa", "err"], ["@thetis/skills-hybrid", "skills-hybrid", "warn"], ["@thetis/terminal", "terminal", undefined], ["@thetis/tools-files", "tools-files", undefined]],
+    "every extension is in the tree; one that is up to date carries no mark, so it is not counted"
   );
+  assert.equal(kids.find((k) => k.id === "@thetis/terminal").note, "Up to date");
   const by = Object.fromEntries(kids.slice(1).map((k) => [k.id, k]));
   assert.equal(by["@thetis/skills-hybrid"].note, "Update ready: 3 people haven't applied it yet");
   assert.equal(by["@thetis/compaction"].note, "Update ready: 0.2.0 is in the registry");

@@ -21,6 +21,8 @@ export interface PackageRow {
   version: string;
   type: string;
   description: string;
+  /** The manifest's human name (`thetis.label`), when it has one. */
+  label?: string;
   scope: "me" | "everyone";
   steps: { id: string; phase: string }[];
   tools: string[];
@@ -38,6 +40,7 @@ export function toRow(p: PackageInfo): PackageRow {
     version: p.version,
     type: p.type,
     description: p.description,
+    ...(typeof p.thetis.label === "string" ? { label: p.thetis.label } : {}),
     scope: p.everyone ? "everyone" : "me",
     steps: (p.thetis.steps ?? []).map((s) => ({ id: s.id, phase: s.phase })),
     tools: (p.thetis.tools ?? []).map((t) => t.name),

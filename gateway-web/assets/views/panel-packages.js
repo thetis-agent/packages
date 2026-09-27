@@ -1,7 +1,7 @@
-/* Extensions, the built-in section of the control panel: the bootstrap and nothing more. Adding, updating,
+/* Extensions, the built-in section of the control panel: what is installed, in one list. Adding, updating,
  * configuring and removing extensions is the Extensions place of `@thetis/ui-marketplace` (place id
- * `marketplace`, from that package or a copy of it). When that place is here, this section says how many
- * extensions are installed and links to it ("Manage extensions"). When it is not — never installed,
+ * `marketplace`, from that package or a copy of it). When that place is here, this section lists every
+ * installed extension, each row opening its page there, with "Manage extensions" for the rest. When it is not — never installed,
  * removed, or its module failed to load — a person must still be able to put one in place from the
  * browser, so the section offers exactly that: install from a source, the list of what is installed, and
  * Remove.
@@ -19,6 +19,9 @@ import { toast } from "../lib/toast.js";
 
 const enc = (name) => encodeURIComponent(name);
 
+/** The name a person reads: the manifest's label when it has one, else the name without its scope. */
+const labelOf = (row) => row.label || String(row.name ?? "").replace(/^@thetis\//, "");
+
 /** The id of the Extensions place, as `@thetis/ui-marketplace` declares it (a copy of that package declares the same). */
 export const MARKETPLACE_ID = "marketplace";
 
@@ -27,10 +30,11 @@ export function mountPackages(root, { user }, shell) {
   const body = el("div", { class: "panel-col ext-bootstrap" });
   root.append(body);
 
-  /** The Extensions place, when a package declared it here and loaded: the way to manage extensions. */
+  /** The Extensions place, when a package declared it here and loaded: the way to manage extensions. With a
+   *  name it opens that extension's page there. */
   const place = () => {
     const entry = registry.entries("places").find((e) => e.id === MARKETPLACE_ID && !registry.failureOf(e.package));
-    return entry && shell?.openPlace ? () => shell.openPlace(entry.key) : null;
+    return entry && shell?.openPlace ? (name) => shell.openPlace(entry.key, typeof name === "string" ? { name } : undefined) : null;
   };
 
   async function load() {
@@ -52,11 +56,20 @@ export function mountPackages(root, { user }, shell) {
     const open = place();
     const count = `${installed.length} installed`;
     if (open) {
+      const rows = [...installed].sort((a, b) => labelOf(a).localeCompare(labelOf(b)));
       put(
         body,
         heading("Extensions", count),
-        el("p", { class: "panel-hint" }, "Extensions add tools, skills and pages to Thetis. You add, update, set up and remove them in the Extensions place."),
-        el("div", { class: "row" }, button("Manage extensions", { tone: "primary", onClick: open }))
+        el("div", { class: "row" }, el("p", { class: "panel-hint" }, "Extensions add tools, skills and pages to Thetis. Open one to see it, set it up, update or remove it."), button("Manage extensions", { tone: "primary", onClick: () => open() })),
+        table(
+          [
+            { key: "name", label: "Extension", render: (r) => el("span", { class: "cell-name", title: r.name }, labelOf(r)) },
+            { key: "version", label: "Version", render: (r) => el("code", { class: "text-dim" }, r.version) },
+            { key: "description", label: "What it does", render: (r) => el("span", { class: "text-dim" }, r.description || "—") },
+          ],
+          rows,
+          { empty: "Nothing is installed here.", onRow: (r) => open(r.name) }
+        )
       );
       return;
     }
