@@ -1,8 +1,8 @@
 {
   "name": "@thetis/tool-operator",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "license": "MIT",
-  "description": "The operator's own tool: one tool that asks this daemon to restart itself, and the chip that shows a restart coming and calls it off. Installed per admin, never for everyone.",
+  "description": "The operator's own tool: one tool that asks this Thetis server to restart itself, refused while an update is installing. Installed per admin, never for everyone. The restart countdown everyone sees is gateway-web's.",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -10,33 +10,24 @@
   },
   "thetis": {
     "type": "tool",
+    "label": "restart tool",
     "tools": [
       {
         "name": "restart_daemon",
-        "description": "Ask this Thetis daemon to restart itself. Try the cheaper thing first: reloading a workspace replaces that workspace's service code in about a second and takes nothing else down, so a restart is only for code the daemon read once when it started — the runtime modules in src/, the thetis command, or thetis.config.json. Nothing restarts while you are talking: this call only records the request, and this turn finishes first, so the person reads your reply before anything happens. Thetis then waits for every conversation everywhere to go quiet and counts down where everyone can see it; if a turn is still running two minutes later it restarts anyway and cuts that turn off. Conversations come back with their history; open terminal shell sessions do not, and whatever was running in one dies with them. Ask the person with ask_user before you call this, unless they have just asked for it. The reason must name what changed and why reloading a workspace cannot pick it up; it is shown to everyone waiting and recorded. A refusal means nothing happened: say what it says, and do not call this again.",
+        "description": "Ask this Thetis server to restart itself. A restart is only for what Thetis reads once when it starts: the runtime modules in src/, the thetis command, and the `door` and `storage` settings. Extension updates apply by themselves, and other settings without a restart. This call only records the request. Running replies, this one included, then pause at their next safe point; Thetis counts down where everyone can see it, restarts, and the paused replies continue by themselves when it is back, so nobody has to type \"continue\". A reply still inside a long tool call two minutes later is stopped there and saved, and continues the same way. Open terminal shell sessions do not come back, and whatever was running in one dies with them. While an update is installing this is refused: the update restarts Thetis itself when it is done. Ask the person with ask_user before you call this, unless they have just asked for it. The reason must name what changed; it is shown to everyone waiting and recorded. A refusal means nothing happened: say what it says, and do not call this again.",
         "parameters": {
           "type": "object",
           "properties": {
             "reason": {
               "type": "string",
-              "description": "What changed, and why reloading a workspace cannot pick it up. Shown to everyone waiting and recorded in the journal."
+              "description": "What changed, and why only a restart picks it up. Shown to everyone waiting and recorded in the journal."
             }
           },
           "required": ["reason"]
         },
-        "export": "restartDaemon"
+        "export": "restartDaemon",
+        "reads": false
       }
-    ],
-    "ui": {
-      "dir": "ui",
-      "entry": "index.js",
-      "style": "index.css",
-      "statusbar": [{ "id": "restart", "order": 90 }],
-      "commands": [
-        { "verb": "restart-status", "export": "uiStatus", "label": "Whether a restart is armed" },
-        { "verb": "restart-cancel", "export": "uiCancel", "label": "Call off an armed restart" },
-        { "verb": "restart-now", "export": "uiRestart", "label": "Ask the daemon to restart" }
-      ]
-    }
+    ]
   }
 }

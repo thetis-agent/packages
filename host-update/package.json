@@ -1,8 +1,8 @@
 {
   "name": "@thetis/host-update",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
-  "description": "Updates the installation itself from the control panel: the runtime checkout and its packages submodule are pulled, dependencies installed and the build run, on the host, where the checkout lives. A host package: loaded by the daemon per call as host.update.<export>, never installed into a fence.",
+  "description": "Updates the installation itself from the control panel as one job on the host: download, install, build, a check that the new version loads, a rollback on any failure, then a restart or reloads of the affected workspaces. A host package: loaded by the daemon per call as host.update.<export>, never installed into a fence.",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -13,6 +13,7 @@
   },
   "thetis": {
     "type": "host",
+    "label": "Thetis updates",
     "host": {
       "name": "update"
     }

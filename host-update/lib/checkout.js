@@ -12,11 +12,14 @@ const INCOMING_LIMIT = 40;
 /** Git never asks a question here: a repository that needs credentials the host does not hold fails with git's own words. */
 const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
 
-/** Runs git in a directory and answers its stdout, trimmed. A failure carries git's own words and the code `git`. */
-export async function git(dir, args, { timeoutMs = 120_000 } = {}) {
+/**
+ * Runs git in a directory and answers its stdout, trimmed unless `trim` is false (porcelain output starts with
+ * a meaningful space). A failure carries git's own words and the code `git`.
+ */
+export async function git(dir, args, { timeoutMs = 120_000, trim = true } = {}) {
   try {
     const { stdout } = await run("git", ["-C", dir, "-c", "protocol.file.allow=always", ...args], { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024, env: GIT_ENV });
-    return stdout.trim();
+    return trim ? stdout.trim() : stdout;
   } catch (err) {
     const words = String(err?.stderr || err?.stdout || err?.message || err).trim();
     throw new HostError(`git ${args.join(" ")} in ${dir}: ${words}`, "git");
@@ -24,6 +27,15 @@ export async function git(dir, args, { timeoutMs = 120_000 } = {}) {
 }
 
 const short = (commit) => commit.slice(0, 7);
+
+/** How many changed files a check lists. Enough to recognise a dev checkout; the host has the rest. */
+const DIRTY_LIMIT = 40;
+
+/** The files `git status` says differ from HEAD, untracked ones left out: build output and scratch are not local changes. */
+async function changedFiles(dir) {
+  const text = await git(dir, ["status", "--porcelain", "--untracked-files=no"], { trim: false });
+  return text.split("\n").filter(Boolean).map((line) => line.slice(3));
+}
 
 /** `HEAD..<ref>` as `[{ commit, subject }]`, newest first, at most INCOMING_LIMIT of them. */
 async function incoming(dir, ref) {
@@ -47,14 +59,14 @@ async function countBehind(dir, ref) {
 export async function runtimeState(root, { fetch = false } = {}) {
   const branch = await git(root, ["rev-parse", "--abbrev-ref", "HEAD"]);
   const commit = await git(root, ["rev-parse", "HEAD"]);
-  const dirty = (await git(root, ["status", "--porcelain", "--untracked-files=no"])) !== "";
+  const dirtyFiles = await changedFiles(root);
   let upstream = null;
   try {
     upstream = await git(root, ["rev-parse", "--abbrev-ref", "@{upstream}"]);
   } catch {
     upstream = null;
   }
-  const base = { branch, commit: short(commit), dirty, upstream, ahead: 0, behind: 0, incoming: [], fetched: false, error: null };
+  const base = { branch, commit: short(commit), head: commit, dirty: dirtyFiles.length > 0, dirtyFiles: dirtyFiles.slice(0, DIRTY_LIMIT), upstream, upstreamHead: null, ahead: 0, behind: 0, incoming: [], fetched: false, error: null };
   if (!upstream) return { ...base, error: `${branch} tracks no upstream branch, so there is nothing to update from` };
   if (fetch) {
     try {
@@ -64,7 +76,7 @@ export async function runtimeState(root, { fetch = false } = {}) {
       return { ...base, error: err.message };
     }
   }
-  return { ...base, ahead: Number(await git(root, ["rev-list", "--count", `${upstream}..HEAD`])), behind: (await countBehind(root, upstream)) ?? 0, incoming: await incoming(root, upstream) };
+  return { ...base, upstreamHead: await git(root, ["rev-parse", upstream]), ahead: Number(await git(root, ["rev-list", "--count", `${upstream}..HEAD`])), behind: (await countBehind(root, upstream)) ?? 0, incoming: await incoming(root, upstream) };
 }
 
 /**
@@ -74,8 +86,8 @@ export async function runtimeState(root, { fetch = false } = {}) {
 export async function packagesState(root, upstream, { fetch = false } = {}) {
   const dir = resolve(root, "packages");
   const commit = await git(dir, ["rev-parse", "HEAD"]);
-  const dirty = (await git(dir, ["status", "--porcelain", "--untracked-files=no"])) !== "";
-  const base = { commit: short(commit), pinned: null, dirty, behind: 0, incoming: [], fetched: false, error: null };
+  const dirtyFiles = await changedFiles(dir);
+  const base = { commit: short(commit), head: commit, pinned: null, pinnedHead: null, dirty: dirtyFiles.length > 0, dirtyFiles: dirtyFiles.slice(0, DIRTY_LIMIT), behind: 0, incoming: [], fetched: false, error: null };
   if (!upstream) return base;
   let pinned;
   try {
@@ -92,8 +104,8 @@ export async function packagesState(root, upstream, { fetch = false } = {}) {
     }
   }
   const behind = await countBehind(dir, pinned);
-  if (behind === null) return { ...base, pinned: short(pinned), error: `the pinned commit ${short(pinned)} is not here yet; the update fetches it` };
-  return { ...base, pinned: short(pinned), behind, incoming: pinned === commit ? [] : await incoming(dir, pinned) };
+  if (behind === null) return { ...base, pinned: short(pinned), pinnedHead: pinned, error: `the pinned commit ${short(pinned)} is not here yet; the update fetches it` };
+  return { ...base, pinned: short(pinned), pinnedHead: pinned, behind, incoming: pinned === commit ? [] : await incoming(dir, pinned) };
 }
 
 /** Both checkouts in one answer, the packages measured against the runtime's upstream pin. */

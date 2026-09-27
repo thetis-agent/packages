@@ -1,6 +1,8 @@
 # @thetis/tool-operator
 
-The operator's own package: one tool that asks this daemon to restart itself, and the status-bar chip that shows a restart coming and calls it off. It is a `tool` package with a `ui`, plain ECMAScript with no build step, no dependency and no `bench` block. It adds nothing to the kernel and holds no state: every guard is the kernel's, and every sentence it returns is written in `@thetis/runtime/lib/restart` and passed through untouched.
+The operator's own package: one tool that asks this Thetis server to restart itself. It is a `tool` package, plain ECMAScript with no build step, no dependency, no page and no `bench` block. It adds nothing to the kernel and holds no state: every guard is the kernel's, and every sentence it returns is written in `@thetis/runtime/lib/restart` and passed through untouched, apart from the few this package owns (below).
+
+It used to draw a status-bar chip with the countdown and a Cancel button, for admins only. That moved out in 0.2.0: gateway-web shows the countdown to everyone ("Thetis restarts in 20 s · your reply will continue"), and an admin calls a restart off with **Cancel** on the control panel's **Overview** (or **Advanced › Workspaces**).
 
 It exists as a package of its own because **authority here is what is installed**. A tool declaration carries no `role` field, unlike a `ui.commands` entry, so a tool that every model can see and only an admin may use would be a setting that records an intention: the model would offer the tool to everyone and collect refusals. Instead this package is installed for one admin at a time:
 
@@ -14,27 +16,21 @@ The packaging is the signal, not the guard. The kernel asserts the admin role on
 
 ## What it provides
 
-The manifest declares `type: "tool"`, one `tool`, and a `ui` block with `dir: "ui"`, `entry: "index.js"`, `style: "index.css"`, one `statusbar` entry and three commands. No `role` appears anywhere in it, because nothing here needs one.
+The manifest declares `type: "tool"` and one `tool`. No `role` appears anywhere in it, because nothing here needs one.
 
 | Tool | Arguments | Answer |
 |---|---|---|
-| `restart_daemon` | `reason` (required) | The latch's own sentence, verbatim. On an armed restart, one added instruction: say it now, in this reply. |
+| `restart_daemon` | `reason` (required) | The latch's own sentence, verbatim. On an armed restart, one added instruction: this reply pauses too, so say in this same message, before anything else, what is restarting and why, and do not ask the person to continue. |
 
-`reason` is the only parameter. The deadline is configuration, not a per-call argument, and there is no `confirmed` flag: the model would be the one setting it, which makes it a lie in a schema. What stops a surprise is the design — the turn finishes before the latch can fire, so the reply is the announcement, and there is a real countdown with a Cancel button on the page and `thetis restart cancel` on the host.
+`reason` is the only parameter. The deadline is configuration, not a per-call argument, and there is no `confirmed` flag: the model would be the one setting it, which makes it a lie in a schema. What stops a surprise is the design: a real countdown everyone can see, a **Cancel** for admins on the control panel's **Overview**, and `thetis restart cancel` on the host.
 
-**The tool never restarts anything.** It asks the kernel to arm a latch, and the latch waits until no turn is running anywhere, counts down where everyone can see it, and then resolves the same promise `SIGINT` resolves, so the ordinary shutdown path runs and `Restart=always` turns the clean exit into a restart.
+**The tool never restarts anything.** It asks the kernel to arm a latch. The latch asks every running turn, the caller's included, to pause at its next safe point (a round boundary), waits for them for two minutes at most, counts down where everyone can see it, and then resolves the same promise `SIGINT` resolves, so the ordinary shutdown path runs and `Restart=always` turns the clean exit into a restart. A turn still inside a long tool call at the deadline is cut there and saved. Paused and cut turns continue by themselves when Thetis is back (`@thetis/harness-core`'s resumer), so the model is told not to ask anybody to type "continue".
 
-| Slot | Id | Order |
-|---|---|---|
-| `statusbar` | `restart` | 90 |
+**While an update is installing, the tool refuses** before it asks the kernel:
 
-| Verb | Export | Arguments | Answer |
-|---|---|---|---|
-| `restart-status` | `uiStatus` | none | `RestartState`: whether one is armed, and whether one would be accepted at all. |
-| `restart-cancel` | `uiCancel` | none | `{ cancelled, was }`, and the sentence. Nothing armed is said plainly, not raised as a failure. |
-| `restart-now` | `uiRestart` | `reason` | The `ArmResult`, and its `message` as the text. A reason is required here too. |
+> An update is installing; Thetis restarts by itself when it is done. Nothing was armed by this call, so do not ask again.
 
-The first two are what the chip sends. `restart-now` is declared, implemented and tested, and **this package draws no button for it**, because the one surface it owns — the status-bar entry — is hidden whenever nothing is pending, which is exactly when a restart would be armed. The seam is there for a page that wants it; today an admin arms a restart with `thetis restart` on the host, or through the model. That is a gap, and it is written down here rather than papered over with a control that only looks like one.
+It asks `host.update.progress` first, and refuses when `@thetis/host-update`'s record says `running`, which it says only while the update job holds its lock. A restart in that window would load a half-installed checkout, and the update restarts Thetis itself when it is done. Any failure to ask (no `@thetis/host-update`, an older kernel) is read as "no update is running", and the kernel's own guards still apply.
 
 ## The guards, and what each refusal means
 
@@ -42,45 +38,29 @@ Every one of these is enforced in the kernel or the latch, never here, and each 
 
 | `why` | What it means | What to do instead |
 |---|---|---|
-| — | Not an admin. The kernel throws `unauthorized`; this package turns it into one plain sentence and never a stack trace. | An admin restarts, from the control panel or `thetis restart` on the host. |
-| — | No reason. Refused here, before the kernel is asked: a restart nobody can account for is not sent on. | Say what changed and why a reload cannot pick it up. |
-| `off` | `control.allowRestart` is false: this installation withholds restarts entirely. | Reload a workspace, or ask the operator at the host. |
-| `unsupervised` | systemd did not start this daemon, so exiting would stop Thetis rather than restart it. | Restart it by hand at the host, or reload the workspace. |
+| — | Not an admin. The kernel throws `unauthorized`; this package turns it into one plain sentence and never a stack trace. | An admin restarts from the control panel: **Update and restart** or **Restart** on **Overview**, or **Restart Thetis…** under **Advanced › Workspaces**; on the host, `thetis restart`. |
+| — | No reason. Refused here, before the kernel is asked: a restart nobody can account for is not sent on. | Say what changed and why only a restart picks it up. |
+| — | An update is installing. Refused here, before the kernel is asked. | Nothing: the update restarts Thetis when it is done. |
+| `off` | `control.allowRestart` is false: this installation withholds restarts entirely. | Ask the operator at the host. An extension never needs a restart: its changes apply when the reply ends. |
+| `unsupervised` | systemd did not start this daemon, so exiting would stop Thetis rather than restart it. | Restart it by hand at the host. For an extension, nothing: its changes apply when the reply ends. |
 | `no-listener` | The process is a short-lived command — `thetis send`, `thetis chat`, the bench — not the serving daemon, so a restart would only kill the command. | Ask for it in the running installation. |
 | `young` | The daemon has been up less than `control.minUptimeSecs` (60 by default). It is what makes "restart → it did not help → restart" terminate. | Wait, and look for the real fault: another restart will not find it. |
 | `policy` | The deployed unit says `Restart=` something other than `always`, or it could not be read. A clean exit would stay down. | Only the operator can fix the unit, at the host. |
 
 `again` is a distinct answer, not a failure: a restart is already armed, asking again neither delayed it nor armed a second one, and there is nothing to fix. The tool says so and adds nothing.
 
-Two things about the deadline are stated in the tool's description rather than hidden, because they are what the model has to tell the person: it waits for **every** conversation everywhere to go quiet before it counts down, and if a turn is still running two minutes later it restarts anyway and cuts that turn off. Conversations come back with their history; open terminal shell sessions do not, and whatever was running in one dies with them.
-
-## The chip
-
-`Restart pending · 8s`, at order 90 in the status bar, with the reason and who asked in its title and a **Cancel** button behind a confirm popover. It is **hidden entirely when nothing is pending**: a status bar saying that no restart is armed is noise, and the thing worth a permanent line — whether the running code is stale — belongs to the control panel's Workspaces section. It exists only for admins, and nothing in it checks a role: the package is installed per admin, so the gateway never lists this extension for anyone else.
-
-It polls `restart-status` every 3 s, and every 700 ms while something is pending.
-
-Then the daemon goes, and **the page must recover or say why**. The restart is a process exit, so the gateway serving the page goes with it and the poll stops answering. A failed poll while a restart was armed is read as the restart happening, not as a fault: the chip says `Restarting · waiting for Thetis · 12s` and keeps trying for **90 seconds** — an exit, systemd's `RestartSec=2`, a fresh kernel, every fence reopening and every service booting, which is far longer than the 30 seconds a fence reload needs. At the deadline it stops and says
-
-> Thetis has not come back. It may have failed to start — check journalctl -u thetis-runtime.
-
-A spinner that never resolves is the failure this project keeps deleting, so the deadline is real, the sentence names the command that finds the answer, and the chip is then a button a person can press once they have looked. A failed poll with **nothing** armed says nothing about a restart, so the chip stays hidden and the poll simply carries on.
-
-The page's Content Security Policy allows no inline styles, so everything the chip draws is a class in `ui/index.css`.
+Two things about the deadline are stated in the tool's description rather than hidden, because they are what the model has to tell the person: every running conversation, the caller's included, pauses before the countdown, and a turn still inside a long tool call two minutes later is cut there. Both kinds continue by themselves when Thetis is back; open terminal shell sessions do not, and whatever was running in one dies with them.
 
 ## Files
 
 | File | Content |
 |---|---|
-| `package.json` | The manifest: one tool, one status-bar entry, three commands. No `bench`, no dependency. |
-| `index.js` | The tool and the three commands, over `env.kernel.operator.call`. Argument checks, and the three sentences this package owns. |
-| `ui/index.js` | `install(ext)`: the chip, the poll, and the ninety-second recovery. |
-| `ui/index.css` | The chip and its Cancel button, in a 26px bar. |
-| `test/tool.test.js` | The tool and the commands against a fake operator. |
-| `test/chip.test.js` | The chip against a fake seam, with the clock moved so the deadline is tested in under a second. |
+| `package.json` | The manifest: one tool. No page, no `bench`, no dependency. |
+| `index.js` | The tool, over `env.kernel.operator.call`. The argument check, the update-lock check, and the sentences this package owns. |
+| `test/tool.test.js` | The tool against a fake operator. |
 
 ## Tests
 
-`npm test` from the runtime root, or `node --test "test/*.test.js"` here. `test/tool.test.js`: every `ArmResult` state comes back byte for byte, an armed one carries the instruction to say it now, a missing or blank reason is refused before the kernel is asked, a trimmed reason is the only argument sent, a thrown `unauthorized` becomes the plain sentence, any other failure is not swallowed, and the manifest declares what this README says it does. `test/chip.test.js`: hidden while nothing is pending, the countdown and the Cancel button, both branches of the deadline in the title, the daemon going and the page waiting, and the waiting really ending.
+`npm test` from the runtime root, or `node --test "test/*.test.js"` here. `test/tool.test.js`: every `ArmResult` state comes back byte for byte, an armed one carries the added instruction, a missing or blank reason is refused before the kernel is asked, a trimmed reason is the only argument sent, a thrown `unauthorized` becomes the plain sentence, any other failure is not swallowed, a running update refuses before `restart.request` is sent (for both record shapes host-update has answered with), an update that is not running or a missing host package does not stand in the way, and the manifest declares what this README says it does.
 
 See `src/lib/restart.ts` in the runtime repository for the whole restart feature, and `src/kernel/packages/manifest.ts` for the one package deliberately not installed for everyone.
