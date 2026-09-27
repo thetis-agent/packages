@@ -11,8 +11,10 @@
 
 import { api, ApiError } from "./api.js";
 import { clear, el, icon, setHidden } from "./dom.js";
+import { awaitReturn, onTurnsIdle, turnsRunning } from "./lifecycle.js";
 import { renderMarkdown } from "./markdown.js";
 import { openMenu } from "./menu.js";
+import { notice } from "./notice.js";
 import * as ui from "./panel-ui.js";
 import * as registry from "./registry.js";
 import { store } from "./store.js";
@@ -92,6 +94,14 @@ function rawSeam(pkg, raws) {
   return Object.freeze({ url, put });
 }
 
+/** The key an `ext.open` call means: the package's own entry, else the first declared anywhere under that id, else a full key as given. */
+export function entryKey(slot, pkg, id) {
+  const own = registry.keyOf(pkg, id);
+  if (registry.entry(slot, own)) return own;
+  if (typeof id === "string" && id.includes("#") && registry.entry(slot, id)) return id;
+  return registry.entries(slot).find((e) => e.id === id)?.key ?? own;
+}
+
 export function createExt(extension) {
   const pkg = extension.package;
   const verbs = new Set(extension.commands ?? []);
@@ -149,7 +159,7 @@ export function createExt(extension) {
         // A refusal and a workspace that stopped answering are the same event here, and guessing between
         // them from the ready state gets it wrong: say what is known, and leave the sentence for the view
         // to end. The view retries, and the gateway answers the refusal again if that is what it was.
-        else onClose(new Error(`the stream "${verb}" to this workspace ended`));
+        else onClose(new Error(`the stream "${verb}" to your space ended`));
       });
       return stop;
     },
@@ -184,9 +194,14 @@ export function createExt(extension) {
       filter: (fn) => store.set({ sessionFilter: typeof fn === "function" ? fn : null }),
     }),
 
+    /**
+     * Opens a dock, place, shelf or panel section. `id` is this package's own entry first; failing that, the
+     * one entry of that id any package declared (`open.place("marketplace", { name })` from a package that is
+     * not the marketplace), or a full `<package>#<id>` key.
+     */
     open: Object.freeze({
-      dock: (id) => shell.openDock(registry.keyOf(pkg, id)),
-      place: (id, params) => shell.openPlace(registry.keyOf(pkg, id), params),
+      dock: (id) => shell.openDock(entryKey("dock", pkg, id)),
+      place: (id, params) => shell.openPlace(entryKey("places", pkg, id), params),
       shelf: (id) => shell.openShelf(registry.keyOf(pkg, id)),
       panel: (id) => shell.openPanel(registry.keyOf(pkg, id)),
     }),
@@ -199,6 +214,24 @@ export function createExt(extension) {
     dom: DOM,
     ui: UI,
     toast,
+    /**
+     * A persistent card in the bottom-right corner, above the toasts: `notice(id, { title, body?, tone?,
+     * actions?, progress?, dismissible?, onDismiss? })` answers `{ update(partial), close() }`. One card per
+     * id, replaced in place; the id is this package's own, so two packages cannot replace each other's.
+     */
+    notice: Object.freeze(Object.assign((id, spec) => notice(`${pkg}:${id}`, spec), { close: (id) => notice.close(`${pkg}:${id}`) })),
+    /** Waits for Thetis to go away and come back: `awaitReturn({ timeoutMs?, onState?, since? })` answers "back" or "timeout". */
+    awaitReturn,
+    /** Whether the person asked to see developer details (raw dumps, problem lists, internal rows). */
+    developer: () => store.get("developer") === true,
+    /** `fn(on)` each time that preference changes. Answers the function that stops it. */
+    onDeveloper: (fn) => store.watch("developer", (on) => fn(on === true)),
+    /** Whether any of the person's turns runs (subagents included), and `onIdle(fn)` for when none does any more. */
+    turns: Object.freeze({ running: turnsRunning, onIdle: onTurnsIdle }),
+    /** The build the page was loaded with. The page refreshes itself when Thetis's build changes. */
+    get build() {
+      return Object.freeze({ id: store.get("build")?.id ?? "" });
+    },
     /** Only for a package that declared a raw command; a module must guard `ext.raw?.url` on an older gateway. */
     ...(raws.size ? { raw: rawSeam(pkg, raws) } : {}),
     /** The shell's renderer. `opts.image(src)` may turn a relative image path into a URL; one argument still works. */

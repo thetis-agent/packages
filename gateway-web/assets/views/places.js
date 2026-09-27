@@ -1,11 +1,13 @@
 /* Places: the surfaces that are not a conversation. A place takes over the main, rail and dock region
  * with the sidebar kept, has a header (title and subtitle from its declaration, a ✕) and a body the
- * registering package draws. Escape closes it unless a popover is open, and closing returns to the
- * tabs exactly as they were, because the panes were only hidden. The control panel is the first place;
- * a package's page and the marketplace are places too. A place is entered from the sidebar's menu
- * (views/menu.js), which draws the registry's `places` slot, or from a package through `ext.open.place`. */
+ * registering package draws. Closing returns to the tabs exactly as they were, because the panes were
+ * only hidden. Escape closes it when it is the top layer (`lib/layers.js`): a drawer or menu opened over
+ * it goes first. The control panel is the first place; a package's page and the marketplace are places
+ * too. A place is entered from the sidebar's menu (views/menu.js), which draws the registry's `places`
+ * slot, or from a package through `ext.open.place`. */
 
 import { $, clear, el, setHidden } from "../lib/dom.js";
+import { layers } from "../lib/layers.js";
 import * as registry from "../lib/registry.js";
 
 export function mountPlaces() {
@@ -17,10 +19,6 @@ export function mountPlaces() {
   let open = null; // { key, unmount }
 
   node.querySelector(".place-close").addEventListener("click", () => close());
-
-  function onKey(e) {
-    if (e.key === "Escape" && !document.querySelector(".popover, .menu")) close();
-  }
 
   function show(key, params = {}) {
     const entry = registry.entry("places", key);
@@ -40,7 +38,7 @@ export function mountPlaces() {
     open = { key, unmount };
     app.classList.add("is-place");
     setHidden(node, false);
-    document.addEventListener("keydown", onKey);
+    layers.open("place", close);
   }
 
   function close() {
@@ -54,7 +52,7 @@ export function mountPlaces() {
     clear(body);
     app.classList.remove("is-place");
     setHidden(node, true);
-    document.removeEventListener("keydown", onKey);
+    layers.remove("place");
   }
 
   registry.watch((change) => {

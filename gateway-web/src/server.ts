@@ -16,9 +16,10 @@ import { fileURLToPath } from "node:url";
 import type { KernelClient, Message, ModelChoices, SessionRecord, SessionSummaryRef, StepEnv, UserRole } from "@thetis/runtime/contracts";
 import { withoutTurnContext } from "@thetis/harness-core";
 import { HttpError, json, readBytes, readJson } from "./http.js";
+import { buildIdentity } from "./build.js";
 import { handlePanel } from "./panel.js";
 import { serveFile } from "./static.js";
-import { sniffImage, type GatewayStore, type SessionUsage } from "./store.js";
+import { sniffImage, type GatewayStore, type ResumedMark, type SessionUsage } from "./store.js";
 import { TurnHub, type RunningTurn } from "./turns.js";
 import { argsFromQuery, composeUi, openStream, runCommand, runRaw, serveExt } from "./ui.js";
 
@@ -42,8 +43,10 @@ const COOKIE = "thetis_web";
 const MODELS_TTL_MS = 60_000;
 /** `remember: false` sets this conversation's model without making it the person's default for new ones (a workflow naming its own conversations). */
 const ModelRequestSchema = z.looseObject({ model: z.string().trim().max(200, "model id too long").default(""), remember: z.boolean().default(true) });
+const NewSessionRequestSchema = z.looseObject({ model: z.string().trim().max(200, "model id too long").optional() });
 const TitleRequestSchema = z.looseObject({ title: z.string().default("").transform((title) => title.replace(/\s+/g, " ").trim().slice(0, 120)) });
 const ArchiveRequestSchema = z.looseObject({ archived: z.boolean().default(true) });
+const PrefsRequestSchema = z.looseObject({ developer: z.boolean().optional() });
 /**
  * How large an uploaded avatar may be. It is a 22-pixel tile in the footer and a 34-pixel one in the
  * gutter, so half a megabyte is already far more than the picture can ever show; the number is here to
@@ -86,10 +89,81 @@ export interface ChildRecord {
   /** The cost the child's replies reported, its own subagents included. Absent when nothing was reported. */
   cost?: number;
   turn: RunningTurn | null;
+  /** Why the child's last turn did not finish, as the kernel recorded it. */
+  interrupted?: SessionRecord["interrupted"];
+  /** Where a turn of the child resumed an interrupted one. */
+  resumed: ResumedMark[];
+  /** When a person stopped the child's last turn, or null. */
+  stopped: string | null;
 }
 
 /** The first line of a `spawn_subagent` result, as every reader parses it: the child's id and, when the parent gave one, its label. */
 const SUBAGENT_LINE = /^\[subagent (s_[a-f0-9]+)(?: ([^\]]*))?\]/;
+
+/** The package whose marks on a message say it was cut off (`partial`) or is a tool result for a call that never ran (`notRun`). */
+const HARNESS = "@thetis/harness-core";
+
+/** The harness's mark on a message, read loosely: a record written before the marks existed has none. */
+export function markOf(message: Message | undefined, key: "partial" | "notRun"): boolean {
+  const marks = (message as { extensions?: Record<string, Record<string, unknown> | undefined> } | undefined)?.extensions?.[HARNESS];
+  return marks?.[key] === true;
+}
+
+/**
+ * Why a conversation has nothing to resume, or undefined when a turn with no input would carry on from
+ * where it stopped. It has something when its last turn was interrupted, when a person stopped it here, or
+ * when its saved conversation does not end on a finished reply: a user message nobody answered, a tool
+ * result the model never read, a reply marked as cut off, or a reply whose tool calls have no results.
+ * A conversation that ends on a complete answer has nothing to resume, and a resume there would only make
+ * the model talk again unasked.
+ */
+export function nothingToResume(rec: Pick<SessionRecord, "conversation"> & { interrupted?: unknown }, stopped?: string): string | undefined {
+  if (rec.interrupted || stopped) return undefined;
+  const last = rec.conversation.at(-1);
+  if (!last) return "nothing to resume: this conversation is empty";
+  if (last.role === "user" || last.role === "tool") return undefined;
+  if (last.role === "assistant" && (markOf(last, "partial") || last.toolCalls?.length)) return undefined;
+  return "nothing to resume: the last reply finished";
+}
+
+/**
+ * The usage of a turn's replies by their index in the saved conversation. Each reply's `message` event is
+ * paired with the saved assistant message that says the same thing, walking back from the end, so a cut-off
+ * reply (which has no `message` event, marked `partial` or not) is passed over rather than handed the next
+ * reply's usage. Undefined when the record does not hold these replies at all: nothing is guessed then.
+ */
+/**
+ * One row of the model picker: the id, the name and provider, and — where the provider's catalogue gives
+ * them — the context window in tokens and the price. `pricing` is passed as the catalogue states it
+ * (OpenRouter: dollars per token, as strings), only its `prompt` and `completion`; the page formats it.
+ */
+export function describeModel(m: { id: string; name?: string; provider?: string; contextLength?: unknown; pricing?: unknown }): { id: string } & Record<string, unknown> {
+  const out: { id: string } & Record<string, unknown> = { id: m.id };
+  if (m.name) out.name = m.name;
+  if (m.provider) out.provider = m.provider;
+  if (typeof m.contextLength === "number" && Number.isFinite(m.contextLength) && m.contextLength > 0) out.contextLength = m.contextLength;
+  const pricing = m.pricing && typeof m.pricing === "object" ? (m.pricing as Record<string, unknown>) : null;
+  const price = (v: unknown) => (typeof v === "number" || (typeof v === "string" && v.trim() !== "")) && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : undefined;
+  if (pricing) {
+    const prompt = price(pricing.prompt), completion = price(pricing.completion);
+    if (prompt !== undefined || completion !== undefined) out.pricing = { ...(prompt !== undefined ? { prompt } : {}), ...(completion !== undefined ? { completion } : {}) };
+  }
+  return out;
+}
+
+export function pairUsage(conversation: Message[], replies: { message: Message; usage?: Record<string, number> }[], model?: string): Record<number, Record<string, number | string>> | undefined {
+  const same = (a: Message, b: Message) => contentText(a.content) === contentText(b.content) && (a.toolCalls?.length ?? 0) === (b.toolCalls?.length ?? 0);
+  const entries: Record<number, Record<string, number | string>> = {};
+  let at = conversation.length - 1;
+  for (let n = replies.length - 1; n >= 0; n--) {
+    while (at >= 0 && (conversation[at].role !== "assistant" || markOf(conversation[at], "partial") || !same(conversation[at], replies[n].message))) at--;
+    if (at < 0) return undefined;
+    const usage = replies[n].usage;
+    if (usage) entries[at] = model ? { ...usage, model } : usage;
+    at--;
+  }
+  return entries;
+}
 
 /** Builds the gateway. Call `.listen()` on the result with a unix socket path or a port. */
 export function createGateway(kernel: KernelClient, store: GatewayStore, opts: GatewayOptions): Server {
@@ -97,7 +171,19 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
   const assets = opts.assets ?? resolve(dirname(fileURLToPath(import.meta.url)), "../../assets");
   const base = (opts.base ?? "").replace(/\/$/, "");
   const storeDir = opts.store ?? opts.env?.store;
-  const hub = new TurnHub(kernel, log, recordUsage, opts.user);
+  const hub = new TurnHub(kernel, log, turnEnded, opts.user);
+  const build = buildIdentity(assets);
+  /** The build id with the installed packages' browser files counted in; the gateway's own part when the list cannot be read. */
+  const currentBuild = async () => build(await kernel.packages.list().catch(() => []));
+  // A turn that resumes an interrupted one says so on `turn.start`; where it began in the conversation is
+  // kept, so a reopened transcript draws the same "Resumed after …" divider the live one did.
+  hub.subscribe(opts.user, (message) => {
+    const { event } = message;
+    if (event.type !== "turn.start") return;
+    const resumed = (event as { resumed?: { why?: unknown } }).resumed;
+    if (!resumed || typeof resumed !== "object") return;
+    void noteResumed(opts.user, message.session, event.turn, String(resumed.why ?? "")).catch((err: Error) => log(`[gateway-web] the resumed divider of ${message.session} was not kept: ${err.message}`));
+  });
   // The models list is hundreds of rows and a page asks for it once per load; the fence's providers change
   // rarely, so one answer serves for a minute and carries only what the picker draws.
   let choices: { at: number; value: Promise<ModelChoices> } | undefined;
@@ -183,7 +269,12 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       res.end(Buffer.from(data, "base64"));
       return;
     }
-    if (seg[1] === "me" && seg.length === 2 && method === "GET") return json(res, 200, { user, role: who!.role, avatar: avatarUrl(user) });
+    if (seg[1] === "me" && seg.length === 2 && method === "GET") return json(res, 200, { user, role: who!.role, avatar: avatarUrl(user), build: await currentBuild(), prefs: { developer: store.developer(user) } });
+    if (seg[1] === "me" && seg[2] === "prefs" && seg.length === 3 && method === "POST") {
+      const { developer } = await readJson(req, PrefsRequestSchema);
+      if (developer !== undefined) store.setDeveloper(user, developer);
+      return json(res, 200, { developer: store.developer(user) });
+    }
     if (seg[1] === "me" && seg[2] === "avatar" && seg.length === 3) {
       if (method === "GET") return sendAvatar(res, user);
       if (method === "PUT") {
@@ -204,12 +295,20 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     // Every route pins its length. A predicate that only looks at one segment matches everything below it
     // too, which is how `GET /api/me/avatar` was very nearly swallowed whole by the handler for `/api/me`.
     if (seg[1] === "events" && seg.length === 2 && method === "GET") return stream(req, res, user);
-    if (seg[1] === "models" && seg.length === 2 && method === "GET") return json(res, 200, await modelChoices());
+    // The catalogue is shared and cached; what this person chose is theirs and read fresh: `yours.model` is
+    // what a new conversation starts with (null: the configured default), `yours.recent` the picker's Recent.
+    if (seg[1] === "models" && seg.length === 2 && method === "GET") return json(res, 200, { ...(await modelChoices()), yours: { model: store.lastModel(user) ?? null, recent: store.recentModels(user) } });
+    if (seg[1] === "restart" && seg.length === 2 && method === "GET") return json(res, 200, await restartStatus());
     if (await handlePanel(kernel, req, res, who!, seg, method, url)) return;
     if (seg[1] === "sessions") {
       if (seg.length === 2 && method === "GET") return json(res, 200, await listSessions(user));
       if (seg.length === 2 && method === "POST") {
+        // `model`, when the body names one, is what the person picked before the conversation existed (the
+        // picker of a `+` draft); it is a choice like any other, so it is remembered for the next one too.
+        // An empty string picks the configured default and forgets the remembered choice.
+        const { model } = await readJson(req, NewSessionRequestSchema);
         const { id } = await kernel.sessions.create();
+        if (model !== undefined) store.setLastModel(user, model);
         // A new conversation starts with the model the person chose last, so a choice sticks across conversations.
         const remembered = store.lastModel(user);
         if (remembered) store.setModel(user, id, remembered);
@@ -243,6 +342,16 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
         if (body.input === undefined && !text) throw new HttpError(400, "text or input is required");
         const input = body.input === undefined ? text : normalizeTurnInput(body.input);
         const run = await hub.start(user, id, input, store.model(user, id));
+        return json(res, 202, { session: id, startedAt: run.startedAt, model: run.model ?? null });
+      }
+      if (seg[3] === "resume" && seg.length === 4 && method === "POST") {
+        // A turn with no input over the saved conversation: the one resume every button uses, Retry and
+        // Continue alike. Nothing is appended, so the person's message can never be sent twice.
+        const rec = await kernel.sessions.inspect(id);
+        if (rec.status === "running" || hub.runningOf(user, id)) throw new HttpError(409, "a turn is running in this conversation");
+        const refusal = nothingToResume(rec, store.stopped(user, id));
+        if (refusal) throw new HttpError(409, refusal);
+        const run = await hub.start(user, id, [], store.model(user, id), rec.parent);
         return json(res, 202, { session: id, startedAt: run.startedAt, model: run.model ?? null });
       }
       if (seg[3] === "model" && seg.length === 4 && method === "POST") {
@@ -318,7 +427,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
   async function modelChoices(): Promise<ModelChoices> {
     if (!choices || Date.now() - choices.at > MODELS_TTL_MS) {
       const value = kernel.models().then(
-        (c) => ({ model: c.model, models: c.models.map(({ id, name, provider }) => ({ id, ...(name ? { name } : {}), ...(provider ? { provider } : {}) })) }),
+        (c) => ({ model: c.model, models: c.models.map(describeModel) }),
         (err: unknown) => {
           choices = undefined; // a refusal is not kept for a minute
           throw err;
@@ -375,7 +484,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     for (const child of children) child.label = labels.get(child.id) ?? null;
     // `turn` is the hub's, never the record's marker: a marker left by an interrupted turn would put the
     // page in a turn nothing will end, while its message is in the conversation already.
-    return { ...rec, archived: store.archived(user).has(id), turn, usage: store.usage(user, id), model: store.model(user, id) ?? null, title: store.title(user, id) ?? null, children };
+    return { ...rec, archived: store.archived(user).has(id), turn, usage: store.usage(user, id), model: store.model(user, id) ?? null, title: store.title(user, id) ?? null, resumed: store.resumed(user, id), stopped: store.stopped(user, id) ?? null, children };
   }
 
   /** Retry when a turn starts or ends during the RPC, so saved history and its live overlay agree. */
@@ -405,6 +514,9 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       usage: store.usage(user, id),
       ...(cost !== undefined ? { cost } : {}),
       turn,
+      ...(rec.interrupted ? { interrupted: rec.interrupted } : {}),
+      resumed: store.resumed(user, id),
+      stopped: store.stopped(user, id) ?? null,
     };
   }
 
@@ -433,26 +545,66 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     return total;
   }
 
+  /** Everything a finished turn leaves behind: whether a person stopped it, and the usage of its replies. */
+  async function turnEnded(user: string, run: RunningTurn): Promise<void> {
+    const error = run.events.map((e) => e.event).find((e) => e.type === "error") as { code?: string; why?: string } | undefined;
+    const stopped = error?.code === "cancelled" && (!error.why || error.why === "stop");
+    store.setStopped(user, run.session, stopped ? new Date().toISOString() : undefined);
+    await recordUsage(user, run);
+  }
+
   /**
    * Keeps the usage each reply reported, keyed by the reply's index in the conversation, so a reopened
    * transcript shows it. A `message` event is one assistant message; the turn's replies are the last
-   * ones in the saved record. A turn that ended in an error is skipped: a cancel leaves a partial
-   * reply without an event, and the mapping would be off by one.
+   * ones in the saved record. A turn that failed or was stopped counts too: what it cost was spent. Its
+   * cut-off reply has no `message` event, so each event is paired with the saved reply that says the same
+   * thing, walking back from the end, and a reply that matches no event (the cut one, marked `partial` or
+   * not) is passed over rather than given someone else's usage.
    */
   async function recordUsage(user: string, run: RunningTurn): Promise<void> {
-    const events = run.events.map((e) => e.event);
-    if (events.some((e) => e.type === "error")) return;
-    const usages = events.flatMap((e) => (e.type === "message" && e.message.role === "assistant" ? [e.usage] : []));
-    if (!usages.some(Boolean)) return;
+    const replies = run.events.flatMap(({ event: e }) => (e.type === "message" && e.message.role === "assistant" ? [{ message: e.message as Message, usage: e.usage }] : []));
+    if (!replies.some((e) => e.usage)) return;
     const rec = await kernel.sessions.inspect(run.session);
-    const indices: number[] = [];
-    for (let i = rec.conversation.length - 1; i >= 0 && indices.length < usages.length; i--) if (rec.conversation[i].role === "assistant") indices.unshift(i);
-    if (indices.length !== usages.length) return;
-    const entries: Record<number, Record<string, number | string>> = {};
-    indices.forEach((index, n) => {
-      if (usages[n]) entries[index] = run.model ? { ...usages[n]!, model: run.model } : usages[n]!;
-    });
-    if (Object.keys(entries).length) store.setUsage(user, run.session, entries);
+    const entries = pairUsage(rec.conversation, replies, run.model);
+    if (entries && Object.keys(entries).length) store.setUsage(user, run.session, entries);
+  }
+
+  /**
+   * Keeps where a resuming turn began: the length of the saved conversation as it starts, less a trailing
+   * reply that was cut off, which the resume drops before it asks the model again. The divider is drawn
+   * before the message at that index, which is the first thing the resumed turn said.
+   */
+  async function noteResumed(user: string, session: string, turn: string, why: string): Promise<void> {
+    const rec = await kernel.sessions.inspect(session);
+    let index = rec.conversation.length;
+    const last = rec.conversation.at(-1);
+    if (last?.role === "assistant" && (markOf(last, "partial") || !last.toolCalls?.length)) index -= 1;
+    store.addResumed(user, session, { index: Math.max(0, index), why, at: new Date().toISOString(), turn });
+  }
+
+  /**
+   * Whether Thetis is about to restart, for the notice every person sees. The kernel's latch speaks in
+   * epoch milliseconds; the answer here is in milliseconds from now, so a page on a machine whose clock is
+   * off still counts down the right number of seconds. A kernel that refuses the question (one from before
+   * it was readable by everyone) is answered as "nothing known": the notice is a courtesy, not a guard.
+   */
+  async function restartStatus(): Promise<{ pending: { reason: string; by: string; firesInMs?: number; deadlineInMs?: number } | null; readable: boolean }> {
+    let out: { pending?: { reason?: unknown; by?: unknown; firesAt?: unknown; deadlineAt?: unknown } };
+    try {
+      out = ((await kernel.operator.call("restart.status")) ?? {}) as typeof out;
+    } catch {
+      return { pending: null, readable: false };
+    }
+    const p = out.pending;
+    if (!p || typeof p !== "object") return { pending: null, readable: true };
+    const now = Date.now();
+    const inMs = (at: unknown) => (typeof at === "number" && Number.isFinite(at) ? Math.max(0, at - now) : undefined);
+    const firesInMs = inMs(p.firesAt);
+    const deadlineInMs = inMs(p.deadlineAt);
+    return {
+      pending: { reason: String(p.reason ?? ""), by: String(p.by ?? ""), ...(firesInMs !== undefined ? { firesInMs } : {}), ...(deadlineInMs !== undefined ? { deadlineInMs } : {}) },
+      readable: true,
+    };
   }
 
   /** The open streams per user, told `sessions` when this gateway changed the list, so every tab redraws it. */
@@ -462,13 +614,17 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
   }
 
   /**
-   * Server-Sent Events. First a `snapshot` of the turns in progress, then every event as `turn`, and
+   * Server-Sent Events. First a `snapshot` of the turns in progress and the build id, then every event as `turn`, and
    * `sessions` (no body) whenever a conversation was created, named, archived or given a model here.
    */
-  function stream(req: IncomingMessage, res: ServerResponse, user: string): void {
+  async function stream(req: IncomingMessage, res: ServerResponse, user: string): Promise<void> {
+    // Read before anything is sent: from the snapshot on, the stream must not miss an event, so the
+    // snapshot and the subscription happen in one go with no wait between them.
+    const buildNow = await currentBuild();
+    if (res.destroyed || req.socket?.destroyed) return; // the page let go while the build was read: nothing to subscribe
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive", "X-Accel-Buffering": "no" });
     const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-    send("snapshot", { user, running: hub.snapshot(user) });
+    send("snapshot", { user, running: hub.snapshot(user), build: buildNow });
     const unsubscribe = hub.subscribe(user, (message) => send("turn", message));
     const onList = () => send("sessions", {});
     let set = streams.get(user);

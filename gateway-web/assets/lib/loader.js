@@ -37,7 +37,7 @@ async function load(extension) {
   } catch (err) {
     console.error(`${pkg} could not load its UI:`, err);
     registry.fail(pkg, err?.message || "could not load");
-    toast(`${pkg} could not load its UI`, { tone: "error" });
+    toast(`The ${pkg} extension could not load. Refreshing the page may help.`, { tone: "error" });
   }
 }
 

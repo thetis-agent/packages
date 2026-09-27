@@ -58,14 +58,16 @@ export class TurnHub {
   /**
    * Starts a turn. Resolves once the kernel has emitted its first event; rejects with the kernel's own
    * error (code `busy`, `not-found`) when the turn cannot start, so nothing is recorded in that case.
+   * `parent` is set when the session is a subagent's (a resume from its block), so its events are
+   * stamped the way a watched child's are and reach the parent's block.
    */
-  start(user: string, session: string, input: TurnInput, model?: string): Promise<RunningTurn> {
+  start(user: string, session: string, input: TurnInput, model?: string, parent?: string): Promise<RunningTurn> {
     const k = key(user, session);
     // A second sender must not clear ownership of the first sender's watch events when it is refused.
     if (this.mine.has(k) || this.running.has(k)) return Promise.reject(Object.assign(new Error(`session ${session} already has a turn in progress`), { code: "busy" }));
     const messages = normalizeTurnInput(input);
     return new Promise((done, fail) => {
-      const run: RunningTurn = { session, input: messages.map((m) => contentText(m.content)).join("\n"), messages, model, startedAt: new Date().toISOString(), events: [] };
+      const run: RunningTurn = { session, ...(parent ? { parent } : {}), input: messages.map((m) => contentText(m.content)).join("\n"), messages, model, startedAt: new Date().toISOString(), events: [] };
       let started = false;
       const begin = () => {
         if (started) return;

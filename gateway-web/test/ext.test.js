@@ -34,3 +34,18 @@ test("a creation setup failure rejects before the conversation can be used", asy
     await assert.rejects(notifySessionCreated("s_a"), /assignment failed/);
   } finally { stop(); }
 });
+
+test("ext.open.place reaches another package's place by its id, its own first, or a full key", async () => {
+  const registry = await import("../assets/lib/registry.js");
+  const { bindShell, entryKey } = await import("../assets/lib/ext.js");
+  registry.declare({ package: "@thetis/ui-marketplace", places: [{ id: "marketplace", label: "Extensions" }] });
+  registry.declare({ package: "@review/own", places: [{ id: "notes", label: "Notes" }] });
+  assert.equal(entryKey("places", "@thetis/compaction", "marketplace"), "@thetis/ui-marketplace#marketplace", "compaction's link to the marketplace");
+  assert.equal(entryKey("places", "@review/own", "notes"), "@review/own#notes");
+  assert.equal(entryKey("places", "@review/own", "@thetis/ui-marketplace#marketplace"), "@thetis/ui-marketplace#marketplace");
+  assert.equal(entryKey("places", "@review/own", "nowhere"), "@review/own#nowhere", "nothing by that id: the package's own key, which opens nothing");
+  const opened = [];
+  bindShell({ openPlace: (key, params) => opened.push([key, params]) });
+  createExt({ package: "@thetis/compaction" }).open.place("marketplace", { name: "@thetis/compaction" });
+  assert.deepEqual(opened, [["@thetis/ui-marketplace#marketplace", { name: "@thetis/compaction" }]]);
+});

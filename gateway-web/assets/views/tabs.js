@@ -32,7 +32,7 @@ const ARCHIVE = ["M3.5 5.5h13v2.5h-13zM4.5 8v7.5h11V8M8 11h4"];
 const STOP = ["M6.5 6.5h7v7h-7z"];
 const KEEP = 5; // panes with their rows built: the shown one and the ones shown most recently
 
-export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel }) {
+export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExample }) {
   const strip = $("tabs");
   const host = $("panes");
   const newTab = $("new-tab");
@@ -41,6 +41,13 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel }) {
   const recent = [];       // open session ids, most recently shown first: the first KEEP stay built
   const empty = el("section", { class: "pane is-empty is-active" }, emptyState("none", onNew));
   host.append(empty);
+
+  /** The pane shown when no conversation is: "none" offers to start one, "new" is a new one not yet said anything in. */
+  function showEmpty(kind) {
+    empty.replaceChildren(emptyState(kind === "new" ? "new" : "none", onNew, onExample));
+    empty.classList.toggle("is-new", kind === "new");
+    empty.classList.add("is-active");
+  }
 
   newTab.addEventListener("click", () => onNew());
 
@@ -161,12 +168,12 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel }) {
     const cost = (session?.cost ?? 0) + (activity?.state === "working" ? activity.cost : 0);
     setHidden(bar.spend, !(cost > 0));
     bar.spend.textContent = fmtCost(cost);
-    bar.spend.title = working ? "Spent in this conversation, counting the running turn" : "Spent in this conversation";
+    bar.spend.title = working ? "Cost of this chat so far, counting the reply being written" : "Cost of this chat";
     bar.spend.classList.toggle("is-live", working && activity?.cost > 0);
     bar.model.textContent = shortModel(store.modelFor(id)) || "model";
-    bar.model.title = session?.model ? `Answers with ${session.model}` : "Answers with the default model";
+    bar.model.title = `The model that answers in this chat: ${store.modelFor(id) || "the default"}. Click to change it.`;
     bar.model.classList.toggle("is-set", Boolean(session?.model));
-    bar.archive.title = session?.archived ? "Restore this conversation" : "Archive this conversation";
+    bar.archive.title = session?.archived ? "Put this chat back in the list" : "Archive this chat: it leaves the list and nothing is deleted";
     bar.archive.setAttribute("aria-label", bar.archive.title);
     bar.archive.classList.toggle("is-archived", Boolean(session?.archived));
     pane.label.textContent = titleOf(session);
@@ -192,7 +199,7 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel }) {
     const cost = (agent?.cost ?? 0) + (activity?.state === "working" ? activity.cost : 0);
     setHidden(bar.spend, !(cost > 0));
     bar.spend.textContent = fmtCost(cost);
-    bar.spend.title = working ? "Spent by this subagent, counting the running turn" : "Spent by this subagent";
+    bar.spend.title = working ? "Cost of this subagent so far, counting the reply being written" : "Cost of this subagent";
     bar.spend.classList.toggle("is-live", working && activity?.cost > 0);
     setHidden(bar.stop, !working);
     for (const node of [bar.dot, pane.tab]) {
@@ -225,7 +232,7 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel }) {
       const failed = registry.failureOf(entry.package);
       button.classList.toggle("is-broken", Boolean(failed));
       if (failed) {
-        button.title = `${entry.package} could not load`;
+        button.title = `The ${entry.package} extension could not load`;
         setHidden(button, false);
         continue;
       }
@@ -235,9 +242,12 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel }) {
       }
       const out = registry.guard(entry.package, "chips", entry.impl.draw, button, { session: pane.id });
       if (!out.ok) {
-        button.textContent = `${entry.package} could not draw this`;
+        button.textContent = `The ${entry.package} extension could not draw this`;
         setHidden(button, false);
       }
+      // Every chip says what it is on hover: the package's own sentence when its draw set one, else the
+      // hint or label it declared. A chip is a few characters of monospace, and they all look alike.
+      else if (!button.title) button.title = entry.decl.hint || entry.decl.label || "";
     }
   }
 
@@ -294,10 +304,25 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel }) {
       if (next) void activate(next); // `current` moves synchronously, inside activate, before it awaits anything
       else {
         store.set({ current: null });
-        empty.classList.add("is-active");
+        showEmpty("none");
       }
     }
     onClosed?.(id);
+  }
+
+  /**
+   * A new conversation that does not exist yet: no pane is active, nothing is created on the server, and
+   * the composer's first send creates it. A click on `+` that is never followed by a message leaves
+   * nothing behind to be tidied away.
+   */
+  function showNew() {
+    store.set({ current: null });
+    for (const p of panes.values()) {
+      p.node.classList.remove("is-active");
+      p.tab.classList.remove("is-active");
+      p.tab.querySelector(".tab-open").setAttribute("aria-selected", "false");
+    }
+    showEmpty("new");
   }
 
   /**
@@ -354,6 +379,7 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel }) {
     open,
     activate,
     close,
+    showNew,
     reveal,
     applyTurn,
     reload,

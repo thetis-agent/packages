@@ -87,6 +87,13 @@ test("composeUi: a package without ui is skipped; bad declarations are refused b
   assert.equal(refused.length, 8);
 });
 
+test("a key the gateway does not read (ui-admin's notices) is left alone and does not refuse the package", () => {
+  const noticing = pkg("@t/noticing", { panel: [{ id: "overview", label: "Overview" }], notices: [{ id: "thetis-update", role: "admin" }] } as never);
+  const out = composeUi([noticing], "admin", "/nowhere");
+  assert.deepEqual(out.refused, []);
+  assert.deepEqual(out.extensions.map((e) => e.package), ["@t/noticing"]);
+});
+
 test("a panel entry may hang under a section; under is refused on any other slot", () => {
   const hung = pkg("@t/hung", { panel: [{ id: "settings", label: "Settings", under: "packages" }] });
   const out = composeUi([hung], "admin", "/nowhere");
@@ -263,10 +270,15 @@ async function* frames(cookie: string, path: string, signal?: AbortSignal): Asyn
   }
 }
 
+/**
+ * What `api/ui` composes from the packages these tests install. The shipped defaults every person has
+ * (`@thetis/harness-core` declares a UI command since 0.5.0) are left out: they are not what this file is about.
+ */
 async function ui(cookie: string, user = "alice"): Promise<{ extensions: UiExtension[]; refused: { package: string; message: string }[] }> {
   const res = await api(cookie, `/${user}/api/ui`);
   assert.equal(res.status, 200);
-  return (await res.json()) as { extensions: UiExtension[]; refused: { package: string; message: string }[] };
+  const out = (await res.json()) as { extensions: UiExtension[]; refused: { package: string; message: string }[] };
+  return { ...out, extensions: out.extensions.filter((e) => !e.package.startsWith("@thetis/")) };
 }
 
 function listen(server: Server, where: string | number): Promise<void> {

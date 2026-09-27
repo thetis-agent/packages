@@ -5,7 +5,7 @@
  * refused with a console message; one for an id the server hid from this person (above their role, listed
  * in the declaration's `hidden`) is refused quietly, because the module cannot know the role and the
  * entry is declared. A draw, mount, open or render that throws is caught and reported once
- * per package per slot, and the slot shows "<package> could not draw this". Transcript renderers are a
+ * per package per slot, and the slot shows "The <package> extension could not draw this". Transcript renderers are a
  * list: each may decline (return nothing), a broken one is skipped, and the transcript's own row is the
  * fall-through. Views watch the registry and redraw their slot when it changes. */
 
@@ -105,7 +105,7 @@ export function guard(pkg, slot, fn, ...args) {
     if (!reported.has(tag)) {
       reported.add(tag);
       console.error(`${pkg} threw while drawing its ${slot}:`, err);
-      toast(`${pkg} could not draw its ${slot}.`, { tone: "error" });
+      toast(`The ${pkg} extension could not draw its part of the page.`, { tone: "error" });
     }
     return { ok: false, error: err };
   }
@@ -113,7 +113,7 @@ export function guard(pkg, slot, fn, ...args) {
 
 /** What a slot shows in place of a package's piece that threw. */
 export function broken(pkg) {
-  return el("div", { class: "ext-broken" }, `${pkg} could not draw this`);
+  return el("div", { class: "ext-broken" }, `The ${pkg} extension could not draw this`);
 }
 
 /**

@@ -47,16 +47,76 @@ async function request(path, init) {
   return data;
 }
 
+/** The waits between reconnect attempts: one second, doubling, never more than fifteen. */
+export const RECONNECT_FIRST_MS = 1000;
+export const RECONNECT_MAX_MS = 15_000;
+/** The longest wait while somebody is waiting for Thetis to come back (`ext.awaitReturn`). */
+const HURRIED_MS = 2000;
+
 /**
- * Opens the event stream. The browser reconnects by itself; every connection starts with a snapshot.
- * `sessions` says the list changed on the server (another tab created, named or archived a conversation).
+ * Opens the event stream and keeps it open. Every connection starts with a snapshot. `sessions` says the
+ * list changed on the server (another tab created, named or archived a conversation).
+ *
+ * The browser's own reconnect is not relied on: an HTTP 502 or 503 from the door while Thetis restarts
+ * closes an `EventSource` for good, and the page used to sit "offline" until somebody reloaded it. So any
+ * error closes the source here, and the page tries again itself: after one second, then two, four, up to
+ * fifteen, saying "reconnecting" all the while. Before each attempt `probe()` asks something cheap (the
+ * page asks `/api/me`, which also sends a signed-out page to sign in); only when it answers is a new
+ * stream opened, so a dead gateway costs one small request per attempt and not a stream that fails.
+ * `hurry(true)` caps the wait at two seconds while something is waiting for Thetis to come back.
  */
-export function connect({ onSnapshot, onTurn, onSessions, onStatus }) {
-  const source = new EventSource("api/events");
-  source.addEventListener("open", () => onStatus("online"));
-  source.addEventListener("error", () => onStatus(source.readyState === EventSource.CLOSED ? "offline" : "connecting"));
-  source.addEventListener("snapshot", (event) => onSnapshot(JSON.parse(event.data)));
-  source.addEventListener("turn", (event) => onTurn(JSON.parse(event.data)));
-  source.addEventListener("sessions", () => onSessions?.());
-  return source;
+export function connect({ onSnapshot, onTurn, onSessions, onStatus, probe }) {
+  let source = null;
+  let wait = RECONNECT_FIRST_MS;
+  let timer = null;
+  let hurried = 0;
+
+  function open() {
+    const here = new EventSource("api/events");
+    source = here;
+    here.addEventListener("open", () => {
+      wait = RECONNECT_FIRST_MS;
+      onStatus("online");
+    });
+    here.addEventListener("error", () => {
+      if (source !== here) return;
+      here.close();
+      source = null;
+      onStatus("reconnecting");
+      later();
+    });
+    here.addEventListener("snapshot", (event) => onSnapshot(JSON.parse(event.data)));
+    here.addEventListener("turn", (event) => onTurn(JSON.parse(event.data)));
+    here.addEventListener("sessions", () => onSessions?.());
+  }
+
+  function later() {
+    clearTimeout(timer);
+    const ms = hurried ? Math.min(wait, HURRIED_MS) : wait;
+    wait = Math.min(wait * 2, RECONNECT_MAX_MS);
+    timer = setTimeout(() => void attempt(), ms);
+  }
+
+  async function attempt() {
+    timer = null;
+    try {
+      await probe?.();
+    } catch (err) {
+      if (err?.status === 401) return; // the page is on its way to sign in
+      return later();
+    }
+    if (!source) open();
+  }
+
+  open();
+  return {
+    /** Shortens the wait between attempts while at least one caller has it on. An attempt already booked is brought forward. */
+    hurry(on) {
+      hurried = Math.max(0, hurried + (on ? 1 : -1));
+      if (on && timer && !source) {
+        clearTimeout(timer);
+        timer = setTimeout(() => void attempt(), Math.min(HURRIED_MS, wait));
+      }
+    },
+  };
 }

@@ -16,9 +16,12 @@ const state = {
   activity: new Map(), // session id -> { state, step, tool, since, steps, agents, cost, outcome }
   agents: new Map(),   // child session id -> { id, parent, label, task, createdAt, outcome, cost }
                        // outcome: null while never finished, else "done" | "failed" | "stopped"; cost: what its replies reported
-  choices: null,       // { model, models } from /api/models, once loaded
+  choices: null,       // { model, models, yours: { model, recent } } from /api/models, once loaded
+  draftModel: undefined, // the model picked in a `+` draft before the conversation exists ("" the configured default)
   creating: false,
-  connection: "connecting", // connecting | online | offline
+  connection: "connecting", // connecting | online | reconnecting
+  build: null,         // { id } the page was loaded with, from /api/me or the first snapshot
+  developer: false,    // the person's "Show developer details" preference, from /api/me
 };
 
 const watchers = new Map();

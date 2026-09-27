@@ -13,7 +13,8 @@
  * small square with the glyph in it and its sentence as the tooltip. A node with a `warn` or `err` mark
  * "needs a look", and the tree can be narrowed to those (`setFocus`): a parent whose children were hidden
  * says how many, in a faint row nobody can select; the selected node is never hidden. `count` is
- * `{ total, look }` the owner worked out for a parent, drawn after its label as "28 · 6 need a look": the
+ * `{ total, look }` the owner worked out for a parent, drawn after its label as "6 need a look" (nothing
+ * when none does): the
  * tree draws what it is handed and knows nothing of what a mark means. `kind: "page"` marks a child that
  * is a page rather than a thing named in code, drawn in the sans face. `update(nodes, selected)` redraws
  * from new nodes, keeping what is open and where the focus is. */
@@ -104,8 +105,10 @@ export function createTree(host, { nodes = [], selected = null, onSelect, storag
         : el("span", { class: "tree-toggle is-leaf", "aria-hidden": "true" }),
       node.mark ? el("span", { class: `tree-mark is-${node.mark}`, "aria-hidden": "true" }) : null,
       el("span", { class: "tree-label" }, node.label ?? node.key),
-      node.count && typeof node.count === "object"
-        ? el("span", { class: "tree-count" }, String(node.count.total ?? ""), node.count.look ? el("span", { class: "tree-count-look" }, ` · ${node.count.look} need${node.count.look === 1 ? "s" : ""} a look`) : null)
+      // Only what needs a look is counted: every page hung under a section is one somebody can open, so the
+      // total says nothing a glance at the children does not.
+      node.count && typeof node.count === "object" && node.count.look
+        ? el("span", { class: "tree-count" }, el("span", { class: "tree-count-look" }, `${node.count.look} need${node.count.look === 1 ? "s" : ""} a look`))
         : null,
       marks.length ? el("span", { class: "tree-marks" }, ...marks.map((m) => el("span", { class: `tree-glyph is-${m.tone || "dim"}`, title: m.title ?? null, "aria-label": m.title ?? null }, m.glyph))) : null
     );

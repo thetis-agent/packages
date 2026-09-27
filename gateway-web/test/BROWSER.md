@@ -22,12 +22,40 @@ binary is installed. The suite stays separate from `npm test`, so normal tests n
 dependency. Failed cases save a screenshot and Playwright trace under a temporary directory; set
 `THETIS_BROWSER_ARTIFACTS` to choose another output directory.
 
-The eleven checks cover delayed extension declarations and installation, awaited creation hooks,
+The nineteen checks cover delayed extension declarations and installation, awaited creation hooks,
 draft restoration after a hook fails, send acknowledgements arriving after turn completion or a
 reconnect snapshot, live events arriving before a saved conversation response, and attachments: a
 pasted and a dropped PNG travel through `POST /api/media`, show as a chip in `#attachments`, and go
 out as an `asset` part beside the text in `{ input }`; a removed one leaves the send as `{ text }`; a
 text paste keeps its default handling. Request gates control event order without sleeps.
+
+Five more cover "nothing lost" and restarts: a failed turn's row (`.msg.is-end`, a plain sentence, the raw words
+under Details) whose **Retry** posts `sessions/<id>/resume`, and the same row drawn again after a
+refresh from the record's `interrupted`; a `harness-core.retry` round that takes its half-drawn bubble
+off the page, counts down "Retrying in N s (2 of 5)", posts `ext/@thetis/harness-core/retry-now` for
+**Retry now** and `cancel` for **Stop**, puts "Reconnecting — attempt 2 of 5" on the sidebar row and
+settles into "Reconnected after 1 retry."; the stream's own reconnect loop ("Reconnecting…", a new
+stream after `/api/me` answers) and a changed build id that asks (`.notice` "Thetis was updated",
+**Refresh**) because something is typed, then reloads on the same `#<id>` with the draft back in
+`#input`; and `+` that creates nothing until the first message, with `hashchange` switching to another
+conversation and to a subagent, which opens as its own `.pane.is-agent` tab; and an armed restart
+(`GET api/restart` answering `pending`) shown to everyone as `.notice[data-notice="thetis-restart"]`
+"Thetis restarts in 20 s · your reply will continue" while a turn runs, "Thetis is restarting" once the
+stream drops, and "Thetis is back." when it reopens.
+
+Three more cover the chrome (2026-09-27). The model picker: in a `+` draft the pill shows and reads the
+person's own default (`yours.model`, not the configured `model`), the list has the headings New chat,
+Your default and Recent, the configured default as "Thetis default · …", and the catalogue folded behind
+`.picker-fold` "All models (N)" whose rows carry `.picker-col` price and context; a pick changes the pill
+and creates nothing, an example button in `.transcript-empty.is-new` fills `#input` without sending, and
+the first send's `POST api/sessions` carries `{ model }`. The rail: each `.rail-btn` has its label as
+`aria-label` and "Label — hint" as `title`; `.rail-widen` shows `.rail-label`s; the ≡ menu lists Files,
+Extensions, Control panel in that order; Escape closes a place opened over the dock, then the dock. A phone
+(390×844): no `#rail`, `#panels-btn` opens the docks as a menu; the shelf is at most 40% of the height
+even with a larger remembered height; choosing a place from the menu in the drawer closes the drawer; the
+control panel shows `.panel-select` instead of the tree, and the Extensions section links to the
+Extensions place with **Manage extensions**; with the drawer opened over the place, Escape closes the
+drawer and then the place; the page never scrolls sideways.
 
 ## Setup
 
@@ -105,8 +133,12 @@ press does not): open a new tab on the same URL and close the old one before the
     that record, none twice. No long task over 100 ms during the eight switches, whatever the size of the
     conversations (the scroll-follow runs once a frame, and hidden panes are not laid out).
 6. **Model pill**: click `.pane.is-active .chip-model`. Expect the composer's `.picker.is-open` with a
-   `.picker-menu` listbox; pick a model. Expect the chip text to change, `.chip-model.is-set`, the
-   `.picker-label` to match, and the sidebar row's `.session-meta` to name it.
+   `.picker-menu` listbox: `.picker-head` "This chat" over the chat's model (`.is-selected`), "Your default"
+   over what a new chat starts with (the model chosen last, or the configured one) and, when those differ,
+   "Thetis default · …", then "Recent", then `.picker-fold` "All models (N)", folded. Pick a model. Expect the
+   chip text to change, `.chip-model.is-set`, the `.picker-label` to match, the sidebar row's
+   `.session-meta` to name it, and the toast "… New chats start with it too.". Click `#new-tab`: the pill is
+   shown in the draft and reads that model.
 7. **Rename**: click `.pane.is-active .chat-title`. Expect `.session-rename` in the sidebar row; type a
    name, Enter. Expect `.tab-title`, `.chat-title`, the row and `document.title` to carry it.
 8. **Archive**: click `.pane.is-active .archive-chat`. Expect a `.toast` "Conversation archived." with a
@@ -241,6 +273,9 @@ pid on `.devhome3/thetis.sock` (`ss -lxp`). Run 2026-09-15: every step below pas
 `.playwright-mcp/phase3-01` to `-10`.
 
 21. **The nav, as dev**: sign in at `http://127.0.0.1:8803/login`, open `#menu` and click `.menu-item[data-place]`.
+    (Since 2026-09-27 the order is Overview, People, Extensions (the built-in section, id `packages`), Models,
+    Access, Activity, Account, Advanced; the words below that name Packages mean the Extensions row, and
+    the count on it reads only "k need a look", or nothing.)
     Expect the nav to be a tree (`nav.panel-nav[role=tree]`) of `.tree-item[role=treeitem]` rows in this
     order: Packages (`.is-selected`, `aria-level="1"`, `aria-expanded="true"`, a `.tree-toggle.is-open`
     chevron), then under it a `.tree-group[role=group]` with one `aria-level="2"` row per package with
@@ -260,7 +295,7 @@ pid on `.devhome3/thetis.sock` (`ss -lxp`). Run 2026-09-15: every step below pas
     per glyph in use and `label.tree-focus` with a checkbox: tick it and the rows without a mark are gone,
     replaced by one `.tree-hidden` row "n without a look" under Packages, while the selected row stays;
     reload: still ticked (`localStorage` `thetis.panel.tree` has `"$focus": true`).
-21a. **All workspaces**: click the first child under Packages. Expect `.ua-fleet` with `.toolbar` "All
+21a. **All workspaces** (now **Advanced → Extensions by person**): click the first child under Packages. Expect `.ua-fleet` with `.toolbar` "All
     workspaces · *n* packages across *m* workspaces", six `.ua-fl-tile`s, the `.ua-fl-filters` row
     (`input.ua-fl-search`, `.ua-fl-chip.is-on` on "all types", "everything" and "scope"), and
     `table.ua-fl-table` with one `th.ua-fl-user` per person, `tr.ua-fl-group` rows "Everyone · n", "System
@@ -321,7 +356,7 @@ pid on `.devhome3/thetis.sock` (`ss -lxp`). Run 2026-09-15: every step below pas
     /tmp/thetis-phase3-mount | read-write | Unbind`, `1 mount`, the path input empty,
     `.devhome3/mounts.json` holding it, and the daemon log showing bob's fence restarted. **Unbind** opens
     "Unbind this directory?"; the warn button sends the list without it: `0 mounts` and `{}` on disk.
-24a. **SSH keys**: the nav item after Mounts. Expect `.ua-ssh` with the toolbar heading "SSH keys · n keys
+24a. **SSH keys** (now part of **Access**, with Mounts): the nav item after Mounts. Expect `.ua-ssh` with the toolbar heading "SSH keys · n keys
     for <person>", `select[aria-label=Person]` listing each person with `(me)` on the signed-in admin and
     their key count, and the buttons **New key** (`.is-primary`) and **Import key**; requests `users` and
     `ssh-list`. With no key, `.ua-empty` "…has no key. New key makes one for it; Import key takes one
@@ -353,12 +388,12 @@ pid on `.devhome3/thetis.sock` (`ss -lxp`). Run 2026-09-15: every step below pas
     `user.create`, `user.role`, `user.status`, `user.password`, `user.remove` (target `carol`) and two
     `mounts` rows for `bob` (details `/tmp/thetis-phase3-mount (rw)` then `no mounts`). Pick `mounts` in the
     Kind select: only those two rows.
-26. **Overview**: the sixth nav item. Expect the cards **Kernel** (`home`, `model`, `door`, …), **System
+26. **Overview**: the first nav item since 2026-09-27. Expect the cards **Kernel** (`home`, `model`, `door`, …), **System
     packages** (`everyone` listing `@thetis/ui-admin` last), **Fence**, and **Package configuration** with one
     `.ua-kv-block` per configured package and `•••` where the key was; nothing that looks like a key.
 27. **As bob**: sign in as `bob` / `bobpass123` in the same tab. Expect no console errors (the five admin
     entries arrive in `api/ui`'s `hidden`, so the module's registrations are ignored quietly), and the panel
-    place showing **Packages** only. From a shell with bob's cookie, `POST /bob/api/ext/@thetis/ui-admin/users`
+    place showing **Extensions** and the sections about bob himself. From a shell with bob's cookie, `POST /bob/api/ext/@thetis/ui-admin/users`
     with `{"args":{}}` and `sec-fetch-site: same-origin` answers `403 {"error":"only an admin can send \"users\""}`;
     `GET /bob/api/panel` answers `{"sections":["packages"]}`.
 
@@ -510,11 +545,11 @@ with `devpass123`, `users add bob` with `bobpass123`, `serve` with the pid kept,
     the note "Every person gets it on their next turn, and every new person is set up with it." Confirm: the
     badge **Everyone**, **Remove** only (no Install for everyone, no picker after a reload), and `thetis
     packages list --user bob` shows `@thetis/exa`.
-34. **The Packages section**: click **Control panel**. Expect `.panel-note` "What is installed here, and what
-    each package brings.", the toolbar note "12 installed", the columns Package, Version, Type, Scope, Brings
-    (one line per row: the name carries the description as its title), no search of the registries, no
-    "Whose" picker. Click the exa row: the card on the right shows the description and the button **Open in
-    the marketplace**; click it: the Marketplace place opens on "Marketplace › @thetis/exa". No console errors.
+34. **The Extensions section**: click **Control panel → Extensions**. Expect `.panel-note` "What is installed
+    in your space.", the heading "Extensions · 12 installed", one sentence, and **Manage extensions**; click
+    it: the Extensions place opens. No table, no fork or scope badges. With `@thetis/ui-marketplace` removed
+    (or failed to load) the section offers instead **Install from a source** and the list of what is
+    installed with **Remove** on each row. No console errors.
 35. **As bob**: sign in as `bob` / `bobpass123` in the same tab and open the Marketplace. Expect the exa card
     **System · everyone** and **Installed**. Open `@thetis/bench-probe`: **System**, no **Installed**, one
     **Install** button, no picker, no admin action; confirm it and expect **Installed** and **Remove**. The crumb
@@ -535,8 +570,8 @@ name and the per-row link, and a place's head gained the drawer toggle for narro
 `.devhome6` (port 8806, the `local` file registry) as dev; screenshots `.playwright-mcp/polish-01` to `-14`.
 
 36. **The menu**: click `#menu`. Expect `.menu[role="menu"]` inside `.sidebar-head`, `[aria-expanded="true"]`
-    on the button, `.menu-item`s Control panel (order 10, focused), Marketplace (20), Project (100), each with
-    `.menu-icon`, `.menu-label` and `.menu-hint`; the open place's item `.is-active`. Arrow keys move the
+    on the button, `.menu-item`s Files, Extensions, Workflows, Project, then anything else, then Control
+    panel last (`menuOrder`), each with `.menu-icon`, `.menu-label` and `.menu-hint`, the hint shown whole; the open place's item `.is-active`. Arrow keys move the
     focus; Escape closes the menu (and not the place) and returns the focus to the button; a click elsewhere
     closes it; choosing an item closes it and opens the place. `#sidebar-places` no longer exists; the footer
     holds the identity row and **Log out** only.
@@ -545,11 +580,12 @@ name and the per-row link, and a place's head gained the drawer toggle for narro
     update badge when one is on offer), two lines of description, then `version · type · registry`.
 38. **The package page**: `.mk-crumb` in the faint small style, `.mk-readme` unboxed with the README's `#`
     heading at `--text-lg`, `.mk-side` 340px and sticky; long badges under "last run" wrap inside the card.
-39. **The Packages table**: five columns, one line per row, the name's `title` is the description; the table
-    never overflows `.table-wrap` at 1440px; the card on the right carries **Open in the marketplace**.
+39. **The Extensions section**: replaced by the bootstrap of step 34 (2026-09-27).
 40. **Narrow**: at 700px with a place open, `.place-head .chat-menu` is visible and opens the drawer; `#menu`
-    works inside the drawer; Escape closes the menu and leaves the place and the drawer; the veil closes the
-    drawer.
+    works inside the drawer; Escape closes the menu and leaves the place and the drawer; a second Escape
+    closes the drawer and leaves the place; the veil closes the drawer. Choosing a place from the menu closes
+    the drawer. Under 600px the rail is gone and `#panels-btn` in the tab strip lists the docks; the panel's
+    tree is a `.panel-select`.
 
 ## The Skills dock and project switches (2026-09-16)
 
@@ -656,7 +692,7 @@ the OpenRouter key in the environment of `serve` (steps 43 and 47 send one messa
     `- /tmp (mounted ro, read-only)` and the line `- /srv/nowhere (NOT USABLE: no mount covers it, …)`,
     followed by "A directory marked NOT USABLE is outside this workspace". Click **Unbind**, confirm:
     the badge returns to `.badge.is-err` "not mounted" and `mounts.json` no longer names `/tmp`.
-52. **The control panel agrees**: open **Control panel → Mounts**. The table has a column **On the host**;
+52. **The control panel agrees**: open **Control panel → Access** (Mounts). The table has a column **On the host**;
     bind `/srv/nowhere` for `bob` through the form. The toast says the host has no directory there, and
     the row shows `.badge.is-err` "skipped · not there" beside `read-write`. The **Choose…** button opens
     the same picker. Unbind it.
@@ -731,7 +767,7 @@ the OpenRouter key in the environment of `serve` (steps 43 and 47 send one messa
 
 ### Workspaces, and putting new code into service
 
-62. **What is running**: open **Control panel → Workspaces**. The daemon card says `running the code on
+62. **What is running**: open **Control panel → Advanced → Workspaces**. The daemon card says `running the code on
     disk`, when it started and `up N h`, and an ok badge `systemd` (or a warn badge `not supervised` when
     the daemon was started from a shell). The table lists every workspace including `_system`, your own row
     marked ` (me)`, with the Code column reading `running the code on disk` and the services each one runs.
@@ -1334,33 +1370,22 @@ then `cancel` with `why` *it has now been silent twice as long as this build tak
      contradict the first sentence inside it. (`transcript.js` recognises it from the result text, with
      a copy of the wording `@thetis/harness-core` owns, the way it copies the turn context line.)
 
-**Scenario B, the model's stream: quiet, continued, then nobody can be asked.** `script.json` with one
-round that streams `Let me work that o` and then `"silent": true`, and `nudges` of one `continue` with
-`why` *it may still be thinking* followed by two `"silent": true` steps: the question goes to the same
-provider that has gone quiet, so it cannot be answered either.
+**Scenario B, the model's stream: quiet.** Since @thetis/harness-core 0.5.0 a quiet model is only waited
+on: it gets one informational `stall` and is never asked about or cancelled by the harness (the provider's
+own stall watchdog decides when a stream is dead, and the round is then retried). `script.json` with one
+round that streams `Let me work that o` and then `"silent": true`.
 
 110. **Send** "what is 2+2" in a new conversation. Expect in `.pane.is-active`:
      - the partial reply `Let me work that o` in a `.msg.is-assistant`.
-     - `.msg.is-note.is-quiet` reading `The model has sent nothing for 6s. The request is still open;
-       asking whether to keep waiting.` and `.session-step` reading `Waiting on the model`.
-     - `.msg.is-note.is-quiet` reading `Still waiting on the model call after 6s. The model decided: it
-       may still be thinking`, and `.session-step` `Still waiting on the model`.
-     - a second stall note at 12s, and then, after the two unanswered attempts,
-       **one** `.msg.is-note.is-error` reading `The turn failed: provider error: the model call was
-       cancelled after 20s of silence: nobody could be asked whether to keep waiting (no answer within
-       4s, after 2 attempts), and an unanswered question cancels rather than waits`.
-     There is exactly one red line, not two: a cancelled model call is always followed by the turn's own
-     `error` carrying the same reason, so the page draws no separate cancel note for it.
+     - `.msg.is-note.is-quiet` reading `Waiting on the model: nothing for 6s yet. The request is still
+       open.` and `.session-step` reading `Waiting on the model`. No question, no cancel, no red line.
 111. **Nothing was thrown away**: `thetis sessions show --user dev --session <id>` holds the user message
      and an assistant message of `Let me work that o`. The turn ended, it kept what it had, and it said
      why. That is the whole of the guarantee, seen from outside.
-112. **The person's own stop still works**: script a round that is `"silent": true` from the first byte
-     and nudges that are all `"silent": true`, send, wait for the stall note (about 6s), and click
-     `#stop` a second or two later, while the question is still out and before the rule would cancel at
-     about 14s. Expect the turn to end at once: `#stop` hidden, one `.msg.is-note.is-quiet` reading
-     `Stopped.`, **no** note about a decision, and no red line. A decision about work the person has
-     already stopped is not announced, and the question still in flight is dropped rather than landing
-     a moment later on a turn that is over.
+112. **The person's own stop still works**: script a round that is `"silent": true` from the first byte,
+     send, wait for the stall note (about 6s), and click `#stop` a second or two later. Expect the turn
+     to end at once: `#stop` hidden, one `.msg.is-end.is-quiet` reading `Stopped.` with a **Continue**
+     button (it posts `sessions/<id>/resume`, a turn with no input), and no red line.
 
 Stop the daemon by the pid on `.devhome-nudge/thetis.sock` (`ss -lxp | grep devhome-nudge`), release
 `/tmp/thetis-browser.lock`, and delete `.devhome-nudge`.
@@ -1377,6 +1402,10 @@ from `browser_evaluate` (`#input`, dispatch `input`, `requestSubmit()` the form 
 real `location.reload()` — `browser_navigate` to the same URL is a fragment navigation and does not re-run
 the page — and read `browser_network_requests` after each step: what is checked here is as much what is
 **not** asked for as what is. Nothing in this pass should ever put a `.toast` on screen.
+
+Since gateway-web 0.14.0 `+` creates nothing until the first message is sent, so an empty conversation
+can only come from an older page or another client (`POST api/sessions`); make the five with
+`curl -X POST` against the gateway, or through an older page, before step 113.
 
 113. **Five empty conversations, and words in one of them**: sign in at `http://127.0.0.1:8805/login` at
      1440px and click `#new-chat` five times, waiting for each tab to appear before the next click (the

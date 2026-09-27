@@ -10,13 +10,17 @@ import { z } from "zod";
 import { parseSchema } from "@thetis/runtime/lib/validation";
 
 const SessionUsageSchema = z.record(z.string(), z.record(z.string(), z.union([z.number(), z.string()])));
+/** A turn that resumed an interrupted one: where it began in the conversation, why the first one stopped, which turn it was. */
+const ResumedSchema = z.looseObject({ index: z.number().int().nonnegative(), why: z.string(), at: z.string(), turn: z.string().optional() });
 const EntrySchema = z.looseObject({
   title: z.string().optional(),
   model: z.string().optional(),
   usage: SessionUsageSchema.optional(),
   archived: z.boolean().optional(),
+  resumed: z.array(ResumedSchema).optional(),
+  stopped: z.string().optional(),
 });
-const PrefsSchema = z.looseObject({ model: z.string().optional() });
+const PrefsSchema = z.looseObject({ model: z.string().optional(), recent: z.array(z.string()).optional(), developer: z.boolean().optional() });
 const FileIdSchema = z.string().regex(/^[a-zA-Z0-9_-]+$/);
 const SessionKeySchema = z.string().regex(/^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+$/);
 const LegacyStateSchema = z.looseObject({
@@ -29,6 +33,11 @@ const LegacyStateSchema = z.looseObject({
 /** Usage by conversation index of the assistant message it belongs to. */
 export type SessionUsage = z.infer<typeof SessionUsageSchema>;
 type Entry = z.infer<typeof EntrySchema>;
+export type ResumedMark = z.infer<typeof ResumedSchema>;
+/** How many models the picker's Recent keeps for a person: the last ones chosen, newest first. */
+export const RECENT_KEPT = 5;
+/** How many resumed dividers one conversation keeps: the newest ones, which are the ones anybody scrolls to. */
+const RESUMED_KEPT = 50;
 type Prefs = z.infer<typeof PrefsSchema>;
 
 function readState<S extends z.ZodType>(schema: S, file: string): z.output<S> {
@@ -125,9 +134,32 @@ export class GatewayStore {
     return this.prefs.get(user)?.model;
   }
 
-  /** Remembers the person's latest choice. An empty model means new conversations start with the default again. */
+  /**
+   * Remembers the person's latest choice. An empty model means new conversations start with the default again.
+   * A named model also goes to the front of the person's recent models, so the picker can offer it again.
+   */
   setLastModel(user: string, model: string): void {
-    const next: Prefs = { ...this.prefs.get(user), model: model || undefined };
+    const recent = model ? [model, ...this.recentModels(user).filter((m) => m !== model)].slice(0, RECENT_KEPT) : undefined;
+    this.setPrefs(user, { model: model || undefined, ...(recent ? { recent } : {}) });
+  }
+
+  /** The models the person chose last, newest first, at most `RECENT_KEPT`. */
+  recentModels(user: string): string[] {
+    return (this.prefs.get(user)?.recent ?? []).slice(0, RECENT_KEPT);
+  }
+
+  /** Whether the person asked to see developer details (raw dumps, problem lists, internal rows). Off unless they did. */
+  developer(user: string): boolean {
+    return this.prefs.get(user)?.developer === true;
+  }
+
+  setDeveloper(user: string, on: boolean): void {
+    this.setPrefs(user, { developer: on || undefined });
+  }
+
+  /** Merges `patch` into the person's preferences and writes their one file; nothing left removes it. */
+  private setPrefs(user: string, patch: Prefs): void {
+    const next: Prefs = { ...this.prefs.get(user), ...patch };
     for (const key of Object.keys(next) as (keyof Prefs)[]) if (next[key] === undefined) delete next[key];
     const file = resolve(this.prefsDir, `${user}.json`);
     if (!Object.keys(next).length) {
@@ -227,6 +259,28 @@ export class GatewayStore {
     this.put(user, session, { title: title || undefined });
   }
 
+  /** The resumed dividers of a conversation, oldest first. */
+  resumed(user: string, session: string): ResumedMark[] {
+    return this.entry(user, session).resumed ?? [];
+  }
+
+  /** Records that a turn resumed an interrupted one at conversation index `mark.index`. The same turn is kept once. */
+  addResumed(user: string, session: string, mark: ResumedMark): void {
+    const had = this.resumed(user, session).filter((m) => !mark.turn || m.turn !== mark.turn);
+    this.put(user, session, { resumed: [...had, mark].slice(-RESUMED_KEPT) });
+  }
+
+  /** When the last turn of a conversation was stopped by a person, or undefined when it was not. */
+  stopped(user: string, session: string): string | undefined {
+    return this.entry(user, session).stopped;
+  }
+
+  /** Every turn's end says whether it was stopped; a turn that ended any other way clears it. */
+  setStopped(user: string, session: string, at: string | undefined): void {
+    if (this.entry(user, session).stopped === at) return;
+    this.put(user, session, { stopped: at });
+  }
+
   /**
    * Drops everything kept about a conversation, the archive mark included; with nothing left, its file
    * goes too. The one caller is the discard of an empty conversation, where the record itself is being
@@ -235,7 +289,7 @@ export class GatewayStore {
    * is not a thing anyone can want — so this stays one method rather than one with a flag.
    */
   forget(user: string, session: string): void {
-    this.put(user, session, { usage: undefined, model: undefined, title: undefined, archived: undefined });
+    this.put(user, session, { usage: undefined, model: undefined, title: undefined, archived: undefined, resumed: undefined, stopped: undefined });
   }
 
   private entry(user: string, session: string): Entry {

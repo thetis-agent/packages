@@ -1,6 +1,8 @@
 /* Wires the page together: identity, the session list, the conversation tabs, the composer, the places,
  * the rail and dock, the event stream, and the built-in pieces registered through the same seam a
- * package uses. Everything that draws lives in views/; this file only connects them. */
+ * package uses. Everything that draws lives in views/; this file only connects them. It also keeps the
+ * page alive across a restart: the stream reconnects by itself, a changed build refreshes the page on the
+ * same conversation with what was typed kept, and a restart of Thetis is announced to everyone. */
 
 import { applyActivity, countWorking } from "./lib/activity.js";
 import { api, apiBytes, connect } from "./lib/api.js";
@@ -9,9 +11,14 @@ import { avatarFor, repaintPersonAvatars } from "./lib/avatar.js";
 import { contentText } from "./lib/content.js";
 import { $, clear, setHidden } from "./lib/dom.js";
 import { bindShell, broadcastTurn, createExt, notifySessionCreated } from "./lib/ext.js";
+import { layers, listenForEscape } from "./lib/layers.js";
+import { bindConnection } from "./lib/lifecycle.js";
 import { loadExtensions } from "./lib/loader.js";
+import { rememberChoice, shortModel } from "./lib/model-choices.js";
+import { notice } from "./lib/notice.js";
 import * as registry from "./lib/registry.js";
 import { store } from "./lib/store.js";
+import { watchRestart } from "./lib/restart-notice.js";
 import { toast } from "./lib/toast.js";
 import { sendTurn } from "./lib/turn-send.js";
 import { mountComposer } from "./views/composer.js";
@@ -41,12 +48,18 @@ registry.declare({
   commands: [],
 });
 
+// Escape closes the top layer — a drawer before the place under it, a place before the dock it hides —
+// and is registered before any view, so a popover's own listener still finds the popover in place.
+listenForEscape();
+
 const statusEl = $("status");
 
+/** connecting (the first time) · online · reconnecting (it dropped, and the page is trying again by itself). */
 function setStatus(state) {
   store.set({ connection: state });
-  statusEl.className = `status is-${state === "online" ? "online" : state === "offline" ? "offline" : "busy"}`;
-  statusEl.textContent = state === "online" ? "connected" : state === "offline" ? "offline" : "connecting";
+  statusEl.className = `status is-${state === "online" ? "online" : "busy"}`;
+  statusEl.textContent = state === "online" ? "connected" : state === "reconnecting" ? "Reconnecting…" : "connecting";
+  statusEl.title = state === "reconnecting" ? "The connection to Thetis dropped. This page reconnects by itself; nothing you did is lost." : "";
 }
 
 async function refreshList() {
@@ -84,12 +97,27 @@ async function openAgent(id) {
   await tabs.open(id);
 }
 
+/**
+ * `+`: a new conversation that is not created yet. Nothing is kept on the server until the first message,
+ * which creates it on the way (`send`), so a `+` nobody types into leaves nothing behind.
+ */
+function startNew() {
+  places.close();
+  closeSidebar();
+  store.set({ draftModel: undefined });
+  tabs.showNew();
+  composer.focus();
+}
+
 async function createConversation() {
   if (store.get("creating")) return null;
   store.set({ creating: true });
   try {
     await extensionsReady;
-    const { id } = await api("/api/sessions", { method: "POST" });
+    // A model picked in the draft travels with the create; the server remembers it as the next default too.
+    const draftModel = store.get("draftModel");
+    const { id } = await api("/api/sessions", { method: "POST", body: draftModel === undefined ? {} : { model: draftModel } });
+    if (draftModel !== undefined) store.set({ draftModel: undefined, choices: rememberChoice(store.get("choices"), draftModel) });
     await notifySessionCreated(id);
     await refreshList();
     await openConversation(id);
@@ -249,8 +277,9 @@ async function chooseModel(id, model) {
   if (!id) return;
   try {
     await api(`/api/sessions/${id}/model`, { method: "POST", body: { model } });
-    store.set({ sessions: store.get("sessions").map((s) => (s.id === id ? { ...s, model: model || undefined } : s)) });
-    toast(model ? `This conversation now answers with ${model.split("/").pop()}.` : "This conversation now answers with the default model.", { tone: "good" });
+    // The server also made it the person's default for new chats, and the newest of their recent models.
+    store.set({ sessions: store.get("sessions").map((s) => (s.id === id ? { ...s, model: model || undefined } : s)), choices: rememberChoice(store.get("choices"), model) });
+    toast(model ? `This chat now answers with ${shortModel(model)}. New chats start with it too.` : "This chat now answers with the Thetis default model.", { tone: "good" });
   } catch (err) {
     toast(`The model was not changed: ${err.message}`, { tone: "error" });
   }
@@ -259,20 +288,22 @@ async function chooseModel(id, model) {
 // --- the views ---
 
 const composer = mountComposer({ onSend: (input, draft) => { void send(input, draft); }, onStop: stop, onModel: chooseModel });
-const sessions = mountSessions({ onOpen: openConversation, onNew: createConversation, onArchive: archive, onRename: rename, onAgent: showAgent, onOpenAgent: openAgent });
+const sessions = mountSessions({ onOpen: openConversation, onNew: startNew, onArchive: archive, onRename: rename, onAgent: showAgent, onOpenAgent: openAgent });
 const tabs = mountTabs({
-  onNew: createConversation,
+  onNew: startNew,
   onClosed: (id) => { void discardClosed(id); },
   onArchive: (id) => { const s = store.session(id); if (s) void archive(id, !s.archived); },
   onRename: (id) => sessions.rename(id),
   onModel: () => composer.openModelPicker(),
+  onExample: (text) => composer.fill(text),
 });
 const places = mountPlaces();
 const dock = mountDock();
 const shelf = mountShelf();
 mountStatusbar();
 mountSidebarSlot();
-mountMenu({ openPlace: (key) => places.open(key), currentPlace: () => places.current() });
+// A place chosen from the menu closes the drawer the menu sits in, so on a phone the place is not left under it.
+mountMenu({ openPlace: (key) => { closeSidebar(); places.open(key); }, currentPlace: () => places.current() });
 
 bindShell({
   send,
@@ -305,6 +336,46 @@ const CONVERSATION_IN_URL = /^#(s_[a-f0-9]+)$/;
 function conversationInUrl() {
   return CONVERSATION_IN_URL.exec(location.hash)?.[1] ?? null;
 }
+
+/**
+ * Opens what an address names: a conversation in the list, or any other session of this person — a
+ * subagent, which opens as its own read-only tab, its parent learned from its record. False when there is
+ * no such session (it was discarded, or the link was mistyped).
+ */
+async function openNamed(id) {
+  if (store.session(id)) {
+    await openConversation(id);
+    return true;
+  }
+  if (!store.isAgent(id)) {
+    let record;
+    try {
+      record = await api(`/api/sessions/${id}`);
+    } catch {
+      return false;
+    }
+    if (!record?.parent) {
+      // A conversation the list has not caught up with yet.
+      await refreshList();
+      await openConversation(id);
+      return true;
+    }
+    const first = (record.conversation ?? []).find((m) => m.role === "user");
+    store.setAgent(id, { parent: record.parent, task: first ? contentText(first.content) : undefined, createdAt: record.createdAt });
+  }
+  await openAgent(id);
+  return true;
+}
+
+// Another conversation typed or pasted into the address bar of an open page switches to it. The page's own
+// changes to the hash are `replaceState`, which fires no `hashchange`, so this hears only the person.
+addEventListener("hashchange", () => {
+  const id = conversationInUrl();
+  if (!id || id === store.get("current")) return;
+  void openNamed(id).then((ok) => {
+    if (!ok) toast("There is no conversation with that id here.", { tone: "error" });
+  });
+});
 
 store.watch("current", (id) => {
   const shown = id ? store.rootOf(id) : null;
@@ -435,6 +506,9 @@ function setSidebar(open) {
   $("sidebar").classList.toggle("is-open", open);
   setHidden($("sidebar-veil"), !open);
   for (const b of sidebarToggles) b.setAttribute("aria-expanded", String(open));
+  // Over everything else while it is open, so Escape closes the drawer before the place under it.
+  if (open) layers.open("drawer", closeSidebar);
+  else layers.remove("drawer");
 }
 function closeSidebar() {
   setSidebar(false);
@@ -472,15 +546,95 @@ function applyTurn(message) {
   if (event.type === "turn.end") {
     store.mark("running", session, false);
     scheduleList();
+    restart.pollSoon(); // a restart is most often armed from inside a turn
   }
   tabs.applyTurn(message);
   broadcastTurn(message);
 }
 
+// --- the build the page runs, and what was being typed across a refresh ---
+
+/**
+ * What is typed is kept for this browser tab whenever the page goes away — a refresh, the page refreshing
+ * itself after an update, an extension's "Update all" — and put back when it loads. sessionStorage: it is
+ * this tab's, it survives a reload and nothing else, and it never leaves the machine. It can be missing or
+ * refuse (a private window, storage blocked), so every touch of it is guarded and the page works without it.
+ */
+const DRAFT_KEY = `thetis.draft:${location.pathname}`;
+
+function saveDraft() {
+  try {
+    const text = composer.draftText();
+    if (text.trim()) sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ session: store.get("current"), text }));
+    else sessionStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // No storage here: a refresh loses the draft, as it always did.
+  }
+}
+
+function takeDraft() {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY);
+    sessionStorage.removeItem(DRAFT_KEY);
+    const draft = raw ? JSON.parse(raw) : null;
+    return draft && typeof draft.text === "string" ? draft : null;
+  } catch {
+    return null;
+  }
+}
+
+addEventListener("pagehide", saveDraft);
+
+/** The build id this page was loaded with. A different one on a later snapshot means new code is out. */
+function sawBuild(build) {
+  const id = typeof build?.id === "string" ? build.id : "";
+  if (!id) return;
+  const mine = store.get("build")?.id;
+  if (!mine) return store.set({ build: { id } });
+  if (id !== mine) updated();
+}
+
+/**
+ * Thetis was updated while this page was open, so it is running old code. It refreshes itself on the same
+ * conversation (the address bar names it) with what was typed kept — at once when nothing is typed and no
+ * place is open, because then there is nothing to lose and nobody is in the middle of anything; otherwise
+ * through a notice, so a half-written message or a page being read is not taken away under the person.
+ */
+function updated() {
+  const busy = composer.draftText().trim() || places.current() || store.get("creating");
+  if (!busy) return refreshPage();
+  notice("thetis-updated", {
+    title: "Thetis was updated",
+    body: "Refresh to use the new version. What you typed is kept.",
+    tone: "info",
+    actions: [{ label: "Refresh", primary: true, run: refreshPage }],
+  });
+}
+
+function refreshPage() {
+  saveDraft();
+  location.reload();
+}
+
+/** Puts a kept draft back once the conversation it was typed in is on screen. A new conversation's draft reopens a new one. */
+async function restoreDraft(draft) {
+  if (!draft) return;
+  if (draft.session === null) tabs.showNew();
+  else if (draft.session !== store.get("current")) return;
+  composer.restore(draft.text);
+}
+
+const draftAtLoad = takeDraft();
+
+// A restart of Thetis, announced to everyone; the end of any of this person's turns asks at once.
+const restart = watchRestart();
+
 let opened = false;
-connect({
+const connection = connect({
+  probe: async () => sawBuild((await api("/api/me")).build),
   onStatus: setStatus,
   onSnapshot: async (snapshot) => {
+    sawBuild(snapshot.build);
     store.setRunningSnapshot(snapshot.running.map((r) => r.session));
     // Every running turn's events so far, replayed through the activity model, so the sidebar knows the step.
     // Conversations before their subagents, so a child's events find its parent's record already open.
@@ -495,12 +649,15 @@ connect({
       await tabs.reload();
     } else {
       // The conversation the address bar names, when it still exists — archived or not, because coming back
-      // to where you were is not a judgement about which conversations are interesting. Nothing named, or
-      // nothing by that name any more: the newest conversation, as before.
+      // to where you were is not a judgement about which conversations are interesting — or a subagent,
+      // which opens in its own tab. Nothing named, or nothing by that name any more: the newest
+      // conversation, as before. A draft kept from a new conversation brings the new conversation back.
       const sessions = store.get("sessions");
       const wanted = conversationInUrl();
-      const first = (wanted && sessions.find((s) => s.id === wanted)) || sessions.find((s) => !s.archived);
+      const named = wanted && draftAtLoad?.session !== null ? await openNamed(wanted) : false;
+      const first = !named && draftAtLoad?.session !== null && sessions.find((s) => !s.archived);
       if (first) await openConversation(first.id);
+      await restoreDraft(draftAtLoad);
     }
     opened = true;
     // Last, and after the conversation being returned to is open: the sweep reads `current` and the tabs
@@ -511,9 +668,32 @@ connect({
   onTurn: applyTurn,
   onSessions: scheduleList,
 });
+bindConnection(connection);
 
-api("/api/me").then((me) => store.set({ user: me })).catch(() => {});
+// --- developer details: one switch in the footer, kept per person by the gateway ---
+
+const devToggle = $("developer-toggle");
+store.watch("developer", (on) => {
+  devToggle.setAttribute("aria-pressed", String(on === true));
+  devToggle.classList.toggle("is-on", on === true);
+  devToggle.title = on ? "Developer details are shown: raw dumps, problem lists and internal rows. Click to hide them." : "Show developer details: raw dumps, problem lists and internal rows.";
+});
+devToggle.addEventListener("click", async () => {
+  const on = store.get("developer") !== true;
+  try {
+    const out = await api("/api/me/prefs", { method: "POST", body: { developer: on } });
+    store.set({ developer: out?.developer === true });
+  } catch (err) {
+    toast(`The setting was not changed: ${err.message}`, { tone: "error" });
+  }
+});
+
+api("/api/me").then((me) => {
+  store.set({ user: me, developer: me?.prefs?.developer === true });
+  sawBuild(me?.build);
+}).catch(() => {});
 setStatus("connecting");
 composer.loadChoices();
 composer.focus();
 const extensionsReady = loadExtensions();
+

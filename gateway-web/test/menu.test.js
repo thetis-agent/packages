@@ -119,3 +119,19 @@ test("an empty list still opens, with the sentence, and a rule alone draws no ro
   assert.equal(menu.querySelectorAll(".menu-item").length, 0);
   close();
 });
+
+test("the places menu reads Files, Extensions, Workflows, Project, anything else, then the Control panel", async () => {
+  const { menuOrder } = await import("../assets/views/menu.js");
+  const place = (pkg, id, order = 100) => ({ package: pkg, id, key: `${pkg}#${id}`, order, decl: { id } });
+  // As the registry hands them over: by declared order.
+  const declared = [
+    place("@thetis/ui-admin", "other", 5),
+    place("@thetis/gateway-web", "panel", 900),
+    place("@thetis/ui-marketplace", "marketplace", 20),
+    place("@thetis/ui-workspace", "workspace", 30),
+    place("@thetis/projects", "project"),
+    place("@thetis/workflows", "workflows"),
+    place("@me/thing", "thing"),
+  ].sort((a, b) => a.order - b.order);
+  assert.deepEqual(menuOrder(declared).map((e) => e.id), ["workspace", "marketplace", "workflows", "project", "other", "thing", "panel"]);
+});

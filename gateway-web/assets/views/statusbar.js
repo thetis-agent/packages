@@ -17,7 +17,7 @@ export function mountStatusbar() {
       const failed = registry.failureOf(entry.package);
       if (failed) {
         node.classList.add("is-broken");
-        node.title = `${entry.package} could not load`;
+        node.title = `The ${entry.package} extension could not load`;
         node.textContent = entry.decl.label || entry.id;
       } else if (entry.impl?.draw) {
         const out = registry.guard(entry.package, "statusbar", entry.impl.draw, node);

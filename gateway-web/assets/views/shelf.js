@@ -21,7 +21,10 @@ import * as registry from "../lib/registry.js";
 const HEIGHT_KEY = "thetis.shelf.height";
 const DEFAULT_H = 300;
 const MIN_H = 140;
-const maxH = () => Math.round(window.innerHeight * 0.72);
+// On a phone the conversation is what the screen is for: the shelf takes at most two fifths of it there
+// (the stylesheet says the same, so a remembered height from a larger window cannot exceed it either).
+const PHONE_WIDTH = 600;
+const maxH = () => Math.round(window.innerHeight * (window.innerWidth < PHONE_WIDTH ? 0.4 : 0.72));
 // The close animation's `transitionend` is what puts `hidden` back on; a scheme with motion switched
 // off never fires one, so this backstop does the same a little later.
 const HIDE_FALLBACK_MS = 400;

@@ -2,6 +2,7 @@
  * favicon and the tab title count it. Every session's events arrive on the stream, so a conversation
  * that is not open still shows its step. */
 
+import { failureShort, reasonOf } from "./failure.js";
 import { store } from "./store.js";
 
 /** Must equal --sheen in theme.css: the sidebar sheen is phase-locked to wall time with this period. */
@@ -65,6 +66,27 @@ export function applyActivity(session, event, startedAt, parent) {
       if (what.kind === "model") return store.setActivity(session, { ...had, step: "Still waiting on the model", tool: false });
       return store.setActivity(session, { ...had, step: `${what.name || "tool"} · still waiting`, tool: true });
     }
+    // The two extension events the shell reads itself. A round being retried says so in the row, so a
+    // conversation that is waiting to reconnect never reads as a hang; a tool call whose arguments are still
+    // arriving says how much has been written, so a long write reads as work.
+    case "extension": {
+      if (had?.state !== "working") return;
+      const data = event.data ?? {};
+      if (event.name === "harness-core.retry") {
+        if (data.phase === "waiting" || data.phase === "sending") {
+          const next = data.phase === "waiting" ? (Number(data.attempt) || 1) + 1 : Number(data.attempt) || 2;
+          return store.setActivity(session, { ...had, step: `Reconnecting — attempt ${next}${data.of ? ` of ${data.of}` : ""}`, tool: false });
+        }
+        if (data.phase === "recovered") return store.setActivity(session, { ...had, step: "Thinking", tool: false });
+        return;
+      }
+      if (event.name === "tool_call.progress") {
+        const chars = Number(data.chars) || 0;
+        const size = chars >= 1000 ? `${Math.round(chars / 1000)}k chars` : `${chars} chars`;
+        return store.setActivity(session, { ...had, step: `writing ${data.name || "tool"} · ${size}`, tool: true });
+      }
+      return;
+    }
     case "usage": {
       if (had?.state !== "working") return;
       const u = event.usage ?? {};
@@ -72,8 +94,8 @@ export function applyActivity(session, event, startedAt, parent) {
     }
     case "error": {
       const record = had ?? fresh(Date.now());
-      if (event.code === "cancelled") return store.setActivity(session, { ...record, state: "stopped", outcome: "Stopped by you" });
-      return store.setActivity(session, { ...record, state: "failed", outcome: event.message || "the turn failed" });
+      if (event.code === "cancelled" && !reasonOf(event).why) return store.setActivity(session, { ...record, state: "stopped", outcome: "Stopped by you" });
+      return store.setActivity(session, { ...record, state: "failed", outcome: failureShort(event) });
     }
     case "turn.end": {
       if (!had) return;

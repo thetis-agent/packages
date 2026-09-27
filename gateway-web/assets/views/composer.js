@@ -9,10 +9,10 @@
  * `onSend` receives is the `TurnInput` to send: a plain string when there is nothing attached, a message
  * with content parts otherwise. */
 
-import { shortModel } from "../lib/activity.js";
 import { api } from "../lib/api.js";
 import { Attachments, buildInput, describeSize, IMAGE_TYPES, pickFiles } from "../lib/attachments.js";
 import { $, el, icon, setHidden } from "../lib/dom.js";
+import { filterSections, modelSections, shortModel } from "../lib/model-choices.js";
 import { Picker } from "../lib/picker.js";
 import * as registry from "../lib/registry.js";
 import { store } from "../lib/store.js";
@@ -118,38 +118,31 @@ export function mountComposer({ onSend, onStop, onModel }) {
   });
 
   // ---- the model pill ----
+  // What it lists and in which order is `lib/model-choices.js`: this chat's model, your default (what a new
+  // chat really starts with), recent, then every model folded. In a `+` draft there is no conversation to
+  // set a model on yet, so the pick is held in `draftModel` and travels with the create.
 
-  const options = () => {
-    const choices = store.get("choices");
-    if (!choices) return [];
-    const list = [{ id: "", label: `Default · ${shortModel(choices.model) || "as configured"}`, note: choices.model ? `${choices.model} · set by the configuration` : "Whatever the configuration names." }];
-    for (const m of choices.models) {
-      if (m.id === "*") continue;
-      list.push({ id: m.id, label: m.name && m.name !== m.id ? m.name : shortModel(m.id), note: m.provider ? `${m.id} · ${shortPackage(m.provider)}` : m.id });
-    }
-    // The chosen model sits right under the default, so the choice is visible without scrolling a long list.
-    const chosen = store.session(store.get("current"))?.model;
-    if (chosen) {
-      const at = list.findIndex((o) => o.id === chosen);
-      const entry = at >= 0 ? list.splice(at, 1)[0] : { id: chosen, label: shortModel(chosen), note: `${chosen} · not listed by any provider` };
-      list.splice(1, 0, entry);
-    }
-    return list;
+  const chatNow = () => {
+    const id = store.get("current");
+    if (!id) return { draft: true, model: store.get("draftModel") };
+    return { model: store.session(id)?.model || undefined };
   };
   const picker = new Picker({
-    options,
+    sections: () => modelSections(store.get("choices"), chatNow()).sections,
+    filter: filterSections,
     searchable: true,
     mono: true,
-    title: "Which model answers in this conversation",
-    selected: () => store.session(store.get("current"))?.model || "",
+    title: "Which model answers in this chat",
+    selected: () => modelSections(store.get("choices"), chatNow()).selected,
     label: () => {
-      const id = store.get("current");
-      const chosen = store.session(id)?.model;
-      if (chosen) return shortModel(chosen);
-      const fallback = store.get("choices")?.model;
-      return fallback ? `${shortModel(fallback)} · default` : "Model";
+      const { effective } = modelSections(store.get("choices"), chatNow());
+      return effective ? shortModel(effective) : "Model";
     },
-    onSelect: (model) => onModel(store.get("current"), model),
+    onSelect: (model) => {
+      const id = store.get("current");
+      if (id) return onModel(id, model);
+      store.set({ draftModel: model });
+    },
   });
 
   // ---- the composer slots: one root per declared entry, mounted once the package registers ----
@@ -224,7 +217,8 @@ export function mountComposer({ onSend, onStop, onModel }) {
     const uploading = attachments.busy;
     sendBtn.disabled = (!input.value.trim() && !attachments.ready.length) || busy || running || uploading;
     note.textContent = running ? "A turn is running." : uploading ? "Uploading…" : "";
-    setHidden(picker.node, Boolean(running) || !id);
+    // A `+` draft shows it too: the pick is what the new conversation will be created with.
+    setHidden(picker.node, Boolean(running) || Boolean(store.get("creating")));
     picker.draw();
     if (!busy && document.activeElement === document.body) input.focus();
   }
@@ -264,7 +258,7 @@ export function mountComposer({ onSend, onStop, onModel }) {
     draw();
   });
 
-  for (const key of ["current", "running", "pending", "creating", "sessions", "choices", "agents"]) store.watch(key, draw);
+  for (const key of ["current", "running", "pending", "creating", "sessions", "choices", "agents", "draftModel"]) store.watch(key, draw);
   store.watch("current", () => {
     input.value = "";
     attachments.clear();
@@ -282,6 +276,16 @@ export function mountComposer({ onSend, onStop, onModel }) {
       autosize();
       draw();
     },
+    /** Puts `text` in the box in place of what is there, ready to edit or send: an example prompt. Sends nothing. */
+    fill: (text) => {
+      input.value = text;
+      autosize();
+      draw();
+      input.focus();
+      input.setSelectionRange(text.length, text.length);
+    },
+    /** What is typed in the box right now: the page keeps it across a refresh. Attachments are not kept. */
+    draftText: () => input.value,
     /** Attaches files from anywhere on the page (a package's own drop target, say). */
     attach: (files) => takeFiles(Array.from(files ?? [])),
     loadChoices,
@@ -292,6 +296,3 @@ export function mountComposer({ onSend, onStop, onModel }) {
   };
 }
 
-function shortPackage(name) {
-  return String(name).replace(/^@thetis\/provider-/, "").replace(/^@[^/]+\//, "");
-}

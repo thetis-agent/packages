@@ -26,6 +26,12 @@ export class FakeNode {
         this.#classes(set);
       },
       toggle: (name, on) => (on ? this.classList.add(name) : this.classList.remove(name)),
+      replace: (from, to) => {
+        if (!this.classList.contains(from)) return false;
+        this.classList.remove(from);
+        this.classList.add(to);
+        return true;
+      },
       contains: (name) => this.#classes().has(name),
     };
   }
@@ -100,6 +106,14 @@ export class FakeNode {
     for (const child of this.children) child.parentElement = null;
     this.children = [];
     this.append(...nodes);
+  }
+  replaceWith(node) {
+    const parent = this.parentElement;
+    const at = parent?.children.indexOf(this) ?? -1;
+    if (at < 0) return;
+    node.parentElement = parent;
+    parent.children.splice(at, 1, node);
+    this.parentElement = null;
   }
   remove() {
     const at = this.parentElement?.children.indexOf(this) ?? -1;

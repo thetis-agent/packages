@@ -60,6 +60,14 @@
         <span id="status" class="status is-offline">connecting</span>
       </div>
       <div class="foot-row foot-actions">
+        <!-- A preference of the person's, kept by the gateway: raw dumps, problem lists and internal rows
+             that extensions show only when it is on (`ext.developer()`). Off unless they turn it on. -->
+        <button type="button" id="developer-toggle" class="quiet-link foot-action dev-toggle" aria-pressed="false" title="Show developer details: raw dumps, problem lists and internal rows.">
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M7.5 6 3.5 10l4 4M12.5 6l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>Developer details</span>
+        </button>
         <form id="logout" method="post" action="/logout">
           <button type="submit" class="quiet-link foot-action" title="Sign out of this account on this browser">
             <svg viewBox="0 0 20 20" aria-hidden="true">

@@ -80,12 +80,25 @@ test("the session list comes from the summaries: titles, previews and running fr
 
 test("the models answer carries only what the picker draws, and one kernel answer serves repeated requests", async () => {
   const dir = mkdtempSync(join(tmpdir(), "gw-store-"));
-  const { kernel, calls } = fakeKernel([]);
+  const { kernel, calls } = fakeKernel([], {
+    model: "echo",
+    models: [
+      { id: "echo", name: "Echo", provider: "@thetis/provider-echo", pricing: { prompt: 0 }, context_length: 1 },
+      // The window and the price where the catalogue gives them; anything else, and a price that is not a number, stays behind.
+      { id: "big", provider: "@thetis/provider-openrouter", contextLength: 200000, pricing: { prompt: "0.000003", completion: "0.000015", image: "1" }, reasoning: { effort: true } } as never,
+      { id: "odd", pricing: { prompt: "n/a" }, contextLength: -1 } as never,
+    ],
+  });
   const { get, close } = await serve(kernel, new GatewayStore(dir));
   try {
     const first = (await get("/api/models")) as { model: string; models: Record<string, unknown>[] };
     assert.equal(first.model, "echo");
-    assert.deepEqual(first.models, [{ id: "echo", name: "Echo", provider: "@thetis/provider-echo" }]);
+    assert.deepEqual(first.models, [
+      { id: "echo", name: "Echo", provider: "@thetis/provider-echo", pricing: { prompt: 0 } },
+      { id: "big", provider: "@thetis/provider-openrouter", contextLength: 200000, pricing: { prompt: 0.000003, completion: 0.000015 } },
+      { id: "odd" },
+    ]);
+    assert.deepEqual((first as unknown as { yours: unknown }).yours, { model: null, recent: [] }, "and what this person chose, read fresh");
     await get("/api/models");
     await get("/api/models");
     assert.equal(calls.models, 1);

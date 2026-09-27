@@ -138,7 +138,8 @@ body { display: flex; flex-direction: column; }
 .menu-item.is-active .menu-icon { color: var(--accent); }
 .menu-text { display: flex; flex-direction: column; min-width: 0; }
 .menu-label { font-size: var(--text-sm); font-weight: 500; line-height: 1.4; }
-.menu-hint { font-size: var(--text-xs); color: var(--text-faint); line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A place's hint is one short line, shown whole: wrapped rather than cut, since a cut hint says nothing. */
+.menu-hint { font-size: var(--text-xs); color: var(--text-faint); line-height: 1.4; overflow-wrap: anywhere; }
 .menu-empty { padding: var(--gap-2) var(--gap-3); font-size: var(--text-sm); color: var(--text-faint); }
 /* The floating menu (`lib/menu.js`, `ext.ui.menu`): appended to the body and placed by script, so it takes
  * its width from its items rather than from the sidebar head. Its rows are the places menu's rows, with a
@@ -213,6 +214,9 @@ body { display: flex; flex-direction: column; }
 }
 .foot-action svg { width: 14px; height: 14px; flex: none; }
 .foot-action:hover { color: var(--text); background: var(--surface-3); }
+.foot-actions { justify-content: space-between; }
+.dev-toggle { appearance: none; border: 0; background: none; font: inherit; cursor: pointer; }
+.dev-toggle.is-on { color: var(--accent); }
 .quiet-link { appearance: none; border: 0; padding: 0; background: none; font: inherit; cursor: pointer; color: var(--text-faint); transition: color var(--fast) var(--ease); }
 
 /* --- buttons -------------------------------------------------------------- */
@@ -750,6 +754,22 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
   animation: fade var(--med) var(--ease);
 }
 .empty-mark { width: 40px; height: 40px; display: grid; place-items: center; color: var(--hairline-strong); }
+/* A new chat: one line of what Thetis does, and examples a click puts in the box. */
+.transcript-empty.is-new { max-width: min(560px, 100%); margin: 0 auto; }
+.empty-lead { color: var(--text-dim); font-size: var(--text-md); line-height: 1.5; }
+.empty-examples { display: flex; flex-direction: column; align-items: stretch; gap: var(--gap-2); width: 100%; margin-top: var(--gap-2); }
+.empty-example {
+  padding: 9px 14px;
+  text-align: left;
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: background-color var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.empty-example:hover, .empty-example:focus-visible { color: var(--text); background: var(--surface-2); border-color: var(--accent-edge); }
 .empty-mark svg { width: 100%; height: 100%; }
 
 .jump-latest {
@@ -773,6 +793,8 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
   animation: rise var(--med) var(--ease);
 }
 .jump-latest:hover { border-color: var(--accent-edge); color: var(--accent-hot); }
+/* Room under the last row while the pill shows, so it never sits on the last tool group. */
+.transcript.has-jump { padding-bottom: calc(var(--gap-4) + 44px); }
 
 .msg { max-width: var(--measure); margin: 0 auto var(--gap-4); position: relative; animation: fade var(--med) var(--ease); }
 .msg:last-child { margin-bottom: var(--gap-2); }
@@ -987,6 +1009,38 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .msg.is-note.is-error { color: var(--err); }
 .msg.is-note.is-quiet { font-style: italic; }
 
+/* The row a turn that did not finish leaves: one sentence, the raw words folded under Details, and one
+ * button. A failure is red-edged, a Stop quiet, a round being retried amber (it is work, not a failure),
+ * and a retry that came back settles into one faint line. */
+.msg.is-end { display: flex; align-items: flex-start; gap: var(--gap-3); padding: 8px 12px; border: 1px solid var(--hairline); border-left: 2px solid var(--err); border-radius: var(--r-md); background: var(--surface-1); font-size: var(--text-sm); }
+.msg.is-end.is-quiet { border-left-color: var(--hairline-strong); color: var(--text-dim); }
+.msg.is-end.is-retry { border-left-color: var(--warn); background: var(--warn-wash); }
+.msg.is-end.is-quiet:not(:has(.end-action)) { padding: 2px 12px; border-color: transparent; background: transparent; font-size: var(--text-xs); color: var(--text-faint); }
+.end-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.end-text { overflow-wrap: anywhere; }
+.end-details { font-size: var(--text-xs); color: var(--text-faint); }
+.end-details > summary { cursor: pointer; width: max-content; }
+.end-details > summary:hover { color: var(--text-dim); }
+.end-raw { margin: 4px 0 0; padding: 6px 8px; max-height: 12em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: var(--text-xs); color: var(--text-dim); background: var(--surface-2); border-radius: var(--r-sm); }
+.end-raw:empty, .end-details:has(.end-raw:empty) { display: none; }
+.end-actions { flex: none; display: inline-flex; gap: var(--gap-1); align-items: center; }
+.end-actions:empty { display: none; }
+.end-action.is-stop { color: var(--err); }
+
+/* Where a turn carried on from an interrupted one: a thin rule with a few words, nothing more. */
+.msg.is-divider { display: flex; align-items: center; gap: var(--gap-2); font-size: var(--text-xs); color: var(--text-faint); }
+.msg.is-divider::before, .msg.is-divider::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--hairline); }
+.divider-text { flex: none; }
+
+/* A reply that stopped part-way: kept as it was, dimmed, and labelled so it never reads as a finished answer. */
+.msg.is-partial .msg-text { opacity: .6; }
+.msg-cut { display: inline-block; margin-top: 4px; padding: 0 7px; font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: var(--r-pill); line-height: 1.6; }
+
+/* A tool call whose arguments are still streaming: a card with no body yet, replaced by the real one. */
+.tool.is-writing .tool-head { cursor: default; }
+.tool.is-writing .tool-head::before { visibility: hidden; }
+.tool.is-not-run .tool-status { color: var(--text-faint); }
+
 /* A subagent's block: another agent's conversation happening inside this one, and the reader must never
  * mistake one for the other. It is inset with an accent edge, sits one surface up, and its rows are
  * scaled down, so a wall of a child's tool calls reads as subordinate. It folds itself when the child ends:
@@ -1060,6 +1114,12 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .agent-open { width: 22px; padding: 0; }
 .agent-open:hover { color: var(--text); background: var(--surface-3); border-color: var(--hairline); }
 .agent-stop { color: var(--err); }
+.agent-resume { display: inline-grid; place-items: center; height: 22px; padding: 0 6px; font-size: var(--text-xs); font-weight: 600; color: var(--accent); background: transparent; border: 1px solid var(--accent-edge); border-radius: var(--r-sm); cursor: pointer; }
+.agent-resume:hover { background: var(--accent-wash); }
+.agent-resume[hidden] { display: none; }
+/* Why a subagent failed, in a few words beside its badge. */
+.agent-reason { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); color: var(--err); }
+.agent-reason[hidden] { display: none; }
 .agent-stop:hover { background: var(--err-wash); border-color: color-mix(in srgb, var(--err) 35%, transparent); }
 .agent-brief { padding: 8px 12px; border-top: 1px solid var(--hairline); font-size: var(--text-sm); color: var(--text-dim); }
 /* The clamp sits on an inner element: it clips at the content box, and padding on the same box would show a sliver of the next line. */
@@ -1295,9 +1355,9 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .picker-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .picker-item {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-3);
   width: 100%;
   padding: 6px 9px;
   text-align: left;
@@ -1313,10 +1373,52 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .picker-item.is-selected .picker-item-label { color: var(--accent); font-weight: 600; }
 .picker-item-note { font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); overflow-wrap: anywhere; }
 .picker-empty { padding: 8px 9px; font-size: var(--text-xs); color: var(--text-faint); }
+.picker-item-main { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-width: 0; }
+.picker-item-cols { display: flex; flex: none; gap: var(--gap-2); font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); white-space: nowrap; }
+.picker-col.is-context { min-width: 3.5em; text-align: right; }
+/* A section's heading: small caps above its rows, not a row of its own. */
+.picker-head { padding: 8px 9px 3px; font-size: var(--text-xs); font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
+.picker-head:first-child { padding-top: 4px; }
+/* The fold of a long section ("All models (458)"): a row like the others, its chevron turned when open. */
+.picker-fold { justify-content: flex-start; margin-top: 4px; border-top: 1px solid var(--hairline); border-radius: 0; }
+.picker-fold .picker-item-label { display: inline-flex; align-items: center; gap: 6px; color: var(--text-dim); font-weight: 600; }
+.picker-fold svg { transition: transform var(--fast) var(--ease); }
+.picker-fold.is-open svg { transform: rotate(90deg); }
+/* A list with sections and columns is wider than a plain one, and says so, since its box hangs off a small pill. */
+.picker-menu:has(.picker-head, .picker-fold) { width: min(460px, calc(100vw - 16px)); max-width: none; max-height: min(460px, 65vh); }
 
 /* --- toasts --------------------------------------------------------------- */
 
-.toast-host { position: fixed; right: var(--gap-4); bottom: var(--gap-4); z-index: 80; display: flex; flex-direction: column; gap: var(--gap-2); max-width: min(420px, calc(100vw - 32px)); }
+/* The corner: one column for the notices (persistent, on top) and the toasts (fading, under them). */
+.corner { position: fixed; right: var(--gap-4); bottom: var(--gap-4); z-index: 80; display: flex; flex-direction: column; gap: var(--gap-2); width: min(420px, calc(100vw - 32px)); pointer-events: none; }
+.corner > * { pointer-events: auto; }
+.toast-host { display: flex; flex-direction: column; gap: var(--gap-2); }
+.toast-host:empty, .notice-host:empty { display: none; }
+.notice-host { display: flex; flex-direction: column; gap: var(--gap-2); }
+.notice { display: flex; flex-direction: column; gap: 6px; padding: 10px var(--gap-3); background: var(--surface-2); border: 1px solid var(--hairline-strong); border-left: 2px solid var(--accent); border-radius: var(--r-md); box-shadow: var(--shadow-md); font-size: var(--text-sm); animation: rise var(--med) var(--ease); }
+.notice.is-warn { border-left-color: var(--warn); }
+.notice.is-error { border-left-color: var(--err); }
+.notice.is-ok { border-left-color: var(--ok); }
+.notice-head { display: flex; align-items: flex-start; gap: var(--gap-2); }
+.notice-title { flex: 1 1 auto; min-width: 0; font-weight: 600; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.notice-body { margin: 0; color: var(--text-dim); overflow-wrap: anywhere; }
+.notice-steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); }
+.notice-step { color: var(--text-faint); }
+.notice-step::before { content: "·"; display: inline-block; width: 1.2em; }
+.notice-step.is-done { color: var(--text-dim); }
+.notice-step.is-done::before { content: "✓"; color: var(--ok); }
+.notice-step.is-now { color: var(--text); }
+.notice-step.is-now::before { content: "›"; color: var(--accent); }
+.notice-step.is-failed { color: var(--err); }
+.notice-step.is-failed::before { content: "×"; }
+.notice-actions { display: flex; flex-wrap: wrap; gap: var(--gap-1); justify-content: flex-end; }
+.notice-action { padding: 2px 10px; font-size: var(--text-xs); font-weight: 600; color: var(--text-dim); background: transparent; border: 1px solid var(--hairline-strong); border-radius: var(--r-sm); cursor: pointer; }
+.notice-action:hover { color: var(--text); background: var(--surface-3); }
+.notice-action.is-primary { color: var(--accent); border-color: var(--accent-edge); }
+.notice-action.is-primary:hover { background: var(--accent-wash); }
+.notice-action:disabled { opacity: .6; cursor: default; }
+.notice-x { flex: 0 0 auto; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; background: transparent; border: 0; border-radius: var(--r-sm); color: var(--text-faint); cursor: pointer; }
+.notice-x:hover { color: var(--text); background: var(--surface-3); }
 .toast {
   display: flex;
   align-items: center;
@@ -1404,6 +1506,18 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .rail-btn:hover { color: var(--text); background: var(--surface-3); border-color: var(--hairline); }
 .rail-btn.is-active { color: var(--accent); background: var(--accent-wash); border-color: var(--accent-edge); }
 .rail-btn.is-broken { color: var(--text-faint); opacity: .6; }
+.rail { justify-content: space-between; }
+.rail-foot { display: flex; flex-direction: column; align-items: center; }
+.rail-label { display: none; }
+/* Widened, each button says its name in words beside its icon. */
+.rail.is-wide { --rail-w: 140px; align-items: stretch; padding-left: var(--gap-2); padding-right: var(--gap-2); }
+.rail.is-wide .rail-foot { align-items: stretch; }
+.rail.is-wide .rail-btn { display: flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%; padding: 0 8px; }
+.rail.is-wide .rail-label { display: inline; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }
+.rail-widen { color: var(--text-faint); }
+.rail-widen[aria-pressed="true"] svg { transform: scaleX(-1); }
+/* The phone's way to the dock: at the end of the tab strip, only under 600px. */
+.panels-btn { display: none; margin-left: auto; }
 
 .dock { width: var(--dock-w); display: flex; flex-direction: column; min-height: 0; background: var(--surface-1); border-left: 1px solid var(--hairline); }
 .dock.is-wide { --dock-w: 620px; }
@@ -1580,6 +1694,7 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .panel-tree { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .panel-nav-foot { flex: none; display: flex; flex-direction: column; gap: 8px; padding: var(--gap-2) var(--gap-2) 0; border-top: 1px solid var(--hairline); font-size: var(--text-xs); color: var(--text-faint); }
 .panel-nav-foot:empty { display: none; }
+.panel-select { display: none; width: 100%; }
 .tree-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .tree-legend-item { display: inline-flex; align-items: center; gap: 5px; }
 .tree-focus { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-dim); }
@@ -1688,6 +1803,23 @@ select.input { padding-right: 24px; }
   .panel-nav { width: auto; max-height: 40vh; border-right: 0; border-bottom: 1px solid var(--hairline); }
   .panel-main { padding: var(--gap-3); }
   .input[type="search"] { width: 100%; }
+}
+
+/* A phone (390 wide and the like). The rail becomes the Panels menu in the tab strip; the control panel's
+ * tree becomes one select; nothing is allowed to push the page sideways — a long pill wraps, a table
+ * scrolls inside its own box; the shelf never takes more than two fifths of the height. */
+@media (max-width: 599px) {
+  #app > .rail { display: none; }
+  .panels-btn:not([hidden]) { display: grid; }
+  .panel-nav { max-height: none; padding: var(--gap-2) var(--gap-3); }
+  .panel-select { display: block; }
+  .panel-tree, .panel-nav-foot { display: none; }
+  .place-body, .panel-main, .panel-col { min-width: 0; max-width: 100%; }
+  .badge, .pill, .status-pill { white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
+  .table-wrap, .md-table-wrap { max-width: 100%; overflow-x: auto; }
+  .md-table td, .md-table th { overflow-wrap: normal; word-break: normal; }
+  .shelf { max-height: 40vh; }
+  .chat-bar { flex-wrap: wrap; row-gap: 4px; }
 }
 
 /* Reasoning: a model's thinking, which is not its answer. Deliberately quieter than the reply — dim, smaller,

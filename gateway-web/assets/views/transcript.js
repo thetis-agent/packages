@@ -20,12 +20,24 @@ import { contentText, hasMedia, renderContent } from "../lib/content.js";
  * renderers, no user rows, since the block's brief is that). A child's events reach the block through
  * `applyChild(message)`; a grandchild's message is handed down to the nested instance of its parent, at
  * any depth. A finished child's rows, on replay, are built on the first open of its block, because a
- * conversation with many finished children would otherwise cost the reader every child's history at once. */
+ * conversation with many finished children would otherwise cost the reader every child's history at once.
+ *
+ * A turn that did not finish leaves one row that stays, live and on restore: a plain sentence for why
+ * (lib/failure.js), the raw message under a Details fold, and one button. [Retry] after a failure and
+ * [Continue] after a Stop both ask `POST /api/sessions/<id>/resume`, a turn with no input that carries on
+ * over the saved conversation, so nothing the person said is sent twice. While @thetis/harness-core retries a
+ * round by itself (its `harness-core.retry` extension events), one row counts down to the next attempt with
+ * [Retry now] and [Stop]; the half-drawn round is taken off the page, because it is being thrown away, and
+ * the row settles into "Reconnected after N retries" or becomes the failure row. A turn that resumed an
+ * interrupted one draws a thin divider ("Resumed after an update"), kept by the gateway so a reopened
+ * transcript draws it too. A reply that was cut off is drawn dimmed with "cut off"; a tool call whose
+ * arguments are still streaming shows as "writing <tool>… 31k chars" until the call itself arrives. */
 
 import { applyActivityPhase, fmtCost, fmtDuration, fmtTokens } from "../lib/activity.js";
 import { api } from "../lib/api.js";
 import { avatarFor } from "../lib/avatar.js";
 import { clear, el, icon } from "../lib/dom.js";
+import { failureSentence, failureShort, fmtChars, reasonOf, resumedSentence, retryLead } from "../lib/failure.js";
 import { gist, usageLine } from "../lib/transcript-format.js";
 import { renderMarkdown } from "../lib/markdown.js";
 import { hasRenderers, renderTranscript } from "../lib/registry.js";
@@ -48,8 +60,26 @@ const OWN_CARD = ":scope > .tool-run > .tool-run-body > details.tool"; // this i
  *  `stall` and `nudge` are transient, and the tool message is the only part of it that is saved. */
 const NUDGE_CANCELLED = /^error: `[^`]+` was cancelled after running for /;
 
+/** The package whose marks say a saved message was cut off (`partial`) or answers a call that never ran (`notRun`). */
+const HARNESS = "@thetis/harness-core";
+/** The harness-core UI command that ends a retry's wait at once. */
+const RETRY_NOW = "api/ext/@thetis/harness-core/retry-now";
+
+/** The harness's mark on a saved message; a record written before the marks existed has none. */
+export function markOf(message, key) {
+  return message?.extensions?.[HARNESS]?.[key] === true;
+}
+
+/** Asks the gateway to carry a conversation on from where it stopped: a turn with no input. */
+export async function resumeSession(id) {
+  return api(`/api/sessions/${id}/resume`, { method: "POST" });
+}
+
 /** The tool that spawns a subagent, and the first line of its result: `[subagent <id>]` or `[subagent <id> <label>]`. */
 export const SPAWN_TOOL = "spawn_subagent";
+/** The tool that carries a stopped or failed subagent on. Its result opens with the same line, and it draws into the child's existing block. */
+export const RESUME_TOOL = "resume_subagent";
+const AGENT_TOOLS = new Set([SPAWN_TOOL, RESUME_TOOL]);
 export const SPAWN_RESULT = /^\[subagent (s_[a-f0-9]+)(?: ([^\]]*))?\]/;
 
 /** The brand mark, for empty states. */
@@ -64,8 +94,29 @@ export function mark() {
   return svg;
 }
 
-/** The empty state: "none" when no conversation is open (with a way to start one), "empty" for a conversation with no messages, "agent" for a subagent that has said nothing. */
-export function emptyState(kind, onNew) {
+/** What a new chat offers to start with. A click puts the words in the box and sends nothing: the person may change them first. */
+export const EXAMPLE_PROMPTS = [
+  "What can you do here? List the tools you have and what each is for.",
+  "Look through the files in my home directory and tell me what is there.",
+  "Plan a small project with me step by step, and keep the plan as a todo list.",
+];
+
+/**
+ * The empty state: "none" when no conversation is open (with a way to start one), "new" for a new chat
+ * not yet said anything in (what Thetis can do, and examples that fill the composer through `onExample`),
+ * "empty" for a conversation with no messages, "agent" for a subagent that has said nothing.
+ */
+export function emptyState(kind, onNew, onExample) {
+  if (kind === "new") {
+    return el(
+      "div",
+      { class: "transcript-empty is-new" },
+      el("span", { class: "empty-mark", "aria-hidden": "true" }, mark()),
+      el("span", { class: "empty-lead" }, "Thetis works in your own space: it reads and changes your files, runs commands, and plans and carries out longer tasks."),
+      el("div", { class: "empty-examples", role: "group", "aria-label": "Examples to start with" },
+        ...EXAMPLE_PROMPTS.map((text) => el("button", { type: "button", class: "empty-example", title: "Put this in the message box", onClick: () => onExample?.(text) }, text)))
+    );
+  }
   return el(
     "div",
     { class: "transcript-empty" },
@@ -143,6 +194,7 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   let live = null;        // { node, textEl, text }
   let thinking = null;    // { node, textNode } collecting streamed reasoning, or null. Per instance, not per module:
                           // a nested agent block has its own instance, and its child's thinking is not this one's.
+  let thought = null;     // the thinking row of the round still streaming, folded or not: a retry takes it off the page
   let settled = null;     // the last settled bubble: { node, text }, so the message event can add its usage
   let pendingRow = null;  // the reader's own message awaiting the server's echo
   let run = null;         // the open run of tool cards, or null
@@ -151,6 +203,10 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   let frame = 0;          // the animation frame booked for the next catch-up, 0 when none
   let restoring = false;  // while a record is replayed nothing scrolls: one catch-up at the end
   let childRecords = new Map(); // child id -> ChildRecord, from the last restored record
+  let retry = null;             // the row of a round being retried: { node, text, details, actions, timer, until, next, of, kind, phase, tries }
+  let tries = 0;                // how many calls the last retried round made, for the failure row that may follow
+  const writing = new Map();    // tool_call.progress index -> the card of a call whose arguments are still arriving
+  const ended = [];             // end rows whose button still offers to carry on; the next turn takes their buttons
   const blocks = [];            // agent blocks, in the order they were placed
   const byAgent = new Map();    // child id -> block
   const byCall = new Map();     // spawn call id -> block
@@ -177,7 +233,11 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   }
 
   function draw() {
-    if (jump) jump.hidden = follow || root.scrollHeight <= root.clientHeight + 8;
+    if (!jump) return;
+    jump.hidden = follow || root.scrollHeight <= root.clientHeight + 8;
+    // While the pill shows, the transcript keeps room under its last row for it, so scrolled to the end
+    // the last tool group sits above the pill rather than under it.
+    root.classList.toggle("has-jump", !jump.hidden);
   }
 
   /**
@@ -207,10 +267,12 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   }
 
   function reset() {
+    clearRetry();
     clear(root);
     rich = null;
     live = null;
     thinking = null;
+    thought = null;
     settled = null;
     pendingRow = null;
     run = null;
@@ -220,6 +282,9 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     blocks.length = 0;
     byAgent.clear();
     byCall.clear();
+    writing.clear();
+    ended.length = 0;
+    tries = 0;
     draw();
   }
 
@@ -300,6 +365,7 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     const textNode = document.createTextNode("");
     const box = el("details", { class: "reasoning", open: "" }, el("summary", {}, "Thinking\u2026"), el("div", { class: "reasoning-text" }, textNode));
     thinking = { node: row("assistant", box), textNode };
+    thought = thinking.node;
     return thinking;
   }
 
@@ -338,10 +404,12 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     catchUp();
   }
 
-  function assistantRow(text, usage, model) {
+  function assistantRow(text, usage, model, { partial = false } = {}) {
     if (!contentText(text).trim() && !hasMedia(text)) return;
     const textEl = el("div", { class: "msg-text" }, ...renderContent(text));
-    decorated(row("assistant", textEl, usageLine(usage, model)), "assistant");
+    const node = row("assistant", textEl, partial ? el("span", { class: "msg-cut", title: "The reply stopped part-way here. What it said is kept as it was." }, "cut off") : null, usageLine(usage, model));
+    if (partial) node.classList.add("is-partial");
+    decorated(node, "assistant");
   }
 
   /** The model this conversation answers with, for the footnote of a live reply. */
@@ -437,7 +505,9 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
         return;
       }
     }
-    note(what.kind === "model" ? `The model has sent nothing for ${quiet}. The request is still open; asking whether to keep waiting.` : `${what.name || "A tool"} has been quiet for ${quiet}. It is still running; asking whether to keep waiting.`, "quiet");
+    // A quiet model is only waited on: the provider's own watchdog decides when a stream is dead, and nothing
+    // asks or cancels here any more. A tool that goes quiet is still asked about.
+    note(what.kind === "model" ? `Waiting on the model: nothing for ${quiet} yet. The request is still open.` : `${what.name || "A tool"} has been quiet for ${quiet}. It is still running; asking whether to keep waiting.`, "quiet");
   }
 
   function decided(event) {
@@ -469,6 +539,195 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     const subject = what.kind === "model" ? "the model call" : what.name || "the tool";
     if (event.decision === "continue") note(`Still waiting on ${subject} after ${quiet}. ${who}: ${why}`, "quiet");
     else note(`Cancelled ${subject} after ${quiet} of silence. ${who}: ${why}`, "error");
+  }
+
+  // ---- a turn that did not finish: the row that stays, and the one button ----
+
+  /**
+   * The end row: a sentence, the raw words under Details, and one button that carries the conversation on.
+   * `action` is "retry" or "continue", or null for no button (a subagent's nested rows: its block has its
+   * own). The row keeps its button until the next turn starts here, whichever way that turn was started.
+   */
+  function endRow(text, { raw = "", tone = "error", action = null } = {}) {
+    const actions = el("span", { class: "end-actions" });
+    const node = row("end", el("div", { class: "end-body" }, el("span", { class: "end-text" }, text), raw ? el("details", { class: "end-details" }, el("summary", {}, "Details"), el("pre", { class: "end-raw" }, raw)) : null), actions);
+    node.classList.add(`is-${tone}`);
+    if (action && !nested) {
+      const label = action === "continue" ? "Continue" : "Retry";
+      const button = el("button", { type: "button", class: `ghost-btn sm end-action${action === "retry" ? " is-primary" : ""}`, title: action === "continue" ? "Carry on from where it stopped. Nothing is sent again." : "Try again from where it stopped. Everything before is kept, and nothing is sent twice.", onClick: () => { void carryOn(button, label); } }, label);
+      actions.append(button);
+      ended.push(node);
+    }
+    return node;
+  }
+
+  async function carryOn(button, label) {
+    button.disabled = true;
+    button.textContent = label === "Continue" ? "Continuing…" : "Retrying…";
+    try {
+      await resumeSession(session);
+    } catch (err) {
+      button.disabled = false;
+      button.textContent = label;
+      toast(err.status === 409 ? `${label} is not possible: ${err.message}.` : err.message, { tone: "error" });
+    }
+  }
+
+  /** A new turn has started: the end rows above it keep their words and lose their buttons. */
+  function settleEnded() {
+    for (const node of ended.splice(0)) node.querySelector(".end-actions")?.replaceChildren();
+  }
+
+  /** The row for a turn that failed, from its `error` event or the record's `interrupted`. */
+  function failureRow(source, counted = 0) {
+    const { message } = reasonOf(source);
+    return endRow(failureSentence(source, { tries: counted }), { raw: message, action: "retry" });
+  }
+
+  function stoppedRow() {
+    return endRow("Stopped.", { tone: "quiet", action: "continue" });
+  }
+
+  /** The thin line where a turn carried on from an interrupted one. */
+  function divider(why) {
+    const node = row("divider", el("span", { class: "divider-text" }, resumedSentence(why)));
+    return node;
+  }
+
+  /**
+   * On a turn with no input, the trailing reply that was cut off goes: the resume drops it before asking
+   * the model again, and the saved record keeps it only until the turn's closing save.
+   */
+  function dropCut() {
+    const rows = [...root.children].filter((n) => n.classList?.contains("msg") && !n.classList.contains("is-end") && !n.classList.contains("is-divider") && !n.classList.contains("is-note"));
+    const last = rows.at(-1);
+    if (last?.classList.contains("is-partial")) last.remove();
+  }
+
+  // ---- a round being retried by the harness ----
+
+  function clearRetry() {
+    if (retry?.timer) clearInterval(retry.timer);
+    retry = null;
+  }
+
+  /** Takes the round being thrown away off the page: its live bubble, its thinking, and its half-written tool calls. */
+  function withdrawRound() {
+    if (live) { live.node.remove(); live = null; }
+    if (thinking) { thinking.node.remove(); thinking = null; }
+    if (thought) { thought.remove(); thought = null; }
+    if (rich) { rich.node.remove(); rich = null; }
+    clearWriting();
+  }
+
+  function drawRetry() {
+    if (!retry) return;
+    const left = retry.until ? Math.max(0, Math.ceil((retry.until - Date.now()) / 1000)) : 0;
+    const count = `(${retry.next} of ${retry.of})`;
+    retry.text.textContent = retry.phase === "waiting" && left > 0 ? `${retryLead(retry.kind)} Retrying in ${left} s ${count}.` : `${retryLead(retry.kind)} Retrying now ${count}…`;
+  }
+
+  function retryEvent(data) {
+    const phase = data?.phase;
+    if (phase === "waiting" || phase === "sending") {
+      if (phase === "waiting") withdrawRound();
+      if (!retry) {
+        const text = el("span", { class: "end-text" });
+        const details = el("pre", { class: "end-raw" });
+        const actions = el("span", { class: "end-actions" });
+        const node = row("end", el("div", { class: "end-body" }, text, el("details", { class: "end-details" }, el("summary", {}, "Details"), details)), actions);
+        node.classList.add("is-retry");
+        retry = { node, text, details, actions, timer: 0, until: 0, next: 2, of: 0, kind: undefined, phase };
+        actions.append(
+          el("button", { type: "button", class: "ghost-btn sm end-action", title: "Stop waiting and try now", onClick: (event) => { void retryNow(event.currentTarget); } }, "Retry now"),
+          el("button", { type: "button", class: "ghost-btn sm end-action is-stop", title: "Stop this reply. Everything before is kept.", onClick: () => { void stopTurn(); } }, "Stop"),
+        );
+      }
+      retry.phase = phase;
+      if (typeof data.kind === "string") retry.kind = data.kind;
+      if (typeof data.of === "number") retry.of = data.of;
+      retry.next = phase === "waiting" ? (Number(data.attempt) || 1) + 1 : Number(data.attempt) || retry.next;
+      tries = retry.next;
+      if (typeof data.reason === "string") retry.details.textContent = data.reason;
+      const until = Date.parse(data.until || "");
+      retry.until = phase === "waiting" ? (Number.isFinite(until) ? until : Date.now() + (Number(data.inMs) || 0)) : 0;
+      if (!retry.timer && phase === "waiting") retry.timer = setInterval(() => { drawRetry(); if (!retry?.until || Date.now() >= retry.until) { clearInterval(retry.timer); if (retry) retry.timer = 0; } }, 1000);
+      drawRetry();
+      catchUp();
+      return;
+    }
+    if (phase === "recovered") return recovered(Number(data.attempt) || 2);
+    if (phase === "exhausted") {
+      tries = Number(data.attempt) || Number(data.of) || tries;
+      if (retry) {
+        retry.text.textContent = `${retryLead(retry.kind)} Tried ${tries} times.`;
+        retry.actions.replaceChildren();
+      }
+    }
+  }
+
+  /** The round came back: the row settles into one quiet line, and stays as the record of what happened. */
+  function recovered(attempt = retry?.next ?? 2) {
+    if (!retry) return;
+    const n = Math.max(1, attempt - 1);
+    retry.node.classList.replace("is-retry", "is-quiet");
+    retry.text.textContent = `Reconnected after ${n} ${n === 1 ? "retry" : "retries"}.`;
+    retry.actions.replaceChildren();
+    const node = retry.node;
+    clearRetry();
+    tries = 0;
+    return node;
+  }
+
+  async function retryNow(button) {
+    if (button) button.disabled = true;
+    try {
+      await api(`/${RETRY_NOW}`, { method: "POST", body: { session, args: { session } } });
+    } catch (err) {
+      toast(err.status === 404 ? "Retry now needs a newer @thetis/harness-core. The retry still happens by itself." : err.message, { tone: "error" });
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  async function stopTurn() {
+    try {
+      await api(`/api/sessions/${session}/cancel`, { method: "POST" });
+    } catch (err) {
+      toast(err.message, { tone: "error" });
+    }
+  }
+
+  // ---- a tool call whose arguments are still arriving ----
+
+  /** `tool_call.progress` from the provider: `{ index, name, chars }`. One provisional card per call, replaced by the real one. */
+  function writingProgress(data) {
+    const index = String(data?.index ?? 0);
+    const name = String(data?.name || "tool");
+    let card = writing.get(index);
+    if (!card) {
+      const r = openRun(false);
+      card = el("div", { class: "tool is-running is-writing", "data-writing": index }, el("div", { class: "tool-head" }, el("span", { class: "tool-name" }, name), el("span", { class: "tool-gist" }), el("span", { class: "tool-status" }, "writing")));
+      r.node.querySelector(".tool-run-body").append(card);
+      writing.set(index, card);
+    }
+    card.querySelector(".tool-gist").textContent = `writing ${name}… ${fmtChars(Number(data?.chars) || 0)}`;
+    catchUp();
+  }
+
+  function clearWriting() {
+    if (!writing.size) return;
+    for (const card of writing.values()) {
+      const body = card.parentElement;
+      card.remove();
+      // A run that held only these cards is empty now: it goes too, and nothing points at it any more.
+      if (body && !body.childElementCount) {
+        const node = body.parentElement;
+        node?.remove();
+        if (run?.node === node) run = null;
+      }
+    }
+    writing.clear();
   }
 
   function toolCard(call, running, restoring = false) {
@@ -507,9 +766,9 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
    * have seen, from the result text itself, so a reload of a finished conversation reads the same. A turn's
    * `stall` and `nudge` are transient and nothing saves them; the tool message is what is kept.
    */
-  function toolResult(id, name, content) {
+  function toolResult(id, name, content, { notRun = false } = {}) {
     const result = contentText(content);
-    const failed = /^error:/i.test(result || "");
+    const failed = /^error:/i.test(result || "") && !notRun;
     const card = id ? root.querySelector(`${OWN_CARD}[data-tool="${cssEscape(id)}"]`) : null;
     if (!card) {
       const cancelled = NUDGE_CANCELLED.test(result || "");
@@ -518,7 +777,8 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
       if (hasMedia(content)) node.append(...renderContent(content.filter((p) => p.type !== "text")));
       node.classList.toggle("is-bad", failed && !cancelled);
       node.classList.toggle("is-cancelled", cancelled);
-      node.querySelector(".tool-status").textContent = cancelled ? "cancelled" : failed ? "failed" : "done";
+      node.classList.toggle("is-not-run", notRun);
+      node.querySelector(".tool-status").textContent = notRun ? "not run" : cancelled ? "cancelled" : failed ? "failed" : "done";
       return;
     }
     const cancelled = card.dataset.nudged === "cancel" || NUDGE_CANCELLED.test(result || "");
@@ -526,7 +786,8 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     card.removeAttribute("data-await");
     card.classList.toggle("is-bad", failed && !cancelled);
     card.classList.toggle("is-cancelled", cancelled);
-    card.querySelector(".tool-status").textContent = cancelled ? "cancelled" : failed ? "failed" : "done";
+    card.classList.toggle("is-not-run", notRun);
+    card.querySelector(".tool-status").textContent = notRun ? "not run" : cancelled ? "cancelled" : failed ? "failed" : "done";
     const since = Number(card.dataset.since);
     if (since) card.querySelector(".tool-took").textContent = fmtDuration(Date.now() - since);
     card.append(...resultSection(result || "", failed && !cancelled, cancelled ? "why it was cancelled" : undefined));
@@ -565,12 +826,14 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     parts.meta = el("span", { class: "agent-meta" });
     parts.took = el("span", { class: "agent-took" });
     parts.state = el("span", { class: "agent-state" }, restoring ? "…" : "starting");
+    parts.reason = el("span", { class: "agent-reason", hidden: true });
+    parts.resume = summaryButton({ class: "agent-resume", title: "Carry this subagent on from where it stopped. Its reply does not go back to a turn that has ended.", "aria-label": "Resume this subagent", hidden: true, onClick: () => { void resumeAgent(block); } }, "Resume");
     parts.open = summaryButton({ class: "agent-open", title: "Open in a tab", "aria-label": "Open this subagent in a tab", onClick: () => { if (block.id) onOpenAgent?.(block.id); } }, icon(OPEN_TAB, { size: 13, width: 1.7 }));
     parts.stop = summaryButton({ class: "agent-stop", title: "Stop this subagent", "aria-label": "Stop this subagent", hidden: true, onClick: () => stopAgent(block) }, "Stop");
     block.node = el(
       "details",
       { class: `agent${restoring ? "" : " is-running"}`, open: restoring ? null : "", "data-call": callId || null, onToggle: () => { if (block.node.open) build(block); } },
-      el("summary", { class: "agent-head" }, parts.dot, parts.label, parts.gist, parts.meta, parts.took, parts.state, el("span", { class: "agent-actions" }, parts.open, parts.stop)),
+      el("summary", { class: "agent-head" }, parts.dot, parts.label, parts.gist, parts.meta, parts.took, parts.state, parts.reason, el("span", { class: "agent-actions" }, parts.resume, parts.open, parts.stop)),
       el("div", { class: "agent-brief" }, el("div", { class: "agent-brief-text" }, block.task)),
       body
     );
@@ -595,13 +858,21 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     if (block.nested) block.nested.session = id;
   }
 
-  function setState(block, state) {
+  /** `reason` is the one line a failed or stopped child shows beside its badge; any other state clears it. */
+  function setState(block, state, reason) {
     block.state = state;
     block.parts.state.textContent = state;
     const running = state === "starting" || state === "working";
+    const bad = state === "failed" || state === "stopped";
     block.node.classList.toggle("is-running", running);
-    block.node.classList.toggle("is-bad", state === "failed" || state === "stopped");
+    block.node.classList.toggle("is-bad", bad);
     block.parts.stop.hidden = !(running && block.id);
+    block.parts.resume.hidden = !(bad && block.id);
+    if (!bad) block.reason = "";
+    else if (reason) block.reason = reason;
+    block.parts.reason.textContent = bad ? block.reason || "" : "";
+    block.parts.reason.hidden = !(bad && block.reason);
+    block.parts.state.title = bad && block.reason ? `${state}: ${block.reason}` : "";
   }
 
   function drawMeta(block) {
@@ -612,14 +883,26 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     block.parts.meta.textContent = bits.join(" · ");
   }
 
-  /** The child ended: the state word, the meta line, the duration, and the block folds itself. */
-  function endBlock(block, state, took = Date.now() - block.since) {
+  /** The child ended: the state word (and why, when it failed), the meta line, the duration, and the block folds itself. */
+  function endBlock(block, state, took = Date.now() - block.since, reason) {
     if (block.state === "done" || block.state === "failed" || block.state === "stopped") return;
-    setState(block, state);
+    setState(block, state, reason);
     drawMeta(block);
     if (took > 0) block.parts.took.textContent = fmtDuration(took);
     block.node.open = false;
     catchUp();
+  }
+
+  async function resumeAgent(block) {
+    if (!block.id) return;
+    block.parts.resume.disabled = true;
+    try {
+      await resumeSession(block.id);
+    } catch (err) {
+      toast(err.status === 409 ? `The subagent was not resumed: ${err.message}.` : err.message, { tone: "error" });
+    } finally {
+      block.parts.resume.disabled = false;
+    }
   }
 
   async function stopAgent(block) {
@@ -664,10 +947,33 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     return { id: match?.[1] ?? null, label: match?.[2]?.trim() || null, body, kind };
   }
 
-  /** Quotes the result under the block, unless it is the reply the child's own last row already shows. */
+  /** Quotes the result under the block, unless it is the reply the child's own last row already shows. A resume's result replaces the one before it. */
   function quoteResult(block, body, kind) {
+    for (const node of block.quoted ?? []) node.remove();
+    block.quoted = [];
     if (kind === "done" && body.trim() === String(block.lastReply || "").trim()) return;
-    block.node.append(...resultSection(body, kind === "failed", kind === "failed" ? "error" : kind === "stopped" ? "stopped" : "reply"));
+    block.quoted = resultSection(body, kind === "failed", kind === "failed" ? "error" : kind === "stopped" ? "stopped" : "reply");
+    block.node.append(...block.quoted);
+  }
+
+  /**
+   * A `resume_subagent` call: the child it names already has a block (the spawn drew it, live or on
+   * restore), and the resume is that block carrying on — the call's id is bound to it, and it opens again
+   * as working. A child with no block here yet (its spawn is in a part of the conversation not drawn) gets one.
+   */
+  function resumedAgent(call, restoring) {
+    const id = typeof call.args?.id === "string" ? call.args.id : null;
+    let block = id ? byAgent.get(id) : null;
+    if (!block) return agentBlock({ callId: call.id, id, task: (id && store.agent(id)?.task) || "", label: call.args?.label || (id && store.agent(id)?.label) || null, restoring });
+    byCall.set(call.id, block);
+    if (!restoring) {
+      setState(block, "working");
+      applyActivityPhase(block.node, { state: "working" });
+      block.since = Date.now();
+      block.node.open = true;
+      build(block);
+    }
+    return block;
   }
 
   /** The `tool.result` of a spawn call: binds the block by id when it is still unbound, settles it, and quotes the reply. */
@@ -675,10 +981,13 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     const { id, label, body, kind } = parseSpawnResult(event.result);
     let block = byCall.get(event.id) ?? (id ? byAgent.get(id) : null);
     if (!block && !id) return false; // a spawn that made no child and has no block: the plain tool card says what happened
+    // A resume that could not start (the child was busy, say) leaves the block as it was, said under it.
+    if (block && event.name === RESUME_TOOL && block.state !== "starting" && block.state !== "working") block.state = "resuming";
     if (!block) block = agentBlock({ id, task: store.agent(id)?.task || "", label: store.agent(id)?.label || label });
     if (id && !block.id) bind(block, id);
-    endBlock(block, kind);
-    if (kind !== "done" && block.state !== kind) setState(block, kind); // the child ended, then the spawn itself reported otherwise
+    const reason = kind === "failed" ? failureShort({ message: body }) : undefined;
+    endBlock(block, kind, undefined, reason);
+    if (kind !== "done" && block.state !== kind) setState(block, kind, reason); // the child ended, then the spawn itself reported otherwise
     if (block.id) store.setAgent(block.id, { outcome: block.state });
     quoteResult(block, body, kind);
     block.node.open = false;
@@ -729,9 +1038,11 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
       case "message":
         if (event.message?.role === "assistant" && contentText(event.message.content).trim()) block.lastReply = contentText(event.message.content);
         break;
-      case "error":
-        endBlock(block, event.code === "cancelled" ? "stopped" : "failed");
+      case "error": {
+        const stopped = event.code === "cancelled" && !reasonOf(event).why;
+        endBlock(block, stopped ? "stopped" : "failed", undefined, stopped ? "stopped by a person" : failureShort(event));
         break;
+      }
       case "turn.end":
         endBlock(block, "done");
         break;
@@ -769,6 +1080,8 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     let id = parsed.id;
     let block = byCall.get(message.toolCallId) ?? (id ? byAgent.get(id) : null);
     if (!block && !id) return false;
+    // A resume's result settles the block its spawn already settled: its outcome is the one that stands now.
+    if (block && message.name === RESUME_TOOL) block.state = "resuming";
     // A spawn that ended in an error names no child; the child it made, when it made one, is the unreferenced record with its task.
     if (block && !id && !block.id) id = [...childRecords.values()].find((c) => !byAgent.has(c.id) && String(c.task || "").trim() === block.task.trim())?.id ?? null;
     const child = id ? childRecords.get(id) : null;
@@ -790,11 +1103,11 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
         block.node.open = true;
         build(block);
       } else {
-        endBlock(block, outcome, Number.isFinite(took) ? took : 0);
+        endBlock(block, outcome, Number.isFinite(took) ? took : 0, outcome === "failed" ? failureShort(child.interrupted ?? { message: body }) : undefined);
         store.setAgent(id, { outcome, cost: tally.cost });
       }
     } else {
-      endBlock(block, outcome, 0);
+      endBlock(block, outcome, 0, outcome === "failed" ? failureShort({ message: body }) : undefined);
       if (id) store.setAgent(id, { outcome });
     }
     quoteResult(block, body, kind);
@@ -847,10 +1160,14 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   function drawMessage(message, usage) {
     if (message.role === "user") return userRow(message.content);
     if (message.role === "assistant") {
-      assistantRow(message.content || "", usage);
+      assistantRow(message.content || "", usage, undefined, { partial: markOf(message, "partial") });
       for (const call of message.toolCalls ?? []) {
         if (call.name === SPAWN_TOOL) {
           agentBlock({ callId: call.id, task: call.args?.task, label: call.args?.label, restoring: true });
+          continue;
+        }
+        if (call.name === RESUME_TOOL) {
+          resumedAgent(call, true);
           continue;
         }
         if (rendered({ type: "tool.call", call }, true)) continue;
@@ -859,9 +1176,9 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
       return;
     }
     if (message.role === "tool") {
-      if (message.name === SPAWN_TOOL && restoredAgent(message)) return;
+      if (AGENT_TOOLS.has(message.name) && restoredAgent(message)) return;
       if (rendered({ type: "tool.result", id: message.toolCallId, name: message.name, result: contentText(message.content), content: message.content }, true)) return;
-      return toolResult(message.toolCallId, message.name, message.content);
+      return toolResult(message.toolCallId, message.name, message.content, { notRun: markOf(message, "notRun") });
     }
     if (contentText(message.content)) note(contentText(message.content));
   }
@@ -869,16 +1186,24 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   /** One live turn event. `input` accompanies `turn.start`. */
   function applyEvent(event, input, messages) {
     switch (event.type) {
-      case "turn.start":
+      case "turn.start": {
+        settleEnded();
+        clearRetry();
+        tries = 0;
+        const noInput = !pendingRow && !String(input ?? "").trim() && !messages?.length;
+        if (noInput && !restoring) dropCut();
         if (pendingRow) settleLocal();
-        else if (messages) { for (const message of messages) drawMessage(message); }
+        else if (messages?.length) { for (const message of messages) drawMessage(message); }
         else if (input) userRow(input);
+        if (event.resumed) divider(event.resumed.why);
         break;
+      }
       case "text": {
         const delta = event.delta || "";
         if (!delta) break;
         // The answer has begun, so the thinking is done: fold it rather than leave a wall of it above the reply.
         settleThinking();
+        if (retry?.phase === "sending") recovered();
         const bubble = openLive();
         bubble.text += delta;
         bubble.textNode.appendData(delta); // one text node grown in place, not the whole reply set again per token
@@ -910,6 +1235,13 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
       case "tool.call":
         settleThinking();
         settleLive();
+        clearWriting();
+        thought = null; // the round's stream is over: nothing of it can be thrown away now
+        if (retry?.phase === "sending") recovered();
+        if (event.call?.name === RESUME_TOOL) {
+          resumedAgent(event.call, false);
+          break;
+        }
         if (event.call?.name === SPAWN_TOOL) {
           agentBlock({ callId: event.call.id, task: event.call.args?.task, label: event.call.args?.label });
           break;
@@ -918,7 +1250,7 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
         toolCard(event.call, true);
         break;
       case "tool.result":
-        if ((event.name === SPAWN_TOOL || byCall.has(event.id)) && agentResult(event)) break;
+        if ((AGENT_TOOLS.has(event.name) || byCall.has(event.id)) && agentResult(event)) break;
         if (rendered(event, false)) break;
         toolResult(event.id, event.name, event.content ?? event.result);
         break;
@@ -932,24 +1264,39 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
         break;
       case "message":
         settleThinking();
+        clearWriting();
+        thought = null;
+        if (retry?.phase === "sending") recovered();
         if (event.message?.role !== "assistant") break;
         assistantMessage(event.message.content, event.usage);
         break;
-      case "error":
+      case "error": {
         settleThinking();
         settleLive();
-        settleTools(event.code === "cancelled" ? "stopped" : "no result");
-        if (event.code === "cancelled") note("Stopped.", "quiet");
-        else note(`The turn failed: ${event.message || "no reason given"}`, "error");
+        clearWriting();
+        const stopped = event.code === "cancelled" && !reasonOf(event).why;
+        settleTools(stopped ? "stopped" : "no result");
+        // The retry row, when there is one, is what this row replaces: one row for one stop.
+        const counted = tries;
+        if (retry) { retry.node.remove(); clearRetry(); }
+        if (stopped) stoppedRow();
+        else failureRow(event, counted);
+        tries = 0;
         break;
+      }
       case "turn.end":
         settleThinking();
         settleLive();
         settleTools();
+        clearWriting();
         failLocal();
+        if (retry) recovered();
         run = null;
         break;
       case "extension":
+        // The shell's own two: a round being retried, and a tool call whose arguments are still arriving.
+        if (event.name === "harness-core.retry") { retryEvent(event.data); break; }
+        if (event.name === "tool_call.progress" && !rendered(event, false)) { writingProgress(event.data); break; }
         // A package's own event, live: offered to the renderers (a compaction draws its card from these) and
         // otherwise nothing, since the shell has no row for an event it does not understand.
         rendered(event, false);
@@ -969,14 +1316,37 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     // something that belongs between messages rather than to one (a compaction's card at its cut). The
     // check is on the registry, not per offer: with nothing registered, a long conversation pays nothing.
     const conversation = record.conversation ?? [];
-    const marker = !nested && hasRenderers() ? (index) => rendered({ type: "marker", index, session, record }, true) : () => false;
+    const offer = !nested && hasRenderers() ? (index) => rendered({ type: "marker", index, session, record }, true) : () => false;
+    // The gateway's own markers: where a turn resumed an interrupted one. The running turn's divider is
+    // drawn by its replayed `turn.start`, so its mark is left out here.
+    const dividers = new Map();
+    for (const mark of record.resumed ?? []) {
+      if (record.turn?.turn && mark.turn === record.turn.turn) continue;
+      const at = Math.min(Number(mark.index) || 0, conversation.length);
+      dividers.set(at, [...(dividers.get(at) ?? []), mark]);
+    }
+    const marker = (index) => {
+      for (const mark of dividers.get(index) ?? []) divider(mark.why);
+      offer(index);
+    };
+    // While a turn with no input runs, the reply it carries on from is cut off and about to be dropped.
+    const resuming = record.turn && !String(record.turn.input ?? "").trim() && !record.turn.messages?.length;
     conversation.forEach((message, index) => {
       marker(index);
+      if (resuming && index === conversation.length - 1 && message.role === "assistant" && markOf(message, "partial")) return;
       drawMessage(message, record.usage?.[index]);
     });
     marker(conversation.length);
     settleTools("no result");
     run = null;
+    if (!record.turn) {
+      // The last turn did not finish: its row stays until the next one starts. Interrupted wins, because it
+      // says why; a Stop leaves no `interrupted`, so it is read off the gateway's own mark or the cut reply.
+      const last = conversation.at(-1);
+      const cut = last && ((last.role === "assistant" && markOf(last, "partial")) || (last.role === "tool" && markOf(last, "notRun")));
+      if (record.interrupted) failureRow(record.interrupted);
+      else if (record.stopped || cut) stoppedRow();
+    }
     if (record.turn) {
       // The kernel writes the turn's input into the record the moment the turn starts, so `conversation`
       // normally already ends with the very message `turn.input` holds, and the loop above has just drawn

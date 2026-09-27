@@ -12,14 +12,14 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer as createTcpServer, type AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import type { TurnEvent, Userspace } from "@thetis/runtime/contracts";
+import type { Message, TurnEvent, Userspace } from "@thetis/runtime/contracts";
 import { createKernel, T, type Kernel } from "@thetis/runtime";
 import { createControlHandler, createRpcHandler, defaultConfig } from "@thetis/runtime/kernel";
 import { memoryStore } from "@thetis/runtime/lib/store";
 import { createDoor } from "@thetis/runtime/door";
 import { createLogin } from "@thetis/gateway-login";
 import { clientFromRpc } from "../src/client.js";
-import { createGateway } from "../src/server.js";
+import { createGateway, nothingToResume, pairUsage } from "../src/server.js";
 import { GatewayStore } from "../src/store.js";
 import type { TurnMessage } from "../src/turns.js";
 import type { ChildRecord } from "../src/server.js";
@@ -252,7 +252,9 @@ test("login: a wrong password is refused; success sets the cookie and lands on t
   const cookie = setCookie.split(";")[0];
   const me = await api(cookie, "/alice/api/me");
   assert.equal(me.status, 200);
-  assert.deepEqual(await me.json(), { user: "alice", role: "user", avatar: null }, "nobody has uploaded a picture yet");
+  const { build, ...who } = (await me.json()) as { build: { id: string } };
+  assert.deepEqual(who, { user: "alice", role: "user", avatar: null, prefs: { developer: false } }, "nobody has uploaded a picture yet");
+  assert.equal(typeof build.id, "string");
   const home = await fetch(`${base}/`, { headers: { cookie }, redirect: "manual" });
   assert.equal(home.headers.get("location"), "/alice/", "the root sends a signed-in person home");
   assert.equal((await api(cookie, "/alice/")).status, 200);
@@ -634,6 +636,29 @@ test("a chosen model sticks: a new conversation starts with the person's last ch
   assert.equal(((await (await api(bob, "/bob/api/sessions", { method: "POST" })).json()) as { model: string | null }).model, null, "one person's choice is not another's");
 });
 
+test("the picker's facts: your default and recent ride with the models, and a draft's pick travels with the create", async () => {
+  const cookie = await cookieFor("bob", "builder");
+  type Choices = { model: string; models: { id: string }[]; yours: { model: string | null; recent: string[] } };
+  const choices = async () => (await (await api(cookie, "/bob/api/models")).json()) as Choices;
+  const fresh = await choices();
+  assert.deepEqual(fresh.yours, { model: null, recent: [] }, "nothing chosen yet: a new chat starts on the configured default");
+  // A pick made in a `+` draft: the create carries it, and it is the next default too.
+  const drafted = (await (await api(cookie, "/bob/api/sessions", { method: "POST", body: JSON.stringify({ model: "m-one" }) })).json()) as { id: string; model: string | null };
+  assert.equal(drafted.model, "m-one");
+  assert.equal(((await (await api(cookie, `/bob/api/sessions/${drafted.id}`)).json()) as { model: string | null }).model, "m-one");
+  for (const model of ["m-two", "m-three", "m-two", "m-four", "m-five", "m-six"]) {
+    assert.equal((await api(cookie, `/bob/api/sessions/${drafted.id}/model`, { method: "POST", body: JSON.stringify({ model }) })).status, 200);
+  }
+  const after = await choices();
+  assert.equal(after.yours.model, "m-six", "your default is what a new chat starts with");
+  assert.deepEqual(after.yours.recent, ["m-six", "m-five", "m-four", "m-two", "m-three"], "newest first, each once, five kept");
+  assert.equal(((await (await api(cookie, "/bob/api/sessions", { method: "POST" })).json()) as { model: string | null }).model, "m-six", "and a new chat really starts with it");
+  // An empty pick is the configured default: it forgets the choice and leaves Recent alone.
+  assert.equal(((await (await api(cookie, "/bob/api/sessions", { method: "POST", body: JSON.stringify({ model: "" }) })).json()) as { model: string | null }).model, null);
+  assert.deepEqual((await choices()).yours, { model: null, recent: ["m-six", "m-five", "m-four", "m-two", "m-three"] });
+  assert.equal((await api(cookie, "/bob/api/sessions", { method: "POST", body: JSON.stringify({ model: 7 }) })).status, 400, "a model that is not a string is refused");
+});
+
 test("a model set with remember false names the conversation's model without changing the person's default", async () => {
   const cookie = await cookieFor("alice", "wonderland");
   const create = async () => (await (await api(cookie, "/alice/api/sessions", { method: "POST" })).json()) as { id: string; model: string | null };
@@ -693,10 +718,10 @@ test("panel: the built-in sections are the same for everyone; a package's sectio
   assert.deepEqual((await (await api(root, "/root/api/panel")).json()).sections, ["packages"], "the admin sections come from @thetis/ui-admin, not from api/panel");
   const uiOf = async (cookie: string, user: string) => ((await (await api(cookie, `/${user}/api/ui`)).json()) as { extensions: { package: string; panel: { id: string; order: number }[]; commands: string[] }[] }).extensions.find((e) => e.package === "@thetis/ui-admin");
   const forRoot = await uiOf(root, "root");
-  assert.deepEqual(forRoot?.panel.map((e) => [e.id, e.order]), [["account", 15], ["people", 20], ["models", 30], ["configuration", 32], ["mounts", 35], ["ssh", 36], ["activity", 40], ["workspaces", 45], ["overview", 50]]);
-  assert.deepEqual(forRoot?.commands, ["users", "user-create", "user-role", "user-status", "user-password", "user-remove", "account", "password-change", "models", "config", "config-list", "package-info", "package-log", "package-commit", "package-diff", "package-push", "package-readme", "package-where", "package-activity", "package-update", "package-fork", "package-promote", "package-remove", "package-install-for", "fleet", "config-show", "config-set", "config-unset", "config-reload", "journal", "mounts-list", "mounts-set", "mounts-browse", "ssh-list", "ssh-set", "ssh-keygen", "ssh-import", "ssh-scan", "ssh-test", "fence-reload", "status", "restart-request", "update-check", "update-run", "update-progress"]);
+  assert.deepEqual(forRoot?.panel.map((e) => [e.id, e.order]), [["overview", 1], ["people", 5], ["models", 30], ["configuration", 32], ["access", 35], ["activity", 40], ["account", 42], ["advanced", 50], ["advanced-pages", 51]]);
+  assert.deepEqual(forRoot?.commands, ["users", "user-create", "user-role", "user-status", "user-password", "user-remove", "account", "password-change", "models", "config", "config-list", "package-info", "package-log", "package-commit", "package-diff", "package-push", "package-readme", "package-where", "package-activity", "package-update", "package-fork", "package-promote", "package-remove", "package-install-for", "fleet", "config-show", "config-set", "config-unset", "config-reload", "journal", "mounts-list", "mounts-set", "mounts-browse", "ssh-list", "ssh-set", "ssh-keygen", "ssh-import", "ssh-scan", "ssh-test", "fence-reload", "status", "restart-request", "restart-cancel", "update-check", "update-apply", "update-progress", "update-restart"]);
   const forAlice = await uiOf(alice, "alice");
-  assert.deepEqual(forAlice?.panel.map((e) => [e.id, e.order]), [["account", 15], ["models", 30], ["mounts", 35], ["ssh", 36], ["activity", 40]], "installed for everyone; a user sees the sections about themselves and no admin section");
+  assert.deepEqual(forAlice?.panel.map((e) => [e.id, e.order]), [["models", 30], ["access", 35], ["activity", 40], ["account", 42]], "installed for everyone; a user sees the sections about themselves and no admin section");
   assert.deepEqual(forAlice?.commands, ["account", "password-change", "models", "journal", "mounts-list", "ssh-list", "ssh-set", "ssh-keygen", "ssh-import", "ssh-scan", "ssh-test"], "and only the verbs the kernel answers about themselves");
   const refused = await admin(alice, "alice", "users");
   assert.equal(refused.status, 403, "a user is refused a role-admin verb by the gateway");
@@ -705,10 +730,10 @@ test("panel: the built-in sections are the same for everyone; a package's sectio
   for (const path of ["users", "models", "journal", "config", "packages"]) assert.equal((await api(root, `/root/api/admin/${path}`)).status, 404, `api/admin/${path} is gone`);
   const marketplaceUi = ((await (await api(root, "/root/api/ui")).json()) as { extensions: { package: string; places: { id: string; order: number }[]; commands: string[] }[] }).extensions.find((e) => e.package === "@thetis/ui-marketplace");
   assert.deepEqual(marketplaceUi?.places.map((e) => [e.id, e.order]), [["marketplace", 20]]);
-  assert.deepEqual(marketplaceUi?.commands, ["search", "show", "install", "remove", "delete", "update", "unfork", "publish-targets", "publish", "unpublish", "config-show", "config-list", "config-set", "config-unset", "fence-reload", "install-everyone", "unmark-everyone", "install-for", "remove-for", "promote", "people", "registries", "registry-add", "registry-edit", "registry-remove", "registry-key", "registry-key-revoke", "registry-test"]);
+  assert.deepEqual(marketplaceUi?.commands, ["search", "updates", "show", "install", "remove", "delete", "update", "unfork", "publish-targets", "publish", "unpublish", "config-show", "config-list", "config-set", "config-unset", "fence-reload", "install-everyone", "unmark-everyone", "install-for", "remove-for", "promote", "people", "registries", "registry-add", "registry-edit", "registry-remove", "registry-key", "registry-key-revoke", "registry-test"]);
   const marketplaceForAlice = ((await (await api(alice, "/alice/api/ui")).json()) as { extensions: { package: string; places: { id: string }[]; commands: string[] }[] }).extensions.find((e) => e.package === "@thetis/ui-marketplace");
   assert.deepEqual(marketplaceForAlice?.places.map((e) => e.id), ["marketplace"], "the place is everyone's");
-  assert.deepEqual(marketplaceForAlice?.commands, ["search", "show", "install", "remove", "delete", "update", "unfork", "publish-targets", "publish", "unpublish", "config-show", "config-list", "config-set", "config-unset", "fence-reload"], "the admin verbs are not; a person's own configuration is, and so is reloading their own workspace: publishing is a person's own act too, and answers `available: false` where nothing can publish");
+  assert.deepEqual(marketplaceForAlice?.commands, ["search", "updates", "show", "install", "remove", "delete", "update", "unfork", "publish-targets", "publish", "unpublish", "config-show", "config-list", "config-set", "config-unset", "fence-reload"], "the admin verbs are not; a person's own configuration is, and so is reloading their own workspace: publishing is a person's own act too, and answers `available: false` where nothing can publish");
 });
 
 test("people: an admin adds a person, changes the role and status, and removes them through @thetis/ui-admin; the journal says so", async () => {
@@ -1010,5 +1035,100 @@ test("session updates reject malformed field types instead of silently changing 
   for (const [route, body] of [["model", { model: 7 }], ["title", { title: false }], ["archive", { archived: "false" }]]) {
     const response = await api(cookie, `/alice/api/sessions/${id}/${route}`, { method: "POST", body: JSON.stringify(body) });
     assert.equal(response.status, 400, `${route} rejects malformed input`);
+  }
+});
+
+test("resume: nothing to resume after a finished reply, 409 while running, and after a Stop it carries on with no input", async () => {
+  const cookie = await cookieFor("alice", "wonderland");
+  const { id } = (await (await api(cookie, "/alice/api/sessions", { method: "POST" })).json()) as { id: string };
+  const resume = () => api(cookie, `/alice/api/sessions/${id}/resume`, { method: "POST" });
+  let refused = await resume();
+  assert.equal(refused.status, 409);
+  assert.match(((await refused.json()) as { error: string }).error, /nothing to resume/);
+  await turn(cookie, "alice", id, async () => {
+    assert.equal((await api(cookie, `/alice/api/sessions/${id}/send`, { method: "POST", body: JSON.stringify({ text: "hello" }) })).status, 202);
+  });
+  refused = await resume();
+  assert.equal(refused.status, 409, "a conversation that ends on a finished reply has nothing to carry on");
+  assert.match(((await refused.json()) as { error: string }).error, /the last reply finished/);
+
+  const words = Array.from({ length: 40 }, (_, i) => `w${i}`).join(" ");
+  const stopped = await turn(cookie, "alice", id, async () => {
+    assert.equal((await api(cookie, `/alice/api/sessions/${id}/send`, { method: "POST", body: JSON.stringify({ text: `slow: ${words}` }) })).status, 202);
+    const busy = await resume();
+    assert.equal(busy.status, 409);
+    assert.match(((await busy.json()) as { error: string }).error, /a turn is running/);
+    setTimeout(() => void api(cookie, `/alice/api/sessions/${id}/cancel`, { method: "POST" }), 250);
+  });
+  assert.equal((stopped.events.find((e) => e.type === "error") as { code?: string })?.code, "cancelled");
+  type Shown = { conversation: { role: string }[]; stopped: string | null; turn: unknown };
+  const before = await recordWhen<Shown>(cookie, "alice", id, (rec) => rec.turn === null && typeof rec.stopped === "string");
+  const users = before.conversation.filter((m) => m.role === "user").length;
+
+  const resumed = await turn(cookie, "alice", id, async () => {
+    assert.equal((await resume()).status, 202);
+  });
+  assert.equal(resumed.input ?? "", "", "a resume sends nothing");
+  assert.ok(resumed.events.some((e) => e.type === "message"), "and the model carried on");
+  const after = await recordWhen<Shown>(cookie, "alice", id, (rec) => rec.turn === null && rec.stopped === null);
+  assert.equal(after.conversation.filter((m) => m.role === "user").length, users, "no user message was added");
+});
+
+/** A message as the tests write it (content a plain string); the gateway reads text through `contentText`, which takes both. */
+const m = (message: unknown) => message as Message;
+
+test("what has something to resume: interrupted, stopped, or a conversation that does not end on a finished reply", () => {
+  const cut = m({ role: "assistant", content: "half", extensions: { "@thetis/harness-core": { partial: true } } });
+  const user = m({ role: "user", content: "go" });
+  const done = m({ role: "assistant", content: "all done" });
+  assert.match(nothingToResume({ conversation: [] }) ?? "", /empty/);
+  assert.match(nothingToResume({ conversation: [user, done] }) ?? "", /the last reply finished/);
+  assert.equal(nothingToResume({ conversation: [user, done], interrupted: { turn: "t", at: "x", error: { message: "m" } } }), undefined);
+  assert.equal(nothingToResume({ conversation: [user, done] }, "2026-09-27T10:00:00Z"), undefined);
+  assert.equal(nothingToResume({ conversation: [user] }), undefined);
+  assert.equal(nothingToResume({ conversation: [user, cut] }), undefined);
+  assert.equal(nothingToResume({ conversation: [user, m({ role: "assistant", content: "", toolCalls: [{ id: "c", name: "shell", args: {} }] })] }), undefined);
+  assert.equal(nothingToResume({ conversation: [user, m({ role: "tool", content: "error: not run", toolCallId: "c", name: "shell", extensions: { "@thetis/harness-core": { notRun: true } } })] }), undefined);
+});
+
+test("a failed turn's usage is kept: each reply is paired with the saved message that says the same, a cut one is passed over", () => {
+  const first = m({ role: "assistant", content: "", toolCalls: [{ id: "c1", name: "shell", args: {} }] });
+  const cut = m({ role: "assistant", content: "half of the second reply" });
+  const conversation = [m({ role: "user", content: "go" }), first, m({ role: "tool", content: "ok", toolCallId: "c1", name: "shell" }), cut, m({ role: "tool", content: "error: the turn failed before this tool ran", toolCallId: "c2", name: "shell" })];
+  assert.deepEqual(pairUsage(conversation, [{ message: first, usage: { cost: 0.5 } }], "m"), { 1: { cost: 0.5, model: "m" } });
+  const marked = m({ ...cut, extensions: { "@thetis/harness-core": { partial: true } } });
+  assert.deepEqual(pairUsage([...conversation.slice(0, 3), marked], [{ message: first, usage: { cost: 0.5 } }]), { 1: { cost: 0.5 } });
+  assert.equal(pairUsage([m({ role: "user", content: "other" })], [{ message: first, usage: { cost: 1 } }]), undefined, "a record that does not hold the reply is not guessed at");
+});
+
+test("the page learns its build from /api/me and the stream, and the developer preference is the person's own", async () => {
+  const cookie = await cookieFor("alice", "wonderland");
+  type Me = { build: { id: string }; prefs: { developer: boolean } };
+  const me = (await (await api(cookie, "/alice/api/me")).json()) as Me;
+  assert.match(me.build.id, /^[a-f0-9]{16}$/);
+  assert.equal(me.prefs.developer, false);
+  const control = new AbortController();
+  const first = (await frames(cookie, control.signal, "/alice/api/events").next()).value as { event: string; data: { build: { id: string } } };
+  control.abort();
+  assert.equal(first.event, "snapshot");
+  assert.equal(first.data.build.id, me.build.id, "the same gateway, the same build");
+  const set = await api(cookie, "/alice/api/me/prefs", { method: "POST", body: JSON.stringify({ developer: true }) });
+  assert.deepEqual(await set.json(), { developer: true });
+  assert.equal(((await (await api(cookie, "/alice/api/me")).json()) as Me).prefs.developer, true);
+  const bob = await cookieFor("bob", "builder");
+  assert.equal(((await (await api(bob, "/bob/api/me")).json()) as Me).prefs.developer, false, "bob's is his own");
+  assert.equal((await api(cookie, "/alice/api/me/prefs", { method: "POST", body: JSON.stringify({ developer: "yes" }) })).status, 400);
+  await api(cookie, "/alice/api/me/prefs", { method: "POST", body: JSON.stringify({ developer: false }) });
+});
+
+test("everyone may ask whether Thetis is about to restart; an older kernel's refusal is answered as nothing known", async () => {
+  for (const [who, password] of [["alice", "wonderland"], ["root", "rootpass1"]]) {
+    const cookie = await cookieFor(who, password);
+    const res = await api(cookie, `/${who}/api/restart`);
+    assert.equal(res.status, 200);
+    const out = (await res.json()) as { pending: unknown; readable: boolean };
+    assert.equal(out.pending, null, "nothing is armed");
+    assert.equal(typeof out.readable, "boolean");
+    if (who === "root") assert.equal(out.readable, true, "an admin always could");
   }
 });

@@ -4,6 +4,18 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { PNG_1PX, withPage } from "./browser-fixture.mjs";
 
+/** A catalogue like production's: the configured default is not what a new chat starts with. */
+const MODELS = {
+  model: "anthropic/claude-sonnet-5",
+  models: [
+    { id: "anthropic/claude-sonnet-5", name: "Claude Sonnet 5", provider: "@thetis/provider-openrouter", contextLength: 1000000, pricing: { prompt: 0.000003, completion: 0.000015 } },
+    { id: "anthropic/claude-fable-5.1", name: "Claude Fable 5.1", provider: "@thetis/provider-openrouter", contextLength: 200000 },
+    { id: "mistral/small", name: "Mistral Small", provider: "@thetis/provider-openrouter", contextLength: 32000, pricing: { prompt: 0.0000001, completion: 0.0000003 } },
+    ...Array.from({ length: 20 }, (_, i) => ({ id: `vendor/model-${i}`, provider: "@thetis/provider-openrouter" })),
+  ],
+  yours: { model: "anthropic/claude-fable-5.1", recent: ["anthropic/claude-fable-5.1", "vendor/model-3"] },
+};
+
 let browser;
 before(async () => {
   const { chromium } = await import(process.env.THETIS_PLAYWRIGHT_MODULE || "playwright-core");
@@ -172,5 +184,231 @@ test("a paste of plain text is left to the textarea", { timeout: 15000 }, async 
     assert.equal(cancelled, false, "a text paste keeps its default handling");
     assert.equal(await f.page.locator("#attachments").isVisible(), false);
     assert.deepEqual(f.media(), []);
+  });
+});
+
+// ---- nothing lost: the rows that stay, the retry row, the reconnect loop, the build, the address bar ----
+
+test("a failed turn's Retry posts /resume, and the row is drawn again after a refresh from the record", { timeout: 15000 }, async () => {
+  await withPage(browser, "failure-row", { existing: true }, async (f) => {
+    await f.page.getByText("Earlier reply", { exact: true }).last().waitFor();
+    await f.emit([
+      { type: "turn.start", turn: "t_browser" },
+      { type: "text", delta: "Starting the file" },
+      { type: "error", code: "provider", kind: "connection", retryable: true, message: "provider error: the connection closed part-way" },
+      { type: "turn.end", turn: "t_browser" },
+    ]);
+    const row = f.page.locator(".pane.is-active .msg.is-end");
+    await row.waitFor();
+    assert.match(await row.locator(".end-text").innerText(), /The connection to the model kept dropping, so the reply stopped here/);
+    assert.equal(await row.locator(".end-raw").isVisible(), false, "the raw words wait under Details");
+    await row.getByRole("button", { name: "Retry" }).click();
+    await f.page.waitForFunction(() => document.querySelector(".pane.is-active .end-action")?.textContent === "Retrying…");
+    assert.deepEqual(f.posts(), [[`sessions/${f.id}/resume`, null]]);
+    // A refresh: the page is rebuilt from the record, which now says the turn was interrupted.
+    f.setRecord({ interrupted: { turn: "t_browser", at: new Date().toISOString(), why: "provider", error: { message: "provider error: the connection closed part-way", code: "provider", kind: "connection" } } });
+    await f.page.reload();
+    await f.reopened();
+    await f.page.getByText("Earlier reply", { exact: true }).last().waitFor();
+    assert.match(await f.page.locator(".pane.is-active .msg.is-end .end-text").innerText(), /kept dropping/);
+    assert.equal(await f.page.locator(".pane.is-active .msg.is-end").getByRole("button", { name: "Retry" }).count(), 1);
+  });
+});
+
+test("a round being retried shows the countdown, Retry now asks harness-core, Stop cancels, and it settles into one line", { timeout: 15000 }, async () => {
+  await withPage(browser, "retry-row", { existing: true }, async (f) => {
+    await f.page.getByText("Earlier reply", { exact: true }).last().waitFor();
+    const until = new Date(Date.now() + 8000).toISOString();
+    await f.emit([
+      { type: "turn.start", turn: "t_browser" },
+      { type: "text", delta: "Half a round" },
+      { type: "extension", name: "harness-core.retry", data: { phase: "waiting", round: 2, attempt: 1, of: 5, inMs: 8000, until, kind: "connection", reason: "the stream closed part-way" } },
+    ]);
+    const row = f.page.locator(".pane.is-active .msg.is-end.is-retry");
+    await row.waitFor();
+    assert.match(await row.locator(".end-text").innerText(), /^The connection to the model dropped\. Retrying in [5-8] s \(2 of 5\)\.$/);
+    assert.equal(await f.page.getByText("Half a round").count(), 0, "the half round is taken off the page");
+    await row.getByRole("button", { name: "Retry now" }).click();
+    await row.getByRole("button", { name: "Stop" }).click();
+    await f.page.waitForFunction(() => true);
+    await f.page.waitForTimeout(100);
+    assert.deepEqual(f.posts(), [["ext/@thetis/harness-core/retry-now", { session: f.id, args: { session: f.id } }], [`sessions/${f.id}/cancel`, null]]);
+    assert.match(await f.page.locator(".session-row.is-working, .session-list").first().innerText(), /Reconnecting — attempt 2 of 5/);
+    await f.page.evaluate((id) => {
+      reviewEmit("turn", { session: id, turn: "t_browser", seq: 4, event: { type: "extension", name: "harness-core.retry", data: { phase: "recovered", round: 2, attempt: 2, of: 5, kind: "connection" } } });
+    }, f.id);
+    await f.page.getByText("Reconnected after 1 retry.").waitFor();
+  });
+});
+
+test("the stream reconnects by itself, and a changed build refreshes on the same conversation with the draft kept", { timeout: 20000 }, async () => {
+  await withPage(browser, "reconnect-build", { existing: true }, async (f) => {
+    await f.page.getByText("Earlier reply", { exact: true }).last().waitFor();
+    await f.page.evaluate(() => { window.reviewFirstSource = window.reviewEvents; reviewEmit("error", {}); });
+    await f.page.waitForFunction(() => document.querySelector("#status").textContent === "Reconnecting…");
+    // After a second the page asks /api/me and opens a new stream by itself.
+    await f.page.waitForFunction(() => window.reviewEvents !== window.reviewFirstSource, null, { timeout: 5000 });
+    await f.page.locator("#input").fill("half a thought I do not want to lose");
+    f.setBuild("build-2");
+    await f.page.evaluate(() => { reviewEmit("open", {}); reviewEmit("snapshot", { running: [], build: { id: "build-2" } }); });
+    await f.page.waitForFunction(() => document.querySelector("#status").textContent === "connected");
+    // Something is typed, so it asks rather than taking the page away.
+    const card = f.page.locator(".notice");
+    await card.waitFor();
+    assert.match(await card.innerText(), /Thetis was updated/);
+    await card.getByRole("button", { name: "Refresh" }).click();
+    await f.page.waitForLoadState("load");
+    await f.reopened();
+    await f.page.getByText("Earlier reply", { exact: true }).last().waitFor();
+    assert.equal(new URL(f.page.url()).hash, `#${f.id}`, "the same conversation");
+    await f.page.waitForFunction(() => document.querySelector("#input").value === "half a thought I do not want to lose");
+  });
+});
+
+test("+ creates nothing until the first message, and a hash change switches to another conversation or a subagent", { timeout: 15000 }, async () => {
+  const others = [
+    { id: "s_bbbb", title: "The other one", conversation: [{ role: "user", content: "Other question" }, { role: "assistant", content: "Other reply" }] },
+    { id: "s_cccc", title: "", parent: "s_bbbb", conversation: [{ role: "user", content: "child brief" }, { role: "assistant", content: "child work" }] },
+  ];
+  await withPage(browser, "new-and-hash", { existing: true, others }, async (f) => {
+    await f.page.getByText("Earlier reply", { exact: true }).last().waitFor();
+    await f.page.locator("#new-tab").click();
+    await f.page.locator(".pane.is-empty.is-active .transcript-empty.is-new").waitFor();
+    assert.equal(f.creates(), false, "a + is not a conversation yet");
+    assert.equal(await f.page.evaluate(() => window.reviewStore.get("current")), null);
+    await f.page.evaluate(() => { location.hash = "#s_bbbb"; });
+    await f.page.getByText("Other reply", { exact: true }).last().waitFor();
+    assert.equal(await f.page.evaluate(() => window.reviewStore.get("current")), "s_bbbb");
+    await f.page.evaluate(() => { location.hash = "#s_cccc"; });
+    await f.page.getByText("child work", { exact: true }).last().waitFor();
+    assert.equal(await f.page.evaluate(() => window.reviewStore.get("current")), "s_cccc");
+    assert.equal(await f.page.locator(".pane.is-active").getAttribute("class"), "pane is-agent is-active", "a subagent opens as its own read-only tab");
+    assert.equal(f.creates(), false);
+  });
+});
+
+test("an armed restart is announced to everyone, then waited through, then Thetis is back", { timeout: 20000 }, async () => {
+  const restart = { pending: { reason: "update to a01a8e0", by: "root", firesInMs: 20_000, deadlineInMs: 120_000 }, readable: true };
+  await withPage(browser, "restart-notice", { existing: true, restart }, async (f) => {
+    await f.page.getByText("Earlier reply", { exact: true }).last().waitFor();
+    await f.emit([{ type: "turn.start", turn: "t_browser" }, { type: "text", delta: "working on it" }]);
+    const card = f.page.locator('.notice[data-notice="thetis-restart"]');
+    await f.page.waitForFunction(() => /^Thetis restarts in (1\d|20) s · your reply will continue$/.test(document.querySelector('.notice[data-notice="thetis-restart"] .notice-title')?.textContent ?? ""));
+    assert.match(await card.locator(".notice-body").innerText(), /Reason: update to a01a8e0\. Your conversations are kept\./);
+    assert.equal(await card.locator(".notice-x").count(), 0, "not dismissible while it is true");
+    await f.page.evaluate(() => { window.reviewFirstSource = window.reviewEvents; reviewEmit("error", {}); });
+    await f.page.waitForFunction(() => document.querySelector('.notice[data-notice="thetis-restart"] .notice-title')?.textContent.startsWith("Thetis is restarting"));
+    await f.page.waitForFunction(() => window.reviewEvents !== window.reviewFirstSource, null, { timeout: 5000 });
+    await f.page.evaluate(() => { reviewEmit("open", {}); reviewEmit("snapshot", { running: [] }); });
+    await f.page.waitForFunction(() => document.querySelector('.notice[data-notice="thetis-restart"] .notice-title')?.textContent === "Thetis is back.");
+  });
+});
+
+test("the model picker: a + draft starts on your default, can pick a model, and the pick travels with the create; examples fill the box", { timeout: 20000 }, async () => {
+  await withPage(browser, "model-picker", { existing: true, models: MODELS }, async (f) => {
+    await f.page.getByText("Earlier reply", { exact: true }).last().waitFor();
+    await f.page.locator("#new-tab").click();
+    const empty = f.page.locator(".pane.is-empty.is-active .transcript-empty.is-new");
+    await empty.waitFor();
+    assert.match(await empty.locator(".empty-lead").innerText(), /Thetis works in your own space/);
+    assert.equal(await empty.locator(".empty-example").count(), 3);
+    // The pill shows in the draft, and it names what a new chat really starts with: the last choice.
+    const pill = f.page.locator("#composer-tools .picker-btn");
+    await pill.waitFor();
+    assert.equal(await pill.innerText(), "claude-fable-5.1");
+    await pill.click();
+    const menu = f.page.locator(".picker-menu");
+    assert.deepEqual(await menu.locator(".picker-head").allInnerTexts(), ["NEW CHAT", "YOUR DEFAULT", "RECENT"]);
+    assert.match(await menu.locator(".picker-item").first().innerText(), /Claude Fable 5\.1/);
+    assert.match(await menu.locator(".picker-item").nth(2).innerText(), /Thetis default · Claude Sonnet 5/);
+    const fold = menu.locator(".picker-fold");
+    assert.equal(await fold.innerText(), "All models (23)");
+    assert.equal(await menu.getByText("Mistral Small").count(), 0, "the catalogue is folded");
+    await fold.click();
+    const mistral = menu.locator(".picker-item", { hasText: "Mistral Small" });
+    assert.deepEqual(await mistral.locator(".picker-col").allInnerTexts(), ["$0.1 / $0.3", "32k"]);
+    await mistral.click();
+    assert.equal(await pill.innerText(), "small");
+    assert.equal(f.creates(), false, "picking a model creates nothing");
+    // An example fills the box and sends nothing; Enter sends it, and the create carries the pick.
+    await empty.locator(".empty-example").first().click();
+    assert.match(await f.page.locator("#input").inputValue(), /^What can you do here\?/);
+    assert.equal(f.creates(), false);
+    await f.page.locator("#input").press("Enter");
+    await f.sendRequested;
+    assert.deepEqual(f.createBodies(), [{ model: "mistral/small" }]);
+  });
+});
+
+test("the rail: every button names itself, and widened it shows the labels in words", { timeout: 15000 }, async () => {
+  await withPage(browser, "rail-labels", { existing: true, extras: true }, async (f) => {
+    await f.page.getByText("Earlier reply", { exact: true }).last().waitFor();
+    const todo = f.page.locator('.rail-btn[data-dock="@review/extras#todo"]');
+    await todo.waitFor();
+    assert.equal(await todo.getAttribute("aria-label"), "Todo");
+    assert.equal(await todo.getAttribute("title"), "Todo — The plan the agent is working to");
+    assert.equal(await todo.locator(".rail-label").isVisible(), false);
+    await f.page.locator(".rail-widen").click();
+    assert.equal(await todo.locator(".rail-label").innerText(), "Todo");
+    assert.equal(await f.page.locator("#panels-btn").isVisible(), false, "the phone's Panels button stays off a wide screen");
+    // Escape closes the dock; with a place opened over it, the place goes first.
+    await todo.click();
+    await f.page.locator("#dock:not([hidden])").waitFor();
+    await f.page.locator("#menu").click();
+    assert.deepEqual(await f.page.locator(".sidebar-head .menu .menu-label").allInnerTexts(), ["Files", "Extensions", "Control panel"]);
+    await f.page.locator(".sidebar-head .menu .menu-item", { hasText: "Files" }).click();
+    await f.page.locator(".review-place").waitFor();
+    await f.page.keyboard.press("Escape");
+    assert.equal(await f.page.locator("#place").isHidden(), true);
+    assert.equal(await f.page.locator("#dock").isHidden(), false, "the dock under the place is still open");
+    await f.page.keyboard.press("Escape");
+    assert.equal(await f.page.locator("#dock").isHidden(), true);
+  });
+});
+
+test("a phone: the rail is a Panels menu, a place closes the drawer, Escape takes the top layer, the panel tree is a select, nothing scrolls sideways", { timeout: 20000 }, async () => {
+  await withPage(browser, "phone", { existing: true, extras: true, viewport: { width: 390, height: 844 } }, async (f) => {
+    await f.page.evaluate(() => localStorage.setItem("thetis.shelf.height", "800"));
+    await f.page.getByText("Earlier reply", { exact: true }).last().waitFor();
+    await f.page.locator("#panels-btn").waitFor();
+    assert.equal(await f.page.locator("#rail").isVisible(), false, "no permanent rail column");
+    await f.page.locator("#panels-btn").click();
+    assert.deepEqual(await f.page.locator(".menu.is-floating .menu-label").allInnerTexts(), ["Todo", "Files"]);
+    await f.page.locator(".menu.is-floating .menu-item", { hasText: "Todo" }).click();
+    await f.page.getByText("dock todo").waitFor();
+    await f.page.keyboard.press("Escape");
+    assert.equal(await f.page.locator("#dock").isHidden(), true);
+
+    // The shelf takes at most two fifths of the height, whatever height was remembered.
+    await f.page.evaluate(() => window.reviewOpenShelf());
+    await f.page.waitForFunction(() => { const h = document.querySelector("#shelf").getBoundingClientRect().height; return h > 100; });
+    await f.page.waitForTimeout(400);
+    assert.ok(await f.page.evaluate(() => document.querySelector("#shelf").getBoundingClientRect().height <= innerHeight * 0.4 + 1), "the shelf is capped at 40%");
+    await f.page.locator(".shelf-close").click();
+
+    // The menu sits in the drawer; choosing a place closes the drawer.
+    await f.page.locator("#toggle-sidebar").click();
+    await f.page.waitForFunction(() => document.querySelector("#sidebar").classList.contains("is-open"));
+    await f.page.locator("#menu").click();
+    const hints = f.page.locator(".sidebar-head .menu .menu-hint");
+    assert.ok(await hints.evaluateAll((nodes) => nodes.every((n) => n.scrollWidth <= n.clientWidth + 1)), "no hint is cut off");
+    await f.page.locator(".sidebar-head .menu .menu-item", { hasText: "Control panel" }).click();
+    await f.page.waitForFunction(() => !document.querySelector("#sidebar").classList.contains("is-open"));
+    const select = f.page.locator(".panel-select");
+    await select.waitFor();
+    assert.equal(await f.page.locator(".panel-tree").isVisible(), false, "the tree gives way to the select");
+    assert.ok((await select.locator("option").allInnerTexts()).some((t) => t.trim() === "Extensions"));
+    await f.page.getByRole("button", { name: "Manage extensions" }).waitFor();
+
+    // Drawer over the place: Escape closes the drawer first, then the place.
+    await f.page.locator("#place .chat-menu").click();
+    await f.page.waitForFunction(() => document.querySelector("#sidebar").classList.contains("is-open"));
+    await f.page.keyboard.press("Escape");
+    await f.page.waitForFunction(() => !document.querySelector("#sidebar").classList.contains("is-open"));
+    assert.equal(await f.page.locator("#place").isHidden(), false, "the place is still open");
+    assert.ok(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "nothing pushes the page sideways");
+    await f.page.keyboard.press("Escape");
+    assert.equal(await f.page.locator("#place").isHidden(), true);
+    assert.ok(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   });
 });

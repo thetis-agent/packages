@@ -2,15 +2,17 @@
  * registered through the built-in `ext` under `@thetis/gateway-web`, so its item in the sidebar's menu
  * and its frame come from the same slots a package would use. Inside, a tree of sections on the left
  * (`lib/tree.js`: disclosure toggles, nesting, the arrow keys, what is open remembered) and one page
- * mounted at a time. The one built-in section, Packages, is a `panel` entry too, with a low order so it
- * sorts first; the server's `api/panel` still says which built-in sections this person may see. Every
- * other section (People, Models, Mounts, Activity, Overview from `@thetis/ui-admin`) is listed as its
- * package declared it, and only when `api/ui` listed it for the person's role.
+ * mounted at a time. The one built-in section, Extensions (id `packages`), is a `panel` entry too; the
+ * server's `api/panel` still says which built-in sections this person may see. Every other section
+ * (Overview, People, Models, Access, Activity, Account from `@thetis/ui-admin`) is listed as its package
+ * declared it, and only when `api/ui` listed it for the person's role. On a phone the tree is replaced by
+ * one select of the same nodes (the stylesheet swaps them under 600px), because a tree in a box of its own
+ * hides most of the sections behind an inner scroll.
  *
  * A `panel` entry declared with `under: <section id>` is not a node of its own: it hangs pages under that
  * section, the nodes its module answers from `children()` (`{ id, label, note?, mark?, children? }`, to
  * any depth), and selecting one mounts the entry with `child` naming it. That is how the packages with
- * configuration sit under Packages, each with a page of its own, without the shell knowing what
+ * configuration sit under Extensions, each with a page of its own, without the shell knowing what
  * configuration is. The children are read when the panel opens, when a module registers late, when the
  * parent section is shown, and when a page asks through `refresh`. */
 
@@ -25,9 +27,9 @@ import { mountPackages } from "./panel-packages.js";
 export const GEAR = ["M10 6.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z", "M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M4.3 15.7l1.4-1.4M14.3 5.7l1.4-1.4"];
 
 /** The built-in sections. The note is the sentence under the title; the order sorts them before a package's (default 100). */
-export const PANEL_SECTIONS = [{ id: "packages", label: "Packages", note: "What is installed here, and what each package brings.", order: 10, mount: mountPackages }];
+export const PANEL_SECTIONS = [{ id: "packages", label: "Extensions", note: "What is installed in your space.", order: 10, mount: mountPackages }];
 
-export const PANEL_PLACE = { id: "panel", label: "Control panel", hint: "How this place is set up", icon: GEAR, order: 10 };
+export const PANEL_PLACE = { id: "panel", label: "Control panel", hint: "Your account, your models and your settings", icon: GEAR, order: 900 };
 
 /** Where the tree keeps what the reader opened and closed. */
 const TREE_STATE = "thetis.panel.tree";
@@ -48,7 +50,11 @@ const nodeKey = (entryKey, child) => (child ? `${entryKey}:${child}` : entryKey)
 function openPanel(root, params) {
   const treeHost = el("div", { class: "panel-tree" });
   const foot = el("div", { class: "panel-nav-foot" });
-  const nav = el("nav", { class: "panel-nav", "aria-label": "Control panel sections" }, treeHost, foot);
+  // On a phone the tree is a box of its own that hides most sections behind an inner scroll; the same nodes
+  // as one select, shown by the stylesheet instead of the tree under 600px, keep every section one tap away.
+  const picker = el("select", { class: "input panel-select", "aria-label": "Control panel section", onChange: () => { const node = flat.get(picker.value); if (node) { show(node.data.entryKey, node.data.child); tree.reveal(node.key); } } });
+  const flat = new Map(); // node key -> node, for the select
+  const nav = el("nav", { class: "panel-nav", "aria-label": "Control panel sections" }, picker, treeHost, foot);
   const main = el("div", { class: "panel-main" });
   root.append(el("div", { class: "panel-shell" }, nav, main));
   let sections = [];            // the nav's own items, in order
@@ -99,6 +105,23 @@ function openPanel(root, params) {
     });
     tree.update(nodes, nodeKey(current.key, current.child));
     drawFoot(nodes);
+    drawSelect(nodes);
+  }
+
+  /** The select: every node, indented by depth, the shown one chosen. */
+  function drawSelect(nodes) {
+    flat.clear();
+    const options = [];
+    const walk = (list, depth) => {
+      for (const node of list) {
+        flat.set(node.key, node);
+        options.push(el("option", { value: node.key }, `${"\u2003".repeat(depth)}${node.label}${node.count?.look ? ` (${node.count.look} need${node.count.look === 1 ? "s" : ""} a look)` : ""}`));
+        walk(node.children ?? [], depth + 1);
+      }
+    };
+    walk(nodes, 0);
+    picker.replaceChildren(...options);
+    picker.value = nodeKey(current.key, current.child);
   }
 
   /** Asks every hung entry (or the ones under `section`) for its children again, and redraws the nav. */

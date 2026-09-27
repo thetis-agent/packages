@@ -1,6 +1,8 @@
-/* Toasts: outcomes and refusals, in the corner. Errors stay until dismissed; the rest fade. */
+/* Toasts: outcomes and refusals, in the corner, under the notices (lib/notice.js). Errors stay until
+ * dismissed; the rest fade. */
 
 import { el, icon } from "./dom.js";
+import { cornerHost } from "./notice.js";
 
 const X = ["M5 5l10 10", "M15 5l-10 10"];
 let host = null;
@@ -8,7 +10,7 @@ let host = null;
 export function toast(message, { tone = "info", action } = {}) {
   if (!host) {
     host = el("div", { class: "toast-host", role: "status", "aria-live": "polite" });
-    document.body.append(host);
+    cornerHost().append(host);
   }
   let timer = null;
   const dismiss = () => {

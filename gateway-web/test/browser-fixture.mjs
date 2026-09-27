@@ -23,6 +23,22 @@ const SETUP = `export default async function install(ext) {
   window.reviewSetupReady = true;
 }`;
 
+/** A second extension for the chrome checks: two docks, two places, and a shelf, each registered with a plain body. */
+const EXTRAS = `export default function install(ext) {
+  for (const id of ["todo", "files"]) ext.dock(id, { draw: () => ({ body: ext.dom.el("p", {}, "dock " + id) }) });
+  for (const id of ["workspace", "marketplace"]) ext.place(id, { open: (root) => { root.append(ext.dom.el("p", { class: "review-place" }, "place " + id)); } });
+  ext.shelf("log", { mount: (root) => { root.append(ext.dom.el("pre", {}, "log")); } });
+  window.reviewOpenShelf = () => ext.open.shelf("log");
+}`;
+export const EXTRAS_DECLARATION = {
+  package: "@review/extras",
+  entry: "extras.js",
+  commands: [],
+  dock: [{ id: "todo", label: "Todo", hint: "The plan the agent is working to" }, { id: "files", label: "Files", hint: "This chat's folders" }],
+  places: [{ id: "marketplace", label: "Extensions", hint: "Add, update and remove extensions", order: 20 }, { id: "workspace", label: "Files", hint: "Your home, your folders and your projects' directories", order: 30 }],
+  shelf: [{ id: "log", label: "Log" }],
+};
+
 /** A one-pixel PNG: enough for the browser to call it an image and draw it. */
 export const PNG_1PX = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
@@ -33,7 +49,7 @@ export function deferred() {
 }
 
 export async function withPage(browser, name, options, run) {
-  const context = await browser.newContext({ viewport: { width: 1300, height: 900 } });
+  const context = await browser.newContext({ viewport: options.viewport ?? { width: 1300, height: 900 } });
   await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
   const page = await context.newPage();
   page.setDefaultTimeout(5000);
@@ -45,8 +61,13 @@ export async function withPage(browser, name, options, run) {
   const session = { id, title: "Browser regression", named: true, turns: options.existing ? 1 : 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   const conversation = options.existing ? [{ role: "user", content: "Earlier question" }, { role: "assistant", content: "Earlier reply" }] : [];
   let created = false, sends = 0, uploads = 0;
+  const createBodies = []; // what each POST /api/sessions carried: a draft's model rides there
   const sent = [];   // the JSON bodies of every send, so a test can check the wire shape
   const media = [];  // { name, mediaType, size } of every upload
+  const posts = [];  // every other POST: [path, body], so a test can check what a button asked for
+  const build = { id: options.build ?? "build-1" };
+  const others = options.others ?? []; // more conversations: { id, title, conversation }
+  let record = options.record ?? {};   // fields laid over the conversation's record
   await page.addInitScript(({ holdHook, holdModule }) => {
     window.reviewHooks = [];
     window.reviewOrder = [];
@@ -70,24 +91,36 @@ export async function withPage(browser, name, options, run) {
     try {
       const pathname = new URL(route.request().url()).pathname;
       if (pathname.endsWith("/ext/@review/setup/setup.js")) return route.fulfill({ contentType: TYPES[".js"], body: SETUP });
+      if (pathname.endsWith("/ext/@review/extras/extras.js")) return route.fulfill({ contentType: TYPES[".js"], body: EXTRAS });
       if (pathname.includes("/api/")) {
         const api = pathname.split("/api/")[1];
-        if (api === "me") return route.fulfill({ json: { user: "review", role: "admin" } });
-        if (api === "models") return route.fulfill({ json: { model: "echo", models: [{ id: "echo", name: "Echo" }] } });
+        if (api === "me") return route.fulfill({ json: { user: "review", role: "admin", build, prefs: { developer: false } } });
+        if (api === "restart") return route.fulfill({ json: options.restart ?? { pending: null, readable: true } });
+        const other = others.find((o) => api === `sessions/${o.id}`);
+        if (other) return route.fulfill({ json: { id: other.id, title: other.title, conversation: other.conversation ?? [], children: [], usage: {}, turn: null, ...(other.parent ? { parent: other.parent } : {}) } });
+        if (route.request().method() === "POST" && (api.endsWith("/resume") || api.endsWith("/cancel") || api.startsWith("ext/"))) {
+          posts.push([api, route.request().postDataJSON()]);
+          return route.fulfill({ status: api.endsWith("/resume") ? 202 : 200, json: {} });
+        }
+        if (api === "models") return route.fulfill({ json: options.models ?? { model: "echo", models: [{ id: "echo", name: "Echo" }] } });
+        if (api === "panel") return route.fulfill({ json: { user: "review", role: "admin", sections: ["packages"] } });
+        if (api === "packages") return route.fulfill({ json: [{ name: "@review/extras", version: "0.1.0", type: "ui", description: "Chrome checks", scope: "me", steps: [], tools: [], service: false }] });
         if (api === "ui") {
           uiRequested.resolve();
           if (options.holdUi) await uiGate.promise;
-          return route.fulfill({ json: { extensions: options.extension ? [{ package: "@review/setup", entry: "setup.js", commands: [] }] : [], refused: [] } });
+          const extensions = [...(options.extension ? [{ package: "@review/setup", entry: "setup.js", commands: [] }] : []), ...(options.extras ? [EXTRAS_DECLARATION] : [])];
+          return route.fulfill({ json: { extensions, refused: [] } });
         }
         if (api === "sessions" && route.request().method() === "POST") {
           created = true;
+          createBodies.push(route.request().postDataJSON());
           return route.fulfill({ status: 201, json: { id } });
         }
-        if (api === "sessions") return route.fulfill({ json: options.existing || created ? [session] : [] });
+        if (api === "sessions") return route.fulfill({ json: [...(options.existing || created ? [session] : []), ...others.filter((o) => !o.parent).map((o) => ({ id: o.id, title: o.title, named: true, turns: 1, createdAt: session.createdAt, updatedAt: session.updatedAt }))] });
         if (api === `sessions/${id}`) {
           recordRequested.resolve();
           if (options.holdRecord) await recordGate.promise;
-          return route.fulfill({ json: { ...session, conversation, children: [], usage: {}, turn: null } });
+          return route.fulfill({ json: { ...session, conversation, children: [], usage: {}, turn: null, ...record } });
         }
         if (api === "media" && route.request().method() === "POST") {
           uploads += 1;
@@ -121,11 +154,22 @@ export async function withPage(browser, name, options, run) {
     await page.goto(`${ORIGIN}/review/${options.existing ? `#${id}` : ""}`);
     await page.waitForFunction(() => window.reviewEvents);
     await page.evaluate(async () => { window.reviewStore = (await import("./assets/lib/store.js")).store; });
-    await page.evaluate(() => { reviewEmit("open", {}); reviewEmit("snapshot", { running: [] }); });
+    await page.evaluate((build) => { reviewEmit("open", {}); reviewEmit("snapshot", { running: [], build }); }, build);
     await run({
       page, id, uiRequested: uiRequested.promise, recordRequested: recordRequested.promise, sendRequested: sendRequested.promise,
       releaseUi: uiGate.resolve, releaseRecord: recordGate.resolve, releaseSend: sendGate.resolve,
       sends: () => sends,
+      posts: () => posts,
+      creates: () => created,
+      createBodies: () => createBodies,
+      setBuild: (id) => { build.id = id; },
+      setRecord: (fields) => { record = fields; },
+      /** The page came back from a reload: the stream is a new fake, which is opened and given a snapshot. */
+      reopened: async (snapshot = { running: [], build }) => {
+        await page.waitForFunction(() => window.reviewEvents);
+        await page.evaluate(async () => { window.reviewStore = (await import("./assets/lib/store.js")).store; });
+        await page.evaluate((snapshot) => { reviewEmit("open", {}); reviewEmit("snapshot", snapshot); }, snapshot);
+      },
       sent: () => sent,
       media: () => media,
       emit: (events) => page.evaluate(({ id, events }) => {

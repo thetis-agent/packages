@@ -16,7 +16,7 @@ export function mountSidebarSlot() {
       const failed = registry.failureOf(entry.package);
       if (failed) {
         node.classList.add("is-broken");
-        node.title = `${entry.package} could not load`;
+        node.title = `The ${entry.package} extension could not load`;
       } else if (entry.impl?.mount) {
         const out = registry.guard(entry.package, "sidebar", entry.impl.mount, node);
         if (!out.ok) node.replaceChildren(registry.broken(entry.package));
