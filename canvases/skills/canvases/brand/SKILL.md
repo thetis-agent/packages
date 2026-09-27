@@ -1,6 +1,6 @@
 ---
 name: brand
-description: The Anthropic brand kit for artboards that carry the Claude or Anthropic look. Ivory, Slate and Clay, the warm grayscale, the secondary and tertiary scales, the serif-over-sans type stacks and scale, the mark rules. Use only when the person asks for Anthropic or Claude branding; every other canvas gets its own look.
+description: The Anthropic brand kit for artboards that carry the Claude or Anthropic look. Use when the person asks for Anthropic or Claude branding, and only then; every other canvas gets its own look. Ivory, Slate and Clay, the warm grayscale, the secondary and tertiary scales, the serif-over-sans type stacks and scale, the mark rules.
 metadata:
   title: The Anthropic brand kit
   tags: [canvas, brand, anthropic, claude, colors, typography, ivory, slate, clay]

@@ -1,6 +1,6 @@
 ---
 name: craft
-description: Designing well on a canvas. Settling the look with the person, the small system to commit to (type, neutrals, accents), options as artboards, layout that survives editing, accessibility as drawn, landing pages, phone screens, recreating a UI, and the content rules. Use before the first artboard of anything beyond a sketch, or when the person pushes back on a design call.
+description: Designing well on a canvas. Use when a canvas is more than a sketch, before its first artboard, or when the person pushes back on a design call. Settling the look with the person, the small system to commit to (type, neutrals, accents), options as artboards, layout that survives editing, accessibility as drawn, landing pages, phone screens, recreating a UI, and the content rules.
 metadata:
   title: Designing well
   tags: [canvas, design, craft, typography, color, layout, accessibility, landing-page, mobile, mockup, wireframe]

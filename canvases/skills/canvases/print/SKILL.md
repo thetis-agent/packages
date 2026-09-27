@@ -1,6 +1,6 @@
 ---
 name: print
-description: Print pieces on a canvas at real paper sizes in CSS px. Posters, flyers, brochures, certificates, résumés, memos and reports; the type, table and ink rules that survive paper; a multi-page piece as a series of artboards. Use before the first artboard of anything meant to be printed or read as a document.
+description: Print pieces on a canvas at real paper sizes in CSS px. Use when a poster, flyer, brochure, certificate, résumé, memo or report is asked for, before its first artboard. The sheets and units, fixed pages against running documents, a multi-page piece as a series of artboards, and the type, table and ink rules that survive paper.
 metadata:
   title: Print pieces
   tags: [canvas, print, poster, flyer, brochure, document, report, letter, a4, pdf]

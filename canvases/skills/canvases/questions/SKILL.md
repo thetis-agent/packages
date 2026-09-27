@@ -1,6 +1,6 @@
 ---
 name: questions
-description: What to settle with the person before the first artboard, and how to ask it well with ask_user. One round of at most four questions, written from their brief, each with 2 to 4 concrete directions for this piece; when nobody can answer, decide and state the assumptions in a line. Use when a canvas brief leaves two or more result-changing decisions open.
+description: What to settle with the person before the first artboard, and how to ask it well with ask_user. Use when a canvas brief leaves two or more result-changing decisions open. One round of at most four questions, written from their brief, each with 2 to 4 concrete directions for this piece; when nobody can answer, decide and state the assumptions in a line.
 metadata:
   title: Ask before you build
   tags: [canvas, questions, brief, ask, clarify, directions, options]

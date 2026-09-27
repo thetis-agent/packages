@@ -1,6 +1,6 @@
 ---
 name: canvases
-description: How to build a canvas of HTML artboards with the canvas_* tools. What a canvas is, what the person edits themselves, the rules an artboard's HTML keeps (a fixed-size root, self-contained styles, assets by relative path, the props block), and the order of work. Use before writing or changing an artboard, or when asked for a design, mockup, screen, poster or wireframe.
+description: How to build a canvas of HTML artboards with the canvas_* tools. Use when asked for a design, mockup, screen, poster or wireframe, and before writing or changing an artboard. What a canvas is, what the person edits themselves, the rules an artboard's HTML keeps (a fixed-size root, self-contained styles, assets by relative path, the props block), and the order of work.
 metadata:
   title: Canvases
   tags: [canvas, artboard, design, mockup, wireframe, html, props, layout]
