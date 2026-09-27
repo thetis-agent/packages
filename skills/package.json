@@ -11,6 +11,7 @@
   "thetis": {
     "type": "skill-type",
     "label": "skills",
+    "summary": "Reads skills, so every skill loader reads them the same way.",
     "tools": [
       {
         "name": "skill_fetch",

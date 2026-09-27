@@ -230,23 +230,31 @@ test("All extensions: what is installed for you, in the columns every list uses,
   mountFleet(ext, root, { user: "root", mode: "simple" });
   await settled();
   const said = text(root);
-  assert.match(said, /All extensions · 2 installed/, "the count is what is installed for the reader, the same as the place's");
-  assert.match(said, /Every extension installed here/);
-  assert.match(said, /TerminalBy Thetis · Tools|Terminalby Thetis · Tools/);
-  assert.match(said, /Update available2 people haven't applied it yet\./);
+  assert.match(said, /All extensions · 2 installed/, "the count is the place's own: what is installed for the reader");
+  assert.match(said, /What is installed for you, as the Extensions place lists it\./);
+  assert.match(said, /Terminalby Thetis · ToolsUpdate available/, "the reader's own workspace runs an older version: the place's Update available");
+  assert.match(said, /Version 0\.2\.0 is ready; you have 0\.1\.0\./, "the place's to-do sentence, never who else is waiting");
   assert.match(said, /Exaby Thetis · ToolsFor everyone/, "an admin's mark carries For everyone; the configuration's own list does not");
-  assert.match(said, /Web search\./, "What it does");
-  assert.doesNotMatch(said, /OpenRouter|Provider Openrouter/, "only in Thetis itself: shown under everywhere, not in the count");
+  assert.match(said, /Web search\./, "What it does: the place's one plain line");
+  assert.doesNotMatch(said, /OpenRouter|Provider Openrouter/, "only in Thetis itself: not installed for the reader");
   const chips = all(root, (n) => n.tag === "span" && String(n.props.class ?? "").startsWith("badge"));
   assert.ok(chips.every((c) => c.props.title), "every chip has its tooltip");
-  assert.ok(buttons(root).includes("Apply updates for 2 people"));
-  assert.doesNotMatch(said, /reload|older code|◐|↻|fence|Update ready|Up to date·|set up/i, "no machinery words, no glyphs, no old badges");
-  // Everywhere adds the rest, with the admin's own words for a problem only an admin fixes.
+  assert.ok(!buttons(root).some((b) => /Reload|Apply/.test(b)), "reloading people's workspaces is Who has what's, not this list's");
+  assert.doesNotMatch(said, /older code|◐|↻|fence|Update ready|Up to date·|haven't applied|set up/i, "no machinery words, no glyphs, no old badges");
+  // Everywhere adds what only other people have; the reader's verdict stays the reader's.
   const everywhere = all(root, (n) => n.tag === "button" && text(n) === "everywhere")[0];
   everywhere.props.onClick();
-  const wide = text(root);
-  assert.match(wide, /Provider Openrouterby Thetis · ModelsNeeds setup/);
-  assert.match(wide, /OPENROUTER_API_KEY is not in the server's environment, so API key has no value\. Set it for everyone in Control panel → Extensions → Provider Openrouter → Settings\./);
+  assert.match(text(root), /Provider Openrouterby Thetis · Models/);
+  // Who has what: the people who have not reloaded are waiting for a reload, with a button for each.
+  const whole = el("div");
+  mountFleet(ext, whole, { user: "root", mode: "full" });
+  await settled();
+  assert.ok(buttons(whole).includes("Reload 2 people's workspaces"), buttons(whole).join("|"));
+  assert.ok(buttons(whole).includes("Reload bob's workspace") && buttons(whole).includes("Reload your workspace"), "one per waiting cell");
+  assert.match(text(whole), /Waiting for a reload/);
+  const cell = all(whole, (n) => String(n.props.class ?? "").includes("is-reload"))[0];
+  assert.match(cell.props.title, /^bob's Terminal \(0\.2\.0 is ready once the workspace restarts\)$/);
+  assert.doesNotMatch(text(whole), /update ready|is on disk/i);
 });
 
 test("Who has what: every extension and which people have it; the system workspace's column is Thetis itself, and the table scrolls in its own box", async () => {
@@ -263,7 +271,12 @@ test("Who has what: every extension and which people have it; the system workspa
   assert.match(text(root), /Who has what/);
   assert.match(text(root), /Every extension and which people have it\./);
   assert.match(text(root), /waiting for a reload/);
-  assert.match(text(root), /customised copies/);
+  assert.match(text(root), /customized copies/);
+  assert.match(text(root), /update available/, "a real newer version; a workspace that has not reloaded is the tile before it");
+  // A counter is a filter of the table.
+  const tile = all(root, (n) => n.tag === "button" && String(n.props.class ?? "").includes("ua-fl-tile") && /needs setup/.test(text(n)))[0];
+  tile.props.onClick();
+  assert.match(text(root), /Nothing matches these filters\./);
   assert.doesNotMatch(text(root), /people to apply|own copies/);
 });
 
@@ -292,7 +305,7 @@ test("an extension's page: the label, the publisher line and the chips; a shared
   assert.match(said, /by bitmuse · Tools/, "a shared copy is by the person it was shared from");
   assert.match(said, /For everyone/);
   assert.match(said, /Shared with everyone from Notion by bitmuse on 24 September 2026\. Your people get this one\./, "the header says whose it is and that it is the one people get");
-  assert.match(said, /Shared with everyone from @bitmuse\/notion by bitmuse on 2026-09-24/, "Provenance tells the truth");
+  assert.match(said, /shared from Notion \(bitmuse's original\) on 24 September 2026/, "Provenance tells the truth, in labels and words");
   assert.match(said, /Shared copy/);
   assert.doesNotMatch(said, /shipped with Thetis|comes with Thetis|Default for everyone|shared by bitmuse/);
   assert.ok(!buttons(root).some((b) => /Stop sharing/.test(b)), "the kernel cannot stop a promotion, so nothing offers to");
@@ -300,18 +313,24 @@ test("an extension's page: the label, the publisher line and the chips; a shared
   assert.ok(!buttons(root).includes("Turn on for everyone…") && !buttons(root).includes("Share with everyone…"), "a shared copy is neither turned on nor shared again");
   // The people, one line each, with the action that fits.
   assert.match(said, /bitmuse · has it/);
-  assert.ok(buttons(root).includes("Remove for bitmuse…") && buttons(root).includes("Remove for sam…"));
+  assert.match(said, /sam \(you\) · has it/);
+  assert.ok(buttons(root).includes("Remove for bitmuse…") && buttons(root).includes("Remove for me…"), "the reader's own line is Remove for me");
+  assert.match(said, /Sharing can't be stopped yet; Remove for everyone takes it from the people who have it now\./);
   // The confirm names the people who lose it, and says it stays shared.
   all(root, (n) => n.tag === "button" && text(n) === "Remove for everyone…")[0].props.onClick();
   await settled();
-  assert.deepEqual(asked.lines.find(([k]) => k === "people"), ["people", "bitmuse, sam"]);
+  assert.deepEqual(asked.lines.find(([k]) => k === "people"), ["people", "bitmuse, you"]);
   assert.match(asked.note, /It is taken away from bitmuse and you now\./, "the reader (sam) is \"you\"");
   assert.match(asked.note, /It stays shared, so people added later still get it\./);
   assert.deepEqual(asked.lines[0], ["extension", "Notion"], "the confirm names the extension by its label");
-  all(root, (n) => n.tag === "button" && text(n) === "Remove for sam…")[0].props.onClick();
+  all(root, (n) => n.tag === "button" && text(n) === "Remove for me…")[0].props.onClick();
   await settled();
-  assert.equal(asked.title, "Remove Notion for sam?");
-  assert.equal(asked.note, "Their settings are kept. What it adds stops from their next message.");
+  assert.equal(asked.title, "Remove Notion for you?");
+  assert.equal(asked.note, "Your settings are kept. It stops for you from your next message. Everyone else keeps it.");
+  all(root, (n) => n.tag === "button" && text(n) === "Remove for bitmuse…")[0].props.onClick();
+  await settled();
+  assert.equal(asked.title, "Remove Notion for bitmuse?");
+  assert.equal(asked.note, "Their settings are kept. It stops for them from their next message. Everyone else keeps it.", "the same words as the Extensions place's");
 
   // Required by Thetis: no Remove of any kind, here or for one person.
   const core = { ...notion, name: "@thetis/harness-core", label: "harness core", type: "loader", everyoneBy: "config", promotedFrom: null, tools: [] };
@@ -386,7 +405,7 @@ test("an extension's page: what everyone gets, one row of the decision table per
   const cust = await draw(copy, { people: [{ user: "bitmuse", role: "admin", installed: true }] });
   assert.match(cust.said, /Customized/);
   assert.match(cust.said, /by you · Tools/);
-  assert.match(cust.said, /Your copy is older than Thetis's 0\.4\.1; sharing it would replace it for everyone\./);
+  assert.match(cust.said, /You can share your copy once it is based on Thetis's 0\.4\.1\./);
   assert.match(cust.said, /Tool Exec 0\.4\.1 \(Thetis's\)/, "Provenance names everyone's copy");
   assert.ok(!cust.buttons.includes("Share with everyone…"), "never a silent downgrade");
   assert.ok(!cust.buttons.includes("Update"), "a copy behind Thetis's version is not an update");

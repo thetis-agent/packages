@@ -14,6 +14,7 @@
   "thetis": {
     "type": "tool",
     "label": "canvases",
+    "summary": "Lets your assistant design pages and boards that you can look at and change in a tab.",
     "skills": "skills",
     "tools": [
       {

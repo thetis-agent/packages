@@ -37,6 +37,9 @@
 .cf-key { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .cf-key code { font-family: var(--mono); font-weight: 600; }
 .cf-help { margin: 0; color: var(--text-dim); font-size: var(--text-xs); }
+.cf-help a { color: var(--accent); }
+.cf-foot { margin: 8px 0 0; font-size: var(--text-xs); }
+.cf-name[title] { cursor: help; }
 .cf-control { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .cf-control .cf-input { flex: 1 1 240px; min-width: 0; font-family: var(--mono); }
 .cf-control .cf-json { flex: 1 1 100%; font-family: var(--mono); font-size: var(--text-xs); resize: vertical; }

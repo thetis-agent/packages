@@ -77,17 +77,23 @@
 .mk-todos { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface-1); }
 .mk-todo { display: grid; grid-template-columns: minmax(8rem, 14rem) minmax(0, 1fr) auto; gap: var(--gap-3); align-items: center; padding: var(--gap-2) var(--gap-3); border-top: 1px solid var(--hairline); }
 .mk-todo:first-child { border-top: 0; }
-.mk-todo-label { padding: 0; font: inherit; font-size: var(--text-sm); font-weight: 600; text-align: left; color: var(--text); background: transparent; border: 0; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-todo-label { padding: 0; font: inherit; font-size: var(--text-sm); font-weight: 600; text-align: left; color: var(--text); background: transparent; border: 0; cursor: pointer; overflow-wrap: anywhere; }
 .mk-todo-label:hover { text-decoration: underline; }
 .mk-todo-reason { font-size: var(--text-sm); color: var(--text-dim); min-width: 0; }
 .mk-todo.is-err .mk-todo-reason { color: var(--err); }
 .mk-todo.is-warn .mk-todo-reason { color: var(--warn); }
 .mk-todo .btn { font-size: var(--text-xs); }
+.mk-todo-reason a { color: inherit; text-decoration: underline; overflow-wrap: anywhere; }
 .mk-update-n { margin-left: auto; display: flex; align-items: center; gap: var(--gap-2); }
 .mk-update-note { font-size: var(--text-xs); color: var(--text-faint); }
 .mk-section-head .mk-update-n .btn { margin-left: 0; }
 
-/* The pills over Installed: All, Added by you, For everyone, Customized, each with its count. */
+/* The pills over Installed: All, Installed by you, Given to you, Customized, each with what the search leaves. */
+.mk-pills-wrap { display: flex; flex-direction: column; gap: 6px; }
+.mk-hidden-by { margin: 0; font-size: var(--text-xs); color: var(--text-dim); }
+.mk-link-btn { padding: 0; font: inherit; color: var(--accent); background: transparent; border: 0; cursor: pointer; text-decoration: underline; }
+/* Somebody else changed what the person has while the place was open: one line, above everything. */
+.mk-changed { margin: 0; padding: var(--gap-2) var(--gap-3); border: 1px solid var(--accent-edge); border-radius: var(--r-md); background: var(--accent-wash); font-size: var(--text-sm); color: var(--text); }
 .mk-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: calc(-1 * var(--gap-1)); }
 .mk-pill-btn { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; font: inherit; font-size: var(--text-xs); color: var(--text-dim); background: transparent; border: 1px solid var(--hairline); border-radius: 999px; cursor: pointer; }
 .mk-pill-btn:hover:not([disabled]) { color: var(--text); border-color: var(--hairline-strong); }
@@ -157,6 +163,20 @@
 .mk-versions li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--gap-2); }
 .mk-version-mark { color: var(--text-faint); }
 .mk-versions li.is-used .mk-version-mark { color: var(--ok, var(--accent)); }
+.mk-version-self { color: var(--text); font-weight: 600; }
+/* A copy's changes, under Show changes: the files, then the lines. */
+.mk-changes { display: flex; flex-direction: column; gap: 6px; }
+.mk-changes .btn { font-size: var(--text-xs); padding: 2px 8px; }
+.mk-changes-body { display: flex; flex-direction: column; gap: 6px; }
+.mk-changes-files { margin: 0; padding-left: 1.2em; font-size: var(--text-xs); }
+.mk-diff { margin: 0; max-height: 24rem; overflow: auto; padding: var(--gap-2); border: 1px solid var(--hairline); border-radius: var(--r-sm, 6px); background: var(--surface-1); font-family: var(--mono); font-size: 11px; line-height: 1.45; white-space: pre; }
+.mk-diff .is-add { color: var(--ok, #6fcf97); }
+.mk-diff .is-del { color: var(--err); }
+.mk-diff .is-hunk { color: var(--text-faint); }
+/* An admin's own copy: no Install for anyone, only the way to the version that can be given. */
+.mk-private { display: flex; flex-direction: column; gap: 6px; }
+.mk-private .btn { font-size: var(--text-xs); padding: 2px 8px; }
+.mk-private-line { margin: 0; }
 .mk-admin-act { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
 .mk-admin-act .btn { font-size: var(--text-xs); }
 .mk-version-text { min-width: 0; overflow-wrap: anywhere; line-height: 1.5; }
@@ -173,6 +193,7 @@
 .mk-admin .panel-hint { margin: 0; font-size: var(--text-xs); }
 /* The tabs scroll sideways when the row is wider than the screen, rather than being cut. */
 .mk-tabs { display: flex; gap: var(--gap-1); border-bottom: 1px solid var(--hairline); overflow-x: auto; scrollbar-width: thin; }
+.mk-tab[hidden], .mk-actions .btn[hidden] { display: none; }
 .mk-tab { flex: none; white-space: nowrap; padding: 6px 12px; font: inherit; font-size: var(--text-sm); color: var(--text-faint); background: transparent; border: 0; border-bottom: 2px solid transparent; cursor: pointer; }
 .mk-tab:hover { color: var(--text); }
 .mk-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
@@ -308,8 +329,11 @@
   .mk-todo-label { grid-column: 1 / -1; }
   .mk-section-head { flex-wrap: wrap; }
   .mk-update-n { margin-left: 0; }
-  .mk-chips, .mk-pills { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; scrollbar-width: none; }
+  /* The type chips and the pills wrap rather than scroll: a word cut at the edge reads as a different word. */
+  .mk-chips, .mk-pills { flex-wrap: wrap; }
   .mk-chip, .mk-pill-btn { flex: none; }
+  /* The tabs wrap to a second line rather than being cut at the edge. */
+  .mk-tabs { flex-wrap: wrap; overflow-x: visible; }
   .mk-search { max-width: none; }
   .mk-reg-grid, .mk-reg-row { grid-template-columns: minmax(0, 1fr); }
   .mk-reg-label { padding-top: 0; }

@@ -180,18 +180,20 @@ test("fleet: one row per package with each person's copy, a fork standing in for
   assert.equal(term.mine, true, "root has the terminal itself");
   assert.equal(packages.find((p) => p.name === "@bob/terminal").mine, false, "bob's copy is not installed for root");
   assert.deepEqual(term.byUser.root, { version: "0.1.0", fork: false, forkOf: null, broken: false, loaded: null, state: "current" });
-  assert.deepEqual(term.byUser.bob, { version: "0.1.0-fork.1", fork: true, forkOf: "@bob/terminal", broken: true, loaded: null, state: "current" }, "bob's own copy stands in for the original; its code is read per call, so it is not behind");
+  assert.deepEqual(term.byUser.bob, { version: "0.1.0-fork.1", fork: true, forkOf: "@bob/terminal", broken: true, summary: "", missing: [], loaded: null, state: "current" }, "bob's own copy stands in for the original; its code is read per call, so it is not behind; a broken cell carries its missing keys, never a value");
   assert.equal(term.state, "current");
   assert.deepEqual(term.waiting, []);
   const fork = packages.find((p) => p.name === "@bob/terminal");
   assert.equal(fork.scope, "some");
-  assert.deepEqual(fork.byUser.bob, { version: "0.1.0-fork.1", fork: false, forkOf: "@thetis/terminal", broken: true, loaded: null, state: "current" });
+  assert.deepEqual(fork.byUser.bob, { version: "0.1.0-fork.1", fork: false, forkOf: "@thetis/terminal", broken: true, summary: "", missing: [], loaded: null, state: "current" });
   const login = packages.find((p) => p.name === "@thetis/gateway-login");
   assert.equal(login.scope, "system");
   assert.deepEqual(Object.keys(login.byUser), ["_system"]);
   assert.equal(packages.find((p) => p.name === "@thetis/exa").registry, null, "no index here");
   assert.deepEqual(term.byUser.root.loaded, null, "no fence loaded a version here, so nothing is behind the disk");
-  assert.deepEqual(stats, { current: 4, updates: 0, installs: 0, waiting: 0, forks: 2, broken: 1 });
+  // Copies, not rows: bob's one copy is counted once (its original's row holds the same copy again). Needs setup
+  // counts the extensions a setting is missing for anywhere: exa for everyone, bob's copy for bob.
+  assert.deepEqual(stats, { current: 4, updates: 0, installs: 0, waiting: 0, forks: 1, broken: 2 });
   assert.deepEqual(out.data.daemon, { state: "current" }, "a daemon on the code on disk needs no restart");
 });
 
@@ -218,7 +220,7 @@ test("fleet: a workspace holding a version the disk has moved past is marked, co
   assert.deepEqual(row.waiting, ["root"], "root has not applied it yet");
   assert.equal(stats.waiting, 1, "one workspace has not applied what is on disk");
   assert.equal(stats.installs, 0, "nothing is behind a registry");
-  assert.equal(stats.updates, 1);
+  assert.equal(stats.updates, 0, "a workspace that has not reloaded is waiting for a reload, never an update available");
 });
 
 test("drift: three words, from what a workspace reads once", async () => {
@@ -296,4 +298,54 @@ test("Thetis's own parts are the Extensions place's: the same rule as its lib/ro
     { name: "@thetis/exa", type: "tool" }, { name: "@thetis/workflows", type: "ui" }, { name: "@thetis/x", type: "service", audience: "everyone" }, { name: "@thetis/y", type: "tool", audience: "system" },
   ];
   for (const r of cases) assert.equal(commands.isComponent(r), place.isComponent(r), `${r.name} ${r.type} ${r.installed ?? ""}`);
+});
+
+test("package-changes: a copy's changed files since it was made, and the change to the text ones as a diff cut at 200 lines", async () => {
+  const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { copyChanges, fileHashes, FORK_BASE, unifiedLines } = await import("../changes.js");
+  const origin = mkdtempSync(join(tmpdir(), "ua-origin-"));
+  const copy = mkdtempSync(join(tmpdir(), "ua-copy-"));
+  for (const dir of [origin, copy]) {
+    mkdirSync(join(dir, "src"));
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: dir === origin ? "@thetis/x" : "@me/x", version: "0.1.0", thetis: { type: "tool" } }));
+    writeFileSync(join(dir, "src/a.js"), "one\ntwo\nthree\n");
+    writeFileSync(join(dir, "src/b.js"), "same\n");
+  }
+  writeFileSync(join(copy, FORK_BASE), JSON.stringify(fileHashes(copy)));
+  assert.deepEqual(copyChanges(copy, origin), { files: [], diff: [], cut: false, moved: false }, "a copy that changed nothing");
+  writeFileSync(join(copy, "src/a.js"), "one\nTWO\nthree\n");
+  const out = copyChanges(copy, origin);
+  assert.deepEqual(out.files, ["src/a.js"]);
+  assert.deepEqual(out.diff, ["--- a/src/a.js", "+++ b/src/a.js", "@@ -1,3 +1,3 @@", " one", "-two", "+TWO", " three"]);
+  assert.equal(out.moved, false, "the origin's file is still what the copy was made from");
+  writeFileSync(join(origin, "src/a.js"), "one\ntwo!\nthree\n");
+  assert.equal(copyChanges(copy, origin).moved, true, "the origin changed it too: the diff holds its change as well, and says so");
+  assert.deepEqual(copyChanges(origin, copy).files, null, "no record of what it was made from: nothing is claimed");
+  const long = Array.from({ length: 400 }, (_, i) => `line ${i}`).join("\n");
+  const cut = unifiedLines("", long);
+  assert.equal(cut.length, 401);
+  writeFileSync(join(copy, "src/b.js"), long);
+  const big = copyChanges(copy, origin);
+  assert.equal(big.diff.length, 200);
+  assert.equal(big.cut, true);
+});
+
+test("Activity: an install over one the person had is said as an update", async () => {
+  const { markUpdates, sentence } = await import("../ui/package-activity.js");
+  const rows = markUpdates([
+    { kind: "package.install", target: "bitmuse", data: { name: "@thetis/skills-orleans", version: "0.1.1" } },
+    { kind: "package.install", target: "sam", data: { name: "@thetis/skills-orleans", version: "0.1.1" } },
+    { kind: "package.uninstall", target: "sam", data: { name: "@thetis/skills-orleans" } },
+    { kind: "package.install", target: "sam", data: { name: "@thetis/skills-orleans", version: "0.1.0" } },
+    { kind: "package.install", target: "bitmuse", data: { name: "@thetis/skills-orleans", version: "0.1.0" } },
+  ]);
+  assert.deepEqual(rows.map((e) => sentence(e, "@thetis/skills-orleans")), [
+    "updated @thetis/skills-orleans from 0.1.0 to 0.1.1 for bitmuse",
+    "installed @thetis/skills-orleans 0.1.1 for sam",
+    "removed @thetis/skills-orleans for sam",
+    "installed @thetis/skills-orleans 0.1.0 for sam",
+    "installed @thetis/skills-orleans 0.1.0 for bitmuse",
+  ]);
 });

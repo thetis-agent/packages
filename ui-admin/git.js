@@ -44,7 +44,10 @@ export async function installedPackage(env, name) {
   // package another person has may be one the admin never installed. Any workspace that holds the package
   // knows its record, and the operator channel reads every list, so the page of the original still opens.
   const elsewhere = await anyoneHas(env, name);
-  return elsewhere ?? fail(`${name} is not installed in any workspace`);
+  if (elsewhere) return elsewhere;
+  // Nobody has it, but it is on disk (one of Thetis's own parts nobody runs, say): its page still says what it is.
+  const onDisk = typeof env.kernel.packages.catalog === "function" ? ((await env.kernel.packages.catalog().catch(() => [])) ?? []).find((p) => p.name === name) : null;
+  return onDisk ? { ...onDisk, loadedIn: null, nobody: true } : fail(`${name} is not installed in any workspace`);
 }
 
 /** The package's record from the first workspace (every person, then the system's) whose list holds it, or null. */

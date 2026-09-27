@@ -72,8 +72,8 @@ test("with the place here, the section says exactly what the place says: its lab
     }
     const promoted = list.judged(rows.find((r) => r.name === "@thetis/notion"), rows, { rules, ...ctx });
     assert.match(promoted.publisher, ctx.user === "bitmuse" ? /^by you/ : /^by bitmuse/, "a shared copy finds its person among every row the place knows");
-    const parts = rows.filter((r) => r.installed && r.component).length;
-    assert.equal(list.countLine(rows, { rules, ...ctx }), `${reference.placeSections(rows, ctx).counts.installed} installed${parts ? ` · ${parts} part of Thetis` : ""}`, "the place's Installed count");
+    const { counts } = reference.placeSections(rows, ctx);
+    assert.equal(list.countLine(rows, { rules, ...ctx }), `${counts.installed} installed${counts.thetis ? ` · ${counts.thetis} part of Thetis` : ""}`, "the place's own two numbers");
   }
 });
 
@@ -106,4 +106,17 @@ test("the place's rows add a registry's newer commit to what is installed, and n
   assert.equal(known.length, 3, "the count is still what is installed");
   assert.deepEqual(list.stateOf(known[0]).chips.map((c) => c.label), ["Update available"]);
   assert.equal(list.stateOf(known[0]).reason, "Version 0.1.1 is ready; you have 0.1.0.");
+});
+
+test("the place's rows learn this person's own settings, so Needs setup is the place's; the plain line is the place's", () => {
+  const rows = [{ name: "@thetis/exa", installed: true, description: "Web search. Long." }, { name: "@thetis/terminal", installed: true, description: "A terminal." }, { name: "@thetis/nova", installed: false }];
+  const mine = [{ name: "@thetis/exa", config: { broken: true, summary: "apiKey is missing", keys: [{ key: "apiKey", state: "missing", secret: true }] } }, { name: "@thetis/terminal" }];
+  const folded = list.withSetup(rows, mine);
+  assert.deepEqual(folded[0].config, mine[0].config);
+  assert.deepEqual(folded[1].config, { broken: false, summary: "", keys: [] }, "whole settings say so");
+  assert.equal(folded[2].config, undefined, "not installed: nothing to fold");
+  const rules = { place: reference };
+  assert.equal(reference.stateOf(folded[0], { admin: false, user: "sam" }).chips[0].id, "needsSetup");
+  assert.equal(list.summaryLine(folded[0], rules), reference.summaryOf(folded[0]));
+  assert.equal(list.summaryLine({ description: "Web search. Long." }), "Web search.", "without the place: the first sentence");
 });

@@ -8,6 +8,7 @@
   "thetis": {
     "type": "loader",
     "label": "benchmark probe",
+    "summary": "Measures how well extensions work. Only used when testing.",
     "steps": [
       {
         "id": "collect",

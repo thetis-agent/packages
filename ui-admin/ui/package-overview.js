@@ -1,9 +1,9 @@
 /* The Overview tab: three cards side by side, then Files. Provenance draws the lineage (the registry's
- * copy, this copy, the copy everyone gets, the customised copies hanging off it) as one small SVG and lists
- * source, registry, pin, everyone's copy ("Tool Exec 0.4.1 (Thetis's)" for a copy), the customised copies (the
- * reader's folder copies included), what it depends on and what depends on it. A shared copy is a "Shared
- * copy" and says whose extension it was shared from and when ("Shared with everyone from @bitmuse/notion by
- * bitmuse on 2026-09-24"), never "shipped with Thetis". Checkout asks `package-log` for the newest
+ * copy, this copy, the copy everyone gets, the customized copies hanging off it) as one small SVG, every name
+ * whole, and lists in plain words with labels rather than ids: Source ("shared from Notion (your original) on 27
+ * September 2026"), Registry ("not in any registry"), Pinned to (a registry install's only), Everyone's copy
+ * ("Tool Exec 0.4.1 (Thetis's)" for a copy), the customized copies (the reader's folder copies included), what it
+ * depends on and what depends on it. A shared copy is a "Shared copy", never "shipped with Thetis". Checkout asks `package-log` for the newest
  * commits touching the package and draws them on two lanes: what origin has on the accent lane, what is
  * only here on the warn lane, the working tree first when files are changed. Where it runs is the
  * person card from package-where.js. Every line is a fact the kernel, the index or git reported. */
@@ -11,7 +11,7 @@
 import { packageFacts } from "./package-card.js";
 import { failureSentence } from "./failed.js";
 import { whereCard } from "./package-where.js";
-import { titleCase } from "./state.js";
+import { baseOf, dateWords, scopeOf, titleCase } from "./state.js";
 
 const short = (h) => (typeof h === "string" ? h.slice(0, 7) : "");
 const ago = (iso) => {
@@ -49,69 +49,117 @@ export function everyonesCopy(info, label) {
   return null;
 }
 
-/** The lineage drawing: registry → this copy → the copy everyone gets, and the customised copies under this one. */
-function lineage(info, forks, label) {
+/** Words broken into lines of at most `n` characters, a long word on a line of its own. */
+export function wrapWords(text, n = 14) {
+  const lines = [];
+  for (const word of String(text ?? "").split(/\s+/).filter(Boolean)) {
+    const last = lines.at(-1);
+    if (last !== undefined && `${last} ${word}`.length <= n) lines[lines.length - 1] = `${last} ${word}`;
+    else lines.push(word);
+  }
+  return lines.length ? lines : [""];
+}
+
+/**
+ * The lineage drawing: registry → this copy → the copy everyone gets, and the customized copies under this one.
+ * Every name is whole, wrapped onto lines rather than cut, in type no smaller than the page's small print.
+ */
+function lineage(info, forks, label, user = "") {
   const reg = info.registry;
   const everyone = everyonesCopy(info, label);
-  // A narrow viewBox, so the words stay readable when the card is a third of the page.
-  const width = 300;
-  const [xa, xb, xc] = [52, 150, 248];
-  const height = 104 + Math.max(0, forks.length - 1) * 18;
-  const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-  const root = svg("svg", { viewBox: `0 0 ${width} ${height}`, class: "ua-lineage", role: "img", "aria-label": "Lineage: the registry, this copy, the copy everyone gets, and people's customised copies" });
+  // A viewBox no wider than the card, so 11px type stays 11px or more.
+  const width = 262;
+  const [xa, xb, xc] = [44, 130, 214];
+  const cols = [
+    [xa, "registry", reg ? [...wrapWords(reg.registry, 12), reg.version] : wrapWords("not in any", 12)],
+    [xb, "this copy", [...wrapWords(label, 12), info.version]],
+    [xc, "everyone gets", everyone ? wrapWords(everyone === "this one" ? "this one" : everyone, 12) : ["none"]],
+  ];
+  const tallest = Math.max(...cols.map(([, , lines]) => lines.length));
+  const top = 60 + tallest * 14; // where the copies start
+  const forkLines = forks.map((f) => wrapWords(`${titleCase(f.label ?? f.name.replace(/^@[^/]+\//, ""))} · ${f.user === user ? "you" : f.user}${f.folder && !f.installed ? " (in the folder)" : ""}`, 16));
+  const height = top + 10 + Math.max(1, forkLines.reduce((n, l) => n + l.length, 0)) * 14 + forks.length * 4;
+  const root = svg("svg", { viewBox: `0 0 ${width} ${height}`, class: "ua-lineage", role: "img", "aria-label": "Lineage: the registry, this copy, the copy everyone gets, and people's customized copies" });
   const line = (x1, x2, cls) => svg("line", { x1, y1: 22, x2, y2: 22, class: `ua-lineage-line ${cls}` });
   root.append(line(xa + 12, xb - 14, reg ? "" : "is-dim"), line(xb + 14, xc - 12, everyone ? "" : "is-dim"));
   root.append(svg("circle", { cx: xa, cy: 22, r: 8, class: `ua-lineage-node is-registry${reg ? "" : " is-none"}` }));
   root.append(svg("circle", { cx: xb, cy: 22, r: 8, class: "ua-lineage-node is-this" }));
   root.append(svg("circle", { cx: xc, cy: 22, r: 8, class: `ua-lineage-node is-promoted${everyone ? "" : " is-none"}` }));
-  const labelled = (x, y, words, cls, n = 15) => {
-    const t = text(x, y, clip(words, n), { cls });
-    t.append(svg("title", {}, words));
-    return t;
-  };
-  root.append(text(xa, 46, reg ? "registry" : "no registry"));
-  root.append(labelled(xa, 60, reg ? `${reg.registry} ${reg.version}` : "not listed", "is-mono"));
-  root.append(text(xb, 46, "this copy", { cls: "is-strong" }));
-  root.append(labelled(xb, 60, `${info.version}${info.git?.commit ? ` · ${info.git.commit}` : ""}`, "is-mono"));
-  root.append(text(xc, 46, "everyone's copy"));
-  root.append(labelled(xc, 60, everyone ?? "none", "is-mono"));
+  for (const [x, head, lines] of cols) {
+    root.append(text(x, 46, head, { cls: x === xb ? "is-strong" : "" }));
+    lines.forEach((l, i) => root.append(text(x, 60 + i * 14, l, { cls: "is-name" })));
+  }
+  let y = top + 10;
   forks.forEach((f, i) => {
-    const y = 90 + i * 18;
-    // From under this copy's two lines of words, so the curve never crosses them.
-    root.append(svg("path", { d: `M${xb} 68 C${xb} ${y} ${xb} ${y} ${xb + 22} ${y}`, class: "ua-lineage-line is-fork" }));
+    // From under this copy's words, so the curve never crosses them.
+    root.append(svg("path", { d: `M${xb} ${top - 6} C${xb} ${y} ${xb} ${y} ${xb + 22} ${y}`, class: "ua-lineage-line is-fork" }));
     root.append(svg("circle", { cx: xb + 24, cy: y, r: 4, class: "ua-lineage-node is-fork" }));
-    root.append(labelled(xb + 30, y + 4, `${f.label ?? f.name.replace(/^@[^/]+\//, "")} · ${f.user}`, "is-mono is-fork", 17));
-    root.lastChild.setAttribute("text-anchor", "start");
+    forkLines[i].forEach((l, j) => {
+      const t = text(xb + 32, y + 4 + j * 14, l, { anchor: "start", cls: "is-name is-fork" });
+      root.append(t);
+    });
+    y += forkLines[i].length * 14 + 4;
   });
-  if (!forks.length) root.append(text(xb, 90, "no customised copies", { cls: "is-dim" }));
+  if (!forks.length) root.append(text(xb, top + 10, "no customized copies", { cls: "is-dim" }));
   return root;
+}
+
+/**
+ * Where a copy's files came from, in plain words with labels rather than ids: "shared from Notion (your
+ * original) on 27 September 2026", "by Thetis", "a folder in your home: packages/notion", or the registry's
+ * repository.
+ */
+export function sourceWords(info, { user = "", label = "" } = {}) {
+  const src = info.source;
+  if (info.everyoneBy === "promoted") {
+    const from = info.promotedFrom;
+    if (!from?.name) return "shared from a person's extension";
+    const whose = from.by ? (from.by === user ? "your original" : `${from.by}'s original`) : "the original";
+    const on = dateWords(from.at);
+    return `shared from ${label || titleCase(baseOf(from.name))} (${whose})${on ? ` on ${on}` : ""}`;
+  }
+  if (!src) return "not known";
+  if (src.kind === "system") return scopeOf(info.name) === "thetis" || !scopeOf(info.name) ? "by Thetis" : `by ${scopeOf(info.name) === user ? "you" : scopeOf(info.name)}, kept on the server`;
+  if (src.kind === "local") {
+    const who = scopeOf(info.name);
+    const dir = String(src.ref ?? "").replace(/^.*?(packages\/[^/]+)\/?$/, "$1");
+    return `a folder in ${who === user ? "your" : who ? `${who}'s` : "a"} home${dir ? `: ${dir}` : ""}`;
+  }
+  const ref = String(src.ref ?? "");
+  const pin = /@([0-9a-f]{7,40})$/.exec(ref);
+  const rest = pin ? ref.slice(0, -pin[0].length) : ref;
+  return rest.replace(/#.*$/, "") || "a registry";
 }
 
 function provenanceCard(ext, ctx) {
   const { el } = ext.dom;
   const { badge, card } = ext.ui;
   const info = ctx.info;
+  const user = ctx.user ?? "";
   const label = ctx.label ?? info.label ?? info.name;
   const forks = ctx.where?.forks ?? [];
   const facts = Object.fromEntries(packageFacts(info).map(([k, v, tone]) => [k, { text: v, tone }]));
   const row = (k, v) => [el("dt", {}, k), el("dd", { class: v?.tone ? `is-${v.tone}` : null }, typeof v === "string" ? v : v?.text ?? "—")];
   const reg = info.registry;
   const everyone = everyonesCopy(info, label);
-  const copies = forks.map((f) => `${f.label ?? f.name} (${f.user}${f.folder && !f.installed ? ", in the folder" : ""})`);
+  const copyWord = (f) => `${f.label ? titleCase(f.label) : titleCase(baseOf(f.name))} (${f.user === user ? "yours" : `${f.user}'s`}${f.folder && !f.installed ? ", in the folder" : ""})`;
+  const copies = forks.map(copyWord);
+  const official = info.forkedFrom ? `${titleCase(info.origin?.label ?? label)} ${info.forkedFrom.version ?? ""} (${info.forkedFrom.name.startsWith("@thetis/") ? "Thetis's" : scopeOf(info.forkedFrom.name) === user ? "your original" : `${scopeOf(info.forkedFrom.name)}'s`})`.replace(/\s+\(/, " (") : null;
+  const pinned = info.source?.kind === "git";
   const rows = [
-    ...row("source", facts.source),
-    ...row("registry", facts.registry),
-    // A reload's "installed" and "available" are versions, not commits: only the install kind has a pin to say.
-    ...row("pinned to", reg?.update?.apply === "install" ? `${short(reg.update.installed)} · ${reg.registry} now at ${short(reg.update.available)}` : info.source?.kind === "git" ? short(/@([0-9a-f]{7,40})$/.exec(info.source.ref)?.[1] ?? "") || "no pin" : "not pinned: not a registry install"),
-    ...row("everyone's copy", everyone ? (everyone === "this one" ? "This one" : everyone) : "None: nobody gets it by default"),
-    ...(facts.workspace ? row("loaded", facts.workspace) : []),
-    ...(facts["own copy"] ? row("customised from", facts["own copy"]) : []),
-    ...row("customised copies", copies.length ? copies.join(", ") : "none"),
-    ...row("depends on", info.dependencies?.length ? el("code", {}, info.dependencies.join(", ")) : "nothing"),
-    ...row("used by", info.dependents?.length ? el("code", {}, info.dependents.join(", ")) : "nothing installed here"),
+    ...row("Source", sourceWords(info, { user, label })),
+    ...row("Registry", reg ? `${reg.registry}${reg.version ? ` holds ${reg.version}` : ""}${reg.update?.apply === "install" ? `; ${reg.update.version} is newer` : ""}` : "not in any registry"),
+    // A pin is a registry install's; anything else has none to speak of.
+    ...(pinned ? row("Pinned to", reg?.update?.apply === "install" ? `${short(reg.update.installed)} · ${reg.registry} now at ${short(reg.update.available)}` : short(/@([0-9a-f]{7,40})$/.exec(info.source.ref)?.[1] ?? "") || "no pin") : []),
+    ...row("Everyone's copy", everyone ? (everyone === "this one" ? "This one" : everyone) : "None: nobody gets it by default"),
+    ...(info.loaded?.behindDisk ? row("Loaded", { text: `${info.loaded.user === user ? "Your" : `${info.loaded.user}'s`} workspace is waiting for a reload (${info.version} is ready once it restarts)`, tone: "warn" }) : []),
+    ...(official ? row("Customized from", { text: official, tone: facts["own copy"]?.tone }) : []),
+    ...row("Customized copies", copies.length ? copies.join(", ") : "none"),
+    ...row("Depends on", info.dependencies?.length ? el("code", {}, info.dependencies.join(", ")) : "nothing"),
+    ...row("Used by", info.dependents?.length ? el("code", {}, info.dependents.join(", ")) : "nothing installed here"),
   ];
-  const headBadge = info.everyoneBy === "promoted" ? badge("Shared copy", "accent") : info.forkedFrom ? badge("Customised copy", "dim") : info.source?.kind === "system" ? badge("by Thetis", "dim") : info.source?.kind === "git" ? badge(`from ${reg?.registry ?? "a registry"}`, "accent") : badge("in a folder", "dim");
-  const node = card(el("span", { class: "ua-card-title" }, "Provenance", headBadge), lineage(info, forks, label), el("dl", { class: "kv ua-pkg-facts" }, ...rows));
+  const headBadge = info.everyoneBy === "promoted" ? badge("Shared copy", "accent") : info.forkedFrom ? badge("Customized copy", "dim") : info.source?.kind === "system" ? badge(scopeOf(info.name) === "thetis" ? "by Thetis" : `by ${scopeOf(info.name) === user ? "you" : scopeOf(info.name)}`, "dim") : info.source?.kind === "git" ? badge(`from ${reg?.registry ?? "a registry"}`, "accent") : badge("in a folder", "dim");
+  const node = card(el("span", { class: "ua-card-title" }, "Provenance", headBadge), lineage(info, forks, label, user), el("dl", { class: "kv ua-pkg-facts" }, ...rows));
   node.classList.add("ua-provenance");
   return node;
 }

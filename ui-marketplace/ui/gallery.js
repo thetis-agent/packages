@@ -6,9 +6,10 @@
  *   sentence why, and one action: **Update**, **Set up** or **Review**. **Update N** beside the heading updates
  *   exactly the Update rows, and says "Your own copies are not touched." The person's own changes waiting to be
  *   applied are a line above it, with **Apply**.
- * - **Installed (n)**: what the person has, with the pills **All · Added by you · For everyone · Customized**.
- *   `n` is the number the Control panel says too. Something an admin installed for them says "Given to you by
- *   <admin>".
+ * - **Installed (n)**: what the person has, with the pills **All · Installed by you · Given to you ·
+ *   Customized**, each counting what the search leaves. `n` is the number the Control panel says too. Something
+ *   an admin installed for them says "Given to you by <admin>". A pill that hides what the search found says so,
+ *   with **Show all**.
  * - **Discover (n)**: what they could add. Never a version of something they already have, never an extension
  *   only an admin may have, unless they are one.
  * - Two folded sections: **Drafts in your folder** (extensions that exist only as folders under their home's
@@ -18,7 +19,11 @@
  * One card per extension family: an original, its copies and a shared copy of it are one extension with
  * several versions, and the card shows the person's own. A card is the label (its package id only as the
  * label's tooltip), the publisher line ("by Thetis · Tools"), a row of at most two chips, one line of what it
- * does, and what it brings with its version.
+ * does, and what it brings with its version. A search puts a match on the name first.
+ *
+ * While the place is open the rows are read again now and then (watch.js), and a change somebody else made to
+ * what the person has is said in one line over the sections -- "bitmuse removed Exa Web Search for you." -- and
+ * drawn.
  *
  * Every row is read once, with the person's folder, and the search and the chips narrow them here, so a key
  * press is not a round trip; while a search or a type narrows the list, a section with nothing in it is not
@@ -29,25 +34,15 @@
  * toolbar, the page in registries.js. */
 
 import { chipNodes } from "./badges.js";
-import { FILTERS, PILLS, WORDS, isCopy, kindsOf, placeSections } from "./state.js";
+import { FILTERS, PILLS, WORDS, bringsOf, isCopy, placeSections } from "./state.js";
 import { updater } from "./updates-notice.js";
+import { every, observe } from "./watch.js";
 
 /** Kept across opens: the query, the type chip, the Installed pill, and which folded sections are open. */
 const last = { q: "", kind: "", pill: "", open: { drafts: false, thetis: false } };
 
-const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-
-/** "11 tools", "4 skills", "1 page", "Models", "Runs in the background": what an extension brings, for the card's foot. Never empty. */
-export function bringsLine(r) {
-  if (r.tools?.length) return plural(r.tools.length, "tool");
-  if (r.skills) return plural(r.skills, "skill");
-  if (r.pages) return plural(r.pages, "page");
-  const kinds = kindsOf(r);
-  if (kinds.includes("Models")) return "Models";
-  if (kinds.includes("Skills")) return "Skills";
-  if (kinds.includes("Page")) return "A page";
-  return "Runs in the background";
-}
+/** "11 tools", "7 tools · 12 skills", "1 page", "Models", "Runs in the background": the card's foot, from the same kinds as its type. Never empty. */
+export const bringsLine = bringsOf;
 
 /** The rows with each installed extension's configuration report folded on, so `stateOf` reads it. */
 export function withConfig(rows, reports) {
@@ -86,6 +81,7 @@ export function openGallery(ext, root, params) {
   let pending = null; // the `updates` answer, or null when this page cannot ask for it
   let reports = new Map(); // package -> its short configuration report, for installed packages
   let facts = { indexed: false, updatedAt: null, registries: [], total: 0 };
+  let changed = []; // what somebody else changed under the person, said over the sections
   // While the place is open the "Updates ready" card stays away; the status line says what it would.
   const release = updater()?.hold?.() ?? null;
 
@@ -115,6 +111,7 @@ export function openGallery(ext, root, params) {
       if (!alive) return;
       const data = out?.data ?? {};
       rows = Array.isArray(data.rows) ? data.rows : [];
+      changed = observe(rows, { changes: data.changes });
       who = { user: data.user ?? "", admin: !!data.role && data.role !== "user" };
       pending = ups?.data ?? null;
       facts = { indexed: !!data.indexed, updatedAt: data.updatedAt ?? null, registries: Array.isArray(data.registries) ? data.registries : [], total: data.total ?? 0 };
@@ -137,6 +134,26 @@ export function openGallery(ext, root, params) {
   function details(text) {
     if (!text) return null;
     return el("details", { class: "mk-details" }, el("summary", {}, "Details"), el("pre", { class: "mk-wrap" }, String(text)));
+  }
+
+  /**
+   * Reads the rows again without a spinner, and draws only when what the person has changed under them: then
+   * the line says what, and the reports are read again too.
+   */
+  async function recheck() {
+    let data;
+    try {
+      data = (await ext.request("search", { args: { folder: true } }))?.data ?? null;
+    } catch {
+      return;
+    }
+    if (!alive || !Array.isArray(data?.rows)) return;
+    const lines = observe(data.rows, { changes: data.changes });
+    if (!lines.length) return;
+    rows = data.rows;
+    changed = lines;
+    draw();
+    await loadReports();
   }
 
   /** The configuration reports. Drawn after the rows, so the store never waits on them; a failure leaves the cards as they are. */
@@ -178,7 +195,7 @@ export function openGallery(ext, root, params) {
       el("div", { class: "mk-card-chips tags" }, ...chipNodes(badge, state.chips)),
       el("p", { class: "mk-card-desc" }, entry.summary || "No description."),
       entry.given ? el("span", { class: "mk-card-note" }, entry.given) : state.waiting ? el("span", { class: "mk-card-note" }, WORDS.waiting) : null,
-      el("span", { class: "mk-card-foot" }, el("span", {}, bringsLine(r)))
+      el("span", { class: "mk-card-foot" }, el("span", {}, entry.brings ?? bringsOf(r)))
     );
   }
 
@@ -189,13 +206,21 @@ export function openGallery(ext, root, params) {
       if (todo.kind === "update" && u) return void u.updateSome([r.name]);
       open(r.name, todo.kind === "setup" || todo.kind === "optional" ? { tab: "settings" } : {});
     };
+    // Every row's button the same weight: the reason's colour says which is urgent, the button only what to do.
     return el(
       "li",
       { class: `mk-todo is-${todo.tone}`, "data-name": r.name, "data-kind": todo.kind },
       el("button", { type: "button", class: "mk-todo-label", title: r.name, onClick: () => open(r.name) }, entry.label),
-      el("span", { class: "mk-todo-reason" }, todo.reason),
-      button(todo.action, { tone: todo.kind === "update" || todo.kind === "setup" ? "primary" : "quiet", onClick: act })
+      el("span", { class: "mk-todo-reason" }, ...linked(todo.reason, todo.link)),
+      button(todo.action, { tone: "quiet", onClick: act })
     );
+  }
+
+  /** A sentence with its link drawn as a link: `link` is `{ text, href }`, found in the sentence by its text. */
+  function linked(sentence, link) {
+    if (!link || !sentence.includes(link.text)) return [sentence];
+    const at = sentence.indexOf(link.text);
+    return [sentence.slice(0, at), el("a", { href: link.href, target: "_blank", rel: "noopener noreferrer" }, link.text), sentence.slice(at + link.text.length)];
   }
 
   function section(id, title, count, content, { action = null, empty = null, extra = null } = {}) {
@@ -225,7 +250,7 @@ export function openGallery(ext, root, params) {
     return node;
   }
 
-  /** The pills over Installed, each with how many it holds. */
+  /** The pills over Installed, each with how many it holds of what the search leaves. */
   function pills(counts) {
     return el(
       "div",
@@ -233,9 +258,17 @@ export function openGallery(ext, root, params) {
       ...PILLS.map((p) => {
         const active = last.pill === p.id;
         const n = p.id ? counts[p.id] : counts.installed;
-        return el("button", { type: "button", class: `mk-pill-btn${active ? " is-active" : ""}`, "data-pill": p.id, "aria-pressed": String(active), disabled: !n && !active ? true : null, onClick: () => { last.pill = p.id; draw(); } }, p.label, el("span", { class: "mk-pill-n" }, String(n)));
+        return el("button", { type: "button", class: `mk-pill-btn${active ? " is-active" : ""}`, "data-pill": p.id, title: p.tooltip ?? null, "aria-pressed": String(active), disabled: !n && !active ? true : null, onClick: () => { last.pill = p.id; draw(); } }, p.label, el("span", { class: "mk-pill-n" }, String(n)));
       })
     );
+  }
+
+  /** "Exa Web Search is hidden by the 'Given to you' filter — Show all", when the pill hides what the search found. */
+  function hiddenLine(labels) {
+    if (!labels.length || !last.pill) return null;
+    const pill = PILLS.find((p) => p.id === last.pill)?.label ?? last.pill;
+    const shown = labels.length > 3 ? [...labels.slice(0, 3), `${labels.length - 3} more`] : labels;
+    return el("p", { class: "mk-hidden-by" }, `${WORDS.hiddenByPill(shown, pill)} — `, el("button", { type: "button", class: "mk-link-btn", onClick: () => { last.pill = ""; draw(); } }, "Show all"));
   }
 
   function draw() {
@@ -257,18 +290,20 @@ export function openGallery(ext, root, params) {
         })
       : null;
     // While a search or a type narrows the list, a section with nothing in it is not drawn at all.
-    const installed = narrowed && !s.installed.length
+    const hidden = hiddenLine(s.hidden);
+    const installed = narrowed && !s.installed.length && !hidden
       ? null
       : section("mk-installed", WORDS.sections.installed, s.installed.length, cards(s.installed), {
-          extra: s.all.counts.installed ? pills(s.all.counts) : null,
-          empty: last.pill ? "None of these." : narrowed ? null : "Nothing installed yet. Discover has what you can add.",
+          extra: s.all.counts.installed ? el("div", { class: "mk-pills-wrap" }, pills(s.found), hidden) : null,
+          empty: hidden ? null : last.pill ? "None of these." : narrowed ? null : "Nothing installed yet. Discover has what you can add.",
         });
     const discover = narrowed && !s.discover.length ? null : section("mk-discover", WORDS.sections.discover, s.discover.length, cards(s.discover), { empty: "Nothing else to add right now." });
     const drafts = s.drafts.length ? fold("drafts", "mk-drafts", WORDS.sections.drafts, s.drafts, "Extensions in your home's packages folder that are not installed.") : null;
     const thetis = s.thetis.length ? fold("thetis", "mk-thetis", WORDS.sections.thetis, s.thetis, who.admin ? "The parts that make Thetis run." : "The parts that make Thetis run, as you have them.") : null;
-    const nothing = narrowed && !s.attention.length && !s.installed.length && !s.discover.length && !s.drafts.length && !s.thetis.length ? el("p", { class: "mk-none" }, "Nothing matches.") : null;
+    const nothing = narrowed && !s.attention.length && !s.installed.length && !s.hidden.length && !s.discover.length && !s.drafts.length && !s.thetis.length ? el("p", { class: "mk-none" }, "Nothing matches.") : null;
     put(
       body,
+      changed.length ? el("p", { class: "mk-changed", role: "status" }, changed.join(" ")) : null,
       ownLine,
       attention,
       installed,
@@ -280,8 +315,10 @@ export function openGallery(ext, root, params) {
   }
 
   void load();
+  const stopWatch = every(ext, () => void recheck());
   return () => {
     alive = false;
+    stopWatch();
     release?.();
   };
 }

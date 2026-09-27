@@ -15,6 +15,7 @@
   "thetis": {
     "type": "tool",
     "label": "publishing",
+    "summary": "Lets you publish your own extensions to a registry, so other people can install them.",
     "config": {
       "targets": {
         "type": "array",

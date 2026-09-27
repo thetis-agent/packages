@@ -9,7 +9,8 @@
 // comes from `env.user`, never from the arguments.
 import { isAbsolute, resolve } from "node:path";
 import { dependenciesOf, gitWord, installedPackage, realRoot } from "./git.js";
-import { factsOf, promotions } from "./fleet.js";
+import { factsOf, isComponent, promotions } from "./fleet.js";
+import { copyChanges } from "./changes.js";
 
 const USER_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const MOUNT_LIMIT = 32;
@@ -172,7 +173,31 @@ export async function packageInfo(args, env) {
   const origin = forkedFrom?.name ? await originOf(env, forkedFrom.name) : null;
   // Installed in no person's workspace, only in the system's: the sign-in page, the registries' service, a provider.
   const systemOnly = info.loadedIn === "_system";
-  return { data: { name, version, type, description, label, audience, root, everyone: Boolean(everyone), everyoneBy: everyoneBy ?? null, forkedFrom: forkedFrom ?? null, fork, replaced: replaced ?? null, source: source ?? null, promotedFrom, sharedAs, origin, systemOnly, tools, hasSkills, pages, service, steps, loaded: loadedWord(info, version), registry, git, dependencies, dependents } };
+  const { summary } = factsOf(info);
+  // One of Thetis's own parts, by the Extensions place's rule, for the admin asking.
+  const component = isComponent({ name, type, audience, installed: info.loadedIn === env.user });
+  return { data: { name, version, type, description, summary, component, nobody: Boolean(info.nobody), label, audience, root, everyone: Boolean(everyone), everyoneBy: everyoneBy ?? null, forkedFrom: forkedFrom ?? null, fork, replaced: replaced ?? null, source: source ?? null, promotedFrom, sharedAs, origin, systemOnly, tools, hasSkills, pages, service, steps, loaded: loadedWord(info, version), registry, git, dependencies, dependents } };
+}
+
+/**
+ * package-changes: what a copy changed since it was made -- the files, and the change to the text ones as a
+ * unified diff against its origin's files on disk, cut at 200 lines (`changes.js`). `moved` says the origin
+ * changed those files too, so the diff holds its changes as well as the person's. `files` is null when the
+ * copy has no record of what it was made from.
+ */
+export async function packageChanges(args, env) {
+  const name = packageName(args.name);
+  const info = await installedPackage(env, name);
+  const from = info.forkedFrom ?? fail(`${name} is not a copy of another extension`);
+  const origin = await originRecord(env, from.name);
+  const out = copyChanges(realRoot(info.root), origin?.root ? realRoot(origin.root) : null);
+  return { data: { name, base: from.version ?? null, origin: { name: from.name, version: origin?.version ?? null }, ...out } };
+}
+
+/** The origin's record on disk, for its files: the catalog's, else the admin's own list's. */
+async function originRecord(env, name) {
+  const catalog = typeof env.kernel.packages.catalog === "function" ? await env.kernel.packages.catalog().catch(() => []) : [];
+  return (catalog ?? []).find((p) => p.name === name) ?? (await env.kernel.packages.list().catch(() => [])).find((p) => p.name === name) ?? null;
 }
 
 /** The official record a copy was made from, from the packages on disk: its label, version and whether everyone gets it. */
@@ -237,6 +262,8 @@ export async function configUnset(args, env) {
 
 /** What `config-reveal` answers when the layer asked about is not the one whose value the asker runs with. */
 export const NOT_IN_EFFECT = "This value is not the one in effect for you, so it cannot be shown here.";
+/** What it answers when the asker's own value is used instead of everyone's, which they asked to see. */
+export const OWN_INSTEAD = "Your own key is used instead of this one, so it isn't shown. Clear your own key to see and use everyone's.";
 
 /**
  * config-reveal: one saved value, for the settings form's Show. Revealed only when the layer being viewed
@@ -249,7 +276,7 @@ export async function configReveal(args, env) {
   const name = packageName(args.name);
   const key = configKey(args.key);
   const layer = args.layer === "user" ? "user" : args.layer === "system" ? "system" : fail("layer is system or user");
-  if (layer === "user" && args.user !== undefined && args.user !== "" && args.user !== env.user) fail(NOT_IN_EFFECT);
+  if (layer === "user" && args.user !== undefined && args.user !== "" && args.user !== env.user) fail(`This is ${userId(args.user, "user")}'s own key, so it isn't shown to anyone else.`);
   let report;
   try {
     report = await env.kernel.config.show(name);
@@ -258,6 +285,7 @@ export async function configReveal(args, env) {
   }
   const k = (Array.isArray(report?.keys) ? report.keys : []).find((x) => x?.key === key);
   if (!k || k.state === "unset" || !k.source) fail("Nothing is saved for this setting.");
+  if (layer === "system" && k.source === "user") fail(OWN_INSTEAD);
   if (k.source !== layer) fail(NOT_IN_EFFECT);
   if (typeof k.value === "string" && /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(k.value)) return { data: { value: k.value } };
   const values = await env.kernel.config.effective(name);

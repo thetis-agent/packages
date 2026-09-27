@@ -11,6 +11,7 @@
   "thetis": {
     "type": "ui",
     "label": "context panel",
+    "summary": "Shows what the model received on the last call.",
     "ui": {
       "dir": "ui",
       "entry": "index.js",

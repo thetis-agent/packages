@@ -1,11 +1,16 @@
 /* The control panel's answers as rows of the Extensions place's shape (`@thetis/ui-marketplace` `lib/rows.js`),
  * so `state.js` reads them with the place's own rules and a table row, a tree entry and a page header say the
- * same thing about the same extension as the place does. `fleet` gives one row per extension across every
- * workspace; `package-info` with `config-show` and `package-where` gives one extension's page. Nothing here asks
- * anything: it only reshapes what was read, and `described` works out what a surface draws from a row. */
+ * same thing about the same extension as the place does -- for the admin reading, the way the place says it to
+ * them. A row is installed when the reader has it themselves (a copy of theirs standing in for it is the copy's
+ * row, not this one); Needs setup is the reader's own layer, which is what reaches the extension for them;
+ * Update available is a registry's newer commit or the reader's own workspace running an older version than the
+ * disk. Another person's workspace that has not reloaded is theirs, and Who has what says it in their cell as
+ * "Waiting for a reload". `fleet` gives one row per extension across every workspace (and the ones on disk
+ * nobody has); `package-info` with the reader's `config-show` and `package-where` gives one extension's page.
+ * Nothing here asks anything: it only reshapes what was read, and `described` works out what a surface draws
+ * from a row. */
 
-import { baseOf, giverOf, labelOf, listOf, originNameOf, publisherLine, scopeOf, stateOf } from "./state.js";
-import { waitingSentence } from "./words.js";
+import { baseOf, giverOf, labelOf, originNameOf, placeSections, publisherLine, scopeOf, stateOf, summaryOf } from "./state.js";
 
 /** The name a person reads when the manifest gives no label: the bare name, a `ui-` prefix dropped, dashes as spaces. */
 const bare = (name) => baseOf(name).replace(/^ui-/, "").replace(/[-_.]+/g, " ").trim() || String(name ?? "");
@@ -19,11 +24,13 @@ function common(p, user) {
   return {
     name: p.name,
     label: p.label || bare(p.name),
-    // Whether the manifest names it: a customised copy with a label of its own keeps it (a variant).
+    // Whether the manifest names it: a customized copy with a label of its own keeps it (a variant).
     labelGiven: Boolean(p.label),
     version: p.version ?? null,
     type: p.type ?? null,
     description: p.description ?? "",
+    // The manifest's plain sentence, when it gives one: the first line a card and a page say.
+    summary: p.summary ?? null,
     audience: p.audience ?? null,
     installed: true,
     system: p.source?.kind === "system",
@@ -47,58 +54,61 @@ function common(p, user) {
   };
 }
 
+/** A configuration report as the one state reads it: broken with its missing keys, or whole. */
+const reportOf = (broken, summary, keys) => (broken ? { broken: true, summary: summary || "A setting is missing", keys: missingKeys(keys) } : { broken: false, summary: summary ?? "", keys: [] });
+
 /**
- * A `fleet` row. Update available is a registry holding a newer commit, or people whose workspace has not
- * applied the copy on disk (`update.waiting` counts them). Needs setup is the system layer's report, whose
- * missing keys the server passes on, or a person's own layer (their cell says `broken`).
+ * A `fleet` row, as the reader has it. Installed is the reader's own copy (`mine`); Needs setup is their own
+ * layer's report (their cell carries the missing keys); Update available is a registry holding a newer commit,
+ * or their own workspace running an older version than the disk. Whether it is one of Thetis's own parts
+ * (`component`) is the server's word, the place's rule.
  */
 export function rowFromFleet(p, { user = "" } = {}) {
   const install = p.registry?.update?.apply === "install";
-  const waiting = Array.isArray(p.waiting) ? p.waiting : [];
-  // The people whose own layer is missing something: a fork standing in for the original is that fork's
-  // business, and the system workspace is the system layer's.
-  const people = Object.entries(p.byUser ?? {}).filter(([who, c]) => c?.broken && !c.fork && who !== "_system").map(([who]) => who);
-  const loaded = waiting.map((w) => p.byUser?.[w]?.loaded).find(Boolean) ?? null;
-  const config = p.config?.broken
-    ? { broken: true, summary: p.config.summary || "A setting is missing", keys: missingKeys(p.config.missing) }
-    : people.length
-      ? { broken: true, summary: `A setting is missing for ${listOf(people)}`, keys: [] }
-      : p.config
-        ? { broken: false, summary: p.config.summary ?? "", keys: [] }
-        : null;
+  const cell = user ? p.byUser?.[user] : null;
+  const has = Boolean(cell && !cell.fork);
+  const loaded = has && cell.loaded && cell.loaded !== p.version ? cell.loaded : null;
   return {
     ...common(p, user),
+    installed: user ? has : true,
+    component: Boolean(p.component),
+    nobody: Boolean(p.nobody),
     registry: p.registry?.registry ?? null,
-    // A copy whose official version moved on is not an update of what anyone runs (it is Customized, and its page
-    // says what using Thetis's version would do), so the kind `unfork` is never one here; nor is a reload whose
-    // loaded version is not known to differ, which would read "Version X is ready; you have X".
-    update: install ? { apply: "install", version: p.registry.update.version } : waiting.length && (!loaded || loaded !== p.version) ? { apply: "reload", available: p.version, installed: loaded && loaded !== p.version ? loaded : null, waiting: waiting.length } : null,
-    config,
+    update: install ? { apply: "install", version: p.registry.update.version, from: p.registry.update.from ?? null, to: p.registry.update.to ?? null } : loaded ? { apply: "reload", available: p.version, installed: loaded } : null,
+    config: has ? reportOf(cell.broken, cell.summary, cell.missing) : !user && p.config ? reportOf(p.config.broken, p.config.summary, p.config.missing) : null,
   };
 }
 
+/** Every fleet row as the reader has it, for the place's own sections and counts. */
+export const rowsFromFleet = (packages, user = "") => packages.map((p) => rowFromFleet(p, { user }));
+
 /**
- * One extension's page: `info` from `package-info`, `config` the system layer's `config-show` report, `where`
- * from `package-where`. Update available is the registry's newer commit, this workspace not having applied the
- * copy on disk, or people who have not.
+ * The Extensions place's own numbers and to-dos, from the fleet, for the reader: `counts.installed` (what they
+ * have, Thetis's parts apart), `counts.thetis` (the parts), `counts.attention` and the `attention` rows. The
+ * same function the place draws from, so the two never disagree.
+ */
+export const placeOf = (packages, user = "") => placeSections(rowsFromFleet(packages, user), { user, admin: true });
+
+/**
+ * One extension's page, for the reader: `info` from `package-info`, `config` the reader's own `config-show`
+ * report, `where` from `package-where`. Installed is whether the reader has this one themselves; Update
+ * available a registry's newer commit, or the reader's own workspace running an older version than the disk.
  */
 export function rowFromInfo(info, { config = null, where = null, user = "" } = {}) {
   if (!info) return null;
   const reg = info.registry;
-  const waiting = where?.counts?.waiting ?? 0;
+  const me = (where?.people ?? []).find((p) => p.user === user) ?? null;
+  // A copy of theirs standing in for this one is the copy's page, not this one's.
+  const has = where ? Boolean(me?.installed && me.forkedFrom?.name !== info.name) : true;
   const install = reg?.update?.apply === "install";
-  const people = (where?.people ?? []).filter((p) => p.installed && p.config?.broken).map((p) => p.user);
-  const report = config?.broken ? config : people.length ? { broken: true, summary: `A setting is missing for ${listOf(people)}`, keys: [] } : config;
+  const reload = has && info.loaded?.behindDisk && info.loaded.user === user;
   return {
     ...common(info, user),
+    installed: has,
+    component: Boolean(info.component),
     registry: reg?.registry ?? null,
-    // `unfork` (a copy's official version moved on) is never an update; see `rowFromFleet`.
-    update: install
-      ? { apply: "install", version: reg.update.version }
-      : info.loaded?.behindDisk || waiting || reg?.update?.apply === "reload"
-        ? { apply: "reload", available: info.version, installed: info.loaded?.behindDisk ? info.loaded.version : null, waiting }
-        : null,
-    config: report ?? null,
+    update: install ? { apply: "install", version: reg.update.version, from: String(reg.update.installed ?? "").slice(0, 7) || null, to: String(reg.update.available ?? "").slice(0, 7) || null } : reload ? { apply: "reload", available: info.version, installed: info.loaded.version } : null,
+    config: has && config ? config : null,
   };
 }
 
@@ -116,17 +126,12 @@ export function contextOf(row, rows = []) {
 }
 
 /**
- * What a surface draws for one row: its label, its publisher line and its state, read by an admin. The one
- * sentence is the place's, except where the control panel knows more: an update that only waits on people
- * applying it says who is waiting rather than "you have".
+ * What a surface draws for one row: its label, its publisher line, its one plain line and its state, read by an
+ * admin -- the place's words for the same row.
  */
 export function described(row, { rows = [], user = "" } = {}) {
   const { origin, family } = contextOf(row, rows);
   const label = labelOf(row, origin);
   const state = stateOf(row, { admin: true, origin, label, user, giver: giverOf(row, { user, family }) });
-  // Applying, when the version the reader's own workspace runs is not known to differ: who is waiting, never
-  // "Version X is ready; you have X".
-  const reload = row.update?.apply === "reload" && !state.setup.chip && state.update?.kind === "update";
-  const waitingFor = reload && row.update.waiting ? `${waitingSentence(row.update.waiting)}.` : reload && !row.update.installed ? `Version ${row.update.available} is on disk and goes live when updates are applied.` : null;
-  return { label, publisher: publisherLine(row, { user, family }), state: waitingFor ? { ...state, reason: waitingFor } : state, origin };
+  return { label, publisher: publisherLine(row, { user, family }), summary: summaryOf(row, origin), state, origin };
 }

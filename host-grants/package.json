@@ -14,6 +14,7 @@
   "thetis": {
     "type": "host",
     "label": "folders and SSH keys",
+    "summary": "The folders and SSH keys people may use.",
     "host": {
       "name": "grants",
       "self": [

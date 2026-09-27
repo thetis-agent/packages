@@ -12,6 +12,7 @@
   "thetis": {
     "type": "loader",
     "label": "chat engine",
+    "summary": "Runs each conversation: sends it to the model and runs the tools it asks for.",
     "config": {
       "turnContext": { "type": "boolean", "default": true, "help": "Append a [Turn context: <weekday> <date> <time> <zone>] line to each message from the person, so the model knows when it is." },
       "timeZone": { "type": "string", "help": "The IANA zone of the turn context line, for example Europe/Berlin. Unset means the zone of the daemon." },

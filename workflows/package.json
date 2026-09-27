@@ -11,6 +11,7 @@
   "thetis": {
     "type": "tool",
     "label": "workflows",
+    "summary": "Lets you build step-by-step automations that run by themselves, drawn in a visual editor.",
     "config": {
       "concurrency": {
         "type": "number",

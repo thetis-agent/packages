@@ -11,6 +11,7 @@
   "thetis": {
     "type": "gateway",
     "label": "sign-in page",
+    "summary": "The sign-in page.",
     "config": {
       "secure": {
         "type": "boolean",

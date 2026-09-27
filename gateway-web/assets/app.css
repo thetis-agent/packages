@@ -1430,6 +1430,8 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 /* The corner: one column for the notices (persistent, on top) and the toasts (fading, under them). */
 .corner { position: fixed; right: var(--corner-right, var(--gap-4)); bottom: var(--corner-bottom, var(--gap-4)); z-index: 80; display: flex; flex-direction: column; gap: var(--gap-2); width: min(420px, calc(100vw - 32px)); pointer-events: none; }
 .corner > * { pointer-events: auto; }
+/* On a phone, while a field has the focus, the corner is at the top, clear of the field and the keyboard. */
+.corner.is-top { top: calc(env(safe-area-inset-top, 0px) + var(--gap-3)); bottom: auto; }
 .toast-host { display: flex; flex-direction: column; gap: var(--gap-2); }
 .toast-host:empty, .notice-host:empty { display: none; }
 .notice-host { display: flex; flex-direction: column; gap: var(--gap-2); }
@@ -1717,7 +1719,7 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .tree-mark.is-err { background: var(--err); }
 .tree-mark.is-warn { background: var(--warn); }
 .tree-item.is-page .tree-label { font-family: var(--font); font-size: var(--text-sm); }
-.tree-count { flex: none; margin-left: auto; padding-left: 8px; font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); white-space: nowrap; }
+.tree-count { flex: none; margin-left: auto; padding-left: 8px; font-family: var(--font); font-size: var(--text-xs); color: var(--text-faint); white-space: nowrap; }
 .tree-count-look { color: var(--warn); }
 .tree-marks { flex: none; margin-left: auto; padding-left: 6px; display: inline-flex; gap: 3px; }
 .tree-count + .tree-marks { margin-left: 0; }
@@ -1789,6 +1791,8 @@ select.input { padding-right: 24px; }
 .card-actions { display: flex; gap: var(--gap-2); flex-wrap: wrap; }
 .add-block .row { display: flex; gap: var(--gap-2); }
 .add-block .row .input { flex: 1; }
+/* The parts of Thetis, folded beneath what is installed, as the Extensions place keeps them apart. */
+.ext-parts > summary { cursor: pointer; margin: var(--gap-3) 0 var(--gap-2); color: var(--text-dim); font-size: var(--text-sm); }
 .row { display: flex; gap: var(--gap-2); align-items: flex-end; }
 .row.wrap { flex-wrap: wrap; }
 .row > .input { flex: 1; min-width: 120px; }

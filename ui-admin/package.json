@@ -1,6 +1,6 @@
 {
   "name": "@thetis/ui-admin",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "license": "MIT",
   "description": "The control panel's sections beyond Extensions, and the admin's Thetis update notice: Overview, People, Models, Access (mounts and SSH keys), Activity, Account and Advanced. Everyone sees Models, Access, Activity and Account about themselves; an admin sees all of them, about everyone.",
   "type": "module",
@@ -8,6 +8,7 @@
   "thetis": {
     "type": "ui",
     "label": "control panel",
+    "summary": "The Control panel.",
     "ui": {
       "dir": "ui",
       "entry": "index.js",
@@ -153,6 +154,12 @@
           "role": "admin"
         },
         {
+          "verb": "package-changes",
+          "export": "packageChanges",
+          "label": "What a copy changed since it was made: the files and the diff",
+          "role": "admin"
+        },
+        {
           "verb": "package-log",
           "export": "packageLog",
           "label": "The commits touching one package, with what is pushed and pinned",
@@ -227,7 +234,7 @@
         {
           "verb": "package-unfork",
           "export": "packageUnfork",
-          "label": "Use Thetis's version instead of your own customised copy",
+          "label": "Use Thetis's version instead of your own customized copy",
           "role": "admin"
         },
         {

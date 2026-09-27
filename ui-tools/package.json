@@ -8,6 +8,7 @@
   "thetis": {
     "type": "ui",
     "label": "tools panel",
+    "summary": "The Tools panel beside the chat: which tools a conversation can use.",
     "ui": {
       "dir": "ui",
       "entry": "index.js",

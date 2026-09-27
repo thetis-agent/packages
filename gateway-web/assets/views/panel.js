@@ -10,8 +10,10 @@
  * hides most of the sections behind an inner scroll.
  *
  * A `panel` entry declared with `under: <section id>` is not a node of its own: it hangs pages under that
- * section, the nodes its module answers from `children()` (`{ id, label, note?, mark?, children? }`, to
- * any depth), and selecting one mounts the entry with `child` naming it. That is how the packages with
+ * section, the nodes its module answers from `children()` (`{ id, label, note?, mark?, look?, closed?,
+ * children? }`, to any depth), and selecting one mounts the entry with `child` naming it. `look` says a node
+ * needs a look whatever its mark's tone, and the count beside the section is of every node below it that needs
+ * one; `closed` starts a node closed until the reader opens it. That is how the packages with
  * configuration sit under Extensions, each with a page of its own, without the shell knowing what
  * configuration is. The children are read when the panel opens, when a module registers late, when the
  * parent section is shown, and when a page asks through `refresh`. A place opened with `{ section, child,
@@ -72,11 +74,13 @@ function openPanel(root, params) {
   function pages(entry, list) {
     return (Array.isArray(list) ? list : [])
       .filter((k) => k && typeof k.id === "string")
-      .map((k) => ({ key: nodeKey(entry.key, k.id), label: k.label || k.id, title: k.note ?? null, kind: k.kind === "page" ? "page" : null, mark: k.mark ?? null, marks: Array.isArray(k.marks) ? k.marks : [], data: { entryKey: entry.key, child: k.id }, children: pages(entry, k.children) }));
+      .map((k) => ({ key: nodeKey(entry.key, k.id), label: k.label || k.id, title: k.note ?? null, kind: k.kind === "page" ? "page" : null, mark: k.mark ?? null, look: k.look === true, closed: k.closed === true, marks: Array.isArray(k.marks) ? k.marks : [], data: { entryKey: entry.key, child: k.id }, children: pages(entry, k.children) }));
   }
 
-  /** A node needs a look when a package said so with a warn or err mark. The count on a section is of its pages, not of pages of pages. */
-  const looks = (node) => node.mark === "warn" || node.mark === "err" || node.marks.some((m) => m && (m.tone === "warn" || m.tone === "err"));
+  /** A node needs a look when a package said so: `look`, or a warn or err mark. */
+  const looks = (node) => node.look === true || node.mark === "warn" || node.mark === "err" || node.marks.some((m) => m && (m.tone === "warn" || m.tone === "err"));
+  /** Every node below, to any depth, that is not a page: what the section's count is of. */
+  const below = (list) => list.flatMap((n) => [...(n.kind === "page" ? [] : [n]), ...below(n.children ?? [])]);
 
   /** The legend at the foot: every glyph in use, once, with the first sentence it came with. */
   function drawFoot(nodes) {
@@ -96,7 +100,7 @@ function openPanel(root, params) {
   function drawNav() {
     const nodes = sections.map((section) => {
       const kids = hung.filter((e) => hangsUnder(e, section)).flatMap((e) => pages(e, children.get(e.key)));
-      const counted = kids.filter((k) => k.kind !== "page");
+      const counted = below(kids);
       return {
         key: section.key,
         label: section.decl.label || section.id,

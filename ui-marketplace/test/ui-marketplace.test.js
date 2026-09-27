@@ -916,3 +916,106 @@ test("fork diff: the files a copy changed since it was made, from the base it re
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("rows: a removal since an admin's install means the next install is not known to be theirs", async () => {
+  const { withJournal } = await import("../lib/rows.js");
+  const rows = [{ name: "@thetis/exa", installed: true }];
+  const given = [{ at: "1", kind: "package.install", actor: "bitmuse", target: "sam", data: { name: "@thetis/exa" } }];
+  assert.equal(withJournal(rows, given, "sam")[0].givenBy, "bitmuse");
+  const since = [...given, { at: "2", kind: "package.uninstall", actor: "bitmuse", target: "sam", data: { name: "@thetis/exa" } }];
+  assert.equal(withJournal(rows, since, "sam")[0].givenBy, undefined);
+});
+
+test("changes: what others did to a person's extensions, from the journal, and never the person's own acts", () => {
+  const journal = [
+    { at: "1", kind: "package.install", actor: "bitmuse", target: "sam", data: { name: "@thetis/exa" } },
+    { at: "2", kind: "package.uninstall", actor: "sam", target: "sam", data: { name: "@thetis/exa" } },
+    { at: "3", kind: "package.uninstall", actor: "bitmuse", target: "rae", data: { name: "@thetis/exa" } },
+    { at: "4", kind: "package.uninstall", actor: "operator", target: "sam", data: { name: "@thetis/exa" } },
+    { at: "5", kind: "package.uninstall", actor: "bitmuse", target: "sam", data: { name: "@thetis/exa" } },
+    { at: "6", kind: "package.everyone", actor: "bitmuse", target: "@thetis/exa", data: {} },
+  ];
+  assert.deepEqual(commands.changesFor(journal, "sam"), [
+    { kind: "install", actor: "bitmuse", name: "@thetis/exa", at: "1" },
+    { kind: "uninstall", actor: "bitmuse", name: "@thetis/exa", at: "5" },
+  ]);
+});
+
+test("watch: a change somebody else made is said once, in the journal's words; the place's own act is not", async () => {
+  const { observe, expectChange, unexpectChange, resetWatch } = await import("../ui/watch.js");
+  resetWatch();
+  const exa = { name: "@thetis/exa", label: "Exa web search", installed: true };
+  const notes = { name: "@thetis/notes", label: "notes", installed: true };
+  assert.deepEqual(observe([exa, notes]), [], "the first look is only a look");
+  const changes = [{ kind: "uninstall", actor: "bitmuse", name: "@thetis/exa", at: "5" }];
+  assert.deepEqual(observe([{ ...exa, installed: false }, notes], { changes }), ["bitmuse removed Exa Web Search for you."]);
+  assert.deepEqual(observe([{ ...exa, installed: false }, notes], { changes }), [], "said once");
+  assert.deepEqual(observe([exa, notes]), ["Exa Web Search is now installed for you."], "no journal row: said without a name");
+  expectChange();
+  assert.deepEqual(observe([exa]), [], "the person's own removal is not said back to them");
+  // A page sees its own family only; a name it never saw says nothing until a whole list was seen.
+  resetWatch();
+  assert.deepEqual(observe([exa], { only: new Set(["@thetis/exa"]) }), []);
+  assert.deepEqual(observe([exa, notes]), [], "a partial look, then a whole one: what was never seen is not news");
+  expectChange();
+  unexpectChange();
+  assert.deepEqual(observe([], { only: new Set(["@thetis/notes"]) }), ["Notes is no longer installed for you."], "a failed act: what differs was not the person's doing");
+});
+
+test("changes: Show changes lists what a copy changed, and diffs a file whose original is still as it was copied", async () => {
+  const { FORK_BASE, fileHashes, changesOf } = await import("../lib/fork-diff.js");
+  const origin = mkdtempSync(join(tmpdir(), "fork-origin-"));
+  const copy = mkdtempSync(join(tmpdir(), "fork-copy-"));
+  try {
+    for (const dir of [origin, copy]) {
+      mkdirSync(join(dir, "dist"), { recursive: true });
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "@thetis/x", version: "1.0.0", thetis: { type: "tool" } }));
+      writeFileSync(join(dir, "dist", "index.js"), "a\nb\nc\nd\n");
+      writeFileSync(join(dir, "dist", "other.js"), "one\n");
+    }
+    writeFileSync(join(copy, FORK_BASE), JSON.stringify(fileHashes(copy)));
+    writeFileSync(join(copy, "dist", "index.js"), "a\nB\nc\nd\n");
+    writeFileSync(join(copy, "dist", "other.js"), "two\n");
+    // The original moved on in other.js since the copy was made: that file is listed, not diffed.
+    writeFileSync(join(origin, "dist", "other.js"), "uno\n");
+    const out = changesOf(copy, origin);
+    assert.deepEqual(out.files, ["dist/index.js", "dist/other.js"]);
+    assert.equal(out.compared, 1);
+    assert.deepEqual(out.diff.split("\n"), ["--- dist/index.js (as copied)", "+++ dist/index.js (yours)", "@@ -1,4 +1,4 @@", " a", "-b", "+B", " c", " d"]);
+    assert.equal(out.cut, false);
+    assert.equal(changesOf(copy, origin, 3).cut, true, "at most the lines asked for");
+    assert.equal(changesOf(copy, null).diff, "", "no original here: the list alone");
+    // Through the verb: the copy's root from the kernel, the original's from the catalog.
+    const { env, cleanup } = fakeEnv({
+      installed: [{ name: "@alice/x", version: "1.0.0-fork.1", type: "tool", description: "", root: copy, thetis: { type: "tool" }, source: { kind: "local", ref: "packages/x" }, forkedFrom: { name: "@thetis/x", version: "1.0.0" }, fork: { name: "@thetis/x", version: "1.0.0", shipped: "1.0.0" } }],
+      catalog: [{ name: "@thetis/x", version: "1.0.0", type: "tool", description: "", root: origin, thetis: { type: "tool" }, source: { kind: "system", ref: "/sys" } }],
+    });
+    try {
+      const { data } = await commands.changes({ name: "@alice/x" }, env);
+      assert.equal(data.base, "1.0.0");
+      assert.deepEqual(data.files, ["dist/index.js", "dist/other.js"]);
+      assert.match(data.diff, /^\+B$/m);
+      await assert.rejects(commands.changes({ name: "@thetis/x" }, env), /not a copy/);
+    } finally {
+      cleanup();
+    }
+  } finally {
+    rmSync(origin, { recursive: true, force: true });
+    rmSync(copy, { recursive: true, force: true });
+  }
+});
+
+test("config-show: an admin's report carries what each key falls back to under their own layer; a person's does not", async () => {
+  const mine = { package: "@thetis/exa", inherits: [], keys: [{ key: "apiKey", state: "set", secret: true, source: "user" }, { key: "baseUrl", state: "set", source: "user" }, { key: "timeoutMs", state: "set", source: "user" }], summary: "every key is set", broken: false };
+  const everyone = { package: "@thetis/exa", inherits: [], keys: [{ key: "apiKey", state: "set", secret: true, source: "system" }, { key: "baseUrl", state: "set", source: "default" }, { key: "timeoutMs", state: "unset" }], summary: "every key is set", broken: false };
+  const admin = fakeEnv({ installed: [shipped("@thetis/exa")], role: "admin", user: "bitmuse", reports: { "@thetis/exa": mine }, answers: { "config.show": (a) => (a.user ? null : everyone) } });
+  const person = fakeEnv({ installed: [shipped("@thetis/exa")], reports: { "@thetis/exa": mine } });
+  try {
+    assert.deepEqual((await commands.configShow({ name: "@thetis/exa" }, admin.env)).data.below, { apiKey: "everyone", baseUrl: "default", timeoutMs: "none" });
+    assert.equal((await commands.configShow({ name: "@thetis/exa" }, person.env)).data.below, undefined, "a person cannot read everyone's layer, so nothing is claimed");
+    assert.ok(!person.calls.some((c) => c.method === "config.show" && c.args), "nothing goes through the operator for a person");
+  } finally {
+    admin.cleanup();
+    person.cleanup();
+  }
+});

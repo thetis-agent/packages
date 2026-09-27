@@ -41,6 +41,8 @@ export function factsOf(p) {
   const t = p?.thetis ?? {};
   return {
     label: typeof t.label === "string" && t.label.trim() ? t.label.trim() : null,
+    // The manifest's one plain sentence, which every card and page opens with when there is one.
+    summary: typeof t.summary === "string" && t.summary.trim() ? t.summary.trim() : null,
     audience: typeof t.audience === "string" ? t.audience : null,
     everyone: Boolean(p?.everyone),
     everyoneBy: p?.everyoneBy ?? null,
@@ -372,7 +374,7 @@ export async function packageEveryone(args, env) {
 }
 
 /**
- * package-unfork: the admin's own customised copy goes, and the official version it was made from comes back
+ * package-unfork: the admin's own customized copy goes, and the official version it was made from comes back
  * in their workspace ("Use Thetis's version"). Only a copy in the admin's own list, because the kernel's
  * unfork speaks for the fence that asks; the copy's files stay.
  */
@@ -426,17 +428,35 @@ function commonVersion(versions) {
   return best;
 }
 
-/** One person's copy in the matrix: what they run, what their workspace loaded, its one word, and what is worth a look. */
+/**
+ * One person's copy in the matrix: what they run, what their workspace loaded, its one word, and what is worth a
+ * look. A copy whose settings are missing something carries the missing keys (never a value), so the person
+ * reading reads their own Needs setup from their own layer, as the Extensions place does.
+ */
 function copyCell(p, space, reports, { fork = false, forkOf = null } = {}) {
   const loaded = typeof p.loadedVersion === "string" ? p.loadedVersion : null;
+  const report = reports.get(p.name);
+  const broken = Boolean(report?.broken);
   return {
     version: p.version,
     fork,
     forkOf: forkOf ?? p.forkedFrom?.name ?? null,
-    broken: Boolean(reports.get(p.name)?.broken),
+    broken,
+    ...(broken ? { summary: report.summary ?? "", missing: setupOf(report).missing } : {}),
     loaded,
     state: copyState(p, space),
   };
+}
+
+/** The system packages on disk, whether anyone has them or not; a kernel without the question has none to add. */
+async function catalogOf(env) {
+  if (typeof env.kernel.packages.catalog !== "function") return [];
+  try {
+    const list = await env.kernel.packages.catalog();
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -451,7 +471,7 @@ function copyCell(p, space, reports, { fork = false, forkOf = null } = {}) {
  * disk, the one thing only a restart puts into service.
  */
 export async function fleet(_args, env) {
-  const [everyone, { spaces, daemonStale }, own, systemList, system] = await Promise.all([people(env), statusOf(env), env.kernel.packages.list(), installedFor(env, SYSTEM), reportsAt(env, null)]);
+  const [everyone, { spaces, daemonStale }, own, systemList, system, catalog] = await Promise.all([people(env), statusOf(env), env.kernel.packages.list(), installedFor(env, SYSTEM), reportsAt(env, null), catalogOf(env)]);
   const perPerson = await Promise.all(everyone.map(async (person) => ({ person, list: await installedFor(env, person.id), reports: await reportsAt(env, person.id) })));
   const lib = await marketplace();
   const index = lib ? await lib.readIndex(env) : undefined;
@@ -485,6 +505,13 @@ export async function fleet(_args, env) {
     r.versions.push(p.version);
     r.byUser[SYSTEM] = copyCell(p, spaces.get(SYSTEM) ?? null, system);
   }
+  // What is on disk and nobody has: listed too, so every extension of this server has a row and a page.
+  for (const p of catalog) {
+    if (rows.has(p.name)) continue;
+    const r = row(p);
+    r.versions.push(p.version);
+    r.onDisk = true;
+  }
   const promoted = [...rows.values()].some((r) => (ownByName.get(r.name) ?? r.info)?.everyoneBy === "promoted") ? await promotions(env) : new Map();
   const packages = [...rows.values()].map((r) => {
     const mine = ownByName.get(r.name);
@@ -498,7 +525,8 @@ export async function fleet(_args, env) {
     // and the copy's page says what using Thetis's version would do.
     const found = behind.get(r.name)?.apply === "unfork" ? null : behind.get(r.name);
     const waiting = Object.entries(r.byUser).filter(([, c]) => c.state === "update" && !c.fork).map(([who]) => who);
-    const update = found ? { apply: found.apply, version: found.version } : waiting.length ? { apply: "reload", version } : null;
+    // The commits travel too: a newer commit of the same version is an update, as the place says ("A newer build of 0.1.1").
+    const update = found ? { apply: found.apply, version: found.version, ...(found.apply === "install" ? { from: String(found.installed ?? "").slice(0, 7), to: String(found.available ?? "").slice(0, 7) } : {}) } : waiting.length ? { apply: "reload", version } : null;
     return {
       name: r.name,
       type: r.type,
@@ -514,20 +542,26 @@ export async function fleet(_args, env) {
       // One of Thetis's own parts, as the Extensions place decides it: not counted among what is installed.
       component: isComponent({ name: r.name, type: r.type, audience: facts.audience, installed: Boolean(r.byUser[env.user] && !r.byUser[env.user].fork) }),
       ...(promoted.has(r.name) ? { promotedFrom: promoted.get(r.name) } : {}),
+      // On disk only: nobody has it, not even Thetis itself.
+      ...(r.onDisk ? { nobody: true } : {}),
       state: update ? "update" : "current",
       waiting,
       git: null,
     };
   }).sort((a, b) => a.name.localeCompare(b.name));
-  // A workspace counts once however many of its copies wait; `_system` is one too.
-  const waiting = new Set(packages.flatMap((p) => p.waiting));
+  // A workspace counts once however many of its copies wait; `_system` is one too. What nobody has is not counted.
+  const held = packages.filter((p) => !p.nobody);
+  const waiting = new Set(held.flatMap((p) => p.waiting));
   const stats = {
-    current: packages.filter((p) => p.state === "current").length,
-    updates: packages.filter((p) => p.state === "update").length,
-    installs: packages.filter((p) => p.registry?.update?.apply === "install").length,
+    // Up to date: nothing to install and nobody waiting for a reload.
+    current: held.filter((p) => p.state === "current").length,
+    // A real newer version: a registry's newer commit. A workspace that has not reloaded is `waiting`, never this.
+    updates: held.filter((p) => p.registry?.update?.apply === "install").length,
+    installs: held.filter((p) => p.registry?.update?.apply === "install").length,
     waiting: waiting.size,
-    forks: packages.filter((p) => Object.values(p.byUser).some((c) => c.fork || c.forkOf)).length,
-    broken: packages.filter((p) => p.config?.broken).length,
+    // Copies, not rows: each person's copy once, under the copy's own name (its original's row holds the same copy again).
+    forks: held.reduce((n, p) => n + Object.values(p.byUser).filter((c) => !c.fork && c.forkOf).length, 0),
+    broken: held.filter((p) => p.config?.broken || Object.values(p.byUser).some((c) => c.broken && !c.fork)).length,
   };
   return { data: { people: everyone.map((u) => ({ user: u.id, role: u.role, status: u.status })), packages, stats, daemon: { state: daemonStale ? "restart" : "current" } } };
 }

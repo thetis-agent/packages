@@ -19,6 +19,7 @@
   "thetis": {
     "type": "skill",
     "label": "Orleans docs",
+    "summary": "Teaches your assistant Microsoft Orleans, the .NET framework for distributed apps.",
     "skills": "skills"
   }
 }

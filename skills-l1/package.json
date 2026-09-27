@@ -14,6 +14,7 @@
   "thetis": {
     "type": "loader",
     "label": "skill loader (catalogue)",
+    "summary": "Another way to give your assistant its skills: a list, loaded on request.",
     "steps": [
       { "id": "bench-import", "phase": "bench", "export": "importCorpus" },
       { "id": "catalogue", "phase": "prompt", "export": "catalogue" },

@@ -20,12 +20,32 @@ const RANGES = [
  */
 const kept = (d) => (Array.isArray(d.forks) && d.forks.length ? `, except ${d.forks.map((f) => f.user).join(", ")}, who ${d.forks.length === 1 ? "uses a copy of their own" : "use copies of their own"}` : "");
 
+/**
+ * The install rows that were updates: an install for a person who already had the package (an earlier install
+ * row for them, with no removal since), marked with the version it came from. `entries` are newest first.
+ */
+export function markUpdates(entries) {
+  const had = new Map(); // "<target> <name>" -> the version they had, walking oldest first
+  const out = entries.map((e) => ({ ...e }));
+  for (const e of [...out].reverse()) {
+    const key = `${e.target ?? ""} ${e.data?.name ?? e.data?.package ?? ""}`;
+    if (e.kind === "package.uninstall") had.delete(key);
+    else if (e.kind === "package.install") {
+      if (had.has(key)) e.updated = { from: had.get(key) };
+      had.set(key, e.data?.version ?? null);
+    }
+  }
+  return out;
+}
+
 /** One sentence for an entry, from its kind and data. Unknown kinds show the kind and the target. */
 export function sentence(entry, name) {
   const d = entry.data ?? {};
   const t = entry.target ?? "";
   switch (entry.kind) {
     case "package.install":
+      // An install over one the person had is an update: said as one, with the version it came from.
+      if (entry.updated) return `updated ${d.name ?? name}${entry.updated.from && entry.updated.from !== d.version ? ` from ${entry.updated.from}` : ""}${d.version ? ` to ${d.version}` : ""} for ${t}`;
       return `installed ${d.name ?? name}${d.version ? ` ${d.version}` : ""} for ${t}`;
     case "package.uninstall":
       return `removed ${d.name ?? name} for ${t}`;
@@ -142,7 +162,7 @@ export function mountActivity(ext, host, ctx) {
     try {
       const out = await ext.request("package-activity", { args: { name: ctx.name, limit: 500 } });
       if (!alive) return;
-      entries = Array.isArray(out?.data?.entries) ? out.data.entries : [];
+      entries = markUpdates(Array.isArray(out?.data?.entries) ? out.data.entries : []);
     } catch (err) {
       if (!alive) return;
       failed = err;

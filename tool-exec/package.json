@@ -12,6 +12,7 @@
   "thetis": {
     "type": "tool",
     "label": "extensions and helper chats",
+    "summary": "Lets your assistant install and set up extensions for you, and hand work to helper chats.",
     "tools": [
       {
         "name": "list_packages",

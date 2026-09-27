@@ -20,6 +20,7 @@
   "thetis": {
     "type": "tool",
     "label": "Grafana",
+    "summary": "Lets your assistant read and change your Grafana dashboards and alerts.",
     "toolGroup": {
       "id": "grafana",
       "brief": "Read and edit Grafana dashboards, folders, data sources, annotations and alerting over the HTTP API.",

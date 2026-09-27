@@ -64,3 +64,163 @@ export function changedFiles(root) {
     return null;
   }
 }
+
+/** At most this many diff lines go to the page, across every file. */
+export const DIFF_LINES = 200;
+/** A file larger than this, or with a NUL byte near its start, is not compared as text. */
+const TEXT_LIMIT = 512 * 1024;
+
+/** The text of a file for the diff, or null when it is not text or cannot be read. package.json reads as the base recorded it, pretty. */
+function textOf(root, path) {
+  try {
+    const at = resolve(root, path);
+    if (!existsSync(at)) return "";
+    if (path === "package.json") return `${JSON.stringify(JSON.parse(neutralManifest(at)), null, 2)}\n`;
+    const bytes = readFileSync(at);
+    if (bytes.length > TEXT_LIMIT || bytes.subarray(0, 8000).includes(0)) return null;
+    return bytes.toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+/** The hash a file of an origin has now, the same rule as `fileHashes`, or null when it is not there. */
+function hashNow(root, path) {
+  try {
+    const at = resolve(root, path);
+    if (!existsSync(at)) return null;
+    return createHash("sha256").update(path === "package.json" ? neutralManifest(at) : readFileSync(at)).digest("hex");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The edit script between two lists of lines, by Myers' algorithm on what is left once the common start and end
+ * are taken off: `[["=", line] | ["-", line] | ["+", line]]`, or null when the two differ too much to be worth
+ * showing.
+ */
+export function lineDiff(a, b, maxEdits = 2000) {
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA--;
+    endB--;
+  }
+  const x = a.slice(start, endA);
+  const y = b.slice(start, endB);
+  const n = x.length;
+  const m = y.length;
+  const max = Math.min(n + m, maxEdits);
+  const v = new Map([[1, 0]]);
+  const trace = [];
+  let found = false;
+  for (let d = 0; d <= max && !found; d++) {
+    trace.push(new Map(v));
+    for (let k = -d; k <= d; k += 2) {
+      let i = k === -d || (k !== d && (v.get(k - 1) ?? -1) < (v.get(k + 1) ?? -1)) ? (v.get(k + 1) ?? 0) : (v.get(k - 1) ?? 0) + 1;
+      let j = i - k;
+      while (i < n && j < m && x[i] === y[j]) {
+        i++;
+        j++;
+      }
+      v.set(k, i);
+      if (i >= n && j >= m) {
+        found = true;
+        break;
+      }
+    }
+  }
+  if (!found) return null;
+  // Back through the trace, from the end to the start.
+  const middle = [];
+  let i = n;
+  let j = m;
+  for (let d = trace.length - 1; d >= 0; d--) {
+    const vd = trace[d];
+    const k = i - j;
+    const prevK = k === -d || (k !== d && (vd.get(k - 1) ?? -1) < (vd.get(k + 1) ?? -1)) ? k + 1 : k - 1;
+    const prevI = vd.get(prevK) ?? 0;
+    const prevJ = prevI - prevK;
+    while (i > prevI && j > prevJ) middle.push(["=", x[--i], j--]);
+    if (d > 0) {
+      if (i === prevI) middle.push(["+", y[--j]]);
+      else middle.push(["-", x[--i]]);
+    }
+  }
+  middle.reverse();
+  return [...a.slice(0, start).map((l) => ["=", l]), ...middle.map(([op, l]) => [op, l]), ...a.slice(endA).map((l) => ["=", l])];
+}
+
+/** A unified diff of one file from an edit script, three lines of context around each change. */
+export function unified(path, script, context = 3) {
+  const out = [];
+  const keep = script.map(([op]) => op !== "=");
+  const near = script.map((_, i) => keep.slice(Math.max(0, i - context), i + context + 1).some(Boolean));
+  let aLine = 1;
+  let bLine = 1;
+  let hunk = null;
+  const flush = () => {
+    if (!hunk) return;
+    out.push(`@@ -${hunk.a},${hunk.aN} +${hunk.b},${hunk.bN} @@`, ...hunk.lines);
+    hunk = null;
+  };
+  script.forEach(([op, line], i) => {
+    if (near[i]) {
+      hunk ??= { a: aLine, b: bLine, aN: 0, bN: 0, lines: [] };
+      hunk.lines.push(`${op === "=" ? " " : op}${line}`);
+      if (op !== "+") hunk.aN++;
+      if (op !== "-") hunk.bN++;
+    } else flush();
+    if (op !== "+") aLine++;
+    if (op !== "-") bLine++;
+  });
+  flush();
+  return out.length ? [`--- ${path} (as copied)`, `+++ ${path} (yours)`, ...out] : [];
+}
+
+/**
+ * What a copy changed, for the page's Show changes: `{ files, diff, cut }`. `files` is `changedFiles`; `diff` the
+ * unified diff of each changed text file whose original is still in `originRoot` exactly as the copy's base
+ * recorded it (so the diff is the person's change and nothing the original did since), at most `DIFF_LINES`
+ * lines, with `cut` true when there was more.
+ */
+export function changesOf(root, originRoot, limit = DIFF_LINES) {
+  const files = changedFiles(root);
+  if (!files || !files.length || !originRoot) return { files, diff: "", cut: false, compared: 0 };
+  let base;
+  try {
+    base = JSON.parse(readFileSync(resolve(root, FORK_BASE), "utf8"));
+  } catch {
+    return { files, diff: "", cut: false, compared: 0 };
+  }
+  const lines = [];
+  let cut = false;
+  let compared = 0;
+  for (const path of files) {
+    if (lines.length >= limit) {
+      cut = true;
+      break;
+    }
+    // The original's file as it was when the copy was made: the same hash as the base, or absent in both.
+    const was = base[path] ?? null;
+    if (hashNow(originRoot, path) !== was) continue;
+    const before = was ? textOf(originRoot, path) : "";
+    const after = textOf(root, path);
+    if (before === null || after === null) continue;
+    const split = (t) => (t === "" ? [] : t.replace(/\n$/, "").split("\n"));
+    const script = lineDiff(split(before), split(after));
+    if (!script) continue;
+    compared += 1;
+    for (const l of unified(path, script)) {
+      if (lines.length >= limit) {
+        cut = true;
+        break;
+      }
+      lines.push(l);
+    }
+  }
+  return { files, diff: lines.join("\n"), cut, compared };
+}

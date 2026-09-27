@@ -78,6 +78,7 @@
 .ua-lineage-text { font-family: var(--font); font-size: 12px; fill: var(--text-dim); }
 .ua-lineage-text.is-strong { fill: var(--text); font-weight: 600; }
 .ua-lineage-text.is-mono { font-family: var(--mono); font-size: 11px; fill: var(--text-faint); }
+.ua-lineage-text.is-name { font-size: 11px; fill: var(--text-dim); }
 .ua-lineage-text.is-fork { fill: var(--warn); }
 .ua-lineage-text.is-dim { fill: var(--text-faint); }
 
@@ -150,3 +151,22 @@
   .ua-pkg-body.is-configuration .cf-row { grid-template-columns: minmax(0, 1fr); }
   .ua-pkg-body.is-configuration .cf-control { grid-column: 1; grid-row: auto; }
 }
+
+/* What is done about everybody, at the foot of Who has it; a private copy's pointer to the official version. */
+.ua-where-everyone { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding-top: 10px; }
+.ua-where-everyone .ua-pkg-action-line { font-size: var(--text-xs); }
+.ua-where-private { margin: 8px 0 0; font-size: var(--text-sm); }
+.ua-where-private .btn { margin-left: 4px; }
+
+/* The manifest's own words, folded under the plain line; a copy's changes, and the diff when asked for. */
+.ua-pkg-details { max-width: 860px; }
+.ua-pkg-details > summary { cursor: pointer; color: var(--text-faint); font-size: var(--text-sm); }
+.ua-pkg-desc.is-technical { font-size: var(--text-sm); margin-top: 6px; }
+.ua-pkg-banner a { color: inherit; text-decoration: underline; }
+.ua-pkg-changes p { margin: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--text-sm); }
+.ua-pkg-diff { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; max-width: 100%; }
+.ua-pkg-diff-files { margin: 0; padding-left: 18px; font-size: var(--text-sm); }
+.ua-pkg-diff-text { margin: 0; max-height: 420px; overflow: auto; padding: 8px 10px; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface-2); font-family: var(--mono); font-size: var(--text-xs); line-height: 1.45; white-space: pre; }
+.ua-pkg-diff-text .is-add { color: var(--ok); }
+.ua-pkg-diff-text .is-del { color: var(--err); }
+.ua-pkg-diff-text .is-hunk { color: var(--text-faint); }

@@ -8,6 +8,7 @@
   "thetis": {
     "type": "tool",
     "label": "plan and questions",
+    "summary": "Lets your assistant keep a to-do list and ask you questions as a form.",
     "tools": [
       {
         "name": "todo_write",

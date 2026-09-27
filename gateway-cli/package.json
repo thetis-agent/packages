@@ -14,7 +14,8 @@
   },
   "thetis": {
     "type": "gateway",
-    "label": "command line"
+    "label": "command line",
+    "summary": "The thetis command and the address browsers reach."
   },
   "peerDependencies": {
     "@thetis/runtime": "^0.2.0"

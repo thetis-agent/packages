@@ -16,6 +16,7 @@
   "thetis": {
     "type": "ui",
     "label": "Files",
+    "summary": "A Files screen to browse and edit the files in your home and your projects.",
     "ui": {
       "dir": "ui",
       "entry": "index.js",

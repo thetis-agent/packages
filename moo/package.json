@@ -8,6 +8,7 @@
   "thetis": {
     "type": "tool",
     "label": "MOO",
+    "summary": "Lets your assistant work in your live MOO world: look around, run commands and program it.",
     "tools": [
       {
         "name": "moo_eval",

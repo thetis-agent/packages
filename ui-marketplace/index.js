@@ -7,7 +7,7 @@
 import { readIndex, readReadme, readReadmeAsset, search as searchIndex } from "@thetis/marketplace";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { changedFiles } from "./lib/fork-diff.js";
+import { changedFiles, changesOf } from "./lib/fork-diff.js";
 import { folderRows, installedRow, matchesQuery, mergeRows, skillList, withFolder, withJournal } from "./lib/rows.js";
 import { familyOf, isRequired, matches } from "./lib/state.js";
 import { updatesFor } from "./lib/updates.js";
@@ -48,8 +48,27 @@ async function catalogOf(env) {
  */
 const homeOf = (env) => (typeof env.home === "string" ? env.home : process.env.THETIS_HOME_DIR || "");
 
-/** The journal kinds the rows learn from: who installed a thing for this person, who shared what, who turned what on. */
-const JOURNAL_KINDS = ["package.install", "package.promote", "package.everyone"];
+/**
+ * The journal kinds the rows learn from: who installed a thing for this person, who shared what, who turned what
+ * on -- and who removed a thing from them, which is how an open Extensions place says "bitmuse removed Exa Web
+ * Search for you." when that happens under it.
+ */
+const JOURNAL_KINDS = ["package.install", "package.uninstall", "package.promote", "package.everyone"];
+
+/** Whether a journal actor is a person rather than the machine itself. */
+const isPerson = (a) => typeof a === "string" && !!a && a !== "operator" && a !== "_system" && a !== "system";
+
+/**
+ * What other people did to this person's extensions lately, newest last: `[{ kind, actor, name, at }]`, `kind`
+ * "install" or "uninstall". Only an admin's acts on this person reach the journal this way; the person's own
+ * installs are theirs and not listed.
+ */
+export function changesFor(journal, user) {
+  return journal
+    .filter((e) => (e?.kind === "package.install" || e?.kind === "package.uninstall") && e.target === user && isPerson(e.actor) && e.actor !== user && typeof e.data?.name === "string")
+    .slice(-20)
+    .map((e) => ({ kind: e.kind === "package.install" ? "install" : "uninstall", actor: e.actor, name: e.data.name, at: e.at ?? null }));
+}
 
 /**
  * The journal rows this person may read about those three acts, oldest first. The kernel lets a person read
@@ -72,7 +91,7 @@ async function journalOf(env) {
 async function rowsOf(env, { folder = false } = {}) {
   const [installed, catalog, index, journal] = await Promise.all([env.kernel.packages.list(), catalogOf(env), readIndex(env), journalOf(env)]);
   const rows = withJournal(mergeRows(installed, index?.packages ?? [], index, { catalog, user: env.user }), journal, env.user);
-  return { installed, catalog, index, rows: folder ? withFolder(rows, folderRows(homeOf(env), installed.map((p) => p.name))) : rows };
+  return { installed, catalog, index, changes: changesFor(journal, env.user), rows: folder ? withFolder(rows, folderRows(homeOf(env), installed.map((p) => p.name))) : rows };
 }
 
 /**
@@ -83,14 +102,14 @@ async function rowsOf(env, { folder = false } = {}) {
 export async function search(args, env) {
   const q = typeof args.q === "string" ? args.q.trim() : "";
   const type = typeof args.type === "string" && args.type ? args.type : "";
-  const { index, rows } = await rowsOf(env, { folder: args.folder === true });
+  const { index, rows, changes } = await rowsOf(env, { folder: args.folder === true });
   let shown = rows;
   if (q || type) {
     const hits = new Set(index ? searchIndex(index, q, { type, limit: 200 }).map((e) => e.name) : []);
     const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
     shown = rows.filter((r) => hits.has(r.name) || ((r.installed || r.system) && matchesQuery(r, terms, type)) || (r.folder && !r.installed && matches(r, q) && (!type || r.type === type)));
   }
-  return { data: { ...facts(index), rows: shown, user: env.user, role: env.role } };
+  return { data: { ...facts(index), rows: shown, changes, user: env.user, role: env.role } };
 }
 
 /**
@@ -136,7 +155,7 @@ function diskReadme(root) {
  */
 export async function show(args, env) {
   const name = packageName(args.name);
-  const { installed, catalog, index, rows } = await rowsOf(env, { folder: true });
+  const { installed, catalog, index, rows, changes } = await rowsOf(env, { folder: true });
   const found = rows.find((r) => r.name === name);
   if (!found) fail(`${name} is not installed here, not shipped here, and no registry offers it`);
   const info = installed.find((p) => p.name === name) ?? catalog.find((p) => p.name === name) ?? null;
@@ -150,7 +169,27 @@ export async function show(args, env) {
   const readme = fromIndex ?? diskReadme(root) ?? (entry ? ((await readReadme(env, entry)) ?? null) : null);
   const assets = fromIndex ? await assetsOf(env, entry, fromIndex) : {};
   const family = familyOf(row, rows).members.filter((m) => m.name !== name);
-  return { data: { ...facts(index), row, family, readme, assets, user: env.user, role: env.role } };
+  return { data: { ...facts(index), row, family, readme, assets, changes, user: env.user, role: env.role } };
+}
+
+/**
+ * What a copy of the person's changed since it was made, for the page's Show changes: the changed files, and,
+ * for each text file whose original is still here as it was when the copy was made, the unified diff of the two
+ * (at most `DIFF_LINES` lines in all). Answers `{ name, base, files, diff, cut }`; `diff` is "" when no file
+ * could be compared, and `files` is null when what changed cannot be known.
+ */
+export async function changes(args, env) {
+  const name = packageName(args.name);
+  const { installed, catalog, rows } = await rowsOf(env, { folder: true });
+  const found = rows.find((r) => r.name === name);
+  if (!found) fail(`${name} is not installed here, and not in your folder`);
+  const info = installed.find((p) => p.name === name) ?? null;
+  const root = info?.root ?? (found.folder ? resolve(homeOf(env), found.folder.dir) : null);
+  const originName = found.fork?.name ?? found.forkedFrom?.name ?? null;
+  if (!originName) fail(`${name} is not a copy of another extension`);
+  const origin = installed.find((p) => p.name === originName) ?? catalog.find((p) => p.name === originName) ?? null;
+  const base = found.fork?.version ?? found.forkedFrom?.version ?? null;
+  return { data: { name, base, ...changesOf(root, origin?.root ?? null) } };
 }
 
 function readManifest(root) {
@@ -216,9 +255,29 @@ export async function update(args, env) {
 const CONFIG_KEY = /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/;
 const configKey = (value) => (typeof value === "string" && CONFIG_KEY.test(value) ? value : fail("a configuration key is a word: letters, digits, dots, dashes and underscores"));
 
-/** The person's own layer of one installed package: every key's state, secrets redacted. */
+/**
+ * The person's own layer of one installed package: every key's state, secrets redacted. For an admin it carries
+ * `below` too -- what each key falls back to under their own layer ("everyone", "default" or "none"), from
+ * everyone's layer -- so the form says "used instead of everyone's" only when everyone has a value. A person who
+ * is not an admin cannot read everyone's layer, and the form then never claims either way.
+ */
 export async function configShow(args, env) {
-  return { data: await env.kernel.config.show(packageName(args.name)) };
+  const name = packageName(args.name);
+  const report = await env.kernel.config.show(name);
+  const below = env.role && env.role !== "user" ? await fallbacks(env, name) : null;
+  return { data: below ? { ...report, below } : report };
+}
+
+/** What each key of a package holds at everyone's layer, in the form's words, or null when that cannot be read. */
+async function fallbacks(env, name) {
+  if (typeof env.kernel.operator?.call !== "function") return null;
+  try {
+    const everyone = await env.kernel.operator.call("config.show", { name });
+    if (!Array.isArray(everyone?.keys)) return null;
+    return Object.fromEntries(everyone.keys.filter((k) => k?.key).map((k) => [k.key, k.state === "unset" || k.state === "missing" || !k.source ? "none" : k.source === "default" ? "default" : "everyone"]));
+  } catch {
+    return null;
+  }
 }
 
 /**

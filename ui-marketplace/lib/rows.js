@@ -106,6 +106,8 @@ export function installedRow(info, installed = true) {
     version: info.version,
     type: info.type,
     description: info.description ?? "",
+    // The one plain sentence a card and a page open with, when the manifest gives one (`thetis.summary`).
+    summary: typeof info.thetis?.summary === "string" && info.thetis.summary.trim() ? info.thetis.summary.trim() : null,
     audience: typeof info.thetis?.audience === "string" ? info.thetis.audience : null,
     // What a person must give before it works, from the declaration: the Needs line on the page.
     needs: needsOfDecls(info.thetis?.config),
@@ -285,6 +287,7 @@ export function indexRow(entry) {
     version: entry.version,
     type: entry.type,
     description: entry.description ?? "",
+    summary: typeof entry.summary === "string" && entry.summary.trim() ? entry.summary.trim() : null,
     audience: typeof entry.audience === "string" ? entry.audience : null,
     needs: Array.isArray(entry.needs) ? entry.needs.filter((n) => n && typeof n.key === "string").map((n) => ({ key: n.key, secret: !!n.secret, help: typeof n.help === "string" ? n.help : "" })) : [],
     keywords: entry.keywords ?? [],
@@ -350,7 +353,7 @@ export function mergeRows(installed, entries, index, { catalog = [], user = "" }
       byName.set(entry.name, indexRow(entry));
       continue;
     }
-    const merged = { ...have, registry: entry.registry, source: entry.source, available: true, tip: entry.version, readme: !!entry.readme, keywords: entry.keywords ?? [], description: have.description || entry.description || "" };
+    const merged = { ...have, registry: entry.registry, source: entry.source, available: true, tip: entry.version, readme: !!entry.readme, keywords: entry.keywords ?? [], description: have.description || entry.description || "", summary: have.summary || (typeof entry.summary === "string" && entry.summary.trim() ? entry.summary.trim() : null) };
     byName.set(entry.name, withAhead(withUpdate(renamed(merged, entry), newer.get(entry.name)), unshared.get(entry.name)));
   }
   // A system package on disk newer than the one a person installed from a registry names it too.
@@ -394,6 +397,8 @@ export function withJournal(rows, entries, user = "") {
   for (const e of entries) {
     const d = e?.data ?? {};
     if (e?.kind === "package.install" && e.target === user && typeof d.name === "string") installs.set(d.name, e.actor);
+    // Removed since: whoever installs it next is who it is from, and that is not known to be an admin.
+    else if (e?.kind === "package.uninstall" && e.target === user && typeof d.name === "string") installs.delete(d.name);
     else if (e?.kind === "package.promote" && typeof d.promoted === "string") shared.set(d.promoted, { from: typeof d.name === "string" ? d.name : null, owner: e.target ?? null, at: e.at ?? null });
     else if (e?.kind === "package.everyone" && typeof e.target === "string") {
       if (d.on === false) marked.delete(e.target);
@@ -453,7 +458,7 @@ export function folderRows(home, installed = []) {
 export function withFolder(rows, folder) {
   const byName = new Map(folder.map((f) => [f.name, f]));
   // What the files say fills what the index could not: its needs, skills, pages, origin and audience.
-  const lay = (r, f) => ({ ...r, folder: f.folder, local: true, needs: r.needs?.length ? r.needs : f.needs, skills: r.skills || f.skills, hasSkills: r.hasSkills || f.hasSkills, pages: r.pages || f.pages, forkedFrom: r.forkedFrom ?? f.forkedFrom, audience: r.audience ?? f.audience });
+  const lay = (r, f) => ({ ...r, folder: f.folder, local: true, summary: r.summary || f.summary, needs: r.needs?.length ? r.needs : f.needs, skills: r.skills || f.skills, hasSkills: r.hasSkills || f.hasSkills, pages: r.pages || f.pages, forkedFrom: r.forkedFrom ?? f.forkedFrom, audience: r.audience ?? f.audience });
   const merged = rows.map((r) => (!r.installed && byName.has(r.name) ? lay(r, byName.get(r.name)) : r));
   const seen = new Set(rows.map((r) => r.name));
   return [...merged, ...folder.filter((f) => !seen.has(f.name))];

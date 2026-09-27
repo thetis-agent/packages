@@ -10,10 +10,13 @@
  * line, "by Thetis · Tools"), Status (at most two chips, each with its tooltip), Version and What it does.
  *
  * One verdict everywhere: when the place is here, the section reads the place's own rows (its `search`
- * command) and judges them with the place's own rules — its browser module `state.js`, byte-identical to its
- * `lib/state.js`, imported from where the place's UI is served — so the labels, publisher lines, chips and the
- * Installed count ("24 installed · 6 part of Thetis", the place's `placeSections(...).counts.installed`) are
- * the place's and nothing is restated. Without the place, what is left is a short fallback (`FALLBACK`): the
+ * command), folds this person's own settings onto them (the gateway's `/api/packages` carries each broken
+ * report's missing keys, so Needs setup is the place's), and judges them with the place's own rules — its
+ * browser module `state.js`, byte-identical to its `lib/state.js`, imported from where the place's UI is served
+ * — so the labels, publisher lines, chips, the one plain line ("What it does", the place's `summaryOf`) and the
+ * counts ("16 installed · 20 part of Thetis", the place's `placeSections(...).counts`) are the place's and
+ * nothing is restated. The list is the place's Installed cards; Thetis's own parts are folded under Part of
+ * Thetis beneath it. Without the place, what is left is a short fallback (`FALLBACK`): the
  * label, the publisher line, Required, and the chips said plainly, held to the place's chips by
  * `test/panel-packages.test.js`.
  *
@@ -134,13 +137,29 @@ export function judged(r, rows, { rules = FALLBACK, user = "", admin = false } =
   return { label, publisher: m.publisherLine(r, { user, family: family.members }), state: m.stateOf(r, { admin, origin, label, user, giver }) };
 }
 
-/** "24 installed · 6 part of Thetis": the place's Installed count, with its own parts apart. */
+/** "16 installed · 20 part of Thetis": the place's own two numbers, from its own function. */
 export function countLine(rows, { rules = FALLBACK, user = "", admin = false } = {}) {
   const have = rows.filter((r) => r.installed !== false);
   if (!rules.place) return `${have.length} installed`;
-  const n = rules.place.placeSections(rows, { user, admin }).counts.installed;
-  const parts = have.filter((r) => r.component).length;
-  return `${n} installed${parts ? ` · ${parts} part of Thetis` : ""}`;
+  const { counts } = rules.place.placeSections(rows, { user, admin });
+  return `${counts.installed} installed${counts.thetis ? ` · ${counts.thetis} part of Thetis` : ""}`;
+}
+
+/**
+ * The place's rows with this person's own settings folded on: the gateway's rows (`/api/packages`) carry a
+ * broken report's summary and missing keys, which is what the place's Needs setup reads; a row whose settings
+ * are whole says so.
+ */
+export function withSetup(rows, mine = []) {
+  const byName = new Map(mine.map((r) => [r.name, r]));
+  return rows.map((r) => (r.installed && byName.has(r.name) && !r.config ? { ...r, config: byName.get(r.name).config ?? { broken: false, summary: "", keys: [] } } : r));
+}
+
+/** The one plain line a row is said by: the place's, or the description's first sentence without it. */
+export function summaryLine(r, rules = FALLBACK) {
+  if (rules.place && typeof rules.place.summaryOf === "function") return rules.place.summaryOf(r);
+  const s = String(r?.description ?? "").trim();
+  return /^(.+?[.!?])(\s|$)/s.exec(s)?.[1] ?? s;
 }
 
 /** The row's chips as badges with their tooltips, and the grey waiting line when only an admin can finish it. */
@@ -203,7 +222,7 @@ export function mountPackages(root, { user, role }, shell) {
     const stop = busy(body, "Reading what is installed…");
     try {
       const [mine, all, found] = await Promise.all([api("/api/packages"), everyRow(), placeRules()]);
-      known = all;
+      known = withSetup(all, mine);
       installed = withKnown(mine, all);
       // The place's verdict needs the place's rows; without them the fallback speaks.
       rules = found.place && all.some((r) => r.installed) ? found : FALLBACK;
@@ -227,23 +246,28 @@ export function mountPackages(root, { user, role }, shell) {
       { key: "name", label: "Extension", render: (r) => extensionCell(r, said(r)) },
       { key: "status", label: "Status", render: (r) => statusCell(said(r)) },
       { key: "version", label: "Version", render: (r) => el("code", { class: "text-dim" }, r.version) },
-      { key: "description", label: "What it does", render: (r) => el("span", { class: "text-dim" }, r.description || "—") },
+      { key: "description", label: "What it does", render: (r) => el("span", { class: "text-dim" }, summaryLine(r, rules) || "—") },
     ];
   }
 
   function draw() {
     clear(body);
     const open = place();
-    const listed = rules.place ? known.filter((r) => r.installed) : installed;
+    // With the place: its Installed cards, and its parts of Thetis folded beneath. Without it: every row.
+    const sections = rules.place ? rules.place.placeSections(known, { user, admin: role === "admin" }) : null;
+    const listed = sections ? sections.installed.map((e) => e.row) : installed;
+    const parts = sections ? sections.thetis.map((e) => e.row) : [];
     const count = countLine(rules.place ? known : installed, { rules, user, admin: role === "admin" });
     const name = (r) => (rules.place ? judged(r, known, { rules, user, admin: role === "admin" }).label : labelOf(r));
-    const rows = [...listed].sort((a, b) => name(a).localeCompare(name(b)));
+    const byName = (a, b) => name(a).localeCompare(name(b));
+    const rows = [...listed].sort(byName);
     if (open) {
       put(
         body,
         heading("Extensions", count),
         el("div", { class: "row" }, el("p", { class: "panel-hint" }, "Every extension installed for you. Open one to see it, set it up, update or remove it."), button("Manage extensions", { tone: "primary", onClick: () => open() })),
-        table(columns(), rows, { empty: "Nothing is installed here.", onRow: (r) => open(r.name) })
+        table(columns(), rows, { empty: "Nothing is installed here.", onRow: (r) => open(r.name) }),
+        parts.length ? el("details", { class: "ext-parts" }, el("summary", {}, `Part of Thetis (${parts.length})`), table(columns(), [...parts].sort(byName), { onRow: (r) => open(r.name) })) : null
       );
       return;
     }

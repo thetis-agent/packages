@@ -11,6 +11,7 @@
   "thetis": {
     "type": "tool",
     "label": "terminal",
+    "summary": "Lets your assistant run commands in a terminal you can watch and type into.",
     "config": {
       "shell": {
         "type": "string",

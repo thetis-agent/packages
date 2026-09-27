@@ -7,7 +7,10 @@
 .ua-fleet { gap: var(--gap-4); }
 
 .ua-fl-tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--gap-2); }
-.ua-fl-tile { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: var(--r-md); background: var(--surface-1); border: 1px solid var(--hairline); min-width: 0; }
+.ua-fl-tile { appearance: none; font: inherit; color: inherit; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: var(--r-md); background: var(--surface-1); border: 1px solid var(--hairline); min-width: 0; }
+.ua-fl-tile:hover { border-color: var(--hairline-strong); background: var(--surface-2); }
+.ua-fl-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ua-fl-tile.is-on { border-color: var(--accent-edge); background: var(--accent-wash); }
 .ua-fl-tile-label { font-size: var(--text-xs); color: var(--text-faint); }
 .ua-fl-tile b { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .ua-fl-tile.is-ok b { color: var(--ok); }
@@ -29,7 +32,7 @@
 .ua-fl-pub { font-size: var(--text-xs); }
 .ua-fl-chips-cell { display: inline-flex; gap: 4px; flex-wrap: wrap; }
 .ua-fl-note { font-size: var(--text-xs); margin-top: 2px; }
-.ua-fl-table td.ua-fl-status { white-space: normal; min-width: 180px; max-width: 340px; }
+.ua-fl-table td.ua-fl-status { white-space: normal; min-width: 160px; max-width: 280px; }
 .ua-fl-table td.ua-fl-what { white-space: normal; min-width: 220px; }
 .ua-fl-desc { font-size: var(--text-xs); white-space: normal; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .ua-fl-sub { margin: 0; font-size: var(--text-sm); }
@@ -49,6 +52,10 @@
 .ua-fl-row.is-marked td { background: var(--accent-wash); }
 .ua-fl-row.is-marked td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .ua-fl-user { text-align: center; }
+.ua-fl-table th { white-space: nowrap; }
+.ua-fl-waiting { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; }
+.ua-fl-waiting .ua-fl-cell.is-reload { font-family: var(--font); }
+.ua-fl-cell-note { font-size: var(--text-xs); }
 
 .ua-fl-cell { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border-radius: var(--r-sm); font-family: var(--mono); font-size: var(--text-xs); border: 1px solid var(--hairline); background: var(--surface-2); color: var(--text-dim); }
 .ua-fl-cell.is-current { border-color: color-mix(in srgb, var(--ok) 35%, transparent); color: color-mix(in srgb, var(--ok) 70%, var(--text)); }

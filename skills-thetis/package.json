@@ -10,6 +10,7 @@
   "thetis": {
     "type": "skill",
     "label": "Thetis skills",
+    "summary": "Teaches your assistant what Thetis is, and how to use it and change it.",
     "skills": "skills"
   }
 }

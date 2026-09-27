@@ -19,6 +19,7 @@
   "thetis": {
     "type": "service",
     "label": "extension registries",
+    "summary": "Keeps the list of extensions from the registries up to date.",
     "config": {
       "registries": {
         "type": "array",

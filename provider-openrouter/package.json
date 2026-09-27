@@ -15,6 +15,7 @@
   "thetis": {
     "type": "provider",
     "label": "OpenRouter models",
+    "summary": "Adds the models available through OpenRouter.",
     "config": {
       "apiKey": {
         "type": "string",

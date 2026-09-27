@@ -8,6 +8,7 @@
   "thetis": {
     "type": "tool",
     "label": "file tools",
+    "summary": "Lets your assistant read, search and edit the files in your folders.",
     "tools": [
       {
         "name": "read_path",

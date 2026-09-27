@@ -27,6 +27,7 @@
   "thetis": {
     "type": "tool",
     "label": "Exa web search",
+    "summary": "Lets your assistant search the web and read pages.",
     "config": {
       "apiKey": {
         "type": "string",

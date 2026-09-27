@@ -19,6 +19,7 @@
   "thetis": {
     "type": "loader",
     "label": "prompt cache",
+    "summary": "Makes repeated model calls cheaper by reusing what the model has already read.",
     "config": {
       "enabled": {
         "type": "boolean",

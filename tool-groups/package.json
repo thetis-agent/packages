@@ -14,6 +14,7 @@
   "thetis": {
     "type": "loader",
     "label": "tool routing",
+    "summary": "Offers each conversation only the tools it looks like it needs.",
     "config": {
       "routeThreshold": {
         "type": "number",

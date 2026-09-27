@@ -490,7 +490,7 @@ test("store: a to-do strip, Installed with its pills, Discover, Drafts and Part 
   assert.deepEqual(plain.thetis.map((e) => e.row.name), ["@thetis/gateway-web"], "a storage driver is an admin's: never offered to anybody else");
   assert.deepEqual(sections(rows, { user: "alice", admin: true }).thetis.map((e) => e.row.name), ["@thetis/gateway-web", "@thetis/store-toml"]);
   assert.deepEqual(plain.all.counts.installed, 3, "the number the Control panel says too");
-  assert.deepEqual(sections(rows, { user: "alice", pill: "everyone" }).installed.map((e) => e.row.name), ["@thetis/terminal"]);
+  assert.deepEqual(sections(rows, { user: "alice", pill: "given" }).installed.map((e) => e.row.name), ["@thetis/terminal"], "Given to you: what everyone gets");
   assert.deepEqual(sections(rows, { user: "alice", pill: "mine" }).installed.map((e) => e.row.name), ["@thetis/exa", "@alice/copy"]);
   // The person's own changes waiting to be applied come from the `updates` answer.
   assert.deepEqual(sections(rows, { user: "alice", updates: answer({ items: ITEMS, own: [{ name: "@alice/moo", label: "moo" }] }) }).own.map((o) => o.name), ["@alice/moo"]);
@@ -508,6 +508,7 @@ test("store: a card's foot says what it brings, and the configuration reports fo
   assert.equal(bringsLine({ tools: [], pages: 1 }), "1 page");
   assert.equal(bringsLine({ tools: [], type: "provider" }), "Models");
   assert.equal(bringsLine({ tools: [], type: "loader" }), "Runs in the background", "a card's foot is never empty");
+  assert.equal(bringsLine({ tools: [{}, {}, {}, {}, {}, {}, {}], skills: 12, hasSkills: true }), "7 tools · 12 skills", "the foot names the same kinds as the type line (Tools · Skills)");
   const rows = withConfig([{ name: "@a/x", installed: true }, { name: "@a/y", installed: false }], new Map([["@a/x", { broken: true }], ["@a/y", { broken: true }]]));
   assert.deepEqual(rows.map((r) => !!r.config), [true, false], "only an installed row has a report of its own");
 });

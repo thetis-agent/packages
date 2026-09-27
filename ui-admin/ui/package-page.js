@@ -1,7 +1,9 @@
 /* One extension's page in the control panel: the same header every extension surface uses (its friendly
- * label with the raw id as the tooltip, the publisher line, at most two chips, the description, a line on who
- * has it and where it runs, and a banner with the one sentence when it asks for attention), the admin's
- * actions on it, and the tabs: Overview, Settings, Activity, README, and Advanced. Advanced holds what is for
+ * label with the raw id as the tooltip, the publisher line, at most two chips, the plain one-line summary the
+ * place's card opens with and the manifest's description under Details, a line on who has it and where it
+ * runs, and a banner with the one sentence when it asks for attention, its addresses links), the admin's
+ * actions on it, and the tabs: Overview, Settings, Activity, README, and Advanced. The chips and the banner
+ * are the place's verdict for the admin reading: their own settings, their own workspace. Advanced holds what is for
  * troubleshooting: making your own copy, where it runs person by person, and its history in git. The page
  * reads `package-info`, `package-where` and everyone's `config-show` once and hands what it read to every tab
  * through `ctx`; a tab that needs more asks for it itself. An action goes behind the shell's confirm popover,
@@ -10,19 +12,21 @@
  *
  * What everyone gets is one table (the Extensions fix round's decision 8), the same in the Extensions place:
  * - a shared copy says "Shared with everyone from <label> by <person> on <date>. Your people get this one." The
- *   kernel cannot stop a promotion (`packages.unmarkEveryone` refuses one), so there is no Stop sharing button,
- *   and Remove for everyone… says plainly that it stays shared;
+ *   kernel cannot stop a promotion (`packages.unmarkEveryone` refuses one), so there is no Stop sharing button:
+ *   beside Remove for everyone… the page says "Sharing can't be stopped yet; Remove for everyone takes it from
+ *   the people who have it now.";
  * - its original says "Already shared with everyone as <label>" with Open it, and nothing else;
- * - a copy of someone's may be shared by its owner (never offered when the official version is newer: sharing
- *   would replace it for everyone), and never says "Already shared";
+ * - a copy of someone's may be shared by its owner (never offered when the official version is newer), and never
+ *   says "Already shared"; a customized copy is private: nobody is offered Install for another person, the page
+ *   says to use Thetis's version instead, and "You changed N files since <base>" has Show changes beside it;
  * - by Thetis or a registry and not for everyone: Turn on for everyone…, whose confirm says when it needs a key;
  *   marked for everyone: Turn off for everyone… and Remove for everyone…, each saying what happens to whom;
  * - admin-only (`audience: "admin"`, host, storage, the sign-in page): no Turn on, and "Only admins can have
  *   this."; what runs inside Thetis itself (the sign-in page, the registries' service, gateways, storage, host,
  *   anything only the system workspace holds): no Install, no Turn on, no Remove;
- * - Remove for everyone… only when someone besides the reader has it ("Only you have this. Use Remove for me.");
- *   never on an extension Required by Thetis. There is no restart button here: applying updates is one action
- *   for everyone, on the extensions pages. */
+ * - Remove for everyone… only when someone besides the reader has it ("Only you have this. Use Remove for me."),
+ *   in Who has it (never the first or only button of the header, a phone's included); never on an extension
+ *   Required by Thetis. There is no restart button here: reloading a person's workspace is on Who has what. */
 
 import { mountActivity } from "./package-activity.js";
 import { mountHistory } from "./package-history.js";
@@ -32,7 +36,8 @@ import { mountWhere } from "./package-where.js";
 import { mountSettings } from "./configuration.js";
 import { failureSentence, toastError } from "./failed.js";
 import { described, rowFromInfo } from "./rows.js";
-import { compareVersions, everyoneActions, isAdminOnly, isRequired, labelOf, listOf, nounOf, titleCase, useOriginLabel, WORDS } from "./state.js";
+import { compareVersions, everyoneActions, isAdminOnly, isRequired, labelOf, listOf, nounOf, scopeOf, titleCase, titleOf, useOriginLabel, WORDS } from "./state.js";
+import { linkParts } from "./config-form.js";
 import { chipBadges, waitingSentence } from "./words.js";
 
 const TABS = [
@@ -90,7 +95,9 @@ export function mountPackagePage(ext, root, { name, refresh, user = me(), open =
   let alive = true;
   let info = null;
   let where = null;
-  let config = null; // everyone's configuration report, for the one state
+  let config = null; // the reader's own configuration report, for the one state
+  let everyone = null; // everyone's configuration report, for the Turn on confirm
+  let changes = null; // a copy's changes since it was made (`package-changes`), for its owner
   let gone = false; // installed in no workspace now: said on the page, never as a failure
   let tab = TAB_ALIASES[wantTab] ?? (TABS.some(([id]) => id === wantTab) ? wantTab : "overview");
   let unmountTab = null;
@@ -118,6 +125,8 @@ export function mountPackagePage(ext, root, { name, refresh, user = me(), open =
       return label();
     },
     refresh,
+    /** Opens another extension's page, when the shell can. */
+    open,
     reload: () => load(),
     /** Whether Thetis cannot work without it: no Remove of any kind, anywhere on the page. */
     get required() {
@@ -152,18 +161,23 @@ export function mountPackagePage(ext, root, { name, refresh, user = me(), open =
       // A package installed nowhere (removed for everyone, or replaced by a fork in every workspace) has no
       // record to read, but people and the where card still answer, and Install for them is the way back.
       let refused = null;
-      const [about, runs, shown] = await Promise.all([
+      const [about, runs, shown, theirs] = await Promise.all([
         ext.request("package-info", { args: { name } }).catch((err) => ((refused = err?.message || "could not be read"), { data: null })),
         ext.request("package-where", { args: { name } }).catch(() => ({ data: null })),
+        // The reader's own settings are what reaches the extension for them: the place's Needs setup.
+        user ? ext.request("config-show", { args: { name, user } }).catch(() => ({ data: null })) : { data: null },
         ext.request("config-show", { args: { name } }).catch(() => ({ data: null })),
       ]);
       if (!alive) return;
       // Nobody has it any more (the last person's was just removed): that is the page's news, not a failure.
-      gone = Boolean(refused && /not installed in any workspace/.test(refused));
+      gone = Boolean(refused && /not installed in any workspace/.test(refused)) || Boolean(about?.data?.nobody);
       if (refused && !gone) ext.toast(failureSentence(label(), { message: refused }, { admin: true }), { tone: "warn" });
       info = about?.data ?? (gone ? null : info);
       where = runs?.data ?? null;
       config = shown?.data ?? null;
+      everyone = theirs?.data ?? null;
+      // A copy of the reader's own: what they changed, said beside Use Thetis's version.
+      changes = info?.forkedFrom && scopeOf(name) === user ? ((await ext.request("package-changes", { args: { name } }).catch(() => null))?.data ?? null) : null;
     } catch (err) {
       if (!alive) return;
       toastError(ext, err, label());
@@ -190,6 +204,12 @@ export function mountPackagePage(ext, root, { name, refresh, user = me(), open =
       ext.toast(out?.data?.text || out?.text || done || `${title.replace(/\?$/, "")}: done.`, { tone: "good" });
     } catch (err) {
       toastError(ext, err, title.replace(/\?$/, ""));
+      // What failed may have failed because things changed under the page: read it again, so it says what is so now.
+      if (alive) {
+        anchor.disabled = false;
+        await load();
+        refresh?.();
+      }
       return false;
     } finally {
       if (alive) anchor.disabled = false;
@@ -217,14 +237,21 @@ export function mountPackagePage(ext, root, { name, refresh, user = me(), open =
   };
 
   const line = (text, cls = "text-faint") => el("span", { class: `ua-pkg-action-line ${cls}` }, text);
+  /** A sentence with its addresses as links. */
+  const linked = (text) => linkParts(text).map((p) => (p.href ? el("a", { href: p.href, target: "_blank", rel: "noopener noreferrer" }, p.text) : p.text));
 
   /**
    * The row the decision table reads (state.js's `everyoneActions`, the Extensions place's own rules): this
    * extension as the reader has it, its family (the shared copy an original was shared as), and who has it.
    */
+  /** This extension and its shared copy, when it was shared: the family the place's rules read. */
+  const familyOf = (r) => [r, ...(info?.sharedAs ? [{ name: info.sharedAs, label: info.label, everyone: true, everyoneBy: "promoted" }] : [])];
+  /** The page's title, the place's: "Notion — your original" for the original of a shared copy, else the label. */
+  const title = () => (info ? titleOf(row(), { family: familyOf(row()), user, origin: said().origin ?? null }) : label());
+
   function table() {
     const r = { ...row(), installed: holders().includes(user) };
-    const family = [r, ...(info.sharedAs ? [{ name: info.sharedAs, label: info.label, everyone: true, everyoneBy: "promoted" }] : [])];
+    const family = familyOf(r);
     return everyoneActions(r, { family, user, holders: holders(), origin: said().origin ?? (info.origin ? { name: info.origin.name, label: info.origin.label, version: info.origin.version } : null), label: label() });
   }
 
@@ -240,12 +267,13 @@ export function mountPackagePage(ext, root, { name, refresh, user = me(), open =
       b.addEventListener("click", () => void act(b, { verb: "package-update", args: {}, title: `Update ${label()}?`, lines: [["from", `${info.version} · ${shortHash(reg.update.installed)}`], ["to", `${reg.update.version} · ${shortHash(reg.update.available)}`], ["registry", reg.registry]], note: "The registry's copy replaces this one for everyone who has it. Updating keeps their settings. Each person gets it the next time their workspace applies updates.", confirmLabel: "Update" }));
       out.push(b);
     }
-    // A customised copy whose official version moved on: not an update, a choice, said with what it costs.
+    // A customized copy whose official version moved on: not an update, a choice, said with what it costs.
     const newer = officialNewer();
     if (newer && mineCopy()) {
       const back = button(useOriginLabel(r, user));
       const whose = useOriginLabel(r, user).replace(/^Use /, "").replace(/ version$/, "");
-      back.addEventListener("click", () => void act(back, { verb: "package-unfork", args: {}, title: `${useOriginLabel(r, user)}?`, lines: [["instead of", `your copy ${info.version}`], ["you get", `${titleCase(info.origin?.label ?? label())} ${newer}`]], note: `${useOriginLabel(r, user)} replaces your changes with ${whose} ${newer}. Your copy's files stay in your folder, and your saved settings are kept.`, confirmLabel: useOriginLabel(r, user) }));
+      const changed = Array.isArray(changes?.files) && changes.files.length ? ` You changed ${changes.files.length === 1 ? "1 file" : `${changes.files.length} files`} since ${changes.base ?? "you made it"}.` : "";
+      back.addEventListener("click", () => void act(back, { verb: "package-unfork", args: {}, title: `${useOriginLabel(r, user)}?`, lines: [["instead of", `your copy ${info.version}`], ["you get", `${titleCase(info.origin?.label ?? label())} ${newer}`]], note: `${useOriginLabel(r, user)} replaces your changes with ${whose} ${newer}.${changed} Your copy's files stay in your folder, and your saved settings are kept.`, confirmLabel: useOriginLabel(r, user) }));
       out.push(back);
     }
     // What everyone gets: one row of the decision table, the place's own rules.
@@ -258,7 +286,7 @@ export function mountPackagePage(ext, root, { name, refresh, user = me(), open =
         go.classList.add("is-sm");
         out.push(el("span", { class: "ua-pkg-action-line text-faint" }, `${text} `, open ? go : null));
       } else if (text === WORDS.onlyYou) continue; // after the other actions
-      else out.push(line(text, /older than Thetis/.test(text) ? "text-faint is-guard" : /^Shared with everyone/.test(text) ? "ua-pkg-shared" : "text-faint"));
+      else out.push(line(text, /older than Thetis|once it is based on/.test(text) ? "text-faint is-guard" : /^Shared with everyone/.test(text) ? "ua-pkg-shared" : "text-faint"));
     }
     if (inside) out.push(line(RUNS_INSIDE.line));
     else if (isAdminOnly(info)) out.push(line(ADMINS_ONLY_LINE));
@@ -270,7 +298,7 @@ export function mountPackagePage(ext, root, { name, refresh, user = me(), open =
     }
     if (!inside && t.acts.includes("turnOn")) {
       const on = button("Turn on for everyone…");
-      const needs = needsSentence(config, where?.people ?? []);
+      const needs = needsSentence(everyone, where?.people ?? []);
       on.addEventListener("click", () => void act(on, { verb: "package-everyone", args: { on: true }, title: `Turn on ${label()} for everyone?`, lines: [["for", "every person, and new people too"]], note: `Every person gets it. Anyone can still remove it for themselves.${needs ? ` ${needs}` : ""}`, confirmLabel: "Turn on for everyone" }));
       out.push(on);
     }
@@ -280,15 +308,57 @@ export function mountPackagePage(ext, root, { name, refresh, user = me(), open =
       out.push(off);
     }
     if (ctx.required) out.push(line(WORDS.required, "ua-pkg-required"));
-    else if (!inside && t.acts.includes("removeEveryone")) {
-      // Last, so a destructive action is never the first thing on the page.
+    return out;
+  }
+
+  /**
+   * What is said and done about everybody at the foot of Who has it: Remove for everyone… with what it does, the
+   * line that sharing cannot be stopped yet on a shared copy, or "Only you have this. Use Remove for me." Down
+   * there, so a destructive action is never the first or only button of the page, on a phone neither.
+   */
+  function everyoneTail() {
+    const out = [];
+    if (!info || ctx.required || runsInside(info)) return out;
+    const t = table();
+    if (t.acts.includes("removeEveryone")) {
       const people = holders();
+      const named = people.map((p) => (p === user ? "you" : p));
       const remove = button("Remove for everyone…", { tone: "warn" });
       const stays = info.everyoneBy === "promoted" ? " It stays shared, so people added later still get it." : info.everyoneBy === "marked" ? " New people still get it until it is turned off for everyone." : info.everyoneBy === "config" ? " New people still get it: Server settings give it to everyone." : "";
-      remove.addEventListener("click", () => void act(remove, { verb: "package-remove", args: { user: "*" }, title: `Remove ${label()} for everyone?`, lines: [["people", people.join(", ")]], note: `${t.hints.removeEveryone ?? `It is taken away from ${listOf(people)} now.`} Their saved settings are kept.${stays}`, confirmLabel: "Remove for everyone", tone: "warn" }));
+      remove.addEventListener("click", () => void act(remove, { verb: "package-remove", args: { user: "*" }, title: `Remove ${label()} for everyone?`, lines: [["people", named.join(", ")]], note: `It is taken away from ${listOf(named)} now. Their saved settings are kept.${stays}`, confirmLabel: "Remove for everyone", tone: "warn" }));
       out.push(remove);
-    } else if (!inside && t.lines.includes(WORDS.onlyYou)) out.push(line(WORDS.onlyYou));
+      // A shared copy cannot be un-shared yet (the kernel has no way): said beside the one button there is.
+      if (info.everyoneBy === "promoted") out.push(line(WORDS.cantStopSharing));
+    } else if (t.lines.includes(WORDS.onlyYou)) out.push(line(WORDS.onlyYou));
     return out;
+  }
+  ctx.everyoneTail = everyoneTail;
+
+  /**
+   * "You changed 1 file since 0.3.3" with Show changes beside it, for the reader's own copy: the files, and the
+   * change to the text ones as a diff, cut at 200 lines. Null when nothing is known about the copy's changes.
+   */
+  function changesLine() {
+    if (!changes || !Array.isArray(changes.files)) return null;
+    const n = changes.files.length;
+    const since = changes.base ? ` since ${changes.base}` : "";
+    if (!n) return el("p", { class: "ua-pkg-changes text-faint" }, `You changed nothing${since}.`);
+    const box = el("div", { class: "ua-pkg-diff", hidden: true });
+    const toggle = button("Show changes");
+    toggle.classList.add("is-sm");
+    toggle.addEventListener("click", () => {
+      box.hidden = !box.hidden;
+      toggle.textContent = box.hidden ? "Show changes" : "Hide changes";
+      if (box.hidden || box.childElementCount) return;
+      put(
+        box,
+        el("ul", { class: "ua-pkg-diff-files" }, ...changes.files.map((f) => el("li", {}, el("code", {}, f)))),
+        changes.moved ? el("p", { class: "text-faint" }, `Compared with ${titleCase(info.origin?.label ?? label())} ${changes.origin?.version ?? ""} as it is now, which changed some of these files too.`) : null,
+        changes.diff?.length ? el("pre", { class: "ua-pkg-diff-text" }, ...changes.diff.map((l) => el("span", { class: l.startsWith("+") && !l.startsWith("+++") ? "is-add" : l.startsWith("-") && !l.startsWith("---") ? "is-del" : l.startsWith("@@") ? "is-hunk" : null }, `${l}\n`))) : null,
+        changes.cut ? el("p", { class: "text-faint" }, "The first 200 lines of the change.") : null
+      );
+    });
+    return el("div", { class: "ua-pkg-changes" }, el("p", { class: "text-dim" }, `You changed ${n === 1 ? "1 file" : `${n} files`}${since}. `, toggle), box);
   }
 
   // ---- the header ----
@@ -303,7 +373,7 @@ export function mountPackagePage(ext, root, { name, refresh, user = me(), open =
     if (c.waiting) parts.push(el("b", { class: "ua-warn" }, waitingSentence(c.waiting)));
     const services = (where?.people ?? []).filter((p) => Array.isArray(p.services) && p.services.includes(name)).length;
     if (services) parts.push(el("span", {}, "a service in ", el("b", {}, String(services)), ` workspace${services === 1 ? "" : "s"}`));
-    if (c.forks) parts.push(el("span", {}, el("b", {}, String(c.forks)), ` customised ${c.forks === 1 ? "copy" : "copies"}`));
+    if (c.forks) parts.push(el("span", {}, el("b", {}, String(c.forks)), ` customized ${c.forks === 1 ? "copy" : "copies"}`));
     if (info?.git?.ahead) parts.push(el("span", { class: "ua-warn" }, `${info.git.ahead} commit${info.git.ahead === 1 ? "" : "s"} not pushed`));
     if (info?.git?.changed) parts.push(el("span", { class: "ua-warn" }, `${info.git.changed} file${info.git.changed === 1 ? "" : "s"} uncommitted`));
     if (!parts.length) return null;
@@ -315,22 +385,28 @@ export function mountPackagePage(ext, root, { name, refresh, user = me(), open =
     const shown = info ? said() : null;
     const state = shown?.state ?? { chips: [], attention: false, reason: "", waiting: false, setup: { chip: false } };
     const tone = state.tone ?? (state.setup?.chip ? "err" : "warn"); // an optional setup (given to everyone) is neutral
+    const summary = shown?.summary || null;
+    const details = info?.description && info.description.trim() !== (summary ?? "").trim() ? info.description : null;
     put(
       head,
-      el("div", { class: "ua-pkg-crumb" }, el("span", {}, "Control panel"), el("span", { class: "ua-sep" }, "/"), el("span", {}, "Extensions"), el("span", { class: "ua-sep" }, "/"), el("span", { title: name }, label())),
+      el("div", { class: "ua-pkg-crumb" }, el("span", {}, "Control panel"), el("span", { class: "ua-sep" }, "/"), el("span", {}, "Extensions"), el("span", { class: "ua-sep" }, "/"), el("span", { title: name }, title())),
       el(
         "div",
         { class: "ua-pkg-title-row" },
         el(
           "div",
           { class: "ua-pkg-title-col" },
-          el("div", { class: "ua-pkg-title" }, el("h2", { class: "ua-pkg-name", title: name }, label()), info?.version ? el("span", { class: "ua-pkg-version" }, info.version) : null, ...chipBadges(ext, state)),
+          el("div", { class: "ua-pkg-title" }, el("h2", { class: "ua-pkg-name", title: name }, title()), info?.version ? el("span", { class: "ua-pkg-version" }, info.version) : null, ...chipBadges(ext, state)),
           shown ? el("div", { class: "ua-pkg-pub text-dim" }, shown.publisher) : null,
-          info?.description ? el("p", { class: "ua-pkg-desc" }, info.description) : null,
+          // The plain line the place's card opens with; the manifest's own words under Details.
+          summary ? el("p", { class: "ua-pkg-desc" }, summary) : null,
+          details ? el("details", { class: "ua-pkg-details" }, el("summary", {}, "Details"), el("p", { class: "ua-pkg-desc is-technical" }, info.description)) : null,
           facts(),
-          gone ? el("p", { class: "ua-pkg-desc" }, "Nobody has this now. Install it for someone under Who has it.") : null,
-          // The banner sits with the title, so on a phone it comes before the actions under it.
-          state.attention && state.reason ? el("div", { class: `ua-pkg-banner is-${tone}`, role: "status" }, state.reason) : state.waiting ? el("div", { class: "ua-pkg-banner is-dim" }, WORDS.waiting) : null
+          // An original that was shared lives on as its shared copy, which is what people are given.
+          gone && !info?.sharedAs ? el("p", { class: "ua-pkg-desc" }, runsInside(info) || info?.component ? "Nobody runs this now. It is part of Thetis, so nobody installs it here." : "Nobody has this now. Install it for someone under Who has it.") : null,
+          // The banner sits with the title, so on a phone it comes before the actions under it; its addresses are links.
+          state.reason && (state.attention || state.todo) ? el("div", { class: `ua-pkg-banner is-${tone}`, role: "status" }, ...linked(state.reason)) : state.waiting ? el("div", { class: "ua-pkg-banner is-dim" }, WORDS.waiting) : null,
+          changesLine()
         ),
         el("div", { class: "ua-pkg-actions-col" }, el("div", { class: "ua-pkg-actions" }, ...actions()))
       )

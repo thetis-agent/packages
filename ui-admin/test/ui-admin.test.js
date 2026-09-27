@@ -322,12 +322,12 @@ test("config-reveal: a saved value only when the layer viewed is the one in effe
     assert.deepEqual((await commands.configReveal({ name: "@thetis/exa", key: "apiKey", layer: "system" }, env())).data, { value: secret });
     assert.deepEqual((await commands.configReveal({ name: "@thetis/exa", key: "ref", layer: "system" }, env())).data, { value: "${EXA_KEY}" }, "a reference is answered as the reference, never what the environment holds");
     await refuses(commands.configReveal, { name: "@thetis/exa", key: "apiKey", layer: "user" }, env(), new RegExp(commands.NOT_IN_EFFECT.replace(/[.]/g, "\\.")));
-    await refuses(commands.configReveal, { name: "@thetis/exa", key: "apiKey", layer: "user", user: "sam" }, env(), /not the one in effect for you/);
+    await refuses(commands.configReveal, { name: "@thetis/exa", key: "apiKey", layer: "user", user: "sam" }, env(), /This is sam's own key, so it isn't shown to anyone else\./);
     await refuses(commands.configReveal, { name: "@thetis/exa", key: "baseUrl", layer: "system" }, env(), /Nothing is saved/);
     await refuses(commands.configReveal, { name: "@thetis/exa", key: "apiKey", layer: "everyone" }, env(), /layer is system or user/);
     // Their own key is in effect: everyone's cannot be shown, their own can.
     const own = { package: "@thetis/exa", keys: [{ key: "apiKey", state: "set", secret: true, source: "user", redacted: true }] };
-    await refuses(commands.configReveal, { name: "@thetis/exa", key: "apiKey", layer: "system" }, env(own), /not the one in effect for you/);
+    await refuses(commands.configReveal, { name: "@thetis/exa", key: "apiKey", layer: "system" }, env(own), /Your own key is used instead of this one, so it isn't shown\. Clear your own key to see and use everyone's\./);
     assert.deepEqual((await commands.configReveal({ name: "@thetis/exa", key: "apiKey", layer: "user", user: "bitmuse" }, env(own))).data, { value: secret });
     // Not installed for the asker: nothing is in effect for them.
     const none = { user: "bitmuse", kernel: { config: { show: async () => { throw new Error("@thetis/exa is not installed in bitmuse"); } } } };
@@ -352,7 +352,7 @@ test("package-info: the record, the registry's word and the checkout, each said 
     },
   };
   const out = await commands.packageInfo({ name: "@alice/hello" }, env);
-  assert.deepEqual(out.data, { name: "@alice/hello", version: "0.1.0-fork.1", type: "loader", description: "Says hello.", label: null, audience: null, root: "/home/alice/packages/hello", everyone: false, everyoneBy: null, forkedFrom: { name: "@thetis/hello", version: "0.1.0" }, fork: null, replaced: "@thetis/hello", source: { kind: "local", ref: "packages/hello" }, promotedFrom: null, sharedAs: null, origin: null, systemOnly: false, tools: [], hasSkills: false, pages: 0, service: false, steps: 0, loaded: null, registry: null, git: { branch: "main", upstream: "origin/main", ahead: 2, behind: 1, changed: 2, commit: "abc1234" }, dependencies: [], dependents: [] });
+  assert.deepEqual(out.data, { name: "@alice/hello", version: "0.1.0-fork.1", type: "loader", description: "Says hello.", label: null, audience: null, root: "/home/alice/packages/hello", everyone: false, everyoneBy: null, forkedFrom: { name: "@thetis/hello", version: "0.1.0" }, fork: null, replaced: "@thetis/hello", source: { kind: "local", ref: "packages/hello" }, promotedFrom: null, sharedAs: null, origin: null, systemOnly: false, summary: null, component: false, nobody: false, tools: [], hasSkills: false, pages: 0, service: false, steps: 0, loaded: null, registry: null, git: { branch: "main", upstream: "origin/main", ahead: 2, behind: 1, changed: 2, commit: "abc1234" }, dependencies: [], dependents: [] });
   assert.ok(execs[0].includes("'/home/alice/packages/hello'") && execs[0].endsWith("-- ."), "git is asked about this package's files only");
   const bare = await commands.packageInfo({ name: "@alice/hello" }, { ...env, exec: async () => ({ code: 128, stdout: "", stderr: "not a git repository" }) });
   assert.equal(bare.data.git, null);
@@ -413,7 +413,12 @@ test("the fleet's pure helpers: what a cell says, which rows need a look, and wh
   const { cellState, drifts, workspacesBehind } = await import("../ui/fleet.js");
   assert.equal(cellState(null), "none");
   assert.equal(cellState({ version: "0.2.2", loaded: "0.2.2", state: "current" }), "current");
-  assert.equal(cellState({ version: "0.2.2", loaded: "0.2.1", state: "update" }), "update");
+  assert.equal(cellState({ version: "0.2.2", loaded: "0.2.1", state: "update" }), "waiting", "a workspace that has not reloaded is waiting for a reload, never an update");
+  const { cellWords, reloadLabel } = await import("../ui/fleet.js");
+  assert.deepEqual(cellWords({ version: "0.16.2", loaded: "0.16.2", state: "update" }, { who: "bitmuse", me: "sam", label: "Web Gateway" }), { text: "Waiting for a reload", title: "bitmuse's Web Gateway (0.16.2 is ready once the workspace restarts)" }, "never 'runs X, X is on disk'");
+  assert.equal(cellWords({ version: "0.2.0", fork: true, forkOf: "@sam/x", state: "current" }, { who: "sam", me: "sam", label: "X" }).title, "Your customized copy (@sam/x)");
+  assert.equal(cellWords({ version: "0.2.0", fork: true, state: "current" }, { who: "bob", me: "sam", label: "X" }).title, "bob's customized copy");
+  assert.deepEqual([reloadLabel("bob", "sam"), reloadLabel("sam", "sam"), reloadLabel("_system", "sam")], ["Reload bob's workspace", "Reload your workspace", "Reload Thetis itself"]);
   assert.equal(cellState({ version: "0.2.2", loaded: "0.2.1", state: "update", broken: true }), "broken", "a missing setting is the louder fact");
   assert.equal(cellState({ version: "0.2.2", fork: true, state: "current" }), "fork");
   assert.equal(drifts({ registry: null, byUser: { dev: { state: "update" } } }), true, "a workspace that has not applied the disk needs a look");
@@ -433,7 +438,7 @@ test("the fleet's pure helpers: what a cell says, which rows need a look, and wh
 });
 
 test("the configuration form's pure helpers: the control per key, what counts as a change, the words for a source", async () => {
-  const { kindOf, readValue, sourceText, missingText, brokenSentence, reloadSentence, keyLabel, nameOf, isAdvanced, clearWords, summaryText, MASK } = await import("../ui/config-form.js");
+  const { kindOf, readValue, sourceText, missingText, brokenSentence, reloadSentence, keyLabel, nameOf, isAdvanced, clearWords, summaryText, linkParts, MASK } = await import("../ui/config-form.js");
   const k = (extra) => ({ key: "k", state: "set", secret: false, declared: true, ...extra });
   assert.equal(kindOf(k({ secret: true, type: "string" })), "secret");
   assert.deepEqual(["string", "number", "boolean", "object", "array"].map((type) => kindOf(k({ type }))), ["text", "number", "checkbox", "json", "json"]);
@@ -461,8 +466,14 @@ test("the configuration form's pure helpers: the control per key, what counts as
   assert.equal(sourceText(k({ source: "default" }), "system"), "Default");
   assert.equal(sourceText(k({ source: "system", inheritedFrom: "@bitmuse/notion" }), "system"), "Set for everyone · inherited from @bitmuse/notion");
   assert.equal(sourceText(k({ source: "system" }), "user"), "Set for everyone", "a person's view of everyone's value");
-  assert.equal(sourceText(k({ source: "user" }), "user"), "Your own (used instead of everyone's)");
-  assert.equal(sourceText(k({ source: "user" }), "user", "alice"), "alice's own (used instead of everyone's)");
+  // "used instead of everyone's" only when everyone has one; a key of one's own with nothing under it is "Your key".
+  assert.equal(sourceText(k({ source: "user" }), "user"), "Yours");
+  assert.equal(sourceText(k({ source: "user", secret: true }), "user"), "Your key");
+  assert.equal(sourceText(k({ source: "user", secret: true }), "user", null, "none"), "Your key");
+  assert.equal(sourceText(k({ source: "user", secret: true }), "user", null, "everyone"), "Your key (used instead of everyone's)");
+  assert.equal(sourceText(k({ source: "user" }), "user", "alice", "everyone"), "alice's own (used instead of everyone's)");
+  assert.equal(sourceText(k({ source: "user", secret: true }), "user", "alice"), "alice's key");
+  assert.equal(sourceText(k({ state: "missing" }), "system"), "Not set", "said once, in the row");
   // A key's name as a person says it; the raw key stays beside it in small type.
   assert.deepEqual(["apiKey", "baseUrl", "timeoutMs", "timeoutSeconds", "numResults", "maxCharacters", "token", "defaults", "ssh_key_path", "tag"].map((key) => keyLabel({ key })), ["API key", "Base URL", "Timeout (milliseconds)", "Timeout (seconds)", "Num results", "Max characters", "Token", "Defaults", "SSH key path", "Tag"]);
   assert.equal(nameOf("@thetis/exa"), "Exa");
@@ -474,14 +485,20 @@ test("the configuration form's pure helpers: the control per key, what counts as
   assert.equal(isAdvanced(k({ key: "baseUrl", state: "missing" })), false);
   // The Clear confirms, in plain words.
   const secret = k({ key: "apiKey", secret: true, required: true });
-  assert.deepEqual(clearWords(secret, { layer: "user" }), { title: "Remove your own key?", note: "You will use everyone's key again." });
-  assert.deepEqual(clearWords(secret, { layer: "user", who: "sam" }), { title: "Remove sam's own key?", note: "sam uses everyone's key again." });
+  assert.deepEqual(clearWords(secret, { layer: "user", below: "everyone" }), { title: "Remove your own key?", note: "You will use everyone's key again." });
+  assert.deepEqual(clearWords(secret, { layer: "user", who: "sam", below: "everyone" }), { title: "Remove sam's own key?", note: "sam uses everyone's key again." });
+  assert.deepEqual(clearWords(secret, { layer: "user", label: "Exa Web Search", below: "none" }), { title: "Remove your key?", note: "Exa Web Search stops working until you add one again." });
+  assert.deepEqual(clearWords(secret, { layer: "user", who: "sam", label: "Exa Web Search", below: "none" }), { title: "Remove sam's key?", note: "Exa Web Search stops working for sam until they add one again." });
+  assert.match(clearWords(secret, { layer: "user", label: "Exa Web Search" }).note, /^You will use everyone's key if there is one; otherwise Exa Web Search stops working until you add one again\.$/, "not known: both, never a false one");
   assert.deepEqual(clearWords(secret, { layer: "system", label: "Exa Web Search", people: ["bitmuse", "sam"] }), { title: "Remove everyone's key?", note: "bitmuse and sam lose Exa Web Search unless they set their own." });
+  assert.equal(clearWords(secret, { layer: "system", label: "Exa Web Search", people: ["bitmuse", "sam"], me: "bitmuse" }).note, "You and sam lose Exa Web Search unless each of you sets your own.", "the reader is you");
   assert.equal(clearWords(secret, { layer: "system", label: "Exa Web Search", people: ["sam"] }).note, "sam loses Exa Web Search unless they set their own.");
   assert.equal(clearWords(k({ key: "baseUrl" }), { layer: "system" }).note, "People who have not set their own go back to the default.");
   assert.doesNotMatch(JSON.stringify(clearWords(secret, { layer: "system", people: ["sam"] })), /layer|falls back|file/, "no machinery words");
-  assert.equal(summaryText({ broken: true, keys: [{ key: "apiKey", state: "missing" }, { key: "baseUrl", state: "set" }] }), "API key is not set");
+  assert.equal(summaryText({ broken: true, keys: [{ key: "apiKey", state: "missing" }, { key: "baseUrl", state: "set" }] }), "Needs setup: API key");
   assert.equal(summaryText({ broken: false, keys: [{ key: "apiKey", state: "set" }] }), "Nothing missing");
+  assert.equal(summaryText({ broken: false, keys: [{ key: "apiKey", state: "set", secret: true }] }), "Key saved — not checked yet", "never that it works");
+  assert.deepEqual(linkParts("Your key (dashboard.exa.ai → API keys)."), [{ text: "Your key (" }, { text: "dashboard.exa.ai", href: "https://dashboard.exa.ai" }, { text: " → API keys)." }]);
   assert.equal(MASK, "••••••••");
   assert.equal(missingText(k({ state: "missing", missing: ["OPENROUTER_API_KEY"] })), "OPENROUTER_API_KEY is not in the environment");
   assert.equal(missingText(k({ missing: ["A", "B"] })), "A, B are not in the environment");
@@ -554,48 +571,49 @@ test("the tree an admin reads: Overview, People, Extensions, Models, Access, Act
   assert.deepEqual(tabsFor("user").map((t) => t.label), ["Mounts", "SSH keys"], "registries are the installation's: a user has no tab for them");
 });
 
-test("configurationChildren: All extensions and Who has what first, then every extension, one node per family, the ones that ask for something with one mark", async () => {
-  const { configurationChildren, FLEET, WHO, markOf } = await import("../ui/configuration.js");
-  const reports = [
-    { package: "@thetis/exa", summary: "apiKey is required and not set", broken: true, keys: [{ key: "apiKey" }] },
-    { package: "@thetis/tools-files", summary: "every key is set", broken: false, keys: [] },
-    { package: "@bitmuse/moo", summary: "every key is set", broken: false, keys: [{ key: "base_url" }] },
-    { package: "@thetis/terminal", summary: "every key is set", broken: false, keys: [{ key: "shell" }] },
-  ];
+test("configurationChildren: All extensions and Who has what first, then every extension, one node per family, the parts of Thetis under one closed node, marks from the place's to-dos", async () => {
+  const { configurationChildren, FLEET, WHO, PARTS, markOf } = await import("../ui/configuration.js");
   const fleet = { packages: [
-    { name: "@thetis/terminal", type: "service", state: "current", waiting: [], registry: null, config: { broken: false }, byUser: { bitmuse: { fork: true, state: "current" }, dev: { state: "current" } } },
-    { name: "@thetis/tools-files", state: "current", waiting: [], registry: null, config: { broken: false }, byUser: { dev: { state: "current" } } },
-    { name: "@bitmuse/moo", state: "current", waiting: [], registry: null, config: { broken: false }, byUser: { bitmuse: { state: "current", broken: true } } },
-    { name: "@thetis/skills-hybrid", version: "0.2.2", state: "update", waiting: ["dev", "root", "bob"], registry: { version: "0.2.2", update: { apply: "reload", version: "0.2.2" } }, config: { broken: false }, byUser: { dev: { state: "update" } } },
-    { name: "@thetis/compaction", version: "0.1.0", state: "update", waiting: [], registry: { version: "0.2.0", update: { apply: "install", version: "0.2.0" } }, config: null, byUser: { dev: { state: "current" } } },
-    { name: "@thetis/ui-marketplace", type: "ui", label: "extensions", version: "0.11.0", state: "current", waiting: [], registry: null, config: null, byUser: { dev: { state: "current" } } },
+    { name: "@thetis/terminal", type: "service", version: "0.1.0", state: "current", waiting: [], registry: null, config: { broken: false }, byUser: { bitmuse: { fork: true, state: "current" }, dev: { state: "current" } } },
+    { name: "@thetis/tools-files", tools: ["read"], version: "0.2.0", state: "current", waiting: [], registry: null, config: { broken: false }, byUser: { dev: { state: "current" } } },
+    { name: "@bitmuse/moo", tools: ["moo_eval"], version: "0.1.0", state: "current", waiting: [], registry: null, config: { broken: false }, mine: true, byUser: { bitmuse: { state: "current", broken: true, summary: "base_url is missing", missing: [{ key: "base_url", state: "missing", help: "The MOO's address." }] } } },
+    { name: "@thetis/exa", tools: ["exa_search"], version: "0.1.1", state: "current", waiting: [], registry: null, config: { broken: true }, mine: true, byUser: { bitmuse: { state: "current", broken: true, summary: "apiKey is missing", missing: [{ key: "apiKey", state: "missing", secret: true, help: "Your Exa API key, from dashboard.exa.ai." }] } } },
+    { name: "@thetis/skills-hybrid", version: "0.2.2", type: "loader", state: "update", waiting: ["dev", "root", "bob"], registry: { version: "0.2.2", update: { apply: "reload", version: "0.2.2" } }, config: { broken: false }, component: true, byUser: { dev: { state: "update", version: "0.2.2", loaded: "0.2.1" } } },
+    { name: "@thetis/compaction", tools: ["compact"], version: "0.1.0", state: "update", waiting: [], registry: { version: "0.2.0", update: { apply: "install", version: "0.2.0", from: "aaaaaaa", to: "bbbbbbb" } }, config: null, mine: true, byUser: { bitmuse: { state: "current", version: "0.1.0" } } },
+    { name: "@thetis/ui-marketplace", type: "ui", label: "extensions", version: "0.11.0", state: "current", waiting: [], registry: null, config: null, component: true, mine: true, byUser: { bitmuse: { state: "current" } } },
+    { name: "@thetis/store-toml", type: "storage", version: "0.1.0", state: "current", waiting: [], registry: null, config: null, component: true, nobody: true, byUser: {} },
   ] };
-  const request = async (verb) => (verb === "config-list" ? { data: reports } : verb === "fleet" ? { data: fleet } : { data: null });
+  const request = async (verb) => (verb === "fleet" ? { data: fleet } : { data: null });
   const kids = await configurationChildren({ request }, { user: "bitmuse" });
   assert.equal(FLEET, "*");
-  assert.deepEqual(kids.slice(0, 2), [{ id: "*", label: "All extensions", kind: "page", note: "Every extension installed here" }, { id: WHO, label: "Who has what", kind: "page", note: "Every extension and which people have it" }], "Who has what sits under Extensions now");
+  assert.deepEqual(kids.slice(0, 2), [{ id: "*", label: "All extensions", kind: "page", note: "Every extension installed here" }, { id: WHO, label: "Who has what", kind: "page", note: "Every extension and which people have it" }], "Who has what sits under Extensions");
   assert.deepEqual(
-    kids.slice(2).map((k) => [k.id, k.label, k.mark]),
-    [["@thetis/compaction", "Compaction", "warn"], ["@thetis/exa", "Exa", "err"], ["@thetis/ui-marketplace", "Extensions page", undefined], ["@bitmuse/moo", "Moo", "err"], ["@thetis/skills-hybrid", "Skills Hybrid", "warn"], ["@thetis/terminal", "Terminal", undefined], ["@thetis/tools-files", "Tools Files", undefined]],
-    "every extension is in the tree by its label in Title Case; the Extensions place's own entry is the Extensions page; one that asks for nothing carries no mark, so it is not counted"
+    kids.slice(2, -1).map((k) => [k.id, k.label, k.mark, k.look]),
+    [["@thetis/compaction", "Compaction", "warn", true], ["@thetis/exa", "Exa", "err", true], ["@bitmuse/moo", "Moo", "err", true], ["@thetis/terminal", "Terminal", undefined, undefined], ["@thetis/tools-files", "Tools Files", undefined, undefined]],
+    "every extension by its label in Title Case; a mark only where the place has a to-do for the reader -- skills-hybrid waits for other people's reloads, which is not the reader's to-do"
   );
+  const parts = kids.at(-1);
+  assert.deepEqual([parts.id, parts.label, parts.closed], [PARTS, "Part of Thetis", true], "Thetis's own parts under one closed node");
+  assert.deepEqual(parts.children.map((c) => c.label), ["Extensions page", "Skills Hybrid", "Store Toml"], "the ones nobody has too; the place's own entry is the Extensions page");
   const by = Object.fromEntries(kids.slice(2).map((k) => [k.id, k]));
-  assert.equal(by["@thetis/terminal"].note, "by Thetis · Background", "no mark: the publisher line");
-  assert.equal(by["@thetis/skills-hybrid"].note, "Update available — 3 people haven't applied it yet.", "a mark's tooltip is the chip and the one sentence why");
-  assert.match(by["@thetis/compaction"].note, /^Update available — Version 0\.2\.0 is ready/);
-  assert.match(by["@thetis/exa"].note, /^Needs setup — /);
+  assert.equal(by["@thetis/terminal"].note, "Terminal — by Thetis · Background", "no mark: the full name, then the publisher line");
+  assert.match(by["@thetis/compaction"].note, /^Compaction — A newer build of 0\.1\.0 is ready\.|^Compaction — Version 0\.2\.0 is ready; you have 0\.1\.0\./);
+  assert.match(by["@thetis/exa"].note, /^Exa — Exa needs an Exa API key before it works\. Get one at dashboard\.exa\.ai\.$/);
   // An official extension and someone's customised copy of it are one node: the copy hangs under it.
   const twins = await configurationChildren({ request: async (verb) => (verb === "fleet" ? { data: { packages: [
-    { name: "@thetis/tool-exec", type: "tool", label: "tool exec", version: "0.4.1", tools: ["install"], state: "current", waiting: [], registry: null, config: null, byUser: { sam: { state: "current" } } },
-    { name: "@bitmuse/tool-exec", type: "tool", label: "tool exec", version: "0.3.3-fork.1", tools: ["install"], forkedFrom: { name: "@thetis/tool-exec", version: "0.3.3" }, fork: { name: "@thetis/tool-exec", version: "0.3.3", shipped: "0.4.1" }, state: "current", waiting: [], registry: null, config: null, byUser: { bitmuse: { state: "current" } } },
-    { name: "@sam/tool-exec", type: "tool", label: "tool exec", version: "0.4.1-fork.1", tools: ["install"], forkedFrom: { name: "@thetis/tool-exec", version: "0.4.1" }, fork: { name: "@thetis/tool-exec", version: "0.4.1", shipped: "0.4.1" }, state: "current", waiting: [], registry: null, config: null, byUser: { sam: { state: "current" } } },
+    { name: "@thetis/tool-exec", type: "tool", label: "tool exec", version: "0.4.1", tools: ["install"], state: "current", waiting: [], registry: null, config: null, byUser: { sam: { state: "current" }, bitmuse: { fork: true, state: "current" } } },
+    { name: "@bitmuse/tool-exec", type: "tool", label: "tool exec", version: "0.3.3-fork.1", tools: ["install"], forkedFrom: { name: "@thetis/tool-exec", version: "0.3.3" }, fork: { name: "@thetis/tool-exec", version: "0.3.3", shipped: "0.4.1" }, state: "current", waiting: [], registry: null, config: null, mine: true, byUser: { bitmuse: { state: "current" } } },
+    { name: "@sam/tool-exec", type: "tool", label: "tool exec", version: "0.4.1-fork.1", tools: ["install"], forkedFrom: { name: "@thetis/tool-exec", version: "0.4.1" }, fork: { name: "@thetis/tool-exec", version: "0.4.1", shipped: "0.4.1", identical: true }, state: "current", waiting: [], registry: null, config: null, byUser: { sam: { state: "current" } } },
   ] } } : { data: [] }) }, { user: "bitmuse" });
-  assert.deepEqual(twins.slice(2).map((k) => [k.id, k.label, (k.children ?? []).map((c) => c.label)]), [["@thetis/tool-exec", "Tool Exec", ["Tool Exec — your copy", "Tool Exec — sam's copy"]]], "one node per family, never two that read the same");
+  const family = twins.slice(2);
+  assert.deepEqual(family.map((k) => [k.id, k.label, (k.children ?? []).map((c) => c.label)]), [["@thetis/tool-exec", "Tool Exec", ["Your copy (Customized)", "sam's copy"]]], "one node per family, never two that read the same; a copy that changed nothing is not Customized");
+  assert.equal(family[0].look, true, "the copy's review to-do is the family's, counted once on its root");
+  assert.equal(family[0].children[0].look, undefined);
   for (const k of kids) assert.equal(k.marks, undefined, "no glyphs, so the shell draws no glyph legend");
-  // Neither command answering: the tree still has its pages, and says nothing it does not know.
+  // The fleet not answering: the tree still has its pages, and says nothing it does not know.
   const bare = await configurationChildren({ request: async () => Promise.reject(new Error("The requested module './lib/ssh.js' does not provide an export named 'isWithin'")) });
   assert.deepEqual(bare.map((k) => k.id), ["*", WHO]);
-  assert.equal(markOf(null, null), null);
+  assert.equal(markOf(null), null);
 });
 
 test("the three words: a server state becomes Up to date, Update ready or Restart needed, and only two of them ask for anything", async () => {

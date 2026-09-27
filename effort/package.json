@@ -11,6 +11,7 @@
   "thetis": {
     "type": "loader",
     "label": "reasoning effort",
+    "summary": "Lets you choose how hard the model thinks, beside the model picker.",
     "steps": [
       { "id": "apply-effort", "phase": "call", "export": "applyEffort" }
     ],

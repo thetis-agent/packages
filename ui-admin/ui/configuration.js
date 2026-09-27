@@ -1,113 +1,144 @@
 /* The pages under Extensions in the control panel (the manifest declares this entry `under: "packages"`,
  * the shell's built-in section). `configurationChildren` answers the tree: "All extensions", the table of what
  * is installed for the reader; "Who has what", every extension and which people have it; then every extension
- * by its friendly label in Title Case, one node per family: a customised copy hangs under the extension it was
- * made from ("Tool Exec — your copy"), so two entries never read the same. The ones that ask for attention
- * (Needs setup or Update available, `state.js`'s one state) carry a mark whose tooltip is "<Chip> — <the one
- * sentence why>", and only the marks are counted, so the tree's count is of what needs doing. The Extensions
- * place's own entry reads "Extensions page", so it is not mistaken for the section it sits in.
- * `mountConfiguration` draws All extensions and Who has what (`fleet.js`, its simple and full views) and an
- * extension's page (`package-page.js`) for any other child; `mountSettings` is the settings form alone, the
- * page's Settings tab, drawn with the shared form so the state of every key is the kernel's and is said in the row.
+ * of this server by its friendly label in Title Case -- the ones nobody has too -- one node per family: a copy
+ * hangs under the extension it was made from ("Your copy (Customized)"), so two entries never read the same;
+ * Thetis's own parts sit under one closed "Part of Thetis" node, as the Extensions place keeps them apart.
+ *
+ * The verdict is the place's, for the reader (`rows.js`'s `placeOf`): an extension whose family has a to-do in
+ * the place's "Needs your attention" strip carries a mark in the to-do's tone (`look: true`, so the shell counts
+ * it whatever its tone), and the count beside Extensions is exactly the place's attention count. Every node's
+ * tooltip starts with its full name, then the to-do's sentence or the publisher line. The Extensions place's own
+ * entry reads "Extensions page", so it is not mistaken for the section it sits in.
+ * `mountConfiguration` draws All extensions, Part of Thetis and Who has what (`fleet.js`, its simple and full
+ * views) and an extension's page (`package-page.js`) for any other child; `mountSettings` is the settings form
+ * alone, the page's Settings tab, drawn with the shared form so the state of every key is the kernel's and is
+ * said in the row.
  *
  * The picker at the top of the form switches between everyone's settings and one person's own, because both
  * are the admin's to set and a person's missing key is invisible from everyone's view. A key declared for the
  * system is read-only in a person's view.
  *
- * "Read the file again" re-reads thetis.config.json and the env file without a restart; the answer names
- * what changed and which services were restarted for it. After a save or a clear the page asks the tree to
- * read its children again, so the marks beside the extensions follow the kernel's word. */
+ * At a person's layer the form is told what each key falls back to (everyone's report, read beside it), so a
+ * value of their own reads "used instead of everyone's" only when everyone has one. "Read the file again"
+ * re-reads thetis.config.json and the env file without a restart; the answer names what changed and which
+ * services were restarted for it. It sits under Advanced with the sentence on `${VAR}` and the file, which is
+ * nobody's business but an admin troubleshooting. After a save or a clear the page asks the tree to read its
+ * children again, so the marks beside the extensions follow the kernel's word. */
 
 import { configCard, reloadSentence } from "./config-form.js";
 import { mountFleet } from "./fleet.js";
 import { mountPackagePage } from "./package-page.js";
 import { failedCard, toastError } from "./failed.js";
-import { described, rowFromFleet } from "./rows.js";
-import { originNameOf, scopeOf } from "./state.js";
+import { described, placeOf, rowsFromFleet } from "./rows.js";
+import { familiesOf, isCustomized, isPromoted, isVariant, officialOf, originNameOf, scopeOf, titleOf } from "./state.js";
 
 /** The id of the first child under Extensions: not an extension but all of them. */
 export const FLEET = "*";
 /** The id of the second: every extension and which people have it. */
 export const WHO = "who";
+/** The node Thetis's own parts hang under, which is also a page listing them. */
+export const PARTS = "parts";
 
 /** The signed-in person, as the shell's footer names them; the seam hands a tree's children no identity. */
 const me = () => globalThis.document?.getElementById?.("user-name")?.textContent?.trim() || "";
 
-/** One extension as the one state reads it, from its fleet row and its system-layer report, either of which may be missing. */
-function rowOf(p, report, user) {
-  const row = p ? rowFromFleet(p, { user }) : { name: report?.package, installed: true, label: null, type: null, config: null };
-  // The report the tree read says more than the fleet's short form when the fleet could not answer.
-  if (report?.broken && !row.config?.broken) row.config = { broken: true, summary: report.summary || "A setting is missing", keys: Array.isArray(report.keys) ? report.keys.filter((k) => k?.state === "missing") : [] };
-  return row;
+/** The tree mark of a to-do's tone: red for setup, amber for an update, grey for the rest (still counted). */
+const MARK = Object.freeze({ err: "err", warn: "warn", dim: "dim" });
+
+/** The one tree mark a family's to-do in the place's strip gives, or null when it has none: `{ mark, why }`. */
+export function markOf(entry) {
+  if (!entry?.todo) return null;
+  return { mark: MARK[entry.todo.tone] ?? "warn", why: entry.todo.reason };
 }
 
-/**
- * The one tree mark an extension gets, or null when it asks for nothing: `err` for Needs setup, `warn` for
- * Update available, with "<Chip> — <the one sentence why>" as the tooltip. `rows` are the others, for a copy's official one.
- */
-export function markOf(p, report, { user = "", rows = [] } = {}) {
-  if (!p && !report) return null;
-  const { state } = described(rowOf(p, report, user), { rows, user });
-  if (!state.attention) return null;
-  const chip = state.chips.find((c) => c.id === "needsSetup" || c.id === "updateAvailable") ?? state.chips[0];
-  // An optional setup (something everyone was given) is marked neutral, as the place says it.
-  return { mark: state.tone === "dim" ? "dim" : state.setup.chip ? "err" : "warn", note: chip ? `${chip.label} — ${state.reason}` : state.reason };
+/** What a copy's node under its origin reads: "Your copy (Customized)", "sam's copy", or a variant's own label. */
+function copyLabel(row, family, user) {
+  const origin = officialOf(row, family);
+  if (isVariant(row, origin)) return null;
+  const whose = scopeOf(row.name) === user ? "Your copy" : `${scopeOf(row.name)}'s copy`;
+  return isCustomized(row) ? `${whose} (Customized)` : whose;
 }
-
-/** What a copy's node under its origin reads: "Tool Exec — your copy", "Tool Exec — sam's copy". */
-const copyLabel = (label, name, user) => `${label} — ${scopeOf(name) === user ? "your" : `${scopeOf(name)}'s`} copy`;
 
 /**
  * The children under Extensions, for the tree: All extensions and Who has what first, then every extension by
- * its friendly label, one node per family (a copy under its origin), the ones that ask for attention with their
- * one mark. An installation where `fleet` cannot answer still lists the ones the configuration report knows.
+ * its friendly label, one node per family (a copy under its origin), the parts of Thetis under one closed node.
+ * A family with a to-do in the place's strip carries its one mark. An installation where `fleet` cannot answer
+ * has only the two pages.
  */
 export async function configurationChildren(ext, { user = me() } = {}) {
-  const [list, fleet] = await Promise.all([ext.request("config-list").catch(() => ({ data: [] })), ext.request("fleet").catch(() => ({ data: null }))]);
-  const reports = new Map((Array.isArray(list?.data) ? list.data : []).map((r) => [r.package, r]));
+  const fleet = await ext.request("fleet").catch(() => ({ data: null }));
   const packages = Array.isArray(fleet?.data?.packages) ? fleet.data.packages : [];
-  const names = new Set([...packages.map((p) => p.name), ...reports.keys()]);
-  const byName = new Map(packages.map((p) => [p.name, p]));
-  const rows = packages.map((p) => rowFromFleet(p, { user }));
-  const nodes = new Map();
-  for (const name of names) {
-    const said = described(rowOf(byName.get(name) ?? null, reports.get(name) ?? null, user), { rows, user });
-    const mark = markOf(byName.get(name) ?? null, reports.get(name) ?? null, { user, rows });
-    // The Extensions place's own entry, under the section called Extensions.
-    const label = said.label === "Extensions" ? "Extensions page" : said.label;
-    nodes.set(name, { id: name, label, ...(mark ? { note: mark.note, mark: mark.mark } : { note: said.publisher }) });
-  }
-  // A copy hangs under the extension it was made from, when that one is listed too.
+  const rows = rowsFromFleet(packages, user);
+  const place = placeOf(packages, user);
+  const todo = new Map(place.attention.map((e) => [e.row.name, e]));
   const top = [];
-  for (const [name, node] of nodes) {
-    const p = byName.get(name);
-    const origin = p ? originNameOf(p) : null;
-    const parent = origin && origin !== name ? nodes.get(origin) : null;
-    if (!parent) {
-      top.push(node);
-      continue;
+  const parts = [];
+  for (const family of familiesOf(rows)) {
+    const node = (m, label) => {
+      const d = described(m, { rows, user });
+      const mark = markOf(todo.get(m.name));
+      // The Extensions place's own entry, under the section called Extensions.
+      const name = label ?? (d.label === "Extensions" ? "Extensions page" : d.label);
+      return { id: m.name, label: name, why: mark?.why ?? d.publisher, ...(mark ? { mark: mark.mark, look: true } : {}) };
+    };
+    // The family's root: the shared copy everyone gets, else the member nothing else in it was copied from, else its headline.
+    const root = family.members.find(isPromoted) ?? family.members.find((m) => m.name === family.origin) ?? family.headline;
+    const parent = node(root);
+    for (const m of family.members) {
+      if (m === root) continue;
+      // The original a shared copy was made from: the place's own title for it, "Notion — your original".
+      const original = isPromoted(root) && !originNameOf(m) ? titleOf(m, { family: family.members, user, origin: officialOf(m, family) }) : null;
+      const child = node(m, originNameOf(m) ? copyLabel(m, family, user) : original);
+      child.note = `${child.label.startsWith(parent.label) ? child.label : `${parent.label}: ${child.label}`} — ${child.why}`;
+      // A to-do on a member the tree folds away is the family's: the root carries the mark, so it is seen and counted once.
+      if (child.look && !parent.look) Object.assign(parent, { mark: child.mark, look: true, why: child.why });
+      delete child.look;
+      delete child.why;
+      (parent.children ??= []).push(child);
     }
-    node.label = copyLabel(parent.label, name, user);
-    (parent.children ??= []).push(node);
+    parent.note = `${parent.label} — ${parent.why}`;
+    delete parent.why;
+    (family.headline?.component ? parts : top).push(parent);
   }
-  top.sort((a, b) => a.label.localeCompare(b.label));
+  const byLabel = (a, b) => a.label.localeCompare(b.label);
+  top.sort(byLabel);
+  parts.sort(byLabel);
+  if (!packages.length) return [{ id: FLEET, label: "All extensions", kind: "page", note: "Every extension installed here" }, { id: WHO, label: "Who has what", kind: "page", note: "Every extension and which people have it" }];
   return [
     { id: FLEET, label: "All extensions", kind: "page", note: "Every extension installed here" },
     { id: WHO, label: "Who has what", kind: "page", note: "Every extension and which people have it" },
     ...top,
+    ...(parts.length ? [{ id: PARTS, label: "Part of Thetis", closed: true, note: `Part of Thetis — the ${parts.length} parts that make Thetis run`, children: parts }] : []),
   ];
 }
 
 /**
- * The page under Extensions: All extensions (`*`), Who has what, or one extension's page. `tab` and `layer`
- * are a deep link's (another surface opening this page on its Settings tab, at everyone's layer or a person's).
+ * The page under Extensions: All extensions (`*`), Who has what, Part of Thetis, or one extension's page. `tab`
+ * and `layer` are a deep link's (another surface opening this page on its Settings tab, at everyone's layer or a
+ * person's).
  */
 export function mountConfiguration(ext, root, { child, refresh, user, open, tab = null, layer = null } = {}) {
   if (child === FLEET) return mountFleet(ext, root, { mode: "simple", refresh, onOpen: (name) => open?.(name), ...(user ? { user } : {}) });
+  if (child === PARTS) return mountFleet(ext, root, { mode: "parts", refresh, onOpen: (name) => open?.(name), ...(user ? { user } : {}) });
   if (child === WHO) return mountFleet(ext, root, { mode: "full", refresh, onOpen: (name) => open?.(name), ...(user ? { user } : {}) });
   if (child) return mountPackagePage(ext, root, { name: child, refresh, open: open ?? null, tab, layer, ...(user ? { user } : {}) });
   const { el } = ext.dom;
   root.append(el("div", { class: "panel-cols" }, el("div", { class: "panel-col" }, el("p", { class: "panel-hint" }, "Choose All extensions under Extensions."))));
+}
+
+/**
+ * What each key falls back to under a person's layer, from everyone's report: "everyone" when everyone's layer
+ * or the server's file holds a value, "default" when the manifest gives one, "none" otherwise.
+ */
+export function fallbacksOf(report) {
+  if (!report || !Array.isArray(report.keys)) return null;
+  const out = {};
+  for (const k of report.keys) {
+    if (!k?.key) continue;
+    out[k.key] = k.state === "unset" || k.state === "missing" || !k.source ? "none" : k.source === "default" ? "default" : "everyone";
+  }
+  return out;
 }
 
 /**
@@ -126,17 +157,20 @@ export function mountSettings(ext, root, { child, refresh, label = null, layer: 
   let holders = null; // who has it, for the clear confirm at everyone's layer
   let person = typeof initial === "string" ? initial : ""; // "" is everyone's layer
   let report = null;
+  let below = null; // at a person's layer: what each key falls back to, from everyone's report
   let failed = null;
   let alive = true;
 
   async function load() {
     const stop = busy(wrap, `Reading ${label ?? child}…`);
     try {
-      const [users, shown, where] = await Promise.all([
+      const [users, shown, where, everyone] = await Promise.all([
         ext.request("users"),
         ext.request("config-show", { args: person ? { name: child, user: person } : { name: child } }),
         holders ? null : ext.request("package-where", { args: { name: child } }).catch(() => null),
+        person ? ext.request("config-show", { args: { name: child } }).catch(() => null) : null,
       ]);
+      below = person ? fallbacksOf(everyone?.data) : null;
       people = (Array.isArray(users.data) ? users.data : []).filter((p) => p.role !== "system");
       if (where) holders = (where.data?.people ?? []).filter((p) => p.installed).map((p) => p.user);
       report = shown.data ?? null;
@@ -179,6 +213,10 @@ export function mountSettings(ext, root, { child, refresh, label = null, layer: 
     const card = configCard(ext, report, {
       layer: person ? "user" : "system",
       who: person && !mine ? person : null,
+      me: user,
+      below,
+      // The server's file and `${VAR}`, an admin troubleshooting's business: inside the form's Advanced fold.
+      advanced: () => el("div", { class: "ua-settings-advanced" }, el("p", { class: "panel-hint" }, "A value set here is used from the extension's next call; an extension that runs a service has it restarted. ${VAR} in a value is read from the server's environment when the extension is called. The server's file thetis.config.json is read once; Read the file again reads it again."), el("div", {}, reloadBtn)),
       label,
       people: holders ?? [],
       reveal: (key) => ext.request("config-reveal", { args: { name: child, key, layer: person ? "user" : "system", ...(person ? { user: person } : {}) } }).then((out) => out?.data?.value),
@@ -192,9 +230,8 @@ export function mountSettings(ext, root, { child, refresh, label = null, layer: 
     });
     put(
       wrap,
-      el("div", { class: "toolbar" }, heading("Settings", person ? (mine ? "your own, used instead of everyone's" : `${person}'s own, used instead of everyone's`) : "what everyone gets, unless they set their own"), el("div", { class: "toolbar-gap" }), layer, reloadBtn),
-      card,
-      el("p", { class: "panel-hint" }, "A value set here is used from the extension's next call; an extension that runs a service has it restarted. ${VAR} in a value is read from the server's environment when the extension is called. The server's file thetis.config.json is read once; Read the file again reads it again.")
+      el("div", { class: "toolbar" }, heading("Settings", person ? (mine ? "your own" : `${person}'s own`) : "what everyone gets, unless they set their own"), el("div", { class: "toolbar-gap" }), layer),
+      card
     );
   }
 

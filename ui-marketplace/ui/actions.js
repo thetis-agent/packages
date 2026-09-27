@@ -2,7 +2,9 @@
  * contract every screen shares (state.js):
  *
  * - For anyone: **Install**, or **Installed ✓ ▾** once it is theirs, whose menu holds **Remove for me** (its
- *   confirm offers "Also delete my saved settings") and, for a copy, **Use Thetis's version**. **Update** when
+ *   confirm offers "Also delete my saved settings") and, for a copy, **Use Thetis's version**. **Remove for me**
+ *   is a button beside it as well, and **Set up** is there while something is missing (**Settings** once
+ *   nothing is). **Update** when
  *   a newer version of what they run is ready: it goes through the page's one updater (updates-notice.js),
  *   which fetches, applies, waits for the space to come back and refreshes; a running reply pauses at a safe
  *   point and continues. **Use Thetis's version** leads for a copy the official version has moved past, and the
@@ -23,10 +25,45 @@
  *
  * Every popover states the facts a person should read first and one sentence on what happens next; nothing is
  * sent until they confirm. After an action the place is re-opened on the page, or on the store when the
- * extension is gone from here. */
+ * extension is gone from here. A failure is said in plain words -- "Exa Web Search is no longer installed for
+ * you." when somebody else removed it meanwhile -- and the page is read again, so what it shows is true.
+ *
+ * A person's own copy of somebody else's extension stays theirs: an admin is not offered to install it for
+ * someone else, and reads instead "This is your own copy. To give sam this extension, use Thetis's version:"
+ * with **Open** of the official one. A copy's page offers **Show changes** beside what it changed. */
 
-import { ADMIN_ONLY, WORDS, baseOf, everyoneActions, isAdminOnly, isPromoted, isRequired, kindsOf, listOf, needText, needsOf, originNameOf, ownerWord, publisherShort, runsInsideThetis, scopeOf, titleCase, useOriginLabel } from "./state.js";
+import { ADMIN_ONLY, WORDS, baseOf, everyoneActions, isAdminOnly, isCopy, isPromoted, isRequired, kindsOf, listOf, needText, needsOf, originNameOf, ownerWord, publisherShort, runsInsideThetis, scopeOf, sharedCopyOf, switchTitle, titleCase, useOriginLabel } from "./state.js";
 import { isBusy, lostGateway, updater } from "./updates-notice.js";
+import { expectChange, unexpectChange } from "./watch.js";
+
+/**
+ * A failure in plain words. The extension is read again first, because a failure is very often somebody else's
+ * change: an admin removed it for the person meanwhile ("Exa Web Search is no longer installed for you."), or
+ * installed it ("… is already installed for you."). `installed` is whether the act took it to be installed.
+ * Answers the sentence; the raw text is kept only when nothing plainer is known.
+ */
+export async function plainFailure(ext, err, { name, label, installed = true }) {
+  if (isBusy(err)) return "A reply is running; try again when it is done.";
+  const raw = String(err?.message ?? "").replace(/^Error:\s*/, "");
+  let now;
+  try {
+    now = (await ext.request("show", { args: { name } }))?.data?.row ?? null;
+  } catch {
+    now = undefined;
+  }
+  if (now === undefined && /is not installed here, not shipped here/.test(raw)) return `${label} is no longer here.`;
+  if (now && installed && !now.installed) return `${label} is no longer installed for you.`;
+  if (now && !installed && now.installed) return `${label} is already installed for you.`;
+  return raw ? `That did not work: ${raw.charAt(0).toLowerCase()}${raw.slice(1)}${/[.!?]$/.test(raw) ? "" : "."}` : "That did not work.";
+}
+
+/** Says a failure plainly, then reads the page again (it may no longer be true), saying what changed under it. */
+async function failed(ext, err, { name, label, installed = true, reopen = name }) {
+  const text = await plainFailure(ext, err, { name, label, installed });
+  ext.toast(text, { tone: "error" });
+  unexpectChange();
+  ext.open.place("marketplace", reopen ? { name: reopen } : {});
+}
 
 /**
  * Waits for the space to answer again after the gateway serving this page was replaced (switching the web
@@ -86,12 +123,13 @@ export async function useInstead(ext, anchor, { row, label, relation = "", inUse
   const source = row.system ? row.name : row.folder && !row.installed ? row.folder.dir : row.source;
   const how = howItInstalls(row);
   const ok = await ext.ui.confirm(anchor, {
-    title: use ? `Use ${label} instead?` : `Install ${label}?`,
+    title: use ? switchTitle(label, relation) : `Install ${label}?`,
     lines: [["extension", `${label} ${row.version}`], ["for", "you"]],
     note: use ? `${x} replaces ${y} for you. Everyone else keeps ${y}. ${how}` : `${how} ${whatItBrings(row)}`,
-    confirmLabel: use ? "Use instead" : "Install",
+    confirmLabel: use ? "Switch" : "Install",
   });
   if (!ok) return;
+  expectChange();
   try {
     const out = await ext.request("install", { args: { source } });
     const now = out?.data?.name ?? row.name;
@@ -99,7 +137,7 @@ export async function useInstead(ext, anchor, { row, label, relation = "", inUse
     ext.toast(use ? `You use ${label} now. Everyone else keeps ${inUseLabel}.` : `${label} is installed.`, { tone: "good" });
     ext.open.place("marketplace", { name: now });
   } catch (err) {
-    ext.toast(err?.message || "That did not work.", { tone: "error" });
+    await failed(ext, err, { name: row.name, label, installed: false });
   }
 }
 
@@ -203,16 +241,22 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
 
   const go = (name, extra = {}) => ext.open.place("marketplace", name ? { name, ...extra } : {});
 
-  /** Runs one command behind its popover; a failure is a toast and the page stays as it is. */
-  async function run(anchor, popover, busyText, send, after) {
+  /**
+   * Runs one command behind its popover. A failure is said plainly and the page is read again. Whatever the act
+   * changes for the reader is their own doing, so the place does not announce it back to them. `installed` is
+   * whether the act took the extension to be theirs already.
+   */
+  async function run(anchor, popover, busyText, send, after, { installed = !!row.installed } = {}) {
     const ok = await confirm(anchor, popover);
     if (!ok) return;
+    expectChange();
     const stop = busy(host, busyText);
     try {
       const out = await send();
       await after(out?.data ?? {});
     } catch (err) {
-      ext.toast(err?.message || "That did not work.", { tone: "error" });
+      stop();
+      await failed(ext, err, { name: row.name, label, installed });
     } finally {
       stop();
     }
@@ -234,7 +278,8 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
       (r) => {
         ext.toast(`${label} is installed.${needs.length ? " Set it up next." : ""}`, { tone: "good" });
         go(r.name ?? row.name, needs.length ? { tab: "settings" } : {});
-      }
+      },
+      { installed: false }
     );
   }
 
@@ -264,6 +309,7 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
       tone: "warn",
     });
     if (!ok) return;
+    expectChange();
     const u = updater();
     if (u) return void (await u.switchBack([{ name: row.name, label, origin, state: row.update?.identical ? "identical" : "superseded" }]));
     const stop = busy(host, "Going back to the official version…");
@@ -281,7 +327,8 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
       ext.toast("You are on the official version again. Your copy's files are kept.", { tone: "good" });
       go(back?.name ?? origin);
     } catch (err) {
-      ext.toast(err?.message || "That did not work.", { tone: "error" });
+      stop();
+      await failed(ext, err, { name: row.name, label });
     } finally {
       stop();
     }
@@ -313,7 +360,8 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
       ext.toast(`${label} is updated. It takes effect when your space next starts.`, { tone: "good" });
       go(row.name);
     } catch (err) {
-      ext.toast(isBusy(err) ? "A reply is running; try again when it is done." : err?.message || "That did not work.", { tone: "error" });
+      stop();
+      await failed(ext, err, { name: row.name, label });
     } finally {
       stop();
     }
@@ -331,6 +379,14 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
     const ok = await confirm(anchor, { title: `Remove ${label} for you?`, lines: [["extension", label], ["for", "you"]], note, confirmLabel: "Remove for me", tone: "warn" });
     if (!ok) return;
     const wipe = tick.checked;
+    // Removing what is already gone succeeds without a word from the kernel; say plainly that it had gone.
+    const now = await ext.request("show", { args: { name: row.name } }).then((o) => o?.data?.row ?? null, () => null);
+    if (now && !now.installed) {
+      ext.toast(`${label} is no longer installed for you.`, { tone: "error" });
+      unexpectChange();
+      return void go(row.name);
+    }
+    expectChange();
     const stop = busy(host, "Removing…");
     try {
       let cleared = 0;
@@ -347,7 +403,8 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
       ext.toast(`${label} is removed for you. ${wipe ? (cleared ? "Your saved settings are deleted." : "You had no saved settings.") : "Your settings are kept."}`, { tone: "good" });
       go(row.available || row.system || row.folder ? row.name : row.replaced || null);
     } catch (err) {
-      ext.toast(err?.message || "That did not work.", { tone: "error" });
+      stop();
+      await failed(ext, err, { name: row.name, label });
     } finally {
       stop();
     }
@@ -360,7 +417,7 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
       "Deleting…",
       () => ext.request("delete", { args: { name: row.name } }),
       (r) => {
-        ext.toast(r.restored ? `${r.name} was deleted. ${r.restored} is back in place.` : `${r.name} was deleted.`, { tone: "good" });
+        ext.toast(r.restored ? `${label} was deleted. ${r.restored} is back in place.` : `${label} was deleted.`, { tone: "good" });
         go(r.restored || null);
       }
     );
@@ -382,7 +439,7 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
   function removeFor(anchor, who) {
     return run(
       anchor,
-      { title: `Remove ${label} for ${who}?`, lines: [["extension", label], ["for", who]], note: `Their settings are kept. It stops for them from their next message.${row.everyone ? " Everyone else keeps it." : ""}`, confirmLabel: `Remove for ${who}`, tone: "warn" },
+      { title: `Remove ${label} for ${who}?`, lines: [["extension", label], ["for", who]], note: WORDS.removeForNote, confirmLabel: `Remove for ${who}`, tone: "warn" },
       `Removing for ${who}…`,
       () => ext.request("remove-for", { args: { user: who, name: row.name } }),
       () => {
@@ -468,18 +525,20 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
     const still = row.everyone && row.everyoneBy === "config"
       ? " New people still get it: the server's settings give it to everyone."
       : isPromoted(row)
-        ? " It stays shared: every new person still gets it, and sharing cannot be stopped from here."
+        ? ` It stays shared: every new person still gets it. ${WORDS.cantStopSharing.split(";")[0]}.`
         : row.everyone
           ? " It is turned off for everyone too, so new people stop getting it."
           : "";
+    // "you", never the reader's own id.
+    const names = (list) => listOf(list.map((u) => (u === user ? "you" : u)));
     return run(
       anchor,
-      { title: `Remove ${label} for everyone?`, lines: [["extension", label], ["people who lose it", users.length ? listOf(users) : "nobody has it now"]], note: `It is taken away from ${users.length ? listOf(users) : "nobody"} now, from their next message. Their saved settings are kept.${still}`, confirmLabel: "Remove for everyone", tone: "warn" },
+      { title: `Remove ${label} for everyone?`, lines: [["extension", label], ["people who lose it", users.length ? names(users) : "nobody has it now"]], note: `It is taken away from ${users.length ? names(users) : "nobody"} now, from their next message. Their saved settings are kept.${still}`, confirmLabel: "Remove for everyone", tone: "warn" },
       "Removing for everyone…",
       () => ext.request("remove-everyone", { args: { name: row.name } }),
       (r) => {
-        const failed = r.failed?.length ? ` Not for ${r.failed.map((f) => f.user).join(", ")}: ${r.failed[0].error}` : "";
-        ext.toast(`${label} is removed for ${r.removed?.length ? listOf(r.removed) : "nobody"}.${failed}`, { tone: failed ? "warn" : "good" });
+        const notFor = r.failed?.length ? ` Not for ${names(r.failed.map((f) => f.user))}: ${r.failed[0].error}` : "";
+        ext.toast(`${label} is removed for ${r.removed?.length ? names(r.removed) : "nobody"}.${notFor}`, { tone: notFor ? "warn" : "good" });
         go(row.name);
       }
     );
@@ -494,13 +553,21 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
   // ---- the person's own ----
 
   let installedBtn = null;
+  let settingsBtn = null;
+  let offersInstall = false; // whether this page offers the person to take it, which is when its Needs line says anything
   const behind = !!view.state?.behind || !!view.superseded;
+  // Somebody else's original of a copy everyone already has: nothing to take here, only the way to the shared one.
+  const sharedCopy = sharedCopyOf(row, family);
   if (!row.installed) {
     if (inside) hints.push(`${WORDS.inside}.`);
     else if (!admin && isAdminOnly(row)) hints.push(ADMIN_ONLY.line);
     else if (!admin && row.component) hints.push("Part of Thetis. Your admin decides who has it.");
-    else if (view.inUse && view.inUse.name !== row.name) primary.push(make("Use instead", "primary", (b) => useInstead(ext, b, { row, label, relation: view.relation ?? "", inUse: view.inUse, inUseLabel: view.inUseLabel ?? "", inUseRelation: view.inUseRelation || "the one you use" })));
+    else if (!admin && sharedCopy && scopeOf(row.name) !== user) {
+      hints.push(`This is ${scopeOf(row.name)}'s original. Everyone gets the shared copy, ${titleCase(sharedCopy.label ?? baseOf(sharedCopy.name))}.`);
+      primary.push(make("Open the shared copy", "quiet", () => go(sharedCopy.name)));
+    } else if (view.inUse && view.inUse.name !== row.name) primary.push(make("Use instead", "primary", (b) => useInstead(ext, b, { row, label, relation: view.relation ?? "", inUse: view.inUse, inUseLabel: view.inUseLabel ?? "", inUseRelation: view.inUseRelation || "the one you use" })));
     else primary.push(make("Install", "primary", installMe));
+    offersInstall = primary.some((b) => b.textContent === "Install" || b.textContent === "Use instead");
   } else {
     if (view.state?.update) primary.push(make("Update", "primary", updateMe));
     else if (behind && official) primary.push(make(useOriginLabel(row, user), "quiet", unforkMe));
@@ -516,15 +583,20 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
       installedBtn.addEventListener("click", () => ext.ui.menu?.(installedBtn, menuItems));
     } else installedBtn.disabled = true;
     primary.push(installedBtn);
-    // A copy the official version moved past: what using it does, and what the person changed.
-    if (behind && official) {
-      hints.push(replaceLine);
-      const files = Array.isArray(row.changed) ? row.changed : null;
-      const base = row.fork?.version ?? row.forkedFrom?.version ?? null;
-      if (files?.length) hints.push(`You changed ${files.length === 1 ? "1 file" : `${files.length} files`}${base ? ` since ${base}` : ""}: ${files.slice(0, 5).join(", ")}${files.length > 5 ? ` and ${files.length - 5} more` : ""}.`);
-    }
+    // A copy the official version moved past: what using it does.
+    if (behind && official) hints.push(replaceLine);
   }
-  if (row.installed && onSettings && view.hasSettings) primary.push(make("Set up", !admin && view.state?.chips?.some((c) => c.id === "needsSetup") ? "primary" : "quiet", () => onSettings(), "Your own values for this extension"));
+  // Set up while something is missing, Settings once nothing is; the page hides it while its Settings tab is shown.
+  if (row.installed && onSettings && view.hasSettings) {
+    const missing = !!view.state?.setup?.chip;
+    settingsBtn = make(missing ? "Set up" : "Settings", !admin && missing ? "primary" : "quiet", () => onSettings(), missing ? "Set what it needs before it works" : "Your own values for this extension");
+    primary.push(settingsBtn);
+  }
+  // Remove for me in plain sight, not only in the menu; last, so it is never the first thing a thumb meets.
+  if (row.installed && !required) primary.push(make("Remove for me", "quiet", removeMe));
+  // What a copy changed, with the way to see it.
+  const changes = row.installed && isCopy(row) && Array.isArray(row.changed) && row.changed.length ? changesBlock() : null;
+  if (changes) hints.push(changes);
 
   // ⋯: the files, publishing, and the id -- the technical things, out of the way of the person's own act.
   const mine = row.local || row.own || scopeOf(row.name) === user;
@@ -557,9 +629,20 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
   // An admin installs for one person, or removes it for one who has it, from a picker: the people -- only the
   // admins for what only admins may have -- each marked when they have it, then a button naming the act.
   let picker = null;
-  const pickable = admin && !required && !inside && !openShared && !!(row.source || row.system) && !(row.folder && !row.available);
+  const mineRow = row.local || row.own || scopeOf(row.name) === user;
+  // A person's own changed copy of somebody else's extension is theirs alone: the picker says where the shareable one is.
+  const privateCopy = admin && row.installed && isCopy(row) && mineRow && !isPromoted(row) && !required && !inside && ownerWord(official, user) !== "your";
+  const pickable = admin && !required && !inside && !openShared && !privateCopy && !!(row.source || row.system) && !(row.folder && !row.available);
   const others = (people || []).filter((p) => p.id !== user && (!isAdminOnly(row) || p.role === "admin"));
-  if (pickable && others.length) {
+  if (privateCopy && others.length) {
+    const select = el("select", { class: "input mk-person", "aria-label": "Person" }, ...others.map((p) => el("option", { value: p.id }, p.id)));
+    const line = el("span", {}, WORDS.privateCopy(select.value, whose));
+    select.addEventListener("change", () => {
+      line.textContent = WORDS.privateCopy(select.value, whose);
+    });
+    const openIt = button(`Open ${label}`, { tone: "quiet", onClick: () => go(official) });
+    picker = el("div", { class: "mk-private" }, select, el("p", { class: "panel-hint mk-private-line" }, line, " ", openIt));
+  } else if (pickable && others.length) {
     const has = (id) => !!holders?.includes(id);
     const select = el("select", { class: "input mk-person", "aria-label": "Person" }, ...others.map((p) => el("option", { value: p.id }, has(p.id) ? `${p.id} (has it)` : p.id)));
     const b = button("", { tone: "quiet" });
@@ -573,6 +656,50 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
   }
 
   const requiredLine = required && row.installed ? el("span", { class: "mk-required", title: "Nothing removes it, for anyone" }, WORDS.required) : null;
+
+  /**
+   * "You changed 1 file since 0.3.3: dist/src/index.js." with **Show changes**, which asks `changes` for the
+   * whole list and, where the original file is still as it was copied, the lines themselves.
+   */
+  function changesBlock() {
+    const files = row.changed;
+    const base = row.fork?.version ?? row.forkedFrom?.version ?? null;
+    const text = `You changed ${files.length === 1 ? "1 file" : `${files.length} files`}${base ? ` since ${base}` : ""}: ${files.slice(0, 5).join(", ")}${files.length > 5 ? ` and ${files.length - 5} more` : ""}.`;
+    const panel = el("div", { class: "mk-changes-body", hidden: true });
+    const toggle = button("Show changes", { tone: "quiet" });
+    let loaded = false;
+    toggle.addEventListener("click", async () => {
+      if (!panel.hidden) {
+        panel.hidden = true;
+        toggle.textContent = "Show changes";
+        return;
+      }
+      if (!loaded) {
+        toggle.disabled = true;
+        try {
+          const d = (await ext.request("changes", { args: { name: row.name } }))?.data ?? {};
+          const list = Array.isArray(d.files) ? d.files : files;
+          ext.dom.clear(panel);
+          const parts = [
+            el("ul", { class: "mk-changes-files" }, ...list.map((f) => el("li", {}, el("code", {}, f)))),
+            d.diff
+              ? el("pre", { class: "mk-diff", "aria-label": "What changed, line by line" }, ...d.diff.split("\n").map((l) => el("span", { class: l.startsWith("+") && !l.startsWith("+++") ? "is-add" : l.startsWith("-") && !l.startsWith("---") ? "is-del" : l.startsWith("@@") ? "is-hunk" : null }, `${l}\n`)))
+              : el("p", { class: "panel-hint" }, `No line-by-line view: ${whose} version of ${list.length === 1 ? "this file" : "these files"} changed since your copy was made, or ${list.length === 1 ? "it is" : "they are"} not text.`),
+            d.cut ? el("p", { class: "panel-hint" }, "Only the first 200 lines are shown.") : null,
+          ];
+          panel.append(...parts.filter(Boolean));
+          loaded = true;
+        } catch (err) {
+          toggle.disabled = false;
+          return void ext.toast(await plainFailure(ext, err, { name: row.name, label }), { tone: "error" });
+        }
+        toggle.disabled = false;
+      }
+      panel.hidden = false;
+      toggle.textContent = "Hide changes";
+    });
+    return el("div", { class: "mk-changes" }, el("p", { class: "panel-hint mk-hint-line" }, text, " ", toggle), panel);
+  }
 
   /**
    * Publishing this package to a registry. Two things have to be settled before anything happens: which
@@ -950,5 +1077,5 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
   }
 
 
-  return { primary, more, required: requiredLine, adminActs, adminLines, openShared, hints, picker, publish, publishHints };
+  return { primary, more, required: requiredLine, adminActs, adminLines, openShared, hints, picker, publish, publishHints, settingsBtn, offersInstall };
 }

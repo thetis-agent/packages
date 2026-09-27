@@ -8,8 +8,9 @@
  * parent is how the reader finds what is under it. Which nodes are open is remembered under `storageKey`
  * when one is given, so the tree comes back the way it was left.
  *
- * `nodes` are `{ key, label, title?, kind?, mark?, marks?, count?, children?, data? }`. `mark` is `err` or
- * `warn` for a dot before the label; `marks` is a list of `{ glyph, tone, title }` drawn after it, each a
+ * `nodes` are `{ key, label, title?, kind?, mark?, look?, closed?, marks?, count?, children?, data? }`. `mark` is
+ * `err`, `warn` or `dim` for a dot before the label; `look` says the node needs a look whatever the dot's tone;
+ * `closed` starts a parent closed until the reader opens it (what they chose is remembered as usual); `marks` is a list of `{ glyph, tone, title }` drawn after it, each a
  * small square with the glyph in it and its sentence as the tooltip. A node with a `warn` or `err` mark
  * "needs a look", and the tree can be narrowed to those (`setFocus`): a parent whose children were hidden
  * says how many, in a faint row nobody can select; the selected node is never hidden. `count` is
@@ -53,9 +54,9 @@ export function createTree(host, { nodes = [], selected = null, onSelect, storag
     }
   }
 
-  const isOpen = (node) => (open.has(node.key) ? open.get(node.key) : openByDefault);
+  const isOpen = (node) => (open.has(node.key) ? open.get(node.key) : node.closed === true ? false : openByDefault);
   const hasKids = (node) => Array.isArray(node.children) && node.children.length > 0;
-  const needsLook = (node) => node.mark === "warn" || node.mark === "err" || (Array.isArray(node.marks) && node.marks.some((m) => m && (m.tone === "warn" || m.tone === "err")));
+  const needsLook = (node) => node.look === true || node.mark === "warn" || node.mark === "err" || (Array.isArray(node.marks) && node.marks.some((m) => m && (m.tone === "warn" || m.tone === "err")));
   /** A child stays in view when it needs a look, is selected, is a page, or has a child that stays. */
   const shown = (node, level) => !only || level === 1 || node.key === current || node.kind === "page" || needsLook(node) || (hasKids(node) && node.children.some((c) => shown(c, level + 1)));
 

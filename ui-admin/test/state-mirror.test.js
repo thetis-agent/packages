@@ -69,7 +69,8 @@ test("the control panel and the Extensions place give the same state for the sam
 test("the shared words and rules are the same data", () => {
   for (const k of ["CHIPS", "CHIP_ORDER", "MAX_CHIPS", "FOR_EVERYONE_BY", "REQUIRED", "ADMIN_ONLY", "INSIDE", "FILTERS", "PILLS", "SYNONYMS"]) assert.deepEqual(ours[k], reference[k], k);
   assert.deepEqual(ours.KINDS.map((k) => k.id), reference.KINDS.map((k) => k.id));
-  const words = (w) => ({ ...w, settingsPath: w.settingsPath("Exa") });
+  // A sentence with a slot is compared by what it says with the same words in it.
+  const words = (w) => Object.fromEntries(Object.entries(w).map(([k, v]) => [k, typeof v === "function" ? v(...(k === "hiddenByPill" ? [["Exa Web Search"], "Customized"] : ["Exa", "0.4.1"])) : v]));
   assert.deepEqual(words(ours.WORDS), words(reference.WORDS));
 });
 

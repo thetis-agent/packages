@@ -1,15 +1,18 @@
 /* One extension's page. The crumb `Extensions › <label>`; the header -- the label (its package id only as the
- * title's tooltip), the chips, the publisher line, and "Given to you by <admin>" when an admin installed it for
- * the person -- then the description, a banner with the one reason when there is one (state.js's `stateOf`,
+ * title's tooltip; the original of a shared copy reads "Notion — your original"), the chips, the publisher line,
+ * and "Given to you by <admin>" when an admin installed it for the person -- then the one plain sentence the card
+ * says too (the technical description is on Details), a banner with the one reason when there is one (state.js's `stateOf`,
  * the same answer the card and the Control panel give; a link in it is a link), for an admin whose key is
  * missing **Set my key** and **Set one for everyone**, the **Needs** line before an install, and the actions:
- * **Install**, **Installed ✓ ▾**, **Update** or **Use Thetis's version**, **Set up** when it has settings, and
- * **⋯**. Tabs follow -- **Overview** (its tools, its skills, and the screens it adds with where to find them),
+ * **Install**, **Installed ✓ ▾** with **Remove for me** beside it, **Update** or **Use Thetis's version**,
+ * **Set up** while something is missing or **Settings** once nothing is (not while the Settings tab is shown),
+ * and **⋯**. Tabs follow -- **Overview** (its tools, its skills, and the screens it adds with where to find them),
  * **Settings** (the shared configuration form on the person's own layer, only when it has settings),
  * **README** (its own), **Details** (the package id, versions, source, what a copy changed, the maintainer's
  * badges and the Publish block), and for an admin **People** and **Activity**, which lead to the Control panel
- * -- and a side panel: **About**, **Other versions** (the rest of its family, `✓ … you use this` or `○ …` with
- * **Use instead**), and for an admin **For everyone** (state.js's `everyoneActions`, the table both surfaces
+ * -- and a side panel: **About**, **Other versions** (its family, the one in use first as `✓ … you use this
+ * (shared with everyone)`, the rest `○ … — your original, in your folder` with **Use instead**), and for an
+ * admin **For everyone** (state.js's `everyoneActions`, the table both surfaces
  * share). On a phone the side panel comes before the tabs.
  *
  * Everything comes from one `show` answer (the row, its family and its README); an admin's people for the
@@ -18,13 +21,18 @@
  * may publish -- `available: false` on every installation without @thetis/package-publish, and then no Publish
  * is offered and nothing throws. That last is asked twice: once without a package, which costs nothing, and
  * then, only where the index says nothing about this package, once about it, after the page is drawn. `open`
- * returns an unmount that stops a late answer from drawing into a closed page. */
+ * returns an unmount that stops a late answer from drawing into a closed page.
+ *
+ * While the page is open it reads its extension again now and then (watch.js); when somebody else installed or
+ * removed it for the person meanwhile, one line says so ("bitmuse removed Exa Web Search for you.") and the page
+ * is drawn again. A setting that fails because the extension is gone says that, and the page is read again. */
 
-import { actionsFor, useInstead } from "./actions.js";
+import { actionsFor, plainFailure, useInstead } from "./actions.js";
 import { chipNodes, publishRecord, technicalBadges } from "./badges.js";
 import { configCard } from "./config-form.js";
-import { WORDS, giverOf, givenLine, isAdminOnly, labelOf, needsLine, needsLink, officialOf, otherVersions, publisherLine, relationOf, stateOf, typeOf } from "./state.js";
+import { WORDS, bringsOf, giverOf, givenLine, isAdminOnly, labelOf, needsLine, needsLink, officialOf, otherVersions, publisherLine, relationOf, stateOf, summaryOf, titleOf, typeOf } from "./state.js";
 import { updater } from "./updates-notice.js";
+import { every, observe, unexpectChange } from "./watch.js";
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -53,6 +61,9 @@ export function openPage(ext, root, params) {
   const { badge, button, heading, kv, put, tags, when } = ext.ui;
   const name = params.name;
   let alive = true;
+  let current = null; // the view drawn now, for a recheck
+  let shownTab = params.tab ?? null; // the tab shown now, so a redraw keeps it
+  let changed = []; // what somebody else changed under the person, said over the header
   // While the place is open the "Updates ready" card stays away; the page's own banner says it.
   const release = updater()?.hold?.() ?? null;
 
@@ -78,9 +89,30 @@ export function openPage(ext, root, params) {
       return;
     }
     const admin = view.role !== "user";
+    const lines = observe([view.row, ...(view.family ?? [])], { changes: view.changes, only: namesOf(view) });
+    if (lines.length) changed = lines;
     const [people, holders, config, publish] = await Promise.all([admin ? loadPeople() : [], admin ? loadHolders() : null, view.row.installed ? loadConfig() : null, view.row.installed ? loadPublish() : null]);
     Object.assign(view, { people, holders, config, publish });
     if (alive) draw(view);
+  }
+
+  /** The names this page knows whether the person has: the extension and its family. */
+  const namesOf = (view) => new Set([view.row.name, ...(view.family ?? []).map((m) => m.name)]);
+
+  /** Reads the extension again without a spinner, and draws the page again only when what the person has changed under it. */
+  async function recheck() {
+    if (!current) return;
+    let data;
+    try {
+      data = (await ext.request("show", { args: { name } }))?.data ?? null;
+    } catch {
+      return;
+    }
+    if (!alive || !data?.row) return;
+    const lines = observe([data.row, ...(data.family ?? [])], { changes: data.changes, only: namesOf(data) });
+    if (!lines.length) return;
+    changed = lines;
+    void load();
   }
 
   /** The person's own report for an installed package, or null when the kernel cannot give one. */
@@ -284,6 +316,8 @@ export function openPage(ext, root, params) {
     const facts = kv(
       [
         ["id", el("code", {}, r.name)],
+        // The technical description, whole, where the technical words live; the page opens with the plain line.
+        r.description && r.description !== summaryOf(r, view.origin) && ["description", el("span", { class: "mk-wrap" }, r.description)],
         ...versionRows(r, publishedLine),
         ["kind", typeOf(r) || r.type],
         (r.system || r.everyone) && ["for everyone", everyoneWords(r)],
@@ -307,13 +341,14 @@ export function openPage(ext, root, params) {
   }
 
   /** Tabs over one host: a plain button row, the selected one pressed. Answers the node and `show(id)`. */
-  function tabs(panes, first) {
+  function tabs(panes, first, onPick = null) {
     const host = el("div", { class: "mk-tab-body" });
     const row = el("div", { class: "mk-tabs", role: "tablist" });
     const pick = (i) => {
       [...row.children].forEach((b, j) => b.setAttribute("aria-selected", String(i === j)));
       const pane = panes[i];
       host.replaceChildren(typeof pane.node === "function" ? pane.node() : pane.node);
+      onPick?.(pane.id);
     };
     panes.forEach((p, i) => row.append(el("button", { type: "button", class: "mk-tab", role: "tab", "data-tab": p.id, onClick: () => pick(i) }, p.label)));
     const at = Math.max(0, panes.findIndex((p) => p.id === first));
@@ -336,22 +371,40 @@ export function openPage(ext, root, params) {
    * names the extension in the form's header; `reveal` shows a saved secret, when it is the one in effect.
    */
   function settings(view, redraw) {
-    const write = (verb, args) => ext.request(verb, { args: { name, ...args } }).then((out) => out?.data);
+    // A write that fails because the extension is gone says so, and the page is read again after the form's toast.
+    const write = (verb, args) =>
+      ext.request(verb, { args: { name, ...args } }).then(
+        (out) => out?.data,
+        async (err) => {
+          const text = await plainFailure(ext, err, { name, label: view.label });
+          if (/no longer/.test(text)) {
+            unexpectChange();
+            setTimeout(() => void load(), 50);
+            throw new Error(text);
+          }
+          throw err;
+        }
+      );
+    const admin = view.role !== "user";
     return el(
       "div",
       { class: "mk-config" },
       configCard(ext, view.config, {
         layer: "user",
+        me: view.user ?? null,
+        // What each key falls back to once the person's own value is cleared; known to an admin only.
+        below: view.config?.below ?? null,
         label: view.label,
         set: (key, value) => write("config-set", { key, value }),
         unset: (key) => write("config-unset", { key }),
         reveal: (key) => write("config-reveal", { key, layer: "user" }).then((d) => d?.value),
         onReport: (next) => {
-          view.config = next;
+          view.config = next && view.config?.below ? { ...next, below: view.config.below } : next;
           redraw();
         },
       }),
-      el("p", { class: "panel-hint" }, "A value set here is yours alone and is used from the extension's next call. A key marked admins only is set in the Control panel, for everyone.")
+      // An admin's quiet way to the everyone layer, which stays after their own key is set.
+      admin ? el("p", { class: "panel-hint mk-everyone-link" }, "Values here are yours alone. ", el("button", { type: "button", class: "mk-link-btn", onClick: () => ext.open.place("panel", { section: PANEL_SECTION, child: name, tab: "configuration", layer: "" }) }, "Set one for everyone"), " in the Control panel.") : null
     );
   }
 
@@ -376,7 +429,7 @@ export function openPage(ext, root, params) {
     return el("div", { class: "mk-banner-actions" }, mine, everyone);
   }
 
-  function draw(view, { tab = params.tab ?? null } = {}) {
+  function draw(view, { tab = shownTab } = {}) {
     const admin = view.role !== "user";
     const user = view.user ?? "";
     const members = [{ ...view.row }, ...(view.family ?? [])];
@@ -391,8 +444,11 @@ export function openPage(ext, root, params) {
     const state = stateOf(r, { admin, origin, label, user, superseded, giver });
     const publisher = publisherLine(r, { user, family: members });
     const hasSettings = !!(r.installed && view.config && view.config.keys.length);
+    const title = titleOf(r, { family: members, user, origin });
+    const summary = summaryOf(r, origin);
     Object.assign(view, { state, label, publisher, superseded, hasSettings, origin });
-    crumbName.textContent = label;
+    current = view;
+    crumbName.textContent = title;
 
     const publishedLine = el("span");
     if (r.ahead) fillPublished(publishedLine, r, null);
@@ -401,6 +457,11 @@ export function openPage(ext, root, params) {
     let tabbed = null;
     const redraw = () => draw(view, { tab: "settings" });
     const toSettings = () => tabbed?.show("settings");
+    const onTab = (id) => {
+      shownTab = id;
+      // Set up / Settings leads to the tab it names; while that tab is shown it has nothing to add.
+      if (acts?.settingsBtn) acts.settingsBtn.hidden = id === "settings";
+    };
     // The member of this family the person uses now, when it is not this one: this page's Install is then "Use instead".
     const inUse = r.installed ? r : (members.find((m) => m.installed) ?? null);
     const inUseLabel = inUse ? labelOf(inUse, officialOf(inUse, fam)) : "";
@@ -413,7 +474,8 @@ export function openPage(ext, root, params) {
         body.querySelector(".mk-publish-block")?.scrollIntoView({ behavior: "smooth", block: "center" });
       },
     });
-    const needs = !r.installed ? needsLine(r) : null;
+    // What it needs, only where the page offers to install it: a person who cannot take it has nothing to prepare.
+    const needs = !r.installed && acts.offersInstall ? needsLine(r) : null;
     const given = givenLine(r, user);
     const optional = state.todo?.kind === "optional";
     const bannerLink = state.setup.chip && !optional ? state.setup.link : null;
@@ -422,10 +484,11 @@ export function openPage(ext, root, params) {
     const adminKeys = admin && state.setup.chip;
     put(
       hero,
-      el("div", { class: "mk-hero-head" }, el("h2", { class: "mk-title", title: r.name }, label), state.chips.length ? el("div", { class: "tags" }, ...chipNodes(badge, state.chips)) : null),
+      changed.length ? el("p", { class: "mk-changed", role: "status" }, changed.join(" ")) : null,
+      el("div", { class: "mk-hero-head" }, el("h2", { class: "mk-title", title: r.name }, title), state.chips.length ? el("div", { class: "tags" }, ...chipNodes(badge, state.chips)) : null),
       el("p", { class: "mk-by" }, publisher),
       given ? el("p", { class: "mk-given" }, given) : null,
-      r.description && el("p", { class: "mk-desc" }, r.description),
+      summary ? el("p", { class: "mk-desc" }, summary) : null,
       state.reason
         ? el(
             "div",
@@ -437,7 +500,7 @@ export function openPage(ext, root, params) {
         : null,
       needs ? el("p", { class: "mk-needs" }, ...linked(needs, needsLink(r))) : null,
       el("div", { class: "card-actions mk-actions" }, ...acts.primary, acts.required, acts.more),
-      ...acts.hints.map((h) => el("p", { class: "panel-hint mk-hint-line" }, h))
+      ...acts.hints.map((h) => (typeof h === "string" ? el("p", { class: "panel-hint mk-hint-line" }, h) : h))
     );
     const publishBlock = acts.publish ? el("div", { class: "mk-publish-wrap" }, heading("Publish"), ...acts.publishHints.slice(0, 1).map((h) => el("p", { class: "panel-hint" }, h)), acts.publish) : null;
     const panes = [
@@ -448,7 +511,7 @@ export function openPage(ext, root, params) {
       admin ? { id: "people", label: "People", node: panelLink("Who has it, and installing or removing it for one person, are on its page in the Control panel.", "people") } : null,
       admin ? { id: "activity", label: "Activity", node: panelLink("What happened to it -- installs, updates, settings changed -- is on its page in the Control panel.", "activity") } : null,
     ].filter(Boolean);
-    tabbed = tabs(panes, tab);
+    tabbed = tabs(panes, tab, onTab);
 
     const others = otherVersions(fam, r, { user, admin });
     const side = el(
@@ -460,7 +523,8 @@ export function openPage(ext, root, params) {
           [
             ["version", r.version ? el("span", {}, r.version) : null],
             typeOf(r) && ["kind", typeOf(r)],
-            whatYouGet(r) && ["brings", whatYouGet(r)],
+            ["brings", bringsOf(r)],
+            r.available && r.registry && ["published", `${r.registry} registry`],
             r.license && ["license", r.license],
           ].filter(Boolean)
         )
@@ -480,8 +544,8 @@ export function openPage(ext, root, params) {
                     { class: "mk-version-text" },
                     el("span", { class: "mk-version-mark", "aria-hidden": "true" }, o.used ? "✓" : "○"),
                     " ",
-                    el("button", { type: "button", class: "mk-version-link", title: o.row.name, onClick: () => ext.open.place("marketplace", { name: o.row.name }) }, o.label),
-                    el("span", { class: "text-dim" }, ` — ${o.used ? "you use this" : o.relation}`)
+                    o.row.name === r.name ? el("span", { class: "mk-version-self", title: o.row.name }, o.label) : el("button", { type: "button", class: "mk-version-link", title: o.row.name, onClick: () => ext.open.place("marketplace", { name: o.row.name }) }, o.label),
+                    el("span", { class: "text-dim" }, ` — ${o.note}`)
                   ),
                   o.action ? otherButton(o, inUse, inUseLabel, inUseRelation) : null
                 )
@@ -505,8 +569,10 @@ export function openPage(ext, root, params) {
   }
 
   void load();
+  const stopWatch = every(ext, () => void recheck());
   return () => {
     alive = false;
+    stopWatch();
     release?.();
   };
 }

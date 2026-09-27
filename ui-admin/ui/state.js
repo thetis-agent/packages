@@ -9,7 +9,9 @@
 // - `stateOf(row)`: at most two chips, whether the extension needs the person's attention, the one sentence
 //   the page's banner says, and the to-do row the place's "Needs your attention" strip draws for it.
 // - `publisherOf(row)` and `typeOf(row)`: the line under every name, "by Thetis · Tools".
-// - `labelOf(row)` and `summaryOf(row)`: the one name and the one line a person reads.
+// - `labelOf(row)`, `titleOf(row)` and `summaryOf(row)`: the one name, the page's title (which says "your
+//   original" on the original of a shared copy), and the one line a person reads first, on a card and a page.
+// - `bringsOf(row)`: what it brings, in the kinds the publisher line names ("7 tools · 12 skills").
 // - `setupOf(row)` and `needsLine(row)`: what must be set before it works, in the key's own words.
 // - `everyoneActions(row)`: what an admin may do about everybody, the same table on both surfaces.
 // - `familiesOf(rows)` and `otherVersions(...)`: one card per extension family, and the rest of it.
@@ -17,7 +19,7 @@
 //   the Control panel says too.
 // - `isRequired(row)`, `isAdminOnly(row)` and `runsInsideThetis(row)`: what nobody removes, what a person is
 //   never offered, and what is nobody's to install.
-// - `matches(row, q)`: the search, with a small list of synonyms.
+// - `matches(row, q)` and `matchRank(row, q)`: the search, with a small list of synonyms, and a name match first.
 //
 // The rules are data (`CHIPS`, `CHIP_ORDER`, `REQUIRED`, `ADMIN_ONLY`, `INSIDE`, `FOR_EVERYONE_BY`, `KINDS`,
 // `FILTERS`, `PILLS`, `SYNONYMS`, `WORDS`, `PART_SUMMARIES`), so a second surface can read the same rules
@@ -86,12 +88,17 @@ export const FILTERS = Object.freeze([
   Object.freeze({ id: "Background", label: "Background" }),
 ]);
 
-/** The pills over the Installed section: which of what the person has are shown. */
+/**
+ * The pills over the Installed section: which of what the person has are shown. "Installed by you" is what the
+ * person installed themselves; "Given to you" is what an admin gave them -- everyone's defaults, what an admin
+ * turned on or shared for everyone, and what an admin installed for them. The "For everyone" chip is another
+ * thing: an admin's act, said on the card.
+ */
 export const PILLS = Object.freeze([
-  Object.freeze({ id: "", label: "All" }),
-  Object.freeze({ id: "mine", label: "Added by you" }),
-  Object.freeze({ id: "everyone", label: "For everyone" }),
-  Object.freeze({ id: "customized", label: "Customized" }),
+  Object.freeze({ id: "", label: "All", tooltip: "Everything you have" }),
+  Object.freeze({ id: "mine", label: "Installed by you", tooltip: "What you installed yourself" }),
+  Object.freeze({ id: "given", label: "Given to you", tooltip: "What an admin gave you: everyone's extensions, and what they installed for you" }),
+  Object.freeze({ id: "customized", label: "Customized", tooltip: "Your own changed copies" }),
 ]);
 
 /**
@@ -108,6 +115,11 @@ export const WORDS = Object.freeze({
   adminOnly: ADMIN_ONLY.line,
   inside: INSIDE.line,
   onlyYou: "Only you have this. Use Remove for me.",
+  removeForNote: "Their settings are kept. It stops for them from their next message. Everyone else keeps it.",
+  cantStopSharing: "Sharing can't be stopped yet; Remove for everyone takes it from the people who have it now.",
+  shareLater: (whose, version) => `You can share your copy once it is based on ${whose} ${version}.`,
+  privateCopy: (person, whose) => `This is your own copy. To give ${person} this extension, use ${whose} version:`,
+  hiddenByPill: (labels, pill) => `${listOf(labels)} ${labels.length === 1 ? "is" : "are"} hidden by the '${pill}' filter`,
   fromConfig: "Everyone gets it (set in Server settings).",
   updateAllNote: "Your own copies are not touched.",
   turnOffHint: "New people stop getting it; people who have it keep it.",
@@ -261,10 +273,40 @@ export function labelOf(row, origin = null) {
  */
 export const isVariant = (row, origin = null) => isCopy(row) && !!origin?.label && row?.labelGiven !== false && !!row?.label && !sameText(row.label, origin.label);
 
-/** The one line a card shows under the publisher: a plain summary for one of Thetis's parts, else the description's first sentence. */
-export function summaryOf(row) {
+/**
+ * The one plain sentence every card and page opens with: the manifest's own `thetis.summary` when it has one --
+ * for a copy that is not a variant and has none, its official member's (`origin`) -- else a plain summary for one
+ * of Thetis's parts, else the description's first sentence. The description itself is technical and goes under
+ * Details.
+ */
+export function summaryOf(row, origin = null) {
+  const said = (r) => (typeof r?.summary === "string" && r.summary.trim() ? r.summary.trim() : null);
+  const own = said(row) ?? (isCopy(row) && origin && !isVariant(row, origin) ? said(origin) : null);
+  if (own) return own;
   const part = row?.component ? (PART_SUMMARIES[row.name] ?? PART_SUMMARIES[originNameOf(row)]) : null;
   return part ?? firstSentence(row?.description ?? "");
+}
+
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** What each kind brings, counted where it can be: "7 tools", "12 skills", "1 page". */
+const BRINGS = Object.freeze({
+  Tools: (r) => plural(r.tools?.length ?? 0, "tool"),
+  Skills: (r) => (r.skills ? plural(r.skills, "skill") : "Skills"),
+  Page: (r) => (r.pages ? plural(r.pages, "page") : "A page"),
+  Models: () => "Models",
+  Background: () => "Runs in the background",
+});
+
+/**
+ * What an extension brings, from the same kinds as the publisher line's type, so the two always agree:
+ * "Tools · Skills" above reads "7 tools · 12 skills" below. Never empty.
+ */
+export function bringsOf(row) {
+  const kinds = kindsOf(row).slice(0, 2);
+  if (!kinds.length) return "Runs in the background";
+  const out = kinds.map((k) => BRINGS[k](row ?? {}));
+  return out.map((w, i) => (i ? w.charAt(0).toLowerCase() + w.slice(1) : w)).join(" · ");
 }
 
 /**
@@ -537,7 +579,7 @@ export function stateOf(row, ctx = {}) {
   if (row?.installed) {
     if (update) todo = { kind: "update", tone: "warn", action: "Update", reason: setup.chip ? `${update.reason.replace(/\.$/, "")}, and it still needs setting up.` : update.reason };
     else if (optional) todo = { kind: "optional", tone: "dim", action: "Set up", reason: optionalReason };
-    else if (setup.chip) todo = { kind: "setup", tone: "err", action: "Set up", reason: setup.reason };
+    else if (setup.chip) todo = { kind: "setup", tone: "err", action: "Set up", reason: setup.reason, link: setup.link };
     else if (behind) todo = { kind: "review", tone: "dim", action: "Review", reason: behind.reason };
   }
   const reason = optional ? optionalReason : setup.chip ? setup.reason : update ? update.reason : behind ? behind.reason : setup.waiting ? setup.reason : "";
@@ -597,10 +639,12 @@ export function everyoneActions(row, { family = [], user = "", holders = null, o
     const date = dateWords(row.sharedBy?.at) ? ` on ${dateWords(row.sharedBy.at)}` : "";
     out.lines.push(`Shared with everyone from ${from}${who ? ` by ${who === user ? "you" : who}` : ""}${date}. Your people get this one.`);
     removable();
+    // Unsharing needs the kernel to take the mark off a promoted copy, which it cannot yet: said beside the one act there is.
+    if (out.acts.includes("removeEveryone")) out.hints.removeEveryone = WORDS.cantStopSharing;
     return out;
   }
-  const promoted = family.find((m) => m !== row && m.name !== row.name && isPromoted(m) && baseOf(m.name) === baseOf(row.name)) ?? null;
-  if (promoted && !isCopy(row)) {
+  const promoted = sharedCopyOf(row, family);
+  if (promoted) {
     out.lines.push(`Already shared with everyone as ${labelOf(promoted)}.`);
     out.open = promoted.name;
     out.shared = promoted;
@@ -616,7 +660,7 @@ export function everyoneActions(row, { family = [], user = "", holders = null, o
     if (mine && row.installed) {
       const behind = behindOf(row, { origin, user });
       const fromThetis = scopeOf(originNameOf(row)) === "thetis";
-      if (fromThetis && behind) out.lines.push(`Your copy is older than Thetis's ${behind.to}; sharing it would replace it for everyone.`);
+      if (fromThetis && behind) out.lines.push(WORDS.shareLater("Thetis's", behind.to));
       else if (fromThetis) out.lines.push(`Thetis already has ${name}, so this copy is not shared under that name.`);
       else out.acts.push("share");
     }
@@ -716,43 +760,95 @@ export function officialOf(row, family) {
   return name ? (family.members.find((m) => m.name === name) ?? null) : null;
 }
 
-/** How one member stands to the reader, in a few words: "your original", "your copy in your folder", "shared with everyone". */
-export function relationOf(m, { user = "", promoted = null } = {}) {
+/**
+ * The shared copy made from `row`, when `row` is the original a promoted `@thetis/<n>` was made from (the same
+ * unscoped name, not itself a copy), or null.
+ */
+export function sharedCopyOf(row, family = []) {
+  if (!row || isPromoted(row) || isCopy(row) || scopeOf(row.name) === "thetis") return null;
+  return family.find((m) => m !== row && m.name !== row.name && isPromoted(m) && baseOf(m.name) === baseOf(row.name)) ?? null;
+}
+
+/** Whose an original is, as its title and its relation say it: "your original", "bitmuse's original". */
+const originalWord = (row, user) => (scopeOf(row.name) === user || (!scopeOf(row.name) && row.local) ? "your original" : `${scopeOf(row.name)}'s original`);
+
+/**
+ * The title of an extension's page: its label, and for the original of a shared copy "Notion — your original"
+ * (or "Notion — bitmuse's original"), so the original and the shared copy never share one title.
+ */
+export function titleOf(row, { family = [], user = "", origin = null } = {}) {
+  const label = labelOf(row, origin);
+  return sharedCopyOf(row, family) ? `${label} — ${originalWord(row, user)}` : label;
+}
+
+/** Whether two members bring the same tools, by name: what lets a person's original say "(same tools)". */
+const sameTools = (a, b) => {
+  const names = (r) => (r?.tools ?? []).map((t) => (typeof t === "string" ? t : t.name)).sort().join(" ");
+  return !!names(a) && names(a) === names(b);
+};
+
+/**
+ * How one member stands to the reader, in a few words: "your original, in your folder", "a variant in your
+ * folder", "your copy", "shared with everyone", "Thetis's version". `promoted` is the family's shared copy, and
+ * `origin` the member's own official one (which tells a variant from a changed copy).
+ */
+export function relationOf(m, { user = "", promoted = null, origin = null } = {}) {
   const scope = scopeOf(m.name);
   const inFolder = !!m.folder && !m.installed;
+  const mine = scope === user || !!m.local;
   if (isPromoted(m)) return "shared with everyone";
-  if (isCopy(m)) return inFolder ? "your copy in your folder" : scope === user || m.local ? "your copy" : `${scope}'s copy`;
-  if (scope === user || m.local) return promoted ? "your original" : "yours";
+  if (isCopy(m)) {
+    if (inFolder) return isVariant(m, origin) ? "a variant in your folder" : "your copy in your folder";
+    return mine ? (isVariant(m, origin) ? "your variant" : "your copy") : `${scope}'s copy`;
+  }
+  if (promoted && !isCopy(m) && scope !== "thetis") return mine ? (m.folder ? "your original, in your folder" : "your original") : `${scope}'s original`;
+  if (mine) return "yours";
   if (scope === "thetis") return "Thetis's version";
   if (m.registry && !m.system) return `from ${m.registry}`;
   return `by ${scope}`;
 }
 
 /**
- * The other versions of a family, one line each, as the page's side panel lists them. The one the person uses
- * reads `✓ <label> — you use this`; the others `○ <label> — <relation>`, with the action beside it: `use`
- * (Use instead, when the person uses another member) or `install` (when they use none), or null when it is not
- * theirs to install. Each is `{ row, label, name, relation, used, text, action, install }`; `install` is kept
- * for an older caller and is whether any action is offered.
+ * The versions of a family, one line each, as the page's side panel lists them. The one the person uses comes
+ * first, even on its own page, and reads `✓ <label> — you use this (<relation>)`; the others `○ <label> —
+ * <relation>`, with the action beside it: `use` (Use instead, when the person uses another member) or `install`
+ * (when they use none), or null when it is not theirs to take. A person who is not an admin is never offered
+ * somebody's original of a shared copy: that row reads "<label> — bitmuse's original (same tools)" with no
+ * button. Each is `{ row, label, name, relation, note, used, text, action, install }`; `note` is what follows
+ * the dash, and `install` is kept for an older caller and is whether any action is offered.
  */
 export function otherVersions(family, shown, { user = "", admin = false } = {}) {
   const promoted = family.members.find(isPromoted) ?? null;
   const inUse = family.members.find((m) => m.installed) ?? null;
   // The official version of the copy in use goes back through "Use Thetis's version", never a second install.
   const behindUse = inUse && isCopy(inUse) ? originNameOf(inUse) : null;
-  return family.members
-    .filter((m) => m !== shown && m.name !== shown?.name)
-    .map((m) => {
-      const label = labelOf(m, officialOf(m, family));
-      const name = !!m.folder && !m.installed && isCopy(m) ? baseOf(m.name) : m.name;
-      let relation = relationOf(m, { user, promoted });
-      if (!m.installed && m.available && m.registry) relation += ` · published to ${m.registry}`;
-      const used = !!m.installed;
-      const offered = !used && m.name !== behindUse && (admin || !isAdminOnly(m)) && !runsInsideThetis(m) && !!(m.system || m.folder || m.source);
-      const action = offered ? (inUse ? "use" : "install") : null;
-      const text = used ? `✓ ${label} — you use this` : `○ ${label} — ${relation}`;
-      return { row: m, label, name, relation, used, text, action, install: !!action };
-    });
+  const listed = family.members.filter((m) => m === inUse || (m !== shown && m.name !== shown?.name));
+  listed.sort((a, b) => Number(b === inUse) - Number(a === inUse));
+  return listed.map((m) => {
+    const origin = officialOf(m, family);
+    const label = labelOf(m, origin);
+    const name = !!m.folder && !m.installed && isCopy(m) ? baseOf(m.name) : m.name;
+    let relation = relationOf(m, { user, promoted, origin });
+    const used = !!m.installed;
+    const theirsOriginal = !admin && !!promoted && m !== promoted && !isCopy(m) && scopeOf(m.name) !== user && scopeOf(m.name) !== "thetis" && baseOf(m.name) === baseOf(promoted.name);
+    if (theirsOriginal && sameTools(m, promoted)) relation += " (same tools)";
+    const offered = !used && !theirsOriginal && m.name !== behindUse && (admin || !isAdminOnly(m)) && !runsInsideThetis(m) && !!(m.system || m.folder || m.source);
+    const action = offered ? (inUse ? "use" : "install") : null;
+    const note = used ? `you use this (${relation})` : relation;
+    const text = `${used ? "✓" : "○"} ${label} — ${note}`;
+    return { row: m, label, name, relation, note, used, text, action, install: !!action };
+  });
+}
+
+/**
+ * The title of the confirm that puts `label` in place of the one in use: "Switch to your original Notion?",
+ * "Switch to Notion (Read Only)?". `relation` is how it stands to the person (relationOf).
+ */
+export function switchTitle(label, relation = "") {
+  const r = String(relation).split(" · ")[0].replace(/,.*$/, "");
+  if (r === "your original") return `Switch to your original ${label}?`;
+  if (r === "Thetis's version") return `Switch to Thetis's ${label}?`;
+  return `Switch to ${label}?`;
 }
 
 // ---- the place's sections ------------------------------------------------------------------------------
@@ -779,10 +875,10 @@ export function giverOf(row, { user = "", family = [] } = {}) {
   return "Your admin";
 }
 
-/** Which of the Installed pills an installed entry is under: "mine", "everyone", "customized". */
+/** Which of the Installed pills an installed entry is under: "mine", "given", "customized". */
 function pillsOf(row, user, origin = null) {
   const out = [];
-  if (isGiven(row, user)) out.push("everyone");
+  if (isGiven(row, user)) out.push("given");
   else out.push("mine");
   if (isCustomized(row) && !isVariant(row, origin)) out.push("customized");
   return out;
@@ -794,20 +890,22 @@ function pillsOf(row, user, origin = null) {
  * - `attention`: one to-do row per installed family whose state has one (`stateOf(...).todo`): Set up, Update
  *   or Review. `updates` is the names of the Update rows, which is exactly what "Update N" updates.
  * - `installed`: what the person has that is not one of Thetis's parts, each entry carrying the pills it is
- *   under (`All`, `Added by you`, `For everyone`, `Customized`); `pill` narrows it to one of them.
+ *   under (`All`, `Installed by you`, `Given to you`, `Customized`); `pill` narrows it to one of them.
  * - `discover`: what they could add, never a member of a family they already have, never an admin's-only
  *   extension for a non-admin, never one of Thetis's parts.
  * - `drafts`: families that exist only as folders in their home (`packages/`), nothing installed and nothing
  *   offered; a folder copy of a family that has a card is in that card's Other versions instead.
  * - `thetis`: the parts that make Thetis run -- for an admin all of them, for anyone else only those they have.
  *
- * `q` and `kind` narrow every section to the families any member of which matches (`matches`). Each entry is
- * `{ family, row, label, publisher, summary, given, state, pills }`. `counts` is the same numbers unnarrowed:
- * `installed` (the Installed section's cards -- the number the Control panel says too), each pill's, `thetis`
- * and `updates`.
+ * `q` and `kind` narrow every section to the families any member of which matches (`matches`), a match on the
+ * name or label first (`matchRank`). Each entry is `{ family, row, label, publisher, summary, brings, given,
+ * state, pills }`. `counts` is the same numbers unnarrowed: `installed` (the Installed section's cards -- the
+ * number the Control panel says too), each pill's, `thetis` and `updates`. `found` is the pills' numbers as the
+ * search and the type leave them, which is what the pills say; `hidden` is the labels the pill hides from them.
+ * The to-do rows come in a fixed order: updates, then setting up, then reviews, each by label.
  */
 export function placeSections(rows, { user = "", admin = false, superseded = [], q = "", kind = "", pill = "" } = {}) {
-  const out = { attention: [], installed: [], discover: [], drafts: [], thetis: [], updates: [], counts: { installed: 0, mine: 0, everyone: 0, customized: 0, thetis: 0, updates: 0, attention: 0 } };
+  const out = { attention: [], installed: [], discover: [], drafts: [], thetis: [], updates: [], hidden: [], counts: { installed: 0, mine: 0, given: 0, customized: 0, thetis: 0, updates: 0, attention: 0 }, found: { installed: 0, mine: 0, given: 0, customized: 0 } };
   const gone = new Set(superseded);
   for (const family of familiesOf(rows)) {
     const row = family.headline;
@@ -817,7 +915,7 @@ export function placeSections(rows, { user = "", admin = false, superseded = [],
     const giver = giverOf(row, { user, family: family.members });
     const state = stateOf(row, { admin, origin, label, user, giver, superseded: gone.has(row.name) });
     const has = family.members.some((m) => m.installed);
-    const entry = { family, row, label, publisher: publisherLine(row, { user, family: family.members }), summary: summaryOf(row), given: givenLine(row, user), state, pills: has && !isPart(row) ? pillsOf(row, user, origin) : [] };
+    const entry = { family, row, label, publisher: publisherLine(row, { user, family: family.members }), summary: summaryOf(row, origin), brings: bringsOf(row), given: givenLine(row, user), state, pills: has && !isPart(row) ? pillsOf(row, user, origin) : [], rank: q ? Math.min(...family.members.map((m) => matchRank(m, q))) : 0 };
     // The counts are the place's whole, before any search: what the Control panel says as well.
     if (has && !isPart(row)) {
       out.counts.installed += 1;
@@ -837,7 +935,12 @@ export function placeSections(rows, { user = "", admin = false, superseded = [],
     if (!hit) continue;
     if (has) {
       if (isPart(row)) out.thetis.push(entry);
-      else if (!pill || entry.pills.includes(pill)) out.installed.push(entry);
+      else {
+        out.found.installed += 1;
+        for (const p of entry.pills) out.found[p] += 1;
+        if (!pill || entry.pills.includes(pill)) out.installed.push(entry);
+        else if (q) out.hidden.push(label);
+      }
     } else if (isPart(row)) {
       if (admin) out.thetis.push(entry);
     } else if (family.members.every((m) => m.folder && !m.available && !m.system)) out.drafts.push(entry);
@@ -845,6 +948,10 @@ export function placeSections(rows, { user = "", admin = false, superseded = [],
       if (offeredTo(row, admin)) out.discover.push(entry);
     }
   }
+  const TODO_ORDER = ["update", "setup", "optional", "review"];
+  out.attention.sort((a, b) => TODO_ORDER.indexOf(a.todo.kind) - TODO_ORDER.indexOf(b.todo.kind) || a.label.localeCompare(b.label));
+  // A name match first; otherwise the order the rows came in.
+  if (q) for (const k of ["installed", "discover", "drafts", "thetis"]) out[k] = out[k].map((e, i) => [e, i]).sort((a, b) => a[0].rank - b[0].rank || a[1] - b[1]).map(([e]) => e);
   return out;
 }
 
@@ -885,6 +992,20 @@ export function matches(row, q = "", kind = "") {
   const hay = haystack(row);
   const names = nameHay(row);
   return terms.every((t) => hay.includes(t) || variantsOf(t).some((v) => v !== t && hasWord(names, v)));
+}
+
+/**
+ * How well a row matches `q`, for the order of what a search finds: 0 when its label or name starts with the
+ * query, 1 when every term is in its label or name, 2 for any other match (a description, a tool).
+ */
+export function matchRank(row, q = "") {
+  const query = String(q ?? "").trim().toLowerCase();
+  if (!query) return 0;
+  const label = String(row?.label ?? "").toLowerCase();
+  const base = baseOf(row?.name).toLowerCase();
+  if (label.startsWith(query) || base.startsWith(query)) return 0;
+  const names = `${label} ${base}`;
+  return query.split(/\s+/).every((t) => names.includes(t)) ? 1 : 2;
 }
 
 /** Whether any member of a family matches: a search finds the card when it finds any of its versions. */

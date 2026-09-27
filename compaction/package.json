@@ -19,6 +19,7 @@
   "thetis": {
     "type": "loader",
     "label": "compaction",
+    "summary": "Keeps long conversations going by summarising their older part when they grow too long.",
     "config": {
       "enabled": {
         "type": "boolean",

@@ -14,6 +14,7 @@
   "thetis": {
     "type": "ui",
     "label": "skills panel",
+    "summary": "The Skills panel beside the chat: which skills a conversation can use.",
     "ui": {
       "dir": "ui",
       "entry": "index.js",
