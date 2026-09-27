@@ -2,6 +2,8 @@
  * package without one says so. Relative images are shown as their alt text: the page has no resolver
  * for a package's files. */
 
+import { failureSentence } from "./failed.js";
+
 export function mountReadme(ext, host, ctx) {
   const { el, clear } = ext.dom;
   const { busy, put } = ext.ui;
@@ -18,13 +20,13 @@ export function mountReadme(ext, host, ctx) {
     } catch (err) {
       if (!alive) return;
       clear(body);
-      return void put(body, el("p", { class: "text-faint" }, `The README could not be read: ${err.message}`));
+      return void put(body, el("p", { class: "text-faint" }, failureSentence("The README", err, { admin: true })));
     } finally {
       stop();
     }
     if (!alive) return;
     clear(body);
-    put(body, typeof text === "string" && text.trim() ? el("div", { class: "md" }, ...ext.markdown(text)) : el("p", { class: "text-faint" }, "This package has no README."));
+    put(body, typeof text === "string" && text.trim() ? el("div", { class: "md" }, ...ext.markdown(text)) : el("p", { class: "text-faint" }, "This extension has no README."));
   })();
   return () => {
     alive = false;

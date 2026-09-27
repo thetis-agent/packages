@@ -51,11 +51,11 @@ test("users, models, config and journal read through the operator", async () => 
   assert.deepEqual(calls[6].args, { limit: 200, kind: undefined }, "200 rows by default, every kind");
 });
 
-test("the manifest's role table: a user sees their own account, models, mounts, keys and activity; the rest is an admin's", async () => {
+test("the manifest's role table: a user sees their own account, models, access and activity; the rest is an admin's", async () => {
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   const panel = Object.fromEntries(manifest.thetis.ui.panel.map((e) => [e.id, e.role ?? null]));
-  assert.deepEqual(panel, { account: null, people: "admin", models: null, configuration: "admin", mounts: null, ssh: null, activity: null, workspaces: "admin", overview: "admin" });
-  assert.deepEqual(manifest.thetis.ui.panel.find((e) => e.id === "account"), { id: "account", label: "Account", note: "Who you are here, and your password.", order: 15 });
+  assert.deepEqual(panel, { overview: "admin", people: "admin", configuration: "admin", models: null, access: null, activity: null, account: null, advanced: "admin", "advanced-pages": "admin" });
+  assert.deepEqual(manifest.thetis.ui.panel.find((e) => e.id === "account"), { id: "account", label: "Account", note: "Who you are here, and your password.", order: 42 });
   const open = ["account", "password-change", "models", "journal", "mounts-list", "ssh-list", "ssh-set", "ssh-keygen", "ssh-import", "ssh-scan", "ssh-test"];
   for (const c of manifest.thetis.ui.commands) {
     assert.equal(c.role ?? null, open.includes(c.verb) ? null : "admin", `${c.verb}'s role`);
@@ -99,8 +99,8 @@ test("your own mounts in words: bound, not bound and why, or not known; and the 
   const { mountSentence, removeCommand } = await import("../ui/mounts.js");
   assert.deepEqual(mountSentence({ path: "/srv/a", mode: "rw", present: true, kind: "dir" }), { tone: "ok", broken: false, text: "Bound read-write, at the same path." });
   assert.deepEqual(mountSentence({ path: "/srv/b", mode: "ro", present: true, kind: "dir" }), { tone: "ok", broken: false, text: "Bound read-only, at the same path." });
-  assert.deepEqual(mountSentence({ path: "/srv/gone", mode: "rw", present: false, kind: "none" }), { tone: "err", broken: true, text: "Not bound: the host has no directory at this path, so your workspace opened without it." });
-  assert.equal(mountSentence({ path: "/etc/hosts", mode: "ro", present: false, kind: "file" }).text, "Not bound: the host has a file at this path, not a directory, so your workspace opened without it.");
+  assert.deepEqual(mountSentence({ path: "/srv/gone", mode: "rw", present: false, kind: "none" }), { tone: "err", broken: true, text: "Not bound: the host has no directory at this path, so your space opened without it." });
+  assert.equal(mountSentence({ path: "/etc/hosts", mode: "ro", present: false, kind: "file" }).text, "Not bound: the host has a file at this path, not a directory, so your space opened without it.");
   assert.equal(mountSentence({ path: "/srv/c", mode: "ro" }).broken, false, "an older kernel's row claims neither");
   assert.match(mountSentence({ path: "/srv/c", mode: "ro" }).text, /does not say whether the host has it/);
   assert.equal(removeCommand("bob", "/srv/gone"), "thetis mounts remove bob /srv/gone");
@@ -174,14 +174,18 @@ test("mounts-list asks for one person or everyone; mounts-set checks the list th
   assert.equal(calls.length, 3);
 });
 
-test("fence-reload targets one workspace, `_system` included, and status reads the whole installation", async () => {
+test("fence-reload targets one workspace, `_system` included, drained or forced, and status reads the whole installation", async () => {
   const { env, calls } = fakeEnv({ "fence.reload": (a) => ({ user: a.user, services: a.user === "_system" ? [] : ["@thetis/gateway-web"] }), status: { daemon: { stale: false }, restart: null, workspaces: [{ user: "bob", stale: true }] } });
   assert.deepEqual(await commands.fenceReload({ user: "bob", force: true }, env), { data: { user: "bob", services: ["@thetis/gateway-web"] } });
+  assert.deepEqual(await commands.fenceReload({ user: "bob", drain: true }, env), { data: { user: "bob", services: ["@thetis/gateway-web"] } });
+  assert.deepEqual(await commands.fenceReload({ user: "bob", drain: true, force: true }, env), { data: { user: "bob", services: ["@thetis/gateway-web"] } });
   assert.deepEqual(await commands.fenceReload({ user: "bob" }, env), { data: { user: "bob", services: ["@thetis/gateway-web"] } });
   assert.deepEqual(await commands.fenceReload({ user: "_system" }, env), { data: { user: "_system", services: [] } }, "_system is a legal target here, unlike a mount");
   assert.deepEqual(await commands.status({}, env), { data: { daemon: { stale: false }, restart: null, workspaces: [{ user: "bob", stale: true }] } });
   assert.deepEqual(calls, [
-    // force travels only when it is true: the kernel refuses a reload over a running turn unless it is asked to cancel it.
+    // One way travels: force when asked for, else drain when asked for, else neither (the old refusal while a turn runs).
+    { method: "fence.reload", args: { user: "bob", force: true } },
+    { method: "fence.reload", args: { user: "bob", drain: true } },
     { method: "fence.reload", args: { user: "bob", force: true } },
     { method: "fence.reload", args: { user: "bob" } },
     { method: "fence.reload", args: { user: "_system" } },
@@ -190,38 +194,53 @@ test("fence-reload targets one workspace, `_system` included, and status reads t
   await refuses(commands.fenceReload, { user: "Bad Id" }, env, /user must be lowercase letters, digits and dashes/);
   await refuses(commands.fenceReload, { user: "_other" }, env, /user must be lowercase/);
   await refuses(commands.fenceReload, {}, env, /user must be lowercase/);
-  assert.equal(calls.length, 4, "a refused reload never reaches the kernel");
+  assert.equal(calls.length, 6, "a refused reload never reaches the kernel");
 });
 
-test("overview: the checkout line says the strongest true thing, and the workspaces behind the disk are named", async () => {
-  const { checkoutLine, behindWorkspaces } = await import("../ui/overview.js");
+test("overview: the checkout line says the strongest true thing, a dirty checkout calmly, and the job's steps read in one shape", async () => {
+  const { checkoutLine, stepsOf } = await import("../ui/overview.js");
   const rt = { branch: "main", commit: "8309ab0", dirty: false, upstream: "origin/main", behind: 0, fetched: false, error: null };
-  assert.deepEqual(checkoutLine("runtime", rt), { text: "main @ 8309ab0", note: "at origin/main as of the last fetch", tone: "ok" });
+  assert.deepEqual(checkoutLine("runtime", rt), { text: "main @ 8309ab0", note: "at origin/main as of the last check", tone: "ok" });
   assert.deepEqual(checkoutLine("runtime", { ...rt, fetched: true }), { text: "main @ 8309ab0", note: "up to date with origin/main", tone: "ok" });
   assert.deepEqual(checkoutLine("runtime", { ...rt, behind: 3 }), { text: "main @ 8309ab0", note: "3 behind origin/main", tone: "warn" });
-  assert.deepEqual(checkoutLine("runtime", { ...rt, behind: 3, dirty: true }).note, "uncommitted changes: update by hand", "dirty outranks behind: the update would refuse");
+  assert.deepEqual(checkoutLine("runtime", { ...rt, behind: 3, dirty: true }), { text: "main @ 8309ab0", note: "local changes: updated by hand", tone: "dim" }, "dirty outranks behind, and it is a note, not an alarm");
   assert.deepEqual(checkoutLine("runtime", { ...rt, error: "main tracks no upstream branch" }).tone, "warn");
   assert.deepEqual(checkoutLine("packages", { commit: "dad30dc", pinned: "dad30dc", behind: 0, dirty: false, error: null }), { text: "@ dad30dc", note: "at the pinned commit", tone: "ok" });
   assert.deepEqual(checkoutLine("packages", { commit: "df132f6", pinned: "dad30dc", behind: 1, dirty: false, error: null }).note, "1 behind the pinned dad30dc");
   assert.deepEqual(checkoutLine("packages", null), { text: "unknown", tone: "dim" });
-  assert.deepEqual(behindWorkspaces({ workspaces: [{ user: "a", stale: false, changed: [] }, { user: "b", stale: true, changed: [] }, { user: "c", stale: false, changed: [{ name: "@thetis/x" }] }] }), ["b", "c"]);
-  assert.deepEqual(behindWorkspaces(null), []);
+  assert.deepEqual(stepsOf({ steps: [{ name: "fetch", cmd: "git fetch", ok: true, ms: 1200, code: 0, tail: "" }, { name: "build", ok: false, ms: 900, code: 2, tail: "tsc: error" }] }), [{ name: "fetch", state: "ok", ms: 1200, tail: "" }, { name: "build", state: "failed", ms: 900, tail: "tsc: error" }]);
+  assert.deepEqual(stepsOf({ steps: [{ name: "pull", cmd: "git pull", startedAt: "t", finishedAt: "t", code: 0, output: "ok" }, { name: "build", startedAt: "t", finishedAt: null, code: null }] }).map((s) => s.state), ["ok", "running"], "an older host-update's record reads the same");
+  assert.deepEqual(stepsOf(null), []);
 });
 
-test("update-check, update-run and update-progress reach the host package, and only fetch when asked", async () => {
-  const { env, calls } = fakeEnv({ "host.update.check": (a) => ({ fetched: a.fetch }), "host.update.apply": { state: "started" }, "host.update.progress": { last: null } });
+test("update-check, update-apply, update-progress and update-restart reach the host package with only what the page may say", async () => {
+  const { env, calls } = fakeEnv({ "host.update.check": (a) => ({ fetched: a.fetch }), "host.update.apply": (a) => ({ state: "started", then: a.then }), "host.update.progress": null, "host.update.restart": (a) => ({ state: "armed", message: a.reason }) });
   assert.deepEqual((await commands.updateCheck({}, env)).data, { fetched: false });
   assert.deepEqual((await commands.updateCheck({ fetch: true }, env)).data, { fetched: true });
-  assert.deepEqual((await commands.updateCheck({ fetch: "yes" }, env)).data, { fetched: false }, "only a real true reaches the remotes");
-  assert.deepEqual((await commands.updateRun({ build: false }, env)).data, { state: "started" });
-  assert.deepEqual((await commands.updateProgress({}, env)).data, { last: null });
+  assert.deepEqual((await commands.updateCheck({ fetch: "stale" }, env)).data, { fetched: "stale" }, "stale lets host-update fetch when its throttle allows");
+  assert.deepEqual((await commands.updateCheck({ fetch: "yes" }, env)).data, { fetched: false }, "only a real true or stale reaches the remotes");
+  assert.deepEqual((await commands.updateApply({ build: false }, env)).data, { state: "started", then: "restart" }, "the one button always finishes with the restart");
+  assert.deepEqual((await commands.updateApply({ then: "none" }, env)).data, { state: "started", then: "none" });
+  assert.equal((await commands.updateProgress({}, env)).data, null);
+  assert.equal((await commands.updateRestart({}, env)).data.state, "armed");
+  assert.equal((await commands.updateRestart({ reason: "  new kernel  " }, env)).data.message, "new kernel");
   assert.deepEqual(calls.map((c) => [c.method, c.args]), [
     ["host.update.check", { fetch: false }],
     ["host.update.check", { fetch: true }],
+    ["host.update.check", { fetch: "stale" }],
     ["host.update.check", { fetch: false }],
-    ["host.update.apply", {}],
+    ["host.update.apply", { then: "restart" }],
+    ["host.update.apply", { then: "none" }],
     ["host.update.progress", {}],
-  ], "the browser's arguments never reach the host: build is not a thing a page can turn off");
+    ["host.update.restart", { reason: "the code on disk is newer than the running Thetis server" }],
+    ["host.update.restart", { reason: "new kernel" }],
+  ], "the browser's other arguments never reach the host: build is not a thing a page can turn off");
+});
+
+test("restart-cancel calls the pending restart off and passes the kernel's answer back", async () => {
+  const { env, calls } = fakeEnv({ "restart.cancel": { cancelled: true, was: { reason: "update", by: "root" } } });
+  assert.deepEqual((await commands.restartCancel({ anything: 1 }, env)).data, { cancelled: true, was: { reason: "update", by: "root" } });
+  assert.deepEqual(calls, [{ method: "restart.cancel", args: {} }]);
 });
 
 test("restart-request sends the trimmed reason and passes the latch's own sentence back", async () => {
@@ -317,7 +336,7 @@ test("package-info: the record, the registry's word and the checkout, each said 
   assert.deepEqual(untracked.data.git, { branch: "main", upstream: "origin/main", ahead: 3, behind: 0, changed: 0, commit: "abc1234" });
   // What the workspace read when its fence opened, and whose workspace that is: absent when no fence is open.
   const held = await commands.packageInfo({ name: "@alice/hello" }, { ...env, kernel: { ...env.kernel, packages: { list: async () => [{ ...info, loadedVersion: "0.1.0" }] } } });
-  assert.deepEqual(held.data.loaded, { version: "0.1.0", user: "alice", behindDisk: true }, "the fence is running 0.1.0 and 0.1.0-fork.1 is on disk");
+  assert.deepEqual(held.data.loaded, { version: "0.1.0", user: "alice", behindDisk: true, state: "update" }, "the workspace is running 0.1.0 and 0.1.0-fork.1 is on disk: Update ready");
   const current = await commands.packageInfo({ name: "@alice/hello" }, { ...env, kernel: { ...env.kernel, packages: { list: async () => [{ ...info, loadedVersion: info.version }] } } });
   assert.equal(current.data.loaded.behindDisk, false, "the fence read what is on disk");
   await refuses(commands.packageInfo, { name: "@alice/nope" }, env, /is not installed/);
@@ -332,38 +351,49 @@ test("the package card's facts: source, fork, registry and checkout in words", a
   const git = words({ ...base, everyone: false, source: { kind: "git", ref: "https://x/registry.git#exa@0123456789abcdef" }, registry: { registry: "main", version: "0.2.0", commit: "fedcba9876543210", update: { version: "0.2.0", installed: "0123456789abcdef", available: "fedcba9876543210", source: "https://x/registry.git#exa@fedcba9876543210" } }, git: { branch: "main", upstream: "origin/main", ahead: 1, behind: 0, changed: 0, commit: "0123456" } });
   assert.equal(git.default, "only the people it was installed for");
   assert.equal(git.source, "https://x/registry.git · exa · pinned to 0123456");
-  assert.match(git.registry, /^main holds 0\.2\.0 \(fedcba9\); this copy is 0123456: an update is on offer in the marketplace \[warn\]$/);
+  assert.match(git.registry, /^main holds 0\.2\.0 \(fedcba9\); this copy is 0123456: Update ready \[warn\]$/);
   assert.equal(git.checkout, "on main · at 0123456 · 1 commit not pushed · nothing uncommitted here [warn]");
   const fork = words({ ...base, forkedFrom: { name: "@thetis/exa", version: "0.1.0" }, replaced: "@thetis/exa", source: { kind: "local", ref: "packages/exa" }, git: { branch: null, upstream: null, ahead: 0, behind: 0, changed: 3, commit: "abc1234" } });
-  assert.equal(fork.fork, "forked from @thetis/exa 0.1.0, replacing @thetis/exa [warn]");
+  assert.equal(fork["own copy"], "a copy of @thetis/exa 0.1.0, used instead of it [warn]");
   assert.equal(fork.source, "a directory: packages/exa");
-  assert.equal(fork.checkout, "detached · at abc1234 · no upstream branch tracked · 3 files of this package changed and not committed [warn]");
-  // The reload case: the files here are installed already, and only a workspace reload puts them into service.
+  assert.equal(fork.checkout, "detached · at abc1234 · no upstream branch tracked · 3 files of this extension changed and not committed [warn]");
+  // The apply case: the files here are installed already, and only applying updates puts them into service.
   const held = words({ ...base, version: "0.2.2", loaded: { version: "0.2.1", user: "bitmuse", behindDisk: true } });
-  assert.equal(held.workspace, "loaded 0.2.1 in bitmuse's workspace, 0.2.2 on disk: a reload applies it [warn]");
+  assert.equal(held.workspace, "Update ready: bitmuse's workspace runs 0.2.1; 0.2.2 is on disk and goes live when updates are applied [warn]");
   assert.equal(words({ ...base, loaded: { version: "0.1.0", user: "bitmuse", behindDisk: false } }).workspace, undefined, "a workspace running what is on disk says nothing");
   const reload = words({ ...base, version: "0.2.2", loaded: { version: "0.2.1", user: "bitmuse", behindDisk: true }, registry: { registry: "main", version: "0.2.2", commit: "fedcba9876543210", update: { apply: "reload", version: "0.2.2", installed: "0.2.1", available: "0.2.2", source: "" } } });
-  assert.equal(reload.registry, "main holds 0.2.2; the copy here is 0.2.2 and is installed already: a workspace reload puts it into service [warn]");
+  assert.equal(reload.registry, "main holds 0.2.2; the copy here is 0.2.2 and is installed already: applying updates puts it into service [warn]");
+  const { copyState } = await import("../ui/package-card.js");
+  assert.equal(copyState({ loaded: { behindDisk: true } }), "update");
+  assert.equal(copyState({ registry: { update: { apply: "install" } } }), "update");
+  assert.equal(copyState({ loaded: { behindDisk: false }, registry: null }), "current");
+  // No word in a fact is the machinery's: no reload, fence, fork or promote reaches the page.
+  for (const info of [base, { ...base, version: "0.2.2", loaded: { version: "0.2.1", user: "b", behindDisk: true } }, { ...base, forkedFrom: { name: "@thetis/exa", version: "0.1.0" }, everyone: true, everyoneBy: "promoted" }]) {
+    for (const [, text] of packageFacts(info)) assert.doesNotMatch(String(text), /\breload|\bfence|\bfork|\bpromot/i, text);
+  }
 });
 
-test("the fleet matrix's pure helpers: what a cell says, and which workspaces a reload is for", async () => {
+test("the fleet's pure helpers: what a cell says, which rows need a look, and which workspaces have updates to apply", async () => {
   const { cellState, drifts, workspacesBehind } = await import("../ui/fleet.js");
   assert.equal(cellState(null), "none");
-  assert.equal(cellState({ version: "0.2.2", loaded: "0.2.2" }), "current");
-  assert.equal(cellState({ version: "0.2.2", loaded: "0.2.1", behindDisk: true }), "reload");
-  assert.equal(cellState({ version: "0.2.2", loaded: "0.2.1", behindDisk: true, broken: true }), "broken", "a broken key is the louder fact");
-  assert.equal(drifts({ registry: null, byUser: { dev: { behindDisk: true } } }), true, "a workspace behind the disk is drift");
+  assert.equal(cellState({ version: "0.2.2", loaded: "0.2.2", state: "current" }), "current");
+  assert.equal(cellState({ version: "0.2.2", loaded: "0.2.1", state: "update" }), "update");
+  assert.equal(cellState({ version: "0.2.2", loaded: "0.2.1", state: "update", broken: true }), "broken", "a missing setting is the louder fact");
+  assert.equal(cellState({ version: "0.2.2", fork: true, state: "current" }), "fork");
+  assert.equal(drifts({ registry: null, byUser: { dev: { state: "update" } } }), true, "a workspace that has not applied the disk needs a look");
+  assert.equal(drifts({ registry: null, byUser: { dev: { state: "current", fork: true } } }), false, "a copy of one's own is not a problem");
+  assert.equal(drifts({ state: "update", byUser: {} }), true, "the server's word on the row is enough");
   const packages = [
-    { name: "@thetis/skills-hybrid", byUser: { dev: { version: "0.2.2", loaded: "0.2.1", behindDisk: true }, root: { version: "0.2.2", loaded: "0.2.1", behindDisk: true }, bob: { version: "0.2.2", loaded: "0.2.2" } } },
-    { name: "@thetis/tool-groups", byUser: { dev: { version: "0.2.0", loaded: "0.1.0", behindDisk: true } } },
-    // A fork's cell in its original's row is the same copy under another name: it is listed once, as the fork.
-    { name: "@thetis/terminal", byUser: { dev: { version: "0.3.0", loaded: "0.2.0", behindDisk: true, fork: true, forkOf: "@dev/terminal" } } },
+    { name: "@thetis/skills-hybrid", byUser: { dev: { version: "0.2.2", loaded: "0.2.1", state: "update" }, root: { version: "0.2.2", loaded: "0.2.1", state: "update" }, bob: { version: "0.2.2", loaded: "0.2.2", state: "current" } } },
+    { name: "@thetis/tool-groups", byUser: { dev: { version: "0.2.0", loaded: "0.1.0", state: "update" } } },
+    // A copy's cell in its original's row is the same copy under another name: it is listed once, under its own.
+    { name: "@thetis/terminal", byUser: { dev: { version: "0.3.0", loaded: "0.2.0", state: "update", fork: true, forkOf: "@dev/terminal" } } },
   ];
   assert.deepEqual(workspacesBehind(packages, "root"), [
     { user: "dev", changed: [{ name: "@thetis/skills-hybrid", loaded: "0.2.1", onDisk: "0.2.2" }, { name: "@thetis/tool-groups", loaded: "0.1.0", onDisk: "0.2.0" }] },
     { user: "root", changed: [{ name: "@thetis/skills-hybrid", loaded: "0.2.1", onDisk: "0.2.2" }] },
-  ], "the admin's own workspace is last, because reloading it closes the fence serving the page");
-  assert.deepEqual(workspacesBehind([{ name: "@thetis/exa", byUser: { dev: { version: "0.1.0", loaded: "0.1.0" } } }], "root"), []);
+  ], "the admin's own workspace is last, because restarting it closes the workspace that serves the page");
+  assert.deepEqual(workspacesBehind([{ name: "@thetis/exa", byUser: { dev: { version: "0.1.0", loaded: "0.1.0", state: "current" } } }], "root"), []);
 });
 
 test("the configuration form's pure helpers: the control per key, what counts as a change, the words for a source", async () => {
@@ -426,48 +456,98 @@ test("the browser modules parse, and the entry defines install and nothing else"
   assert.equal(mod.default.name, "install");
 });
 
-test("install registers exactly the nine declared entries, each mounting through the seam; configuration also answers children", async () => {
+
+test("install registers exactly the declared panel entries, each mounting through the seam; the hung ones also answer children", async () => {
   const { default: install } = await import("../ui/index.js");
   const panels = {};
   install({ panel: (id, impl) => (panels[id] = impl) });
-  assert.deepEqual(Object.keys(panels), ["account", "people", "models", "configuration", "mounts", "ssh", "activity", "workspaces", "overview"]);
+  assert.deepEqual(Object.keys(panels), ["overview", "people", "configuration", "models", "access", "activity", "account", "advanced", "advanced-pages"]);
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   assert.deepEqual(Object.keys(panels).sort(), manifest.thetis.ui.panel.map((e) => e.id).sort(), "every declared entry is registered, and nothing else");
   for (const impl of Object.values(panels)) assert.equal(typeof impl.mount, "function");
-  assert.equal(typeof panels.configuration.children, "function");
-  for (const [id, impl] of Object.entries(panels)) if (id !== "configuration") assert.equal(impl.children, undefined);
+  const hung = manifest.thetis.ui.panel.filter((e) => e.under).map((e) => e.id);
+  assert.deepEqual(hung, ["configuration", "advanced-pages"]);
+  for (const [id, impl] of Object.entries(panels)) assert.equal(typeof impl.children, hung.includes(id) ? "function" : "undefined", id);
 });
 
-test("configurationChildren: the fleet page first, then the packages with keys or a mark, each mark a glyph with its sentence", async () => {
-  const { configurationChildren, FLEET } = await import("../ui/configuration.js");
+test("the tree an admin reads: Overview, People, Extensions, Models, Access, Activity, Account, Advanced; a user's: Extensions, Models, Access, Activity, Account", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  // The shell's own Extensions section sorts at order 10 (gateway-web's PANEL_SECTIONS); every other entry is ours.
+  const EXTENSIONS = { id: "packages", label: "Extensions", order: 10 };
+  const sections = manifest.thetis.ui.panel.filter((e) => !e.under);
+  const tree = (role) => [EXTENSIONS, ...sections.filter((e) => !e.role || e.role === role)].sort((a, b) => a.order - b.order).map((e) => e.id);
+  assert.deepEqual(tree("admin"), ["overview", "people", "packages", "models", "access", "activity", "account", "advanced"]);
+  assert.deepEqual(tree("user"), ["packages", "models", "access", "activity", "account"]);
+  const by = Object.fromEntries(manifest.thetis.ui.panel.map((e) => [e.id, e]));
+  assert.equal(by.configuration.under, "packages", "extension pages hang under the shell's Extensions");
+  assert.equal(by["advanced-pages"].under, "advanced");
+  for (const id of ["overview", "people", "advanced", "advanced-pages", "configuration"]) assert.equal(by[id].role, "admin", id);
+  // The notice is declared for admins only.
+  assert.deepEqual(manifest.thetis.ui.notices.map((n) => [n.id, n.role]), [["thetis-update", "admin"]]);
+  // No label or note an admin or a person reads says the machinery's words.
+  for (const e of [...manifest.thetis.ui.panel, ...manifest.thetis.ui.notices]) assert.doesNotMatch(`${e.label} ${e.note}`, /\bfence|userspace|\breload|\bdaemon|\bpackage/i, e.id);
+  const { advancedChildren } = await import("../ui/advanced.js");
+  assert.deepEqual(advancedChildren().map((c) => [c.id, c.kind]), [["workspaces", "page"], ["fleet", "page"], ["server", "page"]]);
+  const { tabsFor } = await import("../ui/access.js");
+  assert.deepEqual(tabsFor("admin").map((t) => t.label), ["Mounts", "SSH keys", "Registries"]);
+  assert.deepEqual(tabsFor("user").map((t) => t.label), ["Mounts", "SSH keys"], "registries are the installation's: a user has no tab for them");
+});
+
+test("configurationChildren: All extensions first, then only the extensions that ask for something, each with one mark", async () => {
+  const { configurationChildren, FLEET, markOf } = await import("../ui/configuration.js");
   const reports = [
     { package: "@thetis/exa", summary: "apiKey is required and not set", broken: true, keys: [{ key: "apiKey" }] },
     { package: "@thetis/tools-files", summary: "every key is set", broken: false, keys: [] },
-    { package: "@bitmuse/moo", summary: "every key is set", broken: false, keys: [{ key: "base_url" }, { key: "username" }] },
+    { package: "@bitmuse/moo", summary: "every key is set", broken: false, keys: [{ key: "base_url" }] },
     { package: "@thetis/terminal", summary: "every key is set", broken: false, keys: [{ key: "shell" }] },
   ];
   const fleet = { packages: [
-    { name: "@thetis/terminal", registry: { update: { version: "0.2.0" } }, config: { broken: false }, byUser: { bitmuse: { fork: true, stale: true, broken: false }, dev: { fork: false, stale: false, broken: false } } },
-    { name: "@thetis/tools-files", registry: null, config: { broken: false }, byUser: { dev: { fork: false, stale: true, broken: false } } },
-    { name: "@bitmuse/moo", registry: null, config: { broken: false }, byUser: { bitmuse: { fork: false, stale: false, broken: true } } },
-    { name: "@thetis/skills-hybrid", registry: { version: "0.2.2", update: { apply: "reload", version: "0.2.2" } }, config: { broken: false }, byUser: { dev: { fork: false, stale: false, broken: false, behindDisk: true } } },
+    { name: "@thetis/terminal", state: "current", waiting: [], registry: null, config: { broken: false }, byUser: { bitmuse: { fork: true, state: "current" }, dev: { state: "current" } } },
+    { name: "@thetis/tools-files", state: "current", waiting: [], registry: null, config: { broken: false }, byUser: { dev: { state: "current" } } },
+    { name: "@bitmuse/moo", state: "current", waiting: [], registry: null, config: { broken: false }, byUser: { bitmuse: { state: "current", broken: true } } },
+    { name: "@thetis/skills-hybrid", state: "update", waiting: ["dev", "root", "bob"], registry: { version: "0.2.2", update: { apply: "reload", version: "0.2.2" } }, config: { broken: false }, byUser: { dev: { state: "update" } } },
+    { name: "@thetis/compaction", state: "update", waiting: [], registry: { version: "0.2.0", update: { apply: "install", version: "0.2.0" } }, config: null, byUser: { dev: { state: "current" } } },
   ] };
   const request = async (verb) => (verb === "config-list" ? { data: reports } : verb === "fleet" ? { data: fleet } : { data: null });
   const kids = await configurationChildren({ request });
   assert.equal(FLEET, "*");
-  assert.deepEqual(kids[0], { id: "*", label: "All workspaces", kind: "page", note: "Every package in every workspace" });
-  assert.deepEqual(kids.slice(1).map((k) => k.id), ["@bitmuse/moo", "@thetis/exa", "@thetis/skills-hybrid", "@thetis/terminal", "@thetis/tools-files"], "sorted; tools-files has no keys but someone runs it on older code");
+  assert.deepEqual(kids[0], { id: "*", label: "All extensions", kind: "page", note: "Every extension installed here" });
+  assert.deepEqual(
+    kids.slice(1).map((k) => [k.id, k.label, k.mark]),
+    [["@bitmuse/moo", "@bitmuse/moo", "err"], ["@thetis/compaction", "compaction", "warn"], ["@thetis/exa", "exa", "err"], ["@thetis/skills-hybrid", "skills-hybrid", "warn"]],
+    "a copy of one's own and an extension that is up to date ask for nothing: they are rows on All extensions"
+  );
   const by = Object.fromEntries(kids.slice(1).map((k) => [k.id, k]));
-  assert.deepEqual(by["@thetis/exa"].marks, [{ glyph: "!", tone: "err", title: "config broken: apiKey is required and not set" }]);
-  assert.deepEqual(by["@thetis/terminal"].marks.map((m) => [m.glyph, m.tone]), [["↑", "warn"], ["Y", "warn"], ["◐", "warn"]]);
-  assert.equal(by["@thetis/terminal"].marks[1].title, "fork in use: bitmuse");
-  assert.deepEqual(by["@bitmuse/moo"].marks, [{ glyph: "!", tone: "err", title: "config broken for bitmuse: every key is set" }]);
-  assert.deepEqual(by["@thetis/tools-files"].marks, [{ glyph: "◐", tone: "warn", title: "older code running: dev" }]);
-  assert.deepEqual(by["@thetis/skills-hybrid"].marks, [{ glyph: "↻", tone: "warn", title: "reload to 0.2.2: a workspace is running an older version than the disk" }], "the other kind of behind has its own glyph and sentence");
-  // Without the fleet command (an older installation) the packages with keys are still listed, unmarked but for a broken one.
-  const bare = await configurationChildren({ request: async (verb) => (verb === "config-list" ? { data: reports } : Promise.reject(new Error("no fleet"))) });
-  assert.deepEqual(bare.slice(1).map((k) => [k.id, k.marks.map((m) => m.glyph)]), [["@bitmuse/moo", []], ["@thetis/exa", ["!"]], ["@thetis/terminal", []]]);
-  const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-  const entry = manifest.thetis.ui.panel.find((e) => e.id === "configuration");
-  assert.equal(entry.under, "packages");
+  assert.equal(by["@thetis/skills-hybrid"].note, "Update ready: 3 people haven't applied it yet");
+  assert.equal(by["@thetis/compaction"].note, "Update ready: 0.2.0 is in the registry");
+  assert.equal(by["@thetis/exa"].note, "Needs setup: apiKey is required and not set");
+  assert.equal(by["@bitmuse/moo"].note, "Needs setup for bitmuse: every key is set");
+  for (const k of kids) assert.equal(k.marks, undefined, "no glyphs, so the shell draws no glyph legend");
+  // Neither command answering: the tree still has its first page, and says nothing it does not know.
+  const bare = await configurationChildren({ request: async () => Promise.reject(new Error("The requested module './lib/ssh.js' does not provide an export named 'isWithin'")) });
+  assert.deepEqual(bare.map((k) => k.id), ["*"]);
+  assert.equal(markOf(null, null), null);
+});
+
+test("the three words: a server state becomes Up to date, Update ready or Restart needed, and only two of them ask for anything", async () => {
+  const { stateWord, stateTone, actionable, waitingSentence, shortName } = await import("../ui/state.js");
+  assert.deepEqual(["current", "update", "restart", undefined, "stale"].map(stateWord), ["Up to date", "Update ready", "Restart needed", "Up to date", "Up to date"]);
+  assert.deepEqual(["current", "update", "restart"].map(stateTone), ["ok", "warn", "warn"]);
+  assert.deepEqual(["current", "update", "restart"].map(actionable), [false, true, true]);
+  assert.equal(waitingSentence(0), null);
+  assert.equal(waitingSentence(1), "1 person hasn't applied it yet");
+  assert.equal(waitingSentence(3), "3 people haven't applied it yet");
+  assert.equal(shortName("@thetis/compaction"), "compaction");
+  assert.equal(shortName("@bitmuse/moo"), "@bitmuse/moo");
+});
+
+test("activity: plain labels for the kinds, and the plumbing rows only for a developer", async () => {
+  const { kindLabel, visibleRows } = await import("../ui/activity.js");
+  assert.equal(kindLabel("fence.reload"), "Workspace restarted");
+  assert.equal(kindLabel("package.promote"), "Made the default for everyone");
+  assert.equal(kindLabel("user.create"), "Person added");
+  assert.equal(kindLabel("something.new"), "something.new", "an unknown kind is shown as it is");
+  const rows = [{ kind: "host.call" }, { kind: "user.create" }, { kind: "host.call" }, { kind: "turn.end" }];
+  assert.deepEqual(visibleRows(rows, false).map((r) => r.kind), ["user.create", "turn.end"]);
+  assert.equal(visibleRows(rows, true).length, 4);
 });

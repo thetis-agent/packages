@@ -1,7 +1,10 @@
-/* The Activity tab: the journal entries about one package, from `package-activity`, in a table of when,
+/* The Activity tab: the journal entries about one extension, from `package-activity`, in a table of when,
  * kind, who, what and detail. Kind chips narrow to one kind, range chips to the last 14 or 30 days, and
  * a person chip appears when the tab was opened from "Their activity". The sentence in the What column
  * is written from the kind and the entry's data; the Detail column shows the rest of the data plainly. */
+
+import { kindLabel } from "./activity.js";
+import { failureSentence } from "./failed.js";
 
 const RANGES = [
   ["14", "14 d", 14],
@@ -15,7 +18,7 @@ const RANGES = [
  * everywhere while somebody is still running their own copy of it. The names are what makes it actionable:
  * whoever reads this row later can go and ask them.
  */
-const kept = (d) => (Array.isArray(d.forks) && d.forks.length ? `, except ${d.forks.map((f) => f.user).join(", ")}, who ${d.forks.length === 1 ? "holds" : "hold"} a fork of it` : "");
+const kept = (d) => (Array.isArray(d.forks) && d.forks.length ? `, except ${d.forks.map((f) => f.user).join(", ")}, who ${d.forks.length === 1 ? "uses a copy of their own" : "use copies of their own"}` : "");
 
 /** One sentence for an entry, from its kind and data. Unknown kinds show the kind and the target. */
 export function sentence(entry, name) {
@@ -27,27 +30,29 @@ export function sentence(entry, name) {
     case "package.uninstall":
       return `removed ${d.name ?? name} for ${t}`;
     case "package.promote":
-      return `promoted ${d.name ?? name} to ${d.promoted ?? "a system package"}${Array.isArray(d.userspaces) ? ` for ${d.userspaces.length} workspace${d.userspaces.length === 1 ? "" : "s"}` : ""}${kept(d)}`;
+      return `made ${d.name ?? name} the default for everyone${d.promoted ? ` as ${d.promoted}` : ""}${Array.isArray(d.userspaces) ? ` for ${d.userspaces.length} workspace${d.userspaces.length === 1 ? "" : "s"}` : ""}${kept(d)}`;
     case "package.everyone":
       return d.on === false ? `${t} is no longer the default for everyone` : `made ${t} the default for everyone${kept(d)}`;
     case "update.start":
-      return `update of the installation started${d.from ? ` from runtime ${d.from.runtime}, packages ${d.from.packages}` : ""}`;
+      return `Thetis update started${d.from ? ` from runtime ${d.from.runtime}, packages ${d.from.packages}` : ""}`;
     case "update.done":
-      return `installation updated${d.to ? ` to runtime ${d.to.runtime}, packages ${d.to.packages}` : ""}`;
+      return `Thetis updated${d.to ? ` to runtime ${d.to.runtime}, packages ${d.to.packages}` : ""}`;
+    case "update.rolledback":
+      return `Thetis update rolled back${d.from ? ` to runtime ${d.from.runtime}` : ""}${d.error ? `: ${d.error}` : ""}`;
     case "update.fail":
-      return `update of the installation failed${d.error ? `: ${d.error}` : ""}`;
+      return `Thetis update failed${d.error ? `: ${d.error}` : ""}`;
     case "service.start":
       return `service started for ${t}`;
     case "service.stop":
       return `service stopped for ${t}`;
     case "config.set":
-      return `${d.key ?? "a key"} set${d.user ? ` for ${d.user}` : " for everyone"}`;
+      return `setting ${d.key ?? "a key"} changed${d.user ? ` for ${d.user}` : " for everyone"}`;
     case "config.unset":
-      return `${d.key ?? "a key"} cleared${d.user ? ` for ${d.user}` : " for everyone"}`;
+      return `setting ${d.key ?? "a key"} cleared${d.user ? ` for ${d.user}` : " for everyone"}`;
     case "config.reload":
-      return "the configuration file was read again";
+      return "the settings file was read again";
     case "fence.reload":
-      return `${t}'s workspace reloaded`;
+      return `${t}'s workspace restarted`;
     default:
       return `${entry.kind}${t ? ` · ${t}` : ""}`;
   }
@@ -80,6 +85,7 @@ export function mountActivity(ext, host, ctx) {
   const { badge, busy, put, table } = ext.ui;
   let alive = true;
   let entries = [];
+  let failed = null;
   let kind = null;
   let range = "14";
   let actor = ctx.actor ?? null;
@@ -103,12 +109,12 @@ export function mountActivity(ext, host, ctx) {
     const kinds = [...new Set(entries.map((e) => e.kind))].sort();
     put(
       head,
-      el("span", { class: "ua-card-title" }, "Activity", el("span", { class: "text-faint" }, `everything about this package · ${entries.length} entr${entries.length === 1 ? "y" : "ies"}`)),
+      el("span", { class: "ua-card-title" }, "Activity", el("span", { class: "text-faint" }, `everything about this extension · ${entries.length} entr${entries.length === 1 ? "y" : "ies"}`)),
       el(
         "span",
         { class: "ua-chips" },
         chip("all kinds", !kind, () => { kind = null; draw(); }),
-        ...kinds.map((k) => chip(k.replace(/^package\./, ""), kind === k, () => { kind = kind === k ? null : k; draw(); })),
+        ...kinds.map((k) => chip(kindLabel(k), kind === k, () => { kind = kind === k ? null : k; draw(); })),
         actor ? chip(`${actor} ×`, true, () => { actor = null; draw(); }) : null,
         el("span", { class: "ua-sep" }, "·"),
         ...RANGES.map(([id, label]) => chip(label, range === id, () => { range = id; draw(); }))
@@ -120,13 +126,13 @@ export function mountActivity(ext, host, ctx) {
       table(
         [
           { key: "at", label: "When", render: (e) => el("code", { class: "text-faint" }, when(e.at)) },
-          { key: "kind", label: "Kind", render: (e) => badge(e.kind, toneOf(e.kind)) },
-          { key: "actor", label: "Who", render: (e) => e.actor ?? el("span", { class: "text-faint" }, "kernel") },
+          { key: "kind", label: "Kind", render: (e) => el("span", { title: e.kind }, badge(kindLabel(e.kind), toneOf(e.kind))) },
+          { key: "actor", label: "Who", render: (e) => e.actor ?? el("span", { class: "text-faint" }, "Thetis") },
           { key: "what", label: "What", render: (e) => sentence(e, ctx.name) },
           { key: "detail", label: "Detail", render: (e) => el("span", { class: "text-faint ua-detail" }, detail(e)) },
         ],
         rows,
-        { rowKey: (e) => `${e.at}-${e.kind}`, empty: entries.length ? "Nothing in this range." : "Nothing in the journal about this package." }
+        { rowKey: (e) => `${e.at}-${e.kind}`, empty: failed ? failureSentence("The activity", failed, { admin: true }) : entries.length ? "Nothing in this range." : "Nothing in the journal about this extension." }
       )
     );
   }
@@ -139,7 +145,7 @@ export function mountActivity(ext, host, ctx) {
       entries = Array.isArray(out?.data?.entries) ? out.data.entries : [];
     } catch (err) {
       if (!alive) return;
-      ext.toast(err.message, { tone: "error" });
+      failed = err;
     } finally {
       stop();
     }

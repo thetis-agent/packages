@@ -1,8 +1,8 @@
 {
   "name": "@thetis/ui-admin",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "license": "MIT",
-  "description": "The control panel's sections beyond Packages: the account, models, mounts, SSH keys and activity for everyone, each scoped to the person; people, configuration, workspaces and overview for an admin.",
+  "description": "The control panel's sections beyond Extensions, and the admin's Thetis update notice: Overview, People, Models, Access (mounts and SSH keys), Activity, Account and Advanced. Everyone sees Models, Access, Activity and Account about themselves; an admin sees all of them, about everyone.",
   "type": "module",
   "main": "index.js",
   "thetis": {
@@ -13,17 +13,18 @@
       "style": "index.css",
       "panel": [
         {
-          "id": "account",
-          "label": "Account",
-          "note": "Who you are here, and your password.",
-          "order": 15
+          "id": "overview",
+          "label": "Overview",
+          "note": "This Thetis server: whether it is up to date, and updating it.",
+          "role": "admin",
+          "order": 1
         },
         {
           "id": "people",
           "label": "People",
           "note": "Who can sign in, and what they may do.",
           "role": "admin",
-          "order": 20
+          "order": 5
         },
         {
           "id": "models",
@@ -33,23 +34,17 @@
         },
         {
           "id": "configuration",
-          "label": "Package settings",
-          "note": "What this package is configured with, and what is missing.",
+          "label": "Extension pages",
+          "note": "One extension: its settings, its state, and who has it.",
           "role": "admin",
           "order": 32,
           "under": "packages"
         },
         {
-          "id": "mounts",
-          "label": "Mounts",
-          "note": "Which host directories are bound into a workspace.",
+          "id": "access",
+          "label": "Access",
+          "note": "What a workspace can reach outside itself: host directories and SSH keys.",
           "order": 35
-        },
-        {
-          "id": "ssh",
-          "label": "SSH keys",
-          "note": "Which keys a workspace may use, and where they may go.",
-          "order": 36
         },
         {
           "id": "activity",
@@ -58,18 +53,33 @@
           "order": 40
         },
         {
-          "id": "workspaces",
-          "label": "Workspaces",
-          "note": "What code each workspace is running, and how to put new code into service.",
-          "role": "admin",
-          "order": 45
+          "id": "account",
+          "label": "Account",
+          "note": "Who you are here, and your password.",
+          "order": 42
         },
         {
-          "id": "overview",
-          "label": "Overview",
-          "note": "How this installation is set up.",
+          "id": "advanced",
+          "label": "Advanced",
+          "note": "For troubleshooting: each workspace, every extension in every workspace, and the server's settings.",
           "role": "admin",
           "order": 50
+        },
+        {
+          "id": "advanced-pages",
+          "label": "Advanced pages",
+          "note": "A troubleshooting page.",
+          "role": "admin",
+          "order": 51,
+          "under": "advanced"
+        }
+      ],
+      "notices": [
+        {
+          "id": "thetis-update",
+          "label": "Thetis update",
+          "note": "An update of Thetis itself is ready, running, or needs a hand.",
+          "role": "admin"
         }
       ],
       "commands": [
@@ -193,13 +203,13 @@
         {
           "verb": "package-fork",
           "export": "packageFork",
-          "label": "Copy a package into your home as your own",
+          "label": "Make your own copy of an extension",
           "role": "admin"
         },
         {
           "verb": "package-promote",
           "export": "packagePromote",
-          "label": "Make a person's package a system package for everyone",
+          "label": "Make a person's extension the default for everyone",
           "role": "admin"
         },
         {
@@ -217,7 +227,7 @@
         {
           "verb": "fleet",
           "export": "fleet",
-          "label": "Every package in every workspace, with what needs a look",
+          "label": "Every extension in every workspace, and what is ready to apply",
           "role": "admin"
         },
         {
@@ -299,19 +309,25 @@
         {
           "verb": "fence-reload",
           "export": "fenceReload",
-          "label": "Reload a workspace",
+          "label": "Restart a workspace on the code on disk",
           "role": "admin"
         },
         {
           "verb": "status",
           "export": "status",
-          "label": "What the daemon and every workspace are running",
+          "label": "What the Thetis server and every workspace are running",
           "role": "admin"
         },
         {
           "verb": "restart-request",
           "export": "restartRequest",
-          "label": "Ask the daemon to restart",
+          "label": "Ask Thetis to restart",
+          "role": "admin"
+        },
+        {
+          "verb": "restart-cancel",
+          "export": "restartCancel",
+          "label": "Call off a pending restart",
           "role": "admin"
         },
         {
@@ -321,15 +337,21 @@
           "role": "admin"
         },
         {
-          "verb": "update-run",
-          "export": "updateRun",
-          "label": "Pull and build the installation on the host",
+          "verb": "update-apply",
+          "export": "updateApply",
+          "label": "Update Thetis and restart it: the whole job, on the host",
           "role": "admin"
         },
         {
           "verb": "update-progress",
           "export": "updateProgress",
           "label": "How the running update is going",
+          "role": "admin"
+        },
+        {
+          "verb": "update-restart",
+          "export": "updateRestart",
+          "label": "Restart Thetis to put the code on disk into service",
           "role": "admin"
         }
       ]

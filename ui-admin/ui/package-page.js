@@ -1,14 +1,13 @@
-/* One package's page under Packages: the header (name, version, what it is and where it stands in badges,
- * the description, a facts line on who has it and where it runs), the actions on it, and the tabs:
- * Overview, History, Configuration, Where it runs, Activity, README. The page reads `package-info` and
- * `package-where` once and hands what it read to every tab through `ctx`; a tab that needs more asks
- * for it itself. An action goes behind the shell's confirm popover, toasts the answer, reads the page
- * again and asks the tree to read its children again, so the marks beside the packages follow.
- *
- * Every action and section is tagged with who it is for: `admin` on what needs an admin and acts for
- * everyone (Update, Promote, Remove, History, Where it runs, the checkout, the system layer), `yours`
- * or `anyone` on what any person does for their own workspace (Fork, Reload workspace, their own
- * layer). The page is shown to admins today; the tags are the spec for the day a person opens it. */
+/* One extension's page: the header (name, version, its state in a few badges, the description, a line on
+ * who has it and where it runs), the everyday actions on it, and the tabs: Overview, Settings, Activity,
+ * README, and Advanced. The everyday actions are Update (when its registry holds a newer commit), Make it
+ * the default for everyone (for a person's own extension) and Remove. Advanced holds what is for
+ * troubleshooting: making your own copy, where it runs person by person, and its history in git. The page
+ * reads `package-info` and `package-where` once and hands what it read to every tab through `ctx`; a tab
+ * that needs more asks for it itself. An action goes behind the shell's confirm popover, toasts the answer,
+ * reads the page again and asks the tree to read its children again, so the marks beside the extensions
+ * follow. There is no restart button here: applying updates is one action for everyone, on the extensions
+ * pages. */
 
 import { mountActivity } from "./package-activity.js";
 import { mountHistory } from "./package-history.js";
@@ -16,22 +15,23 @@ import { mountOverview } from "./package-overview.js";
 import { mountReadme } from "./package-readme.js";
 import { mountWhere } from "./package-where.js";
 import { mountSettings } from "./configuration.js";
+import { copyState } from "./package-card.js";
+import { failureSentence, toastError } from "./failed.js";
+import { shortName, stateBadge, waitingSentence } from "./state.js";
 
 const TABS = [
-  ["overview", "Overview", null],
-  ["history", "History", "admin"],
-  ["configuration", "Configuration", null],
-  ["where", "Where it runs", "admin"],
-  ["activity", "Activity", null],
-  ["readme", "README", null],
+  ["overview", "Overview"],
+  ["configuration", "Settings"],
+  ["activity", "Activity"],
+  ["readme", "README"],
+  ["advanced", "Advanced"],
 ];
 
-/** The small tag that says who a control or section is for. */
-export function tag(ext, kind) {
-  const { el } = ext.dom;
-  const words = { admin: "admin", yours: "yours", anyone: "anyone" };
-  return el("span", { class: `ua-tag is-${kind === "admin" ? "admin" : "yours"}`, title: kind === "admin" ? "Needs an admin; acts for everyone" : "Anyone, for their own workspace" }, words[kind] ?? kind);
-}
+/** The pages inside the Advanced tab. */
+const ADVANCED = [
+  ["where", "Where it runs"],
+  ["history", "History"],
+];
 
 /** The signed-in person, as the shell's footer names them; the seam hands a package no identity. */
 function me() {
@@ -50,6 +50,7 @@ export function mountPackagePage(ext, root, { name, refresh, user = me() }) {
   let tab = "overview";
   let unmountTab = null;
   let pending = null; // what a tab was asked to show when it opens: { layer } or { actor }
+  let inner = "where"; // the Advanced tab's page
 
   const page = el("div", { class: "ua-pkg" });
   const head = el("div", { class: "ua-pkg-head" });
@@ -70,13 +71,18 @@ export function mountPackagePage(ext, root, { name, refresh, user = me() }) {
     },
     refresh,
     reload: () => load(),
-    /** Opens a tab, with a word for it: `{ layer: user }` for Configuration, `{ actor: user }` for Activity. */
+    /** Opens a tab, with a word for it: `{ layer: user }` for Settings, `{ actor: user }` for Activity. History and Where it runs are in Advanced. */
     show: (id, want = null) => {
       pending = want;
+      if (ADVANCED.some(([key]) => key === id)) {
+        inner = id;
+        return showTab("advanced");
+      }
       showTab(id);
     },
     act,
-    tag: (kind) => tag(ext, kind),
+    // Permission tags left the page with the permission legend; a card that asked for one gets nothing.
+    tag: () => null,
   };
 
   async function load() {
@@ -91,13 +97,13 @@ export function mountPackagePage(ext, root, { name, refresh, user = me() }) {
         ext.request("config-show", { args: { name } }).catch(() => ({ data: null })),
       ]);
       if (!alive) return;
-      if (refused) ext.toast(refused, { tone: "warn" });
+      if (refused) ext.toast(failureSentence(shortName(name), { message: refused }, { admin: true }), { tone: "warn" });
       info = about?.data ?? null;
       where = runs?.data ?? null;
       config = shown?.data ? { broken: Boolean(shown.data.broken), summary: shown.data.summary || "" } : null;
     } catch (err) {
       if (!alive) return;
-      ext.toast(err.message, { tone: "error" });
+      toastError(ext, err, shortName(name));
     } finally {
       stop();
     }
@@ -113,14 +119,14 @@ export function mountPackagePage(ext, root, { name, refresh, user = me() }) {
    * popover; the answer's `data.text` or a sentence of ours becomes the toast.
    */
   async function act(anchor, { verb, args, title, lines = [], note, confirmLabel = "Confirm", tone = "primary", said }) {
-    const ok = await confirm(anchor, { title, lines: [["package", name], ...lines], note, confirmLabel, tone });
+    const ok = await confirm(anchor, { title, lines: [["extension", name], ...lines], note, confirmLabel, tone });
     if (!ok || !alive) return false;
     anchor.disabled = true;
     try {
       const out = await ext.request(verb, { args: { name, ...args } });
       ext.toast(out?.data?.text || out?.text || said || `${title.replace(/\?$/, "")}: done.`, { tone: "good" });
     } catch (err) {
-      ext.toast(err.message, { tone: "error" });
+      toastError(ext, err, title.replace(/\?$/, ""));
       return false;
     } finally {
       if (alive) anchor.disabled = false;
@@ -131,39 +137,28 @@ export function mountPackagePage(ext, root, { name, refresh, user = me() }) {
     return true;
   }
 
+  /** A person's own extension (not one shipped with Thetis) that everyone does not get yet: the one Make it the default applies to. */
+  const promotable = () => info && !info.everyone && info.source?.kind !== "system" && !name.startsWith("@thetis/");
+  const owner = () => where?.people?.find((p) => p.installed)?.user ?? user;
+
   function actions() {
     const out = [];
     const reg = info?.registry;
-    // A reload has nothing to install: the copy on disk is already installed, and Reload workspace is what applies it.
+    // Applying has nothing to install: the copy on disk is installed already, and applying updates puts it into service.
     if (reg?.update && reg.update.apply !== "reload") {
       const b = button(`Update to ${reg.update.version}`, { tone: "primary" });
-      b.append(tag(ext, "admin"));
-      b.addEventListener("click", () => void act(b, { verb: "package-update", args: {}, title: "Update this package?", lines: [["from", `${info.version} · ${shortHash(reg.update.installed)}`], ["to", `${reg.update.version} · ${shortHash(reg.update.available)}`], ["registry", reg.registry]], note: "The registry's copy replaces this one for everyone who has it; a service it runs restarts.", confirmLabel: "Update" }));
+      b.addEventListener("click", () => void act(b, { verb: "package-update", args: {}, title: "Update this extension?", lines: [["from", `${info.version} · ${shortHash(reg.update.installed)}`], ["to", `${reg.update.version} · ${shortHash(reg.update.available)}`], ["registry", reg.registry]], note: "The registry's copy replaces this one for everyone who has it. Each person gets it the next time their workspace applies updates.", confirmLabel: "Update" }));
       out.push(b);
     }
-    const fork = button("Fork");
-    fork.append(tag(ext, "anyone"));
-    fork.addEventListener("click", () => void act(fork, { verb: "package-fork", args: {}, title: "Fork this package?", lines: [["as", `@${user ?? "you"}/${name.slice(name.indexOf("/") + 1)}`]], note: "A copy of the files lands in packages/ under your home as your own package, ready to edit. Installing the fork replaces the original for you until the fork is removed.", confirmLabel: "Fork" }));
-    out.push(fork);
-    if (info && !info.everyone) {
-      const promote = button("Promote");
-      promote.append(tag(ext, "admin"));
-      const owner = where?.people?.find((p) => p.installed)?.user ?? user;
-      promote.addEventListener("click", () => void act(promote, { verb: "package-promote", args: { user: owner }, title: "Promote this package?", lines: [["from", `${owner}'s package`], ["to", `@thetis/${name.slice(name.indexOf("/") + 1)} for everyone`]], note: "The files are copied to the system packages, the person's copy is removed, and every workspace gets the promoted one.", confirmLabel: "Promote" }));
+    if (promotable()) {
+      const promote = button("Make it the default for everyone");
+      const from = owner();
+      promote.addEventListener("click", () => void act(promote, { verb: "package-promote", args: { user: from }, title: "Make it the default for everyone?", lines: [["from", `${from}'s extension`], ["as", `@thetis/${name.slice(name.indexOf("/") + 1)}`]], note: "It is copied into the extensions Thetis ships, the person's own copy is removed, and every workspace gets it.", confirmLabel: "Make it the default" }));
       out.push(promote);
     }
-    if (user) {
-      const reload = button("Reload workspace");
-      reload.append(tag(ext, "yours"));
-      // What the reload would apply, when this workspace is holding a version the disk has moved past.
-      const applies = info?.loaded?.behindDisk && info.loaded.user === user ? [["applies", `${name} ${info.loaded.version} → ${info.version}`]] : [];
-      reload.addEventListener("click", () => void act(reload, { verb: "fence-reload", args: { user }, title: "Reload your workspace?", lines: [["workspace", user], ...applies], note: "Your fence closes and opens again on the code on disk. A turn in flight finishes its current tool call first; the services restart.", confirmLabel: "Reload", said: `${user}'s workspace reloaded.` }));
-      out.push(reload);
-    }
     const remove = button("Remove", { tone: "warn" });
-    remove.append(tag(ext, "admin"));
     const everyone = Boolean(info?.everyone);
-    remove.addEventListener("click", () => void act(remove, { verb: "package-remove", args: { user: everyone ? "*" : (where?.people?.find((p) => p.installed)?.user ?? user) }, title: everyone ? "Remove this package for everyone?" : "Remove this package?", lines: [["from", everyone ? "every workspace" : `${where?.people?.find((p) => p.installed)?.user ?? user}'s workspace`]], note: "The files stay in place; only the link is removed. Steps and tools it brings stop on the next turn.", confirmLabel: "Remove", tone: "warn" }));
+    remove.addEventListener("click", () => void act(remove, { verb: "package-remove", args: { user: everyone ? "*" : owner() }, title: everyone ? "Remove this extension for everyone?" : "Remove this extension?", lines: [["from", everyone ? "every workspace" : `${owner()}'s workspace`]], note: "The files stay in place; only the link is removed. Its tools stop on the next reply.", confirmLabel: "Remove", tone: "warn" }));
     out.push(remove);
     return out;
   }
@@ -171,12 +166,11 @@ export function mountPackagePage(ext, root, { name, refresh, user = me() }) {
   // ---- the header ----
 
   function headBadges() {
-    const out = [badge(info?.type ?? "package", "dim"), info?.everyone ? badge("Everyone", "accent") : badge("Only me", "dim")];
-    if (config) out.push(config.broken ? badge(`config: ${config.summary}`, "err") : badge("config whole", "ok"));
-    if (info?.forkedFrom) out.push(badge(`fork of ${info.forkedFrom.name} ${info.forkedFrom.version}`, "warn"));
-    // The two kinds of behind: a newer commit in a registry, and a version on disk this workspace has not read.
-    if (info?.loaded?.behindDisk) out.push(badge(`reload to ${info.version}`, "warn"));
-    else if (info?.registry?.update) out.push(badge(info.registry.update.apply === "reload" ? `reload to ${info.registry.update.version}` : `update ${info.registry.update.version} on offer`, "warn"));
+    const out = [badge(info?.type ?? "extension", "dim")];
+    if (info?.everyone) out.push(badge("Default for everyone", "accent"));
+    if (config) out.push(config.broken ? badge(`needs setup: ${config.summary}`, "err") : badge("set up", "ok"));
+    if (info?.forkedFrom) out.push(badge(`own copy of ${info.forkedFrom.name}`, "warn"));
+    if (info) out.push(stateBadge(ext, copyState(info)));
     if (info?.git?.ahead) out.push(badge(`${info.git.ahead} commit${info.git.ahead === 1 ? "" : "s"} not pushed`, "warn"));
     if (info?.git?.changed) out.push(badge(`${info.git.changed} file${info.git.changed === 1 ? "" : "s"} uncommitted`, "warn"));
     return out;
@@ -189,10 +183,11 @@ export function mountPackagePage(ext, root, { name, refresh, user = me() }) {
     const parts = [];
     if (typeof c.installed === "number" && typeof c.people === "number") parts.push(el("span", {}, "installed for ", el("b", {}, `${c.installed} of ${c.people}`), " people"));
     const loaded = (where.people ?? []).filter((p) => p.installed && p.loaded?.openedAt).length;
-    if (loaded) parts.push(el("span", {}, "loaded in ", el("b", {}, String(loaded)), ` workspace${loaded === 1 ? "" : "s"}`, c.stale ? [", ", el("b", { class: "ua-warn" }, `${c.stale} running older code`)] : null));
+    if (loaded) parts.push(el("span", {}, "open in ", el("b", {}, String(loaded)), ` workspace${loaded === 1 ? "" : "s"}`));
+    if (c.waiting) parts.push(el("b", { class: "ua-warn" }, waitingSentence(c.waiting)));
     const services = (where.people ?? []).filter((p) => Array.isArray(p.services) && p.services.includes(name)).length;
     if (services) parts.push(el("span", {}, "a service in ", el("b", {}, String(services)), ` workspace${services === 1 ? "" : "s"}`));
-    if (c.forks) parts.push(el("span", {}, el("b", {}, String(c.forks)), ` fork${c.forks === 1 ? "" : "s"}`));
+    if (c.forks) parts.push(el("span", {}, el("b", {}, String(c.forks)), ` own ${c.forks === 1 ? "copy" : "copies"}`));
     if (!parts.length) return null;
     return el("div", { class: "ua-pkg-facts-line" }, ...parts.flatMap((p, i) => (i ? [el("span", { class: "ua-sep" }, "·"), p] : [p])));
   }
@@ -201,7 +196,7 @@ export function mountPackagePage(ext, root, { name, refresh, user = me() }) {
     clear(head);
     put(
       head,
-      el("div", { class: "ua-pkg-crumb" }, el("span", {}, "Control panel"), el("span", { class: "ua-sep" }, "/"), el("span", {}, "Packages"), el("span", { class: "ua-sep" }, "/"), el("code", {}, name)),
+      el("div", { class: "ua-pkg-crumb" }, el("span", {}, "Control panel"), el("span", { class: "ua-sep" }, "/"), el("span", {}, "Extensions"), el("span", { class: "ua-sep" }, "/"), el("code", {}, name)),
       el(
         "div",
         { class: "ua-pkg-title-row" },
@@ -213,17 +208,15 @@ export function mountPackagePage(ext, root, { name, refresh, user = me() }) {
           facts()
         ),
         el("div", { class: "ua-pkg-actions-col" }, el("div", { class: "ua-pkg-actions" }, ...actions()))
-      ),
-      // The legend sits under the whole row: inside the actions column it made that column wide and the title narrow.
-      el("div", { class: "ua-pkg-legend" }, el("span", {}, tag(ext, "admin"), " needs an admin, acts for everyone"), el("span", {}, tag(ext, "yours"), " anyone, for their own workspace"), el("span", {}, "unmarked: read by anyone"))
+      )
     );
     drawTabs();
   }
 
   function drawTabs() {
     clear(tabs);
-    for (const [id, label, who] of TABS) {
-      put(tabs, el("button", { type: "button", role: "tab", class: `ua-pkg-tab${id === tab ? " is-on" : ""}`, "aria-selected": id === tab ? "true" : "false", "data-tab": id, onClick: () => showTab(id) }, label, who ? tag(ext, who) : null));
+    for (const [id, label] of TABS) {
+      put(tabs, el("button", { type: "button", role: "tab", class: `ua-pkg-tab${id === tab ? " is-on" : ""}`, "aria-selected": id === tab ? "true" : "false", "data-tab": id, onClick: () => showTab(id) }, label));
     }
   }
 
@@ -243,15 +236,12 @@ export function mountPackagePage(ext, root, { name, refresh, user = me() }) {
       case "overview":
         unmountTab = mountOverview(ext, body, ctx);
         break;
-      case "history":
-        unmountTab = mountHistory(ext, body, { name, ctx });
-        break;
       case "configuration":
         unmountTab = mountSettings(ext, body, { child: name, refresh });
         if (want?.layer) chooseLayer(want.layer);
         break;
-      case "where":
-        unmountTab = mountWhere(ext, body, ctx);
+      case "advanced":
+        unmountTab = mountAdvancedTab(body);
         break;
       case "activity":
         unmountTab = mountActivity(ext, body, { ...ctx, actor: want?.actor ?? null });
@@ -263,6 +253,33 @@ export function mountPackagePage(ext, root, { name, refresh, user = me() }) {
         break;
     }
     if (typeof unmountTab !== "function") unmountTab = null;
+  }
+
+  /**
+   * The Advanced tab: making your own copy, then Where it runs and History behind a small switch. Your own copy
+   * is a copy of the files in your home, used instead of this extension for you until you remove it.
+   */
+  function mountAdvancedTab(host) {
+    let unmountInner = null;
+    const fork = button("Make your own copy");
+    fork.addEventListener("click", () => void act(fork, { verb: "package-fork", args: {}, title: "Make your own copy?", lines: [["as", `@${user ?? "you"}/${name.slice(name.indexOf("/") + 1)}`]], note: "A copy of the files lands in packages/ under your home, ready to edit, and is used instead of this extension for you. Remove your copy to switch back to the official version.", confirmLabel: "Make a copy" }));
+    const strip = el("div", { class: "ua-pkg-tabs ua-pkg-subtabs", role: "tablist" });
+    const inside = el("div", { class: "ua-pkg-advanced-body" });
+    function drawInner() {
+      clear(strip);
+      for (const [id, label] of ADVANCED) put(strip, el("button", { type: "button", role: "tab", class: `ua-pkg-tab${id === inner ? " is-on" : ""}`, "aria-selected": id === inner ? "true" : "false", "data-tab": id, onClick: () => { inner = id; drawInner(); } }, label));
+      unmountInner?.();
+      unmountInner = null;
+      clear(inside);
+      const out = inner === "history" ? mountHistory(ext, inside, { name, ctx }) : mountWhere(ext, inside, ctx);
+      unmountInner = typeof out === "function" ? out : null;
+    }
+    put(host, el("div", { class: "card ua-own-copy" }, el("div", { class: "card-body" }, el("div", { class: "ua-line" }, fork, el("span", { class: "text-dim" }, "A copy of your own to change, used instead of this one for you.")))), strip, inside);
+    drawInner();
+    return () => {
+      unmountInner?.();
+      unmountInner = null;
+    };
   }
 
   /** Points the settings form's layer select at a person once the form has drawn; the form loads its answer first. */

@@ -6,10 +6,13 @@
  * Changing the password forgets every sign-in of yours, this browser's included, so on success the page
  * sends you to the sign-in page rather than leaving you on a page whose next request would be refused. */
 
+import { failureSentence } from "./failed.js";
+
 export function mountAccount(ext, root, who = {}) {
   const { el, clear } = ext.dom;
   const { badge, busy, button, card, confirm, field, heading, kv, put } = ext.ui;
   let me = { user: who.user ?? "", role: who.role ?? "" };
+  let failed = null;
   const wrap = el("div", { class: "panel-col ua-account" });
   root.append(el("div", { class: "panel-cols" }, wrap));
 
@@ -18,8 +21,9 @@ export function mountAccount(ext, root, who = {}) {
     try {
       const out = await ext.request("account");
       if (out?.data?.user) me = { user: out.data.user, role: out.data.role ?? me.role };
+      failed = null;
     } catch (err) {
-      ext.toast(err.message, { tone: "error" });
+      failed = err;
     } finally {
       stop();
     }
@@ -49,7 +53,7 @@ export function mountAccount(ext, root, who = {}) {
         // Every sign-in token of yours is gone; the root sends a stranger to the sign-in page.
         setTimeout(() => location.assign("/"), 1200);
       } catch (err) {
-        ext.toast(err.message, { tone: "error" });
+        ext.toast(/current password|wrong|incorrect/i.test(err?.message ?? "") ? "The current password is not right." : failureSentence("The password", err).replace("could not be read", "could not be changed"), { tone: "error" });
         go.disabled = false;
       }
     }
@@ -71,10 +75,11 @@ export function mountAccount(ext, root, who = {}) {
     put(
       wrap,
       el("div", { class: "toolbar" }, heading("Your account")),
+      failed ? el("p", { class: "ua-refused" }, failureSentence("Your account", failed)) : null,
       card(
         el("code", {}, me.user || "—"),
         kv([["id", el("code", {}, me.user || "—")], ["role", badge(me.role || "unknown", me.role === "admin" ? "accent" : "dim")]]),
-        el("p", { class: "text-faint" }, me.role === "admin" ? "An admin: you manage people, mounts, keys and packages for everyone. Another admin, or the host, changes your role." : "A user: you manage your own workspace, keys and packages. An admin changes your role or binds host directories for you."),
+        el("p", { class: "text-faint" }, me.role === "admin" ? "An admin: you manage people, access and extensions for everyone, and update Thetis. Another admin, or the host, changes your role." : "A user: you manage your own space, keys and extensions. An admin changes your role or binds host directories for you."),
         el("p", { class: "text-faint" }, "Your picture is the round button at the bottom of the sidebar: click it to change it.")
       ),
       card("Password", passwordForm())

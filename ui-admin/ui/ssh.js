@@ -20,7 +20,7 @@
  * kernel refuses a user any key path outside that directory that is not already theirs, so the card says
  * that before they find out. */
 
-import { isLost } from "./workspaces.js";
+import { failedCard, isLost, toastError } from "./failed.js";
 
 /** The first token of a known_hosts line: the host name it vouches for. */
 export function hostOfLine(line) {
@@ -43,10 +43,10 @@ export function isOwnKey(path, user) {
 /** What a connection attempt's words mean, in one sentence, and its tone. */
 export function verdictOf(code, output) {
   const text = String(output || "");
-  if (/successfully authenticated|welcome/i.test(text) || code === 0) return { tone: "ok", text: "Let in: the far end accepted a key from this workspace." };
-  if (/permission denied/i.test(text)) return { tone: "warn", text: "Reached, but refused: the far end does not know any of this workspace's keys yet. Register a public key there." };
+  if (/successfully authenticated|welcome/i.test(text) || code === 0) return { tone: "ok", text: "Let in: the far end accepted one of these keys." };
+  if (/permission denied/i.test(text)) return { tone: "warn", text: "Reached, but refused: the far end does not know any of these keys yet. Register a public key there." };
   if (/host key verification failed|no .*known_hosts|not in the list of known hosts/i.test(text)) return { tone: "err", text: "Not trusted: no known_hosts line vouches for this host. Add the host to a key." };
-  if (/could not resolve|connection timed out|connection refused|network is unreachable|timed out/i.test(text)) return { tone: "err", text: "Not reached: the host did not answer from this workspace." };
+  if (/could not resolve|connection timed out|connection refused|network is unreachable|timed out/i.test(text)) return { tone: "err", text: "Not reached: the host did not answer from here." };
   return { tone: "err", text: `ssh ended with code ${code ?? "?"}.` };
 }
 
@@ -61,6 +61,7 @@ export function mountSsh(ext, root, who = {}) {
   let form = null; // "new" | "import" | null: the one form open at the top
   let opened = null; // { key, publicKey, fingerprint } of a key just made or imported, shown first
   let addingTo = null; // the key whose host box is open
+  let failed = null; // the error the last read ended with, drawn instead of an empty list
   const wrap = el("div", { class: "panel-col ua-ssh" });
   root.append(el("div", { class: "panel-cols" }, wrap));
 
@@ -80,16 +81,18 @@ export function mountSsh(ext, root, who = {}) {
         byUser = list.data && typeof list.data === "object" ? list.data : {};
       }
       if (!person || !people.some((p) => p.id === person)) person = people.some((p) => p.id === me) ? me : (people[0]?.id ?? "");
+      failed = null;
     } catch (err) {
-      ext.toast(err.message, { tone: "error" });
+      failed = err;
     } finally {
       stop();
     }
     draw();
   }
 
-  /** Waits for the gateway to answer after its own fence was closed, up to half a minute. */
+  /** Waits for the gateway to answer after its own workspace was closed: the gateway's helper, or up to half a minute of polling. */
   async function settle(deadline = Date.now() + 30_000) {
+    if (typeof ext.awaitReturn === "function") return void (await ext.awaitReturn({ timeoutMs: 30_000 }));
     for (;;) {
       try {
         await ext.request("ssh-list", self ? { args: { user: me } } : undefined);
@@ -103,7 +106,7 @@ export function mountSsh(ext, root, who = {}) {
 
   /**
    * One request that changes a person's grants. The sentence names what reopens. Changing your own grants
-   * closes the fence this page is served from, so the request can be lost: the page waits for the new one
+   * closes the workspace this page is served from, so the request can be lost: the page waits for the new one
    * to answer rather than calling that a failure. A refusal from a gateway still there is a refusal, though:
    * only a request that lost its gateway is waited for. `after(data)` reads the answer, and runs with null when the answer was lost.
    */
@@ -113,17 +116,17 @@ export function mountSsh(ext, root, who = {}) {
       after?.(out?.data);
       ext.toast(done, { tone: "good" });
     } catch (err) {
-      if (args.user !== me || !isLost(err)) return void ext.toast(err.message, { tone: "error" });
+      if (args.user !== me || !isLost(err)) return void toastError(ext, err, "The keys were not changed");
       // The change went through and its answer was lost with the gateway: the form closes and a private key's
       // material leaves the page all the same; only the key just made is not shown first, since nobody heard it.
       after?.(null);
-      ext.toast(`${done} Waiting for the workspace to answer again…`, { tone: "good" });
+      ext.toast(`${done} Waiting for ${self ? "your space" : "the workspace"} to answer again…`, { tone: "good" });
       await settle();
     }
     await load();
   }
 
-  const reopens = (u) => (self ? "Your workspace closes and reopens with the change; your services restart and this page reconnects." : `${u}'s workspace closes and reopens with the change; its services restart.${u === me ? " This page reconnects." : ""}`);
+  const reopens = (u) => (self ? "Your space closes and reopens with the change, and this page reconnects." : `${u}'s workspace closes and reopens with the change; its services restart.${u === me ? " This page reconnects." : ""}`);
   /** Who a confirm names: the person for an admin, and nobody for a user acting on their own workspace. */
   const whoLine = () => (self ? [] : [["person", person]]);
   /** The done sentence's tail: "for bob" for an admin, nothing for a user. */
@@ -165,7 +168,7 @@ export function mountSsh(ext, root, who = {}) {
       }
     };
     const scan = button("Scan", {
-      title: "ssh-keyscan runs inside this workspace and returns the host's public keys",
+      title: "Asks the host for its public keys (ssh-keyscan), from here",
       onClick: async () => {
         const value = input.value.trim();
         if (!value) return input.focus();
@@ -179,7 +182,8 @@ export function mountSsh(ext, root, who = {}) {
           input.value = "";
           drawChips();
         } catch (err) {
-          note.textContent = err.message;
+          note.textContent = `Could not scan ${value}.`;
+          toastError(ext, err, `Scanning ${value}`);
         } finally {
           scan.disabled = false;
         }
@@ -240,7 +244,7 @@ export function mountSsh(ext, root, who = {}) {
       el(
         "div",
         { class: "card-body ua-key-body" },
-        el("div", { class: "ua-key-row" }, el("span", { class: "ua-key-label" }, "Public key"), el("div", { class: "ua-key-value" }, publicKeyLine(grant), el("p", { class: "text-faint" }, "Register this line wherever the workspace should be let in: a code host's account, or a server's authorized_keys. The private half stays with the kernel."))),
+        el("div", { class: "ua-key-row" }, el("span", { class: "ua-key-label" }, "Public key"), el("div", { class: "ua-key-value" }, publicKeyLine(grant), el("p", { class: "text-faint" }, "Register this line wherever it should be let in: a code host's account, or a server's authorized_keys. The private half stays with Thetis."))),
         el("div", { class: "ua-key-row" }, el("span", { class: "ua-key-label" }, "Known hosts"), el("div", { class: "ua-key-value" }, el("div", { class: "ua-chips" }, ...(hosts.length ? hosts.map((name) => el("span", { class: "ua-chip" }, el("code", {}, name), forget(name))) : [el("span", { class: "text-faint" }, "none vouched: a host met for the first time is accepted and remembered; one whose key changes is refused")]), addBtn), addBox)),
         el("div", { class: "ua-key-row" }, el("span", { class: "ua-key-label" }, "File"), el("div", { class: "ua-key-value" }, el("code", { class: "ua-wrap text-faint" }, grant.key), self && !isOwnKey(grant.key, me) ? el("p", { class: "text-faint" }, "Granted by an admin; you can revoke it but not re-grant it.") : null))
       )
@@ -255,7 +259,7 @@ export function mountSsh(ext, root, who = {}) {
       const go = button("Make the key", { tone: "primary", onClick: () => void generate() });
       async function generate() {
         const hosts = editor.lines();
-        const ok = await confirm(go, { title: self ? "Make yourself a key?" : `Make a key for ${person}?`, lines: [...whoLine(), ["hosts", [...new Set(hosts.map(hostOfLine))].join(", ") || "none yet"]], note: `${self ? "The kernel makes you an ed25519 key of your own and grants it to your workspace." : `The kernel makes ${person} an ed25519 key of their own and grants it.`} A key already made is kept, not replaced. ${reopens(person)}`, confirmLabel: "Make it" });
+        const ok = await confirm(go, { title: self ? "Make yourself a key?" : `Make a key for ${person}?`, lines: [...whoLine(), ["hosts", [...new Set(hosts.map(hostOfLine))].join(", ") || "none yet"]], note: `${self ? "Thetis makes you an ed25519 key of your own and grants it to your space." : `Thetis makes ${person} an ed25519 key of their own and grants it.`} A key already made is kept, not replaced. ${reopens(person)}`, confirmLabel: "Make it" });
         if (!ok) return;
         go.disabled = true;
         try {
@@ -264,7 +268,7 @@ export function mountSsh(ext, root, who = {}) {
           go.disabled = false;
         }
       }
-      return el("div", { class: "card ua-form" }, el("div", { class: "card-head" }, self ? "New key" : `New key for ${person}`), el("div", { class: "card-body" }, el("p", { class: "text-faint" }, self ? "A key of your own, made by the kernel. Its public half is shown afterwards to register at the far end; the private half stays with the kernel, where your workspace uses it and cannot read it." : "No credential is lent: the person gets a key of their own. Its public half is shown afterwards to register at the far end; the private half stays with the kernel."), field("Hosts it may reach", editor.node, "Scan each host now or add them to the key later."), el("div", { class: "row" }, go, cancel)));
+      return el("div", { class: "card ua-form" }, el("div", { class: "card-head" }, self ? "New key" : `New key for ${person}`), el("div", { class: "card-body" }, el("p", { class: "text-faint" }, self ? "A key of your own, made by Thetis. Its public half is shown afterwards to register at the far end; the private half stays with Thetis, where your space uses it and cannot read it." : "No credential is lent: the person gets a key of their own. Its public half is shown afterwards to register at the far end; the private half stays with Thetis."), field("Hosts it may reach", editor.node, "Scan each host now or add them to the key later."), el("div", { class: "row" }, go, cancel)));
     }
     const name = el("input", { class: "input", type: "text", placeholder: "deploy", "aria-label": "Key name", autocomplete: "off", spellcheck: "false", maxlength: "64" });
     const material = el("textarea", { class: "input ua-material", rows: "7", placeholder: "-----BEGIN OPENSSH PRIVATE KEY-----", "aria-label": "Private key", spellcheck: "false", autocomplete: "off" });
@@ -275,7 +279,7 @@ export function mountSsh(ext, root, who = {}) {
       if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(key)) return ext.toast("A key name is lowercase letters, digits, dots, dashes and underscores.", { tone: "error" }), name.focus();
       if (!text.trim() || !text.includes("PRIVATE KEY")) return ext.toast("Paste the whole private key, BEGIN and END lines included.", { tone: "error" }), material.focus();
       const hosts = editor.lines();
-      const ok = await confirm(go, { title: self ? "Import this key?" : `Import a key for ${person}?`, lines: [...whoLine(), ["name", key], ["hosts", [...new Set(hosts.map(hostOfLine))].join(", ") || "none yet"]], note: `The key is sent once, over this page's connection, and kept by the kernel where ${self ? "your workspace" : `${person}'s fence`} cannot read it. ${reopens(person)}`, confirmLabel: "Import" });
+      const ok = await confirm(go, { title: self ? "Import this key?" : `Import a key for ${person}?`, lines: [...whoLine(), ["name", key], ["hosts", [...new Set(hosts.map(hostOfLine))].join(", ") || "none yet"]], note: `The key is sent once, over this page's connection, and kept by Thetis where ${self ? "your space" : `${person}'s workspace`} cannot read it. ${reopens(person)}`, confirmLabel: "Import" });
       if (!ok) return;
       go.disabled = true;
       try {
@@ -284,7 +288,7 @@ export function mountSsh(ext, root, who = {}) {
         go.disabled = false;
       }
     }
-    return el("div", { class: "card ua-form" }, el("div", { class: "card-head" }, self ? "Import a key" : `Import a key for ${person}`), el("div", { class: "card-body" }, el("div", { class: "ua-form-grid" }, field("Name", name, "A plain name; the file lands beside the generated key."), field("Private key", material, "Sent once over this page's connection; a key with a passphrase is refused, since nothing in the fence can answer a prompt.")), field("Hosts it may reach", editor.node), el("div", { class: "row" }, go, cancel)));
+    return el("div", { class: "card ua-form" }, el("div", { class: "card-head" }, self ? "Import a key" : `Import a key for ${person}`), el("div", { class: "card-body" }, el("div", { class: "ua-form-grid" }, field("Name", name, "A plain name; the file lands beside the generated key."), field("Private key", material, "Sent once over this page's connection; a key with a passphrase is refused, since nothing there can answer a prompt.")), field("Hosts it may reach", editor.node), el("div", { class: "row" }, go, cancel)));
   }
 
   /** A connection attempt from the admin's own workspace, to any user@host: what the far end said, and what that means. */
@@ -306,7 +310,7 @@ export function mountSsh(ext, root, who = {}) {
         put(out, badge(v.tone === "ok" ? "let in" : v.tone === "warn" ? "refused" : "failed", v.tone), el("p", { class: "ua-verdict" }, v.text), r.output ? el("pre", { class: "ua-try-pre" }, r.output) : null);
       } catch (err) {
         clear(out);
-        put(out, badge("failed", "err"), el("p", { class: "ua-verdict" }, err.message));
+        put(out, badge("failed", "err"), el("p", { class: "ua-verdict" }, "The connection could not be tried."), el("details", { class: "ua-details" }, el("summary", {}, "Details"), el("pre", { class: "ua-try-pre" }, err.message)));
       } finally {
         go.disabled = false;
       }
@@ -317,11 +321,12 @@ export function mountSsh(ext, root, who = {}) {
         go.click();
       }
     });
-    return el("div", { class: "card ua-try" }, el("div", { class: "card-head" }, "Try a connection", el("span", { class: "text-faint ua-head-note" }, "from your own workspace, with your keys")), el("div", { class: "card-body" }, el("div", { class: "row" }, target, go), out));
+    return el("div", { class: "card ua-try" }, el("div", { class: "card-head" }, "Try a connection", el("span", { class: "text-faint ua-head-note" }, self ? "from your space, with your keys" : "from your own workspace, with your keys")), el("div", { class: "card-body" }, el("div", { class: "row" }, target, go), out));
   }
 
   function draw() {
     clear(wrap);
+    if (failed) return void put(wrap, heading(self ? "Your SSH keys" : "SSH keys"), failedCard(ext, self ? "Your SSH keys" : "The SSH keys", failed, { admin: !self, retry: () => void load() }));
     const picker = self ? null : el("select", { class: "input", "aria-label": "Person", onChange: () => { person = picker.value; form = null; opened = null; addingTo = null; draw(); } }, ...people.map((p) => el("option", { value: p.id, selected: p.id === person || null }, `${p.id}${p.id === me ? " (me)" : ""} · ${grantsOf(p.id).length} ${grantsOf(p.id).length === 1 ? "key" : "keys"}`)));
     const grants = [...grantsOf(person)].sort((a, b) => (opened?.key === a.key ? -1 : opened?.key === b.key ? 1 : 0));
     const newBtn = button("New key", { tone: form === "new" ? "quiet" : "primary", onClick: () => { form = form === "new" ? null : "new"; draw(); } });
@@ -330,12 +335,12 @@ export function mountSsh(ext, root, who = {}) {
       wrap,
       el("div", { class: "toolbar" }, heading(self ? "Your SSH keys" : "SSH keys", self ? `${grants.length} ${grants.length === 1 ? "key" : "keys"}` : people.length ? `${grants.length} ${grants.length === 1 ? "key" : "keys"} for ${person}` : null), el("div", { class: "toolbar-gap" }), picker ? el("label", { class: "ua-line" }, el("span", { class: "text-faint" }, "Person"), picker) : null, newBtn, importBtn),
       form ? formCard() : null,
-      grants.length ? el("div", { class: "ua-keys" }, ...grants.map(keyCard)) : el("div", { class: "card ua-empty" }, el("div", { class: "card-body" }, self ? "Your workspace has no key. New key makes one for it; Import key takes one you already have." : people.length ? `${person}'s workspace has no key. New key makes one for it; Import key takes one that already exists.` : "No person has a workspace here.")),
+      grants.length ? el("div", { class: "ua-keys" }, ...grants.map(keyCard)) : el("div", { class: "card ua-empty" }, el("div", { class: "card-body" }, self ? "Your space has no key. New key makes one for it; Import key takes one you already have." : people.length ? `${person}'s workspace has no key. New key makes one for it; Import key takes one that already exists.` : "Nobody has been added yet: add a person under People.")),
       person === me ? tryCard() : null,
       self
-        ? el("p", { class: "panel-hint" }, "A grant names one key file, never a directory: your workspace gets the use of that key through its own ssh-agent and cannot copy it. A change closes your workspace; it reopens with the new keys and known hosts, your services restart, and this page reconnects.")
-        : el("p", { class: "panel-hint" }, "A grant names one key file, never a directory: the person's fence gets the use of that key through its own ssh-agent and cannot copy it. A change closes the person's fence; it reopens on their next request with the new keys and known hosts, and their services restart."),
-      self ? null : el("p", { class: "panel-hint" }, "These are people's keys. A private registry's key belongs to the installation and is managed under Marketplace → Registries.")
+        ? el("p", { class: "panel-hint" }, "A key is used through your space's own ssh-agent: your space can sign with it and cannot copy it. A change closes your space; it reopens with the new keys and known hosts, and this page reconnects.")
+        : el("p", { class: "panel-hint" }, "A grant names one key file, never a directory: the person's workspace gets the use of that key through its own ssh-agent and cannot copy it. A change closes the person's workspace; it reopens on their next request with the new keys and known hosts, and their services restart."),
+      self ? null : el("p", { class: "panel-hint" }, "These are people's keys. A private registry's key belongs to the installation and is managed on the Marketplace's Registries page.")
     );
   }
 

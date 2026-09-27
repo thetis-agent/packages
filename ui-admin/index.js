@@ -168,7 +168,8 @@ export async function packageInfo(args, env) {
  */
 function loadedWord(info, version) {
   const loaded = typeof info.loadedVersion === "string" ? info.loadedVersion : null;
-  return loaded ? { version: loaded, user: info.loadedIn, behindDisk: loaded !== version } : null;
+  // `state` is the one word the page draws: Update ready when the workspace has not applied the copy on disk.
+  return loaded ? { version: loaded, user: info.loadedIn, behindDisk: loaded !== version, state: loaded !== version ? "update" : "current" } : null;
 }
 
 /** The marketplace index's entry for the package and whether this copy is behind it, or null without an index. */
@@ -263,11 +264,15 @@ export async function mountsSet(args, env) {
  * the code on disk now. `_system` is a legal target here, unlike a mount: the providers and the sign-in page
  * live in it. `userId`'s pattern has no underscore, so that one id is named rather than matched, and every
  * other id is still checked before the kernel is asked.
+ *
+ * Three ways, one of them sent: `drain` asks the turns running there to stop at their next round boundary
+ * and waits for them (bounded, then cancels what is left, which resumes by itself); `force` cancels them at
+ * once; neither is the old refusal while one runs. The browser sends `drain` unless a person chose force.
  */
 export async function fenceReload(args, env) {
   const user = args.user === SYSTEM ? SYSTEM : userId(args.user, "user");
-  // `force` cancels the turns running there first; without it the kernel refuses while one runs, naming the session.
-  return { data: await call(env, "fence.reload", { user, ...(args.force === true ? { force: true } : {}) }) };
+  const mode = args.force === true ? { force: true } : args.drain === true ? { drain: true } : {};
+  return { data: await call(env, "fence.reload", { user, ...mode }) };
 }
 
 /** What the daemon and every workspace are running, and whether the code on disk is newer than that. */
@@ -287,23 +292,39 @@ export async function restartRequest(args, env) {
   return { data: await call(env, "restart.request", { reason }) };
 }
 
-/**
- * The installation itself, through the host package @thetis/host-update, which alone can reach the checkout.
- * `update-check` says where the runtime and its packages stand against their upstream, reaching the remotes
- * only with `fetch: true`, so a page can draw on open without a network round trip. `update-run` starts the
- * pull and build and answers at once; `update-progress` reads the record it writes as it goes. Nothing here
- * puts anything into service: the page offers the reload and the restart for that, as everywhere else.
- */
-export async function updateCheck(args, env) {
-  return { data: await call(env, "host.update.check", { fetch: args.fetch === true }) };
+/** Calls off a pending restart. Nothing pending is an answer, not a refusal: `{ cancelled: false }`. */
+export async function restartCancel(_args, env) {
+  return { data: await call(env, "restart.cancel", {}) };
 }
 
-export async function updateRun(_args, env) {
-  return { data: await call(env, "host.update.apply", {}) };
+/**
+ * The installation itself, through the host package @thetis/host-update, which alone can reach the checkout.
+ * `update-check` says where the runtime and its packages stand against their upstream: `fetch: true` reaches
+ * the remotes now, `fetch: "stale"` lets host-update fetch only when its last real fetch is older than its
+ * throttle (once per half hour for the whole installation), anything else reads the refs as they are.
+ * `update-apply` starts the whole job and answers at once: pull, install, build, a check that the new code
+ * starts, a rollback on any failure, then the restart (`then: "restart"`, the only thing the page sends) or
+ * nothing. `update-progress` reads the record the job writes as it goes. `update-restart` is the other half:
+ * the code on disk is already newer than the running server (a checkout changed by hand), and only a
+ * restart puts it into service; host-update arms the same latch, draining running replies first.
+ */
+export async function updateCheck(args, env) {
+  const fetch = args.fetch === true ? true : args.fetch === "stale" ? "stale" : false;
+  return { data: await call(env, "host.update.check", { fetch }) };
+}
+
+export async function updateApply(args, env) {
+  const then = args.then === "none" ? "none" : "restart";
+  return { data: await call(env, "host.update.apply", { then }) };
 }
 
 export async function updateProgress(_args, env) {
   return { data: await call(env, "host.update.progress", {}) };
+}
+
+export async function updateRestart(args, env) {
+  const reason = typeof args.reason === "string" && args.reason.trim() ? args.reason.trim() : "the code on disk is newer than the running Thetis server";
+  return { data: await call(env, "host.update.restart", { reason }) };
 }
 
 // The package page's own commands live beside this file: git questions in git.js, the people and the fleet in

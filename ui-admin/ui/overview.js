@@ -1,134 +1,102 @@
-/* Overview: the installation itself first, then how it is set up. The Installation card says where the
- * runtime checkout and its packages submodule stand against their upstream, whether the daemon runs the
- * code on disk, how many workspaces run older code, and the last update's record; it checks for updates,
- * runs one, and then offers what puts the new code into service. The update is @thetis/host-update's, on
- * the host, where the checkout lives; it pulls and builds and changes nothing that is running, so the
- * reload and the restart are the same two acts the Workspaces section offers, through the same helper and
- * the same latch. Below it, the configuration as the kernel reports it with secrets hidden. */
+/* Overview, the first section an admin sees: this installation, whether it is up to date, and the one button
+ * that updates it. The Installation card draws the same card the bottom-right notice draws (`describe` over
+ * the shared update flow), so the two can never offer different next steps: "Update and restart" when the
+ * upstream has changes, "Restart" when the code on disk is already newer than the running server, the job's
+ * progress while it runs, and a failure with its fix. Under it, the facts behind that: where the runtime
+ * checkout and its packages stand, whether the Thetis server runs the code on disk, a restart that is
+ * pending (with Cancel), what the update would bring, the files a checkout with local changes holds, and
+ * the last update's step log. The raw configuration moved to Advanced → Server settings; per-workspace
+ * troubleshooting is Advanced → Workspaces. */
 
-import { reloadWorkspace } from "./workspaces.js";
-
-const POLL_MS = 2_000;
-
-/** Which workspaces run older code than the disk, from `status`: a fence that loaded older files, or one whose files changed under it. */
-export function behindWorkspaces(status) {
-  return (status?.workspaces ?? []).filter((w) => w.stale || (w.changed ?? []).length).map((w) => w.user);
-}
+import { describe, dirtyOf, incomingOf, recordOf, staleOf } from "./update-flow.js";
+import { actionRunner } from "./update-notice.js";
+import { failedCard, failureSentence, toastError } from "./failed.js";
+import { stateBadge } from "./state.js";
 
 /** The one line a checkout gets: its commit, and the strongest true thing about where it stands. `tone` is the badge's. */
 export function checkoutLine(kind, c) {
   if (!c) return { text: "unknown", tone: "dim" };
   const at = kind === "runtime" ? `${c.branch} @ ${c.commit}` : `@ ${c.commit}`;
-  if (c.dirty) return { text: at, note: "uncommitted changes: update by hand", tone: "warn" };
+  // Local changes are normal on a box where someone works in the checkout: a note, not an alarm.
+  if (c.dirty) return { text: at, note: "local changes: updated by hand", tone: "dim" };
   if (c.error) return { text: at, note: c.error, tone: "warn" };
   if (c.behind) return { text: at, note: kind === "runtime" ? `${c.behind} behind ${c.upstream}` : `${c.behind} behind the pinned ${c.pinned}`, tone: "warn" };
-  return { text: at, note: kind === "runtime" ? (c.fetched ? `up to date with ${c.upstream}` : `at ${c.upstream} as of the last fetch`) : "at the pinned commit", tone: "ok" };
+  return { text: at, note: kind === "runtime" ? (c.fetched ? `up to date with ${c.upstream}` : `at ${c.upstream} as of the last check`) : "at the pinned commit", tone: "ok" };
 }
 
-export function mountOverview(ext, root, { user } = {}) {
+/** The job's steps in one shape: `{ name, state: "ok" | "failed" | "running" | "waiting", ms?, tail? }`, from the record host-update writes now or the one it wrote before. */
+export function stepsOf(rec) {
+  return (Array.isArray(rec?.steps) ? rec.steps : []).map((s) => {
+    if (typeof s.ok === "boolean" || "ms" in s) return { name: s.name, state: s.ok === true ? "ok" : s.ok === false ? "failed" : "running", ms: s.ms ?? null, tail: s.tail ?? null };
+    const state = s.finishedAt ? (s.code === 0 ? "ok" : "failed") : s.startedAt ? "running" : "waiting";
+    return { name: s.name, state, ms: null, tail: s.output ?? null };
+  });
+}
+
+export function mountOverview(ext, root, { flow } = {}) {
   const { el, clear } = ext.dom;
-  const { badge, busy, button, card, confirm, heading, kv, put, when } = ext.ui;
+  const { badge, button, card, heading, kv, put, when } = ext.ui;
   const wrap = el("div", { class: "panel-col ua-overview" });
   root.append(el("div", { class: "panel-cols" }, wrap));
   let alive = true;
-  let facts = null; // update-check's answer
-  let status = null; // the kernel's status
-  let last = null; // the last update's record
+  let status = null; // the kernel's status: the daemon and a pending restart
+  let statusError = null;
   let checking = false;
-  let timer = null;
   const install = el("section", { class: "ua-install" });
-  const rest = el("div");
-
+  put(wrap, install);
+  if (!flow) {
+    put(install, el("p", { class: "panel-hint" }, "Only an admin updates this installation."));
+    return () => {};
+  }
+  const run = actionRunner(ext, flow);
   const code = (text) => el("code", { class: "ua-wrap" }, text);
 
-  async function loadInstallation({ fetch = false } = {}) {
-    const [check, state] = await Promise.all([ext.request("update-check", { args: { fetch } }).catch((err) => ({ error: err })), ext.request("status").catch(() => null)]);
-    if (!alive) return;
-    facts = check?.error ? { error: check.error.message } : (check?.data ?? null);
-    last = facts?.last ?? last;
-    status = state?.data ?? null;
-    drawInstallation();
-  }
-
-  /** Polls the record while an update runs; when it ends, the checkouts and the status are read again, because both have moved. */
-  async function follow() {
-    clearTimeout(timer);
+  async function loadStatus() {
     try {
-      const out = await ext.request("update-progress");
-      if (!alive) return;
-      last = out?.data?.last ?? last;
-    } catch {
-      return;
+      status = (await ext.request("status"))?.data ?? null;
+      statusError = null;
+    } catch (err) {
+      statusError = err;
     }
-    drawInstallation();
-    if (last?.state === "running") timer = setTimeout(() => void follow(), POLL_MS);
-    else {
-      ext.toast(last?.ok ? `The installation is updated: runtime ${last.to?.runtime ?? "?"}, packages ${last.to?.packages ?? "?"}. Reload the workspaces and restart the daemon to run it.` : `The update failed: ${last?.error ?? "see the record below"}.`, { tone: last?.ok ? "good" : "error" });
-      await loadInstallation();
-    }
+    if (alive) draw();
   }
 
-  async function checkNow(anchor) {
+  async function checkNow() {
     checking = true;
-    drawInstallation();
-    await loadInstallation({ fetch: true });
+    draw();
+    await flow.refresh({ fetch: true });
     checking = false;
     if (!alive) return;
-    drawInstallation();
-    const behind = (facts?.runtime?.behind ?? 0) + (facts?.packages?.behind ?? 0);
-    ext.toast(facts?.error ? facts.error : behind ? `${behind} commit${behind === 1 ? "" : "s"} to take.` : "Up to date.", { tone: facts?.error ? "error" : "good" });
+    const n = incomingOf(flow.state.check).length;
+    if (!flow.state.checkError) ext.toast(n ? `${n} ${n === 1 ? "change" : "changes"} to take.` : staleOf(flow.state.check) ? "Nothing new upstream; the code on disk is waiting for a restart." : "Thetis is up to date.", { tone: "good" });
+    await loadStatus();
   }
 
-  async function updateNow(anchor) {
-    const r = facts?.runtime ?? {};
-    const p = facts?.packages ?? {};
-    const ok = await confirm(anchor, {
-      title: "Update the installation?",
-      lines: [["runtime", `${r.commit} → ${r.behind ? `${r.behind} commit${r.behind === 1 ? "" : "s"} from ${r.upstream}` : "as it is"}`], ["packages", `${p.commit} → ${p.behind ? `${p.behind} commit${p.behind === 1 ? "" : "s"}, to the pinned ${p.pinned}` : "as it is"}`], ["on", facts?.root ?? "the host"]],
-      note: "On the host: git pull, the packages submodule moved to the pinned commit, npm ci and the build. It takes a few minutes. Nothing that is running changes until the workspaces are reloaded and the daemon restarted, which this card offers once it is done.",
-      confirmLabel: "Update",
-    });
-    if (!ok) return;
+  async function cancelRestart(anchor) {
+    anchor.disabled = true;
     try {
-      const out = await ext.request("update-run");
-      last = out?.data?.last ?? last;
-      if (out?.data?.state === "current") ext.toast("Nothing is behind: the checkout is already what the upstream holds.", { tone: "good" });
-      else void follow();
+      const out = await ext.request("restart-cancel");
+      ext.toast(out?.data?.cancelled ? "The restart was called off." : "No restart was pending.", { tone: "good" });
     } catch (err) {
-      ext.toast(err?.message || "The update could not start.", { tone: "error" });
+      toastError(ext, err, "The restart could not be called off");
     }
-    drawInstallation();
+    await loadStatus();
   }
 
-  /** Every workspace behind the disk, the admin's own last: reloading it closes the fence answering this page. */
-  async function reloadAll(anchor) {
-    const behind = behindWorkspaces(status).sort((a, b) => (a === user ? 1 : b === user ? -1 : a.localeCompare(b)));
-    const ok = await confirm(anchor, { title: `Reload ${behind.length} workspace${behind.length === 1 ? "" : "s"}?`, lines: [["workspaces", behind.join(", ")]], note: "Each closes and opens again on the code on disk. Every open shell session in it ends; conversations and files are untouched, and a workspace with a turn running is left alone and named. Yours goes last, and this page reconnects on its own.", confirmLabel: "Reload", tone: "warn" });
-    if (!ok) return;
-    const stop = busy(install, "Reloading workspaces…");
-    const said = [];
-    try {
-      for (const who of behind) {
-        const r = await reloadWorkspace(ext, who, { onLost: () => stop() });
-        said.push(`${who}: ${r.state === "busy" ? "left alone, a turn is running" : r.state}${r.message && r.state !== "busy" ? ` (${r.message})` : ""}`);
-      }
-    } finally {
-      stop();
-    }
-    ext.toast(said.join(" · "), { tone: said.some((s) => /refused|silent/.test(s)) ? "warn" : "good" });
-    await loadInstallation();
-  }
-
-  async function restartDaemon(anchor) {
-    const reason = `update: runtime at ${facts?.runtime?.commit ?? "a new commit"}`;
-    const ok = await confirm(anchor, { title: "Restart the daemon?", lines: [["reason", reason]], note: "The daemon waits for every turn everywhere to end, counts down where everyone can see it, and exits so systemd starts it again on the code on disk. Every shell session open in a terminal anywhere ends.", confirmLabel: "Restart", tone: "warn" });
-    if (!ok) return;
-    try {
-      const out = await ext.request("restart-request", { args: { reason } });
-      ext.toast(out?.data?.message ?? "Asked.", { tone: out?.data?.state === "refused" ? "warn" : "good" });
-    } catch (err) {
-      ext.toast(err?.message || "The restart could not be asked for.", { tone: "error" });
-    }
+  /** The card `describe` makes, drawn inline: the sentence, the progress steps, and the buttons. */
+  function statusBlock(state) {
+    const c = describe(state);
+    if (!c) return el("div", { class: "ua-update-state" }, el("p", {}, badge("Up to date", "ok"), " ", el("span", { class: "text-dim" }, "Thetis runs the newest code it knows of.")));
+    const steps = c.progress ? el("ol", { class: "ua-progress" }, ...c.progress.steps.map((label, i) => el("li", { class: i < c.progress.at ? "is-done" : i === c.progress.at ? (c.progress.failed ? "is-failed" : "is-now") : "is-next" }, label))) : null;
+    const actions = (c.actions ?? []).filter((a) => a.id !== "log").map((a) => button(a.label, { tone: a.primary ? "primary" : "quiet", onClick: () => void run(a) }));
+    return el(
+      "div",
+      { class: `ua-update-state is-${c.tone}` },
+      el("p", { class: "ua-update-title" }, c.title),
+      c.body ? el("p", { class: "ua-update-body" }, c.body) : null,
+      steps,
+      actions.length ? el("div", { class: "card-actions" }, ...actions) : null
+    );
   }
 
   const line = (kind, c) => {
@@ -136,98 +104,76 @@ export function mountOverview(ext, root, { user } = {}) {
     return el("span", {}, code(said.text), said.note ? el("span", {}, " ", badge(said.note, said.tone)) : null);
   };
 
-  /** The incoming commits of one checkout, after a fetch: what the update would bring. */
-  const incomingList = (label, c) =>
-    c?.incoming?.length
-      ? el("div", { class: "ua-kv-block" }, el("div", { class: "ua-kv-title" }, `${label}: ${c.incoming.length} commit${c.incoming.length === 1 ? "" : "s"} to take`), el("ul", { class: "ua-incoming" }, ...c.incoming.map((x) => el("li", {}, code(x.commit), " ", x.subject))))
-      : null;
-
-  /** The last update's record: each step with its state, and the running or the failed step's output. */
-  function record(r) {
-    if (!r) return null;
-    const tone = r.state === "done" ? "ok" : r.state === "running" ? "accent" : "warn";
-    const shown = r.steps.find((s) => s.startedAt && !s.finishedAt) ?? r.steps.find((s) => s.code !== null && s.code !== 0) ?? null;
+  /** The last update's record: each step with its state, and the failed or running step's output. */
+  function record(rec) {
+    if (!rec) return null;
+    const steps = stepsOf(rec);
+    const tone = rec.state === "done" ? "ok" : rec.state === "running" ? "accent" : "warn";
+    const shown = steps.find((s) => s.state === "failed") ?? steps.find((s) => s.state === "running") ?? null;
+    const from = rec.from?.runtime ?? rec.from;
+    const to = rec.to?.runtime ?? rec.to;
     return el(
-      "div",
-      { class: "ua-kv-block" },
-      el("div", { class: "ua-kv-title" }, badge(r.state, tone), ` started ${when(r.startedAt)}${r.by ? ` by ${r.by}` : ""}${r.finishedAt ? `, ended ${when(r.finishedAt)}` : ""}`),
-      r.from && r.to ? el("p", { class: "text-dim" }, `runtime ${r.from.runtime} → ${r.to.runtime} · packages ${r.from.packages} → ${r.to.packages}`) : null,
-      r.error ? el("p", { class: "ua-error" }, r.error) : null,
-      el("ul", { class: "ua-steps" }, ...r.steps.map((s) => el("li", {}, badge(s.finishedAt ? (s.code === 0 ? "ok" : `exit ${s.code}`) : s.startedAt ? "running" : "waiting", s.finishedAt ? (s.code === 0 ? "ok" : "warn") : s.startedAt ? "accent" : "dim"), " ", s.name, " ", el("code", { class: "text-faint" }, s.cmd)))),
-      shown?.output ? el("pre", { class: "ua-pre" }, shown.output.slice(-4000)) : null
+      "details",
+      { class: "ua-details", open: rec.state !== "done" ? "" : null },
+      el("summary", {}, "Last update: ", badge(rec.state, tone), rec.startedAt ? ` ${when(rec.startedAt)}` : "", rec.by ? ` by ${rec.by}` : ""),
+      typeof from === "string" && typeof to === "string" ? el("p", { class: "text-dim" }, `${from} → ${to}`) : null,
+      rec.error ? el("p", { class: "ua-error" }, rec.error) : null,
+      rec.rollback ? el("p", { class: rec.rollback.ok ? "text-dim" : "ua-error" }, rec.rollback.ok ? "Rolled back to the version before." : `The rollback failed too${rec.rollback.error ? `: ${rec.rollback.error}` : "."}`) : null,
+      el("ul", { class: "ua-steps" }, ...steps.map((s) => el("li", {}, badge(s.state, s.state === "ok" ? "ok" : s.state === "running" ? "accent" : s.state === "failed" ? "warn" : "dim"), " ", s.name, s.ms != null ? el("span", { class: "text-faint" }, ` ${(s.ms / 1000).toFixed(1)} s`) : null))),
+      shown?.tail ? el("pre", { class: "ua-pre" }, String(shown.tail).slice(-4000)) : null
     );
   }
 
-  function drawInstallation() {
+  function draw() {
     clear(install);
-    const d = status?.daemon ?? null;
-    const behind = behindWorkspaces(status);
-    const total = (status?.workspaces ?? []).length;
-    const canUpdate = facts && !facts.error && !facts.runtime?.dirty && !facts.packages?.dirty && !facts.runtime?.error && ((facts.runtime?.behind ?? 0) > 0 || (facts.packages?.behind ?? 0) > 0) && last?.state !== "running";
-    const checkBtn = button(checking ? "Checking…" : "Check for updates", { tone: "quiet", disabled: checking || last?.state === "running", onClick: () => void checkNow(checkBtn) });
-    const updateBtn = button("Update now", { tone: "primary", disabled: !canUpdate, title: canUpdate ? "Pull and build on the host" : "Check for updates first; the button wakes when something is behind", onClick: () => void updateNow(updateBtn) });
-    const reloadBtn = behind.length ? button(`Reload ${behind.length} workspace${behind.length === 1 ? "" : "s"}`, { tone: "warn", onClick: () => void reloadAll(reloadBtn) }) : null;
-    const restartBtn = d?.stale ? button("Restart the daemon", { tone: "warn", onClick: () => void restartDaemon(restartBtn) }) : null;
+    const state = flow.state;
+    const facts = state.check;
+    if (state.checkError && !facts) {
+      put(install, heading("Installation", "this Thetis server"), failedCard(ext, "The installation", state.checkError, { admin: true, retry: () => void flow.refresh({ fetch: false }) }));
+      return;
+    }
+    const rec = state.record ?? recordOf({ last: facts?.last });
+    const incoming = incomingOf(facts);
+    const pending = status?.restart && typeof status.restart === "object" ? status.restart : null;
+    const serverState = staleOf(facts) || status?.daemon?.stale ? "restart" : "current";
+    const cancelBtn = pending ? button("Cancel", { tone: "quiet", onClick: () => void cancelRestart(cancelBtn) }) : null;
+    const checkBtn = button(checking ? "Checking…" : "Check for updates", { tone: "quiet", disabled: checking || state.phase !== "idle" || facts?.updating ? "" : null, onClick: () => void checkNow() });
+    const dirtyFiles = Array.isArray(facts?.dirtyFiles) ? facts.dirtyFiles : [];
     put(
       install,
       card(
-        heading("Installation", "the runtime checkout, its packages, and what is running them"),
-        facts?.error ? el("p", { class: "ua-error" }, facts.error) : null,
+        heading("Installation", "this Thetis server, and its updates"),
+        statusBlock(state),
+        pending ? el("div", { class: "ua-line ua-pending" }, badge("Restart pending", "warn"), el("span", { class: "text-dim" }, `Thetis restarts when running replies reach a safe point: ${pending.reason || "no reason given"}${pending.by ? ` (asked by ${pending.by})` : ""}.`), cancelBtn) : null,
         kv(
           [
             facts?.root && ["checkout", code(facts.root)],
             ["runtime", line("runtime", facts?.runtime)],
             ["packages", line("packages", facts?.packages)],
             facts?.node && ["node", code(facts.node)],
-            d && ["daemon", el("span", {}, `started ${when(d.startedAt)}`, " ", d.stale ? badge("running older code than the disk: a restart applies it", "warn") : badge("running the code on disk", "ok"))],
-            status && ["workspaces", el("span", {}, `${total}`, " ", behind.length ? badge(`${behind.length} run older code: ${behind.join(", ")}`, "warn") : badge("all on the code on disk", "ok"))],
-            ["last update", last ? el("span", {}, `${when(last.finishedAt ?? last.startedAt)} · `, badge(last.state, last.state === "done" ? "ok" : last.state === "running" ? "accent" : "warn")) : el("span", { class: "text-faint" }, "none from here")],
+            ["Thetis server", el("span", {}, stateBadge(ext, serverState), status?.daemon?.startedAt ? el("span", { class: "text-faint" }, ` started ${when(status.daemon.startedAt)}`) : null)],
+            facts?.fetchedAt && ["last checked", el("span", { class: "text-dim" }, when(facts.fetchedAt), facts.fetchError ? el("span", {}, " · ", `couldn't reach the update source: ${String(facts.fetchError).split("\n")[0]}`) : null)],
           ].filter(Boolean)
         ),
-        incomingList("runtime", facts?.runtime),
-        incomingList("packages", facts?.packages),
-        record(last),
-        el("div", { class: "card-actions" }, checkBtn, updateBtn, reloadBtn, restartBtn),
-        el("p", { class: "text-faint" }, facts?.beyond ?? "Node itself, the OS packages the fence needs, and the systemd unit are updated by deploy/install.sh on the host.")
+        statusError ? el("p", { class: "text-dim" }, failureSentence("What is running", statusError, { admin: true })) : null,
+        incoming.length ? el("details", { class: "ua-details" }, el("summary", {}, `What the update brings (${incoming.length})`), el("ul", { class: "ua-incoming" }, ...incoming.map((x) => el("li", {}, code(String(x.commit ?? "").slice(0, 7)), " ", x.subject)))) : null,
+        dirtyOf(facts) ? el("details", { class: "ua-details" }, el("summary", {}, "Local changes on the server", dirtyFiles.length ? ` (${dirtyFiles.length})` : ""), dirtyFiles.length ? el("ul", { class: "ua-incoming" }, ...dirtyFiles.slice(0, 50).map((f) => el("li", {}, code(f)))) : el("p", { class: "text-dim" }, "The checkout has changes that are not committed. They are kept; an update from here waits until they are committed or discarded on the host.")) : null,
+        record(rec),
+        el("div", { class: "card-actions" }, checkBtn),
+        el("p", { class: "text-faint" }, facts?.beyond ?? "Node itself, the OS packages the workspaces need, and the systemd unit are updated by deploy/install.sh on the host.")
       )
     );
   }
 
-  async function loadConfig() {
-    const stop = busy(rest, "Reading the configuration…");
-    let config = null;
-    try {
-      config = (await ext.request("config")).data ?? null;
-    } catch (err) {
-      ext.toast(err.message, { tone: "error" });
-    } finally {
-      stop();
-    }
-    if (!alive) return;
-    clear(rest);
-    if (!config) return;
-    const { packages, systemPackages, fence, ...kernel } = config;
-    put(
-      rest,
-      card("Kernel", kv(Object.entries(kernel).map(([k, v]) => [k, code(typeof v === "object" ? JSON.stringify(v) : String(v))]))),
-      card("System packages", kv(Object.entries(systemPackages ?? {}).map(([k, v]) => [k === "*" ? "everyone" : k, code((v ?? []).join(", ") || "none")]))),
-      card("Fence", kv(Object.entries(fence ?? {}).map(([k, v]) => [k, code(Array.isArray(v) ? v.join("\n") : String(v))]))),
-      card(
-        "Package configuration",
-        el("p", { class: "text-faint" }, "Secrets are hidden. Edit the file thetis.config.json to change these."),
-        ...Object.entries(packages ?? {}).map(([name, cfg]) => el("div", { class: "ua-kv-block" }, el("div", { class: "ua-kv-title" }, el("code", {}, name)), el("pre", { class: "ua-pre" }, JSON.stringify(cfg, null, 2))))
-      )
-    );
-  }
-
-  put(wrap, install, rest);
-  drawInstallation();
-  void loadInstallation().then(() => {
-    if (alive && last?.state === "running") void follow();
+  const stop = flow.subscribe(() => {
+    if (alive) draw();
   });
-  void loadConfig();
+  draw();
+  // The notice has usually read the check already; a page opened on its own reads it without reaching the remotes.
+  if (!flow.state.check) void flow.refresh({ fetch: false });
+  void loadStatus();
   return () => {
     alive = false;
-    clearTimeout(timer);
+    stop();
   };
 }

@@ -1,39 +1,41 @@
-/* The browser side of @thetis/ui-admin: nine entries of the control panel, one module each, registered
- * through the seam under the ids the manifest declares. Eight are sections; `configuration` hangs under the
- * shell's Packages section instead, one page per package with configuration, so it also answers `children`.
- * The shell lists a section only when `api/ui` listed it for the person's role. A user sees five of them --
- * Account, Models, Mounts, SSH keys and Activity -- each scoped to themselves: the modules branch on
- * `who.role` to draw a person's own view, but the kernel is the authority, answering a user's fence only
- * about that user. An admin sees all of them. Every section reads and writes through the package's own
- * commands (`ext.request`), which the gateway runs as the person. The module defines `install` and does
- * nothing else at import. */
+/* The browser side of @thetis/ui-admin: the control panel's sections, one module each, registered through the
+ * seam under the ids the manifest declares, and the admin's "Thetis update" notice.
+ *
+ * An admin's tree reads: Overview, People, Extensions (the shell's own section, with All extensions and the
+ * extensions that ask for something hung under it by `configuration`), Models, Access, Activity, Account,
+ * Advanced (Workspaces, Extensions by person and Server settings hung under it by `advanced-pages`). A user
+ * sees Models, Access, Activity and Account, each about themselves: the modules branch on `who.role`, and the
+ * kernel is the authority, answering a user's fence only about that user. The shell lists a section only
+ * when `api/ui` listed it for the person's role.
+ *
+ * The update flow is made once per page, for an admin only (the gateway lists `update-check` to nobody
+ * else), and shared by the notice and the Overview, so both draw the same card. The module defines
+ * `install` and does nothing else at import. */
 
+import { mountAccess } from "./access.js";
 import { mountAccount } from "./account.js";
 import { mountActivity } from "./activity.js";
+import { advancedChildren, mountAdvanced, mountAdvancedPage } from "./advanced.js";
 import { configurationChildren, mountConfiguration } from "./configuration.js";
 import { mountModels } from "./models.js";
-import { mountMounts } from "./mounts.js";
 import { mountOverview } from "./overview.js";
 import { mountPeople } from "./people.js";
-import { mountSsh } from "./ssh.js";
-import { mountWorkspaces } from "./workspaces.js";
-
-const SECTIONS = [
-  ["account", mountAccount],
-  ["people", mountPeople],
-  ["models", mountModels],
-  ["configuration", mountConfiguration],
-  ["mounts", mountMounts],
-  ["ssh", mountSsh],
-  ["activity", mountActivity],
-  ["workspaces", mountWorkspaces],
-  ["overview", mountOverview],
-];
+import { createUpdateFlow } from "./update-flow.js";
+import { installUpdateNotice } from "./update-notice.js";
 
 export default function install(ext) {
-  for (const [id, mount] of SECTIONS) {
-    const impl = { mount: (root, who) => mount(ext, root, who) };
-    if (id === "configuration") impl.children = () => configurationChildren(ext);
-    ext.panel(id, impl);
-  }
+  const flow = typeof ext.can === "function" && ext.can("update-check") ? createUpdateFlow(ext) : null;
+  const sections = [
+    ["overview", (root, who) => mountOverview(ext, root, { ...who, flow })],
+    ["people", (root, who) => mountPeople(ext, root, who)],
+    ["configuration", (root, who) => mountConfiguration(ext, root, who), () => configurationChildren(ext)],
+    ["models", (root, who) => mountModels(ext, root, who)],
+    ["access", (root, who) => mountAccess(ext, root, who)],
+    ["activity", (root, who) => mountActivity(ext, root, who)],
+    ["account", (root, who) => mountAccount(ext, root, who)],
+    ["advanced", (root, who) => mountAdvanced(ext, root, who)],
+    ["advanced-pages", (root, who) => mountAdvancedPage(ext, root, who), () => advancedChildren()],
+  ];
+  for (const [id, mount, children] of sections) ext.panel(id, children ? { mount, children } : { mount });
+  if (flow) installUpdateNotice(ext, flow);
 }

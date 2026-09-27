@@ -52,3 +52,33 @@
 .ua-install .ua-incoming, .ua-install .ua-steps { margin: 4px 0 0; padding-left: 18px; font-size: var(--text-sm); }
 .ua-install .ua-incoming li, .ua-install .ua-steps li { margin: 2px 0; }
 .ua-error { color: var(--danger, #c33); margin: 0; }
+
+/* A section whose command failed: one sentence with what fixes it, the button that does, the raw text folded. */
+.ua-failed .card-body { gap: var(--gap-2); }
+.ua-failed-line { margin: 0; }
+.ua-details > summary { cursor: pointer; color: var(--text-dim); font-size: var(--text-sm); }
+.ua-details[open] > summary { margin-bottom: 6px; }
+
+/* The Overview's update card, drawn from the same description as the bottom-right notice. */
+.ua-update-state { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--r-md); border: 1px solid var(--hairline); background: var(--surface-1); }
+.ua-update-state.is-warn { border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: var(--warn-wash); }
+.ua-update-state.is-error { border-color: color-mix(in srgb, var(--err) 40%, transparent); background: var(--err-wash); }
+.ua-update-state.is-ok { border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+.ua-update-state p { margin: 0; }
+.ua-update-title { font-weight: 600; }
+.ua-update-body { white-space: pre-line; color: var(--text-dim); }
+.ua-progress { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 0 0; padding: 0; list-style: none; font-size: var(--text-sm); }
+.ua-progress li.is-done { color: var(--text-dim); }
+.ua-progress li.is-done::before { content: "✓ "; color: var(--ok); }
+.ua-progress li.is-now { color: var(--text); font-weight: 600; }
+.ua-progress li.is-failed { color: var(--err); font-weight: 600; }
+.ua-progress li.is-next { color: var(--text-faint); }
+.ua-pending { margin: 4px 0; }
+
+/* Access: a tab each for mounts, SSH keys and (for an admin) where registries live. */
+.ua-access { display: flex; flex-direction: column; gap: var(--gap-3, 12px); }
+.ua-access-tabs, .ua-pkg-subtabs { margin-bottom: 4px; }
+
+/* "Apply updates for N people": one line per person, whatever became of theirs. */
+.ua-apply-report .ua-steps { margin: 0; padding-left: 18px; }
+.ua-own-copy .card-body { padding-top: 10px; padding-bottom: 10px; }

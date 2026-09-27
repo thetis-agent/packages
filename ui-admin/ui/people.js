@@ -2,6 +2,8 @@
  * or the host, changes its role and status, and your own password is changed under Account. Every
  * change goes through one command and reloads the list. */
 
+import { failedCard, toastError } from "./failed.js";
+
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
 
 export function mountPeople(ext, root, { user }) {
@@ -9,6 +11,7 @@ export function mountPeople(ext, root, { user }) {
   const { badge, busy, button, card, confirm, field, heading, kv, put, table, when } = ext.ui;
   let people = [];
   let selected = null;
+  let failed = null;
   const listEl = el("div", { class: "panel-col ua-people" });
   const detailEl = el("div", { class: "panel-col is-side" });
   root.append(el("div", { class: "panel-cols" }, listEl, detailEl));
@@ -18,8 +21,9 @@ export function mountPeople(ext, root, { user }) {
     try {
       const out = await ext.request("users");
       people = (Array.isArray(out.data) ? out.data : []).filter((p) => p.role !== "system");
+      failed = null;
     } catch (err) {
-      ext.toast(err.message, { tone: "error" });
+      failed = err;
     } finally {
       stop();
     }
@@ -30,6 +34,7 @@ export function mountPeople(ext, root, { user }) {
 
   function drawList() {
     clear(listEl);
+    if (failed) return void put(listEl, heading("People"), failedCard(ext, "The people", failed, { admin: true, retry: () => void load() }));
     put(
       listEl,
       el("div", { class: "toolbar" }, heading("People", `${people.length} ${people.length === 1 ? "person" : "people"}`)),
@@ -66,7 +71,7 @@ export function mountPeople(ext, root, { user }) {
         selected = value;
         await load();
       } catch (err) {
-        ext.toast(err.message, { tone: "error" });
+        toastError(ext, err);
       } finally {
         go.disabled = false;
       }
@@ -79,7 +84,7 @@ export function mountPeople(ext, root, { user }) {
     const p = people.find((x) => x.id === selected);
     if (!p) return put(detailEl, el("div", { class: "panel-hint" }, "Select a person to change what they may do."));
     if (p.id === user) return put(detailEl, card(el("code", {}, p.id), el("p", { class: "text-dim" }, "This is you. Your own role and status are changed by another admin or on the host; your password is changed under Account.")));
-    const roleBtn = button(p.role === "admin" ? "Make a user" : "Make an admin", { onClick: () => void change(roleBtn, "role", { role: p.role === "admin" ? "user" : "admin" }, `${p.id} becomes ${p.role === "admin" ? "a user: their own packages, keys and account, and nobody else's." : "an admin: people, promotion, everyone's packages."}`) });
+    const roleBtn = button(p.role === "admin" ? "Make a user" : "Make an admin", { onClick: () => void change(roleBtn, "role", { role: p.role === "admin" ? "user" : "admin" }, `${p.id} becomes ${p.role === "admin" ? "a user: their own extensions, keys and account, and nobody else's." : "an admin: people, updates, everyone's extensions."}`) });
     const statusBtn = button(p.status === "active" ? "Suspend" : "Activate", { tone: p.status === "active" ? "warn" : "quiet", onClick: () => void change(statusBtn, "status", { status: p.status === "active" ? "suspended" : "active" }, p.status === "active" ? `${p.id} cannot sign in or start turns until activated again.` : `${p.id} can sign in and start turns again.`) });
     const pw = el("input", { class: "input", type: "password", placeholder: "new password (8+ characters)", "aria-label": "New password", autocomplete: "new-password" });
     const pwBtn = button("Set password", { onClick: () => void setPassword(pw) });
@@ -95,7 +100,7 @@ export function mountPeople(ext, root, { user }) {
         el("p", { class: "text-faint" }, "Setting a password signs the person out everywhere."),
         el("div", { class: "card-actions" }, removeBtn)
       ),
-      el("p", { class: "panel-hint" }, "Removing a person deletes their userspace: every conversation and package they have. This cannot be undone.")
+      el("p", { class: "panel-hint" }, "Removing a person deletes their space: every conversation, file and extension they have. This cannot be undone.")
     );
   }
 
@@ -107,7 +112,7 @@ export function mountPeople(ext, root, { user }) {
       ext.toast(`${selected}'s ${what} was changed.`, { tone: "good" });
       await load();
     } catch (err) {
-      ext.toast(err.message, { tone: "error" });
+      toastError(ext, err);
     }
   }
 
@@ -118,12 +123,12 @@ export function mountPeople(ext, root, { user }) {
       input.value = "";
       ext.toast(`${selected}'s password was set.`, { tone: "good" });
     } catch (err) {
-      ext.toast(err.message, { tone: "error" });
+      toastError(ext, err);
     }
   }
 
   async function remove(anchor, p) {
-    const ok = await confirm(anchor, { title: "Remove this person?", lines: [["person", p.id], ["deletes", "their conversations and packages"]], note: "This cannot be undone.", confirmLabel: "Remove", tone: "warn" });
+    const ok = await confirm(anchor, { title: "Remove this person?", lines: [["person", p.id], ["deletes", "their conversations, files and extensions"]], note: "This cannot be undone.", confirmLabel: "Remove", tone: "warn" });
     if (!ok) return;
     try {
       await ext.request("user-remove", { args: { id: p.id } });
@@ -131,7 +136,7 @@ export function mountPeople(ext, root, { user }) {
       selected = null;
       await load();
     } catch (err) {
-      ext.toast(err.message, { tone: "error" });
+      toastError(ext, err);
     }
   }
 

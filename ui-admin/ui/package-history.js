@@ -11,6 +11,8 @@
  * and `package-push` behind a confirm. A refusal (a package outside a git checkout, say) is shown as its
  * sentence in place of the graph. `mountHistory` returns an unmount that drops any answer arriving late. */
 
+import { failureSentence, toastError } from "./failed.js";
+
 const ROW = 44; // px, one commit
 const LANE_X = [20, 44]; // upstream, local
 const GRAPH_W = 64;
@@ -93,7 +95,7 @@ export function mountHistory(ext, root, { name }) {
     } catch (err) {
       if (!alive || mine !== token) return;
       log = null;
-      view = { kind: "note", text: err?.message || "The log could not be read." };
+      view = { kind: "note", text: failureSentence("The log", err, { admin: true }) };
     } finally {
       stop();
     }
@@ -113,7 +115,7 @@ export function mountHistory(ext, root, { name }) {
       view = { kind: "commit", data: out?.data ?? null };
     } catch (err) {
       if (!alive || mine !== token) return;
-      view = { kind: "note", text: err?.message || "The commit could not be read." };
+      view = { kind: "note", text: failureSentence("The commit", err, { admin: true }) };
     } finally {
       stopBusy();
     }
@@ -129,7 +131,7 @@ export function mountHistory(ext, root, { name }) {
       view = { kind: "diff", data: out?.data ?? null, label };
     } catch (err) {
       if (!alive || mine !== token) return;
-      view = { kind: "note", text: err?.message || "The comparison could not be made." };
+      view = { kind: "note", text: failureSentence("The comparison", err, { admin: true }) };
     } finally {
       stopBusy();
     }
@@ -142,7 +144,7 @@ export function mountHistory(ext, root, { name }) {
     const ok = await confirm(anchor, {
       title: `Push ${n} ${n === 1 ? "commit" : "commits"}?`,
       lines: [["branch", log.branch || "?"], ["to", log.upstream || "the remote's branch of the same name"]],
-      note: "Runs git push from the checkout the package lives in. Nothing in a workspace changes; the registry offers the new commit once its index is refreshed.",
+      note: "Runs git push from the checkout the extension lives in. Nothing in a workspace changes; the registry offers the new commit once its index is refreshed.",
       confirmLabel: "Push",
     });
     if (!ok || !alive) return;
@@ -152,7 +154,7 @@ export function mountHistory(ext, root, { name }) {
       const data = out?.data ?? {};
       ext.toast(data.output?.trim() || (data.ok ? "Pushed." : "The push did not go through."), { tone: data.ok ? "good" : "error" });
     } catch (err) {
-      ext.toast(err?.message || "The push did not go through.", { tone: "error" });
+      toastError(ext, err, "The push did not go through");
     } finally {
       if (alive) anchor.disabled = false;
     }
@@ -203,12 +205,12 @@ export function mountHistory(ext, root, { name }) {
     }
     const shown = visible();
     if (!shown.length) {
-      rows.append(el("p", { class: "panel-hint" }, log.commits.length ? "No commit matches the range and the search." : "No commit has touched this package."));
+      rows.append(el("p", { class: "panel-hint" }, log.commits.length ? "No commit matches the range and the search." : "No commit has touched this extension."));
       return;
     }
     for (const c of shown) rows.append(row(c));
     graph.append(drawGraph(shown));
-    legend.replaceChildren(el("span", { class: "text-faint" }, `${shown.length} of ${log.commits.length} loaded · commits touching this package only`));
+    legend.replaceChildren(el("span", { class: "text-faint" }, `${shown.length} of ${log.commits.length} loaded · commits touching this extension only`));
   }
 
   function row(c) {
@@ -280,7 +282,7 @@ export function mountHistory(ext, root, { name }) {
       return put(
         inspector,
         el("div", { class: "card-head uh-insp-head" }, el("span", {}, "Comparison"), el("span", { class: "text-faint" }, view.label)),
-        el("div", { class: "card-body uh-insp-body" }, d?.summary ? el("p", { class: "uh-summary" }, d.summary) : null, d?.files?.length ? files(d.files) : el("p", { class: "panel-hint" }, "Nothing of this package differs between the two."), el("div", { class: "uh-insp-actions" }, button("Back to the commit", { onClick: () => { if (selected) void select(selected); } })))
+        el("div", { class: "card-body uh-insp-body" }, d?.summary ? el("p", { class: "uh-summary" }, d.summary) : null, d?.files?.length ? files(d.files) : el("p", { class: "panel-hint" }, "Nothing of this extension differs between the two."), el("div", { class: "uh-insp-actions" }, button("Back to the commit", { onClick: () => { if (selected) void select(selected); } })))
       );
     }
     if (view.kind !== "commit" || !view.data) return put(inspector, el("div", { class: "card-head" }, "Commit"), el("div", { class: "card-body" }, el("p", { class: "panel-hint" }, "Select a commit.")));
@@ -302,8 +304,8 @@ export function mountHistory(ext, root, { name }) {
           el("dt", {}, "in registry"), el("dd", {}, inRegistry ? el("span", { class: "uh-ok" }, `yes · ${log.registry.version}`) : el("span", {}, c.pushed === false ? el("span", { class: "uh-warn" }, "no, not pushed yet") : "not the commit its index names")),
           el("dt", {}, "pinned"), el("dd", {}, log?.pin?.hash === c.hash ? el("span", { class: "uh-ok" }, "this is the pinned commit") : "no")
         ),
-        el("div", { class: "text-faint uh-files-head" }, `Files of this package · ${c.files?.length ?? 0} changed`),
-        c.files?.length ? files(c.files) : el("p", { class: "panel-hint" }, "No file of this package in this commit."),
+        el("div", { class: "text-faint uh-files-head" }, `Files of this extension · ${c.files?.length ?? 0} changed`),
+        c.files?.length ? files(c.files) : el("p", { class: "panel-hint" }, "No file of this extension in this commit."),
         el("div", { class: "uh-insp-actions" }, diff, copy)
       )
     );
@@ -314,7 +316,7 @@ export function mountHistory(ext, root, { name }) {
     drawControls();
     drawRows();
     drawInspector();
-    if (!left.contains(list)) put(left, el("div", { class: "card-head uh-list-head" }, el("span", {}, "Commits touching this package"), legend), list);
+    if (!left.contains(list)) put(left, el("div", { class: "card-head uh-list-head" }, el("span", {}, "Commits touching this extension"), legend), list);
   }
 
   list.addEventListener("keydown", (event) => {

@@ -17,7 +17,7 @@ function rootAt(at) {
   utimesSync(dir, when, when);
   return dir;
 }
-// Every copy's files are from 14:00: root's workspace opened at 14:17 (current), bob's at 05:27 (older code).
+// Every copy's files are from 14:00: root's workspace opened at 14:17, bob's at 05:27 (before them).
 const CODE_AT = "2026-09-21T14:00:00.000Z";
 const codeRoot = rootAt(CODE_AT);
 
@@ -67,14 +67,14 @@ test("package-where: every person's copy, the workspace it runs in, the forks, a
   const out = await commands.packageWhere({ name: "@thetis/terminal" }, env);
   const { people, forks, counts } = out.data;
   assert.deepEqual(people.map((p) => p.user), ["root", "bob"], "the system account has no row");
-  assert.deepEqual(people[0], { user: "root", role: "admin", status: "active", installed: true, version: "0.1.0", forkedFrom: null, replaced: null, source: { kind: "system", ref: "terminal" }, loaded: { openedAt: "2026-09-21T14:17:00Z", codeAt: CODE_AT, stale: false }, services: ["@thetis/terminal"], config: { broken: false, summary: "every key is set" } });
+  assert.deepEqual(people[0], { user: "root", role: "admin", status: "active", installed: true, version: "0.1.0", forkedFrom: null, replaced: null, source: { kind: "system", ref: "terminal" }, loaded: { openedAt: "2026-09-21T14:17:00Z", state: "current" }, services: ["@thetis/terminal"], config: { broken: false, summary: "every key is set" } });
   assert.equal(people[1].installed, true, "bob has it as the fork that replaced it");
   assert.equal(people[1].version, "0.1.0-fork.1");
   assert.deepEqual(people[1].forkedFrom, { name: "@thetis/terminal", version: "0.1.0" });
   assert.deepEqual(people[1].config, { broken: true, summary: "shell is required and not set" }, "the configuration is asked at bob's layer");
-  assert.deepEqual(people[1].loaded, { openedAt: "2026-09-21T05:27:00Z", codeAt: CODE_AT, stale: true }, "bob's copy is newer on disk than his workspace");
+  assert.deepEqual(people[1].loaded, { openedAt: "2026-09-21T05:27:00Z", state: "current" }, "bob's copy is newer on disk, but a tool's code is read on every call: it is not behind");
   assert.deepEqual(forks, [{ user: "bob", name: "@bob/terminal", version: "0.1.0-fork.1" }]);
-  assert.deepEqual(counts, { people: 2, installed: 2, stale: 1, forks: 1, broken: 1 }, "bob has it as his fork, on older code, with a broken key");
+  assert.deepEqual(counts, { people: 2, installed: 2, waiting: 0, forks: 1, broken: 1 }, "bob has it as his own copy, with a broken key, and nobody waits to apply it");
   assert.deepEqual(calls.filter((c) => c.method === "config.show").map((c) => c.args), [{ name: "@thetis/terminal", user: "root" }, { name: "@bob/terminal", user: "bob" }], "config is read where the package is installed, under the fork's name for a fork");
   await assert.rejects(commands.packageWhere({ name: "nope" }, env), /looks like @scope\/name/);
 });
@@ -106,13 +106,13 @@ test("package-activity: a fleet-wide install says who it left alone, and why", (
   const forks = [{ user: "bob", fork: "@bob/gateway-web" }];
   assert.equal(
     sentence({ kind: "package.everyone", target: "@thetis/gateway-web", data: { userspaces: ["root"], forks } }),
-    "made @thetis/gateway-web the default for everyone, except bob, who holds a fork of it",
+    "made @thetis/gateway-web the default for everyone, except bob, who uses a copy of their own",
   );
   assert.equal(sentence({ kind: "package.everyone", target: "@thetis/gateway-web", data: { userspaces: ["root", "bob"] } }), "made @thetis/gateway-web the default for everyone");
   assert.equal(sentence({ kind: "package.everyone", target: "@thetis/gateway-web", data: { on: false } }), "@thetis/gateway-web is no longer the default for everyone");
   assert.equal(
     sentence({ kind: "package.promote", target: "alice", data: { name: "@alice/gw", promoted: "@thetis/gw", userspaces: ["root"], forks } }),
-    "promoted @alice/gw to @thetis/gw for 1 workspace, except bob, who holds a fork of it",
+    "made @alice/gw the default for everyone as @thetis/gw for 1 workspace, except bob, who uses a copy of their own",
   );
 });
 
@@ -157,18 +157,20 @@ test("fleet: one row per package with each person's copy, a fork standing in for
   assert.equal(term.scope, "everyone");
   assert.equal(term.version, "0.1.0");
   assert.deepEqual(term.config, { broken: false, keys: 1 });
-  assert.deepEqual(term.byUser.root, { version: "0.1.0", fork: false, forkOf: null, stale: false, broken: false, loaded: null, behindDisk: false });
-  assert.deepEqual(term.byUser.bob, { version: "0.1.0-fork.1", fork: true, forkOf: "@bob/terminal", stale: true, broken: true, loaded: null, behindDisk: false }, "bob's fork stands in for the original");
+  assert.deepEqual(term.byUser.root, { version: "0.1.0", fork: false, forkOf: null, broken: false, loaded: null, state: "current" });
+  assert.deepEqual(term.byUser.bob, { version: "0.1.0-fork.1", fork: true, forkOf: "@bob/terminal", broken: true, loaded: null, state: "current" }, "bob's own copy stands in for the original; its code is read per call, so it is not behind");
+  assert.equal(term.state, "current");
+  assert.deepEqual(term.waiting, []);
   const fork = packages.find((p) => p.name === "@bob/terminal");
   assert.equal(fork.scope, "some");
-  assert.deepEqual(fork.byUser.bob, { version: "0.1.0-fork.1", fork: false, forkOf: "@thetis/terminal", stale: true, broken: true, loaded: null, behindDisk: false });
+  assert.deepEqual(fork.byUser.bob, { version: "0.1.0-fork.1", fork: false, forkOf: "@thetis/terminal", broken: true, loaded: null, state: "current" });
   const login = packages.find((p) => p.name === "@thetis/gateway-login");
   assert.equal(login.scope, "system");
   assert.deepEqual(Object.keys(login.byUser), ["_system"]);
   assert.equal(packages.find((p) => p.name === "@thetis/exa").registry, null, "no index here");
   assert.deepEqual(term.byUser.root.loaded, null, "no fence loaded a version here, so nothing is behind the disk");
-  assert.equal(term.byUser.root.behindDisk, false);
-  assert.deepEqual(stats, { current: 0, updates: 0, reloads: 0, forks: 2, broken: 1, stale: 1, unpushed: 0 });
+  assert.deepEqual(stats, { current: 4, updates: 0, installs: 0, waiting: 0, forks: 2, broken: 1 });
+  assert.deepEqual(out.data.daemon, { state: "current" }, "a daemon on the code on disk needs no restart");
 });
 
 test("fleet: a workspace holding a version the disk has moved past is marked, counted, and given a reload row", async () => {
@@ -186,10 +188,31 @@ test("fleet: a workspace holding a version the disk has moved past is marked, co
   );
   const { packages, stats } = (await commands.fleet({}, env)).data;
   const row = packages.find((p) => p.name === "@thetis/skills-hybrid");
-  assert.deepEqual(row.byUser.root, { version: "0.2.2", fork: false, forkOf: null, stale: false, broken: false, loaded: "0.2.1", behindDisk: true });
+  assert.deepEqual(row.byUser.root, { version: "0.2.2", fork: false, forkOf: null, broken: false, loaded: "0.2.1", state: "update" });
   assert.deepEqual(row.byUser.bob.loaded, "0.2.2");
-  assert.equal(row.byUser.bob.behindDisk, false, "bob's fence read what is on disk");
+  assert.equal(row.byUser.bob.state, "current", "bob's workspace read what is on disk");
   assert.deepEqual(row.registry, { version: "0.2.2", update: { apply: "reload", version: "0.2.2" } }, "no index carries it, and it is still behind its own disk");
-  assert.equal(stats.reloads, 1, "one workspace has not loaded what is on disk");
-  assert.equal(stats.updates, 0, "nothing is behind a registry");
+  assert.equal(row.state, "update");
+  assert.deepEqual(row.waiting, ["root"], "root has not applied it yet");
+  assert.equal(stats.waiting, 1, "one workspace has not applied what is on disk");
+  assert.equal(stats.installs, 0, "nothing is behind a registry");
+  assert.equal(stats.updates, 1);
+});
+
+test("drift: three words, from what a workspace reads once", async () => {
+  const { copyState, readOnce } = commands;
+  const space = { openedAt: "2026-09-21T05:27:00Z", services: ["@thetis/terminal"] };
+  const newer = () => true;
+  const older = () => false;
+  // A version the workspace loaded that is not the one on disk: Update ready, whatever the kind of code.
+  assert.equal(copyState({ name: "@thetis/exa", type: "tool", version: "0.2.0", loadedVersion: "0.1.0" }, space, { newer: older }), "update");
+  // Files changed without a version bump: only code read once when the workspace opened is behind.
+  assert.equal(copyState({ name: "@thetis/terminal", type: "tool", version: "0.1.0" }, space, { newer }), "update", "a service the workspace runs");
+  assert.equal(copyState({ name: "@thetis/provider-openrouter", type: "provider", version: "0.3.0" }, space, { newer }), "update", "a provider");
+  assert.equal(copyState({ name: "@thetis/exa", type: "tool", version: "0.1.0" }, space, { newer }), "current", "a tool's code is read on every call: never older");
+  assert.equal(copyState({ name: "@thetis/terminal", type: "tool", version: "0.1.0", loadedVersion: "0.1.0" }, space, { newer: older }), "current");
+  assert.equal(readOnce({ name: "@thetis/x", type: "ui" }, null), false);
+  // The daemon alone is Restart needed.
+  const { env } = fakeEnv({ "users.list": [], status: { daemon: { stale: true }, workspaces: [] }, "config.list": () => [] }, { own: [] });
+  assert.deepEqual((await commands.fleet({}, env)).data.daemon, { state: "restart" });
 });

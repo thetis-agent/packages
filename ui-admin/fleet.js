@@ -49,26 +49,37 @@ async function installedFor(env, user) {
   }
 }
 
-/** The workspaces the daemon reports, by person. */
-async function workspaces(env) {
+/** The daemon's status: the workspaces by person, and whether the daemon itself runs older code than the disk. */
+async function statusOf(env) {
   try {
     const status = await call(env, "status");
-    return new Map((status?.workspaces ?? []).map((w) => [w.user, w]));
+    return { spaces: new Map((status?.workspaces ?? []).map((w) => [w.user, w])), daemonStale: Boolean(status?.daemon?.stale) };
   } catch {
-    return new Map();
+    return { spaces: new Map(), daemonStale: false };
   }
 }
 
-// ---- older code: per package, not per workspace ----
+// ---- drift: three words, worked out here ----
+//
+// A copy is one of three things, and the browser draws the word it is given: `current` (Up to date),
+// `update` (Update ready: applying it to that workspace puts the new code into service) and, for the daemon
+// alone, `restart` (Restart needed). Code the fence re-reads on every call (a tool's entry, a step, a
+// browser file) is never "older": it is live on its next call. Only what a workspace reads once, when it
+// opens, can be behind: every package whose version moved since (its manifest and the modules its entry
+// imports), and a provider or a running service whose files changed without a version bump.
+
+/** Whether the workspace reads this package once, when it opens: a provider, or a service it runs. */
+export function readOnce(copy, space) {
+  return copy?.type === "provider" || (Array.isArray(space?.services) && space.services.includes(copy?.name));
+}
 
 /**
- * Whether a person's copy of a package is newer on disk than the code their workspace loaded. The
- * kernel's `status` says this per workspace, which marks every package the moment any file in the
- * checkout changes; a package's own files against the workspace's opening time is the honest answer.
- * A root the fence cannot read (another person's home) has no newest time, so it is never called older.
+ * Whether a person's copy's files are newer than the moment their workspace opened. A root the fence cannot
+ * read (another person's home) has no newest time, so it is never called newer.
  */
-function freshness(copy, space) {
+function filesNewer(copy, space) {
   const opened = space?.openedAt ? Date.parse(space.openedAt) : 0;
+  if (!opened) return false;
   let root = typeof copy?.root === "string" ? copy.root : null;
   try {
     if (root) root = realpathSync(root);
@@ -76,7 +87,19 @@ function freshness(copy, space) {
     /* the link may not resolve from here: the walk below then finds nothing */
   }
   const mtime = root ? newestMtime([root]) : 0;
-  return { codeAt: mtime > 0 ? new Date(mtime).toISOString() : null, stale: Boolean(opened && mtime > opened) };
+  return mtime > opened;
+}
+
+/**
+ * The word for one person's copy: `update` when the version their workspace loaded is not the one on disk,
+ * or when it reads the package once and the files changed since it opened; otherwise `current`. A workspace
+ * that is not open is current by definition: it opens on whatever is on disk.
+ */
+export function copyState(copy, space, { newer = filesNewer } = {}) {
+  const loaded = typeof copy?.loadedVersion === "string" ? copy.loadedVersion : null;
+  if (loaded && loaded !== copy.version) return "update";
+  if (readOnce(copy, space) && newer(copy, space)) return "update";
+  return "current";
 }
 
 // ---- where one package runs ----
@@ -88,14 +111,15 @@ function freshness(copy, space) {
  */
 export async function packageWhere(args, env) {
   const name = packageName(args.name);
-  const [everyone, spaces] = await Promise.all([people(env), workspaces(env)]);
+  const [everyone, { spaces }] = await Promise.all([people(env), statusOf(env)]);
   const rows = await Promise.all(
     everyone.map(async (person) => {
       const list = await installedFor(env, person.id);
       // A fork that replaced the package stands in for it: that person has it, as the fork.
       const copy = list.find((p) => p.name === name) ?? list.find((p) => p.replaced === name) ?? null;
       const space = spaces.get(person.id) ?? null;
-      const loaded = space?.openedAt ? { openedAt: space.openedAt, ...freshness(copy, space) } : null;
+      // `state` is the one word: whether this person's workspace has applied the copy on disk.
+      const loaded = space?.openedAt ? { openedAt: space.openedAt, state: copy ? copyState(copy, space) : "current" } : null;
       let config = null;
       if (copy) {
         try {
@@ -130,7 +154,8 @@ export async function packageWhere(args, env) {
   const counts = {
     people: list.length,
     installed: list.filter((r) => r.installed).length,
-    stale: list.filter((r) => r.installed && r.loaded?.stale).length,
+    // The people who have not applied the copy on disk yet: "3 people haven't applied it yet".
+    waiting: list.filter((r) => r.installed && r.loaded?.state === "update").length,
     forks: forks.length,
     broken: list.filter((r) => r.config?.broken).length,
   };
@@ -247,34 +272,32 @@ function commonVersion(versions) {
   return best;
 }
 
-/** One person's copy in the matrix: what they run, what their fence loaded, and what is worth a look. */
+/** One person's copy in the matrix: what they run, what their workspace loaded, its one word, and what is worth a look. */
 function copyCell(p, space, reports, { fork = false, forkOf = null } = {}) {
   const loaded = typeof p.loadedVersion === "string" ? p.loadedVersion : null;
   return {
     version: p.version,
     fork,
     forkOf: forkOf ?? p.forkedFrom?.name ?? null,
-    stale: freshness(p, space).stale,
     broken: Boolean(reports.get(p.name)?.broken),
     loaded,
-    // The fence read one version when it opened and the files have moved on since: a reload applies it.
-    behindDisk: Boolean(loaded && loaded !== p.version),
+    state: copyState(p, space),
   };
 }
 
 /**
  * fleet: every package in every workspace, one row per name, with each person's copy (version, what that
- * workspace loaded and whether the disk has moved past it, whether a fork stands in for it, whether that
- * workspace runs older code, whether the configuration is broken there), the registry's word, and the
- * counts the tiles show. No git here: that is one package's page.
+ * workspace loaded, its one word, whether a fork stands in for it, whether the configuration is broken
+ * there), the registry's word, the row's own word, and the counts the page shows. No git here: that is
+ * one package's page.
  *
- * `registry.update` is `{ apply, version }` or null, the two kinds of behind the marketplace library
- * names: `install` when the pin is older than the index, `reload` when a workspace is holding a version
- * the disk has moved past. A package no registry lists still gets a row with a `reload` update, because a
- * package shipped with the service is behind its own disk whether or not an index carries it.
+ * `state` on a row is `update` when anything about it is ready to apply: a registry holding a newer commit
+ * than the pin (`registry.update.apply: "install"`), or a person whose workspace has not applied the copy on
+ * disk (`waiting` names them). `daemon.state` is `restart` when the daemon itself runs older code than the
+ * disk, the one thing only a restart puts into service.
  */
 export async function fleet(_args, env) {
-  const [everyone, spaces, own, systemList, system] = await Promise.all([people(env), workspaces(env), env.kernel.packages.list(), installedFor(env, SYSTEM), reportsAt(env, null)]);
+  const [everyone, { spaces, daemonStale }, own, systemList, system] = await Promise.all([people(env), statusOf(env), env.kernel.packages.list(), installedFor(env, SYSTEM), reportsAt(env, null)]);
   const perPerson = await Promise.all(everyone.map(async (person) => ({ person, list: await installedFor(env, person.id), reports: await reportsAt(env, person.id) })));
   const lib = await marketplace();
   const index = lib ? await lib.readIndex(env) : undefined;
@@ -311,9 +334,10 @@ export async function fleet(_args, env) {
     const onlySystem = Object.keys(r.byUser).every((u) => u === SYSTEM);
     const report = system.get(r.name);
     const version = commonVersion(r.versions);
-    // An install wins over a reload, as the library says: an install brings the new pin and reopens the fence.
+    // An install wins over applying, as the library says: an install brings the new pin and reopens the workspace.
     const found = behind.get(r.name);
-    const update = found ? { apply: found.apply, version: found.version } : Object.values(r.byUser).some((c) => c.behindDisk) ? { apply: "reload", version } : null;
+    const waiting = Object.entries(r.byUser).filter(([, c]) => c.state === "update" && !c.fork).map(([who]) => who);
+    const update = found ? { apply: found.apply, version: found.version } : waiting.length ? { apply: "reload", version } : null;
     return {
       name: r.name,
       type: r.type,
@@ -323,19 +347,20 @@ export async function fleet(_args, env) {
       registry: r.entry ? { version: r.entry.version, update } : update ? { version, update } : null,
       config: report ? { broken: Boolean(report.broken), keys: report.keys?.length ?? 0 } : null,
       byUser: r.byUser,
+      state: update ? "update" : "current",
+      waiting,
       git: null,
     };
   }).sort((a, b) => a.name.localeCompare(b.name));
-  // A workspace counts once however many of its copies the disk has moved past; `_system` is one too.
-  const behindDisk = new Set(packages.flatMap((p) => Object.entries(p.byUser).filter(([, c]) => c.behindDisk).map(([who]) => who)));
+  // A workspace counts once however many of its copies wait; `_system` is one too.
+  const waiting = new Set(packages.flatMap((p) => p.waiting));
   const stats = {
-    current: packages.filter((p) => p.registry && !p.registry.update).length,
-    updates: packages.filter((p) => p.registry?.update?.apply === "install").length,
-    reloads: behindDisk.size,
+    current: packages.filter((p) => p.state === "current").length,
+    updates: packages.filter((p) => p.state === "update").length,
+    installs: packages.filter((p) => p.registry?.update?.apply === "install").length,
+    waiting: waiting.size,
     forks: packages.filter((p) => Object.values(p.byUser).some((c) => c.fork || c.forkOf)).length,
     broken: packages.filter((p) => p.config?.broken).length,
-    stale: everyone.filter((person) => packages.some((r) => r.byUser[person.id]?.stale)).length,
-    unpushed: 0,
   };
-  return { data: { people: everyone.map((u) => ({ user: u.id, role: u.role, status: u.status })), packages, stats } };
+  return { data: { people: everyone.map((u) => ({ user: u.id, role: u.role, status: u.status })), packages, stats, daemon: { state: daemonStale ? "restart" : "current" } } };
 }

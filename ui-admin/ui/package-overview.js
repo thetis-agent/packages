@@ -6,6 +6,7 @@
  * person card from package-where.js. Every line is a fact the kernel, the index or git reported. */
 
 import { packageFacts } from "./package-card.js";
+import { failureSentence } from "./failed.js";
 import { whereCard } from "./package-where.js";
 
 const short = (h) => (typeof h === "string" ? h.slice(0, 7) : "");
@@ -39,7 +40,7 @@ function lineage(info, forks) {
   const width = 440;
   const [xa, xb, xc] = [72, 220, 368];
   const height = 110 + Math.max(0, forks.length - 1) * 18;
-  const root = svg("svg", { viewBox: `0 0 ${width} ${height}`, class: "ua-lineage", role: "img", "aria-label": "Lineage: the registry, this copy, a promoted copy, and the forks" });
+  const root = svg("svg", { viewBox: `0 0 ${width} ${height}`, class: "ua-lineage", role: "img", "aria-label": "Lineage: the registry, this copy, the copy everyone gets, and people's own copies" });
   const line = (x1, x2, cls) => svg("line", { x1, y1: 30, x2, y2: 30, class: `ua-lineage-line ${cls}` });
   root.append(line(xa + 16, xb - 20, reg ? "" : "is-dim"), line(xb + 20, xc - 16, "is-dim"));
   root.append(svg("circle", { cx: xa, cy: 30, r: 10, class: `ua-lineage-node is-registry${reg ? "" : " is-none"}` }));
@@ -49,7 +50,7 @@ function lineage(info, forks) {
   root.append(text(xa, 72, reg ? `${reg.version} · ${short(reg.commit)}` : "not in the index", { cls: "is-mono" }));
   root.append(text(xb, 58, "this copy", { cls: "is-strong" }));
   root.append(text(xb, 72, `${info.version} · ${info.git?.commit ?? (info.source?.kind ?? "")}`, { cls: "is-mono" }));
-  root.append(text(xc, 58, isSystem ? "system copy" : "promoted copy"));
+  root.append(text(xc, 58, isSystem ? "shipped copy" : "everyone's copy"));
   root.append(text(xc, 72, isSystem ? "this is it" : "none yet", { cls: "is-mono" }));
   const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
   forks.forEach((f, i) => {
@@ -60,7 +61,7 @@ function lineage(info, forks) {
     label.append(svg("title", {}, `${f.name} ${f.version} · ${f.user}`));
     root.append(label);
   });
-  if (!forks.length) root.append(text(xb, 96, "no forks", { cls: "is-dim" }));
+  if (!forks.length) root.append(text(xb, 96, "no own copies", { cls: "is-dim" }));
   return root;
 }
 
@@ -78,8 +79,8 @@ function provenanceCard(ext, ctx) {
     // A reload's "installed" and "available" are versions, not commits: only the install kind has a pin to say.
     ...row("pinned to", reg?.update && reg.update.apply !== "reload" ? `${short(reg.update.installed)} · ${reg.registry} now at ${short(reg.update.available)}` : info.source?.kind === "git" ? short(/@([0-9a-f]{7,40})$/.exec(info.source.ref)?.[1] ?? "") || "no pin" : "not pinned: not a registry install"),
     ...(facts.workspace ? row("loaded", facts.workspace) : []),
-    ...(facts.fork ? row("fork", facts.fork) : []),
-    ...row("forks", forks.length ? el("span", {}, ...forks.flatMap((f, i) => [i ? ", " : null, el("code", {}, f.name), ` (${f.user})`]).filter(Boolean)) : "none"),
+    ...(facts["own copy"] ? row("own copy", facts["own copy"]) : []),
+    ...row("own copies", forks.length ? el("span", {}, ...forks.flatMap((f, i) => [i ? ", " : null, el("code", {}, f.name), ` (${f.user})`]).filter(Boolean)) : "none"),
     ...row("depends on", info.dependencies?.length ? el("code", {}, info.dependencies.join(", ")) : "nothing"),
     ...row("used by", info.dependents?.length ? el("code", {}, info.dependents.join(", ")) : "nothing installed here"),
   ];
@@ -116,7 +117,7 @@ function checkoutCard(ext, ctx, { alive }) {
   open.classList.add("is-sm");
   put(body, el("div", { class: "ua-sync-line" }, ...sync.flatMap((s, i) => (i ? [el("span", { class: "ua-sep" }, "·"), s] : [s])), el("span", { class: "toolbar-gap" }), open));
   const graph = el("div", { class: "ua-mini-graph" }, el("p", { class: "text-faint" }, "Reading the commits…"));
-  put(body, graph, el("div", { class: "ua-legend" }, el("span", {}, el("span", { class: "ua-dot is-accent" }), ` ${git.upstream ?? "pushed"}`), el("span", {}, el("span", { class: "ua-dot is-warn" }), " local, not pushed"), el("span", {}, "commits touching this package only")));
+  put(body, graph, el("div", { class: "ua-legend" }, el("span", {}, el("span", { class: "ua-dot is-accent" }), ` ${git.upstream ?? "pushed"}`), el("span", {}, el("span", { class: "ua-dot is-warn" }), " local, not pushed"), el("span", {}, "commits touching this extension only")));
 
   void (async () => {
     let log = null;
@@ -125,7 +126,7 @@ function checkoutCard(ext, ctx, { alive }) {
     } catch (err) {
       if (!alive()) return;
       clear(graph);
-      return void put(graph, el("p", { class: "text-faint" }, `The commits could not be read: ${err.message}`));
+      return void put(graph, el("p", { class: "text-faint" }, failureSentence("The commits", err, { admin: true })));
     }
     if (!alive()) return;
     clear(graph);
@@ -145,7 +146,7 @@ function checkoutCard(ext, ctx, { alive }) {
         )
       );
     }
-    if (!rows.length) rows.push(el("p", { class: "text-faint" }, "No commit touches this package."));
+    if (!rows.length) rows.push(el("p", { class: "text-faint" }, "No commit touches this extension."));
     put(graph, ...rows);
   })();
   return node;
@@ -161,7 +162,7 @@ function filesCard(ext, ctx) {
     el(
       "div",
       { class: "ua-files" },
-      el("dl", { class: "kv" }, el("dt", {}, "checkout"), el("dd", {}, el("code", {}, info.root ?? "—")), el("dt", {}, "in a fence"), el("dd", {}, el("code", {}, `store/node_modules/${info.name}`), el("span", { class: "text-faint" }, info.source?.kind === "system" ? " → the checkout, read-only" : ""))),
+      el("dl", { class: "kv" }, el("dt", {}, "checkout"), el("dd", {}, el("code", {}, info.root ?? "—")), el("dt", {}, "in a workspace"), el("dd", {}, el("code", {}, `store/node_modules/${info.name}`), el("span", { class: "text-faint" }, info.source?.kind === "system" ? " → the checkout, read-only" : ""))),
       el("dl", { class: "kv" }, el("dt", {}, "source"), el("dd", {}, info.source?.kind ?? "—", info.source?.ref ? [" · ", el("code", {}, info.source.ref)] : null), el("dt", {}, "README"), el("dd", {}, readme))
     )
   );
