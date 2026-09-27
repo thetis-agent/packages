@@ -72,9 +72,9 @@ export async function startTerminals(env) {
 
 let held = null;
 
-const CONNECTION_GONE = /the terminal service is not running in this workspace|this connection to the terminal service was closed/;
+const CONNECTION_GONE = /the terminal service is not running in your space|this connection to the terminal service was closed/;
 const dropped = (error) => CONNECTION_GONE.test(error?.message ?? "");
-const RESENDABLE = new Set(["list", "resize", "rename", "close"]);
+const RESENDABLE = new Set(["list", "resize", "rename", "close", "seen", "count"]);
 
 function hold(root) {
   if (!held || held.root !== root) held = { root, used: false, ready: null };
@@ -162,7 +162,7 @@ async function needSession(args, env) {
   const given = await sessionArg(args, env);
   if (given) return given;
   const open = openOf(await list(env, cursor(env)));
-  const mine = open.find((s) => s.name === "main") ?? open[0];
+  const mine = open.find((s) => s.own) ?? open[0];
   if (!mine) fail("this conversation has no shell session open. Run something with shell and one opens.");
   return mine.id;
 }
@@ -334,7 +334,8 @@ const optional = (args, what) => {
   return value;
 };
 
-/** sessions: every session of this fence, not just one conversation's — the shelf shows them all. */
+/** sessions: every session of this fence, not just one conversation's — the drawer shows them all, this
+ *  conversation's first. */
 export async function uiSessions(_args, env) {
   return { data: { sessions: await call(env.root, "list", {}) } };
 }
@@ -396,6 +397,20 @@ export async function uiResize(args, env) {
 export async function uiClose(args, env) {
   await call(env.root, "close", { id: idArg(args) });
   return { data: {} };
+}
+
+/** seen: the drawer has this session on screen. It keeps the idle close away, as typing would; the
+ *  page says so when it shows a session and every few minutes while it stays on screen. */
+export async function uiSeen(args, env) {
+  await call(env.root, "seen", { id: idArg(args) });
+  return { data: {} };
+}
+
+/** sessions-count: how many shells are open in this space, across every conversation. An update of the
+ *  space closes them all, so the page that offers one says how many first. */
+export async function uiSessionsCount(_args, env) {
+  const out = await call(env.root, "count", {});
+  return { data: { open: Number(out?.open) || 0 } };
 }
 
 /** rename: what the row calls it. A person names a session; the model cannot. */

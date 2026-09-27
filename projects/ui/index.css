@@ -150,3 +150,14 @@
 /* the skills section reuses the tool rows; a nested skill sits under its parent, and a switch a parent turned off is greyed */
 .pj-skill.is-nested { padding-left: 28px; }
 .pj-switch:disabled { opacity: 0.5; cursor: default; }
+
+/* The place with no project chosen: pick one or create one. Rows are buttons, the whole row the target. */
+.pj-picker { gap: var(--gap-3); }
+.pj-pick-title { margin: 0; font-size: var(--text-lg, 1.1rem); font-weight: 600; color: var(--text); }
+.pj-pick-list { display: flex; flex-direction: column; border: 1px solid var(--hairline); border-radius: var(--r-md); overflow: hidden; }
+.pj-pick-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap-3); padding: var(--gap-2) var(--gap-3); font: inherit; color: var(--text); text-align: left; background: transparent; border: 0; border-top: 1px solid var(--hairline); cursor: pointer; }
+.pj-pick-row:first-child { border-top: 0; }
+.pj-pick-row:hover, .pj-pick-row:focus-visible { background: var(--surface-2); }
+.pj-pick-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-pick-note { flex: 0 0 auto; font-size: var(--text-xs); color: var(--text-faint); }
+.pj-picker .pj-actions { border-top: 0; padding-top: 0; }

@@ -3,16 +3,16 @@
 // module state, so both ask the one process that does.
 //
 // The whole file is here so that the failure has one wording. A socket that is missing or refuses means
-// the terminal service is not running in this workspace, and that is a thing a person can act on — turn
-// the package on, or wait for the fence to finish opening — so it is said that way rather than as ENOENT.
+// the terminal service is not running in this space, and that is a thing a person can act on — install
+// the extension, or wait for the space to finish starting — so it is said that way rather than as ENOENT.
 import { createConnection } from "node:net";
 import { resolve } from "node:path";
 import { SOCKET } from "./host.js";
 
 const notRunning = (path, why) =>
   new Error(
-    `the terminal service is not running in this workspace (nothing is listening on ${path}${why ? `: ${why}` : ""}). ` +
-      "It starts with the fence, so either the fence is still opening or @thetis/terminal is not installed for this person.",
+    `the terminal service is not running in your space (nothing is listening on ${path}${why ? `: ${why}` : ""}). ` +
+      "It starts with your space, so either your space is still starting or the terminal extension is not installed for this person.",
   );
 
 /**

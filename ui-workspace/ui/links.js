@@ -345,7 +345,7 @@ export function decorateCard(card, call) {
   const gistEl = childWithClass(head, "tool-gist");
   if (gistEl) wrapGist(gistEl, call.args, path, line);
   if (head) {
-    const open = h("button", { type: "button", class: "ws-open", "data-path": path, "data-line": line == null ? null : String(line), title: `Open ${path}${line ? `:${line}` : ""} in the Workspace` }, "Open");
+    const open = h("button", { type: "button", class: "ws-open", "data-path": path, "data-line": line == null ? null : String(line), title: `Open ${path}${line ? `:${line}` : ""} in Files` }, "Open");
     const status = childWithClass(head, "tool-status");
     if (status) head.insertBefore(open, status);
     else head.append(open);
@@ -512,11 +512,11 @@ async function contextMenu(ext, model, link, at) {
     const results = data && typeof data === "object" && data.results && typeof data.results === "object" ? data.results : data;
     answer = results?.[path] ?? null;
   } catch (err) {
-    ext.toast(`${path} could not be checked: ${err?.message || "the workspace did not answer"}`, { tone: "error" });
+    ext.toast(`${path} could not be checked: ${err?.message || "Thetis did not answer"}`, { tone: "error" });
     return;
   }
   if (!answer) {
-    ext.toast(`${path} is not reachable from this workspace: it is outside your home, the shared directory and your project directories.`, { tone: "warn" });
+    ext.toast(`${path} is not reachable from your space: it is outside your home, the shared directory, your folders and your project directories.`, { tone: "warn" });
     return;
   }
   const absolute = answer.absolute || path;

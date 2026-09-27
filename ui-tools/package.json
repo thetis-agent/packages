@@ -1,12 +1,13 @@
 {
   "name": "@thetis/ui-tools",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
-  "description": "The Tools dock of the web gateway: every tool the open conversation can call, one section per package.",
+  "description": "The Tools dock of the web gateway: every tool the open conversation can call, one section per extension.",
   "type": "module",
   "main": "index.js",
   "thetis": {
     "type": "ui",
+    "label": "tools panel",
     "ui": {
       "dir": "ui",
       "entry": "index.js",

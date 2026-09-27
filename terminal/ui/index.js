@@ -23,10 +23,12 @@
  * A stream that ends or is refused is said in the drawer's footer and retried with a widening delay.
  * Nothing here pretends to be live when it is not. Nothing runs at import.
  *
- * Two rules from the legacy drawer live here rather than in the view, because they are about the page
- * and not about the drawer's body: a shell appearing in the open conversation brings the drawer up,
- * without a click, every time; and switching conversations closes it and reopens it when the new
- * conversation has shells, so a drawer is never left standing over another conversation's shells. */
+ * Two rules about the drawer live here rather than in the view, because they are about the page and not
+ * about the drawer's body. The drawer starts closed: the shells that already exist when the page loads
+ * open nothing, because a drawer that took a third of the chat on every load was the complaint. A shell
+ * that starts in the open conversation after that brings the drawer up, without a click, every time.
+ * Switching conversations closes it, so a drawer is never left standing over another conversation's
+ * shells; the chip opens it again. */
 
 import { createScreen } from "./screen.js";
 import { mountShelf } from "./shelf.js";
@@ -49,7 +51,7 @@ export default function install(ext) {
   const outputs = new Set();   // who wants to know that a session printed, without a redraw
   const pending = new Map();   // id -> keystrokes waiting for the next coalesced `write`
   let stream = { live: false, why: "Connecting to the shells…" };
-  let autoOpen = true;         // the drawer also opens itself once per page load for this conversation's first command
+  let primed = false;          // the first list has arrived: shells in it were there before the page, and open nothing
   let mounted = false;         // the drawer's body is the shelf's tenant (it stays so while the shelf is hidden)
   let withScreens = false;     // the subscription that is open was asked for the screens, not only the rows
   let stop = null;
@@ -77,6 +79,11 @@ export default function install(ext) {
 
   function setSessions(list) {
     if (!Array.isArray(list)) return;
+    if (!primed) {
+      // What was there when the page loaded is not news: the drawer starts closed over it.
+      primed = true;
+      for (const session of list) if (session && typeof session.id === "string") known.add(session.id);
+    }
     sessions.clear();
     for (const session of list) if (session && typeof session.id === "string") sessions.set(session.id, session);
     for (const id of [...screens.keys()]) if (!sessions.has(id)) forget(id);
@@ -107,13 +114,10 @@ export default function install(ext) {
     if (session.state === "idle") notes.delete(session.id);
     if (!known.has(session.id)) {
       known.add(session.id);
-      // The point of the whole drawer: a shell appearing in the conversation on screen brings it up,
-      // without a click. A shell of another conversation brightens nothing and opens nothing.
-      if (session.state !== "closed" && ext.conversation.current && mine(session)) openDrawer();
-    }
-    if (autoOpen && BUSY.has(session.state) && session.conversation && session.conversation === ext.conversation.current) {
-      autoOpen = false;
-      openDrawer(); // once per page load, and nothing here takes the focus from the composer
+      // A shell starting in the conversation on screen brings the drawer up, without a click and without
+      // taking the focus from the composer. A shell of another conversation brightens nothing and opens
+      // nothing, and neither does one that was already there when the page loaded (`primed`).
+      if (primed && session.state !== "closed" && ext.conversation.current && session.conversation === ext.conversation.current) openDrawer();
     }
   }
 
@@ -210,7 +214,7 @@ export default function install(ext) {
         },
         onClose: (err) => {
           stop = null;
-          lost(err?.message || "the workspace ended the live stream");
+          lost(err?.message || "your space ended the live stream");
         },
       });
     } catch (err) {
@@ -276,13 +280,11 @@ export default function install(ext) {
     sync();
   }
 
-  /* Switching conversations: the drawer belongs to the one on screen. Closed, not merely emptied — a
-   * drawer left standing over another conversation's shells is a lie — and reopened at once when this
-   * conversation has shells of its own. The drawer's rows follow through `store.watch`. One `sync` for
-   * both moves: a close and a reopen in the same breath must not swap the stream twice. */
-  ext.conversation.watch((id) => {
-    ext.close.shelf();
-    if (id && visible().some((s) => s.state !== "closed" && mine(s, id))) ext.open.shelf("terminal");
+  /* Switching conversations: the drawer belongs to the one on screen, so it closes — a drawer left
+   * standing over another conversation's shells is a lie. It stays closed until a shell starts here or
+   * the person clicks the chip, as on a fresh page. */
+  ext.conversation.watch(() => {
+    if (ext.shelf.isOpen()) ext.close.shelf();
     sync();
     changed();
   });
@@ -303,6 +305,20 @@ export default function install(ext) {
     },
     busy: (session) => BUSY.has(session?.state),
     mine,
+    /** Whether the person asked for developer details (the session id, the tty, exit-code reporting).
+     *  The gateway may not offer the preference yet; then the answer is no. */
+    developer: () => {
+      try {
+        return typeof ext.developer === "function" && ext.developer() === true;
+      } catch {
+        return false;
+      }
+    },
+    /** A browser has this session on screen: the idle close stays away. Failing quietly is right — the
+     *  worst case is a shell closed after a long idle, and the row says why. */
+    seen(id) {
+      if (id) ext.request("seen", { args: { id } }).catch(() => {});
+    },
     /** The title of a conversation this page knows, for a row of a shell opened elsewhere. */
     conversationTitle: (id) => ext.sessions.list().find((s) => s.id === id)?.title?.trim() || null,
     stream: () => stream,
@@ -360,7 +376,7 @@ export default function install(ext) {
     draw(button, { session } = {}) {
       const { el, clear, setHidden } = ext.dom;
       const rows = visible().filter((s) => mine(s, session ?? null));
-      const live = rows.filter((s) => s.state !== "closed").length;
+      const live = rows.filter((s) => s.state !== "closed").length; // a closed row is not a terminal you have
       const busy = rows.some((s) => BUSY.has(s.state));
       const open = ext.shelf.isOpen();
       button.classList.add("term-chip");
@@ -369,7 +385,7 @@ export default function install(ext) {
       button.classList.toggle("is-stale", !stream.live);
       clear(button).append(
         el("span", { class: `term-dot ${busy ? "is-busy" : live ? "is-ok" : "is-done"}` }),
-        el("span", {}, rows.length ? `${rows.length} terminal${rows.length === 1 ? "" : "s"}` : "Terminal")
+        el("span", {}, live ? `${live} terminal${live === 1 ? "" : "s"}` : "Terminal")
       );
       button.title = !stream.live
         ? `Not live: ${stream.why}`
@@ -385,6 +401,13 @@ export default function install(ext) {
       ext.redraw("terminal");
     },
   });
+
+  // The preference changes the rows (the details button), not the table.
+  try {
+    ext.onDeveloper?.(() => changed());
+  } catch {
+    /* an older gateway: no preference, no details */
+  }
 
   listen();
   // A subscription lives as long as the page. This only spares the gateway a stream it is still writing to.

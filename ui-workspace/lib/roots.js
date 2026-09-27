@@ -25,7 +25,24 @@ export function directoryRow(path, mounts, bound, home) {
   return { path, name: basename(path) || path, parent: dirname(path), state: s.state, mode: s.mode, kind: s.kind, ...(s.home ? { home: true } : {}), ...(s.mount ? { mount: s.mount } : {}) };
 }
 
-/** `roots`: home, shared, every project with its directories and their states, and the mount list. */
+/**
+ * The person's mounted folders as roots, each in its real state: a mount the fence took, with what is at
+ * its path now, and — for an admin, who can read what is written down — a mount the fence did not take
+ * because its host path was gone, as `skipped`.
+ */
+export function folderRows(mounts, bound) {
+  const rows = mounts.map((m) => {
+    const s = stateOf(m.path, mounts, bound, null);
+    return { path: m.path, name: basename(m.path) || m.path, mode: m.mode, state: s.state, kind: s.kind };
+  });
+  for (const b of bound ?? []) {
+    if (!b || typeof b.path !== "string" || mounts.some((m) => m.path === b.path)) continue;
+    rows.push({ path: b.path, name: basename(b.path) || b.path, mode: b.mode === "rw" ? "rw" : "ro", state: "skipped", kind: "none", mount: b.path });
+  }
+  return rows;
+}
+
+/** `roots`: home, shared, the mounted folders, every project with its directories and their states, and the mount list. */
 export async function roots(args, env) {
   const session = typeof args?.session === "string" && args.session ? args.session : (env.session ?? null);
   const mounts = currentMounts();
@@ -41,6 +58,7 @@ export async function roots(args, env) {
     home: { path: env.cwd, mode: "rw" },
     shared: env.shared ? { path: env.shared, mode: "ro" } : null,
     projects: rows,
+    folders: folderRows(mounts, bound),
     mounts,
     ...(bound ? { bound } : {}),
   };

@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { withPage } from "../../gateway-web/test/browser-fixture.mjs";
+import { uiContext, uiContextPage } from "../index.js";
 
 let browser;
 before(async () => {
@@ -15,11 +16,23 @@ after(async () => { await browser?.close(); });
 
 test("Context shows an active first turn, complete request details and live usage in the web shell", { timeout: 20000 }, async () => {
   await withPage(browser, "context-live", { existing: true }, async ({ page, id }) => {
+    // The fixture answers through the package's own commands over what the harness would have written.
     let data = { turns: 0, status: "running", started: true, lastCall: null, usage: [] };
     let requests = 0;
-    await page.route("**/api/ext/@thetis/ui-context/context", (route) => {
+    const env = () => ({
+      session: id, user: "alice",
+      kernel: { sessions: { inspect: async () => ({ turns: data.turns, status: data.status, turn: { id: "t1" }, conversation: [{ role: "user", content: "x" }], harness: {} }) } },
+      readFile: async (path) => {
+        if (path.startsWith("harness-core/context/")) return JSON.stringify({ lastCall: data.lastCall, usage: data.usage });
+        throw Object.assign(new Error("missing"), { code: "ENOENT" });
+      },
+    });
+    await page.route("**/api/ext/@thetis/ui-context/context", async (route) => {
       requests++;
-      return route.fulfill({ json: { data } });
+      return route.fulfill({ json: await uiContext({}, env()) });
+    });
+    await page.route("**/api/ext/@thetis/ui-context/context-page", async (route) => {
+      return route.fulfill({ json: await uiContextPage(route.request().postDataJSON()?.args ?? {}, env()) });
     });
     await page.route(/\/review\/ext\/@thetis\/ui-context\/[^/]+$/, async (route) => {
       const file = new URL(route.request().url()).pathname.split("/").at(-1);
@@ -29,10 +42,11 @@ test("Context shows an active first turn, complete request details and live usag
     await page.evaluate(async (manifest) => {
       const registry = await import("./assets/lib/registry.js");
       const { createExt } = await import("./assets/lib/ext.js");
-      const declaration = { ...manifest.thetis.ui, package: manifest.name, commands: ["context"] };
+      const declaration = { ...manifest.thetis.ui, package: manifest.name, commands: ["context", "context-page"] };
       registry.declare(declaration);
       const module = await import("./ext/@thetis/ui-context/index.js");
-      module.default(createExt(declaration));
+      // The raw request is a developer detail; this test is about it, so the preference is on.
+      module.default({ ...createExt(declaration), developer: () => true, onDeveloper: () => {} });
       const css = document.createElement("link");
       css.rel = "stylesheet";
       css.href = "./ext/@thetis/ui-context/index.css";

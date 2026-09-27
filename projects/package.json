@@ -1,8 +1,8 @@
 {
   "name": "@thetis/projects",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "license": "MIT",
-  "description": "Named workspaces: zero or more project directories, standing instructions, and a per-project set of tools, chosen from a switcher in the web gateway's sidebar.",
+  "description": "Named projects: zero or more project directories, standing instructions, and a per-project set of tools, chosen from a switcher in the web gateway's sidebar.",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -13,6 +13,7 @@
   },
   "thetis": {
     "type": "loader",
+    "label": "projects",
     "steps": [
       { "id": "project-prompt", "phase": "prompt", "export": "projectPrompt" },
       { "id": "project-tools", "phase": "call", "export": "projectTools" }

@@ -53,7 +53,7 @@ export function bindOutcome(name, state) {
   if (state === "ready" || state === "bound") return { text: `${name} is bound.`, tone: "ok" };
   const spec = STATE_SENTENCES[state];
   if (spec) return { text: `${name}: ${spec.text}`, tone: spec.tone === "err" ? "error" : "warn" };
-  return { text: `${name} is not in the roots any more; refresh to see what the workspace has.`, tone: "warn" };
+  return { text: `${name} is not in the roots any more; refresh to see what your space has.`, tone: "warn" };
 }
 
 const BIND_POLL_MS = 2000;
@@ -143,22 +143,54 @@ export function mountExplorer(host, { model, ext, session = null, onOpen, compac
 
   const tree = el("div", { class: "tree ws-tree", role: "tree", "aria-label": "Files" });
   const scroller = el("div", { class: "ws-scroll" }, tree);
-  host.append(head, filter, scroller);
+  // The dock has no head: a null here would be appended as the text "null" above the filter.
+  host.append(...[head, filter, scroller].filter(Boolean));
 
   // ---- nodes: what the tree is made of, rebuilt from the caches on every draw ----
 
   const isAdmin = () => Boolean(roots?.admin) || (typeof ext.can === "function" && ext.can("bind"));
+
+  /** Whether the person asked for developer details: then a root row carries its host path. */
+  const developer = () => {
+    try {
+      return typeof ext.developer === "function" && ext.developer() === true;
+    } catch {
+      return false;
+    }
+  };
+  /** A root's host path is a developer detail; a person sees the root's name and its mode. */
+  const hostPath = (path) => (developer() ? path : null);
 
   function rootEntry(path, name, mode, rootKind, extra = {}) {
     return { path, name, kind: "dir", mode, root: path, rootKind, ...extra };
   }
 
   function homeNode() {
-    return { t: "entry", key: roots.home.path, isRoot: true, icon: ICONS.home, sub: roots.home.path, entry: rootEntry(roots.home.path, "Home", roots.home.mode ?? "rw", "home") };
+    return { t: "entry", key: roots.home.path, isRoot: true, icon: ICONS.home, sub: hostPath(roots.home.path), entry: rootEntry(roots.home.path, "Home", roots.home.mode ?? "rw", "home") };
   }
 
   function sharedNode() {
-    return { t: "entry", key: roots.shared.path, isRoot: true, icon: ICONS.shared, sub: roots.shared.path, entry: rootEntry(roots.shared.path, "Shared", roots.shared.mode ?? "ro", "shared") };
+    return { t: "entry", key: roots.shared.path, isRoot: true, icon: ICONS.shared, sub: hostPath(roots.shared.path), entry: rootEntry(roots.shared.path, "Shared", roots.shared.mode ?? "ro", "shared") };
+  }
+
+  /** One of the person's mounted folders as a root row, in its real state, with its note when it is not usable. */
+  function folderNodes(folder) {
+    const ready = folder.state === "ready";
+    const spec = STATE_SENTENCES[folder.state];
+    const entry = rootEntry(folder.path, folder.name || nameOf(folder.path), ready ? folder.mode ?? "ro" : "ro", "mount", { state: folder.state });
+    const node = { t: "entry", key: folder.path, isRoot: true, broken: !ready, icon: ready ? ICONS.folder : ICONS.warn, sub: hostPath(folder.path), dot: ready ? null : spec?.tone ?? "warn", entry };
+    return spec && !ready ? [node, { t: "note", tone: spec.tone, text: spec.text, path: folder.path }] : [node];
+  }
+
+  /** Home, Shared and the mounted folders: what the person has whatever the conversation. */
+  function ownRoots() {
+    const out = [];
+    if (roots.home?.path) out.push(homeNode());
+    if (roots.shared?.path) out.push(sharedNode());
+    // A folder that is also a project's directory is shown under its project, once: a path is one row.
+    const inProjects = new Set((roots.projects ?? []).flatMap((p) => (p.directories ?? []).map((d) => d?.path)));
+    for (const folder of roots.folders ?? []) if (!inProjects.has(folder.path)) out.push(...folderNodes(folder));
+    return out;
   }
 
   /** A project directory as a root row, with its note when it is not ready. */
@@ -166,7 +198,7 @@ export function mountExplorer(host, { model, ext, session = null, onOpen, compac
     const ready = dir.state === "ready";
     const note = sentenceFor(dir, { admin: isAdmin(), user: roots.user });
     const entry = rootEntry(dir.path, dir.name || nameOf(dir.path), ready ? dir.mode ?? "rw" : "ro", "project", { project: project.id, state: dir.state });
-    const node = { t: "entry", key: dir.path, isRoot: true, broken: !ready, icon: ready ? ICONS.folder : ICONS.warn, sub: dir.parent ?? parentOf(dir.path), dot: ready ? "ok" : note?.tone ?? "warn", entry };
+    const node = { t: "entry", key: dir.path, isRoot: true, broken: !ready, icon: ready ? ICONS.folder : ICONS.warn, sub: hostPath(dir.parent ?? parentOf(dir.path)), dot: ready ? "ok" : note?.tone ?? "warn", entry };
     return note ? [node, { t: "note", ...note, path: dir.path }] : [node];
   }
 
@@ -199,15 +231,11 @@ export function mountExplorer(host, { model, ext, session = null, onOpen, compac
       const others = projects.filter((p) => !p.current);
       const out = [];
       for (const project of current) out.push({ t: "head", label: project.name, hint: "this conversation's project" }, ...projectChildren(project));
-      out.push({ t: "head", label: "Workspace" });
-      if (roots.home?.path) out.push(homeNode());
-      if (roots.shared?.path) out.push(sharedNode());
+      out.push({ t: "head", label: "Your files" }, ...ownRoots());
       for (const project of others) out.push({ t: "head", label: project.name }, ...projectChildren(project));
       return out;
     }
-    const out = [];
-    if (roots.home?.path) out.push(homeNode());
-    if (roots.shared?.path) out.push(sharedNode());
+    const out = [...ownRoots()];
     if (projects.length) out.push({ t: "head", label: "Projects" }, ...projects.map(projectNode));
     return out;
   }
@@ -517,6 +545,14 @@ export function mountExplorer(host, { model, ext, session = null, onOpen, compac
     queueMicrotask(draw);
   }
 
+  // The host paths come and go with developer details.
+  let offDeveloper = null;
+  try {
+    offDeveloper = ext.onDeveloper?.(() => scheduleDraw()) ?? null;
+  } catch {
+    /* an older gateway: no preference */
+  }
+
   // ---- behaviour ----
 
   function load(path, force = false) {
@@ -726,10 +762,10 @@ export function mountExplorer(host, { model, ext, session = null, onOpen, compac
         return;
       }
     }
-    ext.toast(`Binding ${name}… your workspace restarts; the row updates when it is back.`);
+    ext.toast(`Binding ${name}… your space restarts; the row updates when it is back.`);
     const outcome = await waitForBind(path, before);
     if (!alive) return;
-    if (outcome === undefined) ext.toast(`${name} is still ${before === "unmounted" ? "not mounted" : before} after 90 s. Refresh the tree once the workspace is back.`, { tone: "warn" });
+    if (outcome === undefined) ext.toast(`${name} is still ${before === "unmounted" ? "not mounted" : before} after 90 s. Refresh the tree once your space is back.`, { tone: "warn" });
     else {
       const said = bindOutcome(name, outcome);
       ext.toast(said.text, { tone: said.tone });
@@ -794,7 +830,7 @@ export function mountExplorer(host, { model, ext, session = null, onOpen, compac
   function startNew(dir, kind) {
     if (!dir || !roots) return;
     const root = rootOf(roots, dir);
-    if (!root) return ext.toast(`${dir} is not under a root of this workspace.`, { tone: "warn" });
+    if (!root) return ext.toast(`${dir} is not under a root of your space.`, { tone: "warn" });
     if (root.mode !== "rw") return ext.toast(`${root.name} is read-only, so nothing can be made in it.`, { tone: "warn" });
     editing = { type: "new", dir, kind: kind === "dir" ? "dir" : "file", value: "" };
     if (!model.isExpanded(dir)) model.setExpanded(dir, true, { silent: true });
@@ -938,6 +974,7 @@ export function mountExplorer(host, { model, ext, session = null, onOpen, compac
     destroy() {
       alive = false;
       stop();
+      if (typeof offDeveloper === "function") offDeveloper();
       host.replaceChildren();
       host.classList.remove("ws-explorer", "is-compact");
     },

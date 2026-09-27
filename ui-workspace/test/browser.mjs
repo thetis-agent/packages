@@ -43,7 +43,7 @@ for (const role of ["admin", "member"]) {
       assert.equal(await page.locator("#place .ws-note.is-warn .ws-note-text").innerText(), "1 of 2 directories is not usable. An agent in this project cannot read it.");
       assert.equal(await f.row(NOVA).locator(".ws-mode.is-rw").count(), 1);
       assert.equal(await f.row(NOVA).locator(".ws-dot.is-ok").count(), 1);
-      assert.equal(await f.row(NOVA).locator(".ws-sub").innerText(), "/srv/games");
+      assert.equal(await f.row(NOVA).locator(".ws-sub").count(), 0, "a host path is a developer detail");
       const broken = f.row(ORLEANS);
       assert.match(await broken.getAttribute("class"), /\bis-broken\b/);
       const note = page.locator(`#place .tree-item[data-path="${ORLEANS}"] + .ws-note.is-err`);
@@ -53,7 +53,7 @@ for (const role of ["admin", "member"]) {
         const bind = note.locator(".btn");
         assert.equal(await bind.innerText(), "Bind now");
         await bind.click();
-        await page.locator(".toast", { hasText: "Binding orleans… your workspace restarts; the row updates when it is back." }).waitFor();
+        await page.locator(".toast", { hasText: "Binding orleans… your space restarts; the row updates when it is back." }).waitFor();
         assert.deepEqual(f.callsFor("bind").map((c) => c.args), [{ path: ORLEANS, mode: "rw" }]);
         // The explorer's state is stored under this person's name, never under the old unscoped keys.
         const keys = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("thetis.workspace.")));
@@ -94,7 +94,7 @@ t("1b. Bind now: the fence closes under the request (502), one toast says the wo
       throw Object.assign(new Error("Bad Gateway"), { status: 502 });
     });
     await bind.click();
-    const binding = page.locator(".toast .toast-text", { hasText: "Binding orleans… your workspace restarts; the row updates when it is back." });
+    const binding = page.locator(".toast .toast-text", { hasText: "Binding orleans… your space restarts; the row updates when it is back." });
     await binding.waitFor();
     assert.equal(await page.locator(".toast.is-error").count(), 0, "a 502 under a bind is not an error");
     await page.locator(`#place .tree-item[data-path="${ORLEANS}"]:not(.is-broken) .ws-mode.is-rw`).waitFor({ timeout: 6000 });
@@ -744,7 +744,7 @@ t("9. the file menu offers the same items for one entry on an explorer row, a do
     await page.locator(`.rail-btn[data-dock="${KEY.dock}"]`).click();
     await f.row(TIDE, "#dock").waitFor();
     const dock = await f.contextMenu(f.row(TIDE, "#dock"));
-    assert.equal(dock[0], "Open in Workspace");
+    assert.equal(dock[0], "Open in Files");
     assert.deepEqual(dock.slice(1), explorer, "the dock offers what the explorer offers, after the way in");
     await page.keyboard.press("Escape");
     await page.locator(".menu.is-floating").waitFor({ state: "detached" });
@@ -758,8 +758,8 @@ t("9. the file menu offers the same items for one entry on an explorer row, a do
     await link.waitFor();
     const chat = await f.contextMenu(link);
     assert.deepEqual(f.callsFor("resolve").map((c) => c.args), [{ paths: [TIDE] }], "the chat asks resolve before it offers a menu");
-    assert.equal(chat[0], "Open in Workspace", "Open in Workspace comes first on the chat host");
-    assert.equal(chat[1], "Reveal in Files");
+    assert.equal(chat[0], "Open in Files", "Open in Files comes first on the chat host");
+    assert.equal(chat[1], "Show in the side panel");
     assert.deepEqual(chat.slice(2), explorer, "the chat offers what the explorer offers, after the way in");
     await page.keyboard.press("Escape");
     await page.locator(".menu.is-floating").waitFor({ state: "detached" });
@@ -827,8 +827,9 @@ t("10. the Files dock lists the current project first, a click opens the place a
     await page.locator("#dock:not([hidden]) .ws-dock").waitFor();
     assert.equal(await page.locator("#dock .panel-title").innerText(), "Files");
     await page.locator("#dock .panel-sub", { hasText: "Nova" }).waitFor();
-    assert.equal(await page.locator("#dock .panel-sub").innerText(), "Nova · 1 directory ready, 1 needs attention");
-    assert.deepEqual(await page.locator("#dock .ws-group-label").allTextContents(), ["Nova", "Workspace"]);
+    assert.equal(await page.locator("#dock .panel-sub").innerText(), "Nova · 1 of 2 directories ready, 1 needs attention");
+    assert.deepEqual(await page.locator("#dock .ws-group-label").allTextContents(), ["Nova", "Your files"]);
+    assert.equal(await page.locator("#dock .ws-dock-tree").evaluate((tree) => [...tree.childNodes].some((n) => n.nodeType === 3 && n.textContent.includes("null"))), false, "no stray \"null\" above the filter");
     assert.equal(await page.locator("#dock .ws-group-hint").innerText(), "this conversation's project");
     const paths = await page.locator("#dock .tree-item[data-path]").evaluateAll((els) => els.map((e) => e.dataset.path));
     assert.deepEqual(paths.slice(0, 2), [NOVA, ORLEANS], "the current project's directories come first");
@@ -861,7 +862,7 @@ t("10. the Files dock lists the current project first, a click opens the place a
     const link = page.locator(`details.tool[data-tool="c_reveal"] .tool-gist a.ws-link[data-path="${plan}"]`);
     await link.waitFor();
     await f.contextMenu(link);
-    await f.menuItem("Reveal in Files").click();
+    await f.menuItem("Show in the side panel").click();
     await page.locator("#dock:not([hidden]) .ws-dock").waitFor();
     const revealed = page.locator(`#dock .tree-item[data-path="${plan}"].is-selected`);
     await revealed.waitFor();

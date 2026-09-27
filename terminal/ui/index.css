@@ -156,22 +156,17 @@
    remain in the layout (opacity, not display) so rows do not reflow on hover,
    and they are always visible to keyboard focus, which never hovers. */
 .term-tab-stop,
-.term-tab-info,
-.term-tab-kill {
+.term-tab-info {
   flex: 0 0 auto;
   opacity: 0;
   transition: opacity var(--fast) var(--ease);
 }
 .term-tab:hover .term-tab-stop,
 .term-tab:hover .term-tab-info,
-.term-tab:hover .term-tab-kill,
 .term-tab.is-active .term-tab-stop,
 .term-tab.is-active .term-tab-info,
-.term-tab.is-active .term-tab-kill,
 .term-tab-stop:focus-visible,
-.term-tab-info:focus-visible,
-.term-tab-kill:focus-visible { opacity: 1; }
-.term-tab-kill:hover { color: var(--err); }
+.term-tab-info:focus-visible { opacity: 1; }
 .term-tab-info:hover { color: var(--term-bright-blue); }
 /* The interrupt (†): the stop square is filled, as the composer's Stop is, and warms on hover. */
 .term-tab-stop svg path { fill: currentColor; }
@@ -268,6 +263,27 @@
 .term-dot.is-done { background: var(--term-bright-black); }
 .term-dot.is-busy { background: var(--term-yellow); animation: pulse 1.4s var(--ease) infinite; }
 
+/* The fold over other conversations' shells: a quiet heading that is a button, chevron first. */
+.term-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 4px var(--gap-2);
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: .02em;
+  color: var(--text-faint);
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--term-hairline);
+  text-align: left;
+  cursor: pointer;
+}
+.term-group:hover { color: var(--text-dim); }
+.term-group svg { transform: rotate(-90deg); transition: transform var(--fast) var(--ease); }
+.term-group.is-open svg { transform: none; }
+
 .term-empty {
   font-size: var(--text-xs);
   color: var(--text-faint);
@@ -290,7 +306,19 @@
   overflow: hidden;
 }
 .term-cwd { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; min-width: 3rem; }
-.term-meta { flex: 0 0 auto; opacity: .8; }
+.term-meta { flex: 0 1 auto; opacity: .8; overflow: hidden; text-overflow: ellipsis; margin-left: auto; }
+/* Ending a shell: a worded button at the far end, away from the list, red only on hover. */
+.term-foot-close {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  font: inherit;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid var(--term-hairline);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.term-foot-close:hover, .term-foot-close:focus-visible { color: var(--err); border-color: currentColor; }
 /* The stream is not live: said where the state is, in the warning tone, with the way back beside it. (†) */
 .term-meta.is-stale { color: var(--warn); opacity: 1; }
 .term-reconnect { padding: 0; font: inherit; color: var(--accent); background: none; border: 0; cursor: pointer; text-decoration: underline; }

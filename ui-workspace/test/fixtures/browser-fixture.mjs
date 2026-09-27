@@ -138,6 +138,7 @@ export function createFs() {
           },
         ],
         mounts: [{ path: NOVA, mode: "rw" }],
+        folders: [{ path: NOVA, name: "nova", mode: "rw", state: "ready", kind: "dir" }],
       };
       return typeof fs.patchRoots === "function" ? fs.patchRoots(base) : base;
     },
@@ -449,6 +450,8 @@ export async function withPage(browser, name, options, run) {
         const method = route.request().method();
         if (api === "me") return route.fulfill({ json: { user: USER, role } });
         if (api === "models") return route.fulfill({ json: { model: "echo", models: [{ id: "echo", name: "Echo" }] } });
+        // The gateway polls for a pending restart of Thetis; none is pending here.
+        if (api === "restart" && method === "GET") return route.fulfill({ json: { pending: null } });
         if (api === "ui") return route.fulfill({ json: { extensions: [declaration(role)], refused: [] } });
         if (api === "sessions" && method === "GET") return route.fulfill({ json: [session, ...others.map((o) => o.session)] });
         if (api === `sessions/${id}`) return route.fulfill({ json: { ...session, conversation, children: [], usage: {}, turn: null } });

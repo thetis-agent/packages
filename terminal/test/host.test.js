@@ -3,10 +3,10 @@
 // directly would be testing the half that is easy.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { startHost, capAnswer, ANSWER_CHARS, MAX_SESSIONS, IDLE_MINUTES, SOCKET } from "../lib/host.js";
+import { startHost, capAnswer, nameFromCommand, ANSWER_CHARS, MAX_SESSIONS, IDLE_MINUTES, SOCKET } from "../lib/host.js";
 import { connect } from "../lib/client.js";
 
 async function withHost(t, config = {}) {
@@ -39,15 +39,44 @@ test("a command sent over the socket comes back with its status and its output",
   const answer = await c.request("run", { conversation: "conv-1", cmd: "echo over-the-socket", consumer: "conv-1" });
   assert.equal(answer.exit, 0);
   assert.equal(answer.output, "over-the-socket\n");
-  assert.equal(answer.name, "main", "the first command opens the conversation's main session");
+  assert.equal(answer.name, "echo", "the first command opens the conversation's own session, named for what it ran");
+  assert.equal(answer.session.own, true);
 });
 
-test("the session names are main, then 2, then 3", async (t) => {
-  const { client } = await withHost(t, { sessions: 3 });
+test("a shell is named for its directory, or for the first command it runs, and a name is unique in a conversation", async (t) => {
+  const { root, client } = await withHost(t, { sessions: 5 });
+  await mkdir(resolve(root, "runtime"));
   const c = await client();
-  await c.request("run", { conversation: "conv-1", cmd: "true", consumer: "conv-1" });
-  assert.equal((await c.request("open", { conversation: "conv-1" })).name, "2");
-  assert.equal((await c.request("open", { conversation: "conv-1" })).name, "3");
+  assert.equal((await c.request("open", { conversation: "conv-1", cwd: "runtime" })).name, "runtime");
+  assert.equal((await c.request("open", { conversation: "conv-1", cwd: "runtime" })).name, "runtime 2");
+  assert.equal((await c.request("open", { conversation: "conv-2", cwd: "runtime" })).name, "runtime", "another conversation may use the same name");
+  const home = await c.request("open", { conversation: "conv-1" });
+  assert.equal(home.name, "shell", "the home says nothing, so the name waits for the first command");
+  const ran = await c.request("run", { id: home.id, cmd: "npm --version >/dev/null; true", consumer: "conv-1" });
+  assert.equal(ran.name, "npm");
+  await c.request("run", { id: home.id, cmd: "echo again", consumer: "conv-1" });
+  assert.equal((await c.request("list", { conversation: "conv-1" })).find((s) => s.id === home.id).name, "npm", "only the first command names it");
+});
+
+test("a name a person gives is never replaced by the first command", async (t) => {
+  const { client } = await withHost(t);
+  const c = await client();
+  const opened = await c.request("open", { conversation: "conv-1", name: "mine" });
+  const ran = await c.request("run", { id: opened.id, cmd: "true", consumer: "conv-1" });
+  assert.equal(ran.name, "mine");
+});
+
+test("the name a command gives: the directory of a leading cd, else the program and a runner's task", () => {
+  assert.equal(nameFromCommand("cd packages/terminal && npm test"), "terminal");
+  assert.equal(nameFromCommand("cd -- '/srv/my app'; ls"), "my app");
+  assert.equal(nameFromCommand("npm test"), "npm test");
+  assert.equal(nameFromCommand("NODE_ENV=test sudo cargo build --release"), "cargo build");
+  assert.equal(nameFromCommand("git status --short"), "git status");
+  assert.equal(nameFromCommand("/usr/bin/python3 -m http.server"), "python3 http.server");
+  assert.equal(nameFromCommand("vim README.md"), "vim");
+  assert.equal(nameFromCommand("cd ~"), null);
+  assert.equal(nameFromCommand("   "), null);
+  assert.equal(nameFromCommand("$(evil)"), null);
 });
 
 test("the session limit is the one the config names, and the refusal says how to free one", async (t) => {
@@ -153,18 +182,21 @@ test("an attached browser is counted as a watcher, and stops being one when it g
   assert.equal(opened.watchers, 0);
 });
 
-test("the idle reaper closes a session with no viewer and nothing running", async (t) => {
-  const { client } = await withHost(t, { idleMinutes: 0.01 }); // 600 ms, so the test is a test and not a wait
+test("the idle reaper closes a session with nothing happening and nothing running, and the row says why", async (t) => {
+  const { root, client } = await withHost(t, { idleMinutes: 0.01 }); // 600 ms, so the test is a test and not a wait
   const c = await client();
   const opened = await c.request("open", { conversation: "conv-1" });
+  assert.ok((await readdir(resolve(root, "run"))).includes(`term-${opened.id}.rc`));
   await new Promise((r) => setTimeout(r, 1_800));
   const rows = await c.request("list", {});
   const row = rows.find((s) => s.id === opened.id);
   assert.equal(row.state, "closed");
+  assert.equal(row.closedBy, "idle");
   assert.ok(row.closedAt);
+  assert.ok(!(await readdir(resolve(root, "run"))).includes(`term-${opened.id}.rc`), "its init file goes with it");
 });
 
-test("the idle reaper leaves a session alone while a browser is watching it", async (t) => {
+test("an open browser tab does not keep every shell alive: a subscription is not activity", async (t) => {
   const { client } = await withHost(t, { idleMinutes: 0.01 });
   const worker = await client();
   const watcher = await client();
@@ -172,7 +204,55 @@ test("the idle reaper leaves a session alone while a browser is watching it", as
   await watcher.subscribe(undefined, () => {}, { consumer: "ui:one" });
   await new Promise((r) => setTimeout(r, 1_800));
   const row = (await worker.request("list", {})).find((s) => s.id === opened.id);
+  assert.equal(row.state, "closed");
+});
+
+test("the idle reaper leaves a session alone while a browser says it has it on screen", async (t) => {
+  const { client } = await withHost(t, { idleMinutes: 0.02 }); // 1.2 s
+  const c = await client();
+  const opened = await c.request("open", { conversation: "conv-1" });
+  for (let i = 0; i < 6; i++) {
+    await new Promise((r) => setTimeout(r, 400));
+    await c.request("seen", { id: opened.id });
+  }
+  const row = (await c.request("list", {})).find((s) => s.id === opened.id);
   assert.notEqual(row.state, "closed");
+});
+
+test("the idle reaper leaves a session alone while a command runs in it", async (t) => {
+  const { client } = await withHost(t, { idleMinutes: 0.01 });
+  const c = await client();
+  const opened = await c.request("open", { conversation: "conv-1" });
+  await c.request("run", { id: opened.id, cmd: "sleep 3", background: true, consumer: "conv-1" });
+  await new Promise((r) => setTimeout(r, 1_800));
+  const row = (await c.request("list", {})).find((s) => s.id === opened.id);
+  assert.notEqual(row.state, "closed");
+});
+
+test("init files left by shells that were never closed are removed when the host starts", async (t) => {
+  const root = await mkdtemp(resolve(tmpdir(), "thetis-host-"));
+  await mkdir(resolve(root, "run"));
+  await writeFile(resolve(root, "run", "term-0123456789ab.rc"), "# left behind\n");
+  await writeFile(resolve(root, "run", "web.sock.keep"), "not ours\n");
+  const host = await startHost({ root, cwd: root, config: {}, log: () => {} });
+  t.after(async () => {
+    await host.stop();
+    await rm(root, { recursive: true, force: true });
+  });
+  const left = await readdir(resolve(root, "run"));
+  assert.ok(!left.includes("term-0123456789ab.rc"));
+  assert.ok(left.includes("web.sock.keep"), "only the terminal's own files are touched");
+});
+
+test("count says how many shells are open across every conversation", async (t) => {
+  const { client } = await withHost(t, { sessions: 4 });
+  const c = await client();
+  assert.deepEqual(await c.request("count", {}), { open: 0 });
+  await c.request("open", { conversation: "conv-a" });
+  const b = await c.request("open", { conversation: "conv-b" });
+  assert.deepEqual(await c.request("count", {}), { open: 2 });
+  await c.request("close", { id: b.id });
+  assert.deepEqual(await c.request("count", {}), { open: 1 });
 });
 
 test("closing the host closes every session in it", async (t) => {
@@ -193,7 +273,7 @@ test("closing the host closes every session in it", async (t) => {
 test("connecting where no host is listening says what a person can do about it", async (t) => {
   const root = await mkdtemp(resolve(tmpdir(), "thetis-none-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  await assert.rejects(() => connect(root), /the terminal service is not running in this workspace/);
+  await assert.rejects(() => connect(root), /the terminal service is not running in your space/);
 });
 
 test("a session can be renamed, and the new name is what the list says", async (t) => {
@@ -269,6 +349,6 @@ test("an agent's answer is capped and a browser's is not", async (t) => {
 
 test("the documented defaults are the ones the code uses", () => {
   assert.equal(MAX_SESSIONS, 8);
-  assert.equal(IDLE_MINUTES, 30);
+  assert.equal(IDLE_MINUTES, 120);
   assert.equal(ANSWER_CHARS, 30_000);
 });

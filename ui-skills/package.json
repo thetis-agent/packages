@@ -1,6 +1,6 @@
 {
   "name": "@thetis/ui-skills",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "The Skills dock of the web gateway: the skills the open conversation can reach, which are in force, and what the project switched off.",
   "type": "module",
@@ -13,6 +13,7 @@
   },
   "thetis": {
     "type": "ui",
+    "label": "skills panel",
     "ui": {
       "dir": "ui",
       "entry": "index.js",

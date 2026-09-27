@@ -13,6 +13,9 @@ import * as main from "../index.js";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const LAST_CALL = { model: "echo/echo-1", system: "# Hello\n\nBe brief.", systemChars: 19, tools: ["exec", "read_path"], messages: 3, at: "2026-09-15T10:00:00.000Z" };
+/** What `context` sends of LAST_CALL: everything but the big texts, which come a page at a time. */
+const { system: _system, ...SUMMARY } = LAST_CALL;
+const EMPTY_USAGE = { usageCount: 0, usageTotals: {} };
 
 function fakeEnv(records, session, files = {}) {
   const seen = [];
@@ -34,7 +37,7 @@ function fakeEnv(records, session, files = {}) {
 test("context answers the turn count and the harness record of the named session", async () => {
   const { env, seen } = fakeEnv({ "s-1": { id: "s-1", turns: 4, harness: { "@thetis/harness-core": { notes: "n", lastCall: LAST_CALL } } } }, "s-1");
   const out = await main.uiContext({}, env);
-  assert.deepEqual(out, { data: { turns: 4, status: "idle", started: true, lastCall: LAST_CALL, usage: [] } });
+  assert.deepEqual(out, { data: { turns: 4, status: "idle", started: true, lastCall: SUMMARY, usage: [], ...EMPTY_USAGE } });
   assert.deepEqual(seen, ["s-1"]);
 });
 
@@ -42,7 +45,7 @@ test("context answers lastCall null when the harness has not recorded a call", a
   const cases = [{}, { "@thetis/harness-core": {} }, { "@thetis/harness-core": { lastCall: "no" } }, { "@thetis/harness-core": [] }];
   for (const harness of cases) {
     const { env } = fakeEnv({ "s-1": { id: "s-1", turns: 0, harness } }, "s-1");
-    assert.deepEqual(await main.uiContext({}, env), { data: { turns: 0, status: "idle", started: false, lastCall: null, usage: [] } });
+    assert.deepEqual(await main.uiContext({}, env), { data: { turns: 0, status: "idle", started: false, lastCall: null, usage: [], ...EMPTY_USAGE } });
   }
 });
 
@@ -58,7 +61,12 @@ test("context reads the current first request while the session's saved harness 
   const { env } = fakeEnv({ s_1: { turns: 0, status: "running", turn: { id: "t_1" }, conversation: [{ role: "user", content: "working" }], harness: {} } }, "s_1", {
     "harness-core/context/s_1.json": { lastCall: current, usage: [entry] },
   });
-  assert.deepEqual((await main.uiContext({}, env)).data, { turns: 0, status: "running", started: true, lastCall: current, usage: [entry] });
+  const { system: _s, request: _r, ...scalars } = current;
+  assert.deepEqual((await main.uiContext({}, env)).data, {
+    turns: 0, status: "running", started: true,
+    lastCall: { ...scalars, request: { params: { model: "echo" }, messages: [{ index: 0, role: "user", gist: "working", bytes: 35, cache: false }], messageCount: 1, tools: [], bytes: 65 } },
+    usage: [entry], usageCount: 1, usageTotals: { prompt_tokens: 100, cost: 0.02 },
+  });
 });
 
 test("historical gateway usage fills older turns without double-counting captured turns", async () => {
@@ -73,6 +81,48 @@ test("historical gateway usage fills older turns without double-counting capture
     { id: "history-0", firstMessage: 0, status: "complete", calls: 2, usage: { cost: 0.05, prompt_tokens: 210 } },
     { ...usage, status: "interrupted" },
   ]);
+});
+
+test("a request of megabytes is summarised under the answer limit, and its pages put it back together exactly", async () => {
+  const messages = Array.from({ length: 3000 }, (_, i) => ({ role: i % 2 ? "assistant" : "user", content: `message ${i} ${"é\"\n".repeat(700)}` }));
+  const request = { model: "echo", temperature: 0.1, messages, tools: [{ type: "function", function: { name: "exec", parameters: {} } }] };
+  const call = { ...LAST_CALL, system: "S".repeat(300_000), systemChars: 300_000, format: "wire", request };
+  const usage = Array.from({ length: 900 }, (_, i) => ({ id: `t${i}`, firstMessage: 0, status: "complete", calls: 1, usage: { cost: 0.01, prompt_tokens: 10 } }));
+  const { env } = fakeEnv({ s_1: { turns: 900, status: "idle", conversation: [], harness: {} } }, "s_1", { "harness-core/context/s_1.json": { lastCall: call, usage } });
+  const out = await main.uiContext({}, env);
+  assert.ok(Buffer.byteLength(JSON.stringify(out)) < main.ANSWER_BYTES + 1024, "the summary fits the gateway's limit");
+  const summary = out.data.lastCall.request;
+  assert.equal(summary.messageCount, 3000);
+  assert.ok(summary.messages.length < 3000 && summary.messages.at(-1).index === 2999, "the newest rows are kept, numbered as in the request");
+  assert.equal(out.data.usageCount, 900);
+  assert.ok(out.data.usage.length <= main.USAGE_ROWS);
+  assert.equal(Math.round(out.data.usageTotals.cost * 100) / 100, 9, "the totals count every row, listed or not");
+
+  async function whole(part, index) {
+    let text = "";
+    let offset = 0;
+    for (;;) {
+      const page = (await main.uiContextPage({ part, index, offset, at: call.at }, env)).data;
+      assert.ok(Buffer.byteLength(JSON.stringify(page)) < main.ANSWER_BYTES + 1024, `a ${part} page fits the limit`);
+      text += page.text;
+      if (page.next === null) return text;
+      offset = page.next;
+    }
+  }
+  assert.equal(await whole("system"), call.system);
+  assert.deepEqual(JSON.parse(await whole("request")), request);
+  assert.deepEqual(JSON.parse(await whole("message", 2999)), messages[2999]);
+  assert.deepEqual(JSON.parse(await whole("tool", 0)), request.tools[0]);
+  assert.deepEqual((await main.uiContextPage({ part: "system", at: "2020-01-01T00:00:00Z" }, env)).data, { at: call.at, changed: true }, "a replaced capture is said, not stitched");
+  await assert.rejects(main.uiContextPage({ part: "message", index: 3000 }, env), /There is no message 3000/);
+  await assert.rejects(main.uiContextPage({ part: "secrets" }, env), /There is no part called "secrets"/);
+});
+
+test("context-page refuses without a capture and without a conversation", async () => {
+  const { env } = fakeEnv({ s_1: { turns: 0, harness: {} } }, "s_1");
+  await assert.rejects(main.uiContextPage({ part: "system" }, env), /No request has been captured/);
+  const none = fakeEnv({}, undefined);
+  await assert.rejects(main.uiContextPage({ part: "system" }, none.env), { message: "no conversation is open" });
 });
 
 test("a failed or older conversation without a capture is still reported as started", async () => {
@@ -203,11 +253,25 @@ test("install registers the context dock and asks nothing; the first draw asks o
   assert.equal(log.requests.length, 1, "drawing what was received sends nothing");
 });
 
-test("a call draws the Request tab with the scalars and the tool pills, and the Prompt tab with the markdown and Copy", async () => {
-  const { ext, log, answer, draw } = fakeExt();
+test("without developer details there is no Request tab: the dock opens on Usage, and Prompt is there", async () => {
+  const { ext, answer, draw } = fakeExt();
   install(ext);
   draw();
-  answer({ turns: 3, lastCall: LAST_CALL });
+  answer({ turns: 3, lastCall: SUMMARY });
+  await tick();
+  const view = draw();
+  assert.deepEqual(find(view.body, "ui-context-tab").map(text), ["Prompt", "Usage"]);
+  assert.deepEqual(find(view.body, "ui-context-tab").map((t) => t.props["aria-selected"]), ["false", "true"]);
+  assert.match(text(view.body), /Session cost/);
+  assert.equal(find(view.body, "ui-context-raw").length, 0);
+});
+
+test("a call draws the Request tab with the scalars and the tool pills, and the Prompt tab with the markdown and Copy", async () => {
+  const { ext, log, answer, draw } = fakeExt();
+  ext.developer = () => true;
+  install(ext);
+  draw();
+  answer({ turns: 3, lastCall: SUMMARY });
   await tick();
   let view = draw();
   assert.equal(view.subtitle, "turn 3 · echo/echo-1 · 19 chars");
@@ -221,10 +285,20 @@ test("a call draws the Request tab with the scalars and the tool pills, and the 
   assert.equal(log.redraws, 2, "the tab switch redraws through ext.redraw");
   view = draw();
   assert.deepEqual(find(view.body, "ui-context-tab").map((t) => t.props["aria-selected"]), ["false", "true", "false"]);
+  assert.match(text(view.body), /Loading the prompt/);
+  assert.equal(log.requests.length, 2, "the prompt is asked for when the Prompt tab needs it");
+  assert.deepEqual(log.requests[1], { verb: "context-page", session: "s_1", args: { part: "system", offset: 0, at: LAST_CALL.at } });
+  answer({ at: LAST_CALL.at, text: "# Hello\n\n", offset: 0, next: 9, total: 19 });
+  await tick();
+  assert.deepEqual(log.requests[2].args, { part: "system", offset: 9, at: LAST_CALL.at }, "the next page follows");
+  answer({ at: LAST_CALL.at, text: "Be brief.", offset: 9, next: null, total: 19 });
+  await tick();
+  view = draw();
   assert.equal(text(find(view.body, "ui-context-prompt")[0]), LAST_CALL.system);
   assert.equal(view.actions.length, 2);
   assert.equal(text(view.actions[0]), "Copy");
-  assert.equal(log.requests.length, 1);
+  draw();
+  assert.equal(log.requests.length, 3, "a prompt held is not asked for again");
 });
 
 test("with the dock open, a turn's end in the open conversation asks again; one in another does not; triggers during a request coalesce", async () => {
@@ -264,7 +338,7 @@ test("with the dock open, a conversation change asks for the new one, and an ans
   await tick();
   const view = draw();
   assert.equal(view.subtitle, "turn 1");
-  assert.match(text(view.body), /No request capture is available/);
+  assert.match(text(view.body), /No usage has been recorded in this conversation yet\./, "the Usage tab, for everyone: s_1's answer is not shown");
 });
 
 test("with the dock closed, conversation changes ask nothing; opening it asks once, for the conversation open then", async () => {
@@ -340,8 +414,9 @@ test("an open dock refreshes on request capture during the first turn, without w
   assert.equal(f.log.requests.length, 1);
   f.event("s_1", "context.updated");
   assert.equal(f.log.requests.length, 2);
-  f.answer({ turns: 0, status: "running", lastCall: LAST_CALL });
+  f.answer({ turns: 0, status: "running", lastCall: SUMMARY });
   await tick();
+  f.ext.developer = () => true;
   view = f.draw();
   assert.match(view.subtitle, /^turn 1 · running/);
   assert.match(text(view.body), /echo\/echo-1/);
@@ -358,13 +433,26 @@ test("full request messages, tool schemas, cache breakpoints and usage are inspe
       { role: "tool", tool_call_id: "c1", content: "<script>do not execute</script>" }],
     tools: [{ type: "function", function: { name: "exec", description: "Execute a command", parameters: { type: "object", required: ["cmd"] } } }],
   };
-  f.answer({ turns: 0, status: "running", lastCall: { ...LAST_CALL, format: "wire", request, usage: { prompt_tokens: 100, completion_tokens: 12, cache_read_tokens: 80 } },
-    usage: [{ id: "t1", calls: 2, status: "running", usage: { cost: 0.032, prompt_tokens: 300, completion_tokens: 40, cache_read_tokens: 80 } }] });
+  const call = { ...LAST_CALL, format: "wire", request, usage: { prompt_tokens: 100, completion_tokens: 12, cache_read_tokens: 80 } };
+  const usage = [{ id: "t1", firstMessage: 0, calls: 2, status: "running", usage: { cost: 0.032, prompt_tokens: 300, completion_tokens: 40, cache_read_tokens: 80 } }];
+  const server = fakeEnv({ s_1: { turns: 0, status: "running", turn: { id: "t1" }, conversation: [{ role: "user", content: "x" }], harness: {} } }, "s_1", { "harness-core/context/s_1.json": { lastCall: call, usage } });
+  f.ext.developer = () => true;
+  f.answer((await main.uiContext({}, server.env)).data);
   await tick();
   let view = f.draw();
   const content = text(view.body);
-  for (const value of ["exact request body", "temperature", "0.25", "cache_control", "tool_call_id", "Execute a command", "required", "Full request JSON"]) assert.ok(content.includes(value), value);
+  for (const value of ["exact request body", "temperature", "0.25", "cache_control", "for c1", "exec", "Full request JSON"]) assert.ok(content.includes(value), value);
   assert.deepEqual(view.actions.map(text), ["Copy JSON", "Refresh"]);
+  // Opening one message asks for that message alone; its JSON arrives and is drawn in the open fold.
+  const fold = find(view.body, "ui-context-detail").find((d) => text(d).includes("for c1"));
+  const asked = f.log.requests.length;
+  fold.props.onToggle({ currentTarget: { open: true } });
+  assert.deepEqual(f.log.requests.at(-1), { verb: "context-page", session: "s_1", args: { part: "message", index: 2, offset: 0, at: call.at } });
+  f.answer((await main.uiContextPage(f.log.requests.at(-1).args, server.env)).data);
+  await tick();
+  view = f.draw();
+  assert.ok(text(view.body).includes('"tool_call_id": "c1"'), "the message's JSON is shown once it has arrived");
+  assert.equal(f.log.requests.length, asked + 1);
   find(view.body, "ui-context-tab")[2].props.onClick();
   view = f.draw();
   assert.match(text(view.body), /Session cost\$0.0320/);

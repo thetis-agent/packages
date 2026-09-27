@@ -1,9 +1,11 @@
-/* The Skills dock: what the open conversation can reach among the skills, and which are in force. The
- * groups fold, as the inspector's always did: the loader in force (or that none is installed), the
- * problems lint found, the skills always in force, the ones retrieved for this conversation with their
+/* The Skills dock: what the open conversation can reach among the skills, and which are in force. It
+ * opens on one plain paragraph that names the skills in force in this conversation (or says why there
+ * are none). The groups below fold, as the inspector's always did: the skills always in force, the ones retrieved for this conversation with their
  * score drawn as a bar against the best in the group and how they got there in words, the bodies the
  * model loaded, what the project switched off, what the loader dropped for its budget, its notes, and
  * the catalogue, grouped by skill family (the first segment of the id) with each family its own fold.
+ * The authoring diagnostics — the problems lint found, the loader's notes, the loader's package name
+ * and the legend of disclosure levels — are shown only with developer details on (`ext.developer()`).
  * Every group carries a count and a sentence saying what it means; which groups the reader has folded is
  * remembered across redraws and visits. A card shows the name, the id, the brief, pills for what is
  * nested and what files sit beside the body, and a Details fold with the whole description, the nested
@@ -18,7 +20,7 @@
 import { bm25Index, bm25Search } from "./rank.js";
 
 const DOCK = "skills";
-const NO_LOADER = "No skill loader is installed. Install one of @thetis/skills-hybrid, @thetis/skills-l1 or @thetis/skills-all.";
+const NO_LOADER = "No skill reaches the model: the extension that puts skills in the prompt is not installed. Install skills-hybrid (or skills-l1, or skills-all) from the Marketplace.";
 const FOLDS = "thetis.skills.folds";
 
 /** How a skill got where it is, in words, with the longer reading on hover. */
@@ -42,6 +44,15 @@ export default function install(ext) {
   const folds = loadFolds(); // group key -> open (true) or folded (false), as the reader last left it
 
   const current = () => ext.conversation.current ?? null;
+
+  /** Whether the person asked for developer details. The gateway may not offer the preference yet. */
+  function developer() {
+    try {
+      return typeof ext.developer === "function" && ext.developer() === true;
+    } catch {
+      return false;
+    }
+  }
 
   async function ask() {
     const session = current();
@@ -122,7 +133,7 @@ export default function install(ext) {
     if (skill.resources.length) rows.push(el("p", { class: "sk-meta" }, el("strong", {}, "Files: "), skill.resources.join(", ")));
     if (skill.tags.length) rows.push(el("p", { class: "sk-meta" }, el("strong", {}, "Tags: "), skill.tags.join(", ")));
     if (skill.related.length) rows.push(el("p", { class: "sk-meta" }, el("strong", {}, "Related: "), skill.related.join(", ")));
-    for (const p of skill.problems) rows.push(el("p", { class: `sk-meta sk-problem is-${p.level}` }, el("strong", {}, `${p.level}: `), p.message));
+    if (developer()) for (const p of skill.problems) rows.push(el("p", { class: `sk-meta sk-problem is-${p.level}` }, el("strong", {}, `${p.level}: `), p.message));
     rows.push(el("p", { class: "sk-meta" }, el("strong", {}, "From: "), skill.package ?? "your skills/"));
     return rows.length ? el("details", { class: "sk-more" }, el("summary", {}, "Details"), ...rows) : null;
   }
@@ -184,12 +195,54 @@ export default function install(ext) {
 
   // --- the groups ---
 
-  function loaderSection(data, session) {
-    if (!session) return el("section", { class: "sk-section sk-loader" }, el("div", { class: "section-head" }, el("span", { class: "section-label" }, "Loader")), empty("Open a conversation to see which loader is in force and what it put in the prompt."));
-    const body = data.loader
-      ? el("div", { class: "sk-loader-line" }, el("code", { class: "sk-loader-name" }, data.loader), el("span", { class: "text-faint" }, "wrote the prompt of the last turn"))
-      : empty(data.loaders.length ? `${data.loaders.join(", ")} is installed; it writes what it did after the first turn of this conversation.` : NO_LOADER);
-    return el("section", { class: "sk-section sk-loader" }, el("div", { class: "section-head" }, el("span", { class: "section-label" }, "Loader")), body);
+  /** The name a person reads for a skill: its title, else its name, else its id. */
+  const nameOf = (id) => {
+    const skill = answer.byId.get(id);
+    return skill?.title || skill?.name || id;
+  };
+  const names = (list) => list.map(nameOf).join(", ");
+
+  /** The skills in force in this conversation, every id once: always, then picked, then opened. */
+  function inForce(data) {
+    const seen = new Set();
+    for (const id of [...data.universal, ...data.pinned.map((p) => p.id), ...data.loaded]) seen.add(id);
+    return [...seen];
+  }
+
+  /**
+   * The dock's first words: which skills are in force in this conversation, in plain words, or why none
+   * are. The loader that decided it is named only with developer details on; a person needs to know
+   * what the agent was given, not which extension gave it.
+   */
+  function inForceSection(data, session) {
+    const head = el("div", { class: "section-head" }, el("span", { class: "section-label" }, "In force"));
+    const lines = [];
+    if (!session) {
+      lines.push(empty("Open a conversation to see which skills are in force in it."));
+    } else if (!data.loader && !data.loaders.length) {
+      lines.push(empty(NO_LOADER));
+    } else if (!data.loader) {
+      const declared = data.skills.filter((s) => s.universal && !data.excluded.includes(s.id)).map((s) => s.id);
+      lines.push(el("p", { class: "sk-plain" }, "No skills are in force yet. They are chosen when the first message of this conversation is sent."));
+      if (declared.length) lines.push(el("p", { class: "sk-plain" }, el("strong", {}, "Always included: "), names(declared), "."));
+    } else {
+      const picked = data.pinned.map((p) => p.id).filter((id) => !data.universal.includes(id));
+      const opened = data.loaded.filter((id) => !data.universal.includes(id) && !picked.includes(id));
+      const total = inForce(data).length;
+      lines.push(el("p", { class: "sk-plain" }, total ? `${plural(total, "skill")} ${total === 1 ? "is" : "are"} in force in this conversation.` : "No skill is in force in this conversation."));
+      if (data.universal.length) lines.push(el("p", { class: "sk-plain" }, el("strong", {}, "Always: "), names(data.universal), "."));
+      if (picked.length) lines.push(el("p", { class: "sk-plain" }, el("strong", {}, "Picked for this conversation: "), names(picked), "."));
+      if (opened.length) lines.push(el("p", { class: "sk-plain" }, el("strong", {}, "Opened by the agent: "), names(opened), "."));
+    }
+    if (session && data.excluded.length) lines.push(el("p", { class: "sk-plain text-faint" }, `The project switched off ${plural(data.excluded.length, "skill")}.`));
+    if (session && developer()) {
+      lines.push(
+        data.loader
+          ? el("div", { class: "sk-loader-line" }, el("code", { class: "sk-loader-name" }, data.loader), el("span", { class: "text-faint" }, "wrote the prompt of the last turn"))
+          : el("div", { class: "sk-loader-line text-faint" }, data.loaders.length ? `${data.loaders.join(", ")} is installed; it writes what it did after the first turn of this conversation.` : "No skill loader is installed.")
+      );
+    }
+    return el("section", { class: "sk-section sk-inforce" }, head, ...lines);
   }
 
   function problemsSection(data) {
@@ -240,7 +293,7 @@ export default function install(ext) {
     clear(list);
     const q = query.trim();
     if (!q) {
-      if (!data.skills.length) return list.append(empty("No skills are installed. A package that declares thetis.skills, or a skills/ directory under your home, adds some."));
+      if (!data.skills.length) return list.append(empty("No skills are installed. An extension with skills, or a skills/ directory in your home, adds some."));
       const families = new Map();
       for (const s of data.skills) {
         const family = s.id.split("/")[0];
@@ -278,22 +331,23 @@ export default function install(ext) {
   }
 
   function drawList(root, data, session) {
-    if (data.skills.length) root.append(legend());
-    root.append(loaderSection(data, session));
-    const problems = problemsSection(data);
+    const dev = developer();
+    root.append(inForceSection(data, session));
+    if (dev && data.skills.length) root.append(legend());
+    const problems = dev ? problemsSection(data) : null;
     if (problems) root.append(problems);
     root.append(universalSection(data));
     if (data.pinned.length || data.loader) root.append(pinnedSection(data));
     if (data.loaded.length) root.append(loadedSection(data));
     root.append(offSection(data));
     if (data.dropped.length) root.append(droppedSection(data));
-    if (data.notes.length) root.append(notesSection(data));
+    if (dev && data.notes.length) root.append(notesSection(data));
     root.append(catalogueSection(data));
-    const parts = [plural(data.skills.length, "skill")];
-    if (data.universal.length) parts.push(`${data.universal.length} always`);
-    const chosen = data.pinned.filter((p) => !data.universal.includes(p.id)).length;
-    if (chosen) parts.push(`${chosen} retrieved`);
-    parts.push(data.loader ?? "no loader in force");
+    const parts = [];
+    if (session && data.loader) parts.push(`${inForce(data).length} in force`);
+    parts.push(plural(data.skills.length, "skill"));
+    if (session && !data.loader && !data.loaders.length) parts.push("not in use");
+    if (dev) parts.push(data.loader ?? "no loader in force");
     return { title: "Skills", subtitle: parts.join(" · "), body: root };
   }
 
@@ -322,6 +376,12 @@ export default function install(ext) {
   }
 
   ext.dock(DOCK, { draw });
+  // Developer details show the diagnostics; the open dock follows the preference.
+  try {
+    ext.onDeveloper?.(() => ext.redraw(DOCK));
+  } catch {
+    /* an older gateway: no preference */
+  }
   // A new conversation on screen: back to the list; the open dock redraws, finds no answer for it, and asks.
   ext.conversation.watch(() => {
     open = null;

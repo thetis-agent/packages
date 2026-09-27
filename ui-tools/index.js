@@ -13,19 +13,18 @@
 /** The key `@thetis/harness-core` keeps its per-session state under. */
 const HARNESS = "@thetis/harness-core";
 
-/** Tool names that read and never write, by their first word. `todo_read` is the one exception to the word rule. */
-const READING_WORDS = new Set(["read", "search", "find", "get", "list"]);
-
 /**
- * A guess from the name alone: `read_path`, `search_files`, `find_files`, `get_directory`, `list_*`
- * and `todo_read` read; everything else is taken to change something. The manifest declares no
- * effect, so this is the honest limit of what the dock can say without running the tool.
+ * What a tool declares about its effect: `true` when it only reads, `false` when it can change things,
+ * `null` when it does not say. A declaration is `reads: true | false` on the tool in the manifest, or
+ * the MCP spelling `annotations.readOnlyHint`. Nothing is guessed from the name: the old guess called
+ * every tool that did not start with `read_`, `get_` or `list_` one that "changes files", which was
+ * false of read-only tools such as `moo_list_verbs` and taught people to ignore the badge.
  */
-export function readsOnly(name) {
-  if (typeof name !== "string") return false;
-  if (name === "todo_read") return true;
-  const first = name.split(/[_-]/, 1)[0];
-  return READING_WORDS.has(first);
+export function declaredReads(tool) {
+  if (!tool || typeof tool !== "object") return null;
+  if (typeof tool.reads === "boolean") return tool.reads;
+  const hint = tool.annotations && typeof tool.annotations === "object" ? tool.annotations.readOnlyHint : undefined;
+  return typeof hint === "boolean" ? hint : null;
 }
 
 /** The parameter names a tool's JSON schema marks as required, in declaration order. */
@@ -39,14 +38,16 @@ function reduceTool(tool) {
     name: tool.name,
     description: typeof tool.description === "string" ? tool.description : "",
     required: requiredOf(tool.parameters),
-    reads: readsOnly(tool.name),
+    reads: declaredReads(tool),
   };
 }
 
 function reducePackage(info) {
   const tools = Array.isArray(info.thetis?.tools) ? info.thetis.tools : [];
+  const label = typeof info.thetis?.label === "string" && info.thetis.label.trim() ? info.thetis.label.trim() : null;
   return {
     name: info.name,
+    ...(label ? { label } : {}),
     version: info.version,
     type: info.type,
     description: typeof info.description === "string" ? info.description : "",

@@ -1,5 +1,7 @@
-/* The project page, opened from the switcher with `{ id }` for a project's settings or `{}` for a new
- * one. It asks `get` once, keeps a draft (name, directories, switched-off tools and skills, instructions) and
+/* The project page, opened from the switcher with `{ id }` for a project's settings or `{ new: true }` for a
+ * new one. Opened with neither — from the main menu — it shows the project chosen in the sidebar, and with
+ * none chosen it says "Pick a project or create one": the projects as a list, and New project. An empty
+ * form in that case read as editing something that did not exist, with no Save in view. It asks `get` once, keeps a draft (name, directories, switched-off tools and skills, instructions) and
  * redraws the body from the draft after every edit. Typing is a draft and waits for Save; the two things
  * that change the workspace rather than the record -- a mount, and the directory list that names it -- are
  * sent the moment they change.
@@ -14,7 +16,7 @@
  * being closed too, because Escape closes a place and nothing warned. Save calls `save`,
  * toasts, and refreshes the switcher; for a new project it also chooses it, so the sidebar shows the
  * conversations that join it. Delete sits behind the shell's confirm popover; after it the page becomes
- * the new-project form, because the shell offers no way to close a place from inside it. `open` returns
+ * the pick-or-create list, because the shell offers no way to close a place from inside it. `open` returns
  * an unmount that stops a late answer from drawing into a closed page. */
 
 import { directoriesSection, skillsSection, toolsSection } from "./place-parts.js";
@@ -54,6 +56,10 @@ export function openPlace(ext, state, root, params) {
   const { button, field, section, confirm } = ext.ui;
   let alive = true;
   let id = typeof params.id === "string" ? params.id : null;
+  // Neither a project nor "new": the one chosen in the sidebar, or the list to pick from.
+  if (!id && params.new !== true && state.chosen) id = state.chosen;
+  let picking = !id && params.new !== true;
+  let unwatch = null; // the list follows the state while it is on screen
   let draft = null; // { name, directories, disable: Set, disableSkills: Set, instructions }
   let facts = null; // { mounts, states, tools, skills, conversations, user }
   let saved = null; // the record the server holds, so the page can say what is not in it yet
@@ -62,6 +68,52 @@ export function openPlace(ext, state, root, params) {
   let checking = 0; // the last state check, so a slow answer never overwrites a newer one
 
   root.append(el("div", { class: "pj-place" }, el("p", { class: "panel-empty" }, "Loading…")));
+
+  /** Leaves the list for one project's page, or for the new-project form with `null`. */
+  function open(next) {
+    picking = false;
+    unwatch?.();
+    unwatch = null;
+    id = next;
+    draft = null;
+    saved = null;
+    clear(root);
+    root.append(el("div", { class: "pj-place" }, el("p", { class: "panel-empty" }, "Loading…")));
+    load();
+  }
+
+  /** "Pick a project or create one": every project, a click away, and New project. Nothing to edit here. */
+  function drawPicker() {
+    if (!alive || !picking) return;
+    clear(root);
+    const projects = state.projects;
+    const rows = projects.map((p) => {
+      const n = p.conversations ?? 0;
+      const dirs = Array.isArray(p.directories) ? p.directories.length : 0;
+      const pickBtn = el(
+        "button",
+        { type: "button", class: "pj-pick-row", onClick: () => {
+          state.choose(p.id);
+          open(p.id);
+        } },
+        el("span", { class: "pj-pick-name" }, p.name || p.id),
+        el("span", { class: "pj-pick-note" }, `${n} ${n === 1 ? "conversation" : "conversations"} · ${dirs} ${dirs === 1 ? "directory" : "directories"}`)
+      );
+      return pickBtn;
+    });
+    const newBtn = button("New project", { tone: "primary" });
+    newBtn.addEventListener("click", () => open(null));
+    root.append(
+      el("div", { class: "pj-place" },
+        el("div", { class: "pj-page pj-picker" },
+          el("h2", { class: "pj-pick-title" }, "Pick a project or create one"),
+          el("p", { class: "pj-facts" }, "A project gives its conversations directories, standing instructions, and the tools and skills it switches off. Picking one also narrows the sidebar to its conversations."),
+          rows.length ? el("div", { class: "pj-pick-list" }, ...rows) : el("p", { class: "pj-empty" }, "You have no projects yet."),
+          el("div", { class: "pj-actions" }, newBtn)
+        )
+      )
+    );
+  }
 
   async function load() {
     try {
@@ -120,7 +172,7 @@ export function openPlace(ext, state, root, params) {
       } catch (err) {
         if (!alive || mine !== checking) return;
         if (Date.now() >= deadline) {
-          ext.toast("The workspace did not answer. Reload the page to see what it has.", { tone: "error" });
+          ext.toast("Your space did not answer. Reload the page to see what it has.", { tone: "error" });
           return;
         }
         await new Promise((done) => setTimeout(done, 700));
@@ -148,7 +200,7 @@ export function openPlace(ext, state, root, params) {
       draw();
     } catch (err) {
       if (!alive) return;
-      ext.toast(err?.message || "The directory list could not be saved. Use Save when the workspace answers again.", { tone: "error" });
+      ext.toast(err?.message || "The directory list could not be saved. Use Save when your space answers again.", { tone: "error" });
       draw();
     }
   }
@@ -185,7 +237,7 @@ export function openPlace(ext, state, root, params) {
       lines: [["Directory", path], ["Mode", mode === null ? "none" : mode === "ro" ? "read-only" : "read-write"]],
       // A bind belongs to the workspace, not to the project, and it outlives the form it was made from.
       // Said plainly here, because a new project that is never created still leaves its binds behind.
-      note: `Your workspace closes and opens again with the change, and its services restart. A tool call in flight is given up to half a minute to finish first; a turn carries on across the change. This page reconnects on its own. Nothing on disk is touched.${id ? "" : " This project does not exist yet, and the bind is a change to your workspace either way: it stays even if you never create it."}`,
+      note: `Your space closes and opens again with the change, and its services restart. A tool call in flight is given up to half a minute to finish first; a turn carries on across the change. This page reconnects on its own. Nothing on disk is touched.${id ? "" : " This project does not exist yet, and the bind is a change to your space either way: it stays even if you never create it."}`,
       confirmLabel: mode === null ? "Unbind" : "Bind",
       tone: mode === null ? "warn" : "primary",
     });
@@ -196,7 +248,7 @@ export function openPlace(ext, state, root, params) {
       const out = await ext.request("mount", { args: { path, mode } });
       const m = out?.data?.mount ?? null;
       if (mode === null) ext.toast(`${path} is no longer bound.`, { tone: "ok" });
-      else if (m && m.present === false) ext.toast(`${path} is written down, but the host has nothing there, so the workspace opened without it.`, { tone: "error" });
+      else if (m && m.present === false) ext.toast(`${path} is written down, but the host has nothing there, so your space opened without it.`, { tone: "error" });
       else ext.toast(`${path} is bound ${mode === "ro" ? "read-only" : "read-write"}.`, { tone: "ok" });
       said = true;
     } catch {
@@ -205,7 +257,7 @@ export function openPlace(ext, state, root, params) {
       if (alive) anchor.disabled = false;
     }
     await checkStates({ wait: 75_000 }); // the drain (up to 30 s), then the close and the reopen
-    if (!said && alive) ext.toast(mode === null ? `${path} is no longer bound.` : "The workspace reopened with the change.", { tone: "ok" });
+    if (!said && alive) ext.toast(mode === null ? `${path} is no longer bound.` : "Your space reopened with the change.", { tone: "ok" });
   }
 
   /** The directory picker, over the host directories an admin may bind. `accept` puts the path in the draft. */
@@ -215,7 +267,7 @@ export function openPlace(ext, state, root, params) {
       title: "Choose a project directory",
       start: lastBrowsed(),
       browse: async (path) => (await ext.request("browse", { args: { path } }))?.data ?? null,
-      note: "The picker shows the host's directories. The one you choose is added to the project and bound into your workspace.",
+      note: "The picker shows the host's directories. The one you choose is added to the project and bound into your space.",
       confirmLabel: "Use this directory",
       extra: mode,
     });
@@ -309,7 +361,10 @@ export function openPlace(ext, state, root, params) {
       if (state.chosen === id) state.choose(null);
       id = null;
       await state.refresh();
-      if (alive) load();
+      if (!alive) return;
+      picking = true;
+      unwatch = state.watch(drawPicker);
+      drawPicker();
     } catch (err) {
       ext.toast(err?.message || "The project could not be deleted.", { tone: "error" });
     }
@@ -357,12 +412,17 @@ export function openPlace(ext, state, root, params) {
   }
   window.addEventListener("beforeunload", beforeUnload);
 
-  load();
+  if (picking) {
+    unwatch = state.watch(drawPicker);
+    drawPicker();
+  } else load();
   return () => {
     alive = false;
+    unwatch?.();
     window.removeEventListener("beforeunload", beforeUnload);
     // Escape closes a place, and so does opening a conversation. Keep what was typed, for this page load,
     // so coming back to the project finds it rather than an empty form.
+    if (picking) return;
     if (draft && unsaved().length) keptDrafts.set(id ?? "new", draft);
     else keptDrafts.delete(id ?? "new");
   };

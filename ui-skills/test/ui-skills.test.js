@@ -274,10 +274,24 @@ test("install registers the skills dock; the first draw asks once and the sectio
   assert.deepEqual(log.requests, [{ verb: "skills", session: "s_1" }]);
   assert.equal(log.redraws, 1);
 
+  const plain = log.docks.skills.draw();
+  assert.equal(plain.subtitle, "3 in force · 5 skills");
+  assert.deepEqual(find(plain.body, "sk-section").map((s) => s.props.class.split(" ")[1]), ["sk-inforce", "sk-universal", "sk-pinned", "sk-loaded", "sk-off", "sk-catalogue"], "no Problems, no Notes without developer details");
+  assert.equal(find(plain.body, "sk-legend").length, 0);
+  assert.equal(find(plain.body, "sk-loader-name").length, 0, "the loader's package is a developer detail");
+  assert.equal(find(plain.body, "sk-problem").length, 0, "nor are a card's lint lines");
+  const said = text(find(plain.body, "sk-inforce")[0]);
+  assert.match(said, /3 skills are in force in this conversation\./);
+  assert.match(said, /Always: .*\./);
+  assert.match(said, /Picked for this conversation: /);
+  assert.match(said, /Opened by the agent: /);
+  assert.match(said, /The project switched off 2 skills\./);
+
+  ext.developer = () => true;
   const view = log.docks.skills.draw();
-  assert.equal(view.subtitle, "5 skills · 1 always · 1 retrieved · @thetis/skills-l1");
+  assert.equal(view.subtitle, "3 in force · 5 skills · @thetis/skills-l1");
   const sections = find(view.body, "sk-section").map((s) => s.props.class.split(" ")[1]);
-  assert.deepEqual(sections, ["sk-loader", "sk-problems", "sk-universal", "sk-pinned", "sk-loaded", "sk-off", "sk-notes", "sk-catalogue"]);
+  assert.deepEqual(sections, ["sk-inforce", "sk-problems", "sk-universal", "sk-pinned", "sk-loaded", "sk-off", "sk-notes", "sk-catalogue"]);
   assert.equal(find(view.body, "sk-legend").length, 1, "the legend explains the four disclosure levels");
   for (const s of find(view.body, "sk-section").slice(1)) assert.equal(s.tag, "details", `${s.props.class} folds`);
   assert.equal(find(view.body, "sk-off")[0].props.open, null, "switched off starts folded");
@@ -319,8 +333,8 @@ test("without a loader the dock says so, and the universal section shows what is
   log.docks.skills.draw();
   await tick();
   const view = log.docks.skills.draw();
-  assert.equal(view.subtitle, "5 skills · no loader in force");
-  assert.match(text(find(view.body, "sk-loader")[0]), /No skill loader is installed\. Install one of @thetis\/skills-hybrid, @thetis\/skills-l1 or @thetis\/skills-all\./);
+  assert.equal(view.subtitle, "5 skills · not in use");
+  assert.match(text(find(view.body, "sk-inforce")[0]), /No skill reaches the model: the extension that puts skills in the prompt is not installed\. Install skills-hybrid/);
   assert.deepEqual(ids(find(view.body, "sk-universal")[0]), ["concise"]);
   assert.match(text(find(view.body, "sk-universal")[0]), /Declared universal/);
   assert.equal(find(view.body, "sk-pinned").length, 0);
@@ -331,7 +345,11 @@ test("without a loader the dock says so, and the universal section shows what is
   install(ext2);
   log2.docks.skills.draw();
   await tick();
-  assert.match(text(find(log2.docks.skills.draw().body, "sk-loader")[0]), /@thetis\/skills-l1 is installed; it writes what it did after the first turn/);
+  const waiting = log2.docks.skills.draw();
+  assert.equal(waiting.subtitle, "5 skills");
+  assert.match(text(find(waiting.body, "sk-inforce")[0]), /No skills are in force yet\. They are chosen when the first message of this conversation is sent\.Always included: .+\./);
+  ext2.developer = () => true;
+  assert.match(text(find(log2.docks.skills.draw().body, "sk-inforce")[0]), /@thetis\/skills-l1 is installed; it writes what it did after the first turn/);
 });
 
 test("the search ranks the catalogue in the page without a request; a row opens the text and the back link returns", async () => {

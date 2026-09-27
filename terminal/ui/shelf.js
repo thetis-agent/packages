@@ -26,13 +26,15 @@
 
 const REDRAW_MS = 1000;   // the clock in the footer
 const FIT_MS = 120;       // a drag must not send a `resize` per frame
+/** While a shell is on screen the page says so this often, which keeps the idle close away from a shell
+ *  someone is looking at. A hidden tab says nothing: a forgotten tab is not someone looking. */
+const SEEN_MS = 5 * 60_000;
 
 const ICONS = {
   chevron: "M6 8l4 4 4-4",
   close: "M6 6l8 8M14 6l-8 8",
-  trash: "M4 6h12M8 6V4.5h4V6M6 6v9.5h8V6M8.5 9v4M11.5 9v4",
-  // Distinct from `trash`: clearing wipes the view, killing ends the shell, and
-  // one icon for both is how someone loses a session they meant to tidy.
+  // Clearing wipes the view and nothing else. Ending a shell is a worded button in the footer, far from
+  // this one: one icon for both is how someone loses a session they meant to tidy.
   eraser: "M5 15h10M7.5 12.5l-2-2 6-6 2 2-6 6zM9 11l-2-2",
   info: "M10 3.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM10 9v4.5M10 6.5v.01",
   plus: "M10 4.5v11M4.5 10h11",
@@ -53,10 +55,10 @@ const STATES = {
   person: (s) => `you are running ${cmd(s)}`,
   fullscreen: () => "a full-screen program has the terminal",
   unframed: () => "this shell does not report exit codes",
-  closed: (s) => (typeof s.lastExit === "number" ? `closed · exit ${s.lastExit}` : "closed"),
+  closed: (s) => (s.closedBy === "idle" ? "closed after a long idle" : typeof s.lastExit === "number" ? `closed · exit ${s.lastExit}` : "closed"),
 };
 
-const sentence = (session) => (STATES[session.state] ?? ((s) => `the workspace calls this "${s.state}", which this page does not know`))(session);
+const sentence = (session) => (STATES[session.state] ?? ((s) => `the shell says "${s.state}", which this page does not know`))(session);
 const cmd = (session) => session.command || "a command";
 const whose = (session) => (session.holder === "agent" ? "the agent is " : session.holder === "person" ? "you are " : "");
 const shorten = (cwd) => (typeof cwd === "string" && cwd ? cwd.replace(HOME, "~") : "");
@@ -97,6 +99,7 @@ export function mountShelf(ext, store, root, shelf) {
   let sizing = null;
   let card = null;            // the open details card: { node, id, anchor, onKey, onClick }
   let popover = null;         // the open kill confirmation: { node, onKey, onClick }
+  let othersOpen = false;     // the "Other conversations" group is folded until the person unfolds it
   const unread = new Set();   // rows with activity since you last looked; only ever decorates one not chosen
 
   // A list, not a tab strip. Cursor puts the shells down the right-hand side,
@@ -193,11 +196,17 @@ export function mountShelf(ext, store, root, shelf) {
 
   // ---- the rows ----
 
-  /** The rows in the order the list shows them: this conversation's shells and the person's own first, then the rest. */
-  function ordered() {
+  /** The rows in two groups: this conversation's shells and the person's own, then every other
+   *  conversation's, which the list folds under one heading. */
+  function groups(current = ext.conversation.current ?? null) {
     const key = (s) => s.name || s.id;
-    const here = store.list().filter((s) => store.mine(s)).sort((a, b) => collate(key(a), key(b)));
-    const elsewhere = store.list().filter((s) => !store.mine(s)).sort((a, b) => collate(key(a), key(b)));
+    const here = store.list().filter((s) => store.mine(s, current)).sort((a, b) => collate(key(a), key(b)));
+    const elsewhere = store.list().filter((s) => !store.mine(s, current)).sort((a, b) => collate(key(a), key(b)));
+    return { here, elsewhere };
+  }
+
+  function ordered() {
+    const { here, elsewhere } = groups();
     return [...here, ...elsewhere];
   }
 
@@ -239,7 +248,14 @@ export function mountShelf(ext, store, root, shelf) {
     closeCard();
     clear(listEl);
     const current = ext.conversation.current ?? null;
-    for (const session of ordered()) {
+    const developer = store.developer();
+    const { here, elsewhere: others } = groups(current);
+    // A shell of another conversation that is on screen unfolds its group: the pane never shows a shell
+    // the list hides.
+    const unfold = othersOpen || others.some((s) => s.id === chosen);
+    const shown = unfold ? [...here, ...others] : here;
+    for (const session of shown) {
+      if (session === others[0]) listEl.append(othersHead(others.length, true));
       const busy = store.busy(session);
       const closed = session.state === "closed";
       const dot = busy ? "term-dot is-busy" : closed ? "term-dot is-done" : "term-dot is-ok";
@@ -267,7 +283,8 @@ export function mountShelf(ext, store, root, shelf) {
           {
             type: "button",
             class: "term-tab-pick",
-            title: `${session.id} — ${shellOf(session)} in ${session.cwd || "?"}`,
+            title: `${developer ? `${session.id} — ` : ""}${shellOf(session)} in ${shorten(session.cwd) || "?"}`,
+            "aria-label": `Show ${session.name || "this shell"}${closed ? ", closed" : ""}`,
             onClick: () => choose(session.id),
           },
           el("span", { class: dot }),
@@ -278,7 +295,8 @@ export function mountShelf(ext, store, root, shelf) {
             "span",
             { class: "term-tab-text" },
             label,
-            el("span", { class: "term-tab-sub" }, elsewhere ? `${leaf(session.cwd)} · “${title}”` : leaf(session.cwd))
+            // A shell named for its directory does not say the directory twice.
+            el("span", { class: "term-tab-sub" }, [leaf(session.cwd) === session.name ? "" : leaf(session.cwd), elsewhere ? `“${title}”` : ""].filter(Boolean).join(" · "))
           ),
           closed && el("span", { class: "term-tab-note" }, "exited")
         ),
@@ -296,7 +314,10 @@ export function mountShelf(ext, store, root, shelf) {
           },
           icon(ICONS.stop, { size: 12 })
         ),
-        el(
+        // The technical details (the session id, the tty, whether it reports exit codes) are for someone
+        // who asked for developer details. The close is not on the row at all: it is in the footer, away
+        // from the list, so a click meant to pick a shell cannot end one.
+        developer && el(
           "button",
           {
             type: "button",
@@ -310,26 +331,14 @@ export function mountShelf(ext, store, root, shelf) {
             },
           },
           icon(ICONS.info, { size: 12 })
-        ),
-        el(
-          "button",
-          {
-            type: "button",
-            class: "icon-btn sm term-tab-kill",
-            title: closed ? `Remove ${session.name || session.id} from the list` : `Close ${session.name || session.id}`,
-            "aria-label": closed ? `Remove ${session.name || session.id}` : `Close ${session.name || session.id}`,
-            onClick: (e) => {
-              e.stopPropagation();
-              confirmKill(e.currentTarget, session.id);
-            },
-          },
-          icon(ICONS.trash, { size: 12 })
         )
       );
       listEl.append(row);
     }
-    if (!store.list().length) {
-      listEl.append(el("span", { class: "term-empty" }, "No shells open — open one with +, or the agent opens one when it needs to run something."));
+    if (!unfold && others.length) listEl.append(othersHead(others.length, false));
+    if (!here.length) {
+      // Before the other group, so the sentence is about this conversation and reads first.
+      listEl.prepend(el("span", { class: "term-empty" }, "No shells in this conversation. Open one with +, or the agent opens one when it needs to run something."));
     }
     // Re-anchor a card that was open before the rebuild, if its shell still
     // exists. Skipped when the row is gone: the card would have nothing to
@@ -338,6 +347,25 @@ export function mountShelf(ext, store, root, shelf) {
       const anchor = listEl.querySelector(`[data-info="${CSS.escape(cardFor)}"]`);
       if (anchor) showDetails(anchor, cardFor);
     }
+  }
+
+  /** The fold for every other conversation's shells: a button that says how many and which way it goes. */
+  function othersHead(count, open) {
+    return el(
+      "button",
+      {
+        type: "button",
+        class: `term-group${open ? " is-open" : ""}`,
+        "aria-expanded": open ? "true" : "false",
+        title: open ? "Hide the shells of other conversations" : "Show the shells of other conversations",
+        onClick: () => {
+          othersOpen = !open;
+          drawTabs();
+        },
+      },
+      icon(ICONS.chevron, { size: 11 }),
+      el("span", {}, `Other conversations (${count})`)
+    );
   }
 
   function choose(id) {
@@ -522,9 +550,24 @@ export function mountShelf(ext, store, root, shelf) {
     }
     if (!session) return;
     const note = store.note(session.id);
+    const closed = session.state === "closed";
+    const name = session.name || "this shell";
     footEl.append(
       el("span", { class: "term-cwd", title: session.cwd || "" }, shorten(session.cwd)),
-      el("span", { class: "term-meta" }, `${shellOf(session)} · ${sentence(session)}${note ? ` · ${note}` : ""}`)
+      el("span", { class: "term-meta" }, `${shellOf(session)} · ${sentence(session)}${note ? ` · ${note}` : ""}`),
+      // The one destructive control, at the far end of the footer: it ends the shell on screen, and asks
+      // first. On a closed row it only tidies the row away, and needs no asking.
+      el(
+        "button",
+        {
+          type: "button",
+          class: "term-foot-close",
+          title: closed ? `Remove ${name} from the list` : `Close ${name} and end what it is running`,
+          "aria-label": closed ? `Remove ${name} from the list` : `Close ${name}`,
+          onClick: (e) => confirmKill(e.currentTarget, session.id),
+        },
+        closed ? "Remove" : "Close shell"
+      )
     );
   }
 
@@ -546,7 +589,11 @@ export function mountShelf(ext, store, root, shelf) {
       attached?.detach();
       attached = null;
       clear(panesEl);
-      // Shown only if the vendored emulator fails to load: an empty black box would look like a hang.
+      // Nothing to show is said, not left as an empty black box, which would look like a hang.
+      if (!session) {
+        panesEl.append(el("div", { class: "term-fallback" }, el("p", {}, "No shell on screen."), el("p", { class: "term-fallback-note" }, "Open one with +, or pick one from the list.")));
+      }
+      // Shown only if the vendored emulator fails to load.
       if (failure) {
         panesEl.append(
           el("div", { class: "term-fallback" }, el("p", {}, "The terminal renderer did not load."), el("p", { class: "term-fallback-note" }, String(failure)))
@@ -557,6 +604,7 @@ export function mountShelf(ext, store, root, shelf) {
       clear(panesEl);
       screen.attach(panesEl);
       attached = screen;
+      if (session.state !== "closed") store.seen(session.id); // on screen now: the idle close waits
     }
     // Always, not only on a change: the emulator may have arrived since the last draw, and a fit whose
     // size is the size it already has answers null and sends nothing.
@@ -575,9 +623,10 @@ export function mountShelf(ext, store, root, shelf) {
     if (!alive) return;
     const all = store.list();
     if (!chosen || !all.some((s) => s.id === chosen)) {
-      // The open conversation's first live shell, else any live shell, else whatever there is.
-      const rows = ordered();
-      chosen = (rows.find((s) => store.mine(s) && s.state !== "closed") ?? rows.find((s) => s.state !== "closed") ?? rows[0])?.id ?? null;
+      // The open conversation's first live shell, else its first closed one. Never another
+      // conversation's on its own: those are one click away, under their fold.
+      const { here } = groups();
+      chosen = (here.find((s) => s.state !== "closed") ?? here[0])?.id ?? null;
     }
     unread.delete(chosen); // the row on screen is being looked at, whatever printed before it was chosen
     drawTabs();
@@ -605,6 +654,12 @@ export function mountShelf(ext, store, root, shelf) {
     redraw();
   });
   const ticking = setInterval(tick, REDRAW_MS);
+  // Still on screen, in a tab someone can see: say so, so a shell being watched is not closed as idle.
+  const seeing = setInterval(() => {
+    const session = store.get(chosen);
+    if (!session || session.state === "closed" || !ext.shelf.isOpen() || document.visibilityState === "hidden") return;
+    store.seen(session.id);
+  }, SEEN_MS);
   // One observer for the pane: the mount, the shelf's grip, the window and the open animation all end in
   // a pane of a new size, and the debounce keeps a drag from sending a `resize` per frame.
   const observer = new ResizeObserver(scheduleFit);
@@ -621,6 +676,7 @@ export function mountShelf(ext, store, root, shelf) {
   return () => {
     alive = false;
     clearInterval(ticking);
+    clearInterval(seeing);
     clearTimeout(sizing);
     observer.disconnect();
     unfit?.();

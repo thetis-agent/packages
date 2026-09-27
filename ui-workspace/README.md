@@ -1,7 +1,9 @@
 # @thetis/ui-workspace
 
-The Workspace place of the web gateway: a file browser and editor over everything the person's fence
-can see, a Files dock beside the chat, and file links in the transcript. The server half is a set of
+The Files place of the web gateway (place id `workspace`, label **Files**): a file browser and editor
+over everything the person's fence can see, a Files dock beside the chat, and file links in the
+transcript. People see the words "Files" and "your space"; "workspace" is kept for the admin pages,
+where it means a person's runtime. The server half is a set of
 commands that run in the person's own fence; the browser half (`ui/`) draws the place, the dock and
 the links over them.
 
@@ -16,6 +18,11 @@ The explorer's top level is what the fence can reach, and nothing more:
   `unmounted`). A directory is reachable when it lies under the home or under a mount the fence took
   (`THETIS_MOUNTS`); an admin also sees the mounts written down for them, which tells `skipped` (the
   operator bound it, the host has nothing there) from `unmounted` (nobody bound it).
+- **Folders**, the person's mounts as roots of their own, each in its real state: the mounts the fence
+  took (`THETIS_MOUNTS`), with `stateOf` from `@thetis/projects` saying what is at the path now
+  (`ready`, `empty-path`, `not-a-directory`), and for an admin the mounts written down that the fence
+  did not take, as `skipped`. A folder that is also a project directory is drawn once, under its
+  project.
 - **Mounts**, the raw `THETIS_MOUNTS` list, so a directory outside every project can still be named.
 
 Every path in every command goes through `resolveContained` from `@thetis/tools-files`, so this package
@@ -28,7 +35,7 @@ Each is `fn(args, env)` answering `{ data }`; a thrown Error is a 400 with its m
 
 | verb | args | answer |
 | --- | --- | --- |
-| `roots` | `{session?}` | `{ user, admin, home, shared, projects: [{ id, name, current, directories: [{ path, name, parent, state, mode, kind, home?, mount? }], summary: { ready, broken } }], mounts, bound? }` |
+| `roots` | `{session?}` | `{ user, admin, home, shared, projects: [{ id, name, current, directories: [{ path, name, parent, state, mode, kind, home?, mount? }], summary: { ready, broken } }], folders: [{ path, name, mode, state, kind, mount? }], mounts, bound? }` |
 | `list` | `{path, hidden?}` | `{ path, root, mode, entries: [{ name, kind, target?, size, mtime, etag, hidden }], more }`; directories first, 500 rows, dotfiles only with `hidden` |
 | `stat` | `{path}` | `{ path, display, root, mode, writable, kind, size, mtime, etag, language, preview, tooLarge, binary }` |
 | `read` | `{path, part?}` | `{ path, etag, size, mtime, language, inline, text?, truncated, part }`; `text` when the file is at most 200 000 bytes, else the browser fetches `raw` |
@@ -71,11 +78,14 @@ The package has three surfaces in the web gateway, all drawn from one model (`ui
 caches roots and listings, keeps the explorer's state, and holds the open tabs with their unsaved
 buffers in the browser session.
 
-**The Workspace place.** "Workspace" in the ≡ menu (order 30) takes over the main pane with the
+**The Files place.** "Files" in the ≡ menu (order 30) takes over the main pane with the
 sidebar kept: an explorer column on the left (resizable, width remembered) and the editor column on
 the right with a tab bar, a banner slot, the view and a 26 px strip. The explorer shows exactly what
-the fence can see: Home (rw), Shared (ro), then one group per project with each project directory as
-a mount row (host parent path in grey, a mode pill). The state of every directory comes from the
+the fence can see: Home (rw), Shared (ro), the person's folders (each with a mode pill, and a sentence
+when it is not usable), then one group per project with each project directory as a mount row (a mode
+pill). Host paths — the grey path after a root's name — are a developer detail: they are drawn only when
+the person has turned on developer details (`ext.developer()`), and the tree follows the preference
+when it changes. The state of every directory comes from the
 server with the tree, in the same words the project page and the prompt use, and a broken one gets a
 sentence in the row, not a badge: "Not mounted. An agent cannot read this directory." with **Bind now**
 for admins or the exact `thetis mounts add <user> <path>` command for members (`--ro` for read-only),
@@ -127,10 +137,13 @@ sentence instead of failing.
 **The Files dock.** The rail's Files button (dock order 105, after the shell's own docks and before
 Skills) opens a 360 px dock: the same explorer in compact mode,
 with the current conversation's project directories first (each under a header with the project
-name), then Home and Shared. The subtitle names the project and how many of its directories are
-ready; without a project it reads "Home and Shared". Clicking a file opens the Workspace place at that
+name), then a "Your files" group with Home, Shared and the folders. The subtitle names the project and how
+many of its directories are ready ("Nova · 1 of 2 directories ready, 1 needs attention"); a project with
+no directories says "no project directories" rather than "0 directories ready"; without a project it
+counts what the tree shows ("Home, Shared and 2 folders"). The dock has no head row of its own, and
+nothing is drawn above its filter. Clicking a file opens the Files place at that
 path, folders expand in place, and a right-click or ⋯ offers the same file menu. The two header
-actions open the Workspace and refresh the roots. The rail, and so the Files button, is hidden while a
+actions open the Files place and refresh the roots. The rail, and so the Files button, is hidden while a
 place is open (a place takes the main, rail and dock columns); open the dock from the chat.
 
 **Links in the transcript.** A transcript renderer never replaces the shell's tool card: it declines
@@ -138,7 +151,7 @@ every event and, a microtask later, decorates the card the shell drew. For `read
 `write_path`, `get_directory`, `find_files` and `search_files` the path in the card's gist becomes a
 link pill (the full path on `data-path` even when the gist cut it short, a read's `offset` as the
 line) and an Open pill joins the head; once a run has a result, a "Files in this run" strip under it
-lists every distinct path the run touched, in first-seen order. A click opens the Workspace at the
+lists every distinct path the run touched, in first-seen order. A click opens the Files place at the
 path and line; a right-click asks `resolve` whether the path is reachable and, if so, opens the file
 menu. Paths in message bubbles (the person's and the model's) become links too: when the shell offers a
 settled bubble through `message.rendered`, the candidates are collected text node by text node (never
@@ -147,7 +160,7 @@ reachable ones are linked; a made-up path stays plain text.
 
 **One file menu.** `ui/file-menu.js` builds the item list once for every host (explorer, dock, chat)
 from the entry's kind and mode, and `ui/menu.js` opens it (through the shell's `ext.ui.menu` when
-present, else its own popover with the shell's `.menu` classes): Open in Workspace and Reveal in Files
+present, else its own popover with the shell's `.menu` classes): Open in Files and Show in the side panel
 away from the place, New file / New folder / Upload here on folders, Download (as zip for folders,
 with the size counted in), Copy path, and Rename / Delete only where the root is writable.
 

@@ -209,7 +209,7 @@ export async function rename(args, env) {
   const resolved = await contained(env, args.path, { write: true });
   const name = checkName(args.name, "The new name");
   const { absolute, display } = resolved;
-  if ((await rootPaths(env)).includes(absolute)) fail(`${display} is a root of your workspace and cannot be renamed.`);
+  if ((await rootPaths(env)).includes(absolute)) fail(`${display} is a root of your space and cannot be renamed.`);
   if (!(await lstat(absolute).catch(() => null))) fail(`${display} does not exist.`);
   const target = join(dirname(absolute), name);
   if (target === absolute) return { path: absolute };
@@ -300,7 +300,7 @@ export async function del(args, env) {
   const resolved = await contained(env, args.path, { write: true });
   const { absolute, display } = resolved;
   const roots = await rootPaths(env);
-  if (roots.includes(absolute)) fail(`${display} is a root of your workspace (home, shared, or a mount) and cannot be deleted; delete what is inside it instead.`);
+  if (roots.includes(absolute)) fail(`${display} is a root of your space (home, shared, or a mount) and cannot be deleted; delete what is inside it instead.`);
   const st = await lstat(absolute).catch((e) => (e.code === "ENOENT" ? null : Promise.reject(e)));
   if (!st) fail(`${display} does not exist.`);
   const t = await countTree(absolute);

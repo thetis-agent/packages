@@ -19,9 +19,9 @@ const STATES = {
   "ready-home": { badge: ["in your space", "ok"], line: () => "Inside your own space: the file tools can read and write here, and it needs no mount.", act: null },
   "empty-path": { badge: ["nothing at this path", "warn"], line: () => "Nothing is at this path yet. Make the directory, or fix the path.", act: "unbind" },
   "not-a-directory": { badge: ["not a directory", "warn"], line: () => "A file is at this path, not a directory.", act: "unbind" },
-  skipped: { badge: ["not mounted", "err"], line: (s) => `A mount is written down for ${s.mount}, and the host has no directory there, so your workspace opened without it. The path is wrong, or the directory is gone.`, act: "bind" },
+  skipped: { badge: ["not mounted", "err"], line: (s) => `A mount is written down for ${s.mount}, and the host has no directory there, so your space opened without it. The path is wrong, or the directory is gone.`, act: "bind" },
   unmounted: { badge: ["not mounted", "err"], line: () => "Nothing is bound over this path, so the file tools cannot reach it. An agent in this project will find it missing.", act: "bind" },
-  unknown: { badge: ["checking…", "dim"], line: () => "Reading what the fence has here.", act: null },
+  unknown: { badge: ["checking…", "dim"], line: () => "Reading what your space has here.", act: null },
 };
 
 /** The state record for one row, with the read-only variant of `ready` folded in. */
@@ -122,7 +122,7 @@ export function directoriesSection(ext, draft, states, redraw, { mount, pick, us
     rows.length ? el("ul", { class: "pj-dirs" }, ...rows) : el("p", { class: "pj-empty" }, "No project directories."),
     el("div", { class: "pj-dir-add" }, choose, input, button("Add a directory", { onClick: add })),
     el("p", { class: "pj-note" }, choose
-      ? "A directory is reachable once it is bound into your workspace. Binding closes and reopens the workspace, so this page reconnects; conversations are not lost."
+      ? "A directory is reachable once it is bound into your space. Binding closes and reopens your space, so this page reconnects; conversations are not lost."
       : "None by default. A directory outside your space reaches the file tools once an admin binds it; until then it is listed here and marked not mounted.")
   );
 }
@@ -160,7 +160,7 @@ export function toolsSection(ext, draft, groups, redraw) {
     "section",
     { class: "pj-section" },
     section("Tools", off ? `${total} tools, ${off} switched off for this project` : `${total} tools, every one on`),
-    blocks.length ? el("div", { class: "pj-tool-groups" }, ...blocks) : el("p", { class: "pj-empty" }, "No tool packages are installed."),
+    blocks.length ? el("div", { class: "pj-tool-groups" }, ...blocks) : el("p", { class: "pj-empty" }, "No extensions with tools are installed."),
     el("p", { class: "pj-note" }, "Every tool is on unless switched off here. A switched-off tool is left out of the call for conversations in this project.")
   );
 }
@@ -213,7 +213,7 @@ export function skillsSection(ext, draft, skills, redraw) {
     "section",
     { class: "pj-section pj-skills" },
     section("Skills", skills.length ? (off ? `${skills.length} skills, ${off} switched off for this project` : `${skills.length} skills, every one on`) : null),
-    blocks.length ? el("div", { class: "pj-tool-groups" }, ...blocks) : el("p", { class: "pj-empty" }, "No skills are installed. A package that declares thetis.skills, or a skills/ directory under your home, adds some; each appears here with a switch."),
+    blocks.length ? el("div", { class: "pj-tool-groups" }, ...blocks) : el("p", { class: "pj-empty" }, "No skills are installed. An extension with skills, or a skills/ directory in your home, adds some; each appears here with a switch."),
     el("p", { class: "pj-note" }, "Every skill is on unless switched off here. A switched-off skill is left out of the prompt and of skill_fetch for conversations in this project, and a switched-off parent switches off its nested skills too.")
   );
 }

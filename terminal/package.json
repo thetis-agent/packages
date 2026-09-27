@@ -1,8 +1,8 @@
 {
   "name": "@thetis/terminal",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "license": "MIT",
-  "description": "Long-lived shell sessions in your own workspace: five tools for the model, and the shelf that shows them live, so you and the agent stand at the same prompt.",
+  "description": "Long-lived shell sessions in your own space: five tools for the model, and the shelf that shows them live, so you and the agent stand at the same prompt.",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -10,6 +10,7 @@
   },
   "thetis": {
     "type": "tool",
+    "label": "terminal",
     "config": {
       "shell": {
         "type": "string",
@@ -30,9 +31,9 @@
       },
       "idleMinutes": {
         "type": "number",
-        "default": 30,
+        "default": 120,
         "scope": "system",
-        "help": "Close a session after this many minutes with no browser attached and nothing running; 0 disables the reaper."
+        "help": "Close a shell after this many minutes with nothing happening in it, nobody looking at it and nothing running; 0 keeps shells open until they are closed."
       },
       "waitMs": {
         "type": "number",
@@ -75,7 +76,8 @@
             "cmd"
           ]
         },
-        "export": "shell"
+        "export": "shell",
+        "reads": false
       },
       {
         "name": "shell_read",
@@ -93,7 +95,8 @@
             }
           }
         },
-        "export": "shellRead"
+        "export": "shellRead",
+        "reads": true
       },
       {
         "name": "shell_send",
@@ -118,7 +121,8 @@
             "text"
           ]
         },
-        "export": "shellSend"
+        "export": "shellSend",
+        "reads": false
       },
       {
         "name": "shell_interrupt",
@@ -132,7 +136,8 @@
             }
           }
         },
-        "export": "shellInterrupt"
+        "export": "shellInterrupt",
+        "reads": false
       },
       {
         "name": "shell_sessions",
@@ -146,7 +151,8 @@
             }
           }
         },
-        "export": "shellSessions"
+        "export": "shellSessions",
+        "reads": false
       }
     ],
     "ui": {
@@ -157,7 +163,7 @@
         {
           "id": "terminal",
           "label": "Terminals",
-          "hint": "The shells this workspace has open"
+          "hint": "The shells open in your space, this conversation's first"
         }
       ],
       "chips": [
@@ -201,6 +207,16 @@
           "verb": "rename",
           "export": "uiRename",
           "label": "Name a session"
+        },
+        {
+          "verb": "seen",
+          "export": "uiSeen",
+          "label": "Say a session is on screen"
+        },
+        {
+          "verb": "sessions-count",
+          "export": "uiSessionsCount",
+          "label": "Count the open shell sessions"
         },
         {
           "verb": "watch",

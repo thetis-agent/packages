@@ -113,6 +113,10 @@ export function rootOf(roots, path) {
   };
   if (roots.home?.path) consider({ kind: "home", name: "Home", path: roots.home.path, mode: roots.home.mode ?? "rw" });
   if (roots.shared?.path) consider({ kind: "shared", name: "Shared", path: roots.shared.path, mode: roots.shared.mode ?? "ro" });
+  for (const folder of roots.folders ?? []) {
+    if (folder?.state !== "ready" || !folder.path) continue;
+    consider({ kind: "mount", name: folder.name || nameOf(folder.path), path: folder.path, mode: folder.mode ?? "ro" });
+  }
   for (const project of roots.projects ?? []) {
     for (const dir of project.directories ?? []) {
       if (dir?.state !== "ready" || !dir.path) continue;

@@ -172,6 +172,7 @@ export function openSession({
   cwd = process.cwd(),
   env = {},
   conversation = null,
+  own = false,
   bufferBytes = DEFAULT_BUFFER_BYTES,
   runDir = tmpdir(),
   rc = null,
@@ -259,6 +260,7 @@ export function openSession({
   let watchers = 0;
   let closed = false;
   let closedAt = null;
+  let closedBy = null; // "idle" when the host's reaper ended it; null for everything else
   let exitCode = null;
   let sessionName = name;
 
@@ -341,8 +343,10 @@ export function openSession({
       dropped: ringStart,
       watchers,
       conversation,
+      own,
       bytes,
       closedAt,
+      closedBy,
       tty: ttyPath,
     };
   }
@@ -353,7 +357,7 @@ export function openSession({
   // something running is re-checked once a second.
   let lastSignature = null;
   const signature = (s) =>
-    [s.state, s.name, s.cwd, s.command, s.holder, s.since, s.lastExit, s.framed, s.dropped, s.watchers, s.closedAt, s.tty].join("\u0000");
+    [s.state, s.name, s.cwd, s.command, s.holder, s.since, s.lastExit, s.framed, s.dropped, s.watchers, s.closedAt, s.closedBy, s.tty].join("\u0000");
   function maybeEmitState() {
     const s = state();
     const sig = signature(s);
@@ -642,7 +646,8 @@ export function openSession({
     get framed() {
       return framed;
     },
-    /** Milliseconds since anything happened here: output, a write, or a read. The idle reaper's input. */
+    /** Milliseconds since anything happened here: output, a write, a read, a resize, or a browser that
+     *  has it on screen saying so (`touch`). The idle reaper's input. */
     get idleMs() {
       return Date.now() - lastActivityAt;
     },
@@ -658,12 +663,18 @@ export function openSession({
       return () => handlers.delete(handler);
     },
 
-    /** The host owns the count of attached browsers; the session only reports it. */
+    /** The host owns the count of attached browsers; the session only reports it. It is not activity: a
+     *  page that opens or reconnects its stream says nothing about this one session, and counting it as
+     *  activity kept every shell of a person with a browser tab open alive for ever. */
     setWatchers(n) {
       if (n === watchers) return;
       watchers = n;
-      lastActivityAt = Date.now();
       maybeEmitState();
+    },
+
+    /** A browser has this session on screen. It keeps the idle reaper away, as typing does. */
+    touch() {
+      lastActivityAt = Date.now();
     },
 
     rename(next) {
@@ -769,6 +780,7 @@ export function openSession({
       const rr = Math.trunc(Number(r));
       const cc = Math.trunc(Number(c));
       if (!(rr > 0) || !(cc > 0)) throw new Error("resize needs a positive number of rows and columns.");
+      lastActivityAt = Date.now(); // a pane is being fitted to it: someone has it on screen
       if (ttyPath && (await setSizeOnDevice(rr, cc))) {
         wantRows = rr;
         wantCols = cc;
@@ -782,8 +794,10 @@ export function openSession({
       return { applied: true, deferred: false, rows: rr, cols: cc };
     },
 
-    async close() {
+    /** `why: "idle"` is the reaper's close, and the row says so; anything else is a plain close. */
+    async close({ why = null } = {}) {
       if (closed) return state();
+      closedBy = why;
       child.kill("SIGTERM");
       closeTimer = setTimeout(() => child.kill("SIGKILL"), CLOSE_GRACE_MS);
       closeTimer.unref?.();

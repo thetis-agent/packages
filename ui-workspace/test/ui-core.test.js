@@ -98,19 +98,19 @@ test("fileMenu: a rw folder in the explorer starts with New file (n), New folder
   assert.equal(items[0].key, "n");
 });
 
-test("fileMenu: from the chat, Open in Workspace and Reveal in Files come first; the dock skips Reveal", () => {
+test("fileMenu: from the chat, Open in Files and Show in the side panel come first; the dock skips Reveal", () => {
   const entry = { path: "/home/a/x.ts", name: "x.ts", kind: "file", mode: "rw", root: "home" };
-  assert.deepEqual(labels(fileMenu(entry, "chat", every())), ["Open in Workspace", "Reveal in Files", "-", "Download", "Copy path", "Rename", "-", "Delete…"]);
-  assert.deepEqual(labels(fileMenu(entry, "dock", every())), ["Open in Workspace", "-", "Download", "Copy path", "Rename", "-", "Delete…"]);
+  assert.deepEqual(labels(fileMenu(entry, "chat", every())), ["Open in Files", "Show in the side panel", "-", "Download", "Copy path", "Rename", "-", "Delete…"]);
+  assert.deepEqual(labels(fileMenu(entry, "dock", every())), ["Open in Files", "-", "Download", "Copy path", "Rename", "-", "Delete…"]);
   const dir = { ...entry, path: "/home/a/src", name: "src", kind: "dir" };
-  assert.deepEqual(labels(fileMenu(dir, "dock", every())).slice(0, 5), ["Open in Workspace", "-", "New file", "New folder", "Upload files here…"]);
+  assert.deepEqual(labels(fileMenu(dir, "dock", every())).slice(0, 5), ["Open in Files", "-", "New file", "New folder", "Upload files here…"]);
   // The chat never offers the folder-only items: they belong to a tree.
   assert.ok(!labels(fileMenu(dir, "chat", every())).includes("New file"));
 });
 
 test("fileMenu: a missing action leaves its item out, and the separators tidy up", () => {
   const entry = { path: "/home/a/x.ts", name: "x.ts", kind: "file", mode: "rw", root: "home" };
-  assert.deepEqual(labels(fileMenu(entry, "chat", { open() {} })), ["Open in Workspace"]);
+  assert.deepEqual(labels(fileMenu(entry, "chat", { open() {} })), ["Open in Files"]);
   assert.deepEqual(labels(fileMenu(entry, "explorer", { remove() {} })), ["Delete…"]);
   assert.deepEqual(labels(fileMenu(entry, "explorer", {})), []);
   assert.deepEqual(tidy(["-", "-", { label: "a" }, "-", "-", { label: "b" }, "-"]).map((i) => i.label ?? i), ["a", "-", "b"]);

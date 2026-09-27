@@ -19,22 +19,24 @@ Neither command reads a configuration; a UI command gets none (packages/gateway-
 
 ## Use
 
-The **Skills** button in the rail opens the dock. The subtitle counts the skills, how many are always in force, how many were retrieved, and names the loader. Every group below folds behind its heading, which carries a count and a sentence saying what the group means; which groups are folded is remembered in the browser (`localStorage` `thetis.skills.folds`). The groups, in order:
+The **Skills** button in the rail opens the dock. It opens on **In force**, a short paragraph in plain words: how many skills are in force in this conversation and which (always, picked for this conversation, opened by the agent), how many the project switched off, or why there are none (no conversation open, nothing chosen before the first message, or no skill loader installed). The subtitle says `3 in force · 5 skills`, or `5 skills · not in use` when no loader is installed.
+
+Developer details (`ext.developer()`, the person's own preference in the gateway) add what is there for whoever writes skills: the loader package that wrote the prompt of the last turn (in the paragraph and at the end of the subtitle), the legend, **Problems** and **Notes**, and each card's lint lines. Without the preference none of them is drawn. Every group below folds behind its heading, which carries a count and a sentence saying what the group means; which groups are folded is remembered in the browser (`localStorage` `thetis.skills.folds`). The groups, in order:
 
 | Group | Content |
 |---|---|
-| How skills reach the prompt | A legend of the four disclosure levels (brief, card, body, files), folded by default. |
-| Loader | The package that wrote the prompt of the last turn. Before the first turn: the installed loader and a note that it writes its state on the first turn. With none installed: "No skill loader is installed. Install one of @thetis/skills-hybrid, @thetis/skills-l1 or @thetis/skills-all." Without a conversation: a note to open one. |
-| Problems | What `lint` said, per skill, errors first and edge-coloured: an error means the skill is left out entirely. Only when there are any. |
+| In force | The paragraph above; not a fold. With developer details, the loader line: the package that wrote the prompt of the last turn, or before the first turn the installed loader and a note that it writes its state on the first turn. |
+| How skills reach the prompt | Developer details only. A legend of the four disclosure levels (brief, card, body, files), folded by default. |
+| Problems | Developer details only. What `lint` said, per skill, errors first and edge-coloured: an error means the skill is left out entirely. Only when there are any. |
 | Always in force | The universal skills, from the loader's state; before a loader has run, the skills declared universal. A universal skill that also ranked carries its score. |
 | Retrieved for this conversation | The pinned set that is not already universal, each with its score drawn as a bar against the best in the group, the number, and how it got there in words (semantic match, word overlap, parent of a match, everything included), with the longer reading on hover. When retrieval added nothing beyond the universal set, or has not run yet, the group says which. |
 | Loaded in this conversation | The bodies the model asked for with `load_skill`. Only when there are any. |
 | Switched off by the project | What the project's `skills.disable` leaves out, nested skills included; folded by default. |
 | Left out for the budget | `dropped`, only when the loader dropped something; folded by default. |
-| Notes | The loader's notes, only when there are any; folded by default. |
+| Notes | Developer details only. The loader's notes, only when there are any; folded by default. |
 | Catalogue | Every skill, grouped by family (the first segment of the id), each family its own fold with its count, where its skills come from and how many are in this prompt; nested skills indented under their parent. The search box above ranks the whole catalogue by BM25 over name, description and tags in the page (`ui/rank.js`, the same algorithm as the library's, held to it by a test) and shows the score; a query flattens the families to a ranked list; no keystroke sends a request. |
 
-A card shows the skill's name, its id, the badges (`always`, `pinned`, `loaded`, `switched off`, `dropped`, `left out`), quiet pills for what is nested under it, the files beside its body and its version, where it comes from, and its first sentence; a **Details** fold on the card holds the whole description, the nested ids, the files, the tags, the related skills, any lint problem and the source. Clicking the card's head opens the skill's text in the dock, rendered through `ext.markdown`, with a `← Skills` button back to the list; the text is asked for once per skill and content hash. A new conversation returns the dock to the list.
+A card shows the skill's name, its id, the badges (`always`, `pinned`, `loaded`, `switched off`, `dropped`, `left out`), quiet pills for what is nested under it, the files beside its body and its version, where it comes from, and its first sentence; a **Details** fold on the card holds the whole description, the nested ids, the files, the tags, the related skills, any lint problem (developer details only) and the source. Clicking the card's head opens the skill's text in the dock, rendered through `ext.markdown`, with a `← Skills` button back to the list; the text is asked for once per skill and content hash. A new conversation returns the dock to the list.
 
 The dock asks once per conversation, once more when a turn of the open conversation ends, and never while drawing. A refused request shows its sentence in the body.
 
@@ -51,6 +53,6 @@ The dock asks once per conversation, once more when a turn of the open conversat
 
 ## Tests
 
-`npm test` from the runtime root runs `test/ui-skills.test.js`: the two commands over a fake kernel and a temporary home with a pack and a project (the state, the switches with a parent taking its nested skill, the catalogue rows, the refusals), the page's BM25 against the library's on the same rows, the manifest, and the browser module over a fake seam (nothing at import, one dock registered, one request per conversation and per turn end, the sections, the search without a request, a row opening the text through `skill` and the back link, the refusal). The browser checklist is `packages/gateway-web/test/BROWSER.md`.
+`npm test` from the runtime root runs `test/ui-skills.test.js`: the two commands over a fake kernel and a temporary home with a pack and a project (the state, the switches with a parent taking its nested skill, the catalogue rows, the refusals), the page's BM25 against the library's on the same rows, the manifest, and the browser module over a fake seam (nothing at import, one dock registered, one request per conversation and per turn end, the sections, the search without a request, a row opening the text through `skill` and the back link, the refusal, the plain In force paragraph, and Problems, Notes, the legend and the loader only with developer details). The browser checklist is `packages/gateway-web/test/BROWSER.md`.
 
 See packages/gateway-web/README.md and packages/skills/README.md in the runtime repository.

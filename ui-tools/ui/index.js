@@ -63,7 +63,25 @@ export default function install(ext) {
     return ["requires ", ...required.flatMap((name, i) => [i ? ", " : null, el("code", {}, name)])];
   }
 
-  function card(tool, badge = ext.ui.badge(tool.reads ? "reads only" : "changes files", tool.reads ? "ok" : "warn")) {
+  /** Whether the person asked for developer details. The gateway may not offer the preference yet. */
+  function developer() {
+    try {
+      return typeof ext.developer === "function" && ext.developer() === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** The badge a tool's own declaration earns: "reads only", "can change things", or nothing at all when
+   *  it declares nothing. The missing declaration is a fact for whoever writes the extension, so only
+   *  developer details name it. */
+  function effectBadge(tool) {
+    if (tool.reads === true) return ext.ui.badge("reads only", "ok");
+    if (tool.reads === false) return ext.ui.badge("can change things", "warn");
+    return developer() ? ext.ui.badge("effect not declared", "dim") : null;
+  }
+
+  function card(tool, badge = effectBadge(tool)) {
     return el(
       "div",
       { class: "card ui-tools-card", "data-tool": tool.name },
@@ -77,12 +95,12 @@ export default function install(ext) {
     const head = el(
       "div",
       { class: "section-head" },
-      el("span", { class: "section-label ui-tools-name" }, pkg.name),
+      el("span", { class: "section-label ui-tools-name", title: pkg.label ? pkg.name : null }, pkg.label || pkg.name),
       el("span", { class: "ui-tools-version" }, pkg.version),
       el("span", { class: "ui-tools-count" }, plural(pkg.tools.length, "tool")),
       pkg.description && el("span", { class: "section-note" }, pkg.description)
     );
-    const body = pkg.tools.length ? el("div", { class: "ui-tools-grid" }, ...pkg.tools.map((tool) => card(tool))) : el("div", { class: "ui-tools-empty" }, "This package declares no tools.");
+    const body = pkg.tools.length ? el("div", { class: "ui-tools-grid" }, ...pkg.tools.map((tool) => card(tool))) : el("div", { class: "ui-tools-empty" }, "This extension has no tools.");
     return el("section", { class: "ui-tools-section", "data-package": pkg.name }, head, body);
   }
 
@@ -100,7 +118,7 @@ export default function install(ext) {
     const note = !lastCall
       ? "No call yet in this conversation."
       : tools.length
-        ? `Not sent on the last call (${when(lastCall.at)}). A project or a mode package holds these back.`
+        ? `Not sent on the last call (${when(lastCall.at)}). A project or a mode extension holds these back.`
         : "Nothing is withheld in this conversation.";
     return el(
       "section",
@@ -117,7 +135,7 @@ export default function install(ext) {
     const shown = packages
       .map((pkg) => ({ ...pkg, tools: pkg.tools.filter((tool) => matches(tool, q)) }))
       .filter((pkg) => !q || pkg.tools.length || pkg.name.toLowerCase().includes(q));
-    if (!shown.length) list.append(el("div", { class: "ui-tools-empty" }, q ? `No tool matches "${filter.trim()}".` : "No packages are installed."));
+    if (!shown.length) list.append(el("div", { class: "ui-tools-empty" }, q ? `No tool matches "${filter.trim()}".` : "No extensions are installed."));
     for (const pkg of shown) list.append(section(pkg));
     list.append(withheld(packages, lastCall, q));
   }
@@ -152,10 +170,16 @@ export default function install(ext) {
     });
     render(list, packages, lastCall);
     root.append(input, list);
-    return { title: "Tools", subtitle: `${plural(total, "tool")} from ${plural(withTools, "package")}`, body: root };
+    return { title: "Tools", subtitle: `${plural(total, "tool")} from ${plural(withTools, "extension")}`, body: root };
   }
 
   ext.dock(DOCK, { draw });
+  // Developer details add the "effect not declared" badge; the open dock follows the preference.
+  try {
+    ext.onDeveloper?.(() => ext.redraw(DOCK));
+  } catch {
+    /* an older gateway: no preference */
+  }
   // A new conversation on screen: the open dock redraws, finds no answer for it, and asks once more.
   ext.conversation.watch(() => ext.redraw(DOCK));
   // A turn of the open conversation ended: its last call may have changed, so the answer is stale. The

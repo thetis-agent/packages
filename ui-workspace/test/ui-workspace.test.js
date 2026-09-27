@@ -154,6 +154,10 @@ test("roots: home, shared, mounts, and the project directories with their states
   assert.deepEqual(ready, { path: proj, name: "proj", parent: mountRw, state: "ready", mode: "rw", kind: "dir" });
   assert.deepEqual(gone, { path: "/nowhere/unmounted", name: "unmounted", parent: "/nowhere", state: "unmounted", mode: null, kind: "none" });
   assert.equal(calls.length, 0, "a user asks the operator nothing");
+  assert.deepEqual(r.folders, [
+    { path: mountRw, name: basename(mountRw), mode: "rw", state: "ready", kind: "dir" },
+    { path: mountRo, name: basename(mountRo), mode: "ro", state: "ready", kind: "dir" },
+  ], "the mounts are roots of their own, in their real state");
 });
 
 test("roots: no session means no current project; env.session is the fallback", async () => {
@@ -172,6 +176,24 @@ test("roots: an admin gets the bound list and a written-down mount the fence did
   const gone = r.projects[0].directories[1];
   assert.equal(gone.state, "skipped");
   assert.equal(gone.mount, "/nowhere/unmounted");
+  assert.deepEqual(r.folders.at(-1), { path: "/nowhere/unmounted", name: "unmounted", mode: "ro", state: "skipped", kind: "none", mount: "/nowhere/unmounted" }, "a folder the fence did not take is listed as skipped for an admin");
+});
+
+test("folderRows: a mount whose path is gone inside the fence says so", async () => {
+  const { folderRows } = await import("../lib/roots.js");
+  const rows = folderRows([{ path: "/nowhere/at-all", mode: "rw" }], null);
+  assert.deepEqual(rows, [{ path: "/nowhere/at-all", name: "at-all", mode: "rw", state: "empty-path", kind: "none" }]);
+});
+
+test("the dock's subtitle: a project with no directories is not '0 directories ready'", async () => {
+  const { subtitleOf } = await import("../ui/dock.js");
+  const own = { home: { path: "/h" }, shared: { path: "/s" }, folders: [{ path: "/a" }, { path: "/b" }] };
+  assert.equal(subtitleOf(null), "Home and Shared");
+  assert.equal(subtitleOf({ ...own, projects: [] }), "Home, Shared and 2 folders");
+  assert.equal(subtitleOf({ home: { path: "/h" }, projects: [] }), "Home");
+  assert.equal(subtitleOf({ ...own, projects: [{ name: "Thetis", current: true, directories: [] }] }), "Thetis · no project directories · Home, Shared and 2 folders");
+  assert.equal(subtitleOf({ ...own, projects: [{ name: "Nova", current: true, directories: [{}, {}], summary: { ready: 2, broken: 0 } }] }), "Nova · 2 directories ready");
+  assert.equal(subtitleOf({ ...own, projects: [{ name: "Nova", current: true, directories: [{}, {}], summary: { ready: 1, broken: 1 } }] }), "Nova · 1 of 2 directories ready, 1 needs attention");
 });
 
 // ---- list ----
@@ -367,7 +389,7 @@ test("rename: same directory only, never over something, never a root", async ()
   await rejects(ws.rename({ path: r.path, name: "" }, env), /is required\.$/);
   await rejects(ws.rename({ path: r.path, name: "a.txt" }, env), /already exists in/);
   await rejects(ws.rename({ path: r.path, name: ".git" }, env), /names a \.git path/);
-  await rejects(ws.rename({ path: home, name: "x" }, env), /is a root of your workspace and cannot be renamed\.$/);
+  await rejects(ws.rename({ path: home, name: "x" }, env), /is a root of your space and cannot be renamed\.$/);
   await rejects(ws.rename({ path: join(mountRo, "ro.txt"), name: "x" }, env), /is read-only/);
   await rejects(ws.rename({ path: join(home, "gone.txt"), name: "x" }, env), /does not exist\.$/);
   const same = await data(ws.rename({ path: r.path, name: "renamed.txt" }, env));
@@ -388,8 +410,8 @@ test("delete: dryRun counts, the real thing removes, and the refusals", async ()
   assert.ok(!existsSync(join(home, "tree")));
   put(join(home, "one.txt"), "1");
   assert.deepEqual(await data(ws.del({ path: join(home, "one.txt") }, env)), { removed: { files: 1, dirs: 0 } });
-  await rejects(ws.del({ path: home }, env), /is a root of your workspace/);
-  await rejects(ws.del({ path: mountRw }, env), /is a root of your workspace/);
+  await rejects(ws.del({ path: home }, env), /is a root of your space/);
+  await rejects(ws.del({ path: mountRw }, env), /is a root of your space/);
   await rejects(ws.del({ path: join(home, "repo") }, env), /names a \.git path, which is protected from write and delete\.$/);
   await rejects(ws.del({ path: join(home, "repo", ".git") }, env), /names a \.git path/);
   assert.ok(existsSync(join(home, "repo", "file.txt")), "the whole delete was refused");

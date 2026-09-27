@@ -4,7 +4,7 @@
 // tools the last call did not carry as withheld, and filter without a second request.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { uiTools, readsOnly } from "../index.js";
+import { uiTools, declaredReads } from "../index.js";
 
 const LIST = [
   {
@@ -16,8 +16,8 @@ const LIST = [
     thetis: {
       type: "tool",
       tools: [
-        { name: "read_path", description: "Read a file.", parameters: { type: "object", properties: { path: {}, offset: {} }, required: ["path"] }, export: "readPath" },
-        { name: "write_path", description: "Write a file.", parameters: { type: "object", required: ["path", "contents"] }, export: "writePath" },
+        { name: "read_path", description: "Read a file.", parameters: { type: "object", properties: { path: {}, offset: {} }, required: ["path"] }, export: "readPath", reads: true },
+        { name: "write_path", description: "Write a file.", parameters: { type: "object", required: ["path", "contents"] }, export: "writePath", annotations: { readOnlyHint: false } },
       ],
     },
   },
@@ -37,12 +37,15 @@ const fakeEnv = (session = "s_1") => ({
   session,
 });
 
-test("readsOnly judges by the first word of the name, plus todo_read", () => {
-  for (const name of ["read_path", "search_files", "find_files", "get_directory", "list_things", "todo_read"]) assert.equal(readsOnly(name), true, name);
-  for (const name of ["write_path", "edit_path", "exec", "todo_write", "ask_user", "reader", undefined]) assert.equal(readsOnly(name), false, String(name));
+test("declaredReads is what the tool declares and nothing else: no guess from the name", () => {
+  assert.equal(declaredReads({ name: "moo_list_verbs", reads: true }), true);
+  assert.equal(declaredReads({ name: "read_path", reads: false }), false);
+  assert.equal(declaredReads({ name: "x", annotations: { readOnlyHint: true } }), true);
+  assert.equal(declaredReads({ name: "x", annotations: { readOnlyHint: false } }), false);
+  for (const tool of [{ name: "read_path" }, { name: "write_path" }, { name: "x", reads: "yes" }, null, undefined]) assert.equal(declaredReads(tool), null, JSON.stringify(tool));
 });
 
-test("uiTools reduces the kernel's package list to names, declarations and the reads guess", async () => {
+test("uiTools reduces the kernel's package list to names, declarations and the declared effect", async () => {
   const out = await uiTools({}, fakeEnv());
   assert.deepEqual(out, {
     data: {
@@ -140,11 +143,11 @@ test("install registers the tools dock; the first draw asks once, later draws do
   assert.equal(log.redraws, 1);
 
   const second = log.docks.tools.draw();
-  assert.equal(second.subtitle, "2 tools from 1 package");
+  assert.equal(second.subtitle, "2 tools from 1 extension");
   const sections = find(second.body, "ui-tools-section");
   assert.deepEqual(sections.map((s) => s.props["data-package"]), ["@thetis/tools-files", "@thetis/prompt-cache", undefined]);
   assert.equal(find(second.body, "ui-tools-card").length, 2);
-  assert.deepEqual(find(second.body, "badge").map(text), ["reads only", "changes files"]);
+  assert.deepEqual(find(second.body, "badge").map(text), ["reads only", "can change things"]);
   assert.match(text(find(second.body, "ui-tools-card-params")[1]), /requires path, contents/);
   assert.match(text(sections[2]), /Turned off right now.*No call yet in this conversation\./);
   assert.equal(find(sections[2], "ui-tools-card").length, 0);
@@ -163,7 +166,7 @@ test("the tools the last call did not carry are withheld; a call carrying every 
   const section = find(view.body, "is-withheld")[0];
   assert.deepEqual(find(section, "ui-tools-card").map((c) => c.props["data-tool"]), ["write_path"]);
   assert.deepEqual(find(section, "badge").map(text), ["withheld"]);
-  assert.match(text(section), /Not sent on the last call \(.+\)\. A project or a mode package holds these back\./);
+  assert.match(text(section), /Not sent on the last call \(.+\)\. A project or a mode extension holds these back\./);
   assert.equal(find(view.body, "ui-tools-card").length, 3, "the package section still lists the tool too");
   const input = find(view.body, "ui-tools-filter")[0];
   input.props.onInput({ target: { value: "read" } });
@@ -194,7 +197,7 @@ test("a turn.end of the open conversation asks once more; another conversation's
 
   tools = ["read_path", "write_path"];
   log.turnWatchers[0](turnEnd("s_1"));
-  assert.equal(log.docks.tools.draw().subtitle, "2 tools from 1 package", "the old answer stays on screen while the new one is asked for");
+  assert.equal(log.docks.tools.draw().subtitle, "2 tools from 1 extension", "the old answer stays on screen while the new one is asked for");
   log.turnWatchers[0](turnEnd("s_1"));
   await tick();
   await tick();
@@ -237,4 +240,23 @@ test("a refused request shows its sentence in the body", async () => {
   const view = log.docks.tools.draw();
   assert.equal(view.subtitle, "Could not list the tools");
   assert.equal(text(find(view.body, "ui-tools-error")[0]), "dev may not send tools.");
+});
+
+test("a tool that declares no effect gets no badge, and developer details name the missing declaration", async () => {
+  const { default: install } = await import("../ui/index.js");
+  const answer = [{ name: "@thetis/moo", label: "MOO", version: "0.2.0", type: "tool", description: "", tools: [{ name: "moo_list_verbs", description: "", required: [], reads: null }] }];
+  let developer = false;
+  const redraws = [];
+  const { ext, log } = fakeExt({ answer });
+  ext.developer = () => developer;
+  ext.onDeveloper = (fn) => redraws.push(fn);
+  install(ext);
+  log.docks.tools.draw();
+  await tick();
+  const plain = log.docks.tools.draw();
+  assert.deepEqual(find(plain.body, "badge").map(text), [], "undeclared is not 'changes files'");
+  assert.match(text(find(plain.body, "ui-tools-name")[0]), /^MOO$/, "the extension's own label names the section");
+  developer = true;
+  assert.equal(redraws.length, 1);
+  assert.deepEqual(find(log.docks.tools.draw().body, "badge").map(text), ["effect not declared"]);
 });

@@ -31,8 +31,8 @@ export function fileMenu(entry, host, actions = {}) {
   const items = [];
 
   if (host === "chat" || host === "dock") {
-    if (has("open")) items.push({ id: "open", label: "Open in Workspace", icon: ICONS.open, run: run("open") });
-    if (host === "chat" && has("reveal")) items.push({ id: "reveal", label: "Reveal in Files", icon: ICONS.reveal, run: run("reveal") });
+    if (has("open")) items.push({ id: "open", label: "Open in Files", icon: ICONS.open, run: run("open") });
+    if (host === "chat" && has("reveal")) items.push({ id: "reveal", label: "Show in the side panel", icon: ICONS.reveal, run: run("reveal") });
     items.push("-");
   }
 

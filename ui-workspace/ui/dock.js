@@ -1,6 +1,6 @@
 /* The Files dock beside the chat: the explorer in compact mode with the current conversation's project
- * directories first, then Home and Shared, a one-line legend, and two actions (open the Workspace,
- * refresh the roots). The explorer instance is kept across redraws for one session and rebuilt when the
+ * directories first, then Home, Shared and the person's folders, a one-line legend, and two actions (open
+ * the Files place, refresh the roots). The explorer instance is kept across redraws for one session and rebuilt when the
  * conversation changes, so expanding a folder survives the dock closing and opening. The subtitle comes
  * from the roots data, read once per session and re-read when the model says the roots changed; a redraw
  * is asked only when the subtitle it would show differs from the one on the page. */
@@ -20,13 +20,28 @@ const pending = new Set();        // session keys with a roots read in flight
 const keyOf = (session) => session ?? "";
 const unwrap = (x) => (x && typeof x === "object" && x.data !== undefined ? x.data : x);
 
-function subtitleOf(roots) {
-  const project = roots?.projects?.find?.((p) => p.current) ?? null;
-  if (!project) return "Home and Shared";
+/** What the person has whatever the conversation: Home, Shared and their folders, counted. */
+function ownOf(roots) {
+  const folders = (roots?.folders ?? []).length;
+  const shared = roots?.shared?.path ? ", Shared" : "";
+  return folders ? `Home${shared} and ${folders} ${folders === 1 ? "folder" : "folders"}` : `Home${shared ? " and Shared" : ""}`;
+}
+
+/**
+ * The line under the dock's title. With a project that has directories: how many of them are ready, and
+ * how many need attention. Otherwise what the tree shows: Home, Shared and the folders. A project with no
+ * directories says so rather than "0 directories ready", which read as a failure.
+ */
+export function subtitleOf(roots) {
+  if (!roots || roots.error) return "Home and Shared";
+  const project = roots.projects?.find?.((p) => p.current) ?? null;
+  if (!project) return ownOf(roots);
   const dirs = project.directories ?? [];
-  const ready = typeof project.summary?.ready === "number" ? project.summary.ready : dirs.filter((d) => d.state === "ready" || d.state === "bound").length;
+  if (!dirs.length) return `${project.name || "Project"} · no project directories · ${ownOf(roots)}`;
+  const ready = typeof project.summary?.ready === "number" ? project.summary.ready : dirs.filter((d) => d.state === "ready").length;
   const broken = typeof project.summary?.broken === "number" ? project.summary.broken : dirs.length - ready;
-  const parts = [`${ready} ${ready === 1 ? "directory" : "directories"} ready`];
+  const noun = dirs.length === 1 ? "directory" : "directories";
+  const parts = [ready === dirs.length ? `${ready} ${noun} ready` : `${ready} of ${dirs.length} ${noun} ready`];
   if (broken > 0) parts.push(`${broken} ${broken === 1 ? "needs" : "need"} attention`);
   return `${project.name || "Project"} · ${parts.join(", ")}`;
 }
@@ -104,7 +119,7 @@ export function drawDock(ext, model) {
   const subtitle = subtitleOf(rootsBySession.get(key));
   shown.set(key, subtitle);
   try { view.explorer?.update?.(); } catch (err) { console.warn("ui-workspace: the dock explorer did not update:", err); }
-  const openBtn = el("button", { type: "button", class: "icon-btn sm ws-dock-open", title: "Open the Workspace", "aria-label": "Open the Workspace", onClick: () => ext.open.place("workspace", {}) }, icon(OPEN, { size: 16, width: 1.6 }));
+  const openBtn = el("button", { type: "button", class: "icon-btn sm ws-dock-open", title: "Open in Files", "aria-label": "Open in Files", onClick: () => ext.open.place("workspace", {}) }, icon(OPEN, { size: 16, width: 1.6 }));
   const refreshBtn = el("button", {
     type: "button",
     class: "icon-btn sm ws-dock-refresh",
@@ -117,7 +132,7 @@ export function drawDock(ext, model) {
         rootsBySession.set(key, unwrap(r) ?? null);
       } catch (err) {
         rootsBySession.set(key, { error: err?.message || "no answer" });
-        ext.toast(`The directories could not be refreshed: ${err?.message || "the workspace did not answer"}`, { tone: "error" });
+        ext.toast(`The directories could not be refreshed: ${err?.message || "Thetis did not answer"}`, { tone: "error" });
       }
       try { cached?.explorer?.update?.(); } catch { /* the redraw below rebuilds what it can */ }
       ext.redraw("files");

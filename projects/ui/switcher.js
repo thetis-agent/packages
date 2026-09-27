@@ -59,7 +59,7 @@ export function mountSwitcher(ext, state, root) {
     }
     menu.append(el("div", { class: "pj-menu-rule" }));
     if (chosen && state.project(chosen)) menu.append(item("Settings", { note: state.project(chosen).name, onPick: () => ext.open.place(PLACE, { id: chosen }) }));
-    menu.append(item("New project…", { onPick: () => ext.open.place(PLACE, {}) }));
+    menu.append(item("New project…", { onPick: () => ext.open.place(PLACE, { new: true }) }));
   }
 
   function items() {

@@ -1,6 +1,6 @@
 {
   "name": "@thetis/ui-context",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "A Context dock for the web gateway: what the model received on the last call of the open conversation.",
   "type": "module",
@@ -10,6 +10,7 @@
   },
   "thetis": {
     "type": "ui",
+    "label": "context panel",
     "ui": {
       "dir": "ui",
       "entry": "index.js",
@@ -26,7 +27,13 @@
       "commands": [
         {
           "verb": "context",
-          "export": "uiContext"
+          "export": "uiContext",
+          "label": "What the model received on the last call, summarised"
+        },
+        {
+          "verb": "context-page",
+          "export": "uiContextPage",
+          "label": "One page of the last call's prompt or request"
         }
       ]
     }

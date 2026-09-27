@@ -1,10 +1,12 @@
 # @thetis/ui-context
 
-The Context dock shows the latest model request and the conversation's usage. It runs as a UI package inside the person's workspace, with no build step or dependencies.
+The Context dock shows the latest model request and the conversation's usage. It runs as a UI package inside the person's own space, with no build step or dependencies.
 
 ## Views
 
-- **Request** shows the model, capture time, request parameters, every message and tool definition as expandable JSON, byte sizes and prompt-cache breakpoints. **Copy JSON** copies the entire request. OpenRouter supplies its exact serialized HTTP body after defaults, parameter overrides and cache policy; authentication headers are excluded. Other providers show their complete provider input, labelled as such.
+Everyone gets **Prompt** and **Usage**, and the dock opens on Usage. **Request** is the raw dump of what was sent, and is there only when the person has turned on developer details (`ext.developer()`, a preference the web gateway keeps per person); with it on, the dock opens on Request.
+
+- **Request** shows the model, capture time, request parameters, one row per message and tool definition with its byte size and prompt-cache breakpoints, and each row's JSON when it is opened. **Copy JSON** copies the entire request. OpenRouter supplies its exact serialized HTTP body after defaults, parameter overrides and cache policy; authentication headers are excluded. Other providers show their complete provider input, labelled as such.
 - **Prompt** shows the captured system/developer instructions as rendered Markdown, with **Copy** and a text-selection fallback.
 - **Usage** shows session cost, prompt/completion/cache/reasoning tokens, the latest call's cache hit share, and a per-turn ledger, newest first. Running, completed, failed, cancelled and interrupted turns retain the usage the provider reported. Missing values appear as unknown rather than zero.
 
@@ -14,13 +16,22 @@ The latest request is replaced on every model call, including tool rounds. It is
 
 The manifest declares a wide `context` dock and the `context` command exported as `uiContext`. The command first calls `env.kernel.sessions.inspect(env.session)` to authorize the conversation. It then reads the harness's atomic snapshot at `home/harness-core/context/<session>.json`, with the legacy `harness["@thetis/harness-core"].lastCall` summary as a fallback. Historical accounting comes from `home/gateway-web/sessions/<user>/<session>.json`.
 
-The command returns `{ data: { turns, status, started, lastCall, usage } }`. Active conversations waiting for their first capture show that the turn is running. An existing conversation with no capture says that no capture is available. Only a conversation with no input or turns says nothing has been sent.
+No answer may be larger than the gateway carries (256 KiB), and a long conversation's last request is megabytes, so the data comes in two commands:
+
+| Verb | Export | Answer |
+|---|---|---|
+| `context` | `uiContext` | `{ turns, status, started, lastCall, usage, usageCount, usageTotals }`. `lastCall` is the capture without its big texts: the scalars (`model`, `at`, `format`, `systemChars`, `tools`, `messages`, `usage`, …) and, when the full request was captured, `request: { params, messages, messageCount, tools, bytes }` — one short row per message (`index`, `role`, `gist`, `bytes`, `cache`, the newest 400) and per tool definition (`index`, `name`, `bytes`, `cache`). `usage` is the newest 200 rows of the ledger; `usageCount` and `usageTotals` cover every row. The answer is measured before it is sent and gives up its oldest rows if it would still be over 192 KiB. |
+| `context-page` | `uiContextPage` | `{ part, index?, offset?, at? }` to `{ at, part, index, offset, text, next, total }`: one page of `system` (the prompt), `request` (the whole request as indented JSON), `message` or `tool` (one entry by `index`). A page starts at 64,000 characters and is halved until it weighs under 192 KiB. `next` is the offset of the next page, or null at the end. With `at` naming a capture that has since been replaced, the answer is `{ at, changed: true }`, and the page starts over. |
+
+The page asks for a big text only when a view needs it — the Prompt tab, a Request row opened, **Copy** — reads every page of it, and keeps it for that capture.
+
+The `context` command answers the summary above. Active conversations waiting for their first capture show that the turn is running. An existing conversation with no capture says that no capture is available. Only a conversation with no input or turns says nothing has been sent.
 
 Opening a stale dock, changing conversations, `turn.start`, `context.updated` and `turn.end` refresh the view. The harness emits the small `context.updated` notification only after saving its snapshot; full requests never travel over the turn event stream. A closed dock fetches nothing. Requests coalesce, stale answers are discarded, and **Refresh** is available for manual retry. Expanded rows survive updates within a conversation.
 
 ## Tests
 
-`node --test packages/ui-context/test/ui-context.test.js` from the runtime root exercises session authorization, live capture, historical accounting and the browser's rendering/refresh races. Harness tests cover capture timing, exact request retention and failed/cancelled usage. The host suite verifies capture during the first turn through the real fence; provider tests compare captured JSON to a local HTTP server's received body.
+`node --test packages/ui-context/test/ui-context.test.js` from the runtime root exercises session authorization, live capture, historical accounting, a request of megabytes summarised under the limit and put back together exactly from its pages, the Request tab only with developer details, and the browser's rendering/refresh races. Harness tests cover capture timing, exact request retention and failed/cancelled usage. The host suite verifies capture during the first turn through the real fence; provider tests compare captured JSON to a local HTTP server's received body.
 
 The optional Chromium test uses the actual gateway shell and extension seam, with local fixture responses:
 

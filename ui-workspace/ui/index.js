@@ -150,7 +150,7 @@ function openPlace(ext, model, root, params) {
     } catch (err) {
       if (!alive || panes.get(tab.path) !== pane) return pane;
       clear(host);
-      host.append(banners, el("div", { class: "ws-empty is-err" }, el("div", { class: "ws-empty-title" }, `${tab.name} could not be opened`), el("div", { class: "ws-empty-hint" }, err?.message || "The workspace did not answer.")));
+      host.append(banners, el("div", { class: "ws-empty is-err" }, el("div", { class: "ws-empty-title" }, `${tab.name} could not be opened`), el("div", { class: "ws-empty-hint" }, err?.message || "Thetis did not answer.")));
     }
     pane.loading = false;
     if (activeIs(tab.path)) showPane(pane);

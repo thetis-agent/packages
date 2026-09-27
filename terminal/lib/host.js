@@ -15,9 +15,9 @@
 // userspace, so the only processes that can reach it are that person's own. Isolation here is structural,
 // not a check.
 import { createServer } from "node:net";
-import { chmodSync, mkdirSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { isAbsolute, resolve } from "node:path";
+import { basename, isAbsolute, resolve } from "node:path";
 import { openSession, DEFAULT_BUFFER_BYTES, DEFAULT_WAIT_MS } from "./session.js";
 
 /** The socket name, under `<root>/run/`, beside the gateway's own. Plan section 1. */
@@ -25,9 +25,12 @@ export const SOCKET = "term.sock";
 /** Sessions per person. The legacy limit was 4 per conversation; a person's fence is the unit now.
  *  Plan sections 2.4 and 6 (`sessions`). */
 export const MAX_SESSIONS = 8;
-/** Minutes with no attached viewer and no running command before a session is closed. The legacy
- *  `idle_timeout_secs`. Plan sections 2.4 and 6 (`idleMinutes`); 0 disables it. */
-export const IDLE_MINUTES = 30;
+/** Minutes with nothing happening — no output, no input, no browser with it on screen — and no running
+ *  command before a session is closed (`idleMinutes`); 0 disables it. Two hours: long enough for a
+ *  person to come back from lunch to the shell they left, short enough that a week of conversations
+ *  does not leave thirty shells behind, which is what 30 minutes plus "any open browser tab keeps
+ *  every shell alive" did. */
+export const IDLE_MINUTES = 120;
 /** What one tool answer may carry, head and tail kept. The cap `env.exec` already uses
  *  (`userspace-agent/src/agent.ts:18`). Plan section 2.4. */
 export const ANSWER_CHARS = 30_000;
@@ -37,6 +40,43 @@ export const REAP_INTERVAL_MS = 30_000;
 /** How many closed sessions stay on the list so the shelf can say "closed, exit 130" and offer a reopen.
  *  Beyond this the oldest are forgotten; they hold no process and no buffer worth keeping. */
 export const CLOSED_KEPT = 4;
+
+/** The init files the sessions write, `run/term-<id>.rc`. A session removes its own when it closes; one
+ *  left by a process that was killed is removed when the next host starts. */
+const RC_FILE = /^term-[0-9a-f]{12}\.rc$/;
+
+/** Programs whose first argument is the task: `npm test` says more than `npm`. */
+const RUNNERS = new Set(["npm", "npx", "pnpm", "yarn", "bun", "deno", "node", "python", "python3", "cargo", "make", "go", "git", "docker", "kubectl", "dotnet", "mvn", "gradle", "just", "uv", "pip", "ssh"]);
+/** Words that only say how the command runs, never what it is. */
+const PREFIXES = new Set(["sudo", "env", "time", "nohup", "exec", "command", "nice", "stdbuf", "timeout"]);
+const NAME_CHARS = 24;
+
+/** The last segment of a directory, `~` spelled out, quotes gone. */
+function leafOf(dir) {
+  const plain = String(dir ?? "").trim().replace(/^['"]|['"]$/g, "").replace(/\/+$/, "");
+  if (!plain || plain === "~") return null;
+  return basename(plain) || null;
+}
+
+/**
+ * What a shell is doing, as a name: the directory a leading `cd` goes to, else the program and, for a
+ * runner, its task (`npm test`, `cargo build`). Null when the line says nothing a name could use.
+ * Exported for the tests.
+ */
+export function nameFromCommand(cmd) {
+  const line = String(cmd ?? "").split(/\r?\n/)[0].trim();
+  if (!line) return null;
+  const cd = /^cd\s+(?:--\s+)?("[^"]+"|'[^']+'|[^\s;&|]+)/.exec(line);
+  if (cd) return leafOf(cd[1]);
+  // Only the first command of a pipeline or a list, without its redirections, is what the shell is doing.
+  const words = line.split(/&&|\|\||[;|<>&]/)[0].trim().split(/\s+/).filter((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w));
+  while (words.length && PREFIXES.has(words[0])) words.shift();
+  if (!words.length) return null;
+  const program = basename(words[0]);
+  if (!/^[\w.+-]+$/.test(program)) return null;
+  const task = RUNNERS.has(program) ? words.slice(1).find((w) => /^[\w.:/@+-]+$/.test(w) && !w.startsWith("-")) : null;
+  return (task ? `${program} ${task}` : program).slice(0, NAME_CHARS);
+}
 
 /**
  * Keep the head and the tail and say how much of the middle is missing. A truncation that does not say so
@@ -82,6 +122,14 @@ export async function startHost(env = {}) {
   mkdirSync(runDir, { recursive: true });
   const socketPath = resolve(runDir, SOCKET);
   rmSync(socketPath, { force: true });
+  // No session is open yet, so every init file here belongs to a process that did not close its shells.
+  let stale = 0;
+  for (const file of readdirSync(runDir)) {
+    if (!RC_FILE.test(file)) continue;
+    rmSync(resolve(runDir, file), { force: true });
+    stale++;
+  }
+  if (stale) log(`terminal: removed ${stale} init file${stale === 1 ? "" : "s"} left by shells that were not closed`);
 
   const sessions = new Map(); // id -> session, insertion-ordered, closed ones kept for a while
   const conns = new Set();
@@ -103,35 +151,53 @@ export async function startHost(env = {}) {
     for (const c of conns) if (c.subscribed && c.socket.writable) c.socket.write(text);
   }
 
-  function nameFor(conversation) {
-    const mine = open().filter((s) => s.conversation === conversation);
-    if (!mine.length) return "main";
-    for (let n = 2; ; n++) if (!mine.some((s) => s.name === String(n))) return String(n);
+  // A shell is named for what it is about, not numbered: the directory it opened in, or — for one that
+  // opened in the home, which says nothing — the first command it runs (`provisional` holds those until
+  // then). A name a person gives is never replaced. Within one conversation a name is unique, because
+  // the model addresses a session by its name.
+  const provisional = new Set();
+
+  function unique(base, conversation, except = null) {
+    const taken = new Set(open().filter((s) => s.conversation === conversation && s.id !== except).map((s) => s.name));
+    if (!taken.has(base)) return base;
+    for (let n = 2; ; n++) if (!taken.has(`${base} ${n}`)) return `${base} ${n}`;
   }
 
-  function create({ name, cwd, conversation = null }) {
+  /** The first command of a shell named for nothing yet names it. */
+  function claimName(s, cmd, cwd) {
+    if (!provisional.has(s.id)) return;
+    provisional.delete(s.id);
+    const base = (cwd && leafOf(cwd)) || nameFromCommand(cmd);
+    if (base && base !== s.name) s.rename(unique(base, s.conversation, s.id));
+  }
+
+  function create({ name, cwd, conversation = null, own = false }) {
     prune();
     if (open().length >= maxSessions) {
       throw new Error(`there are already ${maxSessions} shell sessions open, which is the limit for this person. Close one with shell_sessions before opening another.`);
     }
     const id = randomBytes(6).toString("hex");
     const where = cwd ? (isAbsolute(cwd) ? cwd : resolve(home, cwd)) : home;
+    const named = name ? String(name) : where === home ? null : leafOf(where);
     const session = openSession({
       id,
-      name: name ? String(name) : nameFor(conversation),
+      name: unique(named ?? "shell", conversation),
       shell,
       cwd: where,
       conversation,
+      own,
       bufferBytes,
       runDir,
       rc: resolve(home, ".bashrc"),
       log,
     });
     sessions.set(id, session);
+    if (!named) provisional.add(id);
     session.onEvent((e) => {
       if (e.type === "output") broadcast({ ev: "output", id, seq: e.from, text: e.text });
       else if (e.type === "state") broadcast({ ev: "state", session: e.session });
       else if (e.type === "closed") {
+        provisional.delete(id);
         broadcast({ ev: "closed", id, exit: e.exit });
         log(`terminal: session ${session.name} closed`);
       }
@@ -147,10 +213,10 @@ export async function startHost(env = {}) {
     return s;
   }
 
-  /** The conversation's `main` session, opened on the first command that needs one. */
+  /** The conversation's own session (`own`), opened on the first command that needs one. */
   function mainOf(conversation) {
     const mine = open().filter((s) => s.conversation === conversation);
-    return mine.find((s) => s.name === "main") ?? mine[0] ?? create({ conversation });
+    return mine.find((s) => s.state().own) ?? mine[0] ?? create({ conversation, own: true });
   }
 
   /** An agent's answer is capped; a browser's is not, because the browser is streaming it anyway. */
@@ -170,6 +236,7 @@ export async function startHost(env = {}) {
     async run({ id, conversation = null, cmd, cwd, timeoutMs, background = false, consumer } = {}) {
       if (typeof cmd !== "string" || !cmd.trim()) throw new Error("cmd is required and must not be empty.");
       const s = id ? need(id) : mainOf(conversation);
+      claimName(s, cmd, cwd);
       const out = await s.run(cmd, { cwd, timeoutMs: timeoutMs ?? (background ? undefined : defaultWaitMs), background, consumer });
       return { ...answer(out, consumer), id: s.id, name: s.name, session: s.state() };
     },
@@ -183,6 +250,7 @@ export async function startHost(env = {}) {
     async write({ id, text, submit = false, settleMs, consumer } = {}) {
       if (typeof text !== "string") throw new Error("text is required.");
       const s = need(id);
+      if (submit && text.trim()) claimName(s, text, null);
       // Who is typing is read from the cursor key, not claimed by the caller: a `ui:` cursor is a browser,
       // and everything else is the agent. It is the only thing that tells `person` from `busy`.
       const out = await s.write(text, { submit, settleMs, consumer, holder: isViewer(consumer) ? "person" : "agent" });
@@ -207,7 +275,19 @@ export async function startHost(env = {}) {
 
     async rename({ id, name } = {}) {
       if (typeof name !== "string" || !name.trim()) throw new Error("name is required and must not be empty.");
+      provisional.delete(id);
       return need(id).rename(name.trim());
+    },
+
+    /** A browser has this session on screen; the reaper leaves it alone for another `idleMinutes`. */
+    async seen({ id } = {}) {
+      need(id).touch();
+      return {};
+    },
+
+    /** How many shells are open, across every conversation: what closes when this space is updated. */
+    async count() {
+      return { open: open().length };
     },
 
     async subscribe({ from, consumer } = {}, conn) {
@@ -280,10 +360,14 @@ export async function startHost(env = {}) {
   const idleMs = idleMinutes > 0 ? idleMinutes * 60_000 : 0;
   const reaper = idleMs
     ? setInterval(() => {
+        // An open browser tab is not a reason to keep a shell: every page holds a subscription for its
+        // whole life, so "no watcher" was never true for a person who leaves a tab open, and their
+        // shells piled up. What keeps a shell is something happening in it, including a browser that
+        // has it on screen and says so (`seen`), or a command still running.
         for (const s of open()) {
-          if (s.running || s.state().watchers > 0 || s.idleMs < idleMs) continue;
-          log(`terminal: closing ${s.name} after ${Math.round(s.idleMs / 1000)}s idle`);
-          void s.close();
+          if (s.running || s.idleMs < idleMs) continue;
+          log(`terminal: closing ${s.name} after ${Math.round(s.idleMs / 60_000)} min idle`);
+          void s.close({ why: "idle" }).then(prune);
         }
       }, Math.max(250, Math.min(REAP_INTERVAL_MS, idleMs)))
     : null;
