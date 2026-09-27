@@ -2,7 +2,8 @@
  * size with fifty people as with three: a select whose options each say the person's state in a few
  * words, previous and next, the facts for the chosen person (their copy, when their workspace opened and
  * whether it applied the copy on disk, the service, the settings), the buttons that act on that person,
- * and a footer with the counts ("3 people haven't applied it yet"). There is no restart button here:
+ * and a footer with the counts ("3 people haven't applied it yet"). Remove for them is not there for an
+ * extension Required by Thetis. There is no restart button here:
  * applying updates is one action for everyone, on the extensions pages, and restarting one workspace is
  * Advanced → Workspaces. The tab shows the same card at full width and, under it, a table of everyone. All
  * of it is `package-where`'s answer; a person the answer does not know is not shown. */
@@ -55,7 +56,7 @@ export function whereCard(ext, ctx, { alive, full = false } = {}) {
     next.classList.add("is-sm");
     const facts = [[el("dt", {}, "who"), el("dd", {}, p.user, el("span", { class: "text-faint" }, ` · ${p.role}${p.status && p.status !== "active" ? ` · ${p.status}` : ""}`))]];
     if (p.installed) {
-      facts.push([el("dt", {}, "has it as"), el("dd", {}, el("code", {}, p.version ?? "?"), p.forkedFrom ? [" ", badge(`own copy of ${p.forkedFrom.name} ${p.forkedFrom.version}`, "warn")] : null, p.replaced ? el("span", { class: "text-faint" }, ` instead of ${p.replaced}`) : null)]);
+      facts.push([el("dt", {}, "has it as"), el("dd", {}, el("code", {}, p.version ?? "?"), p.forkedFrom ? [" ", badge(`Customized · a copy of ${p.forkedFrom.name} ${p.forkedFrom.version}`, "dim")] : null, p.replaced ? el("span", { class: "text-faint" }, ` instead of ${p.replaced}`) : null)]);
       const l = p.loaded;
       const loaded = l?.openedAt ? [stateBadge(ext, l.state), el("span", { class: "text-faint" }, ` workspace opened ${when(l.openedAt)}`)] : [el("span", { class: "ua-dot is-dim" }), " workspace not open"];
       facts.push([el("dt", {}, "in service"), el("dd", {}, ...loaded)]);
@@ -66,8 +67,12 @@ export function whereCard(ext, ctx, { alive, full = false } = {}) {
     if (p.installed) {
       const layer = button("Their settings", { onClick: () => ctx.show("configuration", { layer: p.user }) });
       const activity = button("Their activity", { onClick: () => ctx.show("activity", { actor: p.user }) });
-      const remove = button("Remove for them", { tone: "warn", onClick: () => void ctx.act(remove, { verb: "package-remove", args: { user: p.user }, title: `Remove for ${p.user}?`, lines: [["workspace", p.user]], note: "Only their link is removed; the files stay. Its tools stop on their next reply.", confirmLabel: "Remove", tone: "warn" }) });
-      actions.push(layer, activity, remove);
+      actions.push(layer, activity);
+      // Thetis cannot work without a Required extension: there is no Remove of any kind for it.
+      if (!ctx.required) {
+        const remove = button("Remove for them", { tone: "warn", onClick: () => void ctx.act(remove, { verb: "package-remove", args: { user: p.user }, title: `Remove for ${p.user}?`, lines: [["workspace", p.user]], note: "Only their link is removed; the files stay, and their saved settings are kept. Its tools stop on their next reply.", confirmLabel: "Remove", tone: "warn" }) });
+        actions.push(remove);
+      }
     } else {
       const install = button("Install for them", { tone: "primary", onClick: () => void ctx.act(install, { verb: "package-install-for", args: { user: p.user }, title: `Install for ${p.user}?`, lines: [["workspace", p.user]], note: "Their workspace gets the extension on its next reply.", confirmLabel: "Install" }) });
       actions.push(install);

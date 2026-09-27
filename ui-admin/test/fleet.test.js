@@ -106,13 +106,13 @@ test("package-activity: a fleet-wide install says who it left alone, and why", (
   const forks = [{ user: "bob", fork: "@bob/gateway-web" }];
   assert.equal(
     sentence({ kind: "package.everyone", target: "@thetis/gateway-web", data: { userspaces: ["root"], forks } }),
-    "made @thetis/gateway-web the default for everyone, except bob, who uses a copy of their own",
+    "turned @thetis/gateway-web on for everyone, except bob, who uses a copy of their own",
   );
-  assert.equal(sentence({ kind: "package.everyone", target: "@thetis/gateway-web", data: { userspaces: ["root", "bob"] } }), "made @thetis/gateway-web the default for everyone");
-  assert.equal(sentence({ kind: "package.everyone", target: "@thetis/gateway-web", data: { on: false } }), "@thetis/gateway-web is no longer the default for everyone");
+  assert.equal(sentence({ kind: "package.everyone", target: "@thetis/gateway-web", data: { userspaces: ["root", "bob"] } }), "turned @thetis/gateway-web on for everyone");
+  assert.equal(sentence({ kind: "package.everyone", target: "@thetis/gateway-web", data: { on: false } }), "turned @thetis/gateway-web off for everyone");
   assert.equal(
     sentence({ kind: "package.promote", target: "alice", data: { name: "@alice/gw", promoted: "@thetis/gw", userspaces: ["root"], forks } }),
-    "made @alice/gw the default for everyone as @thetis/gw for 1 workspace, except bob, who uses a copy of their own",
+    "shared @alice/gw with everyone as @thetis/gw for 1 workspace, except bob, who uses a copy of their own",
   );
 });
 
@@ -156,7 +156,9 @@ test("fleet: one row per package with each person's copy, a fork standing in for
   const term = packages.find((p) => p.name === "@thetis/terminal");
   assert.equal(term.scope, "everyone");
   assert.equal(term.version, "0.1.0");
-  assert.deepEqual(term.config, { broken: false, keys: 1 });
+  assert.deepEqual(term.config, { broken: false, keys: 1, summary: "", missing: [] });
+  assert.equal(term.mine, true, "root has the terminal itself");
+  assert.equal(packages.find((p) => p.name === "@bob/terminal").mine, false, "bob's copy is not installed for root");
   assert.deepEqual(term.byUser.root, { version: "0.1.0", fork: false, forkOf: null, broken: false, loaded: null, state: "current" });
   assert.deepEqual(term.byUser.bob, { version: "0.1.0-fork.1", fork: true, forkOf: "@bob/terminal", broken: true, loaded: null, state: "current" }, "bob's own copy stands in for the original; its code is read per call, so it is not behind");
   assert.equal(term.state, "current");
@@ -215,4 +217,52 @@ test("drift: three words, from what a workspace reads once", async () => {
   // The daemon alone is Restart needed.
   const { env } = fakeEnv({ "users.list": [], status: { daemon: { stale: true }, workspaces: [] }, "config.list": () => [] }, { own: [] });
   assert.deepEqual((await commands.fleet({}, env)).data.daemon, { state: "restart" });
+});
+
+test("fleet: the facts the one state reads -- label, what it brings, whose copy -- and where a shared copy came from", async () => {
+  const notion = { name: "@thetis/notion", version: "0.1.1", type: "tool", description: "Notion.", everyone: true, everyoneBy: "promoted", root: codeRoot, source: { kind: "system", ref: "notion" }, thetis: { type: "tool", label: "Notion", tools: [{ name: "notion_search" }, { name: "notion_page_get" }], ui: { places: [{ id: "n" }] } } };
+  const exaKeyed = { ...exa, thetis: { type: "tool", tools: [{ name: "exa_search" }] } };
+  const own = [notion, exaKeyed];
+  const { env, calls } = fakeEnv(
+    {
+      "users.list": users,
+      "packages.list": (a) => (a.user === "root" ? own : []),
+      status,
+      "config.list": (a) => (a.user ? [] : [{ package: "@thetis/exa", broken: true, summary: "apiKey is missing", keys: [{ key: "apiKey", state: "missing", secret: true, value: "never sent", missing: ["EXA_API_KEY"], source: "default", help: "The Exa API key." }] }]),
+      "journal.tail": (a) => (a.kind === "package.promote" ? [{ at: "2026-09-20T10:00:00Z", kind: "package.promote", actor: "root", data: { name: "@bitmuse/notion", promoted: "@thetis/notion" } }, { at: "2026-09-24T10:00:00Z", kind: "package.promote", actor: "root", data: { name: "@bitmuse/notion", promoted: "@thetis/notion" } }] : []),
+    },
+    { own }
+  );
+  const { packages } = (await commands.fleet({}, env)).data;
+  const row = packages.find((p) => p.name === "@thetis/notion");
+  assert.equal(row.label, "Notion");
+  assert.deepEqual(row.tools, ["notion_search", "notion_page_get"]);
+  assert.equal(row.pages, 1);
+  assert.equal(row.everyoneBy, "promoted");
+  assert.deepEqual(row.promotedFrom, { name: "@bitmuse/notion", by: "bitmuse", at: "2026-09-24T10:00:00Z", actor: "root" }, "the newest promotion speaks");
+  assert.ok(calls.some((c) => c.method === "journal.tail" && c.args.kind === "package.promote"), "the journal is asked for promotions only");
+  const keyed = packages.find((p) => p.name === "@thetis/exa");
+  assert.deepEqual(keyed.config.missing, [{ key: "apiKey", state: "missing", missing: ["EXA_API_KEY"], source: "default", help: "The Exa API key.", secret: true }], "the missing key travels without its value");
+});
+
+test("package-everyone turns an extension by Thetis on for everyone by name, a registry one by its pinned source, and off by the mark", async () => {
+  const { env, calls } = fakeEnv({ "packages.installEveryone": (a) => ({ name: a.source.startsWith("@") ? a.source : "@thetis/exa", userspaces: ["root", "bob"] }), "packages.unmarkEveryone": null }, { own: [terminal, exa, { name: "@root/mine", version: "1.0.0", type: "tool", description: "", root: codeRoot, source: { kind: "local", ref: "packages/mine" } }, { name: "@tg/nova", version: "0.3.0", type: "skill", description: "", root: codeRoot, source: { kind: "git", ref: "https://x/r.git#nova@0123456789abcdef" } }] });
+  assert.deepEqual((await commands.packageEveryone({ name: "@thetis/terminal", on: true }, env)).data, { name: "@thetis/terminal", on: true, userspaces: ["root", "bob"] });
+  assert.deepEqual(calls.at(-1), { method: "packages.installEveryone", args: { source: "@thetis/terminal" } });
+  await commands.packageEveryone({ name: "@thetis/exa", on: true }, env);
+  assert.deepEqual(calls.at(-1), { method: "packages.installEveryone", args: { source: "@thetis/exa" } }, "a @thetis name goes by name");
+  await commands.packageEveryone({ name: "@tg/nova", on: true }, env);
+  assert.deepEqual(calls.at(-1), { method: "packages.installEveryone", args: { source: "https://x/r.git#nova@0123456789abcdef" } }, "a registry's extension goes by the source it is pinned to, never one the browser sent");
+  await assert.rejects(commands.packageEveryone({ name: "@root/mine", on: true }, env), /share it with everyone instead/);
+  assert.deepEqual((await commands.packageEveryone({ name: "@thetis/terminal", on: false }, env)).data, { name: "@thetis/terminal", on: false });
+  assert.deepEqual(calls.at(-1), { method: "packages.unmarkEveryone", args: { name: "@thetis/terminal" } });
+});
+
+test("package-unfork puts the admin's own copy back on its official version, and refuses anything else", async () => {
+  const mine = { ...bobFork, name: "@root/terminal" };
+  const { env } = fakeEnv({}, { own: [mine, exa] });
+  env.kernel.packages.unfork = async (name) => ({ ...terminal, from: name });
+  assert.deepEqual((await commands.packageUnfork({ name: "@root/terminal" }, env)).data, { name: "@thetis/terminal", version: "0.1.0", from: "@root/terminal" });
+  await assert.rejects(commands.packageUnfork({ name: "@thetis/exa" }, env), /not a copy/);
+  await assert.rejects(commands.packageUnfork({ name: "@bob/terminal" }, env), /not installed in your workspace/);
 });

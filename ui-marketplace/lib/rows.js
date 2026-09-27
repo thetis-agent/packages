@@ -104,6 +104,8 @@ export function installedRow(info, installed = true) {
     type: info.type,
     description: info.description ?? "",
     audience: typeof info.thetis?.audience === "string" ? info.thetis.audience : null,
+    // What a person must give before it works, from the declaration: the Needs line on the page.
+    needs: needsOfDecls(info.thetis?.config),
     keywords: [],
     registry: null,
     source: null,
@@ -137,6 +139,7 @@ export function installedRow(info, installed = true) {
     tools: (info.thetis?.tools ?? []).map((t) => ({ name: t.name, description: t.description ?? "" })),
     service: !!info.thetis?.service,
     skills: skillCount(info.root, info.thetis?.skills),
+    hasSkills: typeof info.thetis?.skills === "string" && !!info.thetis.skills,
     pages: pageCount(info.thetis?.ui),
     bench: benchOf(info),
   };
@@ -166,6 +169,65 @@ export function skillCount(root, dir) {
   return n;
 }
 
+/** The `name:` and `description:` lines of a SKILL.md's front matter, or null when it has none. */
+function frontMatter(text) {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+  if (!m) return null;
+  const field = (key) => {
+    const line = new RegExp(`^${key}:\\s*(.*)$`, "m").exec(m[1]);
+    return line ? line[1].trim().replace(/^["']|["']$/g, "") : "";
+  };
+  return { name: field("name"), description: field("description") };
+}
+
+/**
+ * The skills a package brings, each with the first sentence of its description: what the page's Overview
+ * lists for a skill extension, the way it lists a tool extension's tools. Read from the SKILL.md files under
+ * the directory the manifest names; a file without front matter is named by its directory.
+ */
+export function skillList(root, dir, limit = 200) {
+  if (!root || typeof dir !== "string" || !dir) return [];
+  const out = [];
+  const walk = (at, rel, depth) => {
+    if (depth > 4 || out.length >= limit) return;
+    let entries;
+    try {
+      entries = readdirSync(at, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    // The skill in this directory first, then its children: a parent skill reads before the ones under it.
+    const sorted = entries.sort((a, b) => (a.name === "SKILL.md" ? -1 : b.name === "SKILL.md" ? 1 : a.name.localeCompare(b.name)));
+    for (const e of sorted) {
+      if (e.isDirectory()) walk(resolve(at, e.name), rel ? `${rel}/${e.name}` : e.name, depth + 1);
+      else if (e.name === "SKILL.md") {
+        let fm = null;
+        try {
+          fm = frontMatter(readFileSync(resolve(at, e.name), "utf8"));
+        } catch {
+          fm = null;
+        }
+        const description = fm?.description ?? "";
+        const first = /^(.+?[.!?])(\s|$)/.exec(description);
+        out.push({ name: fm?.name || rel || dir, description: first ? first[1] : description });
+      }
+    }
+  };
+  walk(resolve(root, dir), "", 0);
+  return out;
+}
+
+/**
+ * The keys a person must give before a package works, from its `thetis.config` declaration: required, with
+ * no default, and not an admin's to set. `[{ key, secret, help }]`, in declaration order.
+ */
+export function needsOfDecls(decls) {
+  if (!decls || typeof decls !== "object") return [];
+  return Object.entries(decls)
+    .filter(([, d]) => d && d.required && d.default === undefined && d.scope !== "system")
+    .map(([key, d]) => ({ key, secret: !!d.secret, help: typeof d.help === "string" ? d.help : "" }));
+}
+
 /** How many places, docks and panels a package adds to the page. */
 export function pageCount(ui) {
   if (!ui || typeof ui !== "object") return 0;
@@ -177,15 +239,17 @@ export function pageCount(ui) {
 // A person looking for something to add should see what they could want: tools, skills, integrations, pages.
 // The parts that make the installation run -- the host packages, the storage driver, the gateways, the model
 // provider, the harness itself, the index service, the benchmarks, the page's own plumbing -- are still
-// here, and an admin still needs them, but behind "Show system components". A manifest can say which it is
-// with `thetis.audience` ("system" or "everyone"); without one, the type and the name decide.
+// here, and an admin still needs them, in the folded "Part of Thetis" section. A manifest can say which it is
+// with `thetis.audience` ("system" or "everyone"); without one, the type and the name decide. `"admin"` is a
+// different question -- who may be offered it (`isAdminOnly` in lib/state.js) -- and leaves this one to the
+// type and the name.
 
 const COMPONENT_TYPES = new Set(["host", "storage", "gateway", "provider", "skill-type", "service"]);
 const COMPONENT_NAMES = new Set(["harness-core", "prompt-cache", "bench", "bench-probe", "ui-admin", "ui-marketplace", "ui-context", "ui-tools", "ui-skills"]);
 /** The skill loaders are alternatives to one another. The one a person has is theirs; the others are components. */
 const SKILL_LOADERS = new Set(["skills-all", "skills-l1", "skills-hybrid"]);
 
-/** Whether a row is a system component, hidden until a person asks to see them. */
+/** Whether a row is one of Thetis's own parts, listed under "Part of Thetis". */
 export function isComponent(row) {
   if (row.audience === "system") return true;
   if (row.audience === "everyone") return false;
@@ -206,6 +270,7 @@ export function indexRow(entry) {
     type: entry.type,
     description: entry.description ?? "",
     audience: typeof entry.audience === "string" ? entry.audience : null,
+    needs: Array.isArray(entry.needs) ? entry.needs.filter((n) => n && typeof n.key === "string").map((n) => ({ key: n.key, secret: !!n.secret, help: typeof n.help === "string" ? n.help : "" })) : [],
     keywords: entry.keywords ?? [],
     registry: entry.registry,
     source: entry.source,
@@ -222,14 +287,15 @@ export function indexRow(entry) {
     update: null,
     ahead: null,
     readme: !!entry.readme,
-    forkedFrom: null,
+    forkedFrom: entry.forkedFrom && typeof entry.forkedFrom.name === "string" ? { name: entry.forkedFrom.name, version: String(entry.forkedFrom.version ?? "") } : null,
     fork: null,
     replaced: null,
     steps: entry.steps ?? [],
     tools: (entry.tools ?? []).map((name) => ({ name, description: "" })),
     service: !!entry.service,
     skills: 0,
-    pages: 0,
+    hasSkills: !!entry.skills,
+    pages: Number.isFinite(entry.pages) ? entry.pages : 0,
     bench: entry.bench ? { suites: entry.bench.suites ?? [], ...(entry.bench.peerGroup ? { peerGroup: entry.bench.peerGroup } : {}), reports: [] } : null,
   };
 }
@@ -275,6 +341,55 @@ export function mergeRows(installed, entries, index, { catalog = [], user = "" }
     const row = mine && r.installed && r.name.startsWith(mine) ? { ...r, own: true } : r;
     return { ...row, component: isComponent(row) };
   });
+}
+
+/**
+ * The person's own folder: every package under `<home>/packages/` whose manifest is a Thetis package, as a row
+ * that is not installed, carrying `folder: { dir }` -- the path an install sends, relative to the home, which is
+ * how the kernel reads a local source. `installed` is the names this person has; a folder whose package is
+ * installed is not listed, because the installed row already is that package. Nothing is thrown: a folder that
+ * cannot be read is left out, and a home without `packages/` has no folder rows.
+ */
+export function folderRows(home, installed = []) {
+  if (!home) return [];
+  const have = new Set(installed);
+  const at = resolve(home, "packages");
+  let entries;
+  try {
+    entries = readdirSync(at, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!e.isDirectory() || e.name.startsWith(".")) continue;
+    const root = resolve(at, e.name);
+    let m;
+    try {
+      m = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+    } catch {
+      continue;
+    }
+    if (!m || typeof m.name !== "string" || typeof m.thetis?.type !== "string" || have.has(m.name)) continue;
+    const dir = `packages/${e.name}`;
+    const info = { name: m.name, version: String(m.version ?? ""), type: m.thetis.type, description: m.description ?? "", root, thetis: m.thetis, forkedFrom: m.thetis.forkedFrom, source: { kind: "local", ref: dir } };
+    out.push({ ...installedRow(info, false), folder: { dir }, component: false });
+  }
+  return out;
+}
+
+/**
+ * The folder rows laid over the merged rows: a folder whose package is also a row -- a registry's offer of the
+ * person's own published package, say -- marks that row as being in their folder rather than adding a second
+ * row with the same name.
+ */
+export function withFolder(rows, folder) {
+  const byName = new Map(folder.map((f) => [f.name, f]));
+  // What the files say fills what the index could not: its needs, skills, pages, origin and audience.
+  const lay = (r, f) => ({ ...r, folder: f.folder, local: true, needs: r.needs?.length ? r.needs : f.needs, skills: r.skills || f.skills, hasSkills: r.hasSkills || f.hasSkills, pages: r.pages || f.pages, forkedFrom: r.forkedFrom ?? f.forkedFrom, audience: r.audience ?? f.audience });
+  const merged = rows.map((r) => (!r.installed && byName.has(r.name) ? lay(r, byName.get(r.name)) : r));
+  const seen = new Set(rows.map((r) => r.name));
+  return [...merged, ...folder.filter((f) => !seen.has(f.name))];
 }
 
 /** The page's own filter for the rows the index does not carry, the same rule the index search uses for a name match. */

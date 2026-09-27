@@ -1,8 +1,16 @@
-/* The README tab: the package's README.md, from `package-readme`, rendered by the shell's markdown. A
- * package without one says so. Relative images are shown as their alt text: the page has no resolver
- * for a package's files. */
+/* The README tab: this extension's own README.md, from `package-readme` (read at this package's root, never
+ * another's), rendered by the shell's markdown. A package without one says so. A copy keeps the README of what
+ * it was copied from, title and all: when the README's title names another extension, a line above it says so,
+ * so "@bitmuse/notion" at the top of the shared Notion's page is explained, not taken for the wrong file.
+ * Relative images are shown as their alt text: the page has no resolver for a package's files. */
 
 import { failureSentence } from "./failed.js";
+
+/** The extension a README's title names, when it is written for another one than `name`; else null. */
+export function writtenFor(text, name) {
+  const title = /^\s*#\s+`?(@[a-z0-9-]+\/[a-z0-9._-]+)`?/m.exec(String(text ?? "").split("\n").slice(0, 8).join("\n"))?.[1] ?? null;
+  return title && title !== name ? title : null;
+}
 
 export function mountReadme(ext, host, ctx) {
   const { el, clear } = ext.dom;
@@ -26,7 +34,10 @@ export function mountReadme(ext, host, ctx) {
     }
     if (!alive) return;
     clear(body);
-    put(body, typeof text === "string" && text.trim() ? el("div", { class: "md" }, ...ext.markdown(text)) : el("p", { class: "text-faint" }, "This extension has no README."));
+    if (!(typeof text === "string" && text.trim())) return void put(body, el("p", { class: "text-faint" }, "This extension has no README."));
+    const other = writtenFor(text, ctx.name);
+    const from = ctx.info?.promotedFrom?.name === other ? ", the extension this was shared from" : ctx.info?.forkedFrom?.name === other ? ", the extension this is a copy of" : "";
+    put(body, other ? el("p", { class: "panel-hint ua-readme-note" }, `This README came with the files and was written for ${other}${from}; names in it may differ from this one.`) : null, el("div", { class: "md" }, ...ext.markdown(text)));
   })();
   return () => {
     alive = false;

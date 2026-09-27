@@ -1,6 +1,8 @@
 /* The Overview tab: three cards side by side, then Files. Provenance draws the lineage (the registry's
  * copy, this copy, a promoted copy, the forks hanging off it) as one small SVG and lists source, registry,
- * pin, forks, what it depends on and what depends on it. Checkout asks `package-log` for the newest
+ * pin, forks, what it depends on and what depends on it. A shared copy says whose extension it was shared
+ * from and when ("Shared with everyone from @bitmuse/notion by bitmuse on 2026-09-24"), never "shipped with
+ * Thetis". Checkout asks `package-log` for the newest
  * commits touching the package and draws them on two lanes: what origin has on the accent lane, what is
  * only here on the warn lane, the working tree first when files are changed. Where it runs is the
  * person card from package-where.js. Every line is a fact the kernel, the index or git reported. */
@@ -35,6 +37,7 @@ const text = (x, y, label, { anchor = "middle", cls = "" } = {}) => svg("text", 
 function lineage(info, forks) {
   const reg = info.registry;
   const isSystem = info.source?.kind === "system";
+  const shared = info.everyoneBy === "promoted";
   // The drawing fills the card: the viewBox is the layout, the CSS makes it as wide as the card. The end
   // nodes sit in from the edges so their two-line labels have room on both sides.
   const width = 440;
@@ -50,8 +53,8 @@ function lineage(info, forks) {
   root.append(text(xa, 72, reg ? `${reg.version} · ${short(reg.commit)}` : "not in the index", { cls: "is-mono" }));
   root.append(text(xb, 58, "this copy", { cls: "is-strong" }));
   root.append(text(xb, 72, `${info.version} · ${info.git?.commit ?? (info.source?.kind ?? "")}`, { cls: "is-mono" }));
-  root.append(text(xc, 58, isSystem ? "shipped copy" : "everyone's copy"));
-  root.append(text(xc, 72, isSystem ? "this is it" : "none yet", { cls: "is-mono" }));
+  root.append(text(xc, 58, shared ? "everyone's copy" : isSystem ? "shipped copy" : "everyone's copy"));
+  root.append(text(xc, 72, isSystem ? "this is it" : info.sharedAs ? info.sharedAs : "none yet", { cls: "is-mono" }));
   const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
   forks.forEach((f, i) => {
     const y = 96 + i * 18;
@@ -84,7 +87,7 @@ function provenanceCard(ext, ctx) {
     ...row("depends on", info.dependencies?.length ? el("code", {}, info.dependencies.join(", ")) : "nothing"),
     ...row("used by", info.dependents?.length ? el("code", {}, info.dependents.join(", ")) : "nothing installed here"),
   ];
-  const headBadge = info.source?.kind === "system" ? badge("shipped with Thetis", "dim") : info.source?.kind === "git" ? badge(`from ${reg?.registry ?? "a registry"}`, "accent") : badge("a directory", "dim");
+  const headBadge = info.everyoneBy === "promoted" ? badge(info.promotedFrom?.by ? `shared by ${info.promotedFrom.by}` : "shared with everyone", "accent") : info.source?.kind === "system" ? badge("shipped with Thetis", "dim") : info.source?.kind === "git" ? badge(`from ${reg?.registry ?? "a registry"}`, "accent") : badge("a directory", "dim");
   const node = card(el("span", { class: "ua-card-title" }, "Provenance", headBadge), lineage(info, forks), el("dl", { class: "kv ua-pkg-facts" }, ...rows));
   node.classList.add("ua-provenance");
   return node;

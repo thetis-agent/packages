@@ -24,6 +24,8 @@ export interface PackageRow {
   /** The manifest's human name (`thetis.label`), when it has one. */
   label?: string;
   scope: "me" | "everyone";
+  /** Whether every person gets it; `everyoneBy` says whose decision that was. */
+  everyone: boolean;
   steps: { id: string; phase: string }[];
   tools: string[];
   service: boolean;
@@ -32,6 +34,37 @@ export interface PackageRow {
   /** Set on a fork: the same origin, plus what that origin is at on disk now, whether this copy differs from it at all, and whether it is what everyone else gets. */
   fork?: { name: string; version: string; shipped?: string; identical?: boolean; everyone?: boolean };
   replaced?: string;
+  /** Why everyone gets it: the installation's settings file, a promotion of a person's extension, or an admin's mark. */
+  everyoneBy?: "config" | "promoted" | "marked";
+  /** The manifest's `thetis.audience`: `"admin"` for an extension only an admin is offered. */
+  audience?: string;
+  /** Where its files came from: shipped with Thetis (or promoted into it), a directory under a home, or a registry's git source. */
+  source?: "system" | "local" | "git";
+  /** Whether it brings skills, and how many places, docks and panels it adds: the publisher line's kinds. */
+  hasSkills: boolean;
+  pages: number;
+  /** The version this person's workspace loaded, when it is not the one on disk: an update ready to apply. */
+  loaded?: string;
+  /** This person's own configuration report when something is missing: the summary and the missing keys, never a value. */
+  config?: { broken: true; summary: string; keys: MissingKey[] };
+}
+
+/** One missing configuration key, as the one state reads it: whose it is to fix, never its value. */
+export interface MissingKey {
+  key: string;
+  state: "missing";
+  scope?: "system" | "user";
+  missing?: string[];
+  source?: string;
+  help?: string;
+  secret: boolean;
+}
+
+/** How many places, docks and panels a manifest adds to the page. */
+function pageCount(ui: unknown): number {
+  if (!ui || typeof ui !== "object") return 0;
+  const slots = ui as Record<string, unknown>;
+  return ["places", "dock", "panel", "sidebar", "shelf"].reduce((n, slot) => n + (Array.isArray(slots[slot]) ? (slots[slot] as unknown[]).length : 0), 0);
 }
 
 export function toRow(p: PackageInfo): PackageRow {
@@ -42,13 +75,44 @@ export function toRow(p: PackageInfo): PackageRow {
     description: p.description,
     ...(typeof p.thetis.label === "string" ? { label: p.thetis.label } : {}),
     scope: p.everyone ? "everyone" : "me",
+    everyone: Boolean(p.everyone),
     steps: (p.thetis.steps ?? []).map((s) => ({ id: s.id, phase: s.phase })),
     tools: (p.thetis.tools ?? []).map((t) => t.name),
     service: !!p.thetis.service,
     ...(p.forkedFrom ? { forkedFrom: { name: p.forkedFrom.name, version: p.forkedFrom.version } } : {}),
     ...(p.fork ? { fork: { name: p.fork.name, version: p.fork.version, ...(p.fork.shipped ? { shipped: p.fork.shipped } : {}), ...(p.fork.identical ? { identical: true } : {}), ...(p.fork.everyone ? { everyone: true } : {}) } } : {}),
     ...(p.replaced ? { replaced: p.replaced } : {}),
+    ...(p.everyoneBy ? { everyoneBy: p.everyoneBy } : {}),
+    ...(typeof p.thetis.audience === "string" ? { audience: p.thetis.audience } : {}),
+    ...(p.source ? { source: p.source.kind } : {}),
+    hasSkills: typeof p.thetis.skills === "string" && p.thetis.skills.length > 0,
+    pages: pageCount(p.thetis.ui),
+    ...(p.loadedVersion && p.loadedVersion !== p.version ? { loaded: p.loadedVersion } : {}),
   };
+}
+
+/**
+ * The person's own configuration state, folded onto the rows of the packages that declare settings: a row
+ * whose report is broken carries its summary and missing keys, so the list can say Needs setup, or "Waiting
+ * for your admin" when only an admin can set what is missing. A report that cannot be read says nothing.
+ */
+export async function withSetup(kernel: KernelClient, list: PackageInfo[], rows: PackageRow[]): Promise<PackageRow[]> {
+  await Promise.all(
+    list.map(async (p, i) => {
+      if (!p.thetis.config || !Object.keys(p.thetis.config).length) return;
+      try {
+        const report = await kernel.config.show(p.name);
+        if (!report.broken) return;
+        const keys: MissingKey[] = report.keys
+          .filter((k) => k.state === "missing")
+          .map((k) => ({ key: k.key, state: "missing", ...(k.scope ? { scope: k.scope } : {}), ...(k.missing?.length ? { missing: k.missing } : {}), ...(k.source ? { source: k.source } : {}), ...(k.help ? { help: k.help } : {}), secret: Boolean(k.secret) }));
+        rows[i] = { ...rows[i], config: { broken: true, summary: report.summary, keys } };
+      } catch {
+        /* not read: the row says nothing about its settings */
+      }
+    })
+  );
+  return rows;
 }
 
 /** Handles `/api/panel` and `/api/packages`. Returns false when the path is not one of them. */
@@ -57,7 +121,10 @@ export async function handlePanel(kernel: KernelClient, req: IncomingMessage, re
   if (seg[1] === "panel" && method === "GET") return json(res, 200, { user: who.id, role: who.role, sections: ["packages"] }), true;
   if (seg[1] !== "packages") return false;
 
-  if (seg.length === 2 && method === "GET") return json(res, 200, (await kernel.packages.list()).map(toRow)), true;
+  if (seg.length === 2 && method === "GET") {
+    const list = await kernel.packages.list();
+    return json(res, 200, await withSetup(kernel, list, list.map(toRow))), true;
+  }
   if (seg.length === 2 && method === "POST") {
     const source = field(await readJson(req), "source");
     const installed = await kernel.packages.list();

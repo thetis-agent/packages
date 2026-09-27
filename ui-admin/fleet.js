@@ -8,6 +8,7 @@
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { newestMtime } from "@thetis/runtime/lib/freshness";
+import { installedPackage } from "./git.js";
 
 const USER_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const PACKAGE_NAME = /^@[a-z0-9-]+\/[a-z0-9._-]+$/;
@@ -23,6 +24,68 @@ const userId = (value, what = "user") => (typeof value === "string" && USER_ID.t
 const packageName = (value) => (typeof value === "string" && PACKAGE_NAME.test(value) ? value : fail("a package name looks like @scope/name"));
 const call = (env, method, args = {}) => env.kernel.operator.call(method, args);
 const isSystem = (name) => name.startsWith("@thetis/");
+const scopeOf = (name) => /^@([^/]+)\//.exec(String(name ?? ""))?.[1] ?? null;
+
+// ---- what a person reads about an extension, from its record ----
+
+/** How many places, docks and panels a manifest adds to the page. */
+const pageCount = (ui) => (ui && typeof ui === "object" ? ["places", "dock", "panel", "sidebar", "shelf"].reduce((n, slot) => n + (Array.isArray(ui[slot]) ? ui[slot].length : 0), 0) : 0);
+
+/**
+ * The facts the one state and the publisher line read (`ui/state.js`), taken from a package's record: its
+ * label and audience, whether everyone gets it and why, whether it is someone's copy and how that copy stands
+ * against its official version, where it came from, and what it brings. The same shape as the Extensions
+ * place's rows, so both surfaces say the same thing about the same extension.
+ */
+export function factsOf(p) {
+  const t = p?.thetis ?? {};
+  return {
+    label: typeof t.label === "string" && t.label.trim() ? t.label.trim() : null,
+    audience: typeof t.audience === "string" ? t.audience : null,
+    everyone: Boolean(p?.everyone),
+    everyoneBy: p?.everyoneBy ?? null,
+    forkedFrom: p?.forkedFrom ? { name: p.forkedFrom.name, version: p.forkedFrom.version } : null,
+    fork: p?.fork ? { name: p.fork.name, version: p.fork.version, shipped: p.fork.shipped ?? null, identical: Boolean(p.fork.identical), everyone: Boolean(p.fork.everyone) } : null,
+    source: p?.source ? { kind: p.source.kind, ref: p.source.ref } : null,
+    tools: Array.isArray(t.tools) ? t.tools.map((x) => x?.name).filter(Boolean) : [],
+    hasSkills: typeof t.skills === "string" && Boolean(t.skills),
+    pages: pageCount(t.ui),
+    service: Boolean(t.service),
+    steps: Array.isArray(t.steps) ? t.steps.length : 0,
+  };
+}
+
+/**
+ * A configuration report as the one state reads it: broken or not, the kernel's summary, how many keys, and the
+ * missing ones, from which the one state works out whose they are to fix (a `${VAR}` the server's environment
+ * lacks or a system-scoped key is an admin's; a person reads it as "Waiting for your admin").
+ */
+export function setupOf(report) {
+  if (!report) return null;
+  const keys = Array.isArray(report.keys) ? report.keys : [];
+  // The missing keys travel with what the one state reads about them, never a value: the key, where it would
+  // come from, the variables the server's environment lacks, its scope and its help.
+  const missing = keys.filter((k) => k?.state === "missing").map((k) => ({ key: k.key, state: k.state, ...(k.scope ? { scope: k.scope } : {}), ...(Array.isArray(k.missing) ? { missing: k.missing } : {}), ...(k.source ? { source: k.source } : {}), ...(k.help ? { help: k.help } : {}), secret: Boolean(k.secret) }));
+  return { broken: Boolean(report.broken), summary: report.summary ?? "", keys: keys.length, missing };
+}
+
+/**
+ * Where each promoted copy came from, by its name: the person's extension it was made from, whose that was
+ * (the scope), when, and who shared it. The journal is the only record of it -- the copy's own manifest names
+ * only itself -- so a journal that cannot be read answers an empty map and the page says less, not wrong.
+ */
+export async function promotions(env) {
+  let rows = [];
+  try {
+    rows = await call(env, "journal.tail", { limit: 1000, kind: "package.promote" });
+  } catch {
+    rows = [];
+  }
+  const out = new Map();
+  const sorted = (Array.isArray(rows) ? rows : []).filter((e) => e?.data?.promoted && e.data.name).sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  for (const e of sorted) if (!out.has(e.data.promoted)) out.set(e.data.promoted, { name: e.data.name, by: scopeOf(e.data.name), at: e.at ?? null, actor: e.actor ?? null });
+  return out;
+}
 
 /** The marketplace library, or null where it is not installed: the registry's word is then unknown, not wrong. */
 async function marketplace() {
@@ -251,6 +314,38 @@ export async function packageInstallFor(args, env) {
   return { data: { name: info?.name ?? name, version: info?.version ?? null } };
 }
 
+/**
+ * package-everyone: turns an extension by Thetis or a registry on for everyone (`on: true`), or off
+ * (`on: false`). On is `packages.installEveryone` with the extension's own source: its name for one shipped
+ * with Thetis, the pinned registry source for one installed from a registry (which the kernel makes a shared
+ * copy of). Off takes an admin's mark back: new people stop getting it, people who have it keep it. A
+ * person's own extension is shared with package-promote, and nothing here reads a source from the browser.
+ */
+export async function packageEveryone(args, env) {
+  const name = packageName(args.name);
+  if (args.on === false) {
+    await call(env, "packages.unmarkEveryone", { name });
+    return { data: { name, on: false } };
+  }
+  const info = await installedPackage(env, name);
+  const source = info.source?.kind === "system" || isSystem(name) ? name : info.source?.kind === "git" ? info.source.ref : fail(`${name} is a person's own extension: share it with everyone instead`);
+  const out = await call(env, "packages.installEveryone", { source });
+  return { data: { name: out?.name ?? name, on: true, userspaces: out?.userspaces ?? [] } };
+}
+
+/**
+ * package-unfork: the admin's own customised copy goes, and the official version it was made from comes back
+ * in their workspace ("Use Thetis's version"). Only a copy in the admin's own list, because the kernel's
+ * unfork speaks for the fence that asks; the copy's files stay.
+ */
+export async function packageUnfork(args, env) {
+  const name = packageName(args.name);
+  const own = (await env.kernel.packages.list()).find((p) => p.name === name) ?? fail(`${name} is not installed in your workspace`);
+  if (!own.forkedFrom) fail(`${name} is not a copy of another extension`);
+  const back = await env.kernel.packages.unfork(name);
+  return { data: { name: back?.name ?? own.forkedFrom.name, version: back?.version ?? null, from: name } };
+}
+
 // ---- the fleet ----
 
 /** The configuration reports at one layer, by package; a refusal is an empty map. */
@@ -308,7 +403,9 @@ export async function fleet(_args, env) {
   const rows = new Map();
   const row = (p) => {
     let r = rows.get(p.name);
-    if (!r) rows.set(p.name, (r = { name: p.name, type: p.type, description: p.description ?? "", scope: "some", version: null, versions: [], entry: indexed.get(p.name) ?? null, config: null, byUser: {}, git: null }));
+    if (!r) rows.set(p.name, (r = { name: p.name, type: p.type, description: p.description ?? "", scope: "some", version: null, versions: [], entry: indexed.get(p.name) ?? null, config: null, byUser: {}, git: null, info: null }));
+    // The first real record seen speaks for the row's facts; a stand-in made for a fork's original has none.
+    if (!r.info && p.thetis) r.info = p;
     return r;
   };
   for (const { person, list, reports } of perPerson) {
@@ -329,8 +426,11 @@ export async function fleet(_args, env) {
     r.versions.push(p.version);
     r.byUser[SYSTEM] = copyCell(p, spaces.get(SYSTEM) ?? null, system);
   }
+  const promoted = [...rows.values()].some((r) => (ownByName.get(r.name) ?? r.info)?.everyoneBy === "promoted") ? await promotions(env) : new Map();
   const packages = [...rows.values()].map((r) => {
     const mine = ownByName.get(r.name);
+    const facts = factsOf(mine ?? r.info);
+    const setup = setupOf(system.get(r.name));
     const onlySystem = Object.keys(r.byUser).every((u) => u === SYSTEM);
     const report = system.get(r.name);
     const version = commonVersion(r.versions);
@@ -342,11 +442,15 @@ export async function fleet(_args, env) {
       name: r.name,
       type: r.type,
       description: r.description,
+      ...facts,
       scope: mine?.everyone ? "everyone" : onlySystem ? "system" : "some",
       version,
-      registry: r.entry ? { version: r.entry.version, update } : update ? { version, update } : null,
-      config: report ? { broken: Boolean(report.broken), keys: report.keys?.length ?? 0 } : null,
+      registry: r.entry ? { version: r.entry.version, registry: r.entry.registry ?? null, update } : update ? { version, update } : null,
+      config: report ? { broken: Boolean(report.broken), keys: report.keys?.length ?? 0, summary: setup.summary, missing: setup.missing } : null,
       byUser: r.byUser,
+      // Installed for the person asking: their own copy, not a fork of theirs standing in for it.
+      mine: Boolean(r.byUser[env.user] && !r.byUser[env.user].fork),
+      ...(promoted.has(r.name) ? { promotedFrom: promoted.get(r.name) } : {}),
       state: update ? "update" : "current",
       waiting,
       git: null,

@@ -1,7 +1,8 @@
 /* The extension card: what this copy is and where it stands, from `package-info`. Every line is a fact the
  * kernel, the marketplace index or git reported, said in words: the version and type; whether everyone gets
- * it by default; where the copy came from (shipped with Thetis, a directory in the home, or a registry
- * repository with the commit it is pinned to); whether it is someone's own copy of another extension; whether
+ * it by default; where the copy came from (shipped with Thetis, shared with everyone from a person's
+ * extension -- whose, and when, from the journal -- a directory in the home, or a registry repository with the
+ * commit it is pinned to); whether it is someone's own copy of another extension; whether
  * the workspace it was read from has applied the copy on disk (Update ready when not: applying updates puts
  * it into service); the version the registry holds and whether this copy is behind it; and the checkout its
  * files live in. There is no restart button here: applying updates is one action for everyone, on the
@@ -19,15 +20,30 @@ function splitSource(ref) {
   return { url: hash < 0 ? rest : rest.slice(0, hash), dir: hash < 0 ? null : rest.slice(hash + 1), pin: pin?.[1] ?? null };
 }
 
+/** The day of an ISO time, as the page prints it: `2026-09-24`. */
+const day = (iso) => (typeof iso === "string" && /^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10) : null);
+
+/**
+ * Where a shared copy came from, in one sentence: "Shared with everyone from @bitmuse/notion by bitmuse on
+ * 2026-09-24". What the journal does not say is left out rather than guessed.
+ */
+export function sharedSentence(from) {
+  if (!from?.name) return "Shared with everyone from a person's extension";
+  const on = day(from.at);
+  return `Shared with everyone from ${from.name}${from.by ? ` by ${from.by}` : ""}${on ? ` on ${on}` : ""}`;
+}
+
 /** The lines of the card: `[label, text, tone?]`, in order. `tone` marks a line worth a glance: warn or err. */
 export function packageFacts(info) {
   const facts = [];
   facts.push(["version", `${info.version} · ${info.type}`]);
   // A system package is the installation's whether or not it is everyone's default; the default is the second fact, with whose word made it so.
-  const by = info.everyoneBy === "config" ? " by the configuration" : info.everyoneBy === "promoted" ? " (made the default from a person's copy)" : info.everyoneBy === "marked" ? " by an admin's choice" : "";
+  const by = info.everyoneBy === "config" ? " by the server's settings file" : info.everyoneBy === "promoted" ? ": shared with everyone from a person's extension" : info.everyoneBy === "marked" ? " by an admin's choice" : "";
   facts.push(["default", info.everyone ? `everyone gets it${by}` : info.source?.kind === "system" ? "optional: each person installs it" : "only the people it was installed for"]);
   const src = info.source;
   if (!src) facts.push(["source", "unknown"]);
+  // A shared copy lives beside the extensions Thetis ships, but it was not shipped: it is a person's extension.
+  else if (info.everyoneBy === "promoted") facts.push(["source", sharedSentence(info.promotedFrom)]);
   else if (src.kind === "system") facts.push(["source", "shipped with Thetis"]);
   else if (src.kind === "local") facts.push(["source", `a directory: ${src.ref}`]);
   else {
@@ -70,7 +86,7 @@ export function packageCard(ext, info) {
   const { el } = ext.dom;
   const { badge, card } = ext.ui;
   const lines = packageFacts(info);
-  const marks = [info.everyone ? badge("Default for everyone", "accent") : null, info.forkedFrom ? badge("own copy", "warn") : null, stateBadge(ext, copyState(info)), info.git?.ahead ? badge("not pushed", "warn") : null, info.git?.changed ? badge("uncommitted", "warn") : null].filter(Boolean);
+  const marks = [info.everyone ? badge("For everyone", "accent") : null, info.forkedFrom ? badge("Customized", "dim") : null, stateBadge(ext, copyState(info)), info.git?.ahead ? badge("not pushed", "warn") : null, info.git?.changed ? badge("uncommitted", "warn") : null].filter(Boolean);
   const node = card(el("span", { class: "ua-pkg-head" }, el("code", {}, info.name), ...marks), el("dl", { class: "kv ua-pkg-facts" }, ...lines.flatMap(([k, v, tone]) => [el("dt", {}, k), el("dd", { class: tone ? `is-${tone}` : null }, k === "files" ? el("code", {}, v) : v)])));
   node.classList.add("ua-pkg-card");
   return node;

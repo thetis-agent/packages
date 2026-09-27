@@ -1,53 +1,20 @@
-/* The badges a row carries, the same on a card and on a page: whose the extension is (Included, Yours),
- * whether the person has it, a copy against its official version, an update ready, whether the work here has
- * been published anywhere, and what the benchmarks say. `badge` is the shell's, handed in so this module
- * needs nothing of the seam. The words follow the rule for people: no workspace, reload, fork or commit. */
+/* What a row carries beside its name. The person's chips -- at most two, from `stateOf` in state.js, each
+ * with its tooltip -- are the same on a card and on a page, because `stateOf` is the one answer. The
+ * maintainer's badges (published or not, the benchmarks) live on the page's Details tab only. `badge` is the
+ * shell's, handed in so this module needs nothing of the seam. */
 
-/**
- * Whose the extension is, in the words a person uses. `Included` is everyone's default: the installation gives
- * it to every person. `Yours` is the person's own (their namespace, or a copy under their home). Anything else
- * says nothing here: the section it is in (Installed or Discover) already says whether they have it, and
- * where a registry offer comes from is a technical detail on its page.
- */
-export function stateBadge(badge, r) {
-  if (r.everyone) return badge("Included", "accent");
-  if (r.own || (r.installed && r.local && !r.fork && !r.forkedFrom)) return badge("Yours", "dim");
-  return null;
-}
-
-/** In this person's space, or nothing: the Install button is what says the other half. */
-export const installedBadge = (badge, r) => (r.installed ? badge("Installed", "ok") : null);
-
-/**
- * A person's copy of an extension, against the official version as it stands now. The strongest true
- * sentence wins: a copy with no changes says so rather than saying "your copy". `superseded` comes from the
- * `updates` answer, which is the only place that compares the copy with what it was copied from; the page
- * passes it in when it has it.
- */
-export function forkBadge(badge, r, { superseded = false } = {}) {
-  const fork = r.fork;
-  const origin = fork?.name ?? r.forkedFrom?.name;
-  if (!origin) return null;
-  if (superseded) return badge("Your changes are in the official version", "warn");
-  if (!fork) return badge(`Your copy of ${origin}`, "warn");
-  // The origin is what everyone here gets by default. A clause, never the reason to act: the kernel will not
-  // install a package over somebody's copy of it, so this badge is the only place that reaches the person.
-  const everyone = fork.everyone ? " · everyone else uses the official one" : "";
-  if (fork.identical && fork.shipped) return badge(`Your copy has no changes${everyone}`, "warn");
-  if (fork.shipped && fork.shipped !== fork.version) return badge(`Your copy of ${origin} · the official version is newer${everyone}`, "warn");
-  return badge(`Your copy of ${origin}${everyone}`, "warn");
-}
-
-/**
- * Something newer than what is in service, said the same way whatever catches it up: fetching a newer commit
- * and applying it, or only applying files that are here already. The difference is the updater's business,
- * not the person's. A copy whose official version moved on is the third kind, and says so in its own words.
- */
-export function updateBadge(badge, r) {
-  const update = r.update;
-  if (!update) return null;
-  if (update.apply === "unfork") return badge(update.identical ? "No changes · switch back" : "Official version is newer", "warn");
-  return badge("Update ready", "warn");
+/** The chips of a state as the shell's badges, each with its tooltip as the title. */
+export function chipNodes(badge, chips) {
+  return (chips ?? []).map((c) => {
+    const node = badge(c.label, c.tone);
+    if (node && typeof node === "object") {
+      if (typeof node.setAttribute === "function") {
+        node.setAttribute("title", c.tooltip);
+        node.setAttribute("data-chip", c.id);
+      } else Object.assign(node, { title: c.tooltip, chip: c.id });
+    }
+    return node;
+  });
 }
 
 /**
@@ -84,7 +51,7 @@ export function publishRecord(publish, name) {
 }
 
 /**
- * The other direction from `updateBadge`: not something newer than what is here, but something here that is
+ * The other direction from an update: not something newer than what is here, but something here that is
  * newer than anywhere else. Whoever maintains a package runs it from the same checkout every fence loads, so
  * a version bump is live for them the moment it lands while the registry every other installation reads is
  * still on the old one. No badge has ever said so, and the person holding the gap is the only person who can
@@ -125,19 +92,5 @@ export function benchBadge(badge, r) {
   return badge(`bench: ${reports.length} suite${reports.length === 1 ? "" : "s"}`, "ok");
 }
 
-/**
- * The badges a package page carries, and the same ones a gallery card carries: a badge is a summary of
- * state, so it has to mean the same thing wherever it is read. What a surface knows and the others do not
- * -- this workspace's own record of a publish, which only a page asking about one package can afford to
- * fetch -- belongs in that page's facts, under it, and not in a badge that would then disagree with the
- * card the person clicked to get there.
- *
- * A fork that is behind its origin would otherwise say so twice, once as
- * the fork badge and once as the update badge, which are the same sentence at two lengths; the fork badge
- * is the longer and the truer of the two, so the update badge stands down for it here. The gallery, which
- * draws no fork badge, keeps the terse one.
- */
-export const stateBadges = (badge, r, { superseded = false } = {}) => [stateBadge(badge, r), installedBadge(badge, r), forkBadge(badge, r, { superseded }), r.update?.apply === "unfork" ? null : updateBadge(badge, r)].filter(Boolean);
-
-/** The maintainer's badges, for the Technical details tab: published or not, and the benchmarks. */
+/** The maintainer's badges, for the Details tab: published or not, and the benchmarks. */
 export const technicalBadges = (badge, r) => [aheadBadge(badge, r), benchBadge(badge, r)].filter(Boolean);

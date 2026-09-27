@@ -214,25 +214,139 @@ test("Advanced → Workspaces: Up to date or Update ready per workspace, restart
   assert.deepEqual(sent.calls[1], ["fence-reload", { user: "bob", force: true }]);
 });
 
-test("All extensions: the three words, who has not applied it, and one Apply button that reports every person", async () => {
+test("All extensions: what is installed for you, in the columns every list uses, with the chips and one Apply button", async () => {
   const { mountFleet } = await import("../ui/fleet.js");
   const fleet = {
     people: [{ user: "bob" }, { user: "root" }],
     packages: [
-      { name: "@thetis/terminal", type: "tool", version: "0.2.0", state: "update", waiting: ["bob", "root"], registry: { version: "0.2.0", update: { apply: "reload", version: "0.2.0" } }, config: null, byUser: { bob: { version: "0.2.0", loaded: "0.1.0", state: "update" }, root: { version: "0.2.0", loaded: "0.1.0", state: "update" } } },
-      { name: "@thetis/exa", type: "tool", version: "0.1.0", state: "current", waiting: [], registry: null, config: { keys: 1, broken: false }, byUser: { bob: { version: "0.1.0", state: "current" } } },
+      { name: "@thetis/terminal", label: "terminal", type: "tool", tools: ["run"], version: "0.2.0", everyone: true, everyoneBy: "config", source: { kind: "system" }, mine: true, state: "update", waiting: ["bob", "root"], registry: { version: "0.2.0", update: { apply: "reload", version: "0.2.0" } }, config: null, byUser: { bob: { version: "0.2.0", loaded: "0.1.0", state: "update" }, root: { version: "0.2.0", loaded: "0.1.0", state: "update" } } },
+      { name: "@thetis/exa", type: "tool", tools: ["exa_search"], version: "0.1.0", everyone: true, everyoneBy: "marked", source: { kind: "system" }, mine: true, state: "current", waiting: [], registry: null, config: { keys: 1, broken: false }, byUser: { root: { version: "0.1.0", state: "current" } }, description: "Web search." },
+      { name: "@thetis/provider-openrouter", type: "provider", version: "0.3.0", source: { kind: "system" }, mine: false, state: "current", waiting: [], registry: null, config: { keys: 1, broken: true, summary: "apiKey is missing", missing: [{ key: "apiKey", state: "missing", missing: ["OPENROUTER_API_KEY"], source: "default" }] }, byUser: { _system: { version: "0.3.0", state: "current" } } },
     ],
-    stats: { current: 1, updates: 1, installs: 0, waiting: 2, forks: 0, broken: 0 },
+    stats: { current: 2, updates: 1, installs: 0, waiting: 2, forks: 0, broken: 1 },
   };
   const ext = fakeExt({ fleet, "update-check": { updating: false } });
   const root = el("div");
   mountFleet(ext, root, { user: "root", mode: "simple" });
   await settled();
   const said = text(root);
-  assert.match(said, /Update ready2 people haven't applied it yet/);
-  assert.match(said, /Up to date/);
+  assert.match(said, /All extensions · 2 installed/, "the count is what is installed for the reader, the same as the place's");
+  assert.match(said, /Every extension installed here/);
+  assert.match(said, /TerminalBy Thetis · Tools|Terminalby Thetis · Tools/);
+  assert.match(said, /Update available2 people haven't applied it yet\./);
+  assert.match(said, /Exaby Thetis · ToolsFor everyone/, "an admin's mark carries For everyone; the configuration's own list does not");
+  assert.match(said, /Web search\./, "What it does");
+  assert.doesNotMatch(said, /OpenRouter|Provider Openrouter/, "only in Thetis itself: shown under everywhere, not in the count");
+  const chips = all(root, (n) => n.tag === "span" && String(n.props.class ?? "").startsWith("badge"));
+  assert.ok(chips.every((c) => c.props.title), "every chip has its tooltip");
   assert.ok(buttons(root).includes("Apply updates for 2 people"));
-  assert.doesNotMatch(said, /reload|older code|◐|↻|fence/i, "no machinery words and no glyphs");
+  assert.doesNotMatch(said, /reload|older code|◐|↻|fence|Update ready|Up to date·|set up/i, "no machinery words, no glyphs, no old badges");
+  // Everywhere adds the rest, with the admin's own words for a problem only an admin fixes.
+  const everywhere = all(root, (n) => n.tag === "button" && text(n) === "everywhere")[0];
+  everywhere.props.onClick();
+  const wide = text(root);
+  assert.match(wide, /Provider Openrouterby Thetis · ModelsNeeds setup/);
+  assert.match(wide, /OPENROUTER_API_KEY is not in the server's environment, so apiKey has no value\. Set it for everyone in Control panel → Extensions → Provider Openrouter → Settings\./);
+});
+
+test("Extensions by person: the system workspace's column is Thetis itself, and the table scrolls in its own box", async () => {
+  const { mountFleet, SYSTEM_COLUMN } = await import("../ui/fleet.js");
+  const fleet = { people: [{ user: "root" }], packages: [{ name: "@thetis/gateway-login", type: "gateway", version: "0.1.0", source: { kind: "system" }, state: "current", waiting: [], registry: null, config: null, scope: "system", byUser: { _system: { version: "0.1.0", state: "current" } } }], stats: {} };
+  const ext = fakeExt({ fleet, "update-check": { updating: false } });
+  const root = el("div");
+  mountFleet(ext, root, { user: "root", mode: "full" });
+  await settled();
+  assert.equal(SYSTEM_COLUMN, "Thetis itself");
+  const heads = all(root, (n) => n.tag === "th").map(text);
+  assert.ok(heads.includes("Thetis itself") && !heads.includes("_system"), heads.join("|"));
+  assert.ok(all(root, (n) => String(n.props.class ?? "").includes("ua-fl-scroll")).length === 1, "the table's own scroll box");
+});
+
+// The Overview draws its lineage as SVG through `document`; the fake DOM stands in for it on these pages.
+globalThis.document ??= { createElementNS: (_ns, tag) => new FakeNode(tag), createTextNode: (t) => String(t), getElementById: () => null };
+
+/** The answers an extension page reads, for one extension. */
+function pageAnswers({ info, where, config = { package: info.name, broken: false, summary: "every key is set", keys: [] } }) {
+  return { "package-info": info, "package-where": where, "config-show": config, "package-log": { commits: [] }, "package-readme": { text: null } };
+}
+
+test("an extension's page: the label, the publisher line and the chips; Remove for everyone names the people; Required has no Remove", async () => {
+  const { mountPackagePage } = await import("../ui/package-page.js");
+  const people = [{ user: "bitmuse", role: "admin", installed: true, version: "0.1.1" }, { user: "sam", role: "user", installed: true, version: "0.1.1" }];
+  const notion = { name: "@thetis/notion", label: "Notion", version: "0.1.1", type: "tool", tools: ["notion_search"], description: "The Notion API.", everyone: true, everyoneBy: "promoted", source: { kind: "system", ref: "/data/packages/notion" }, promotedFrom: { name: "@bitmuse/notion", by: "bitmuse", at: "2026-09-24T10:00:00Z" }, registry: null, git: null, dependencies: [], dependents: [] };
+  const ext = fakeExt(pageAnswers({ info: notion, where: { people, counts: { people: 2, installed: 2 } } }));
+  let asked = null;
+  ext.ui.confirm = async (_anchor, opts) => ((asked = opts), false);
+  const root = el("div");
+  mountPackagePage(ext, root, { name: "@thetis/notion", user: "sam" });
+  await settled();
+  const said = text(root);
+  const title = all(root, (n) => n.tag === "h2")[0];
+  assert.equal(text(title), "Notion");
+  assert.equal(title.props.title, "@thetis/notion", "the raw id is the tooltip");
+  assert.match(said, /by bitmuse · Tools/, "a shared copy is by the person it was shared from");
+  assert.match(said, /For everyone/);
+  assert.match(said, /Shared with everyone from @bitmuse\/notion by bitmuse on 2026-09-24/, "Provenance tells the truth");
+  assert.doesNotMatch(said, /shipped with Thetis|Default for everyone|Up to date|set up/);
+  assert.ok(buttons(root).includes("Remove for everyone…"));
+  assert.ok(!buttons(root).includes("Turn on for everyone…") && !buttons(root).includes("Share with everyone…"), "a shared copy is neither turned on nor shared again");
+  // The confirm names the people who lose it.
+  all(root, (n) => n.tag === "button" && text(n) === "Remove for everyone…")[0].props.onClick();
+  await settled();
+  assert.deepEqual(asked.lines.find(([k]) => k === "people"), ["people", "bitmuse, sam"]);
+
+  // Required by Thetis: no Remove of any kind, here or for one person.
+  const core = { ...notion, name: "@thetis/harness-core", label: "harness core", type: "loader", everyoneBy: "config", promotedFrom: null, tools: [] };
+  const ext2 = fakeExt(pageAnswers({ info: core, where: { people, counts: { people: 2, installed: 2 } } }));
+  const root2 = el("div");
+  mountPackagePage(ext2, root2, { name: "@thetis/harness-core", user: "bitmuse" });
+  await settled();
+  assert.match(text(root2), /Required by Thetis/);
+  assert.ok(!buttons(root2).some((b) => /Remove/.test(b)), buttons(root2).join("|"));
+});
+
+test("an extension's page: Turn on and off for everyone, Share with everyone, and never a silent downgrade", async () => {
+  const { mountPackagePage } = await import("../ui/package-page.js");
+  const people = [{ user: "bitmuse", role: "admin", installed: true, version: "0.3.3-fork.1" }];
+  const where = { people, counts: { people: 1, installed: 1 } };
+  const exa = { name: "@thetis/exa", version: "0.1.0", type: "tool", tools: ["exa_search"], description: "", everyone: false, everyoneBy: null, source: { kind: "system", ref: "exa" }, registry: null, git: null, dependencies: [], dependents: [] };
+  const draw = async (info, user = "bitmuse") => {
+    const ext = fakeExt(pageAnswers({ info, where: { ...where, people: people.map((p) => ({ ...p, version: info.version })) } }));
+    const root = el("div");
+    mountPackagePage(ext, root, { name: info.name, user });
+    await settled();
+    return root;
+  };
+  assert.ok(buttons(await draw(exa)).includes("Turn on for everyone…"));
+  assert.ok(buttons(await draw({ ...exa, everyone: true, everyoneBy: "marked" })).includes("Turn off for everyone…"));
+  assert.match(text(await draw({ ...exa, everyone: true, everyoneBy: "config" })), /For everyone by the server's settings file/);
+  // A person's own extension is shared, with the words the contract gives.
+  const mine = { ...exa, name: "@bitmuse/moo", label: "moo", source: { kind: "local", ref: "packages/moo" } };
+  assert.ok(buttons(await draw(mine)).includes("Share with everyone…"));
+  assert.match(text(await draw({ ...mine, sharedAs: "@thetis/moo" })), /Already shared with everyone as Moo/);
+  // A customised copy whose official version is newer: Update available, Use Thetis's version, and no Share.
+  const copy = { ...exa, name: "@bitmuse/tool-exec", label: "tool exec", version: "0.3.3-fork.1", forkedFrom: { name: "@thetis/tool-exec", version: "0.3.3" }, fork: { name: "@thetis/tool-exec", version: "0.3.3", shipped: "0.4.1", identical: false, everyone: true }, source: { kind: "local", ref: "packages/tool-exec" } };
+  const root = await draw(copy);
+  const said = text(root);
+  assert.match(said, /Update available/);
+  assert.match(said, /Customized/);
+  assert.match(said, /by you · Tools/);
+  assert.match(said, /Your copy is older than Thetis's 0\.4\.1; sharing it would replace it for everyone\./);
+  assert.ok(!buttons(root).includes("Share with everyone…"), "never a silent downgrade");
+  assert.ok(buttons(root).includes("Use Thetis's version"));
+});
+
+test("the README tab reads this extension's own README, and says when its title names the extension it was shared from", async () => {
+  const { mountReadme, writtenFor } = await import("../ui/package-readme.js");
+  assert.equal(writtenFor("# @bitmuse/notion\n\nThe Notion API.", "@thetis/notion"), "@bitmuse/notion");
+  assert.equal(writtenFor("# @thetis/notion", "@thetis/notion"), null);
+  const ext = fakeExt({ "package-readme": (a) => ({ text: a.name === "@thetis/notion" ? "# @bitmuse/notion\n\nThe Notion API." : null }) });
+  ext.markdown = (t) => [el("div", {}, t)];
+  const root = el("div");
+  mountReadme(ext, root, { name: "@thetis/notion", info: { promotedFrom: { name: "@bitmuse/notion" } } });
+  await settled();
+  assert.deepEqual(ext.calls.map((c) => c[1]?.name), ["@thetis/notion"], "the README asked for is this extension's own");
+  assert.match(text(root), /written for @bitmuse\/notion, the extension this was shared from/);
 });
 
 test("Overview: a check that failed is said with Restart Thetis; the update card and the pending restart's Cancel are there when they should be", async () => {

@@ -3,14 +3,16 @@
  * the page adds is here, under .ua-pkg and the pieces the tabs draw. */
 
 .ua-pkg { display: flex; flex-direction: column; gap: var(--gap-4); position: relative; }
-.ua-pkg-head { display: flex; flex-direction: column; gap: var(--gap-2); }
+/* `.ua-pkg-head` is also the extension card's title line (index.css): the page's header is held apart by the parent. */
+.ua-pkg > .ua-pkg-head { display: flex; flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: var(--gap-2); }
 .ua-pkg-crumb { display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); color: var(--text-dim); }
 .ua-pkg-crumb code { font-family: var(--mono); color: var(--text); }
 .ua-sep { color: var(--text-faint); }
 .ua-pkg-title-row { display: flex; align-items: flex-start; gap: var(--gap-5); }
 .ua-pkg-title-col { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; min-width: 0; }
 .ua-pkg-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.ua-pkg-name { margin: 0; font-family: var(--mono); font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
+.ua-pkg-name { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
+.ua-pkg-pub { font-size: var(--text-sm); margin-top: -4px; }
 .ua-pkg-version { font-family: var(--mono); font-size: var(--text-lg); color: var(--text-dim); }
 .ua-pkg-desc { margin: 0; max-width: 860px; color: var(--text-dim); font-size: var(--text-md); line-height: 1.5; }
 .ua-pkg-facts-line { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: var(--text-sm); color: var(--text-dim); }
@@ -18,6 +20,14 @@
 .ua-pkg-actions-col { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex: none; max-width: 38%; }
 .ua-pkg-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .ua-pkg-actions .btn { display: inline-flex; align-items: center; gap: 6px; }
+.ua-pkg-action-line { font-size: var(--text-sm); text-align: right; max-width: 320px; }
+.ua-pkg-action-line.is-guard { color: var(--text-dim); }
+.ua-pkg-required { font-size: var(--text-sm); color: var(--text-dim); padding: 4px 10px; border: 1px dashed var(--hairline-strong); border-radius: var(--r-sm); }
+/* The one sentence why, when the extension asks for attention; grey when only waiting on someone else. */
+.ua-pkg-banner { padding: 8px 12px; border-radius: var(--r-md); font-size: var(--text-sm); border: 1px solid var(--hairline); background: var(--surface-2); color: var(--text-dim); }
+.ua-pkg-banner.is-err { border-color: color-mix(in srgb, var(--err) 40%, transparent); background: var(--err-wash); color: var(--text); }
+.ua-pkg-banner.is-warn { border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: var(--warn-wash); color: var(--text); }
+.ua-readme-note { margin: 0 0 8px; }
 .ua-pkg-legend { display: flex; gap: 12px; flex-wrap: wrap; justify-content: flex-end; font-size: var(--text-xs); color: var(--text-faint); }
 .ua-pkg-legend span { display: inline-flex; align-items: center; gap: 4px; }
 

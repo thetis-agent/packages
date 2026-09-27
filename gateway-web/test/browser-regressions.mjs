@@ -409,7 +409,10 @@ test("a phone: the rail is a Panels menu, a place closes the drawer, Escape take
     assert.equal(await f.page.locator(".panel-tree").isVisible(), false, "the tree gives way to the select");
     assert.ok((await select.locator("option").allInnerTexts()).some((t) => t.trim() === "Extensions"));
     await f.page.getByRole("button", { name: "Manage extensions" }).waitFor();
-    assert.equal(await f.page.locator(".panel-page tr.is-clickable, #place tr.is-clickable", { hasText: "@review/extras" }).count() > 0, true, "every installed extension is listed on the section itself");
+    const listed = f.page.locator(".panel-page tr.is-clickable, #place tr.is-clickable", { hasText: "Extras" });
+    assert.equal(await listed.count() > 0, true, "every installed extension is listed on the section itself");
+    assert.match(await listed.first().innerText(), /by you · Page/, "by its label, with the publisher line under it (the signed-in person is review)");
+    assert.equal(await listed.first().locator("[title='@review/extras']").count(), 1, "the raw id is the label's tooltip");
 
     // Drawer over the place: Escape closes the drawer first, then the place.
     await f.page.locator("#place .chat-menu").click();

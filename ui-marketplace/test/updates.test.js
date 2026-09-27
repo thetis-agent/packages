@@ -11,7 +11,7 @@ import { join } from "node:path";
 import * as commands from "../index.js";
 import { labelOf, newestChange, shellsOf, updatesOf } from "../lib/updates.js";
 import { createUpdater, isBusy, listOf, lostGateway, shellsLine, signatureOf, words } from "../ui/updates-notice.js";
-import { sections } from "../ui/gallery.js";
+import { bringsLine, sections, withConfig } from "../ui/gallery.js";
 import { whatYouGet } from "../ui/page.js";
 
 const REPO = "https://github.com/thetis-agent/packages.git";
@@ -402,10 +402,11 @@ test("own changes: ask, an open terminal, or page code all change what happens",
   assert.equal(page.stores.session.get("thetis.ui-marketplace.after"), "Applied your changes to moo.");
 });
 
-test("copies: the card says the strongest true thing, and Switch back unforks then applies", async () => {
+test("copies: the card says the strongest true thing, and Use Thetis's version unforks then applies", async () => {
   assert.deepEqual(words.forks([{ name: "@alice/tool-exec", label: "tool exec", state: "superseded" }]).title, "Your changes are in the official version");
   assert.deepEqual(words.forks([{ name: "@alice/gateway-web", label: "web gateway", state: "identical" }]).title, "Your copy has no changes");
-  assert.equal(words.forks([{ label: "a", state: "identical" }, { label: "b", state: "superseded" }]).title, "Your copies can switch back");
+  assert.equal(words.forks([{ label: "a", state: "identical" }, { label: "b", state: "superseded" }]).title, "Your copies can go back to the official versions");
+  assert.match(words.forks([{ label: "a", origin: "@bitmuse/notion", state: "identical" }]).body, /Use the original to get its fixes/, "a copy of a person's extension goes back to their original, not to Thetis's");
   const forks = [{ name: "@alice/gateway-web", label: "web gateway", origin: "@thetis/gateway-web", state: "superseded" }];
   const w = world({ answer: answer({ forks }) });
   // Switching the web gateway back replaces the process answering: that lost answer is the success.
@@ -420,11 +421,11 @@ test("copies: the card says the strongest true thing, and Switch back unforks th
   const u = createUpdater(w.deps);
   await u.check();
   const card = w.cards.get("updates-forks");
-  assert.equal(card.actions[0].label, "Switch back");
+  assert.equal(card.actions[0].label, "Use Thetis's version");
   await card.actions[0].run();
   await w.settle();
   assert.deepEqual(w.sent.slice(1).map((s) => s[0]), ["unfork", "fence-reload"]);
-  assert.equal(w.stores.session.get("thetis.ui-marketplace.after"), "Switched back to the official web gateway.");
+  assert.equal(w.stores.session.get("thetis.ui-marketplace.after"), "Back on the official web gateway.");
 });
 
 test("card words: lists read as a sentence, and signatures change only when the set does", () => {
@@ -440,28 +441,47 @@ test("card words: lists read as a sentence, and signatures change only when the 
 
 // ---- the store and the page ----
 
-test("store: Updates, Installed and Discover, with system components hidden until asked for", () => {
+test("store: Needs your attention, Added by you, Discover, and the three folds, fed by the same updates answer", () => {
   const rows = [
-    { name: "@thetis/gateway-web", label: "gateway web", installed: true, component: true, update: { apply: "reload", version: "0.13.1", installed: "0.13.0" } },
-    { name: "@thetis/exa", label: "exa", installed: true, component: false, update: null },
-    { name: "@thetis/store-toml", label: "store toml", installed: false, component: true, update: null },
-    { name: "@thetis/skills-orleans", label: "skills orleans", installed: false, component: false, update: null },
-    { name: "@alice/copy", label: "copy", installed: true, component: false, update: { apply: "unfork" } },
+    { name: "@thetis/gateway-web", label: "web gateway", type: "gateway", installed: true, system: true, everyone: true, everyoneBy: "config", component: true, update: { apply: "reload", version: "0.13.1", installed: "0.13.0", available: "0.13.1" } },
+    { name: "@thetis/exa", label: "Exa web search", type: "tool", installed: true, system: true, everyone: false, component: false, update: null, tools: [{ name: "exa_search" }] },
+    { name: "@thetis/terminal", label: "terminal", type: "tool", installed: true, system: true, everyone: true, everyoneBy: "config", component: false, update: null, tools: [{ name: "shell" }] },
+    { name: "@thetis/store-toml", label: "store toml", type: "storage", installed: false, system: true, component: true, update: null },
+    { name: "@thetis/skills-orleans", label: "skills orleans", type: "skill", installed: false, system: true, component: false, update: null },
+    { name: "@alice/copy", label: "copy", type: "tool", installed: true, local: true, component: false, forkedFrom: { name: "@thetis/thing", version: "0.1.0" }, fork: { name: "@thetis/thing", version: "0.1.0", shipped: "0.2.0" }, update: { apply: "unfork", version: "0.2.0", installed: "0.1.0", available: "0.2.0", origin: "@thetis/thing" } },
+    { name: "@thetis/thing", label: "thing", type: "tool", installed: false, system: true, component: false, update: null },
+    { name: "@alice/draft", label: "draft", type: "tool", installed: false, folder: { dir: "packages/draft" }, local: true, component: false, update: null },
   ];
-  const plain = sections(rows);
-  assert.deepEqual(plain.updates.map((u) => u.item.name), ["@thetis/gateway-web"], "an update to a system component is still listed: it is still the person's to take");
-  assert.deepEqual(plain.installed.map((r) => r.name), ["@thetis/exa", "@alice/copy"]);
-  assert.deepEqual(plain.discover.map((r) => r.name), ["@thetis/skills-orleans"]);
-  assert.equal(plain.hidden, 2);
-  const all = sections(rows, { system: true });
-  assert.deepEqual(all.installed.map((r) => r.name), ["@thetis/gateway-web", "@thetis/exa", "@alice/copy"]);
-  assert.deepEqual(all.discover.map((r) => r.name), ["@thetis/store-toml", "@thetis/skills-orleans"]);
-  // With the `updates` answer, the section is that answer: one count, the same as the card's.
-  const withAnswer = sections(rows, { updates: answer({ items: ITEMS, own: [{ name: "@alice/moo", label: "moo" }] }) });
-  assert.equal(withAnswer.updates.length, 3);
-  assert.equal(withAnswer.updates[0].row.name, "@thetis/gateway-web");
-  assert.equal(withAnswer.updates[2].row, null, "an update whose row a search narrowed away is still counted");
+  const plain = sections(rows, { user: "alice" });
+  assert.deepEqual(plain.attention.map((e) => e.row.name), ["@thetis/gateway-web", "@alice/copy"], "an update to a part of Thetis is still the person's to take");
+  assert.deepEqual(plain.added.map((e) => e.row.name), ["@thetis/exa", "@alice/copy"]);
+  assert.equal(plain.added[1].label, "Thing", "a copy takes its official version's label");
+  assert.deepEqual(plain.added[1].state.chips.map((c) => c.label), ["Update available", "Customized"]);
+  assert.deepEqual(plain.discover.map((e) => e.row.name), ["@thetis/skills-orleans"], "the copy's official version is not offered again");
+  assert.deepEqual(plain.builtin.map((e) => e.row.name), ["@thetis/terminal"]);
+  assert.deepEqual(plain.folder.map((e) => e.row.name), ["@alice/draft"]);
+  assert.deepEqual(plain.thetis.map((e) => e.row.name), ["@thetis/gateway-web"], "a storage driver is an admin's: never offered to anybody else");
+  assert.deepEqual(sections(rows, { user: "alice", admin: true }).thetis.map((e) => e.row.name), ["@thetis/gateway-web", "@thetis/store-toml"]);
+  assert.equal(plain.installed, 4);
+  // With the `updates` answer, an update whose card is not in the section is still a line there.
+  const withAnswer = sections(rows, { user: "alice", updates: answer({ items: ITEMS, own: [{ name: "@alice/moo", label: "moo" }] }) });
+  assert.deepEqual(withAnswer.extra.map((i) => i.name), ["@thetis/exa", "@thetis/compaction"], "the answer knows of updates the rows do not show");
   assert.deepEqual(withAnswer.own.map((o) => o.name), ["@alice/moo"]);
+  assert.equal(withAnswer.items.length, 3, "Update all takes the whole answer");
+  // A search narrows every section, synonyms included, and a type chip narrows by what it brings.
+  const found = sections(rows, { user: "alice", q: "internet" });
+  assert.deepEqual([...found.added, ...found.discover].map((e) => e.row.name), ["@thetis/exa"], "internet finds web search");
+  assert.deepEqual(found.extra, [], "a search does not pad the section with lines it did not find");
+  assert.deepEqual(sections(rows, { user: "alice", kind: "Skills" }).discover.map((e) => e.row.name), ["@thetis/skills-orleans"]);
+});
+
+test("store: a card's foot says what it brings, and the configuration reports fold onto installed rows", () => {
+  assert.equal(bringsLine({ tools: [{}, {}] }), "2 tools");
+  assert.equal(bringsLine({ tools: [], skills: 4 }), "4 skills");
+  assert.equal(bringsLine({ tools: [], pages: 1 }), "1 page");
+  assert.equal(bringsLine({ tools: [], type: "provider" }), "models");
+  const rows = withConfig([{ name: "@a/x", installed: true }, { name: "@a/y", installed: false }], new Map([["@a/x", { broken: true }], ["@a/y", { broken: true }]]));
+  assert.deepEqual(rows.map((r) => !!r.config), [true, false], "only an installed row has a report of its own");
 });
 
 test("page: what you get is counted in the words a person uses", () => {

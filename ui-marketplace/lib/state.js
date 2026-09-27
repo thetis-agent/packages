@@ -1,57 +1,22 @@
-/* What the control panel says about an extension, in two halves.
- *
- * The first half is the three words for whether new code is in service, and the one place that turns the
- * server's word into them. The server works the word out (`fleet.js` beside `index.js`): a copy is `current`,
- * `update` when the workspace has not applied the copy on disk, and the daemon alone is `restart` when it runs
- * older code than the disk. The page never guesses from mtimes or versions: it draws what it is handed, so
- * "older code" and "reload to X" never reach anyone. Workspaces and Where it runs use these.
- *
- * The second half is the one state of an extension, the same answer on every screen (the Extensions
- * contract, §1-§3): the publisher line ("by Thetis · Tools"), at most two chips from four, whether it asks
- * for attention and the one sentence why, what is Required by Thetis and what is an admin's alone. The
- * Extensions place (`@thetis/ui-marketplace`, `lib/state.js`) is the reference for these rules, and the part of
- * this file from `CHIPS` to `stateOf` is its rules copied as they are: a page may import only its own
- * package's files, and `test/state-mirror.test.js` feeds both the same rows and expects the same answers.
- * Change a rule there first, then here. The families, the place's sections and the search are the place's
- * alone and are not copied. Rows come from `rows.js` beside this file, in the place's row shape. */
-
-export const SERVER_WORDS = Object.freeze({ current: "Up to date", update: "Update ready", restart: "Restart needed" });
-const TONES = Object.freeze({ current: "ok", update: "warn", restart: "warn" });
-
-/** The word for a server state; anything unknown is said as Up to date, because a guess must not alarm. */
-export const stateWord = (state) => SERVER_WORDS[state] ?? SERVER_WORDS.current;
-export const stateTone = (state) => TONES[state] ?? TONES.current;
-
-/** Whether a state asks somebody to do something: the only states a tree mark or a count is for. */
-export const actionable = (state) => state === "update" || state === "restart";
-
-/** The badge for a state, through the shell's own badge. */
-export function stateBadge(ext, state) {
-  return ext.ui.badge(stateWord(state), stateTone(state));
-}
-
-/** "3 people haven't applied it yet", or null when nobody waits. */
-export function waitingSentence(n) {
-  if (!n) return null;
-  return `${n} ${n === 1 ? "person hasn't" : "people haven't"} applied it yet`;
-}
-
-/** A package name as a person reads it: the part after the scope for the official ones, the whole name otherwise. */
-export function shortName(name) {
-  const s = String(name ?? "");
-  return s.startsWith("@thetis/") ? s.slice("@thetis/".length) : s;
-}
-
-/** The chips of a state as the shell's badges, each with its tooltip. */
-export function chipBadges(ext, state) {
-  return (state?.chips ?? []).map((c) => {
-    const node = ext.ui.badge(c.label, c.tone);
-    node.setAttribute?.("title", c.tooltip);
-    return node;
-  });
-}
-
-// ---- the one state of an extension: the Extensions place's rules (ui-marketplace lib/state.js), as they are ----
+// One state per extension: the same answer on every screen. This file is the reference. It is pure -- no DOM,
+// no imports, no I/O -- so the browser module `ui/state.js` is a byte-identical copy of it (a page may import
+// only its own files, and a test holds the two together), and `@thetis/ui-admin` mirrors its rules, pinned by a
+// test of its own that gives both the same fixture rows.
+//
+// What it answers, for a row of `lib/rows.js` (with `config`, the kernel's `config.show` report, folded on when
+// the page has one):
+//
+// - `stateOf(row)`: at most two chips, whether the extension needs the person's attention, and the one
+//   sentence the page's banner says.
+// - `publisherOf(row)` and `typeOf(row)`: the line under every name, "by Thetis · Tools".
+// - `familiesOf(rows)`: one card per extension family -- an original, its copies, and a promoted copy of it
+//   are one extension with several versions, and the person sees the one that is theirs.
+// - `placeSections(rows)`: which section of the Extensions place each family's card goes in.
+// - `isRequired(row)` and `isAdminOnly(row)`: what nobody removes, and what a person never installs.
+// - `matches(row, q)`: the search, with a small list of synonyms.
+//
+// The rules are data (`CHIPS`, `CHIP_ORDER`, `REQUIRED`, `ADMIN_ONLY`, `FOR_EVERYONE_BY`, `KINDS`, `FILTERS`,
+// `SYNONYMS`, `WORDS`), so a second surface can read the same rules rather than restate them.
 
 /** The four chips, in the order they are shown. `tone` is the shell's badge tone: err is red, warn amber, dim neutral, accent blue. */
 export const CHIPS = Object.freeze({
@@ -374,3 +339,192 @@ export function stateOf(row, ctx = {}) {
   const reason = setup.chip ? setup.reason : update ? update.reason : setup.waiting ? setup.reason : "";
   return { chips, attention: !!row?.installed && (setup.chip || !!update), reason, waiting: setup.waiting, update, setup };
 }
+
+// ---- families ------------------------------------------------------------------------------------------
+
+/**
+ * The name of the original a row's family grows from. A copy follows `forkedFrom` (through a copy of a copy);
+ * a promoted `@thetis/<n>` joins the `@<person>/<n>` it was made from when that row is here. A row nothing joins
+ * is its own origin.
+ */
+export function originOf(row, byName) {
+  const seen = new Set();
+  let name = row.name;
+  let cur = row;
+  while (cur && !seen.has(name)) {
+    seen.add(name);
+    const up = originNameOf(cur);
+    if (up) {
+      name = up;
+      cur = byName.get(up) ?? null;
+      continue;
+    }
+    if (isPromoted(cur)) {
+      const base = baseOf(cur.name);
+      const original = [...byName.values()].find((m) => m !== cur && scopeOf(m.name) !== "thetis" && baseOf(m.name) === base && !isCopy(m) && !isPromoted(m));
+      if (original) {
+        name = original.name;
+        cur = original;
+        continue;
+      }
+    }
+    break;
+  }
+  return name;
+}
+
+/**
+ * The member a person sees on the card: the one they have installed (a copy before the original, since a
+ * copy displaces what it was made from); else the one everyone gets; else the official or registry one; else
+ * the original; else a copy in their folder.
+ */
+export function headlineOf(members, origin = null) {
+  const rank = (r) => {
+    if (r.installed) return isCopy(r) ? 0 : r.own || r.local ? 1 : r.everyone ? 2 : 3;
+    if (r.everyone) return 4;
+    if (!r.folder && scopeOf(r.name) === "thetis") return 5;
+    if (!r.folder && r.available) return 6;
+    if (r.name === origin) return 7;
+    return r.folder ? 9 : 8;
+  };
+  return [...members].sort((a, b) => rank(a) - rank(b))[0] ?? null;
+}
+
+/**
+ * The rows grouped into families: `[{ key, origin, members, headline }]`, in the order the rows came. `key` is
+ * the unscoped name of the origin (what the contract calls the family key); `origin` its full name, which is
+ * what the grouping goes by, so two unrelated packages sharing an unscoped name stay apart.
+ */
+export function familiesOf(rows) {
+  const byName = new Map();
+  for (const r of rows) if (!byName.has(r.name)) byName.set(r.name, r);
+  const groups = new Map();
+  for (const r of rows) {
+    const origin = originOf(r, byName);
+    if (!groups.has(origin)) groups.set(origin, []);
+    groups.get(origin).push(r);
+  }
+  return [...groups.entries()].map(([origin, members]) => ({ key: baseOf(origin), origin, members, headline: headlineOf(members, origin) }));
+}
+
+/** The family a row belongs to, among `rows`. */
+export function familyOf(row, rows) {
+  const all = rows.some((r) => r.name === row.name) ? rows : [...rows, row];
+  return familiesOf(all).find((f) => f.members.some((m) => m.name === row.name)) ?? { key: baseOf(row.name), origin: row.name, members: [row], headline: row };
+}
+
+/** The official member a copy's label and version are read from: its direct origin when that row is here. */
+export function officialOf(row, family) {
+  const name = originNameOf(row);
+  return name ? (family.members.find((m) => m.name === name) ?? null) : null;
+}
+
+/**
+ * The other versions of a family, one line each, as the page's side panel lists them:
+ * `{ row, name, relation, status, text, install }`: "@bitmuse/notion — your original · published to thetis",
+ * "notion-read — your copy in your folder · not installed". `name` is the unscoped folder name for a copy in
+ * the person's folder and the full id otherwise.
+ */
+export function otherVersions(family, shown, { user = "", admin = false } = {}) {
+  const promoted = family.members.find(isPromoted) ?? null;
+  return family.members
+    .filter((m) => m !== shown && m.name !== shown?.name)
+    .map((m) => {
+      const scope = scopeOf(m.name);
+      const inFolder = !!m.folder && !m.installed;
+      const name = inFolder && isCopy(m) ? baseOf(m.name) : m.name;
+      const relation = isPromoted(m)
+        ? "shared with everyone"
+        : isCopy(m)
+          ? inFolder ? "your copy in your folder" : scope === user || m.local ? "your copy" : `${scope}'s copy`
+          : scope === user || m.local
+            ? promoted ? "your original" : "yours"
+            : scope === "thetis"
+              ? "Thetis's version"
+              : m.registry && !m.system
+                ? `from ${m.registry}`
+                : `by ${scope}`;
+      const status = m.installed ? "installed" : m.available && m.registry ? `published to ${m.registry}` : "not installed";
+      const install = !m.installed && (admin || !isAdminOnly(m)) && !!(m.system || m.folder || m.source);
+      return { row: m, name, relation, status, text: `${name} — ${relation} · ${status}`, install };
+    });
+}
+
+// ---- the place's sections ------------------------------------------------------------------------------
+
+/** Whether a person may be offered this row at all: an admin-only extension is shown to a non-admin only when they have it. */
+export const offeredTo = (row, admin) => admin || !isAdminOnly(row) || !!row.installed;
+
+/** Whether a row is one of Thetis's own parts: `row.component`, decided in lib/rows.js. */
+const isPart = (r) => !!r.component;
+
+/** Given to the person by default rather than added by them. */
+const givenByDefault = (r) => !!r.everyone && !r.own && !r.local && !isCopy(r);
+
+/**
+ * The Extensions place, from every row: one entry per family, in the section the headline member decides.
+ *
+ * - `attention`: installed extensions with Needs setup or Update available -- the person's own, never
+ *   something they do not have.
+ * - `added`: what the person installed themselves, or made (their own, their copies).
+ * - `discover`: what they could add, never a member of a family they already have, never an admin's-only
+ *   extension for a non-admin.
+ * - `builtin`: what everyone gets, installed for them by default.
+ * - `folder`: copies in their home's `packages/` that are not installed.
+ * - `thetis`: the parts that make Thetis run, installed or not.
+ *
+ * `q` and `kind` narrow it to the families any member of which matches (`matches`). Each entry is
+ * `{ family, row, state, label, publisher }`. `installed` counts the rows installed for this
+ * person, which is the same number the Control panel's list says.
+ */
+export function placeSections(rows, { user = "", admin = false, superseded = [], q = "", kind = "" } = {}) {
+  const out = { attention: [], added: [], discover: [], builtin: [], folder: [], thetis: [], installed: rows.filter((r) => r.installed).length };
+  const gone = new Set(superseded);
+  for (const family of familiesOf(rows)) {
+    const row = family.headline;
+    if (!row || !familyMatches(family, q, kind)) continue;
+    const origin = officialOf(row, family);
+    const label = labelOf(row, origin);
+    const entry = { family, row, label, publisher: publisherLine(row, { user, family: family.members }), state: stateOf(row, { admin, origin, label, user, superseded: gone.has(row.name) }) };
+    if (family.members.some((m) => m.installed)) {
+      if (entry.state.attention) out.attention.push(entry);
+      out[isPart(row) ? "thetis" : givenByDefault(row) ? "builtin" : "added"].push(entry);
+    } else if (!row.folder && offeredTo(row, admin)) out[isPart(row) ? "thetis" : "discover"].push(entry);
+    // Every copy in the folder that is not installed is listed there, the family's card or not: they are the person's files.
+    for (const m of family.members) {
+      if (!m.folder || m.installed) continue;
+      const o = officialOf(m, family);
+      const l = labelOf(m, o);
+      out.folder.push({ family, row: m, label: l, publisher: publisherLine(m, { user, family: family.members }), state: stateOf(m, { admin, origin: o, label: l, user }) });
+    }
+  }
+  return out;
+}
+
+// ---- search --------------------------------------------------------------------------------------------
+
+/** What a row is searched by: name, label, description, tool names, keywords and skill names. */
+function haystack(row) {
+  const tools = (row.tools ?? []).map((t) => (typeof t === "string" ? t : `${t.name} ${t.description ?? ""}`));
+  const skills = (row.skillList ?? []).map((s) => `${s.name} ${s.description ?? ""}`);
+  return [row.name, row.label, row.description, ...tools, ...(row.keywords ?? []), ...skills].filter(Boolean).join(" ").toLowerCase();
+}
+
+/** A term and the words the synonym list puts with it. */
+export function variantsOf(term) {
+  const t = term.toLowerCase();
+  const group = SYNONYMS.find((g) => g.includes(t));
+  return group ? [...group] : [t];
+}
+
+/** Whether a row matches every term of `q` (a term matches when it or a synonym of it is found), and the kind filter. */
+export function matches(row, q = "", kind = "") {
+  if (kind && !kindsOf(row).includes(kind)) return false;
+  const terms = String(q ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return true;
+  const hay = haystack(row);
+  return terms.every((t) => variantsOf(t).some((v) => hay.includes(v)));
+}
+
+/** Whether any member of a family matches: a search finds the card when it finds any of its versions. */
+export const familyMatches = (family, q = "", kind = "") => family.members.some((m) => matches(m, q, kind));

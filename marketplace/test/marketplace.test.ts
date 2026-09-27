@@ -258,6 +258,42 @@ test("an indexed package is installed at the commit it was indexed from, not at 
   assert.deepEqual(splitSource(entry.source), { url: registry.url, sub: "tools-files", ref: at });
 });
 
+test("an entry carries what a person reads before installing: label, audience, origin, needs, pages and skills", () => {
+  const registry = { name: "thirteen-games", url: "https://example.com/r.git" };
+  const at = "c".repeat(40);
+  const entry = describe(
+    {
+      name: "@bitmuse/notion-read",
+      version: "0.1.0-fork.1",
+      thetis: {
+        type: "tool",
+        label: " Notion ",
+        audience: "admin",
+        forkedFrom: { name: "@bitmuse/notion", version: "0.1.0" },
+        skills: "skills",
+        ui: { places: [{ id: "a" }], dock: [{ id: "b" }] },
+        config: {
+          token: { type: "string", secret: true, required: true, help: "A token." },
+          url: { type: "string", required: true, default: "https://x" },
+          admin: { type: "string", required: true, scope: "system" },
+          optional: { type: "string" },
+        },
+      },
+    },
+    registry,
+    "notion-read",
+    at
+  )!;
+  assert.equal(entry.label, "Notion");
+  assert.equal(entry.audience, "admin");
+  assert.deepEqual(entry.forkedFrom, { name: "@bitmuse/notion", version: "0.1.0" });
+  assert.deepEqual(entry.needs, [{ key: "token", secret: true, help: "A token." }], "a default or an admin's key is not the person's to give");
+  assert.equal(entry.pages, 2);
+  assert.equal(entry.skills, true);
+  const bare = describe({ name: "@thetis/plain", version: "1.0.0", thetis: { type: "tool" } }, registry, "plain", at)!;
+  for (const key of ["label", "audience", "forkedFrom", "needs", "pages", "skills"]) assert.equal(key in bare, false, `${key} is left out when the manifest says nothing`);
+});
+
 test("two packages from one registry get their own clone, so the second cannot replace the first", () => {
   const url = "https://github.com/thetis-agent/packages.git";
   const one = "a".repeat(40);

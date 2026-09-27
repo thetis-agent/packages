@@ -14,7 +14,7 @@
  * - The person's own changes (an agent's edits to their extensions) apply by themselves when a reply ends,
  *   nothing else is running and no terminal is open, when their setting says `auto`. Otherwise the card says
  *   "Changes ready" with [Apply].
- * - A copy of an extension that carries nothing the official version lacks gets "Switch back".
+ * - A copy of an extension that carries nothing the official version lacks gets "Use Thetis's version".
  * - Applying never cancels a reply. A running reply pauses at a safe point and continues afterwards. Open
  *   terminal sessions close, so that is asked once, and only when there are some.
  *
@@ -52,6 +52,9 @@ export const lostGateway = (err) => {
 /** A kernel from before drain refuses while a reply runs. The page waits and asks again; it never forces. */
 export const isBusy = (err) => err?.code === "busy" || /turn running|\bbusy\b/i.test(String(err?.message ?? ""));
 
+/** "Use Thetis's version", or, when a copy was made from somebody else's extension, "Use the original". */
+export const useLabel = (forks) => (forks.every((f) => !f.origin || String(f.origin).startsWith("@thetis/")) ? "Use Thetis's version" : "Use the original");
+
 /** What the card says, for each of its states. Kept together so the words can be read and tested in one place. */
 export const words = {
   updates: (items) => ({ title: "Updates ready", body: `Updates for ${plural(items.length, "extension")}: ${listOf(items.map((i) => i.label))}.` }),
@@ -59,9 +62,9 @@ export const words = {
   forks: (forks) =>
     forks.length === 1
       ? forks[0].state === "superseded"
-        ? { title: "Your changes are in the official version", body: `Everything your copy of ${forks[0].label} changed is in the official version now. Switch back to get its fixes; your files are kept.` }
-        : { title: "Your copy has no changes", body: `Your copy of ${forks[0].label} is the same as the official version. Switch back to get its fixes; your files are kept.` }
-      : { title: "Your copies can switch back", body: `The official versions of ${listOf(forks.map((f) => f.label))} have everything your copies have. Your files are kept.` },
+        ? { title: "Your changes are in the official version", body: `Everything your copy of ${forks[0].label} changed is in the official version now. ${useLabel(forks)} to get its fixes; your files are kept.` }
+        : { title: "Your copy has no changes", body: `Your copy of ${forks[0].label} is the same as the official version. ${useLabel(forks)} to get its fixes; your files are kept.` }
+      : { title: "Your copies can go back to the official versions", body: `The official versions of ${listOf(forks.map((f) => f.label))} have everything your copies have. Your files are kept.` },
   applying: (running) => (running ? "Pausing your reply at a safe point… it continues afterwards." : "Applying… a few seconds, your conversations are kept."),
   slow: { title: "This is taking longer than usual", body: "Your space has not answered yet. Your conversations and files are kept." },
   failed: { title: "The update could not be applied", body: "Nothing was lost. Try again in a minute." },
@@ -178,7 +181,7 @@ export function createUpdater(deps) {
     const forks = data.forks ?? [];
     const forksSig = signatureOf.forks(forks);
     if (!forks.length || hidden.forks === forksSig) close("updates-forks");
-    else show("updates-forks", { ...words.forks(forks), tone: "info", actions: [{ label: "Switch back", primary: true, run: () => void switchBack(forks) }], onDismiss: () => dismiss("forks", forksSig) });
+    else show("updates-forks", { ...words.forks(forks), tone: "info", actions: [{ label: useLabel(forks), primary: true, run: () => void switchBack(forks) }], onDismiss: () => dismiss("forks", forksSig) });
   }
 
   /**
@@ -298,12 +301,12 @@ export function createUpdater(deps) {
     if (busy) return false;
     busy = true;
     try {
-      if (last?.shells > 0 && !(await askShells("updates-forks", last.shells, "Switch back now?"))) {
+      if (last?.shells > 0 && !(await askShells("updates-forks", last.shells, `${useLabel(forks)} now?`))) {
         busy = false;
         draw(last);
         return false;
       }
-      show("updates-forks", { title: "Switching back", body: words.applying(false), dismissible: false });
+      show("updates-forks", { title: "Going back to the official version", body: words.applying(false), dismissible: false });
       let lost = false;
       for (const f of forks) {
         try {
@@ -321,7 +324,7 @@ export function createUpdater(deps) {
         show("updates-forks", { ...words.slow, tone: "warn", actions: [{ label: "Try again", primary: true, run: () => deps.reloadPage() }] });
         return false;
       }
-      return await apply("updates-forks", `Switched back to the official ${listOf(forks.map((f) => f.label))}.`);
+      return await apply("updates-forks", `Back on the official ${listOf(forks.map((f) => f.label))}.`);
     } finally {
       busy = false;
     }

@@ -153,6 +153,32 @@ async function dropStaleReadmes(env: MirrorEnv, registry: Registry, entries: Ind
   if (stale.length) await run(env, `rm -f ${stale.map((f) => q(`${dir}/${f}`)).join(" ")}`).catch(() => undefined);
 }
 
+const UI_SLOTS = ["places", "dock", "panel", "sidebar", "shelf"];
+
+/**
+ * What a person reads about an offer before installing it, from the manifest: the label, `audience` (an
+ * extension for admins only is never offered to anyone else), what it was copied from, the keys a person must
+ * give before it works (required, no default, not an admin's to set), how many screens it adds, and whether
+ * it brings skills. Each is left out when the manifest says nothing, so an entry stays as small as it was.
+ */
+export function offerFacts(thetis: Record<string, unknown>): Partial<IndexedPackage> {
+  const out: Partial<IndexedPackage> = {};
+  if (typeof thetis.label === "string" && thetis.label.trim()) out.label = thetis.label.trim();
+  if (typeof thetis.audience === "string") out.audience = thetis.audience;
+  const from = thetis.forkedFrom as { name?: unknown; version?: unknown } | undefined;
+  if (from && typeof from.name === "string") out.forkedFrom = { name: from.name, version: String(from.version ?? "") };
+  const decls = thetis.config && typeof thetis.config === "object" ? (thetis.config as Record<string, { required?: unknown; default?: unknown; scope?: unknown; secret?: unknown; help?: unknown }>) : {};
+  const needs = Object.entries(decls)
+    .filter(([, d]) => d && d.required === true && d.default === undefined && d.scope !== "system")
+    .map(([key, d]) => ({ key, secret: d.secret === true, ...(typeof d.help === "string" ? { help: d.help } : {}) }));
+  if (needs.length) out.needs = needs;
+  const ui = thetis.ui && typeof thetis.ui === "object" ? (thetis.ui as Record<string, unknown>) : {};
+  const pages = UI_SLOTS.reduce((n, slot) => n + (Array.isArray(ui[slot]) ? (ui[slot] as unknown[]).length : 0), 0);
+  if (pages) out.pages = pages;
+  if (typeof thetis.skills === "string" && thetis.skills) out.skills = true;
+  return out;
+}
+
 /** One index entry from a manifest, or undefined when it is not a Thetis package. */
 export function describe(raw: unknown, registry: Registry, dir: string, commit: string): IndexedPackage | undefined {
   const parsed = IndexableManifestSchema.safeParse(raw);
@@ -176,6 +202,7 @@ export function describe(raw: unknown, registry: Registry, dir: string, commit: 
     steps: (thetis.steps ?? []).map((s) => ({ id: s.id, phase: s.phase })),
     tools: (thetis.tools ?? []).map((t) => t.name),
     service: !!thetis.service,
+    ...offerFacts(thetis),
     ...(thetis.bench?.suites?.length
       ? {
           bench: {

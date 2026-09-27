@@ -1,6 +1,6 @@
 {
   "name": "@thetis/ui-admin",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "license": "MIT",
   "description": "The control panel's sections beyond Extensions, and the admin's Thetis update notice: Overview, People, Models, Access (mounts and SSH keys), Activity, Account and Advanced. Everyone sees Models, Access, Activity and Account about themselves; an admin sees all of them, about everyone.",
   "type": "module",
@@ -36,7 +36,6 @@
         {
           "id": "configuration",
           "label": "Extension pages",
-          "note": "One extension: its settings, its state, and who has it.",
           "role": "admin",
           "order": 32,
           "under": "packages"
@@ -210,13 +209,25 @@
         {
           "verb": "package-promote",
           "export": "packagePromote",
-          "label": "Make a person's extension the default for everyone",
+          "label": "Share a person's extension with everyone",
           "role": "admin"
         },
         {
           "verb": "package-remove",
           "export": "packageRemove",
           "label": "Remove a package for one person, or for everyone",
+          "role": "admin"
+        },
+        {
+          "verb": "package-everyone",
+          "export": "packageEveryone",
+          "label": "Turn an extension by Thetis or a registry on or off for everyone",
+          "role": "admin"
+        },
+        {
+          "verb": "package-unfork",
+          "export": "packageUnfork",
+          "label": "Use Thetis's version instead of your own customised copy",
           "role": "admin"
         },
         {

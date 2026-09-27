@@ -5,7 +5,10 @@
 // the admin verbs go through `env.kernel.operator.call`, which the gateway allows only past the declared
 // role and the kernel only for an admin's fence. Nothing here trusts the browser: `env.user` says who asked.
 import { readIndex, readReadme, readReadmeAsset, search as searchIndex } from "@thetis/marketplace";
-import { installedRow, matchesQuery, mergeRows } from "./lib/rows.js";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { folderRows, installedRow, matchesQuery, mergeRows, skillList, withFolder } from "./lib/rows.js";
+import { familyOf, isRequired, matches } from "./lib/state.js";
 import { updatesFor } from "./lib/updates.js";
 
 const PACKAGE_NAME = /^@[a-z0-9-]+\/[a-z0-9._-]+$/;
@@ -38,9 +41,20 @@ async function catalogOf(env) {
   }
 }
 
-async function rowsOf(env) {
+/**
+ * The person's home, where their own folder of packages is. The fence's agent process runs with
+ * `THETIS_HOME_DIR` set to it; `env.home` is how a test names one. Without either there is no folder.
+ */
+const homeOf = (env) => (typeof env.home === "string" ? env.home : process.env.THETIS_HOME_DIR || "");
+
+/**
+ * The rows, and -- with `folder` -- the person's own folder laid over them: the packages under their home's
+ * `packages/` that are not installed, which the Extensions place lists under "In your folder".
+ */
+async function rowsOf(env, { folder = false } = {}) {
   const [installed, catalog, index] = await Promise.all([env.kernel.packages.list(), catalogOf(env), readIndex(env)]);
-  return { installed, index, rows: mergeRows(installed, index?.packages ?? [], index, { catalog, user: env.user }) };
+  const rows = mergeRows(installed, index?.packages ?? [], index, { catalog, user: env.user });
+  return { installed, catalog, index, rows: folder ? withFolder(rows, folderRows(homeOf(env), installed.map((p) => p.name))) : rows };
 }
 
 /**
@@ -51,12 +65,12 @@ async function rowsOf(env) {
 export async function search(args, env) {
   const q = typeof args.q === "string" ? args.q.trim() : "";
   const type = typeof args.type === "string" && args.type ? args.type : "";
-  const { index, rows } = await rowsOf(env);
+  const { index, rows } = await rowsOf(env, { folder: args.folder === true });
   let shown = rows;
   if (q || type) {
     const hits = new Set(index ? searchIndex(index, q, { type, limit: 200 }).map((e) => e.name) : []);
     const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
-    shown = rows.filter((r) => hits.has(r.name) || ((r.installed || r.system) && matchesQuery(r, terms, type)));
+    shown = rows.filter((r) => hits.has(r.name) || ((r.installed || r.system) && matchesQuery(r, terms, type)) || (r.folder && !r.installed && matches(r, q) && (!type || r.type === type)));
   }
   return { data: { ...facts(index), rows: shown, user: env.user, role: env.role } };
 }
@@ -81,16 +95,50 @@ async function assetsOf(env, entry, readme) {
   return out;
 }
 
-/** One package: its row, the README copy when the registry holds one with the pictures it shows, and who is looking. */
+/** The README beside a package's own files, or null. A package's page shows its own README, not another's. */
+function diskReadme(root) {
+  if (!root) return null;
+  for (const file of ["README.md", "readme.md", "Readme.md"]) {
+    const at = resolve(root, file);
+    if (!existsSync(at)) continue;
+    try {
+      return readFileSync(at, "utf8");
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * One package: its row (with the skills it brings, named), the other members of its family, the README with
+ * the pictures it shows, and who is looking. The README is the registry's copy when the registry holds this
+ * very version -- that copy carries its pictures -- and otherwise the one beside the package's own files, so a
+ * promoted copy or a person's copy never shows somebody else's README.
+ */
 export async function show(args, env) {
   const name = packageName(args.name);
-  const { index, rows } = await rowsOf(env);
-  const row = rows.find((r) => r.name === name);
-  if (!row) fail(`${name} is not installed here, not shipped here, and no registry offers it`);
+  const { installed, catalog, index, rows } = await rowsOf(env, { folder: true });
+  const found = rows.find((r) => r.name === name);
+  if (!found) fail(`${name} is not installed here, not shipped here, and no registry offers it`);
+  const info = installed.find((p) => p.name === name) ?? catalog.find((p) => p.name === name) ?? null;
+  const root = info?.root ?? (found.folder ? resolve(homeOf(env), found.folder.dir) : null);
+  const manifest = info?.thetis ?? (root ? readManifest(root)?.thetis : null);
+  const row = { ...found, skillList: skillList(root, manifest?.skills) };
   const entry = index?.packages.find((e) => e.name === name && e.registry === row.registry && e.source === row.source);
-  const readme = entry ? ((await readReadme(env, entry)) ?? null) : null;
-  const assets = readme ? await assetsOf(env, entry, readme) : {};
-  return { data: { ...facts(index), row, readme, assets, user: env.user, role: env.role } };
+  const fromIndex = entry && (!root || entry.version === row.version) ? ((await readReadme(env, entry)) ?? null) : null;
+  const readme = fromIndex ?? diskReadme(root) ?? (entry ? ((await readReadme(env, entry)) ?? null) : null);
+  const assets = fromIndex ? await assetsOf(env, entry, fromIndex) : {};
+  const family = familyOf(row, rows).members.filter((m) => m.name !== name);
+  return { data: { ...facts(index), row, family, readme, assets, user: env.user, role: env.role } };
+}
+
+function readManifest(root) {
+  try {
+    return JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 export async function install(args, env) {
@@ -161,7 +209,11 @@ export async function configShow(args, env) {
 export async function configList(_args, env) {
   const installed = await env.kernel.packages.list();
   const reports = await Promise.all(installed.map((p) => env.kernel.config.show(p.name).catch(() => null)));
-  return { data: reports.filter(Boolean).map((r) => ({ package: r.package, summary: r.summary, broken: !!r.broken })) };
+  // `keys` is the missing ones only, each with what says whose they are to fix (`scope`, `missing`, `source`)
+  // and its help: what `stateOf` reads, so a card says the same thing the page does. `count` is how many
+  // keys the package has at all, which is whether it has settings to show.
+  const short = (k) => ({ key: k.key, state: k.state, secret: !!k.secret, ...(k.required !== undefined ? { required: k.required } : {}), ...(k.scope ? { scope: k.scope } : {}), ...(k.source ? { source: k.source } : {}), ...(k.missing ? { missing: k.missing } : {}), ...(k.help ? { help: k.help } : {}) });
+  return { data: reports.filter(Boolean).map((r) => ({ package: r.package, summary: r.summary, broken: !!r.broken, count: Array.isArray(r.keys) ? r.keys.length : 0, keys: (r.keys ?? []).filter((k) => k.state === "missing").map(short) })) };
 }
 
 /**
@@ -227,6 +279,56 @@ export async function removeFor(args, env) {
 /** Copies a person's package under @thetis, installs it for everyone, and removes the person's own copy. */
 export async function promote(args, env) {
   return { data: await call(env, "packages.promote", { user: userId(args.user), name: packageName(args.name) }) };
+}
+
+/** The people, without the system user, as `users.list` answers them. */
+async function everyone(env) {
+  const list = await call(env, "users.list");
+  return (Array.isArray(list) ? list : []).filter((p) => p.role !== "system");
+}
+
+/** Who has `name` installed, by asking each person's package list. A list that cannot be read counts as not having it. */
+async function holdersOf(env, name) {
+  const people = await everyone(env);
+  const lists = await Promise.all(people.map((p) => call(env, "packages.list", { user: p.id }).catch(() => [])));
+  return people.filter((_, i) => (Array.isArray(lists[i]) ? lists[i] : []).some((pkg) => pkg?.name === name)).map((p) => p.id);
+}
+
+/** Who has one extension: the names a "Remove for everyone" confirm says before anything is sent. */
+export async function holders(args, env) {
+  const name = packageName(args.name);
+  return { data: { name, users: await holdersOf(env, name) } };
+}
+
+/**
+ * Removes one extension from every person who has it. An extension Thetis requires is refused before anything
+ * is sent -- the page never offers it, and this verb does not trust the page. An admin's mark comes off first,
+ * so new people stop getting it too; a package everyone gets by the configuration or by a promotion keeps
+ * being given to new people, and the answer says why (`still`). Each person's saved settings are kept: an
+ * uninstall does not touch the configuration layers. Answers who lost it and who could not be reached.
+ */
+export async function removeEveryone(args, env) {
+  const name = packageName(args.name);
+  const row = (await rowsOf(env)).rows.find((r) => r.name === name);
+  if (row && isRequired(row)) fail(`${name} is required by Thetis; it is not removed for anyone`);
+  let unmarked = false;
+  if (row?.everyone && row.everyoneBy === "marked") {
+    await call(env, "packages.unmarkEveryone", { name });
+    unmarked = true;
+  }
+  const users = await holdersOf(env, name);
+  const removed = [];
+  const failed = [];
+  for (const user of users) {
+    try {
+      await call(env, "packages.uninstall", { user, name });
+      removed.push(user);
+    } catch (err) {
+      failed.push({ user, error: err?.message || String(err) });
+    }
+  }
+  const still = row?.everyone && !unmarked ? row.everyoneBy ?? "config" : null;
+  return { data: { name, removed, failed, unmarked, still } };
 }
 
 /** The people an admin may install for. The system user is not one of them. */

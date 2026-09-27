@@ -11,7 +11,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as commands from "../index.js";
 import { mergeRows, withAhead, withUpdate } from "../lib/rows.js";
-import { aheadBadge, forkBadge, installedBadge, publishRecord, stateBadge, updateBadge } from "../ui/badges.js";
+import { aheadBadge, chipNodes, publishRecord } from "../ui/badges.js";
+import { publisherLine, stateOf } from "../lib/state.js";
 import { NOT_INSTALLABLE, blockerLines, passengersOf, whatItBrings } from "../ui/actions.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -110,8 +111,7 @@ test("rows: installed first, then the registry's; a shared name learns its regis
   assert.equal(withUpdate({ name: "x" }, undefined).update, undefined, "nothing newer says nothing");
 });
 
-test("rows: a system package nobody here has is a row of its own, installable by name, and the badges say whose it is and whether it is here", () => {
-  const badge = (text, tone) => ({ text, tone });
+test("rows: a system package nobody here has is a row of its own, installable by name, and the publisher line says whose it is", () => {
   const index = { version: 1, updatedAt: "2026-09-25T00:00:00.000Z", registries: [{ name: "thetis", url: REPO }], packages: [entry("@thetis/skills-orleans", "0.1.0", NEW, { type: "skill" }), entry("@thetis/memo", "0.1.0", OLD)] };
   const catalog = [
     { ...shipped("@thetis/skills-orleans"), type: "skill", thetis: { type: "skill" }, everyone: undefined },
@@ -137,15 +137,15 @@ test("rows: a system package nobody here has is a row of its own, installable by
   const orleans = rows.find((r) => r.name === "@thetis/skills-orleans");
   assert.equal(orleans.registry, "thetis", "the row learns the registry's word");
   assert.equal(orleans.readme, false);
-  // The words a person uses: what everyone gets is Included, their own is Yours, and anything else says
-  // nothing on the badge, because the section it is in already says whether they have it.
-  assert.equal(stateBadge(badge, orleans), null);
-  assert.equal(installedBadge(badge, orleans), null, "not here: the Install button says the other half");
-  assert.deepEqual(stateBadge(badge, rows[0]), { text: "Included", tone: "accent" });
-  assert.deepEqual(installedBadge(badge, rows[0]), { text: "Installed", tone: "ok" });
-  assert.deepEqual(stateBadge(badge, rows[1]), { text: "Yours", tone: "dim" });
-  assert.equal(stateBadge(badge, rows[5]), null, "a registry's name is a technical detail");
-  assert.equal(whatItBrings("skill"), "Its skills are offered to your agent from your next message.");
+  // The words a person uses: a publisher line, never Included, Yours or Installed. What everyone gets by the
+  // installation's own list carries no chip; a promoted one carries For everyone.
+  assert.equal(publisherLine(orleans, { user: "alice" }), "by Thetis · Skills");
+  assert.equal(publisherLine(rows[1], { user: "alice" }), "by you", "a tool type with no tools brings nothing to name");
+  assert.equal(publisherLine(rows[5], { user: "alice" }), "by Thetis · Tools");
+  assert.deepEqual(stateOf(rows[0]).chips, [], "Thetis's own, everyone's by configuration: no chip");
+  assert.deepEqual(stateOf(rows.find((r) => r.name === "@thetis/hello")).chips.map((c) => c.label), ["For everyone"]);
+  assert.equal(whatItBrings("skill"), "Its skills are offered to your assistant from your next message.");
+  assert.equal(whatItBrings({ type: "tool", tools: [], pages: 1 }), "It appears on the page after a refresh.", "a tool extension without tools never promises tools");
   assert.match(NOT_INSTALLABLE.host, /never installed for a person/);
   // The parts that make the installation run are system components, hidden until asked for; the rest are not.
   assert.deepEqual(rows.map((r) => [r.name, r.component]), [["@thetis/harness-core", true], ["@alice/mine", false], ["@thetis/skills-orleans", false], ["@thetis/hello", false], ["@thetis/host-grants", true], ["@thetis/memo", false]]);
@@ -155,13 +155,13 @@ test("rows: a system package nobody here has is a row of its own, installable by
   assert.deepEqual([bare[0].system, bare[0].everyone, bare[0].own], [true, true, false]);
 });
 
-test("rows: a copy the space has not loaded is behind its own disk, index or no index, and the badge says Update ready", () => {
-  const badge = (text, tone) => ({ text, tone });
+test("rows: a copy the space has not loaded is behind its own disk, index or no index, and the chip says Update available", () => {
   // The fence read 0.2.1 when it opened; the files on disk are 0.2.2. Nothing is fetched: a reload applies it.
-  const loaded = { ...shipped("@thetis/skills-hybrid"), version: "0.2.2", loadedVersion: "0.2.1" };
+  const loaded = { ...shipped("@thetis/skills-hybrid"), version: "0.2.2", loadedVersion: "0.2.1", everyoneBy: "config" };
   const bare = mergeRows([loaded], [], undefined);
   assert.deepEqual(bare[0].update, { apply: "reload", version: "0.2.2", installed: "0.2.1", available: "0.2.2" }, "no index is needed: a shipped package is behind its own disk");
-  assert.deepEqual(updateBadge(badge, bare[0]), { text: "Update ready", tone: "warn" }, "one state for the person, whatever catches it up");
+  assert.deepEqual(stateOf(bare[0]).chips.map((c) => c.label), ["Update available"], "one state for the person, whatever catches it up");
+  assert.equal(stateOf(bare[0]).reason, "Version 0.2.2 is ready; you have 0.2.1. Updating keeps your settings.");
   const index = { version: 1, updatedAt: "2026-09-21T00:00:00.000Z", registries: [{ name: "thetis", url: REPO }], packages: [entry("@thetis/skills-hybrid", "0.2.2", NEW)] };
   const listed = mergeRows([loaded], index.packages, index);
   assert.deepEqual(listed[0].update, { apply: "reload", version: "0.2.2", installed: "0.2.1", available: "0.2.2" }, "an index entry does not change what applies it");
@@ -169,10 +169,10 @@ test("rows: a copy the space has not loaded is behind its own disk, index or no 
   // A stale pin and a different loaded version at once: the install wins, because it brings the pin and reopens.
   const both = mergeRows([{ ...fromRegistry("@thetis/exa", OLD), version: "0.2.0", loadedVersion: "0.1.0" }], [entry("@thetis/exa", "0.2.0", NEW)], { ...index, packages: [entry("@thetis/exa", "0.2.0", NEW)] });
   assert.equal(both[0].update.apply, "install");
-  assert.deepEqual(updateBadge(badge, both[0]), { text: "Update ready", tone: "warn" });
-  const current = mergeRows([{ ...shipped("@thetis/terminal"), loadedVersion: "0.1.0" }], [], undefined);
+  assert.equal(stateOf(both[0]).attention, true);
+  const current = mergeRows([{ ...shipped("@thetis/terminal"), loadedVersion: "0.1.0", everyoneBy: "config" }], [], undefined);
   assert.equal(current[0].update, null, "the version it loaded is the version on disk: nothing is behind");
-  assert.equal(updateBadge(badge, current[0]), null);
+  assert.deepEqual(stateOf(current[0]).chips, []);
 });
 
 test("duplicate registry names keep the newest entry's version, source and README together", async () => {
@@ -199,34 +199,25 @@ test("duplicate registry names keep the newest entry's version, source and READM
   }
 });
 
-test("rows: a fork carries what it was forked from and how far that has moved, and the badges say the strongest true thing", () => {
-  const badge = (text, tone) => ({ text, tone });
+test("rows: a fork carries what it was forked from and how far that has moved, and the state says so in the shared words", () => {
   const forkOf = (fork) => ({ ...shipped("@alice/gateway-web", { everyone: false }), version: "0.1.1-fork.1", forkedFrom: { name: fork.name, version: fork.version }, fork });
   // The live shape: the fork changed nothing, and the package it copied is what is shipped. No version
   // anywhere shows it, which is why the badge has to say it in words.
   const same = mergeRows([forkOf({ name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.1.1", identical: true })], [], undefined);
   assert.deepEqual(same[0].update, { apply: "unfork", version: "0.1.1", installed: "0.1.1", available: "0.1.1", origin: "@thetis/gateway-web", identical: true });
-  assert.deepEqual(updateBadge(badge, same[0]), { text: "No changes · switch back", tone: "warn" }, "terse: this one also rides on a card beside the name");
-  assert.deepEqual(forkBadge(badge, same[0]), { text: "Your copy has no changes", tone: "warn" });
-  assert.deepEqual(forkBadge(badge, same[0], { superseded: true }), { text: "Your changes are in the official version", tone: "warn" }, "the updates answer knows more than the row, and the strongest true sentence wins");
+  assert.deepEqual(stateOf(same[0]).chips, [], "a copy with no changes is not customized, and nothing newer is ready");
+  assert.deepEqual(stateOf(same[0], { superseded: true }).chips.map((c) => c.label), ["Update available"], "the updates answer knows more than the row");
   const moved = mergeRows([forkOf({ name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.2.0" })], [], undefined);
-  assert.deepEqual(updateBadge(badge, moved[0]), { text: "Official version is newer", tone: "warn" });
-  assert.deepEqual(forkBadge(badge, moved[0]), { text: "Your copy of @thetis/gateway-web · the official version is newer", tone: "warn" });
+  assert.deepEqual(stateOf(moved[0]).chips.map((c) => c.label), ["Update available", "Customized"]);
+  assert.equal(stateOf(moved[0]).reason, "Thetis's version 0.2.0 is newer than the 0.1.1 your copy was made from.");
   const working = mergeRows([forkOf({ name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.1.1" })], [], undefined);
   assert.equal(working[0].update, null, "a fork that differs from the current origin is doing its job");
-  assert.deepEqual(forkBadge(badge, working[0]), { text: "Your copy of @thetis/gateway-web", tone: "warn" });
-  // The origin is what everyone on this host gets, and the person holding the fork is the one it could not
-  // be made the default for: the kernel refuses to install a package over somebody's fork of it. The badge
-  // is where that decision reaches them, so it rides on whichever sentence wins rather than replacing one.
-  const house = mergeRows([forkOf({ name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.2.0", everyone: true })], [], undefined);
-  assert.deepEqual(forkBadge(badge, house[0]), { text: "Your copy of @thetis/gateway-web · the official version is newer · everyone else uses the official one", tone: "warn" });
-  const houseSame = mergeRows([forkOf({ name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.1.1", identical: true, everyone: true })], [], undefined);
-  assert.deepEqual(forkBadge(badge, houseSame[0]), { text: "Your copy has no changes · everyone else uses the official one", tone: "warn" });
+  assert.deepEqual(stateOf(working[0]).chips.map((c) => c.label), ["Customized"]);
 
   // A row from a kernel that does not answer with `fork` still says what the manifest said, and no more.
   const old = mergeRows([{ ...shipped("@alice/thing", { everyone: false }), forkedFrom: { name: "@thetis/thing", version: "0.1.0" } }], [], undefined);
   assert.equal(old[0].fork, null);
-  assert.deepEqual(forkBadge(badge, old[0]), { text: "Your copy of @thetis/thing", tone: "warn" });
+  assert.deepEqual(stateOf(old[0]).chips.map((c) => c.label), ["Customized"]);
 });
 
 test("search: no index answers the installed rows and says so; a query narrows through the index and the installed names", async () => {
@@ -402,9 +393,9 @@ test("config-show, config-set and config-unset go to the person's own layer; con
       assert.equal((await commands.configSet({ name: "@thetis/exa", key: "defaults", value: { numResults: 5 } }, t.env)).data.package, "@thetis/exa");
       assert.equal((await commands.configUnset({ name: "@thetis/exa", key: "apiKey" }, t.env)).data.package, "@thetis/exa");
       assert.deepEqual((await commands.configList({}, t.env)).data, [
-        { package: "@thetis/harness-core", summary: "every key is set", broken: false },
-        { package: "@thetis/exa", summary: "apiKey is required and not set", broken: true },
-      ], "one sentence per installed package; one the kernel cannot report on is left out");
+        { package: "@thetis/harness-core", summary: "every key is set", broken: false, count: 0, keys: [] },
+        { package: "@thetis/exa", summary: "apiKey is required and not set", broken: true, count: 1, keys: [{ key: "apiKey", state: "missing", secret: true, required: true }] },
+      ], "one sentence per installed package, with the missing keys; one the kernel cannot report on is left out");
       await assert.rejects(commands.configShow({ name: "exa" }, t.env), /looks like @scope\/name/);
       await assert.rejects(commands.configSet({ name: "@thetis/exa", key: "api key", value: secret }, t.env), /a configuration key is a word/);
       await assert.rejects(commands.configSet({ name: "@thetis/exa", key: "apiKey" }, t.env), /needs a value; config-unset removes one/);
@@ -767,4 +758,95 @@ test("badges: the record answers about one package at one target, and says nothi
   // version is a true sentence about that registry, and the badge goes on saying it.
   const behindRow = { ...row, ahead: { state: "ahead", version: "0.2.0", published: "0.1.0", registry: "thetis" } };
   assert.deepEqual(aheadBadge(badge, behindRow), { text: "0.2.0 here, 0.1.0 published", tone: "warn" });
+});
+
+// ---- the person's folder, a page's family, and removing for everyone ----
+
+/** A home with `packages/<dir>/package.json` for each manifest, and a skill for the one that names a skills directory. */
+function homeWith(manifests) {
+  const home = mkdtempSync(join(tmpdir(), "ui-market-home-"));
+  for (const [dir, m] of Object.entries(manifests)) {
+    mkdirSync(join(home, "packages", dir), { recursive: true });
+    writeFileSync(join(home, "packages", dir, "package.json"), JSON.stringify(m));
+    if (m.thetis?.skills) {
+      mkdirSync(join(home, "packages", dir, m.thetis.skills, "grains"), { recursive: true });
+      writeFileSync(join(home, "packages", dir, m.thetis.skills, "SKILL.md"), "---\nname: lore\ndescription: The lore of the island. Read it first.\n---\n# Lore\n");
+      writeFileSync(join(home, "packages", dir, m.thetis.skills, "grains", "SKILL.md"), "---\nname: lore/grains\ndescription: How grains work.\n---\n");
+    }
+    writeFileSync(join(home, "packages", dir, "README.md"), `# ${m.name}\n`);
+  }
+  mkdirSync(join(home, "packages", "not-a-package"), { recursive: true });
+  return home;
+}
+
+test("search with folder: the person's own packages not installed are rows of their own, and an offer of one is marked as theirs", async () => {
+  const index = { version: 1, updatedAt: "2026-09-27T00:00:00.000Z", registries: [{ name: "thetis", url: REPO }], packages: [entry("@alice/notion", "0.1.1", NEW)] };
+  const home = homeWith({
+    notion: { name: "@alice/notion", version: "0.1.1", thetis: { type: "tool", tools: [{ name: "notion_search" }], config: { token: { type: "string", secret: true, required: true, help: "A token." } } } },
+    "notion-read": { name: "@alice/notion-read", version: "0.1.1-fork.1", description: "Reading only.", thetis: { type: "tool", forkedFrom: { name: "@alice/notion", version: "0.1.1" } } },
+    moo: { name: "@alice/moo", version: "0.2.0", thetis: { type: "tool" } },
+    lore: { name: "@alice/lore", version: "0.1.0", thetis: { type: "skill", skills: "skills" } },
+  });
+  const t = fakeEnv({ installed: [{ ...fromRegistry("@alice/moo", OLD), source: { kind: "local", ref: "packages/moo" } }], index });
+  t.env.home = home;
+  try {
+    const rows = (await commands.search({ folder: true }, t.env)).data.rows;
+    const folder = rows.filter((r) => r.folder);
+    assert.deepEqual(folder.map((r) => [r.name, r.folder.dir, r.installed, r.local]), [["@alice/notion", "packages/notion", false, true], ["@alice/lore", "packages/lore", false, true], ["@alice/notion-read", "packages/notion-read", false, true]]);
+    assert.equal(rows.filter((r) => r.name === "@alice/notion").length, 1, "the registry's offer of it is the same row");
+    assert.equal(rows.find((r) => r.name === "@alice/notion").registry, "thetis", "and it keeps what the registry says");
+    assert.deepEqual(rows.find((r) => r.name === "@alice/notion-read").forkedFrom, { name: "@alice/notion", version: "0.1.1" });
+    assert.equal(rows.some((r) => r.name === "@alice/moo" && r.folder), false, "an installed one is its installed row");
+    assert.equal((await commands.search({}, t.env)).data.rows.some((r) => r.folder), false, "without folder the rows are what they were");
+    assert.deepEqual((await commands.search({ folder: true, q: "reading" }, t.env)).data.rows.map((r) => r.name), ["@alice/notion-read"]);
+    // The page: its family, its skills named, and its own README.
+    const read = (await commands.show({ name: "@alice/notion-read" }, t.env)).data;
+    assert.deepEqual(read.family.map((m) => m.name), ["@alice/notion"]);
+    assert.equal(read.readme, "# @alice/notion-read\n", "a package's own README, not another's");
+    const lore = (await commands.show({ name: "@alice/lore" }, t.env)).data;
+    assert.deepEqual(lore.row.skillList, [{ name: "lore", description: "The lore of the island." }, { name: "lore/grains", description: "How grains work." }]);
+    assert.deepEqual((await commands.show({ name: "@alice/notion" }, t.env)).data.row.needs, [{ key: "token", secret: true, help: "A token." }]);
+  } finally {
+    t.cleanup();
+    rmSync(home, { recursive: true, force: true });
+  }
+  // No home, no folder: nothing is read and nothing fails.
+  const bare = fakeEnv({ installed: [shipped("@thetis/harness-core")] });
+  bare.env.home = join(tmpdir(), "no-such-home-for-ui-market");
+  try {
+    assert.deepEqual((await commands.search({ folder: true }, bare.env)).data.rows.map((r) => r.name), ["@thetis/harness-core"]);
+  } finally {
+    bare.cleanup();
+  }
+});
+
+test("holders and remove-everyone: who has it, then out of each of their spaces; a required one is refused before anything is sent", async () => {
+  const lists = { alice: [{ name: "@thetis/exa" }], bob: [], root: [{ name: "@thetis/exa" }, { name: "@thetis/gateway-web" }] };
+  const t = fakeEnv({
+    role: "admin",
+    user: "root",
+    installed: [{ ...shipped("@thetis/exa"), everyoneBy: "marked" }, { ...shipped("@thetis/gateway-web"), type: "gateway", thetis: { type: "gateway" } }],
+    answers: {
+      "users.list": [{ id: "root", role: "admin" }, { id: "_system", role: "system" }, { id: "alice", role: "user" }, { id: "bob", role: "user" }],
+      "packages.list": (a) => lists[a.user] ?? [],
+      "packages.uninstall": (a) => {
+        if (a.user === "alice") throw new Error("alice's space is busy");
+        return null;
+      },
+    },
+  });
+  try {
+    assert.deepEqual((await commands.holders({ name: "@thetis/exa" }, t.env)).data, { name: "@thetis/exa", users: ["root", "alice"] });
+    t.calls.length = 0;
+    const out = (await commands.removeEveryone({ name: "@thetis/exa" }, t.env)).data;
+    assert.deepEqual(out, { name: "@thetis/exa", removed: ["root"], failed: [{ user: "alice", error: "alice's space is busy" }], unmarked: true, still: null });
+    assert.deepEqual(t.calls.filter((c) => c.method.startsWith("packages.u")).map((c) => [c.method, c.args]), [["packages.unmarkEveryone", { name: "@thetis/exa" }], ["packages.uninstall", { user: "root", name: "@thetis/exa" }], ["packages.uninstall", { user: "alice", name: "@thetis/exa" }]], "the mark first, so new people stop getting it too");
+    t.calls.length = 0;
+    await assert.rejects(commands.removeEveryone({ name: "@thetis/gateway-web" }, t.env), /required by Thetis/);
+    assert.equal(t.calls.some((c) => c.method === "packages.uninstall"), false);
+  } finally {
+    t.cleanup();
+  }
+  const manifest = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+  for (const verb of ["holders", "remove-everyone"]) assert.equal(manifest.thetis.ui.commands.find((c) => c.verb === verb)?.role, "admin", `${verb} is an admin's`);
 });

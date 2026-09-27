@@ -1,24 +1,26 @@
-/* One extension's page. It leads with what a person decides on: the name, the one-line summary, what they
- * get (tools, skills, pages), whether setup is needed, and **Install** or **Update** at the top. Admins' acts
- * for everyone sit under it in a quieter group. Two tabs follow: **Overview**, the tools one by one with what
- * each does, and **Technical details**, the README (rendered by the shell's markdown, which builds DOM and
- * never sets innerHTML; its local pictures come with the answer and are drawn from data: URLs, so the page
- * fetches nothing), the facts (versions, pins, source, steps, benchmarks, what was published) and the Publish
- * block. Everything comes from one `show` answer; an admin's people for the picker come from `people`. An
- * installed extension also gets its configuration report from `config-show`: the page says the kernel's one
- * sentence when something is missing, and **Configure** opens the shared form on the person's own layer,
- * where the row for each key says its state and offers the fix. It also asks `publish-targets` where this
- * space may publish, which carries the last publish to each target from that package's own store; that
- * answer is `available: false` on every installation without @thetis/package-publish, which is most of them,
- * and then no Publish block and no record row is drawn and nothing throws. It is asked twice: once without a
- * package, which costs nothing and is what the block is drawn from, and then -- only where the index says
- * nothing about this package -- once about the package, which reaches every registry and so goes out after
- * the page is drawn and fills in one line. `open` returns an unmount that stops a late answer from drawing
- * into a closed page. */
+/* One extension's page. The crumb `Extensions › <label>`; the header -- the label (its package id only as the
+ * title's tooltip), the chips, and the publisher line -- then the description, a banner with the one reason
+ * when there is one (state.js's `stateOf`, the same answer the card and the Control panel give), the **Needs**
+ * line before an install, and the actions: **Install**, **Installed ✓ ▾**, **Update** or **Use Thetis's
+ * version**, **Set up** when it has settings, and **⋯**. Tabs follow -- **Overview** (its tools, or its skills,
+ * each with one line), **Settings** (the shared configuration form on the person's own layer, only when it has
+ * settings), **README** (its own), **Details** (the package id, versions, source, the maintainer's badges and
+ * the Publish block), and for an admin **People** and **Activity**, which lead to the Control panel -- and a
+ * side panel: **About**, **Other versions** (the rest of its family, one line each), and for an admin **For
+ * everyone**.
+ *
+ * Everything comes from one `show` answer (the row, its family and its README); an admin's people for the
+ * picker come from `people`; an installed extension's configuration from `config-show`, folded onto the row so
+ * its state is the kernel's; and `publish-targets` says where this space may publish -- `available: false` on
+ * every installation without @thetis/package-publish, and then no Publish is offered and nothing throws. That
+ * last is asked twice: once without a package, which costs nothing, and then, only where the index says nothing
+ * about this package, once about it, after the page is drawn. `open` returns an unmount that stops a late
+ * answer from drawing into a closed page. */
 
 import { actionsFor } from "./actions.js";
-import { publishRecord, stateBadges, technicalBadges } from "./badges.js";
-import { configCard, summaryLine } from "./config-form.js";
+import { chipNodes, publishRecord, technicalBadges } from "./badges.js";
+import { configCard } from "./config-form.js";
+import { WORDS, isAdminOnly, labelOf, needsLine, officialOf, otherVersions, publisherLine, stateOf, typeOf } from "./state.js";
 import { updater } from "./updates-notice.js";
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -29,18 +31,21 @@ export function whatYouGet(r) {
   return parts.length ? parts.join(" · ") : null;
 }
 
+/** The Control panel's page for one extension, which an admin's People and Activity tabs lead to. */
+const PANEL_SECTION = "@thetis/ui-admin#configuration";
+
 export function openPage(ext, root, params) {
   const { el, clear } = ext.dom;
-  const { badge, button, card, heading, kv, put, tags, when } = ext.ui;
+  const { badge, button, heading, kv, put, tags, when } = ext.ui;
   const name = params.name;
   let alive = true;
 
   const crumbBack = button("Extensions", { tone: "quiet" });
   crumbBack.addEventListener("click", () => ext.open.place("marketplace", {}));
-  const crumb = el("nav", { class: "mk-crumb", "aria-label": "Where you are" }, crumbBack, el("span", { class: "mk-crumb-sep", "aria-hidden": "true" }, "›"), el("code", { class: "mk-crumb-name" }, name));
+  const crumbName = el("span", { class: "mk-crumb-name", title: name }, "");
+  const crumb = el("nav", { class: "mk-crumb", "aria-label": "Where you are" }, crumbBack, el("span", { class: "mk-crumb-sep", "aria-hidden": "true" }, "›"), crumbName);
   const body = el("div", { class: "mk-page" }, el("p", { class: "panel-empty" }, "Loading…"));
-  const configHost = el("section", { class: "mk-config", "aria-label": "Configuration", hidden: true });
-  root.append(el("div", { class: "place-page mk-place" }, crumb, body, configHost));
+  root.append(el("div", { class: "place-page mk-place" }, crumb, body));
 
   async function load() {
     let view;
@@ -52,6 +57,7 @@ export function openPage(ext, root, params) {
     } catch (err) {
       if (!alive) return;
       clear(body);
+      crumbName.textContent = name;
       body.append(el("p", { class: "mk-error" }, "This extension could not be read just now."), err?.message ? el("details", { class: "mk-details" }, el("summary", {}, "Details"), el("pre", { class: "mk-wrap" }, err.message)) : null);
       return;
     }
@@ -62,7 +68,7 @@ export function openPage(ext, root, params) {
     if (alive) draw(view);
   }
 
-  /** The person's own report for an installed package, or null when the kernel cannot give one; the card then says nothing about it. */
+  /** The person's own report for an installed package, or null when the kernel cannot give one. */
   async function loadConfig() {
     try {
       const out = await ext.request("config-show", { args: { name } });
@@ -75,8 +81,7 @@ export function openPage(ext, root, params) {
   /**
    * Where this workspace may publish. Asked without a package name, so it is the cheap question -- which
    * targets are configured -- and not the expensive one, which would mean reaching every registry on every
-   * page open. What each target holds for this package is settled by the dry run in front of the confirm,
-   * where it is wanted and where it is worth waiting for. A failure here is null and no Publish block.
+   * page open. A failure here is null and no Publish.
    */
   async function loadPublish() {
     try {
@@ -85,31 +90,6 @@ export function openPage(ext, root, params) {
     } catch {
       return null;
     }
-  }
-
-  /** Opens the form under the README, once; a later click scrolls to it. The card's sentence follows every write. */
-  function openConfig(view, sentence) {
-    if (!configHost.hidden) return configHost.scrollIntoView({ behavior: "smooth", block: "start" });
-    const write = (verb, args) => ext.request(verb, { args: { name, ...args } }).then((out) => out?.data);
-    const closeBtn = button("Close", { tone: "quiet", onClick: () => { configHost.hidden = true; clear(configHost); } });
-    put(
-      configHost,
-      el("div", { class: "mk-config-head" }, heading("Configuration", "your own values for this extension"), closeBtn),
-      configCard(ext, view.config, {
-        layer: "user",
-        set: (key, value) => write("config-set", { key, value }),
-        unset: (key) => write("config-unset", { key }),
-        onReport: (next) => {
-          view.config = next;
-          sentence.hidden = !next.broken;
-          if (sentence.parentElement) sentence.parentElement.hidden = !next.broken;
-          sentence.replaceChildren(next.broken ? summaryLine(ext, next) : "");
-        },
-      }),
-      el("p", { class: "panel-hint" }, "A value set here is yours alone and is used from the extension's next call. A secret is written and never shown again. A key marked admins only is set in the control panel, for everyone.")
-    );
-    configHost.hidden = false;
-    configHost.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function loadPeople() {
@@ -134,10 +114,10 @@ export function openPage(ext, root, params) {
 
   function readme(text, assets) {
     if (typeof text !== "string" || !text.trim()) return el("p", { class: "mk-none" }, "This extension has no README.");
-    return el("div", { class: "md mk-readme-body" }, ext.markdown(text, { image: imageOf(assets) }));
+    return el("section", { class: "mk-readme", "aria-label": "README" }, el("div", { class: "md mk-readme-body" }, ext.markdown(text, { image: imageOf(assets) })));
   }
 
-  /** The version facts, for the Technical details tab: what is here, what the registry holds, and what is behind. */
+  /** The version facts, for the Details tab: what is here, what the registry holds, and what is behind. */
   function versionRows(r, publishedLine) {
     const rows = [];
     if (r.installed) rows.push(["version", el("code", {}, r.version)]);
@@ -231,18 +211,22 @@ export function openPage(ext, root, params) {
     return el("span", {}, el("code", {}, doc.version ? `${doc.name}@${doc.version}` : doc.name), ` ${where}`, doc.at ? el("span", { class: "text-dim" }, ` · ${when(doc.at)}`) : null);
   }
 
-  /** The Overview tab: each tool with what it does, and the pages and skills it adds. */
+  /**
+   * The Overview tab: each tool with what it does, each skill with one line, the pages it adds, and whether it
+   * runs in the background. Nothing it does not bring is mentioned.
+   */
   function overview(r) {
-    const tools = r.tools.length
-      ? el("ul", { class: "mk-tools" }, ...r.tools.map((t) => el("li", { title: t.description || null }, el("code", {}, t.name), t.description ? el("span", { class: "text-dim" }, ` — ${firstSentence(t.description)}`) : null)))
-      : null;
-    const lines = [
-      r.skills ? el("p", {}, `${plural(r.skills, "skill")} your agent can use when a conversation needs ${r.skills === 1 ? "it" : "them"}.`) : null,
-      r.pages ? el("p", {}, `${plural(r.pages, "page")} on the screen: a place, a panel or a dock.`) : null,
+    const list = (items) => el("ul", { class: "mk-tools" }, ...items.map((t) => el("li", { title: t.description || null }, el("code", {}, t.name), t.description ? el("span", { class: "text-dim" }, ` — ${firstSentence(t.description)}`) : null)));
+    const skills = r.skillList ?? [];
+    const parts = [
+      r.tools?.length ? [heading(`Tools (${r.tools.length})`), list(r.tools)] : null,
+      skills.length ? [heading(`Skills (${skills.length})`), list(skills)] : r.skills ? el("p", {}, `${plural(r.skills, "skill")} your assistant uses when a conversation needs ${r.skills === 1 ? "it" : "them"}.`) : null,
+      r.pages ? el("p", {}, r.pages === 1 ? "It adds a screen to the page." : `It adds ${r.pages} screens to the page.`) : null,
+      r.type === "provider" ? el("p", {}, "It adds models you can pick for a conversation.") : null,
       r.service ? el("p", {}, "It runs in the background for you.") : null,
     ].filter(Boolean);
-    if (!tools && !lines.length) return el("p", { class: "mk-none" }, "See Technical details for what it does.");
-    return el("div", { class: "mk-overview" }, tools ? heading(`Tools (${r.tools.length})`) : null, tools, ...lines);
+    if (!parts.length) return el("div", { class: "mk-overview" }, el("p", { class: "mk-none" }, r.description || "The README says what it does."));
+    return el("div", { class: "mk-overview" }, ...parts.flat());
   }
 
   /** A tool's description can be long; the Overview shows its first sentence, and the title the whole. */
@@ -265,74 +249,193 @@ export function openPage(ext, root, params) {
     ].filter(Boolean);
   }
 
-  /** The Technical details tab: the maintainer's badges, the facts, the Publish block, and the README. */
-  function technical(view, publishedLine, publish) {
+  /** The Details tab: the package id and the facts, the maintainer's badges, and the Publish block. */
+  function details(view, publishedLine, publishBlock) {
     const r = view.row;
     const facts = kv(
       [
+        ["id", el("code", {}, r.name)],
         ...versionRows(r, publishedLine),
-        ["name", el("code", {}, r.name)],
         ["type", r.type],
         r.system && ["for everyone", r.everyone ? `yes${everyoneBy(r)}` : "no: each person installs it"],
-        r.own && ["owner", "you"],
         r.license && ["license", r.license],
         r.forkedFrom && ["copy of", el("code", {}, `${r.forkedFrom.name}@${r.forkedFrom.version}`)],
         // Said next to "copy of", because the pair is the whole story: what this was copied from, and what that
         // package is at now. One without the other is what let a copy go stale unnoticed.
         r.fork && ["official now", r.fork.shipped ? el("code", {}, `${r.fork.name}@${r.fork.shipped}${r.fork.identical ? " — the same files as this copy" : ""}`) : el("span", { class: "text-faint" }, "not here any more")],
+        r.folder && ["folder", el("code", {}, r.folder.dir)],
         r.replaced && ["replaces", el("code", {}, r.replaced)],
         r.source && ["source", el("code", { class: "mk-wrap" }, r.source)],
-        r.steps.length && ["steps", tags(r.steps.map((s) => `${s.phase}: ${s.id}`), "dim")],
+        r.steps?.length && ["steps", tags(r.steps.map((s) => `${s.phase}: ${s.id}`), "dim")],
         r.keywords?.length && ["keywords", tags(r.keywords, "dim")],
         ...benchRows(r),
         ...publishRows(view),
       ].filter(Boolean)
     );
     const extra = technicalBadges(badge, r);
-    return el("div", { class: "mk-technical" }, extra.length ? el("div", { class: "tags" }, ...extra) : null, facts, publish, el("section", { class: "mk-readme", "aria-label": "README" }, readme(view.readme, view.assets)));
+    return el("div", { class: "mk-technical" }, extra.length ? el("div", { class: "tags" }, ...extra) : null, facts, publishBlock);
   }
 
-  /** Two tabs over one host: a plain button row, the selected one pressed. */
-  function tabs(panes) {
+  /** Tabs over one host: a plain button row, the selected one pressed. Answers the node and `show(id)`. */
+  function tabs(panes, first) {
     const host = el("div", { class: "mk-tab-body" });
     const row = el("div", { class: "mk-tabs", role: "tablist" });
     const pick = (i) => {
       [...row.children].forEach((b, j) => b.setAttribute("aria-selected", String(i === j)));
-      host.replaceChildren(panes[i].node);
+      const pane = panes[i];
+      host.replaceChildren(typeof pane.node === "function" ? pane.node() : pane.node);
     };
-    panes.forEach((p, i) => row.append(el("button", { type: "button", class: "mk-tab", role: "tab", onClick: () => pick(i) }, p.label)));
-    pick(0);
-    return el("div", { class: "mk-tabbed" }, row, host);
+    panes.forEach((p, i) => row.append(el("button", { type: "button", class: "mk-tab", role: "tab", "data-tab": p.id, onClick: () => pick(i) }, p.label)));
+    const at = Math.max(0, panes.findIndex((p) => p.id === first));
+    pick(at);
+    return { node: el("div", { class: "mk-tabbed" }, row, host), show: (id) => { const i = panes.findIndex((p) => p.id === id); if (i >= 0) pick(i); return i >= 0; } };
   }
 
-  function draw(view) {
-    const r = view.row;
-    const label = r.label ?? r.name;
+  /**
+   * The Install beside another version in the side panel: the same confirm and the same request as the page's
+   * own Install, for that version. A copy in the person's folder is built from there.
+   */
+  function installOther(o) {
+    const m = o.row;
+    const b = button("Install", { tone: "quiet" });
+    b.addEventListener("click", async () => {
+      const source = m.system ? m.name : m.folder && !m.installed ? m.folder.dir : m.source;
+      const ok = await ext.ui.confirm(b, { title: `Install ${o.name}?`, lines: [["extension", `${m.name} ${m.version}`], ["for", "you"]], note: `${m.folder ? "It is built from your folder, which can take a minute." : m.system ? "It comes with Thetis, so nothing is fetched." : "It is fetched and built for you, which can take a minute."} It is another version of this extension: what both bring, you then have twice.`, confirmLabel: "Install" });
+      if (!ok) return;
+      try {
+        const out = await ext.request("install", { args: { source } });
+        ext.toast(`${o.name} is installed.`, { tone: "good" });
+        ext.open.place("marketplace", { name: out?.data?.name ?? m.name });
+      } catch (err) {
+        ext.toast(err?.message || "That did not work.", { tone: "error" });
+      }
+    });
+    return b;
+  }
+
+  /** A side-panel block: a small heading and its contents. */
+  const aside = (title, ...children) => el("section", { class: "mk-side-block", "aria-label": title }, el("h3", { class: "mk-side-title" }, title), ...children.flat().filter(Boolean));
+
+  /** The Settings tab: the shared form, on the person's own layer. The page's state follows every write. */
+  function settings(view, redraw) {
+    const write = (verb, args) => ext.request(verb, { args: { name, ...args } }).then((out) => out?.data);
+    return el(
+      "div",
+      { class: "mk-config" },
+      configCard(ext, view.config, {
+        layer: "user",
+        set: (key, value) => write("config-set", { key, value }),
+        unset: (key) => write("config-unset", { key }),
+        onReport: (next) => {
+          view.config = next;
+          redraw();
+        },
+      }),
+      el("p", { class: "panel-hint" }, "A value set here is yours alone and is used from the extension's next call. A secret is written and never shown again. A key marked admins only is set in the Control panel, for everyone.")
+    );
+  }
+
+  /** An admin's People or Activity tab: a sentence and the way to the Control panel's page for this extension. */
+  function panelLink(sentence, tab) {
+    return el(
+      "div",
+      { class: "mk-overview" },
+      el("p", {}, sentence),
+      el("div", {}, button("Open in the Control panel", { tone: "quiet", onClick: () => ext.open.place("panel", { section: PANEL_SECTION, child: name, tab }) }))
+    );
+  }
+
+  function draw(view, { tab = params.tab ?? null } = {}) {
+    const admin = view.role !== "user";
+    const user = view.user ?? "";
+    const members = [{ ...view.row }, ...(view.family ?? [])];
+    const r = { ...view.row, ...(view.config ? { config: view.config } : {}) };
+    members[0] = r;
+    const fam = { members };
+    const origin = officialOf(r, fam);
+    const label = labelOf(r, origin);
     // What the `updates` answer knows and the row does not: this copy's changes are all in the official version.
     const superseded = !!updater()?.last?.forks?.some((f) => f.name === r.name && f.state === "superseded");
-    view.superseded = superseded;
+    const state = stateOf(r, { admin, origin, label, user, superseded });
+    const publisher = publisherLine(r, { user, family: members });
+    const hasSettings = !!(r.installed && view.config && view.config.keys.length);
+    Object.assign(view, { state, label, publisher, superseded, hasSettings });
+    crumbName.textContent = label;
+
     const publishedLine = el("span");
     if (r.ahead) fillPublished(publishedLine, r, null);
     clear(body);
     const hero = el("section", { class: "mk-hero" });
-    const { buttons, adminButtons, adminHints, hints, picker, publish } = actionsFor(ext, view, hero);
-    // The kernel's sentence about the configuration, said only when something is missing; Configure is the fix.
-    const sentence = el("span", { class: "mk-config-line", hidden: !view.config?.broken || null }, view.config?.broken ? summaryLine(ext, view.config) : null);
-    if (view.config) buttons.push(button("Configure", { tone: view.config.broken ? "primary" : "quiet", title: "Set your own values for this extension", onClick: () => openConfig(view, sentence) }));
-    const gets = whatYouGet(r);
+    let tabbed = null;
+    const redraw = () => draw(view, { tab: "settings" });
+    const acts = actionsFor(ext, { ...view, row: r, family: view.family ?? [] }, hero, {
+      onSettings: () => tabbed?.show("settings"),
+      onPublish: () => {
+        tabbed?.show("details");
+        body.querySelector(".mk-publish-block")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      },
+    });
+    const bannerTone = state.chips[0]?.id === "needsSetup" ? "err" : state.update ? "warn" : "dim";
+    const needs = !r.installed ? needsLine(r) : null;
     put(
       hero,
-      el("div", { class: "mk-hero-head" }, el("h2", { class: "mk-title" }, label), el("div", { class: "tags" }, ...stateBadges(badge, r, { superseded }))),
+      el("div", { class: "mk-hero-head" }, el("h2", { class: "mk-title", title: r.name }, label), state.chips.length ? el("div", { class: "tags" }, ...chipNodes(badge, state.chips)) : null),
+      el("p", { class: "mk-by" }, publisher),
       r.description && el("p", { class: "mk-desc" }, r.description),
-      gets && el("p", { class: "mk-gets" }, el("span", { class: "mk-gets-label" }, "What you get: "), gets),
-      view.config ? el("p", { class: "mk-setup", hidden: !view.config.broken || null }, el("span", { class: "mk-gets-label" }, "Setup needed: "), sentence) : null,
-      buttons.length ? el("div", { class: "card-actions mk-actions" }, ...buttons) : null,
-      ...hints.slice(0, 2).map((h) => el("p", { class: "panel-hint" }, h)),
-      adminButtons.length || picker
-        ? el("div", { class: "mk-admin" }, el("span", { class: "mk-admin-label" }, "For everyone"), el("div", { class: "mk-admin-row" }, ...adminButtons, picker), ...adminHints.map((h) => el("p", { class: "panel-hint" }, h)))
-        : null
+      state.reason ? el("p", { class: `mk-banner is-${bannerTone}`, role: state.chips.length ? "status" : null }, state.reason) : null,
+      needs ? el("p", { class: "mk-needs" }, needs) : null,
+      el("div", { class: "card-actions mk-actions" }, ...acts.primary, acts.required, acts.more),
+      ...acts.hints.slice(0, 1).map((h) => el("p", { class: "panel-hint" }, h))
     );
-    body.append(hero, tabs([{ label: "Overview", node: overview(r) }, { label: "Technical details", node: technical(view, publishedLine, publish) }]));
+    const publishBlock = acts.publish ? el("div", { class: "mk-publish-wrap" }, heading("Publish"), ...acts.publishHints.slice(0, 1).map((h) => el("p", { class: "panel-hint" }, h)), acts.publish) : null;
+    const panes = [
+      { id: "overview", label: "Overview", node: overview(r) },
+      hasSettings ? { id: "settings", label: "Settings", node: () => settings(view, redraw) } : null,
+      { id: "readme", label: "README", node: readme(view.readme, view.assets) },
+      { id: "details", label: "Details", node: details({ ...view, row: r }, publishedLine, publishBlock) },
+      admin ? { id: "people", label: "People", node: panelLink("Who has it, and installing or removing it for one person, are on its page in the Control panel.", "people") } : null,
+      admin ? { id: "activity", label: "Activity", node: panelLink("What happened to it -- installs, updates, settings changed -- is on its page in the Control panel.", "activity") } : null,
+    ].filter(Boolean);
+    tabbed = tabs(panes, tab);
+
+    const others = otherVersions(fam, r, { user, admin });
+    const side = el(
+      "aside",
+      { class: "mk-side" },
+      aside(
+        "About",
+        kv(
+          [
+            ["version", r.version ? el("span", {}, r.version) : null],
+            typeOf(r) && ["kind", typeOf(r)],
+            whatYouGet(r) && ["brings", whatYouGet(r)],
+            r.license && ["license", r.license],
+          ].filter(Boolean)
+        )
+      ),
+      others.length
+        ? aside(
+            "Other versions",
+            el(
+              "ul",
+              { class: "mk-versions" },
+              ...others.map((o) =>
+                el(
+                  "li",
+                  {},
+                  el("span", { class: "mk-version-text" }, el("button", { type: "button", class: "mk-version-link", title: o.row.name, onClick: () => ext.open.place("marketplace", { name: o.row.name }) }, o.name), el("span", { class: "text-dim" }, ` — ${o.relation} · ${o.status}`)),
+                  o.install ? installOther(o) : null
+                )
+              )
+            )
+          )
+        : null,
+      admin && (acts.adminButtons.length || acts.adminLines.length || acts.picker)
+        ? aside("For everyone", el("div", { class: "mk-admin-row" }, ...acts.adminButtons), ...acts.adminLines.map((h) => el("p", { class: "panel-hint" }, h)), acts.picker)
+        : null,
+      !admin && isAdminOnly(r) && !r.installed ? aside("For admins", el("p", { class: "panel-hint" }, WORDS.adminOnly)) : null
+    );
+    body.append(el("div", { class: "mk-layout" }, el("div", { class: "mk-main" }, hero, tabbed.node), side));
     if (r.installed && r.ahead?.state === "unpublished" && view.publish?.available) void enrich(view, publishedLine);
   }
 

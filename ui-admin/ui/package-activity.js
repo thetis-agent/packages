@@ -30,9 +30,9 @@ export function sentence(entry, name) {
     case "package.uninstall":
       return `removed ${d.name ?? name} for ${t}`;
     case "package.promote":
-      return `made ${d.name ?? name} the default for everyone${d.promoted ? ` as ${d.promoted}` : ""}${Array.isArray(d.userspaces) ? ` for ${d.userspaces.length} workspace${d.userspaces.length === 1 ? "" : "s"}` : ""}${kept(d)}`;
+      return `shared ${d.name ?? name} with everyone${d.promoted ? ` as ${d.promoted}` : ""}${Array.isArray(d.userspaces) ? ` for ${d.userspaces.length} workspace${d.userspaces.length === 1 ? "" : "s"}` : ""}${kept(d)}`;
     case "package.everyone":
-      return d.on === false ? `${t} is no longer the default for everyone` : `made ${t} the default for everyone${kept(d)}`;
+      return d.on === false ? `turned ${t} off for everyone` : `turned ${t} on for everyone${kept(d)}`;
     case "update.start":
       return `Thetis update started${d.from ? ` from runtime ${d.from.runtime}, packages ${d.from.packages}` : ""}`;
     case "update.done":

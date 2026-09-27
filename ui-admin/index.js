@@ -9,6 +9,7 @@
 // comes from `env.user`, never from the arguments.
 import { isAbsolute, resolve } from "node:path";
 import { dependenciesOf, gitWord, installedPackage, realRoot } from "./git.js";
+import { factsOf, promotions } from "./fleet.js";
 
 const USER_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const MOUNT_LIMIT = 32;
@@ -158,7 +159,16 @@ export async function packageInfo(args, env) {
   const dependencies = dependenciesOf(root);
   // What else installed here names this package: read from each one's package.json, the way node resolves it.
   const dependents = installed.filter((p) => p.name !== name && dependenciesOf(realRoot(p.root)).includes(name)).map((p) => p.name);
-  return { data: { name, version, type, description, root, everyone: Boolean(everyone), everyoneBy: everyoneBy ?? null, forkedFrom: forkedFrom ?? null, replaced: replaced ?? null, source: source ?? null, loaded: loadedWord(info, version), registry, git, dependencies, dependents } };
+  // A promoted copy's manifest names only itself: where it came from is the journal's word.
+  // The other direction: a person's extension that was shared with everyone names the shared copy, so its page
+  // says "Already shared with everyone" rather than offering to share it again.
+  const shared = everyoneBy === "promoted" || !name.startsWith("@thetis/") ? await promotions(env) : new Map();
+  const promotedFrom = everyoneBy === "promoted" ? shared.get(name) ?? null : null;
+  const promotedAs = name.startsWith("@thetis/") ? null : [...shared.entries()].find(([, from]) => from.name === name)?.[0] ?? null;
+  // Only while that copy is still on disk: a shared copy taken away since is no reason to refuse sharing again.
+  const sharedAs = promotedAs && typeof env.kernel.packages.catalog === "function" ? ((await env.kernel.packages.catalog().catch(() => null)) ?? [{ name: promotedAs }]).some((p) => p.name === promotedAs) ? promotedAs : null : promotedAs;
+  const { label, audience, fork, tools, hasSkills, pages, service, steps } = factsOf(info);
+  return { data: { name, version, type, description, label, audience, root, everyone: Boolean(everyone), everyoneBy: everyoneBy ?? null, forkedFrom: forkedFrom ?? null, fork, replaced: replaced ?? null, source: source ?? null, promotedFrom, sharedAs, tools, hasSkills, pages, service, steps, loaded: loadedWord(info, version), registry, git, dependencies, dependents } };
 }
 
 /**
@@ -330,7 +340,7 @@ export async function updateRestart(args, env) {
 // The package page's own commands live beside this file: git questions in git.js, the people and the fleet in
 // fleet.js. Each is one export the manifest names.
 export { packageCommit, packageDiff, packageLog, packagePush, packageReadme } from "./git.js";
-export { fleet, packageActivity, packageFork, packageInstallFor, packagePromote, packageRemove, packageUpdate, packageWhere } from "./fleet.js";
+export { fleet, packageActivity, packageEveryone, packageFork, packageInstallFor, packagePromote, packageRemove, packageUnfork, packageUpdate, packageWhere } from "./fleet.js";
 
 // ---- ssh: which keys a person's fence may use, and where they may go ----
 //

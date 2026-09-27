@@ -1,9 +1,9 @@
 /* The pages under Extensions in the control panel (the manifest declares this entry `under: "packages"`,
  * the shell's built-in section). `configurationChildren` answers the tree: first "All extensions", the table
- * of every extension, then every extension by name, so each is one click from the control panel. The ones that
- * ask for something -- an update ready (to install, or for people who have not applied it yet) or a setting
- * that is missing -- carry a mark, and only the marks are counted, so the tree's count is of what needs doing.
- * `mountConfiguration` draws All extensions (`fleet.js` in its simple view) for the first child and an
+ * of every extension, then every extension by its friendly label in Title Case, so each is one click from the
+ * control panel. The ones that ask for attention (Needs setup or Update available, `state.js`'s one state)
+ * carry a mark with the one sentence why, and only the marks are counted, so the tree's count is of what needs
+ * doing. `mountConfiguration` draws All extensions (`fleet.js` in its simple view) for the first child and an
  * extension's page (`package-page.js`) for any other; `mountSettings` is the settings form alone, the page's
  * Settings tab, drawn with the shared form so the state of every key is the kernel's and is said in the row.
  *
@@ -19,45 +19,57 @@ import { configCard, reloadSentence } from "./config-form.js";
 import { mountFleet } from "./fleet.js";
 import { mountPackagePage } from "./package-page.js";
 import { failedCard, toastError } from "./failed.js";
-import { shortName, stateWord, waitingSentence } from "./state.js";
+import { described, rowFromFleet } from "./rows.js";
 
 /** The id of the first child under Extensions: not an extension but all of them. */
 export const FLEET = "*";
 
-/**
- * The one tree mark an extension gets, or null when it asks for nothing. A missing setting is `err`; an
- * update ready is `warn`, with who has not applied it or what the registry holds in the tooltip.
- */
-export function markOf(p, report) {
-  const broken = Object.entries(p?.byUser ?? {}).filter(([, u]) => u?.broken).map(([who]) => who);
-  if (report?.broken || p?.config?.broken || broken.length) return { mark: "err", note: `Needs setup${broken.length ? ` for ${broken.join(", ")}` : ""}: ${report?.summary || p?.config?.summary || "a setting is missing"}` };
-  const update = p?.registry?.update;
-  const waiting = Array.isArray(p?.waiting) ? p.waiting.length : 0;
-  if (p?.state === "update" || update) {
-    const why = update?.apply === "install" ? `${update.version || "a newer version"} is in the registry` : waitingSentence(waiting) ?? "a workspace has not applied it";
-    return { mark: "warn", note: `${stateWord("update")}: ${why}` };
-  }
-  return null;
+/** The signed-in person, as the shell's footer names them; the seam hands a tree's children no identity. */
+const me = () => globalThis.document?.getElementById?.("user-name")?.textContent?.trim() || "";
+
+/** One extension as the one state reads it, from its fleet row and its system-layer report, either of which may be missing. */
+function rowOf(p, report, user) {
+  const row = p ? rowFromFleet(p, { user }) : { name: report?.package, installed: true, label: null, type: null, config: null };
+  // The report the tree read says more than the fleet's short form when the fleet could not answer.
+  if (report?.broken && !row.config?.broken) row.config = { broken: true, summary: report.summary || "A setting is missing", keys: Array.isArray(report.keys) ? report.keys.filter((k) => k?.state === "missing") : [] };
+  return row;
 }
 
 /**
- * The children under Extensions, for the tree: All extensions first, then every extension by name, the ones
- * that ask for something with their one mark. An installation where `fleet` cannot answer still lists the
- * ones the configuration report knows.
+ * The one tree mark an extension gets, or null when it asks for nothing: `err` for Needs setup, `warn` for
+ * Update available, with the one sentence why as the tooltip. `rows` are the others, for a copy's official one.
  */
-export async function configurationChildren(ext) {
+export function markOf(p, report, { user = "", rows = [] } = {}) {
+  if (!p && !report) return null;
+  const { state } = described(rowOf(p, report, user), { rows, user });
+  if (!state.attention) return null;
+  return { mark: state.setup.chip ? "err" : "warn", note: state.reason };
+}
+
+/**
+ * The children under Extensions, for the tree: All extensions first, then every extension by its friendly
+ * label, the ones that ask for attention with their one mark. Two extensions that read the same (an official
+ * one and someone's customised copy of it) are told apart by who they are by. An installation where `fleet`
+ * cannot answer still lists the ones the configuration report knows.
+ */
+export async function configurationChildren(ext, { user = me() } = {}) {
   const [list, fleet] = await Promise.all([ext.request("config-list").catch(() => ({ data: [] })), ext.request("fleet").catch(() => ({ data: null }))]);
   const reports = new Map((Array.isArray(list?.data) ? list.data : []).map((r) => [r.package, r]));
-  const rows = Array.isArray(fleet?.data?.packages) ? fleet.data.packages : [];
-  const names = new Set([...rows.map((p) => p.name), ...reports.keys()]);
-  const byName = new Map(rows.map((p) => [p.name, p]));
+  const packages = Array.isArray(fleet?.data?.packages) ? fleet.data.packages : [];
+  const names = new Set([...packages.map((p) => p.name), ...reports.keys()]);
+  const byName = new Map(packages.map((p) => [p.name, p]));
+  const rows = packages.map((p) => rowFromFleet(p, { user }));
   const kids = [];
   for (const name of names) {
-    const said = markOf(byName.get(name) ?? null, reports.get(name) ?? null);
-    kids.push(said ? { id: name, label: shortName(name), note: said.note, mark: said.mark } : { id: name, label: shortName(name), note: stateWord("current") });
+    const said = described(rowOf(byName.get(name) ?? null, reports.get(name) ?? null, user), { rows, user });
+    const mark = markOf(byName.get(name) ?? null, reports.get(name) ?? null, { user, rows });
+    kids.push({ id: name, label: said.label, by: said.publisher.split(" · ")[0], ...(mark ? { note: mark.note, mark: mark.mark } : { note: `${said.publisher} · ${name}` }) });
   }
+  const seen = new Map();
+  for (const k of kids) seen.set(k.label, (seen.get(k.label) ?? 0) + 1);
+  for (const k of kids) if (seen.get(k.label) > 1) k.label = `${k.label} (${k.by})`;
   kids.sort((a, b) => a.label.localeCompare(b.label));
-  return [{ id: FLEET, label: "All extensions", kind: "page", note: "Every extension installed here" }, ...kids];
+  return [{ id: FLEET, label: "All extensions", kind: "page", note: "Every extension installed here" }, ...kids.map(({ by, ...k }) => k)];
 }
 
 /** The page under Extensions: All extensions for the first child (`*`), else one extension's page. */
@@ -116,7 +128,7 @@ export function mountSettings(ext, root, { child, refresh } = {}) {
 
   function draw() {
     clear(wrap);
-    if (failed || !report) return void put(wrap, failedCard(ext, `The settings of ${shortName(child)}`, failed ?? new Error("no answer"), { admin: true, retry: () => void load() }));
+    if (failed || !report) return void put(wrap, failedCard(ext, `The settings of ${child}`, failed ?? new Error("no answer"), { admin: true, retry: () => void load() }));
     const layer = el("select", { class: "input", "aria-label": "Layer", onChange: () => { person = layer.value; void load(); } }, el("option", { value: "" }, "everyone (the system layer)"), ...people.map((p) => el("option", { value: p.id, selected: p.id === person || null }, `${p.id}'s own layer`)));
     const reloadBtn = button("Read the file again", { title: "Re-read thetis.config.json and the env file", onClick: () => void reload(reloadBtn) });
     const card = configCard(ext, report, {

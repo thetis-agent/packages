@@ -10,6 +10,10 @@ export const IndexedPackageSchema = z.looseObject({
   keywords: z.array(z.string()), registry: z.string(), url: z.string(), dir: z.string(),
   commit: z.string(), source: z.string(), steps: z.array(StepSchema), tools: z.array(z.string()),
   service: z.boolean(), bench: BenchSchema.optional(), readme: z.boolean().optional(), readmeAssets: z.array(z.string()).optional(),
+  /** What a person reads before installing: the manifest's label, who it is for, what it was copied from, what it needs, and what it adds. */
+  label: z.string().optional(), audience: z.string().optional(), forkedFrom: z.looseObject({ name: z.string(), version: z.string() }).optional(),
+  needs: z.array(z.looseObject({ key: z.string(), secret: z.boolean().optional(), help: z.string().optional() })).optional(),
+  pages: z.number().optional(), skills: z.boolean().optional(),
 });
 
 export const MarketplaceIndexSchema = z.looseObject({
@@ -22,7 +26,8 @@ export const IndexableManifestSchema = z.looseObject({
   thetis: z.looseObject({
     type: z.string().min(1), steps: z.array(StepSchema).optional(),
     tools: z.array(z.looseObject({ name: z.string() })).optional(), service: z.unknown().optional(),
-    bench: BenchSchema.optional(),
+    bench: BenchSchema.optional(), label: z.unknown().optional(), audience: z.unknown().optional(), forkedFrom: z.unknown().optional(),
+    config: z.unknown().optional(), ui: z.unknown().optional(), skills: z.unknown().optional(),
   }),
 });
 

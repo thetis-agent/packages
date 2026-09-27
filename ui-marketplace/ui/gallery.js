@@ -1,43 +1,64 @@
-/* The store: one toolbar (a search box, "Show system components", and behind that toggle the type chips and a
- * note on the index), then three sections.
+/* The Extensions place: one toolbar -- a search box, the type chips (All, Tools, Skills, Pages, Models) and a line
+ * on whether everything is up to date -- the one-line legend of the types, then the sections `placeSections`
+ * (state.js) sorts the families into:
  *
- * - **Updates (n)**: what has an update ready, from the same `updates` answer the "Updates ready" card is drawn
- *   from, so the number here and the number on the card are the same number. **Update all** is at the top.
- *   The person's own changes waiting to be applied are a line above it, with **Apply**.
- * - **Installed (n)**: what this person has.
- * - **Discover (n)**: what they could add: the installation's extensions they do not have, then what the
- *   registries offer.
+ * - **Needs your attention (n)**, only when n > 0: what the person has that needs setting up or has an update,
+ *   with **Update all** beside it, fed by the same `updates` answer as the "Updates ready" card, so the two
+ *   agree. The person's own changes waiting to be applied are a line above it, with **Apply**.
+ * - **Added by you (n)**: what they installed themselves or made.
+ * - **Discover (n)**: what they could add. Never a version of something they already have, never an extension
+ *   only an admin may add, unless they are one.
+ * - Three folded sections: **Built in** (what everyone gets), **In your folder** (copies under their home's
+ *   `packages/` that are not installed) and **Part of Thetis** (the parts that make it run).
  *
- * The parts that make the installation run (host packages, the storage driver, the gateways, the provider, the
- * harness, the index service, benchmarks, the page's own plumbing) are system components: `row.component`,
- * decided on the server in lib/rows.js. They are left out of Installed and Discover until the toggle is on; an
- * admin has the same toggle. An update to one of them is still listed under Updates, because it is still
- * something the person has to take.
+ * One card per extension family: an original, its copies and a promoted copy of it are one extension with
+ * several versions, and the card shows the person's own. A card is the label with at most two chips, the
+ * publisher line ("by Thetis · Tools"), two lines of description, and what it brings with its version.
  *
- * An installed extension whose configuration is missing something carries the kernel's one sentence about it,
- * from one `config-list` call after the rows. The search runs on the server through the `search` command,
- * because the index and its ranking live there; the page keeps the last query and the toggle, so coming back
- * from an extension's page shows the same list. Clicking a card re-opens the place with the name. An admin
- * also gets **Registries** in the toolbar, the page in registries.js. */
+ * Every row is read once, with the person's folder, and the search and the type chips narrow them here, so a
+ * key press is not a round trip; `matches` (state.js) is the search, with its synonyms. The configuration
+ * report of each installed extension comes from one `config-list` call after the rows, and folds into the
+ * rows so a card's Needs setup is the page's. The query, the type and which folds are open are kept, so
+ * coming back from an extension's page shows the same list. Clicking a card re-opens the place with the name.
+ * An admin also gets **Registries** in the toolbar, the page in registries.js. */
 
-import { stateBadge, updateBadge } from "./badges.js";
+import { chipNodes } from "./badges.js";
+import { FILTERS, WORDS, placeSections } from "./state.js";
 import { updater } from "./updates-notice.js";
 
-/** Kept across opens: the query, the type and the toggle a person came back to. */
-const last = { q: "", type: "", system: false };
+/** Kept across opens: the query, the type chip, and which folded sections are open. */
+const last = { q: "", kind: "", open: { builtin: false, folder: false, thetis: false } };
 
-/** The rows each section shows. Exported for the tests: this is the whole of the store's filtering. */
-export function sections(rows, { system = false, updates = null } = {}) {
-  const visible = (r) => system || !r.component;
-  const byName = new Map(rows.map((r) => [r.name, r]));
-  const items = updates?.items ?? rows.filter((r) => r.update && r.update.apply !== "unfork").map((r) => ({ name: r.name, label: r.label ?? r.name, from: r.update.installed ?? "", to: r.update.version, apply: r.update.apply === "install" ? "install" : "apply" }));
-  return {
-    updates: items.map((i) => ({ item: i, row: byName.get(i.name) ?? null })),
-    own: updates?.own ?? [],
-    installed: rows.filter((r) => r.installed && visible(r)),
-    discover: rows.filter((r) => !r.installed && visible(r)),
-    hidden: rows.filter((r) => !visible(r)).length,
-  };
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** "11 tools", "4 skills", "1 page": the first thing an extension brings, for the card's foot. */
+export function bringsLine(r) {
+  if (r.tools?.length) return plural(r.tools.length, "tool");
+  if (r.skills) return plural(r.skills, "skill");
+  if (r.pages) return plural(r.pages, "page");
+  if (r.type === "provider") return "models";
+  if (r.service) return "runs in the background";
+  return "";
+}
+
+/** The rows with each installed extension's configuration report folded on, so `stateOf` reads it. */
+export function withConfig(rows, reports) {
+  if (!reports?.size) return rows;
+  return rows.map((r) => (r.installed && reports.has(r.name) ? { ...r, config: reports.get(r.name) } : r));
+}
+
+/**
+ * The sections, for a person, with the `updates` answer taken into account: an update the answer lists whose
+ * extension has no card in "Needs your attention" (a search narrowed it away, or it is a version the card does
+ * not show) is still counted there, as a plain line. Exported for the tests: this is the whole of the store's
+ * filtering.
+ */
+export function sections(rows, { user = "", admin = false, updates = null, q = "", kind = "" } = {}) {
+  const superseded = (updates?.forks ?? []).filter((f) => f.state === "superseded").map((f) => f.name);
+  const s = placeSections(rows, { user, admin, superseded, q, kind });
+  const shown = new Set(s.attention.map((e) => e.row.name));
+  const extra = q || kind ? [] : (updates?.items ?? []).filter((i) => !shown.has(i.name));
+  return { ...s, extra, own: updates?.own ?? [], items: updates?.items ?? [] };
 }
 
 export function openGallery(ext, root, params) {
@@ -45,48 +66,40 @@ export function openGallery(ext, root, params) {
   const { badge, busy, put, when, button } = ext.ui;
   let alive = true;
   let rows = [];
+  let who = { user: "", admin: false };
   let pending = null; // the `updates` answer, or null when this page cannot ask for it
-  let summaries = new Map(); // package -> { summary, broken }, for installed packages
+  let reports = new Map(); // package -> its short configuration report, for installed packages
   let facts = { indexed: false, updatedAt: null, registries: [], total: 0 };
-  const types = new Set();
-  let timer = null;
 
-  const input = el("input", { class: "input mk-search", type: "search", placeholder: "Search extensions", "aria-label": "Search extensions", value: last.q, spellcheck: "false" });
+  const input = el("input", { class: "input mk-search", type: "search", placeholder: "Search extensions…", "aria-label": "Search extensions", value: last.q, spellcheck: "false" });
   input.addEventListener("input", () => {
     last.q = input.value.trim();
-    clearTimeout(timer);
-    timer = setTimeout(() => void load(), 250);
-  });
-  const toggleBox = el("input", { type: "checkbox", class: "mk-system-box" });
-  toggleBox.checked = last.system;
-  toggleBox.addEventListener("change", () => {
-    last.system = toggleBox.checked;
-    if (!last.system && last.type) {
-      last.type = "";
-      void load();
-      return;
-    }
     draw();
   });
-  const toggle = el("label", { class: "mk-system-toggle", title: "The parts that make the installation run: the gateways, the storage driver, the model provider, the harness and the like" }, toggleBox, " Show system components");
   const chips = el("div", { class: "mk-chips", role: "group", "aria-label": "Type" });
-  const note = el("p", { class: "mk-note" });
+  const status = el("p", { class: "mk-status" });
   const body = el("div", { class: "mk-store" });
   // The admins' way to the registries themselves; nobody else can send those verbs, so nobody else sees it.
   const registriesBtn = ext.can("registries") ? button("Registries", { title: "Which registries are mirrored, and the key each private one is read with", onClick: () => ext.open.place("marketplace", { view: "registries" }) }) : null;
-  const page = el("div", { class: "place-page mk-gallery" }, el("div", { class: "mk-toolbar" }, input, toggle, registriesBtn), el("div", { class: "mk-toolbar mk-toolbar-system" }, chips, note), body);
+  const page = el(
+    "div",
+    { class: "place-page mk-gallery" },
+    el("div", { class: "mk-toolbar" }, input, chips, status, registriesBtn),
+    el("p", { class: "mk-legend" }, WORDS.legend),
+    body
+  );
   root.append(page);
 
   async function load() {
     const stop = busy(body, "Reading the extensions…");
     try {
-      const [out, ups] = await Promise.all([ext.request("search", { args: { q: last.q, type: last.type } }), ext.can("updates") ? ext.request("updates").catch(() => null) : null]);
+      const [out, ups] = await Promise.all([ext.request("search", { args: { folder: true } }), ext.can("updates") ? ext.request("updates").catch(() => null) : null]);
       if (!alive) return;
       const data = out?.data ?? {};
       rows = Array.isArray(data.rows) ? data.rows : [];
+      who = { user: data.user ?? "", admin: !!data.role && data.role !== "user" };
       pending = ups?.data ?? null;
       facts = { indexed: !!data.indexed, updatedAt: data.updatedAt ?? null, registries: Array.isArray(data.registries) ? data.registries : [], total: data.total ?? 0 };
-      for (const r of rows) if (r.type) types.add(r.type);
     } catch (err) {
       if (!alive) return;
       rows = [];
@@ -98,8 +111,8 @@ export function openGallery(ext, root, params) {
       stop();
     }
     if (alive) draw();
-    if (alive && params?.view === "updates") document.getElementById("mk-updates")?.scrollIntoView({ block: "start" });
-    if (alive && rows.some((r) => r.installed)) await loadSummaries();
+    if (alive && params?.view === "updates") document.getElementById("mk-attention")?.scrollIntoView({ block: "start" });
+    if (alive && rows.some((r) => r.installed)) await loadReports();
   }
 
   /** The raw text of a failure, folded away. */
@@ -108,56 +121,55 @@ export function openGallery(ext, root, params) {
     return el("details", { class: "mk-details" }, el("summary", {}, "Details"), el("pre", { class: "mk-wrap" }, String(text)));
   }
 
-  /** The one sentence per installed package. Drawn after the rows, so the store never waits on it; a failure leaves the cards as they are. */
-  async function loadSummaries() {
+  /** The configuration reports. Drawn after the rows, so the store never waits on them; a failure leaves the cards as they are. */
+  async function loadReports() {
     try {
       const out = await ext.request("config-list");
       if (!alive) return;
-      summaries = new Map((Array.isArray(out?.data) ? out.data : []).map((s) => [s.package, s]));
+      reports = new Map((Array.isArray(out?.data) ? out.data : []).map((s) => [s.package, s]));
     } catch {
       return;
     }
     if (alive) draw();
   }
 
-  function chip(type, label) {
-    const active = last.type === type;
-    return el("button", { type: "button", class: `mk-chip${active ? " is-active" : ""}`, "data-type": type, "aria-pressed": String(active), onClick: () => { last.type = type; void load(); } }, label);
-  }
-
-  /** The type chips and the index note: both are about the machinery, so both wait behind the toggle. */
-  function drawSystemBar() {
+  function drawChips() {
     clear(chips);
-    clear(note);
-    chips.parentElement.hidden = !last.system;
-    if (!last.system) return;
-    if (last.type) types.add(last.type);
-    chips.append(chip("", "All"), ...[...types].sort().map((t) => chip(t, t)));
-    if (!facts.indexed) return note.append("no marketplace index yet");
-    const names = facts.registries.map((r) => r.name).join(", ") || "none";
-    const failed = facts.registries.filter((r) => r.error).length;
-    note.append(facts.registries.length === 1 ? "registry " : "registries ", el("code", {}, names), ` · refreshed ${when(facts.updatedAt) || "never"}${failed ? ` · ${failed} failed to refresh` : ""}`);
+    for (const f of FILTERS) {
+      const active = last.kind === f.id;
+      chips.append(el("button", { type: "button", class: `mk-chip${active ? " is-active" : ""}`, "data-kind": f.id, "aria-pressed": String(active), onClick: () => { last.kind = f.id; draw(); } }, f.label));
+    }
   }
 
-  function card(r, extra = null) {
-    const summary = r.installed ? summaries.get(r.name) : null;
+  /** "All up to date · checked 15 min ago", or how many updates are ready. The time is the index's last refresh. */
+  function drawStatus() {
+    const n = pending?.items?.length ?? 0;
+    const checked = facts.updatedAt ? ` · checked ${when(facts.updatedAt) || "just now"}` : "";
+    const failed = facts.registries.filter((r) => r.error).length;
+    status.textContent = `${n ? `${plural(n, "update")} ready` : "All up to date"}${checked}${failed ? ` · ${failed} ${failed === 1 ? "registry" : "registries"} could not be checked` : ""}`;
+  }
+
+  function card(entry) {
+    const r = entry.row;
+    const { state } = entry;
+    const brings = bringsLine(r);
     return el(
       "button",
-      { type: "button", class: `mk-card${r.installed ? " is-installed" : ""}`, "data-name": r.name, onClick: () => ext.open.place("marketplace", { name: r.name }) },
-      el("div", { class: "mk-card-head" }, el("span", { class: "mk-card-label" }, r.label ?? r.name), el("div", { class: "tags" }, stateBadge(badge, r), updateBadge(badge, r))),
+      { type: "button", class: `mk-card${r.installed ? " is-installed" : ""}`, "data-name": r.name, title: r.name, onClick: () => ext.open.place("marketplace", { name: r.name }) },
+      el("div", { class: "mk-card-head" }, el("span", { class: "mk-card-label" }, entry.label), state.chips.length ? el("div", { class: "tags" }, ...chipNodes(badge, state.chips)) : null),
+      el("p", { class: "mk-card-by" }, entry.publisher),
       el("p", { class: "mk-card-desc" }, r.description || "No description."),
-      summary?.broken ? el("span", { class: "mk-card-broken" }, `Setup needed: ${summary.summary}`) : null,
-      extra,
-      el("span", { class: "mk-card-meta" }, [r.name, r.version].filter(Boolean).join(" · "))
+      state.waiting ? el("span", { class: "mk-card-waiting" }, WORDS.waiting) : null,
+      el("span", { class: "mk-card-foot" }, el("span", {}, brings), r.version ? el("span", { class: "mk-card-version" }, `v${r.version}`) : null)
     );
   }
 
-  /** An update whose extension is not among the rows (a search narrowed it away): a plain line, still counted. */
+  /** An update whose extension has no card here (a search narrowed it away): a plain line, still counted. */
   function updateLine(item) {
-    return el("div", { class: "mk-card mk-card-plain" }, el("span", { class: "mk-card-label" }, item.label), el("span", { class: "mk-card-meta" }, `${item.from} → ${item.to}`));
+    return el("div", { class: "mk-card mk-card-plain" }, el("span", { class: "mk-card-label" }, item.label), el("span", { class: "mk-card-foot" }, el("span", {}, "Update available"), el("span", { class: "mk-card-version" }, `${item.from} → ${item.to}`)));
   }
 
-  function section(id, title, count, children, action = null, empty = null) {
+  function section(id, title, count, children, { action = null, empty = null } = {}) {
     return el(
       "section",
       { class: "mk-section", id, "aria-label": title },
@@ -166,30 +178,46 @@ export function openGallery(ext, root, params) {
     );
   }
 
+  /** A folded section. It opens by itself while a search has something in it, and otherwise keeps what the person chose. */
+  function fold(key, id, title, entries) {
+    const searching = !!(last.q || last.kind);
+    const node = el(
+      "details",
+      { class: "mk-fold", id, open: (searching ? entries.length > 0 : last.open[key]) || null },
+      el("summary", { class: "mk-fold-head" }, el("span", { class: "mk-section-title" }, `${title} (${entries.length})`)),
+      entries.length ? el("div", { class: "mk-cards" }, ...entries.map(card)) : el("p", { class: "mk-none" }, "Nothing here.")
+    );
+    node.addEventListener("toggle", () => {
+      if (!searching) last.open[key] = node.open;
+    });
+    return node;
+  }
+
   function draw() {
-    drawSystemBar();
+    drawChips();
+    drawStatus();
     clear(body);
-    const s = sections(rows, { system: last.system, updates: pending });
+    const s = sections(withConfig(rows, reports), { ...who, updates: pending, q: last.q, kind: last.kind });
     const u = updater();
-    const updateAll = s.updates.length && u ? button("Update all", { tone: "primary", onClick: () => void u.updateAll() }) : null;
+    const attention = s.attention.length + s.extra.length;
+    const updateAll = s.items.length && u ? button("Update all", { tone: "primary", onClick: () => void u.updateAll() }) : null;
     const ownLine = s.own.length && u
       ? el("div", { class: "mk-own" }, el("span", {}, `Your changes to ${s.own.map((o) => o.label).join(", ")} are ready to use.`), button("Apply", { tone: "primary", onClick: () => void u.applyOwn(pending, { asked: true }) }))
       : null;
-    const narrowed = last.q || last.type;
+    const narrowed = last.q || last.kind;
     put(
       body,
       ownLine,
-      section("mk-updates", "Updates", s.updates.length, s.updates.map(({ item, row }) => (row ? card(row) : updateLine(item))), updateAll, "Everything is up to date."),
-      section("mk-installed", "Installed", s.installed.length, s.installed.map((r) => card(r)), null, narrowed ? "Nothing you have matches." : "Nothing installed yet."),
-      section("mk-discover", "Discover", s.discover.length, s.discover.map((r) => card(r)), null, narrowed ? "Nothing to add matches." : "Nothing else to add right now."),
-      !last.system && s.hidden ? el("p", { class: "panel-hint" }, `${s.hidden} system ${s.hidden === 1 ? "component is" : "components are"} not shown.`) : null,
-      last.system && !facts.indexed ? el("p", { class: "panel-hint mk-hint" }, `No marketplace index yet. ${registriesBtn ? "Registries are set under Registries above" : "Registries are configured under packages[\"@thetis/marketplace\"].registries"}; the service refreshes them on a timer.`) : null
+      attention ? section("mk-attention", WORDS.sections.attention, attention, [...s.attention.map(card), ...s.extra.map(updateLine)], { action: updateAll }) : null,
+      section("mk-added", WORDS.sections.added, s.added.length, s.added.map(card), { empty: narrowed ? "Nothing you added matches." : "Nothing added yet. Discover has what you can add." }),
+      section("mk-discover", WORDS.sections.discover, s.discover.length, s.discover.map(card), { empty: narrowed ? "Nothing to add matches." : "Nothing else to add right now." }),
+      el("div", { class: "mk-folds" }, fold("builtin", "mk-builtin", WORDS.sections.builtin, s.builtin), fold("folder", "mk-folder", WORDS.sections.folder, s.folder), fold("thetis", "mk-thetis", WORDS.sections.thetis, s.thetis)),
+      !facts.indexed && who.admin ? el("p", { class: "panel-hint mk-hint" }, `No marketplace index yet. ${registriesBtn ? "Registries are set under Registries above" : "Registries are configured under packages[\"@thetis/marketplace\"].registries"}; the service refreshes them on a timer.`) : null
     );
   }
 
   void load();
   return () => {
     alive = false;
-    clearTimeout(timer);
   };
 }

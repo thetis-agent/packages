@@ -327,7 +327,7 @@ test("package-info: the record, the registry's word and the checkout, each said 
     },
   };
   const out = await commands.packageInfo({ name: "@alice/hello" }, env);
-  assert.deepEqual(out.data, { name: "@alice/hello", version: "0.1.0-fork.1", type: "loader", description: "Says hello.", root: "/home/alice/packages/hello", everyone: false, everyoneBy: null, forkedFrom: { name: "@thetis/hello", version: "0.1.0" }, replaced: "@thetis/hello", source: { kind: "local", ref: "packages/hello" }, loaded: null, registry: null, git: { branch: "main", upstream: "origin/main", ahead: 2, behind: 1, changed: 2, commit: "abc1234" }, dependencies: [], dependents: [] });
+  assert.deepEqual(out.data, { name: "@alice/hello", version: "0.1.0-fork.1", type: "loader", description: "Says hello.", label: null, audience: null, root: "/home/alice/packages/hello", everyone: false, everyoneBy: null, forkedFrom: { name: "@thetis/hello", version: "0.1.0" }, fork: null, replaced: "@thetis/hello", source: { kind: "local", ref: "packages/hello" }, promotedFrom: null, sharedAs: null, tools: [], hasSkills: false, pages: 0, service: false, steps: 0, loaded: null, registry: null, git: { branch: "main", upstream: "origin/main", ahead: 2, behind: 1, changed: 2, commit: "abc1234" }, dependencies: [], dependents: [] });
   assert.ok(execs[0].includes("'/home/alice/packages/hello'") && execs[0].endsWith("-- ."), "git is asked about this package's files only");
   const bare = await commands.packageInfo({ name: "@alice/hello" }, { ...env, exec: async () => ({ code: 128, stdout: "", stderr: "not a git repository" }) });
   assert.equal(bare.data.git, null);
@@ -339,6 +339,13 @@ test("package-info: the record, the registry's word and the checkout, each said 
   assert.deepEqual(held.data.loaded, { version: "0.1.0", user: "alice", behindDisk: true, state: "update" }, "the workspace is running 0.1.0 and 0.1.0-fork.1 is on disk: Update ready");
   const current = await commands.packageInfo({ name: "@alice/hello" }, { ...env, kernel: { ...env.kernel, packages: { list: async () => [{ ...info, loadedVersion: info.version }] } } });
   assert.equal(current.data.loaded.behindDisk, false, "the fence read what is on disk");
+  // A shared copy says where it came from, from the journal; the original says what it was shared as, while that copy is still there.
+  const promote = [{ at: "2026-09-24T10:00:00Z", kind: "package.promote", actor: "alice", data: { name: "@alice/hello", promoted: "@thetis/hello" } }];
+  const journaled = { ...env, kernel: { packages: { list: async () => [info, { ...info, name: "@thetis/hello", version: "0.1.0", everyone: true, everyoneBy: "promoted", forkedFrom: undefined, replaced: undefined, source: { kind: "system", ref: "/data/packages/hello" } }], catalog: async () => [{ name: "@thetis/hello" }] }, operator: { call: async (method, args) => (method === "journal.tail" && args.kind === "package.promote" ? promote : null) } } };
+  assert.deepEqual((await commands.packageInfo({ name: "@thetis/hello" }, journaled)).data.promotedFrom, { name: "@alice/hello", by: "alice", at: "2026-09-24T10:00:00Z", actor: "alice" });
+  assert.equal((await commands.packageInfo({ name: "@alice/hello" }, journaled)).data.sharedAs, "@thetis/hello");
+  const gone = { ...journaled, kernel: { ...journaled.kernel, packages: { ...journaled.kernel.packages, catalog: async () => [] } } };
+  assert.equal((await commands.packageInfo({ name: "@alice/hello" }, gone)).data.sharedAs, null, "a shared copy taken away since is no reason to refuse sharing again");
   await refuses(commands.packageInfo, { name: "@alice/nope" }, env, /is not installed/);
   await refuses(commands.packageInfo, { name: "hello" }, env, /looks like @scope\/name/);
 });
@@ -506,27 +513,34 @@ test("configurationChildren: All extensions first, then every extension, the one
     { package: "@thetis/terminal", summary: "every key is set", broken: false, keys: [{ key: "shell" }] },
   ];
   const fleet = { packages: [
-    { name: "@thetis/terminal", state: "current", waiting: [], registry: null, config: { broken: false }, byUser: { bitmuse: { fork: true, state: "current" }, dev: { state: "current" } } },
+    { name: "@thetis/terminal", type: "service", state: "current", waiting: [], registry: null, config: { broken: false }, byUser: { bitmuse: { fork: true, state: "current" }, dev: { state: "current" } } },
     { name: "@thetis/tools-files", state: "current", waiting: [], registry: null, config: { broken: false }, byUser: { dev: { state: "current" } } },
     { name: "@bitmuse/moo", state: "current", waiting: [], registry: null, config: { broken: false }, byUser: { bitmuse: { state: "current", broken: true } } },
     { name: "@thetis/skills-hybrid", state: "update", waiting: ["dev", "root", "bob"], registry: { version: "0.2.2", update: { apply: "reload", version: "0.2.2" } }, config: { broken: false }, byUser: { dev: { state: "update" } } },
-    { name: "@thetis/compaction", state: "update", waiting: [], registry: { version: "0.2.0", update: { apply: "install", version: "0.2.0" } }, config: null, byUser: { dev: { state: "current" } } },
+    { name: "@thetis/compaction", version: "0.1.0", state: "update", waiting: [], registry: { version: "0.2.0", update: { apply: "install", version: "0.2.0" } }, config: null, byUser: { dev: { state: "current" } } },
   ] };
   const request = async (verb) => (verb === "config-list" ? { data: reports } : verb === "fleet" ? { data: fleet } : { data: null });
-  const kids = await configurationChildren({ request });
+  const kids = await configurationChildren({ request }, { user: "bitmuse" });
   assert.equal(FLEET, "*");
   assert.deepEqual(kids[0], { id: "*", label: "All extensions", kind: "page", note: "Every extension installed here" });
   assert.deepEqual(
     kids.slice(1).map((k) => [k.id, k.label, k.mark]),
-    [["@bitmuse/moo", "@bitmuse/moo", "err"], ["@thetis/compaction", "compaction", "warn"], ["@thetis/exa", "exa", "err"], ["@thetis/skills-hybrid", "skills-hybrid", "warn"], ["@thetis/terminal", "terminal", undefined], ["@thetis/tools-files", "tools-files", undefined]],
-    "every extension is in the tree; one that is up to date carries no mark, so it is not counted"
+    [["@thetis/compaction", "Compaction", "warn"], ["@thetis/exa", "Exa", "err"], ["@bitmuse/moo", "Moo", "err"], ["@thetis/skills-hybrid", "Skills Hybrid", "warn"], ["@thetis/terminal", "Terminal", undefined], ["@thetis/tools-files", "Tools Files", undefined]],
+    "every extension is in the tree by its label in Title Case; one that asks for nothing carries no mark, so it is not counted"
   );
-  assert.equal(kids.find((k) => k.id === "@thetis/terminal").note, "Up to date");
   const by = Object.fromEntries(kids.slice(1).map((k) => [k.id, k]));
-  assert.equal(by["@thetis/skills-hybrid"].note, "Update ready: 3 people haven't applied it yet");
-  assert.equal(by["@thetis/compaction"].note, "Update ready: 0.2.0 is in the registry");
-  assert.equal(by["@thetis/exa"].note, "Needs setup: apiKey is required and not set");
-  assert.equal(by["@bitmuse/moo"].note, "Needs setup for bitmuse: every key is set");
+  assert.equal(by["@thetis/terminal"].note, "by Thetis · Background · @thetis/terminal", "no mark: the publisher line and the id");
+  assert.equal(by["@thetis/skills-hybrid"].note, "3 people haven't applied it yet.");
+  assert.equal(by["@thetis/compaction"].note, "Version 0.2.0 is ready; you have 0.1.0. Updating keeps your settings.");
+  assert.equal(by["@thetis/exa"].note, "apiKey is required and not set. Open Settings to fix it.");
+  assert.equal(by["@bitmuse/moo"].note, "A setting is missing for bitmuse. Open Settings to fix it.");
+  // An official extension and someone's copy of it read the same: the tree tells them apart by who they are by.
+  const twins = await configurationChildren({ request: async (verb) => (verb === "fleet" ? { data: { packages: [
+    { name: "@thetis/tool-exec", type: "tool", label: "tool exec", version: "0.4.1", state: "current", waiting: [], registry: null, config: null, byUser: { sam: { state: "current" } } },
+    { name: "@bitmuse/tool-exec", type: "tool", label: "tool exec", version: "0.3.3-fork.1", forkedFrom: { name: "@thetis/tool-exec", version: "0.3.3" }, fork: { name: "@thetis/tool-exec", version: "0.3.3", shipped: "0.4.1" }, state: "current", waiting: [], registry: null, config: null, byUser: { bitmuse: { state: "current" } } },
+  ] } } : { data: [] }) }, { user: "bitmuse" });
+  assert.deepEqual(twins.slice(1).map((k) => [k.label, k.mark]), [["Tool Exec (by Thetis)", undefined], ["Tool Exec (by you)", "warn"]], "the copy whose official version is newer asks for attention");
+  assert.match(twins.find((k) => k.id === "@bitmuse/tool-exec").note, /Thetis's version 0\.4\.1 is newer than the 0\.3\.3 your copy was made from/);
   for (const k of kids) assert.equal(k.marks, undefined, "no glyphs, so the shell draws no glyph legend");
   // Neither command answering: the tree still has its first page, and says nothing it does not know.
   const bare = await configurationChildren({ request: async () => Promise.reject(new Error("The requested module './lib/ssh.js' does not provide an export named 'isWithin'")) });
@@ -549,7 +563,7 @@ test("the three words: a server state becomes Up to date, Update ready or Restar
 test("activity: plain labels for the kinds, and the plumbing rows only for a developer", async () => {
   const { kindLabel, visibleRows } = await import("../ui/activity.js");
   assert.equal(kindLabel("fence.reload"), "Workspace restarted");
-  assert.equal(kindLabel("package.promote"), "Made the default for everyone");
+  assert.equal(kindLabel("package.promote"), "Shared with everyone");
   assert.equal(kindLabel("user.create"), "Person added");
   assert.equal(kindLabel("something.new"), "something.new", "an unknown kind is shown as it is");
   const rows = [{ kind: "host.call" }, { kind: "user.create" }, { kind: "host.call" }, { kind: "turn.end" }];

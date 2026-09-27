@@ -1,6 +1,6 @@
 {
   "name": "@thetis/tool-operator",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "license": "MIT",
   "description": "The operator's own tool: one tool that asks this Thetis server to restart itself, refused while an update is installing. Installed per admin, never for everyone. The restart countdown everyone sees is gateway-web's.",
   "type": "module",
@@ -10,6 +10,7 @@
   },
   "thetis": {
     "type": "tool",
+    "audience": "admin",
     "label": "restart tool",
     "tools": [
       {
