@@ -6,7 +6,7 @@ Standard fields the kernel reads:
 |---|---|
 | `name` | Required. Must match `@<scope>/<name>`, pattern `^@[a-z0-9-]+/[a-z0-9._-]+$`. The scope gives ownership. |
 | `version` | Required. A string. |
-| `description` | One sentence. Shown in the control panel, the marketplace index, and the system prompt's package list. |
+| `description` | One sentence. Shown on the extension's card and page in **Extensions**, in the control panel, the marketplace index, and `list_packages`. |
 | `keywords` | Indexed by the marketplace search. |
 | `main` | The module the agent imports. Default `index.js`. Relative to the package directory. |
 | `dependencies` | When not empty and there is no build script, install runs `npm install --omit=dev`. |
@@ -19,8 +19,9 @@ The `thetis` field:
 | Field | Type | Use |
 |---|---|---|
 | `type` | string, required | The package type. An open set. |
+| `label` | string | The short human name the page uses: `chat engine`, `OpenRouter models`, `Files`. Optional; without it the page uses the name without its scope and a `ui-` prefix. The kernel does not read it. |
 | `steps` | array | Pipeline steps. Each entry needs `id`, `phase`, and `export`. |
-| `tools` | array | Tools. Each entry needs `name`, `description`, and `export`. `parameters` is an optional JSON schema object. `group` is an optional tool group id that puts the tool in a group other than its package's. |
+| `tools` | array | Tools. Each entry needs `name`, `description`, and `export`. `parameters` is an optional JSON schema object. `group` is an optional tool group id that puts the tool in a group other than its package's. `reads` is `true` when the tool cannot change anything (no file, no remote state, no process) and `false` when it can; the Tools dock shows it, and a tool that says nothing gets no badge. `concurrent: true`: adjacent calls in one round to tools that declare it run at once (`spawn_subagent` does). |
 | `export` | string | The factory export of a provider, or the function export of an enumerator. Default `createProvider` for providers. |
 | `service` | `{ export }` | A long-running process. The agent starts the export when the fence opens under `thetis serve`. |
 | `publish` | array | Declared ports. The kernel records the field and does not act on it. |
@@ -29,6 +30,7 @@ The `thetis` field:
 | `ui` | object | What the package adds to the web page. The kernel does not read it. See `thetis/web`. |
 | `skills` | string | A directory of skills relative to the package root, usually `"skills"`. The kernel does not read it. See `thetis/skills`. |
 | `config` | object | The settings this package takes, one entry per key. **Validated on install: a malformed declaration refuses the install.** See below. |
+| `audience` | `system`, `everyone` | Where the Extensions place lists it: `system` puts it behind *Show system components*. The kernel does not read it. |
 | `toolGroup` | object | The tool group this package's tools form, for `@thetis/tool-groups`: `{ id, brief, tags, alwaysOn }`. Every field is optional. The kernel does not read it. See below. |
 
 ## `thetis.config`: declaring a setting
@@ -46,7 +48,7 @@ A key name matches `^[A-Za-z_][A-Za-z0-9_]*$`. Each declaration is an object:
 
 Declaring is what makes a key real. The value your code receives is the merge of four layers, later winning: the declared `default`, the `packages[<name>]` block of `thetis.config.json`, the system layer, then the person's own layer. A fork's declaration replaces its origin's, and the merge runs along the fork chain, so a person's override on the origin still beats a file entry on the fork.
 
-Your code reads the result as `env.config` in a tool, or `ctx.config` in a step. A person sets it with the `configure_package` tool or the Configure form; an admin sets a system default with `thetis config set`.
+Your code reads the result as `env.config` in a tool, or `ctx.config` in a step. A person sets it with the `configure_package` tool or the **Configure** form on the extension's page in **Extensions**; an admin sets a system default on the extension's Settings tab under **Control panel › Extensions** (on the host: `thetis config set`).
 
 ## `thetis.toolGroup`: naming a tool group
 

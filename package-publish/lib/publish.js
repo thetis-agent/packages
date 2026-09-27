@@ -248,13 +248,14 @@ export async function runVerify(env, config, name, path) {
 /**
  * The package's directory as the registry will hold it. The destination is removed first so that a file
  * the package no longer has stops being in the registry: a copy over the top would leave it there for
- * ever, and nobody would ever notice which of the two trees it came from. `node_modules` and any `.git`
- * inside the package never travel.
+ * ever, and nobody would ever notice which of the two trees it came from. `node_modules`, any `.git`
+ * inside the package, and a fork's record of what it was copied from (`.thetis-fork-base.json`, which only
+ * this installation can compare against) never travel.
  */
 async function copyInto(from, dest) {
   await rm(dest, { recursive: true, force: true });
   await mkdir(dest, { recursive: true });
-  await cp(from, dest, { recursive: true, filter: (src) => src === from || !["node_modules", ".git"].includes(basename(src)) });
+  await cp(from, dest, { recursive: true, filter: (src) => src === from || !["node_modules", ".git", ".thetis-fork-base.json"].includes(basename(src)) });
 }
 
 /** Stage this package's directory and answer with what is in the index for it. */

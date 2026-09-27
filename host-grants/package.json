@@ -13,6 +13,7 @@
   },
   "thetis": {
     "type": "host",
+    "label": "folders and SSH keys",
     "host": {
       "name": "grants",
       "self": [

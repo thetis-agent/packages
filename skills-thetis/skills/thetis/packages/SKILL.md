@@ -1,6 +1,6 @@
 ---
 name: packages
-description: How a Thetis package is built and managed: the manifest, install sources, the store, forks and the way back, delete, promote, publish, unpublish. Use when you write, install, fork or remove a package, publish one to a registry or take one out of one, change a shipped one, make one the default for everyone, or an install was refused.
+description: How a Thetis extension (a package) is built and managed: the manifest, install sources, the store, copies and the way back, delete, promote, publish, unpublish. Use when you write, install, fork or remove a package, publish one to a registry or take one out of one, change a shipped one, make one the default for everyone, or an install was refused.
 metadata:
   title: Packages
   tags: [packages, manifest, install, uninstall, fork, unfork, delete, promote, publish, unpublish, everyone, steps, tools, provider, service, store, registry, scope, owner]
@@ -9,7 +9,7 @@ metadata:
 ---
 # Packages
 
-A package is the unit of everything in Thetis. A package is a directory with a `package.json` that has a `thetis` field. The kernel reads manifests at the start of each turn. A package you install is live on the next turn.
+A package is the unit of everything in Thetis; the page calls it an **extension**. A package is a directory with a `package.json` that has a `thetis` field. The kernel reads manifests at the start of each turn. A package you install **takes effect when this reply ends**: its tools and steps are there on the next message, and the person's page applies its service and its page files once no reply is running.
 
 ## The manifest
 
@@ -42,7 +42,9 @@ The kernel validates these rules. A manifest that fails does not install.
 
 The kernel does not reject fields it does not know. `thetis.ui` and `thetis.bench` reach the packages that read them. The full field table is in [references/manifest.md](references/manifest.md).
 
-`description` is one sentence. People see it in the control panel and in the marketplace. The model sees it in the system prompt.
+`description` is one sentence. People see it on the extension's card in **Extensions** and in the control panel. The model sees it in `list_packages`.
+
+`thetis.label` is the short human name the page uses for the extension, such as `chat engine` or `Files`: the Updates ready card says "Updates for 3 extensions: web gateway, compaction and skills". Without it the page uses the name without its scope and a `ui-` prefix. Each tool may carry `reads`: `true` when it cannot change anything (no file, no remote state, no process), `false` when it can. The Tools dock shows `reads only` or `can change things` from it and guesses nothing.
 
 ## Types
 
@@ -62,7 +64,7 @@ The type is a label. The kernel reads `steps` and `tools` of every package, what
 
 ## Code
 
-Use plain ECMAScript modules. A build step is optional. The agent imports `main` (default `index.js`) with a query `?v=<modification time>`. A changed file is a new module.
+Use plain ECMAScript modules. A build step is optional. The agent imports `main` (default `index.js`) with a query `?v=<the newest modification time of the package's files>`, and every module `main` imports inside the package carries the same query. So a change to any file of the package is a new module graph on the next call.
 
 A step:
 
@@ -119,7 +121,7 @@ export async function startService(env) {
 }
 ```
 
-Declare it with `"service": { "export": "startService" }`. `env` is the step environment plus `config` and `log`. The service runs while the package is installed and the fence is open. `thetis serve` starts every service. A one-shot CLI command does not. Do not write to `process.stdout` from a service or a step. It corrupts the protocol. Write to `stderr` with `console.error` or `env.log`.
+Declare it with `"service": { "export": "startService" }`. `env` is the step environment plus `config` and `log`. The service runs while the package is installed and the fence is open. It is started once, so a changed service runs the old code until the space applies the change: the person's page does that when the reply ends. `thetis serve` starts every service. A one-shot CLI command does not. Do not write to `process.stdout` from a service or a step. It corrupts the protocol. Write to `stderr` with `console.error` or `env.log`.
 
 ## Scopes are namespaces
 
@@ -168,11 +170,11 @@ The kernel keeps `$THETIS_HOME/registry.json` in the service plane. You cannot r
 1. `write_path` writes `packages/<name>/package.json` and `packages/<name>/index.js` under home.
 2. `shell` runs `node` to test the module.
 3. `install_package` with `source: "packages/<name>"` installs it.
-4. On the next turn the steps run and the tools are attached.
+4. When this reply ends, it takes effect: on the next message the steps run and the tools are attached, and the page applies a service. Tell the person what changed; there is nothing for them to do.
 
 ## Forks
 
-A fork is a copy of an installed package under your own scope. It runs in place of the original.
+A fork is a copy of an installed package under your own scope. It runs in place of the original. The page calls it **your copy**, and the way back **Switch back to the official version**.
 
 `fork_package` takes `name` (an installed package) and `as` (a directory name under `packages/`, default the unscoped name). It:
 
@@ -188,9 +190,9 @@ The other direction is a refusal, not a second replacement. Installing a package
 
 The restore rule: `uninstall_package` or `delete_package` of the fork puts the original back in the same call, when the registry recorded what the fork displaced. A fork installed into a userspace the original was not in has no such record, and then an uninstall leaves nothing in its place. For a gateway that is a person locked out of their browser.
 
-The way back: `unfork_package { name, deleteFiles }` reads the original off the fork's own manifest instead of off the registry, checks it is on disk here before it removes anything, and then swaps. The original comes back at the version it is at now, with every change it has had since the fork. `deleteFiles` defaults to false: the copy under `packages/` is kept. The CLI is `thetis packages unfork <name> --user <id> [--delete-files]`.
+The way back: `unfork_package { name, deleteFiles }` reads the original off the fork's own manifest instead of off the registry, checks it is on disk here before it removes anything, and then swaps. The original comes back at the version it is at now, with every change it has had since the fork. `deleteFiles` defaults to false: the copy under `packages/` is kept. In the browser it is **Switch back to the official version** on the extension's page in **Extensions**. (On the host: `thetis packages unfork <name> --user <id> [--delete-files]`.)
 
-What a fork costs, and how to see it: `list_packages` measures a fork against the original as the original stands now. `fork of @thetis/gateway-web@0.1.1, 0.2.0 is shipped now` means the original has moved on and the copy has not. `identical to the shipped 0.2.0` means the copy holds the same files as the shipped package, so it is changing nothing and will see no further fix. `thetis packages outdated` lists both. Neither shows in a version number: a fork's version follows the day it was made, not the day the original moved.
+What a fork costs, and how to see it: `list_packages` measures a fork against the original as the original stands now. `fork of @thetis/gateway-web@0.1.1, 0.2.0 is shipped now` means the original has moved on and the copy has not. `identical to the shipped 0.2.0` means the copy holds the same files as the shipped package, so it is changing nothing and will see no further fix. `thetis packages outdated` lists both. Neither shows in a version number: a fork's version follows the day it was made, not the day the original moved. When every change a copy made is in the official version, or it made none, the person's page offers **Switch back** on the Updates ready card: "Your changes are in the official version" or "Your copy has no changes".
 
 A shipped TypeScript package cannot rebuild inside the fence. The fork carries the built `dist/`. Edit the JavaScript in `dist/`, or build outside and copy the result in.
 
@@ -210,9 +212,9 @@ delete_package { name: "@alice/tools-plan" }
 
 ## Promote and install for everyone
 
-These are operator methods. Only an admin calls them: from the CLI, from the control panel, or from an admin's fence through `env.kernel.operator.call`.
+These are operator methods. Only an admin calls them: with **Make it the default for everyone** on the extension's page in **Extensions**, from the control panel, from the CLI, or from an admin's fence through `env.kernel.operator.call`.
 
-`packages.promote { user, name }` makes a person's package the default for everyone. The directory is copied to `$THETIS_HOME/packages/<basename>` with its `node_modules`. The name becomes `@thetis/<basename>`. The owner's original is removed. The package is installed into every existing userspace. New userspaces get it at creation. The copy does not follow later changes to the source. The CLI command is `thetis packages promote <name> --user <id>`.
+`packages.promote { user, name }` makes a person's package the default for everyone. The directory is copied to `$THETIS_HOME/packages/<basename>` with its `node_modules`. The name becomes `@thetis/<basename>`. The owner's original is removed. The package is installed into every existing userspace. New userspaces get it at creation. The copy does not follow later changes to the source. (On the host: `thetis packages promote <name> --user <id>`.)
 
 Neither method reaches a person who is holding a fork of the package, and neither stops on one. Both answer `{ name, userspaces, forks }`: `userspaces` are the people it installed for, `forks` is `[{ user, fork }]` for the people whose own copy was left in place. The same pair goes into the journal row, so an admin reading it later still knows the package is not everywhere and whose copy is standing in for it. The people themselves see it on their own listing: their fork's row says the package it was copied from is the default for everyone (`everyone else gets it`). The seed a new userspace gets skips a forked package for the same reason.
 

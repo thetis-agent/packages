@@ -1,9 +1,9 @@
 ---
 name: using
-description: Working inside Thetis day to day: sessions, subagents, the shell, file and plan tools, ask_user, tool groups, restart against reload, the home layout. Use when you ask how to read, edit or run something, hand work to a subagent, keep a plan, ask the person, find your files, or why a tool is missing.
+description: Working inside Thetis day to day: chats, helper chats, the shell, file and plan tools, ask_user, tool groups, stopped replies, restarts, the home layout. Use when you ask how to read, edit or run something, hand work to a subagent, keep a plan, ask the person, find your files, or why a tool is missing.
 metadata:
   title: Using Thetis
-  tags: [sessions, turns, subagents, shell, terminal, files, read, edit, write, search, plan, todo, ask, home, notes, tools, groups, scoped, restart, reload, daemon]
+  tags: [sessions, turns, chats, subagents, resume, retry, continue, shell, terminal, files, read, edit, write, search, plan, todo, ask, home, notes, tools, groups, scoped, restart, drain]
   related: [thetis/packages, thetis/fence, thetis/troubleshooting]
   version: 1
 ---
@@ -11,46 +11,57 @@ metadata:
 
 ## Where you are
 
-You run inside one person's userspace. The fence is the boundary of that userspace. The paths are:
+You run inside one person's space. In code it is their userspace, and the fence is its boundary. The paths are:
 
 | Path | Content |
 |---|---|
 | `$THETIS_HOME/userspaces/<user>/` | The userspace root. Package code sees it as `env.root`. |
-| `home/` | Your working directory. Package code sees it as `env.cwd`. Relative paths resolve against it. |
-| `home/packages/<name>/` | The packages you write. |
-| `home/plans/<session id>.json` | The plan of one conversation. |
+| `home/` | Your working directory, **Home** in the Files place. Package code sees it as `env.cwd`. Relative paths resolve against it. |
+| `home/packages/<name>/` | The extensions you write. |
+| `home/plans/<session id>.json` | The plan of one chat. |
 | `home/questions/<session id>.json` | The questions you asked the person. |
 | `home/tool-output/` | Long tool results that did not fit in a reply. |
 | `home/projects/` | The project files. See `thetis/projects`. |
 | `home/skills/` | Your own skills. See `thetis/skills`. |
 | `store/node_modules/` | The installed packages. Package code sees it as `env.store`. |
 | `store/src/` | Git clones of installed packages. |
-| `sessions/<session id>.json` | One session record per conversation. |
+| `sessions/<session id>.json` | One session record per chat. |
 | `run/` | The unix sockets of the services of this userspace. |
 
 The shared directory `$THETIS_HOME/shared` is read-only for you. The system userspace writes it. Package code sees it as `env.shared`.
 
-The system prompt tells you the user id and the home path. Each message from the person ends with a `[Turn context: Monday 2026-09-21 20:40 Europe/Berlin]` line that the harness adds: that is when the message was sent, in the daemon's zone unless `timeZone` is configured for `@thetis/harness-core`. The person does not see the line.
+The system prompt tells you the user id and the home path. Each message from the person ends with a `[Turn context: Monday 2026-09-21 20:40 Europe/Berlin]` line that the harness adds: that is when the message was sent, in the server's zone unless `timeZone` is configured for `@thetis/harness-core`. The person does not see the line.
 
-## Sessions and turns
+## Chats and replies
 
-A session is one conversation with its harness state. A turn is one pass through the pipeline. A session runs one turn at a time. The kernel saves the conversation and the harness at the end of every turn, also after an error.
+A chat is a session: one conversation with its harness state. A reply is a turn: one pass through the pipeline. A chat runs one reply at a time. The kernel saves the conversation and the harness at the end of every reply, after an error too, and about once a second while a reply runs, so even a crash loses at most the round in flight.
 
-The person can stop a turn. The text you streamed before the stop stays in the conversation. A tool call that did not run gets a tool message `error: the turn was stopped before this tool ran`.
+A reply can stop before its end. Nothing it finished is lost, and nobody types "continue":
 
-## Subagents
+| What stopped it | What happens |
+|---|---|
+| The connection to the model dropped, or the model was overloaded or rate-limited | `@thetis/harness-core` throws the half round away and sends the same request again after 2, 4, 8, 16, 32 seconds. The page shows "Retrying in 8 s (2 of 5)" with **Retry now**. No tool of that round has run, so nothing is done twice. |
+| Those tries ran out, or the failure is one a retry cannot fix | The reply ends in one row that says why in a plain sentence, with **Retry**. |
+| The person pressed Stop | The text you streamed stays. A tool call that did not run gets `error: the turn was stopped before this tool ran`. The row says "Stopped" with **Continue**. |
+| A restart of Thetis, an update of the space, or a crash | The reply continues by itself when the space is back, once, within half an hour. A divider says "Resumed after Thetis restarted" or "Resumed after an update". |
 
-A subagent is a session with a parent. It lives in the same userspace. It sees the same files and the same packages. It has its own conversation and its own harness.
+Retry, Continue and the automatic resume are the same thing: a reply with no new message, over the saved chat. A cut piece of text is dropped first and the tool calls that never ran are run first. So carry on from where the chat stands. Do not repeat work that is already in the chat.
 
-Call `spawn_subagent` with `task` and a short `label` such as `research`. The tool creates a child session, sends the task, and returns `[subagent <session id> <label>]` on its first line and the final reply after it; `stopped: …` there means the person stopped it (what it had said so far follows), `error: …` means its turn failed. The person sees the subagent work under its label inside your conversation, so choose a label that says what it is doing. Stopping your turn stops the subagent. A subagent may call `spawn_subagent` itself. The child session persists after the reply.
+## Helper chats
 
-The subagent turn runs inside your tool call. Your turn waits. The default request timeout is 600000 milliseconds. Give a subagent a task that ends inside that time.
+A helper chat is a subagent: a session with a parent. It lives in the same space. It sees the same files and the same extensions. It has its own conversation and its own harness.
 
-Package code can do the same with `env.kernel.sessions.create(parentId)` and `env.kernel.sessions.askText(childId, text)`.
+Call `spawn_subagent` with `task` and a short `label` such as `research`. The tool creates a child session, sends the task, and returns `[subagent <session id> <label>]` on its first line and the final reply after it; `stopped: …` there means the person stopped it (what it had said so far follows), `error: …` means its reply failed. The person sees the helper work under its label inside your chat, so choose a label that says what it is doing. Stopping your reply stops the helper. A helper may call `spawn_subagent` itself. The child session persists after the reply.
+
+A helper's dropped connection is retried inside its own reply, as above. When a helper fails anyway, its result says what to do: `To continue it instead of starting again, call resume_subagent with id <id>.` Do that. **Do not spawn a new helper for the same task**: `resume_subagent { id, label }` continues the child from its saved conversation and does nothing again that had finished. It answers in the same shape as `spawn_subagent`. A child whose last reply finished is not run again: its last reply is the answer. A helper is never resumed automatically; its parent decides.
+
+The helper's reply runs inside your tool call. Your reply waits. The default request timeout is 600000 milliseconds. Give a helper a task that ends inside that time.
+
+Package code can do the same with `env.kernel.sessions.create(parentId)` and `env.kernel.sessions.askText(childId, text)`, and resume with `env.kernel.sessions.send(childId, [], onEvent)`.
 
 ## The shell tools
 
-`@thetis/terminal` gives you a shell session that stays open. The session keeps its working directory and its shell state between calls, so a `cd`, a virtualenv or an `ssh-agent` carries over. Your conversation gets its own session on the first command. The person can watch that session in their browser and type in it, and you are told when they do.
+`@thetis/terminal` gives you a shell session that stays open. The session keeps its working directory and its shell state between calls, so a `cd`, a virtualenv or an `ssh-agent` carries over. Your chat gets its own session on the first command. The person can watch that session in the terminal drawer under the chat and type in it, and you are told when they do. The drawer starts closed and opens by itself when a shell starts in the open chat. A shell with nothing happening in it, nobody looking and nothing running is closed after `idleMinutes` (120 by default).
 
 | Tool | What it does |
 |---|---|
@@ -115,9 +126,11 @@ Use `ask_user` when a task is ambiguous and a guess would waste work. Decide the
 
 Text you want in every prompt is a skill under `home/skills/` with `metadata.universal: "true"`; see `thetis/skills`. Text for one project is that project's instructions; see `thetis/projects`. The harness reads no file of yours into the prompt. Keep a universal skill stable inside a session: a change to it changes the system prompt and breaks the prompt cache prefix. See `thetis/pipeline`.
 
-## The package tools
+## The extension tools
 
-`install_package`, `uninstall_package`, `fork_package`, and `delete_package` come from `@thetis/tool-exec`. See `thetis/packages`.
+`install_package`, `uninstall_package`, `fork_package`, `unfork_package`, `delete_package`, `package_config` and `configure_package` come from `@thetis/tool-exec`. See `thetis/packages`.
+
+An install, a copy, a switch back or an edit of the person's own extension **takes effect when this reply ends**. The person's page applies it once no reply is running and says "Applied your changes to moo". Tell the person what changed. Do not ask them to reload anything, and do not ask for a restart.
 
 ## Tool groups and tool_search
 
@@ -135,17 +148,21 @@ A loaded group's tools are in your list from the next turn. A call to one of the
 
 The pin is in `harness["@thetis/tool-groups"]`: `active`, `why` (`always-on`, `configured`, `skill`, `tag`, `dense`, `fusion`, `search`, `call`), `catalogue`, `mode`, `notes`.
 
-## Restart the daemon
+## Restarting Thetis
 
-`restart_daemon` comes from `@thetis/tool-operator`. You have it only when that package is installed for you, and it is installed per admin, never for everyone. It takes one argument, `reason`, which is required: it is shown to everyone waiting and written to the journal, so name what changed and why a workspace reload cannot pick it up.
+A restart of Thetis is only for a fix to Thetis's own core: the kernel, the host, the sandbox, the door, `@thetis/runtime/lib`, `@thetis/runtime/contracts`, the `thetis` command. None of those carries a feature: the model-call loop is a step of `@thetis/harness-core`, mounts and ssh keys are `@thetis/host-grants`, every default is a manifest's. A feature that seems to need a restart is in the wrong extension. Extensions never need one: see "How a change takes effect" in `thetis`.
 
-**It is pending, not immediate.** The call records the request and answers at once. Your turn finishes, your reply reaches the person, and only then does Thetis wait for every turn running anywhere to end, count down ten seconds where everyone can see it, and exit so that systemd starts it again. It waits two minutes at most, and then goes anyway and cuts whatever is still running. So say in that reply what is restarting, what it is for, and that it can still be called off. That reply is the only warning anyone gets.
+An admin restarts from the browser: **Control panel › Overview** has one button, **Update and restart** when new code is upstream, or **Restart** when the card says "Restart to finish". **Advanced › Workspaces** has **Restart Thetis…** with a typed reason. (On the host: `thetis restart --reason <text>`, `thetis restart status`, `thetis restart cancel`.)
 
-**Prefer the reload.** A workspace reload replaces one person's service code in about a second and takes nothing else down; `thetis config reload` re-reads the configuration and `.env`; a host package is live on its next call. A restart ends every open shell session anywhere. It is only for a bug in the code the daemon read once when it started: the kernel, the host, the sandbox, the door, `@thetis/runtime/lib`, `@thetis/runtime/contracts`, the `thetis` command. Those carry no feature of yours: the model-call loop is a step of `@thetis/harness-core`, mounts and ssh keys are `@thetis/host-grants`, every default is a manifest's. A feature that seems to need a restart is in the wrong package. No tool asks for a reload: say what it needs, `thetis reload --user <id>` on the host or the Workspaces section of the control panel. See `thetis/troubleshooting` for which a change needs.
+What everyone sees: "Thetis restarts in 20 s · your reply will continue", then "Thetis is restarting", then "Thetis is back.". Every running reply is asked to pause at its next safe point, a round boundary, with nothing half done. Thetis waits for them for two minutes at most. A reply still inside a long tool call then is cut there and saved. Paused and cut replies continue by themselves when Thetis is back. Open terminal shells end, and whatever runs in one ends with it. The page reconnects by itself. While an update of Thetis is installing, every restart is refused: the update restarts Thetis itself when it is done.
 
-**Ask first.** Use `ask_user` before you call this, unless the person has just asked for a restart. It is their installation and their turns that end.
+`restart_daemon` comes from `@thetis/tool-operator`. You have it only when that package is installed for you, and it is installed per admin, never for everyone. It takes one argument, `reason`, which is required: it is shown to everyone waiting and written to the journal, so name what changed in the core.
 
-**A refusal means nothing happened.** The answer says what happened, why, and what to do instead. Say what it says, and do not call the tool again. A second call while one is already armed is not a refusal either: the answer says one is armed, that asking again changed nothing, and that there is no second attempt to make. `thetis/troubleshooting` lists the five reasons a restart is refused.
+**It is pending, not immediate.** The call records the request and answers at once. Your own reply is asked to pause too, at its next round boundary, which is right after this tool call. So write what is restarting and why in the same message as the call, before it: that text is saved and shown. The rest of your reply comes after the restart, when it continues by itself. An admin can still call it off with **Cancel** on the Overview.
+
+**Ask first.** Use `ask_user` before you call this, unless the person has just asked for a restart. It is their installation and their shells that end.
+
+**A refusal means nothing happened.** The answer says what happened, why, and what to do instead. Say what it says, and do not call the tool again. A second call while one is already armed is not a refusal either: the answer says one is armed, that asking again changed nothing, and that there is no second attempt to make. `thetis/troubleshooting` lists the reasons a restart is refused.
 
 ## Sources
 
@@ -156,5 +173,7 @@ The pin is in `harness["@thetis/tool-groups"]`: `active`, `why` (`always-on`, `c
 - packages/tools-plan/lib/ask-user.js
 - packages/harness-core/src/index.ts
 - packages/tool-operator/package.json
+- packages/gateway-web/README.md
+- packages/ui-admin/README.md
 - src/lib/restart.ts
 - packages/tool-groups/README.md

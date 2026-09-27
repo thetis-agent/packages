@@ -10,6 +10,7 @@
   },
   "thetis": {
     "type": "loader",
+    "label": "reasoning effort",
     "steps": [
       { "id": "apply-effort", "phase": "call", "export": "applyEffort" }
     ],

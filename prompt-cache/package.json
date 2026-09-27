@@ -14,10 +14,11 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test dist/test/"
+    "test": "node --test \"dist/test/**/*.test.js\""
   },
   "thetis": {
     "type": "loader",
+    "label": "prompt cache",
     "config": {
       "enabled": {
         "type": "boolean",

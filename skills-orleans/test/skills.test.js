@@ -60,11 +60,11 @@ const skills = findSkills();
 const ids = new Set(skills.map((s) => s.id));
 const parsed = skills.map((s) => ({ ...s, ...parseFrontmatter(readFileSync(s.file, "utf8")) }));
 
-test("the package manifest declares a skill directory and nothing else in thetis", () => {
+test("the package manifest declares a skill directory and its label, and nothing else in thetis", () => {
   const m = JSON.parse(readFileSync(join(PKG, "package.json"), "utf8"));
   assert.equal(m.name, "@thetis/skills-orleans");
   assert.equal(m.type, "module");
-  assert.deepEqual(m.thetis, { type: "skill", skills: "skills" });
+  assert.deepEqual(m.thetis, { type: "skill", label: "Orleans docs", skills: "skills" });
   assert.ok(!("main" in m), "a skill package has no main");
 });
 

@@ -7,6 +7,7 @@
   "main": "index.js",
   "thetis": {
     "type": "tool",
+    "label": "file tools",
     "tools": [
       {
         "name": "read_path",
@@ -31,7 +32,8 @@
             "path"
           ]
         },
-        "export": "readPath"
+        "export": "readPath",
+        "reads": true
       },
       {
         "name": "edit_path",
@@ -62,7 +64,8 @@
             "new_text"
           ]
         },
-        "export": "editPath"
+        "export": "editPath",
+        "reads": false
       },
       {
         "name": "write_path",
@@ -88,7 +91,8 @@
             "contents"
           ]
         },
-        "export": "writePath"
+        "export": "writePath",
+        "reads": false
       },
       {
         "name": "search_files",
@@ -130,7 +134,8 @@
             "pattern"
           ]
         },
-        "export": "searchFiles"
+        "export": "searchFiles",
+        "reads": true
       },
       {
         "name": "find_files",
@@ -155,7 +160,8 @@
             "glob"
           ]
         },
-        "export": "findFiles"
+        "export": "findFiles",
+        "reads": true
       },
       {
         "name": "get_directory",
@@ -174,7 +180,8 @@
           },
           "required": []
         },
-        "export": "getDirectory"
+        "export": "getDirectory",
+        "reads": true
       }
     ],
     "bench": {

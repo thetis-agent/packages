@@ -7,6 +7,7 @@
   "main": "index.js",
   "thetis": {
     "type": "tool",
+    "label": "plan and questions",
     "tools": [
       {
         "name": "todo_write",
@@ -54,7 +55,8 @@
             "items"
           ]
         },
-        "export": "todoWrite"
+        "export": "todoWrite",
+        "reads": false
       },
       {
         "name": "todo_add",
@@ -101,7 +103,8 @@
             "items"
           ]
         },
-        "export": "todoAdd"
+        "export": "todoAdd",
+        "reads": false
       },
       {
         "name": "todo_mark",
@@ -131,7 +134,8 @@
             "stage"
           ]
         },
-        "export": "todoMark"
+        "export": "todoMark",
+        "reads": false
       },
       {
         "name": "todo_order",
@@ -151,7 +155,8 @@
             "ids"
           ]
         },
-        "export": "todoOrder"
+        "export": "todoOrder",
+        "reads": false
       },
       {
         "name": "todo_read",
@@ -160,7 +165,8 @@
           "type": "object",
           "properties": {}
         },
-        "export": "todoRead"
+        "export": "todoRead",
+        "reads": true
       },
       {
         "name": "ask_user",
@@ -205,7 +211,8 @@
             "questions"
           ]
         },
-        "export": "askUser"
+        "export": "askUser",
+        "reads": false
       }
     ],
     "ui": {

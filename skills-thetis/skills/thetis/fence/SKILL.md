@@ -9,7 +9,7 @@ metadata:
 ---
 # The fence
 
-The fence is the boundary around one userspace. All package code runs inside a fence. The kernel is the only bridge across it. `@thetis/runtime/sandbox` builds the fence with bubblewrap. It starts one long-lived Node process per userspace, the userspace agent. Every step, tool, provider, and service of that userspace runs in that process.
+The fence is the boundary around one userspace, which the page calls the person's space (and, on an admin's pages, their workspace). All package code runs inside a fence. The kernel is the only bridge across it. `@thetis/runtime/sandbox` builds the fence with bubblewrap. It starts one long-lived Node process per userspace, the userspace agent. Every step, tool, provider, and service of that userspace runs in that process.
 
 ## What you see
 
@@ -59,13 +59,13 @@ The kernel does not pass its own environment. Secrets in the host environment do
 
 ## Mounts
 
-A mount is an admin's grant of one host directory into one person's fence at the same path. Only an admin sets mounts: `thetis mounts add <user> <path> [--ro]`, `thetis mounts remove <user> <path>`, the **Mounts** section of the control panel, or the operator method `host.grants.mountsSet`, answered by the host package `@thetis/host-grants`. The path must be absolute and normalized. A user has at most 32 mounts. A change closes the fence. The fence reopens with the new binds on the next request, and the services restart.
+A mount is an admin's grant of one host directory into one person's fence at the same path. The page calls a mount a **server folder**. Only an admin sets mounts: in **Control panel › Access › Mounts**, with the operator method `host.grants.mountsSet`, answered by the host package `@thetis/host-grants`, or on the host with `thetis mounts add <user> <path> [--ro]` and `thetis mounts remove <user> <path>`. The path must be absolute and normalized. A user has at most 32 mounts. A change closes the fence. The fence reopens with the new binds on the next request, and the services restart.
 
-Each person sees their own mounts in the **Mounts** section of the control panel, read only. Each row says if the mount is bound. When the host has no directory at the path, the fence opens without that mount, and the row says so.
+Each person sees their own mounts in **Control panel › Access › Mounts**, read only, and in the **Files** place. Each row says if the mount is bound. When the host has no directory at the path, the fence opens without that mount, and the row says so.
 
 ## SSH keys
 
-An ssh grant names one key file on the host. The fence's own `ssh-agent` holds the key, so you can use it and you cannot read it. Each person manages their own keys in the **SSH keys** section of the control panel: make a new key, import a key, add the hosts a key may reach, try a connection, and revoke a key. A key the host makes or imports for a person is in `<home>/fence-keys/<id>/`. An admin can also grant a key from another path. The person can revoke that key, but only an admin can grant it again. A change closes the fence, as a mount change does.
+An ssh grant names one key file on the host. The fence's own `ssh-agent` holds the key, so you can use it and you cannot read it. Each person manages their own keys in **Control panel › Access › SSH keys**: make a new key, import a key, add the hosts a key may reach, try a connection, and revoke a key. A key the host makes or imports for a person is in `<home>/fence-keys/<id>/`. An admin can also grant a key from another path. The person can revoke that key, but only an admin can grant it again. A change closes the fence, as a mount change does.
 
 A mount is a hole in the fence, opened on purpose. The kernel does not check what the directory holds. The file tools and `@thetis/projects` read `THETIS_MOUNTS` to know what you can reach.
 
@@ -90,7 +90,7 @@ Containers you start run on the host, not in your fence. Three consequences wort
 
 - **Your fence's limits do not apply to them.** A container gets its own cgroup from Docker, not your `memoryMb`. A build that would be killed inside the fence may well succeed in a container, and may eat far more of the machine than your fence is allowed to. Ask for what you need on the container (`--memory`, `--cpus`) rather than discovering the ceiling.
 - **Paths line up, and that is why bind mounts work.** A mount appears in your fence at its host path, so a relative bind in a compose file resolves to the same directory for the CLI in here and the daemon out there. A path that exists only inside your userspace root is also a real host path, so it binds too.
-- **You may not be able to reach what you just started.** In network mode `egress` you have no route to the host's loopback. A container listening there is unreachable from here, even though you started it and `docker ps` shows it healthy. That covers `network_mode: host` with a bind address of `127.0.0.1`, and any port published to `127.0.0.1`. This is the fence, not a broken stack. A container on a bridge network is reachable by its own address (`docker inspect` gives it). Reaching a loopback container needs `fence.network: "host"`, which is an admin's change to the installation: `thetis config reload` closes every fence so each reopens with it.
+- **You may not be able to reach what you just started.** In network mode `egress` you have no route to the host's loopback. A container listening there is unreachable from here, even though you started it and `docker ps` shows it healthy. That covers `network_mode: host` with a bind address of `127.0.0.1`, and any port published to `127.0.0.1`. This is the fence, not a broken stack. A container on a bridge network is reachable by its own address (`docker inspect` gives it). Reaching a loopback container needs `fence.network: "host"`, which is an admin's change to the installation's file; re-reading the file closes every fence so each reopens with it. See `thetis/configuration`.
 
 Clean up after yourself. A container you leave running outlives your session, your fence, and the daemon restart you did not ask for.
 

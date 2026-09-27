@@ -13,6 +13,7 @@
   },
   "thetis": {
     "type": "loader",
+    "label": "skill loader",
     "config": {
       "fusionWeight": {
         "type": "number",
@@ -84,7 +85,8 @@
             "query"
           ]
         },
-        "export": "skillSearch"
+        "export": "skillSearch",
+        "reads": true
       }
     ],
     "bench": {

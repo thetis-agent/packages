@@ -117,22 +117,28 @@ The runner checks each result. An invalid result ends the turn with an `error` e
 5. On an error: `error` with the message and the code. The loop stops.
 6. Always: save `conversation` and `harness`. Emit `turn.end`.
 
+While the turn runs, the kernel saves what the running step has streamed about once a second (`session.turn.streamed`), so a process killed outright loses at most the round in flight. A turn that does not reach its end for a reason other than a person's Stop or a workflow's budget leaves `session.interrupted { turn, at, error, why, clean?, resumes? }`, with `why` one of `provider`, `failed`, `reload`, `restart`, `crash`, `yield`. A turn with an empty input over such a record is the **resume**: it appends nothing, `turn.start` carries `resumed: { why, from }`, and the pipeline runs over the saved conversation. Retry, Continue, the harness's resumer, `resume_subagent` and the workflows engine all resume this way.
+
 The `call` step of `@thetis/harness-core` (phase `execute`) sends `call` through `env.kernel.providers.call`; the kernel routes it by `call.model` to the provider's fence and streams the events back, so this fence never sees the key. It repeats until the model answers without a tool call. Each tool call runs in this fence through `env.invokeTool`, with the tool package's effective configuration. The tool message is `{ role: "tool", content, toolCallId, name }`. An unknown tool name gives `error: unknown tool: <name>`, unless the name is in `call.hints.withheld`: a scoping step (`@thetis/tool-groups`) lists there the tools it took out of `call.tools`, and the step resolves such a name against `ctx.packages` and runs it. A thrown tool error gives `error: <message>`. Tool results never end the turn. The step streams `text`, `tool.call`, `tool.result`, `message` and `usage` through `ctx.emit`.
 
-The step returns `{ conversation, call }` with the reply and the tool rounds appended to both. It does not change `harness`. A step result is atomic, so the step never throws for a provider failure: it returns the partial reply with every dangling tool call closed, emits one `error` event of code `provider`, and the `after` steps still run.
+The step returns `{ conversation, call }` with the reply and the tool rounds appended to both. A step result is atomic, so the step never throws for a provider failure. It first sends a failed round again when that could help: the same request, after 2, 4, 8, 16, 32 seconds, with `harness-core.retry` extension events for the page. When that does not help, it returns the finished rounds, a cut reply marked `partial` and every dangling tool call closed and marked `notRun`, emits one `error` event of code `provider` with `kind` and `retryable`, and the `after` steps still run.
 
-A cancelled turn ends with one `error` event of code `cancelled`: the step honours `ctx.signal`, returns the partial conversation, and the runner produces the event at the next step. Streamed text stays as a partial assistant message. The event list is in [references/turn-events.md](references/turn-events.md).
+At the top of every round after the first the step asks `env.kernel.turns.yielding()`. While a restart is armed, or a drained reload of this space is pending, the answer is `{ why }`: the step stops there, with nothing streaming and every tool call answered, emits `{ type: "yield", why }`, and returns normally. The kernel records the turn as `interrupted` with `why: "yield"`, clean, and the resumer continues it when the space is back. Any step with a long loop of its own should ask the same question at its own safe points.
+
+A cancelled turn ends with one `error` event of code `cancelled`: the step honours `ctx.signal`, returns the partial conversation, and the runner produces the event at the next step. The signal's reason says who cancelled: a person's `stop` or a workflow's `budget` leaves no `interrupted`; a `reload` or a `restart` does, and is resumed. Streamed text stays as a partial assistant message. The event list is in [references/turn-events.md](references/turn-events.md).
 
 ## The default harness steps
 
 | Package | Step | Phase | Effect |
 |---|---|---|---|
+| `@thetis/harness-core` | `resumeTurn` | `history` | On a turn with no input, drops a trailing assistant message marked `partial`. |
 | `@thetis/harness-core` | `turnContext` | `history` | Ends the input message with `[Turn context: <weekday> <date> <time> <zone>]`. |
 | `@thetis/harness-core` | `systemPrompt` | `prompt` | Appends the guide (where you are, working style) to `call.system`. No file of the person's and no package list: a universal skill, a project's instructions and `list_packages` carry those. |
 | `@thetis/harness-core` | `attachTools` | `tools` | Adds every declared tool of every package to `call.tools`. The first package with a name wins. |
 | `@thetis/prompt-cache` | `cacheHints` | `call` | Sets `call.hints.cache` and records prefix fingerprints in `harness`. |
 | `@thetis/projects` | `projectPrompt`, `projectTools` | `prompt`, `call` | Adds the project section. Drops switched-off tools. |
-| `@thetis/harness-core` | `call` | `execute` | The provider request and the tool loop, above. |
+| `@thetis/compaction` | `compact` | `call` | Replaces `call.messages` with a summary and the recent part when the window fills; also between rounds, through `call.hints.beforeRound`. |
+| `@thetis/harness-core` | `call` | `execute` | The provider request, the round retry, the drain check and the tool loop, above. |
 | `@thetis/harness-core` | `recordCall` | `after` | Writes `lastCall` to its harness key. Returns only `harness`. |
 
 ## Prompt cache rules
@@ -161,6 +167,7 @@ The agent logs one line per divergence: `prompt-cache: turn 7: message 3 changed
 ## Sources
 
 - packages/harness-core/src/index.ts
+- packages/harness-core/README.md
 - src/kernel/pipeline/runner.ts
 - src/kernel/pipeline/enumerator.ts
 - src/contracts/guest.ts

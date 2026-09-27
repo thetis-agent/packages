@@ -14,10 +14,11 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test dist/test/"
+    "test": "node --test \"dist/test/**/*.test.js\""
   },
   "thetis": {
     "type": "storage",
+    "label": "TOML storage",
     "export": "createStore"
   },
   "peerDependencies": {

@@ -10,6 +10,7 @@
   },
   "thetis": {
     "type": "gateway",
+    "label": "sign-in page",
     "config": {
       "secure": {
         "type": "boolean",

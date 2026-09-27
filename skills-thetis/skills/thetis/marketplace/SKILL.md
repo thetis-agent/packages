@@ -1,9 +1,9 @@
 ---
 name: marketplace
-description: The Thetis marketplace: trusted registries, the mirrored index and READMEs, search, pinned sources, install, update, remove, the Marketplace place. Use when you ask what you can install, how to install or update from a registry, whether a package is behind, or how to add a registry.
+description: Extensions and the marketplace: trusted registries, the index and READMEs, pinned sources, install, updates, the Extensions place, the Updates ready card. Use when you ask what you can install, how to install or update an extension, whether one is behind, or how to add a registry.
 metadata:
   title: Marketplace
-  tags: [marketplace, registry, registries, index, search, install, update, outdated, pin, commit, readme, shared, gallery]
+  tags: [marketplace, extensions, registry, registries, index, search, install, update, updates, apply, outdated, pin, commit, readme, shared, gallery, fork, copy]
   related: [thetis/packages, thetis/web, thetis/configuration]
   version: 1
 ---
@@ -11,7 +11,7 @@ metadata:
 
 The marketplace is the set of registries this installation trusts. A registry is one git repository that holds package directories. This is not the kernel registry file `registry.json`, which records what is installed.
 
-`@thetis/marketplace` mirrors the registries and writes an index. It is a `service` package in the system userspace. `@thetis/ui-marketplace` is the Marketplace place of the web page. It reads the index.
+`@thetis/marketplace` mirrors the registries and writes an index. It is a `service` package in the system userspace. `@thetis/ui-marketplace` is the **Extensions** place of the web page and the **Updates ready** card. It reads the index.
 
 An installation ships with one registry: `https://github.com/thetis-agent/packages.git`, the approved extensions.
 
@@ -32,7 +32,7 @@ An installation ships with one registry: `https://github.com/thetis-agent/packag
 | `registries[].name` | the last path segment | Shown on the cards and the pages. |
 | `refreshMinutes` | `30` | How often the service refreshes. |
 
-Replace the list to replace the set of trusted extensions. Set `registries` to `[]` to index nothing. A registry holds packages at its first or second directory level. Each package directory has a `package.json` with a `thetis` field.
+An admin manages the list on **Extensions › Registries**: add, rename, remove, give a private registry a key, and test it. (On the host: `thetis config set` and `thetis repo-key`.) Replace the list to replace the set of trusted extensions. Set `registries` to `[]` to index nothing. A registry holds packages at its first or second directory level. Each package directory has a `package.json` with a `thetis` field.
 
 ## The index
 
@@ -78,46 +78,45 @@ A **system package** is one shipped in `<root>/packages` or promoted into `$THET
 
 A scope is a namespace, not an owner: anyone installs any registry source into their own workspace, and each workspace's copy is its own entry in the kernel registry. The one rule is about `@thetis`: a *source* (a git URL or a directory) whose manifest claims it is an admin's to install.
 
-## Update
+## Updates
 
-Nothing updates on its own. From the host:
+Every person sees new code for their extensions on the **Updates ready** card, bottom right, between replies: "Updates for 3 extensions: web gateway, compaction and skills", with **Review** (the Updates section of the Extensions place) and **Update all**. It never shows or changes while a reply runs.
 
-```sh
-thetis packages outdated --user alice
-thetis packages update --user alice
-thetis packages update @thetis/exa --user alice
-```
+**Update all** fetches what a registry holds newer, then applies once, drained: "Applying… a few seconds, your conversations are kept", or "Pausing your reply at a safe point… it continues afterwards" when a reply is running. Then it waits for the space to come back and refreshes the page, which says "Updated: …". It asks first only when terminal shells are open: "Update now? 2 terminal sessions will close. Conversations and files are kept." It never cancels a reply.
 
-There are two kinds of behind, and `outdated` reports both.
+The same card carries two more things. The changes you make to the person's own extensions apply by themselves when your reply ends ("Applied your changes to moo"), or wait under **Changes ready · Apply** when a terminal is open or the person set `applyOwnChanges` to `ask`. A copy whose changes are all in the official version, or that has none, is offered **Switch back**.
+
+So after an install or an edit, tell the person what changed. Do not ask them to reload anything.
+
+Under the card there are two kinds of behind:
 
 | Kind | What is behind | What applies it |
 |---|---|---|
-| Install | The installation is pinned to a commit older than the one the index holds. | `thetis packages update`, which installs the newer pinned source. |
-| Reload | The version the workspace's fence loaded is not the version on disk. | `thetis reload --user <id>`, which closes that fence and opens it again. |
+| Install | The installation is pinned to a commit older than the one the index holds. | Update: an install of the newer pinned source, then an apply. The old link stands until the new copy is cloned, validated, and built. |
+| Apply | The version the space's fence loaded is not the version on disk. | Update: an apply alone, which closes that fence and opens it again, drained. |
 
-An update is an install of the newer pinned source. The old link stands until the new copy is cloned, validated, and built.
+A package shipped with the service is a link into the checkout. It has no pin, so it is never behind a registry, but a version bump on disk is installed the moment it lands while the space keeps running the copy its fence read when it opened. That is the apply kind.
 
-A package shipped with the service is a link into the checkout. It has no pin, so it is never behind a registry, but a version bump on disk is installed the moment it lands while the workspace keeps running the copy its fence read when it opened. That is the reload kind. `outdated` prints it as:
+From package code, `behind(installed, index)` in the library lists both kinds, each row carrying `apply: "install" | "reload"`. A package is only ever one of the two, and install wins when both hold, because an install reopens the fence anyway. The reload kind needs no index. A package with no fence open has no loaded version and is not listed. `@thetis/ui-marketplace`'s `updates` command is what the card reads: `{ items, own, forks, shells, applyOwnChanges }`.
 
-```
-@thetis/skills-hybrid	loaded 0.2.1, 0.2.2 on disk	thetis reload --user alice
-```
+An admin sees who has not applied an update under **Control panel › Extensions › All extensions**, with **Apply updates for N people**. (On the host: `thetis packages outdated --user alice`, `thetis packages update [<name>] --user alice`, and `thetis reload --user alice --drain`.)
 
-From package code, `behind(installed, index)` in the library lists both kinds, each row carrying `apply: "install" | "reload"`. A package is only ever one of the two, and install wins when both hold, because an install reopens the fence anyway. The reload kind needs no index. A package with no fence open has no loaded version and is not listed.
+## The Extensions place
 
-## The Marketplace place
+The place is **Extensions** in the sidebar's ≡ menu. It is a store in three sections, each with its count: **Updates (n)**, drawn from the same answer as the card, with **Update all** at the top; **Installed (n)**; and **Discover (n)**, what the installation ships that the person does not have and what the registries offer. The installation's own machinery (host, storage, gateway, provider and loader packages, the page's plumbing, the benchmarks) is behind **Show system components**, and so are the type chips.
 
-The place is the item **Marketplace** in the sidebar's menu. The gallery shows a search box, one chip per type, and one card per package. Installed packages come first, then the system packages you do not have, then what the registries offer.
+A card shows the extension's label, its description, `name · version`, and the badges **Included** (everyone's default), **Yours** (your own), **Update ready**, **No changes · switch back** or **Official version is newer**. An extension whose settings miss something says `Setup needed: …`.
 
-A card says three things apart. **System** or **System · everyone**: the package is the installation's, and whether every person gets it by default. **Mine**: a package of your own scope. `from <registry>`: an offer that is not on disk here. **Installed**: it is in your workspace. A package page shows the README copy, the facts, what the package brings, and the actions the role allows.
+An extension's page leads with what it is, **What you get** (`3 tools · 2 skills · 1 page`), **Setup needed**, and the actions. **Technical details** holds the README copy, the facts and the commit pair.
 
 | Action | Who | Command |
 |---|---|---|
-| Install | anyone | `install { source }`. A system package by name. Anything else by its pinned source. The popover says what the package's type brings. A host package or a storage driver has no Install. |
-| Remove | anyone | `remove { name }`. Out of your workspace only. A system package stays on disk, and Install puts it back. |
-| Update to version | anyone, when behind | `update { name }` |
+| Install | anyone | `install { source }`. A system package by name. Anything else by its pinned source. A host package or a storage driver has no Install. |
+| Update | anyone, when behind | One button for both kinds of behind: it goes through the same path as **Update all**. |
+| Remove | anyone | `remove { name }`. Out of your space only. A system package stays on disk, and Install puts it back. |
 | Delete | anyone, for a copy under their own home | `delete { name }` |
-| Go back to what a fork was copied from | anyone | `unfork { name }` |
+| Configure | anyone | The settings form on the person's own layer: `config-show`, `config-set`, `config-unset`. |
+| Switch back to the official version | anyone, on a copy | `unfork { name }`. The copy's files stay. |
 | Make it the default for everyone | admins, on a system package | `install-everyone { source: name }`. Every person gets it now and later. |
 | Stop it being the default | admins, on a system package an admin marked | `unmark-everyone { name }`. New people stop getting it. Everyone who has it keeps it. A default the configuration or a promotion made is not undone here. |
 | Install for everyone | admins, on a registry's offer | `install-everyone { source }`. Installed for the admin, then promoted into a system package. |
@@ -134,3 +133,4 @@ Readers import from `@thetis/marketplace`: `readIndex(env)`, `search(index, quer
 
 - packages/marketplace/README.md
 - packages/ui-marketplace/package.json
+- packages/ui-marketplace/README.md

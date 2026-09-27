@@ -13,6 +13,7 @@
   },
   "thetis": {
     "type": "loader",
+    "label": "tool routing",
     "config": {
       "routeThreshold": {
         "type": "number",
@@ -99,7 +100,8 @@
             }
           }
         },
-        "export": "toolSearch"
+        "export": "toolSearch",
+        "reads": true
       }
     ],
     "bench": {

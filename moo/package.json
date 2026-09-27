@@ -7,6 +7,7 @@
   "main": "index.js",
   "thetis": {
     "type": "tool",
+    "label": "MOO",
     "tools": [
       {
         "name": "moo_eval",
@@ -30,7 +31,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "eval_"
+        "export": "eval_",
+        "reads": false
       },
       {
         "name": "moo_command",
@@ -54,7 +56,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "command"
+        "export": "command",
+        "reads": false
       },
       {
         "name": "moo_invoke_verb",
@@ -86,7 +89,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "invokeVerb"
+        "export": "invokeVerb",
+        "reads": false
       },
       {
         "name": "moo_dispatch_command_verb",
@@ -114,7 +118,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "dispatchCommandVerb"
+        "export": "dispatchCommandVerb",
+        "reads": false
       },
       {
         "name": "moo_list_verbs",
@@ -136,7 +141,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "listVerbs"
+        "export": "listVerbs",
+        "reads": true
       },
       {
         "name": "moo_get_verb",
@@ -158,7 +164,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "getVerb"
+        "export": "getVerb",
+        "reads": true
       },
       {
         "name": "moo_program_verb",
@@ -185,7 +192,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "programVerb"
+        "export": "programVerb",
+        "reads": false
       },
       {
         "name": "moo_apply_patch_verb",
@@ -212,7 +220,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "applyPatchVerb"
+        "export": "applyPatchVerb",
+        "reads": false
       },
       {
         "name": "moo_add_verb",
@@ -259,7 +268,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "addVerb"
+        "export": "addVerb",
+        "reads": false
       },
       {
         "name": "moo_delete_verb",
@@ -287,7 +297,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "deleteVerb"
+        "export": "deleteVerb",
+        "reads": false
       },
       {
         "name": "moo_set_verb_args",
@@ -328,7 +339,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "setVerbArgs"
+        "export": "setVerbArgs",
+        "reads": false
       },
       {
         "name": "moo_set_verb_info",
@@ -369,7 +381,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "setVerbInfo"
+        "export": "setVerbInfo",
+        "reads": false
       },
       {
         "name": "moo_find_verb_definition",
@@ -397,7 +410,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "findVerbDefinition"
+        "export": "findVerbDefinition",
+        "reads": true
       },
       {
         "name": "moo_list_properties",
@@ -419,7 +433,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "listProperties"
+        "export": "listProperties",
+        "reads": true
       },
       {
         "name": "moo_get_property",
@@ -441,7 +456,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "getProperty"
+        "export": "getProperty",
+        "reads": true
       },
       {
         "name": "moo_set_property",
@@ -473,7 +489,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "setProperty"
+        "export": "setProperty",
+        "reads": false
       },
       {
         "name": "moo_add_property",
@@ -512,7 +529,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "addProperty"
+        "export": "addProperty",
+        "reads": false
       },
       {
         "name": "moo_delete_property",
@@ -540,7 +558,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "deleteProperty"
+        "export": "deleteProperty",
+        "reads": false
       },
       {
         "name": "moo_resolve",
@@ -558,7 +577,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "resolve"
+        "export": "resolve",
+        "reads": true
       },
       {
         "name": "moo_list_objects",
@@ -581,7 +601,8 @@
           },
           "additionalProperties": false
         },
-        "export": "listObjects"
+        "export": "listObjects",
+        "reads": true
       },
       {
         "name": "moo_create_object",
@@ -612,7 +633,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "createObject"
+        "export": "createObject",
+        "reads": false
       },
       {
         "name": "moo_recycle_object",
@@ -636,7 +658,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "recycleObject"
+        "export": "recycleObject",
+        "reads": false
       },
       {
         "name": "moo_move_object",
@@ -665,7 +688,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "moveObject"
+        "export": "moveObject",
+        "reads": false
       },
       {
         "name": "moo_set_parent",
@@ -694,7 +718,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "setParent"
+        "export": "setParent",
+        "reads": false
       },
       {
         "name": "moo_object_flags",
@@ -718,7 +743,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "objectFlags"
+        "export": "objectFlags",
+        "reads": true
       },
       {
         "name": "moo_set_object_flag",
@@ -758,7 +784,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "setObjectFlag"
+        "export": "setObjectFlag",
+        "reads": false
       },
       {
         "name": "moo_object_graph",
@@ -788,7 +815,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "objectGraph"
+        "export": "objectGraph",
+        "reads": true
       },
       {
         "name": "moo_dump_object",
@@ -816,7 +844,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "dumpObject"
+        "export": "dumpObject",
+        "reads": false
       },
       {
         "name": "moo_load_object",
@@ -839,7 +868,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "loadObject"
+        "export": "loadObject",
+        "reads": false
       },
       {
         "name": "moo_reload_object",
@@ -862,7 +892,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "reloadObject"
+        "export": "reloadObject",
+        "reads": false
       },
       {
         "name": "moo_read_objdef_file",
@@ -879,7 +910,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "readObjdefFile"
+        "export": "readObjdefFile",
+        "reads": true
       },
       {
         "name": "moo_write_objdef_file",
@@ -900,7 +932,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "writeObjdefFile"
+        "export": "writeObjdefFile",
+        "reads": false
       },
       {
         "name": "moo_load_objdef_file",
@@ -923,7 +956,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "loadObjdefFile"
+        "export": "loadObjdefFile",
+        "reads": false
       },
       {
         "name": "moo_reload_objdef_file",
@@ -946,7 +980,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "reloadObjdefFile"
+        "export": "reloadObjdefFile",
+        "reads": false
       },
       {
         "name": "moo_apply_patch_objdef",
@@ -974,7 +1009,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "applyPatchObjdef"
+        "export": "applyPatchObjdef",
+        "reads": false
       },
       {
         "name": "moo_diff_object",
@@ -1004,7 +1040,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "diffObject"
+        "export": "diffObject",
+        "reads": true
       },
       {
         "name": "moo_parse_command",
@@ -1031,7 +1068,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "parseCommand"
+        "export": "parseCommand",
+        "reads": true
       },
       {
         "name": "moo_parse_command_for_player",
@@ -1059,7 +1097,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "parseCommandForPlayer"
+        "export": "parseCommandForPlayer",
+        "reads": true
       },
       {
         "name": "moo_find_command_verb",
@@ -1085,7 +1124,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "findCommandVerb"
+        "export": "findCommandVerb",
+        "reads": true
       },
       {
         "name": "moo_list_prepositions",
@@ -1095,7 +1135,8 @@
           "properties": {},
           "additionalProperties": false
         },
-        "export": "listPrepositions"
+        "export": "listPrepositions",
+        "reads": true
       },
       {
         "name": "moo_connected_players",
@@ -1105,7 +1146,8 @@
           "properties": {},
           "additionalProperties": false
         },
-        "export": "connectedPlayers"
+        "export": "connectedPlayers",
+        "reads": true
       },
       {
         "name": "moo_queued_tasks",
@@ -1115,7 +1157,8 @@
           "properties": {},
           "additionalProperties": false
         },
-        "export": "queuedTasks"
+        "export": "queuedTasks",
+        "reads": true
       },
       {
         "name": "moo_kill_task",
@@ -1132,7 +1175,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "killTask"
+        "export": "killTask",
+        "reads": false
       },
       {
         "name": "moo_notify",
@@ -1154,7 +1198,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "notify"
+        "export": "notify",
+        "reads": false
       },
       {
         "name": "moo_function_help",
@@ -1168,7 +1213,8 @@
           },
           "additionalProperties": false
         },
-        "export": "functionHelp"
+        "export": "functionHelp",
+        "reads": true
       },
       {
         "name": "moo_server_info",
@@ -1178,7 +1224,8 @@
           "properties": {},
           "additionalProperties": false
         },
-        "export": "serverInfo"
+        "export": "serverInfo",
+        "reads": true
       },
       {
         "name": "moo_reconnect",
@@ -1188,7 +1235,8 @@
           "properties": {},
           "additionalProperties": false
         },
-        "export": "reconnect"
+        "export": "reconnect",
+        "reads": false
       },
       {
         "name": "moo_dynamic_list",
@@ -1198,7 +1246,8 @@
           "properties": {},
           "additionalProperties": false
         },
-        "export": "dynamicList"
+        "export": "dynamicList",
+        "reads": true
       },
       {
         "name": "moo_dynamic_refresh",
@@ -1208,7 +1257,8 @@
           "properties": {},
           "additionalProperties": false
         },
-        "export": "dynamicRefresh"
+        "export": "dynamicRefresh",
+        "reads": true
       },
       {
         "name": "moo_dynamic_invoke",
@@ -1235,7 +1285,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "dynamicInvoke"
+        "export": "dynamicInvoke",
+        "reads": false
       },
       {
         "name": "moo_grep",
@@ -1269,7 +1320,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "grep"
+        "export": "grep",
+        "reads": true
       }
     ],
     "config": {

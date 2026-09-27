@@ -13,6 +13,7 @@
   },
   "thetis": {
     "type": "loader",
+    "label": "skill loader (all)",
     "steps": [
       { "id": "bench-import", "phase": "bench", "export": "importCorpus" },
       { "id": "inject", "phase": "prompt", "export": "inject" },

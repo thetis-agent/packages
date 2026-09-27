@@ -93,18 +93,17 @@ Strict TypeScript, ECMAScript modules. **Relative import paths end in `.js`** ev
 
 ## What it takes for a change to be live
 
-Editing a file changes nothing by itself. Four answers, and `thetis/troubleshooting` has the full table:
+Editing a file changes nothing by itself. Three answers, and `thetis/troubleshooting` has the full table:
 
-- Package code a fence loads per call, a manifest, a host package's entry: the next call has it.
-- A service's module graph, a provider, the agent: `thetis reload --user <id>`, or `--all`.
-- `thetis.config.json` or `.env`: `thetis config reload`.
-- The daemon itself (the kernel, the host, the sandbox, the door, `lib`, `contracts`, the `thetis` command): a new process, only for the daemon's own bugs, and the daemon does it: `thetis restart`. It waits for every turn to end, counts down, and exits so systemd starts it again; no sudo.
+- Package code a fence loads per call (a step, a tool, an enumerator, a UI command), a manifest, a host package, and any file one of those imports inside its package: the next call has it. The agent and the host import a package's entry with `?v=<the newest mtime of the package's files>`, and a resolve hook (`lib/fresh-import.ts`) carries that query to every module the entry reaches inside the same package.
+- A service, a provider, the agent: a fence reload. The person's page does it by itself when a reply ends (**Update all**, or the own-changes apply), always drained. An admin does it per person under **Control panel › Advanced › Workspaces** (**Restart**, or **Force…**). (On the host: `thetis reload --user <id> --drain`, or `--all`.)
+- The daemon itself (the kernel, the host, the sandbox, the door, `lib`, `contracts`, the `thetis` command): a new process, only for the daemon's own bugs, and the daemon does it: **Restart Thetis** (on the host: `thetis restart`). It asks every turn to stop at its next round boundary, waits up to `control.quietWaitMs`, saves what is still running, counts down, and exits so systemd starts it again; no sudo. The harness resumes the stopped turns when it is back.
 
 For configuration, `CONFIG_TIERS` in `src/kernel/config.ts` declares per key which of those applies, and `thetis config reload` prints which keys it applied and which are still waiting on a process. **A key with no entry there is treated as needing a restart**, so adding a configuration key without declaring its tier makes it quietly un-reloadable. See `thetis/configuration`.
 
 The installer follows the same rule: an update builds, runs `thetis config reload` and `thetis reload --all`, and asks the daemon for a restart only when the systemd unit changed or `thetis status --json` reports `daemon.stale`.
 
-The control panel's **Overview** does the same from the browser, through `@thetis/host-update` on the host: **Check for updates** fetches and lists the incoming commits of the runtime and of the packages submodule, **Update now** pulls, moves the submodule to the pinned commit, runs `npm ci` and the build, and writes its record to `$THETIS_HOME/update/last.json` as it goes. Nothing running changes by itself: the card then offers **Reload N workspaces** and **Restart the daemon**. Node, the OS packages and the systemd unit stay the installer's.
+The control panel's **Overview** does the whole update from the browser as one job on the host, through `@thetis/host-update`: **Update and restart** fetches, runs `npm ci` when a lock file changed, builds, checks that the new code loads (a child `node` that imports the daemon and every package in use), rolls back on any failure, and then restarts, or only applies to the workspaces that run a changed shipped package when nothing under `src/`, `bin/`, the lock file, `gateway-cli/`, a host package or the storage driver changed. The decision comes from `git diff --name-only`. When the code on disk is already newer than the running daemon (a checkout changed by hand), the card says **Restart to finish**. While the job holds `$THETIS_HOME/update/lock`, a restart is refused (`updating`) and the control panel's restart and apply buttons wait. The record is `$THETIS_HOME/update/last.json`. Node, the OS packages and the systemd unit stay the installer's.
 
 ## Testing something that crosses the fence
 
@@ -127,6 +126,7 @@ A new RPC method a fence may call has to be added in three files at once, and mi
 - ARCHITECTURE.md, test/kernel/loc.test.ts, test/architecture.test.mjs, test/kernel/seams.test.ts
 - packages/skills-thetis/test/skills.test.js and packages/skills-thetis/README.md
 - package.json (scripts), tsconfig.json, tsconfig.base.json, .gitmodules
-- src/host/kernel.ts, src/kernel/config.ts
+- src/host/kernel.ts, src/kernel/config.ts, src/lib/fresh-import.ts, src/lib/restart.ts
+- packages/host-update/README.md
 - test/host/e2e.test.ts and test/host/fixtures/provider-echo/index.js
 - .github/workflows/ci.yml

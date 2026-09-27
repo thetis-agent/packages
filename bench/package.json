@@ -14,7 +14,7 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test dist/test/"
+    "test": "node --test \"dist/test/**/*.test.js\""
   },
   "peerDependencies": {
     "@thetis/runtime": "^0.2.0"

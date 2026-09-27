@@ -10,6 +10,7 @@
   },
   "thetis": {
     "type": "skill-type",
+    "label": "skills",
     "tools": [
       {
         "name": "skill_fetch",
@@ -23,7 +24,8 @@
           },
           "required": ["id"]
         },
-        "export": "fetchSkill"
+        "export": "fetchSkill",
+        "reads": true
       }
     ]
   }

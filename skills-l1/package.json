@@ -13,6 +13,7 @@
   },
   "thetis": {
     "type": "loader",
+    "label": "skill loader (catalogue)",
     "steps": [
       { "id": "bench-import", "phase": "bench", "export": "importCorpus" },
       { "id": "catalogue", "phase": "prompt", "export": "catalogue" },
@@ -29,7 +30,8 @@
           },
           "required": ["name"]
         },
-        "export": "loadSkill"
+        "export": "loadSkill",
+        "reads": true
       }
     ],
     "bench": {

@@ -1,9 +1,9 @@
 ---
 name: web
-description: How a package adds to the web page: the thetis.ui field, the slots, the commands a page sends, GET /api/ui, the /ext route, the ext seam. Use when you add a dock, a place or a panel section, call your package from a page, or a ui was refused.
+description: How a package adds to the web page: the thetis.ui field, the slots, the commands a page sends, GET /api/ui, the /ext route, the ext seam, notices. Use when you add a dock, a place, a panel section or a notice, call your package from a page, or a ui was refused.
 metadata:
   title: The web page
-  tags: [web, gateway, ui, dock, place, panel, chip, sidebar, shelf, statusbar, command, verb, ext, browser, extension, seam]
+  tags: [web, gateway, ui, dock, place, panel, chip, sidebar, shelf, statusbar, notice, command, verb, ext, browser, extension, seam, developer]
   related: [thetis/packages, thetis/projects, thetis/marketplace]
   version: 1
 ---
@@ -89,6 +89,16 @@ An admin's command reaches the operator table through `env.kernel.operator.call(
 
 The page imports `entry` and calls `install(ext)`. `ext` is bound to the one package. It offers one registration function per slot. It offers `transcript` for a renderer and `request(verb, { session, args })` for the package's own verbs. It also offers the shell's `dom`, `ui`, `markdown`, `toast`, `conversation`, `sessions`, `events`, `redraw`, and `open`. The full table is in [references/ext-seam.md](references/ext-seam.md).
 
+Five members serve the page's life across updates and restarts, and are the one implementation every package uses:
+
+- `ext.notice(id, spec)`: a persistent card in the bottom-right corner, one per id, replaced in place. The Updates ready card, the admin's Thetis update card and the restart countdown are notices.
+- `ext.awaitReturn()`: waits for Thetis to go away and come back after an apply or a restart. Do not write your own reconnect loop.
+- `ext.developer()` and `ext.onDeveloper(fn)`: the person's **Developer details** switch. Raw dumps, problem lists and internal rows show only while it is on.
+- `ext.turns.running()` and `ext.turns.onIdle(fn)`: whether a reply runs. Wait for idle before anything that restarts the person's space.
+- `ext.build`: the build id the page was loaded with. The page refreshes itself on a changed build and keeps what is typed in the composer.
+
+Words a person reads come from the page's vocabulary: see the table in `thetis`. Say "your space", "extension", "apply" and "Restart Thetis", never fence, reload or daemon, and put raw error text under a **Details** fold.
+
 A registration whose id is not in the declaration is ignored. A throwing `draw`, `mount`, `open`, or `render` is caught and reported once per package per slot. Build DOM nodes with `ext.dom.el(tag, props, ...children)`. Do not use `innerHTML`. A module must define `install` and do nothing else at import time.
 
 ## Add a dock
@@ -117,7 +127,7 @@ export default function install(ext) {
 }
 ```
 
-4. Install the package. Reload the page. The rail shows the button.
+4. Install the package. When the reply ends, the page applies it and refreshes itself, and the rail shows the button.
 
 `draw` runs on open and on `ext.redraw()`. `ext.conversation.current` is the id of the open conversation, or nothing. Do not send a request from `draw`.
 
@@ -137,19 +147,26 @@ export default function install(ext) {
 }
 ```
 
-The shell draws the header and the close button. `open` returns an unmount function. The sidebar's menu lists the place after **Control panel**. `ext.open.place("reports", { name })` opens it from your own code.
+The shell draws the header and the close button. `open` returns an unmount function. The sidebar's ≡ menu lists the place after **Control panel**, **Extensions** and **Files**. `ext.open.place("reports", { name })` opens it from your own code.
 
 ## Shipped extensions
 
 | Package | Fills |
 |---|---|
 | `@thetis/tools-plan` | The Todo dock, the todo chip, the transcript renderers for `todo_*` and `ask_user`, the commands `plan` and `mark`. |
-| `@thetis/ui-tools` | The Tools dock. Command `tools`. |
-| `@thetis/ui-context` | The Context dock. Command `context`. |
-| `@thetis/ui-admin` | The Account, People, Models, Mounts, SSH keys, Activity, Workspaces, and Overview panel sections, and their commands. Everyone sees Account, Models, Mounts, SSH keys, and Activity, each about themselves: their password, the models they can use, their own mounts, their own ssh keys, and the journal rows about them. The other sections are for an admin. |
-| `@thetis/ui-marketplace` | The Marketplace place and sixteen commands, `fence-reload` (a person reloading their own workspace) among them. |
-| `@thetis/projects` | The sidebar head switcher and the Project place. Seven commands. |
+| `@thetis/ui-tools` | The Tools dock, with a `reads only` or `can change things` badge from each tool's `reads`. Command `tools`. |
+| `@thetis/ui-context` | The Context dock. Commands `context` and `context-page`. |
+| `@thetis/ui-skills` | The Skills dock. Its problem list shows only with developer details on. |
+| `@thetis/ui-admin` | The control panel's Overview, People, Models, Access (Mounts, SSH keys), Activity, Account and Advanced (Workspaces, Extensions by person, Server settings) sections, one page per extension under the built-in Extensions section, and the admin's Thetis update notice. Everyone sees Models, Access, Activity and Account, each about themselves. The rest are for an admin. |
+| `@thetis/ui-marketplace` | The **Extensions** place (its id stays `marketplace`), the **Updates ready** card on every page, and twenty-nine commands, `updates` and `fence-reload` (apply updates to the person's own space, always drained) among them. |
+| `@thetis/ui-workspace` | The **Files** place (id `workspace`) and the Files dock. |
+| `@thetis/terminal` | The terminal drawer (`shelf`) and its chip. |
+| `@thetis/compaction` | The `ctx` chip, the Compaction dock and the transcript card of a compaction. |
+| `@thetis/projects` | The sidebar head switcher and the Project place. |
 | `@thetis/effort` | The Effort pill beside the model picker (`composer` slot). Commands `effort-state`, `effort-set`, `effort-models`. |
+| `@thetis/harness-core` | No page files. The command `retry-now`, which the transcript's **Retry now** sends while a round waits to be sent again. |
+
+The gateway itself draws the failure row with **Retry** or **Continue** (`POST /api/sessions/<id>/resume`), the retry row, the "Resumed after…" divider, the reconnect loop, and the restart countdown every person sees.
 
 ## Sources
 

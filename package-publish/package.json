@@ -1,6 +1,6 @@
 {
   "name": "@thetis/package-publish",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "license": "MIT",
   "description": "Publishing a package is its own act and not a side effect of saving one: the version has to move past what the registry already holds, the package has to be sound, and only that package's directory is committed and pushed. Runs in the person's own fence with their own ssh key, so the registry's authentication decides who may publish.",
   "type": "module",
@@ -14,6 +14,7 @@
   },
   "thetis": {
     "type": "tool",
+    "label": "publishing",
     "config": {
       "targets": {
         "type": "array",
@@ -35,6 +36,7 @@
         "name": "publish_targets",
         "description": "Where this workspace may publish, and the version each target already holds for a package.",
         "export": "publishTargets",
+        "reads": true,
         "parameters": {
           "type": "object",
           "properties": {
@@ -46,6 +48,7 @@
         "name": "publish_package",
         "description": "Publish one package to a registry: set its version, check it, commit only its own directory, and push. Refuses when the version does not move past what the target already holds.",
         "export": "publishPackage",
+        "reads": false,
         "parameters": {
           "type": "object",
           "properties": {
@@ -65,6 +68,7 @@
         "name": "unpublish_package",
         "description": "Take a package out of a registry: delete its directory, commit and push. It leaves the marketplace index at the next refresh; installations that already have it keep it and are not told.",
         "export": "unpublishPackage",
+        "reads": false,
         "parameters": {
           "type": "object",
           "properties": {

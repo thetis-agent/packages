@@ -6,6 +6,7 @@
   "main": "index.js",
   "thetis": {
     "type": "tool",
+    "label": "Notion",
     "tools": [
       {
         "name": "notion_search",
@@ -49,7 +50,8 @@
           },
           "additionalProperties": false
         },
-        "export": "notionSearch"
+        "export": "notionSearch",
+        "reads": true
       },
       {
         "name": "notion_page_get",
@@ -93,7 +95,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "notionPageGet"
+        "export": "notionPageGet",
+        "reads": true
       },
       {
         "name": "notion_page_create",
@@ -129,7 +132,8 @@
           },
           "additionalProperties": false
         },
-        "export": "notionPageCreate"
+        "export": "notionPageCreate",
+        "reads": false
       },
       {
         "name": "notion_page_content",
@@ -195,7 +199,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "notionPageContent"
+        "export": "notionPageContent",
+        "reads": false
       },
       {
         "name": "notion_page_update",
@@ -238,7 +243,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "notionPageUpdate"
+        "export": "notionPageUpdate",
+        "reads": false
       },
       {
         "name": "notion_database_list",
@@ -261,7 +267,8 @@
           },
           "additionalProperties": false
         },
-        "export": "notionDatabaseList"
+        "export": "notionDatabaseList",
+        "reads": true
       },
       {
         "name": "notion_database_query",
@@ -311,7 +318,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "notionDatabaseQuery"
+        "export": "notionDatabaseQuery",
+        "reads": true
       },
       {
         "name": "notion_database_schema",
@@ -329,7 +337,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "notionDatabaseSchema"
+        "export": "notionDatabaseSchema",
+        "reads": true
       },
       {
         "name": "notion_users",
@@ -352,7 +361,8 @@
           },
           "additionalProperties": false
         },
-        "export": "notionUsers"
+        "export": "notionUsers",
+        "reads": true
       },
       {
         "name": "notion_comment_list",
@@ -378,7 +388,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "notionCommentList"
+        "export": "notionCommentList",
+        "reads": true
       },
       {
         "name": "notion_comment_add",
@@ -412,7 +423,8 @@
           ],
           "additionalProperties": false
         },
-        "export": "notionCommentAdd"
+        "export": "notionCommentAdd",
+        "reads": false
       }
     ],
     "config": {

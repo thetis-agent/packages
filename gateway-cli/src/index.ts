@@ -11,7 +11,10 @@ import type { ConfigReport, KernelRpc, ModelDescriptor, Mount, PackageInfo, Sess
 import { createDoor } from "@thetis/runtime/door";
 import { ahead, behind, readIndex, shortCommit, type Ahead, type Behind } from "@thetis/marketplace";
 import { ControlServer, controlSocketPath, createKernel, migrateStore, readControlToken, writeControlToken, type KernelConfig } from "@thetis/runtime";
-import { configPath, createControlHandler, defaultConfig, loadConfig, redact, saveConfig, type SessionRef } from "@thetis/runtime/kernel";
+import { configPath, createControlHandler, defaultConfig, loadConfig, redact, type SessionRef } from "@thetis/runtime/kernel";
+import { tidyConfig } from "@thetis/runtime/lib/config-tidy";
+import { writeJson } from "@thetis/runtime/lib/json";
+import { packagesIn } from "@thetis/runtime/lib/pkg-fs";
 import { parseDotEnv } from "@thetis/runtime/lib/config";
 import { errorMessage } from "@thetis/runtime/lib/error";
 import { parseHosted, repoRoute } from "@thetis/runtime/lib/git-url";
@@ -20,23 +23,34 @@ import { assertHomeFitsSockets, homeSocketWarning } from "@thetis/runtime/lib/so
 import { isSupervised, type Pending, type RestartState } from "@thetis/runtime/lib/restart";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
-/** How long `serve` gives the door, the control socket and the fences to close before it exits regardless. */
-const SHUTDOWN_DEADLINE_MS = 5_000;
+/**
+ * How long `serve` gives the running turns to be cancelled and saved, then the door, the control socket and
+ * the fences to close, before it exits regardless. A cancelled turn has its step's grace (5 s) to answer and
+ * then a save; 20 s covers both with room, and stays under the unit's `TimeoutStopSec=30`, after which systemd
+ * kills the process and whatever was not saved is lost.
+ */
+const SHUTDOWN_DEADLINE_MS = 20_000;
 
 const HELP = `thetis - recursive language model service
 
 usage: thetis <command> [options]
 
-  init                                 create the data dir and default config
+  init [--host <addr>] [--port <n>]    create the data dir and a config file holding only what differs from the defaults
   serve                                run the kernel, its control socket, and every installed service until stopped
   status [--json]                      what is running, and whether it is the code that is on disk now; --json the raw report
-  reload --user <id> | --all [--force] put the code on disk into service: that workspace's fence closes and opens again;
-                                       refused while a turn runs there, unless --force cancels it first (its partial result is kept)
-                                       their gateway, terminal and every service start over, and open shell sessions die;
+  reload --user <id> | --all [--drain | --force]
+                                       put the code on disk into service: that workspace's fence closes and opens again;
+                                       refused while a reply runs there, or while an update installs. --drain: running
+                                       replies pause at their next safe point (a round boundary; up to control.quietWaitMs,
+                                       then they are stopped and saved); --force: they are stopped and saved at once.
+                                       Either way each keeps its work and continues by itself after the reload; their
+                                       gateway, terminal and every service start over, and open shell sessions die;
                                        --all does everyone, _system last, so the sign-in page blips once at the end
-  restart [--reason <text>] [--yes]    ask the running daemon to restart itself: it waits for every turn
-                                       everywhere to finish, then exits so that systemd starts it again;
-                                       this ends every turn in progress and every open terminal session
+  restart [--reason <text>] [--yes]    ask the running daemon to restart itself: running replies, everyone's, pause at
+                                       their next safe point, a countdown shows, then it exits so that systemd starts it
+                                       again, and the paused replies continue by themselves. A reply still inside a long
+                                       tool call after control.quietWaitMs is stopped and saved, and continues the same
+                                       way. Open terminal sessions die. Refused while an update installs
   restart status                       whether one is armed, and whether one would be accepted at all
   restart cancel                       call off an armed restart
   chat --user <id> [--session <id>]    interactive conversation (streams output)
@@ -107,6 +121,8 @@ usage: thetis <command> [options]
   config unset <package> <key> [--user <id>]
   config reload                        re-read the packages of thetis.config.json and the .env file; services whose
                                        configuration changed start again
+  config tidy [--dry-run]              take out of thetis.config.json every value equal to its default or shadowed by a
+                                       value in the store; says what it takes out. Nothing the installation runs on changes
   migrate                              move the users, auth, registry and mounts files of an older data dir into the store
   bench run <suite> [--write] [--force] [--sandbox auto|bwrap|none] [--package <dir>]
                                        measure the harness against a suite; --write updates each package's BENCH.md
@@ -149,7 +165,9 @@ export async function run(argv: string[]): Promise<void> {
     // long cannot be fixed by anything but a different home. Saying `initialized <path>` and exiting 0
     // over a path that can never serve is the whole bug this closes.
     assertHomeFitsSockets(home);
-    if (!existsSync(configPath(home))) saveConfig(defaultConfig(home, PROJECT_ROOT));
+    // Only what differs from the defaults goes in the file. A default written down stops following the
+    // default when a newer Thetis changes it -- which is how an installation never got a new default package.
+    if (!existsSync(configPath(home))) saveMinimalConfig(home, args);
     process.stdout.write(`initialized ${home}\n`);
     // A home can be perfectly good and still not have room for every user id the kernel would allow. That
     // is a fact about this directory, not a fault in it, so it is said once, here, where another path is
@@ -189,7 +207,7 @@ export async function run(argv: string[]): Promise<void> {
   }
   if (remote) {
     try {
-      await dispatch(remote.call, cmd, args, config.sharedDir);
+      await dispatch(remote.call, cmd, args, config);
     } finally {
       remote.close();
     }
@@ -197,7 +215,7 @@ export async function run(argv: string[]): Promise<void> {
   }
   const kernel = await createKernel(config);
   try {
-    await dispatch(createControlHandler(kernel), cmd, args, config.sharedDir);
+    await dispatch(createControlHandler(kernel), cmd, args, config);
   } finally {
     await kernel.shutdown();
   }
@@ -213,6 +231,10 @@ async function serve(config: ReturnType<typeof loadConfig>, socket: string): Pro
   assertHomeFitsSockets(config.home);
   const kernel = await createKernel(config);
   const log = (line: string) => process.stderr.write(line + "\n");
+  // Before anything can start a turn: a record a dead process left mid-turn is closed as interrupted by a
+  // crash, with what it had checkpointed, so it shows as a stopped turn and the harness can resume it.
+  const recovered = kernel.sessions.recover();
+  if (recovered.length) print(`recovered ${recovered.length} turn(s) a previous process left running: ${recovered.join(" ")}`);
   // Written fresh on every start, so a token from a dead daemon is never accepted by a live one.
   const control = new ControlServer(socket, createControlHandler(kernel), log, writeControlToken(config.home, log));
   const door = createDoor({
@@ -233,6 +255,19 @@ async function serve(config: ReturnType<typeof loadConfig>, socket: string): Pro
   const stopped = new Promise<void>((done) => {
     process.once("SIGINT", () => done());
     process.once("SIGTERM", () => done());
+    // A throw nothing caught ends this daemon the way a signal does -- through the shutdown below, so running
+    // turns are saved -- and never silently: the row says what it was, where the unit's own exit status is
+    // unreadable to the service user. Exiting non-zero tells systemd it was not a planned stop.
+    const crashed = (kind: string) => (err: unknown) => {
+      const message = err instanceof Error ? (err.stack ?? err.message) : String(err);
+      log(`thetis: ${kind}: ${message}`);
+      kernel.journal.append({ kind: "daemon.crash", actor: "daemon", target: "daemon", data: { kind, message: message.slice(0, 4_000) } });
+      process.exitCode = 1;
+      why = `a crash (${kind}): ${message.split("\n")[0]}`;
+      done();
+    };
+    process.on("uncaughtException", crashed("uncaughtException"));
+    process.on("unhandledRejection", crashed("unhandledRejection"));
     kernel.restart.onFire((r) => {
       why = `a restart asked for by ${r.by}: ${r.reason}`;
       // `cut` names the turns that were still running: on the deadline branch somebody else's turn ended here,
@@ -271,9 +306,14 @@ async function serve(config: ReturnType<typeof loadConfig>, socket: string): Pro
     let waitingOn = "the door";
     setTimeout(() => {
       log(`stopping: still waiting on ${waitingOn} after ${SHUTDOWN_DEADLINE_MS} ms; exiting anyway`);
-      process.exit(0);
+      process.exit(process.exitCode ?? 0);
     }, SHUTDOWN_DEADLINE_MS).unref();
     await new Promise<void>((done) => door.close(() => done()));
+    // Every running turn is cancelled as a restart and saved while its fence can still answer: each is marked
+    // for a resume, and the harness picks it up when this installation comes back.
+    waitingOn = "the running turns to be saved";
+    const cut = await kernel.sessions.cancelAll("*", "restart");
+    if (cut.length) print(`stopped ${cut.length} running turn(s); each resumes when Thetis is back: ${cut.join(" ")}`);
     waitingOn = "the control socket";
     await control.close();
     waitingOn = "the fences";
@@ -294,7 +334,8 @@ function supervision(policy: string | null): string {
   return `supervised by systemd, but the deployed unit says Restart=${policy}, not always: a clean exit would stay down, so \`thetis restart\` refuses. Put Restart=always in the unit (deploy/thetis-runtime.service), then systemctl daemon-reload.`;
 }
 
-async function dispatch(call: Call, cmd: string, args: Args, shared: string): Promise<void> {
+async function dispatch(call: Call, cmd: string, args: Args, config: KernelConfig): Promise<void> {
+  const shared = config.sharedDir;
   const user = typeof args.user === "string" ? args.user : undefined;
   const need = (): string => {
     if (!user) throw new Error("--user <id> is required");
@@ -318,7 +359,7 @@ async function dispatch(call: Call, cmd: string, args: Args, shared: string): Pr
     case "repo-key":
       return repoKeyCmd(call, args);
     case "config":
-      return configCmd(call, args, user);
+      return args._[1] === "tidy" ? tidyCmd(call, args, config) : configCmd(call, args, user);
     case "publish":
       return publishCmd(call, args, user);
     case "unpublish":
@@ -419,11 +460,14 @@ async function reloadCmd(call: Call, args: Args, user: string | undefined): Prom
   if (!all && !user) throw new Error("reload needs --user <id>, or --all for everyone");
   const targets = all ? await reloadOrder(call) : [user!];
   const force = args.force === true;
+  const drain = args.drain === true;
+  if (force && drain) throw new Error("reload takes --drain or --force, not both");
   let failed = false;
   for (const id of targets) {
     try {
-      const done = (await call("fence.reload", { user: id, force })) as { services: string[]; cancelled?: string[]; down?: { name: string; error: string }[] };
-      // A turn cancelled for the reload is named: it ended as a cancel with what it had, and its owner will want to know why.
+      const done = (await call("fence.reload", { user: id, ...(force ? { force } : {}), ...(drain ? { drain } : {}) })) as { services: string[]; cancelled?: string[]; drained?: string[]; down?: { name: string; error: string }[] };
+      // The turns the reload stopped are named: each kept what it had and resumes by itself once the fence is back.
+      if (done.drained?.length) print(`the turn running in ${done.drained.join(", ")} stopped at a round boundary for ${id}`);
       if (done.cancelled?.length) print(`cancelled the turn running in ${done.cancelled.join(", ")} for ${id}`);
       print(`reloaded ${id}	${done.services.join(" ") || "no services; the fence reopens on the next request"}`);
       // A reload that brought everything back except one thing has to say so here, at the moment someone is
@@ -433,7 +477,7 @@ async function reloadCmd(call: Call, args: Args, user: string | undefined): Prom
       failed = true;
       const busy = (err as { code?: string })?.code === "busy" || /has a turn running/.test(errorMessage(err));
       print(`${id} did not reload: ${errorMessage(err)}
-${busy ? `Wait for the turn, or cancel it and reload: thetis reload --user ${id} --force` : `Try it again: thetis reload --user ${id}`}`);
+${busy ? `Wait for the turn, or let it stop at a round boundary: thetis reload --user ${id} --drain (--force cancels it at once)` : `Try it again: thetis reload --user ${id}`}`);
     }
   }
   if (failed) process.exitCode = 1;
@@ -441,14 +485,14 @@ ${busy ? `Wait for the turn, or cancel it and reload: thetis reload --user ${id}
 
 type RestartReport = RestartState & { policy: string | null };
 
-/** What a restart ends. Said before anything is armed, because the cost falls on people who did not ask. */
-const RESTART_ENDS = `A restart of the daemon ends every turn in progress, for everyone, not only yours, and every shell
-session open in a terminal anywhere. It waits for turns to finish first and counts down where everyone can see it,
-so nobody is cut off without warning, and it can be called off until the moment it fires.`;
+/** What a restart costs. Said before anything is armed, because the cost falls on people who did not ask. */
+const RESTART_ENDS = `A restart pauses every running reply, everyone's, not only yours, at its next safe point; each
+continues by itself when Thetis is back. Every shell session open in a terminal anywhere dies. It counts down where
+everyone can see it, and it can be called off until the moment it fires.`;
 
 /**
  * Asks the running daemon to restart itself. Nothing restarts here and nothing restarts at once: the kernel
- * arms a latch which waits for every turn to finish and then exits so that systemd starts a new process. The
+ * arms a latch which asks every turn to pause at its next round boundary and then exits so that systemd starts a new process. The
  * answer is the latch's own sentence, printed as it came, so the host, the page and the model read the same
  * words about the same latch — including a refusal, which means nothing happened.
  */
@@ -483,7 +527,7 @@ async function restartCmd(call: Call, args: Args): Promise<void> {
 
 /** An armed restart in one line: what it is for, who asked, and how long there is to think better of it. */
 function pendingLine(p: Pending): string {
-  const when = p.firesAt === undefined ? `waiting for every turn to finish, and going anyway by ${new Date(p.deadlineAt).toISOString()}` : `counting down, fires at ${new Date(p.firesAt).toISOString()}`;
+  const when = p.firesAt === undefined ? `waiting for running replies to pause, and going anyway by ${new Date(p.deadlineAt).toISOString()}` : `counting down, fires at ${new Date(p.firesAt).toISOString()}`;
   return `a restart is armed: ${p.reason} (asked by ${p.by} at ${new Date(p.at).toISOString()}), ${when}. Call it off: thetis restart cancel`;
 }
 
@@ -765,6 +809,67 @@ async function configCmd(call: Call, args: Args, user: string | undefined): Prom
     default:
       throw new Error(`unknown config subcommand: ${sub}`);
   }
+}
+
+/** A config file with only what differs from the defaults: nothing, or the door `--host` and `--port` name when they differ. */
+function saveMinimalConfig(home: string, args: Args): void {
+  const fallback = defaultConfig(home, PROJECT_ROOT).door;
+  const port = typeof args.port === "string" ? Number(args.port) : fallback.port;
+  if (!(Number.isInteger(port) && port > 0 && port < 65536)) throw new Error(`--port must be a port number, not ${args.port}`);
+  const door = { ...(typeof args.host === "string" && args.host !== fallback.host ? { host: args.host } : {}), ...(port !== fallback.port ? { port } : {}) };
+  writeJson(configPath(home), Object.keys(door).length ? { door } : {});
+}
+
+/** The kernel keys `loadConfig` lays over their default one key at a time; every other key replaces its default whole. */
+const MERGED_KEYS = ["storage", "fence", "door", "control"];
+
+/**
+ * `thetis config tidy`: takes out of the file every value equal to its default, and every package value the
+ * store's system layer holds over it (so it is never read). An older `init` wrote every default down, and a
+ * default written down no longer follows the default. What the installation runs on is the same before and
+ * after; the daemon reads the file again at its next `config reload` or start. `--dry-run` only says.
+ */
+async function tidyCmd(call: Call, args: Args, config: KernelConfig): Promise<void> {
+  const file = configPath(config.home);
+  if (!existsSync(file)) return print(`${file} does not exist, so there is nothing to tidy`);
+  const raw = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+  const { home: _h, projectRoot: _p, systemPackagesDir: _s, promotedPackagesDir: _pp, sharedDir: _sd, agentPath: _a, envFile: _e, packages: _pk, ...defaults } = defaultConfig(config.home, PROJECT_ROOT);
+  const filePackages = raw.packages && typeof raw.packages === "object" ? (raw.packages as Record<string, unknown>) : {};
+  // Which layer each package key's value comes from, as the kernel sees it; a package it cannot show is left alone.
+  const sources = new Map<string, Map<string, string | undefined>>();
+  for (const name of Object.keys(filePackages)) {
+    const report = (await call("config.show", { name }).catch(() => undefined)) as ConfigReport | undefined;
+    if (report) sources.set(name, new Map(report.keys.map((k) => [k.key, k.source])));
+  }
+  const declared = declaredDefaults([config.systemPackagesDir, config.promotedPackagesDir]);
+  const { next, removed } = tidyConfig({
+    file: raw,
+    defaults,
+    merged: MERGED_KEYS,
+    packageDefault: (name, key) => declared.get(name)?.[key],
+    // A plain object in the file is merged under the store's one key deep, so parts of it may still be read: kept.
+    shadowed: (name, key, value) => !(value && typeof value === "object" && !Array.isArray(value)) && sources.get(name)?.get(key) === "system",
+  });
+  const verb = args["dry-run"] === true ? "would remove" : "removed";
+  for (const r of removed) print(`${verb}\t${r.path}\t${r.why === "store" ? "the store holds this key, so the file's value is never read" : "equal to the default"}`);
+  // A list that replaces its default whole is kept whatever it holds, and the defaults it leaves out are named.
+  const list = (raw.systemPackages as Record<string, string[]> | undefined)?.["*"];
+  const missing = Array.isArray(list) ? (defaults.systemPackages["*"] ?? []).filter((n) => !list.includes(n)) : [];
+  if (missing.length) print(`note\tsystemPackages is kept: it replaces the default list whole, and does not have ${missing.join(", ")}`);
+  if (!removed.length) return print("nothing to remove: every value in the file differs from its default and is not shadowed by the store");
+  if (args["dry-run"] === true) return;
+  writeJson(file, next);
+  print(`${file} rewritten. Nothing the installation runs on changed; \`thetis config reload\` makes the daemon read the file again.`);
+}
+
+/** Each package's declared defaults (`thetis.config.<key>.default`), from the manifests under `bases`. */
+function declaredDefaults(bases: string[]): Map<string, Record<string, unknown>> {
+  const out = new Map<string, Record<string, unknown>>();
+  for (const { manifest } of bases.flatMap((base) => packagesIn(base, (dir) => JSON.parse(readFileSync(resolve(dir, "package.json"), "utf8")) as { name: string; thetis?: { config?: Record<string, { default?: unknown }> } }))) {
+    const decls = manifest.thetis?.config ?? {};
+    out.set(manifest.name, Object.fromEntries(Object.entries(decls).filter(([, d]) => d && d.default !== undefined).map(([k, d]) => [k, d.default])));
+  }
+  return out;
 }
 
 /** What `@thetis/package-publish` answers. Kept here as a shape and not as a dependency: see `publishCmd`. */
