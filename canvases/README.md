@@ -20,6 +20,8 @@ The manifest declares `type: "tool"`, `skills: "skills"`, seven `tools`, and a `
 
 `canvas` is an id (`c_` and 8 hexadecimal characters) or a canvas's exact title when exactly one has it.
 
+The `skills/canvases` skill carries the format the tools expect (the artboard rules, the props block, notes and pages, the order of work). Its children carry the craft, ported from the design canvas guidance and adapted to this format: `canvases/questions` (what to settle with the person first, and how to ask it with `ask_user`), `canvases/craft` (settling the look, the small system, options as artboards, layout that survives editing, accessibility, landing pages, phone screens, the content rules), `canvases/brand` (the Anthropic kit, for Anthropic or Claude work only) and `canvases/print` (posters, flyers and documents at paper sizes).
+
 | Slot | Id | Notes |
 |---|---|---|
 | `sidebar` (`slot: "section"`) | `canvases` | The Canvases section, order 20. Its rows are the chosen project's canvases, the global ones and the ones whose project is gone; under "All", every canvas with its project as a badge. ＋ makes one in the chosen project. Row menu: Rename, Move to a project, Make global, Delete. |

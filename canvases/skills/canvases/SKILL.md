@@ -1,9 +1,10 @@
 ---
 name: canvases
-description: How to build a canvas of HTML artboards with the canvas_* tools — what a canvas is, what the person edits themselves, the rules an artboard's HTML must keep (a fixed-size root, self-contained styles, assets by relative path, the props block), and the order of work. Use before writing or changing an artboard, or when asked for a design, a mockup, a screen, a poster or a wireframe.
+description: How to build a canvas of HTML artboards with the canvas_* tools. What a canvas is, what the person edits themselves, the rules an artboard's HTML keeps (a fixed-size root, self-contained styles, assets by relative path, the props block), and the order of work. Use before writing or changing an artboard, or when asked for a design, mockup, screen, poster or wireframe.
 metadata:
   title: Canvases
   tags: [canvas, artboard, design, mockup, wireframe, html, props, layout]
+  related: [canvases/craft, canvases/questions, canvases/brand, canvases/print]
   version: 1
 ---
 # Canvases
@@ -11,6 +12,8 @@ metadata:
 A canvas is a board the person opens from **Canvases** in the sidebar: artboards laid out on a pan-and-zoom surface, with sticky notes and titles between them, optionally grouped into pages. Each artboard is one self-contained HTML document you write, shown live in a sandboxed frame at the size of its frame. You make and revise canvases with the `canvas_*` tools from any conversation; the person pans, zooms, focuses one artboard, and edits the layout in place.
 
 Say "canvas" and "artboard" with the person. A canvas belongs to a project or is global; `canvas_create` puts it in this conversation's project unless told otherwise.
+
+This skill is the format. Its children carry the craft: `canvases/questions` (what to settle with the person before the first artboard), `canvases/craft` (designing well: the look, the system, variations, layout, accessibility, landing pages, phone screens, the content rules), `canvases/brand` (the Anthropic kit, only for Anthropic or Claude work) and `canvases/print` (posters, flyers, documents at paper sizes). Read `questions` and `craft` before anything more than a sketch.
 
 ## What the person changes themselves
 

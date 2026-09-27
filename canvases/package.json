@@ -1,6 +1,6 @@
 {
   "name": "@thetis/canvases",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "description": "Canvases: boards of HTML artboards and notes on a pan-and-zoom surface, made and revised by the agent with tools and by the person in a tab of the web gateway.",
   "type": "module",
