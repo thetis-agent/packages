@@ -107,13 +107,14 @@ export const deletePackage: Tool = async (args, env) => {
  * than `ask` so a stop still yields the partial text, and so no error of the child's becomes a thrown error
  * here: a throw from a tool carries its stack back to the model, and the child's failure is a result, not a bug.
  * A stop of the parent turn aborts `env.signal`, and the child is cancelled with it, so a stop cascades down
- * however deep the subagents go.
+ * however deep the subagents go. The child runs on the model of this conversation's turn (`env.model`), not
+ * the installation's default, unless `args.model` names another; `resume_subagent` keeps the same rule.
  */
 export const spawnSubagent: Tool = async (args, env) => {
   const child = await env.kernel.sessions.create(env.session.id);
   const head = headOf(child.id, args.label);
   if (env.signal?.aborted) return `${head}\nstopped: the parent was stopped before the subagent started.`;
-  return drive(env, child.id, head, String(args.task));
+  return drive(env, child.id, head, String(args.task), modelOf(args, env));
 };
 
 /**
@@ -133,8 +134,14 @@ export const resumeSubagent: Tool = async (args, env) => {
   const finished = record.interrupted ? null : finishedReply(record.conversation);
   if (finished !== null) return `${head}\n${finished}`;
   if (env.signal?.aborted) return `${head}\nstopped: the parent was stopped before the subagent resumed.`;
-  return drive(env, id, head, []);
+  return drive(env, id, head, [], modelOf(args, env));
 };
+
+/** The model a child turn runs on: the one the call named, else the parent turn's own; `undefined` leaves it to the configured default. */
+function modelOf(args: Record<string, unknown>, env: ToolEnv): string | undefined {
+  const named = typeof args.model === "string" ? args.model.trim() : "";
+  return named || env.model || undefined;
+}
 
 /** `[subagent <id> <label>]`, the label cleaned to one short line, or `[subagent <id>]` without one. */
 function headOf(id: string, label: unknown): string {
@@ -157,8 +164,8 @@ const HARNESS = "@thetis/harness-core";
 /** harness-core's retry event: `waiting` means the half-finished round was dropped and will be asked again. */
 const RETRY_EVENT = "harness-core.retry";
 
-/** Runs one turn of the child and says how it ended, in the result shape both tools share. */
-async function drive(env: ToolEnv, id: string, head: string, input: string | []): Promise<string> {
+/** Runs one turn of the child on `model` and says how it ended, in the result shape both tools share. */
+async function drive(env: ToolEnv, id: string, head: string, input: string | [], model: string | undefined): Promise<string> {
   let reply = "";
   let partial = "";
   let failure: { message: string; code?: string; retryable?: boolean } | undefined;
@@ -178,7 +185,7 @@ async function drive(env: ToolEnv, id: string, head: string, input: string | [])
         partial = "";
       } else if (e.type === "error") failure = { message: e.message, code: e.code, retryable: (e as { retryable?: boolean }).retryable === true };
       else if (e.type === "yield") yielded = String((e as { why?: unknown }).why ?? "") || "restart";
-    }, undefined, env.signal);
+    }, model ? { model } : undefined, env.signal);
   } catch (err) {
     const code = (err as { code?: string })?.code;
     if (code === "busy") return `${head}\nbusy: the subagent is running a turn already. Wait, then call resume_subagent again if it stops.`;

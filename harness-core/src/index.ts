@@ -595,7 +595,7 @@ async function runTool(ctx: PackageStepContext, call: ProviderCall, tc: ToolCall
     // wait nobody is watching is the thing this whole section exists to make impossible, and "it is only a
     // config read" is exactly how one gets left out.
     const config = await untilAborted(bound, ctx.env.kernel.config.effective(spec.package));
-    const raw = await untilAborted(bound, ctx.env.invokeTool(spec, tc.args, { session: ctx.session, config, signal: bound }));
+    const raw = await untilAborted(bound, ctx.env.invokeTool(spec, tc.args, { session: ctx.session, config, model: call.model, signal: bound }));
     content = toolContent(raw);
   } catch (err) {
     if (ctx.signal.aborted) return undefined;
@@ -623,7 +623,7 @@ async function beforeRound(ctx: PackageStepContext, args: RoundHookArgs): Promis
   if (!ref) return undefined;
   try {
     const config = await untilAborted(ctx.signal, ctx.env.kernel.config.effective(ref.package));
-    const raw = await untilAborted(ctx.signal, ctx.env.invokeTool({ ...ref, name: "beforeRound" }, args as unknown as Record<string, unknown>, { session: ctx.session, config, signal: ctx.signal }));
+    const raw = await untilAborted(ctx.signal, ctx.env.invokeTool({ ...ref, name: "beforeRound" }, args as unknown as Record<string, unknown>, { session: ctx.session, config, model: args.call.model, signal: ctx.signal }));
     if (raw === undefined || raw === null) return undefined;
     const parsed = RoundHookResultSchema.safeParse(raw);
     if (parsed.success) return parsed.data as RoundHookResult;
