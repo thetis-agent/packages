@@ -4,19 +4,20 @@ The tools that let the model see and change what is installed in its own userspa
 
 ## What it provides
 
-Nine tools, declared in `thetis.tools`:
+Ten tools, declared in `thetis.tools`:
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `list_packages` | `type` (optional: only packages of that type) | `N packages installed in your userspace:` then one line per package: `- <name>@<version> (<type>): <description> steps[phase:export, …] tools[…] bench[…] service fork of <name>@<version>`. A fork's clause says how far its origin has moved: `fork of @thetis/gateway-web@0.1.1, 0.2.0 is shipped now (unfork_package)`, or, when the copy changed nothing at all, `identical to the shipped 0.2.0: it is carrying no change and will see no further fix (unfork_package)`. The version is the one on disk; when the fence this turn runs in read an older one, the line ends `(loaded 0.2.1, 0.2.2 on disk: a workspace reload applies it)`. This is the list the system prompt used to carry on every call; the prompt now points here instead. |
-| `install_package` | `source` (required): a path relative to home, a git URL, or `url#dir` | `installed <name>@<version> (<type>); steps: ...; tools: ...; replaced <name>. Live on the next turn.` |
+| `list_packages` | `type` (optional: only packages of that type) | `N packages installed in your userspace:` then one line per package: `- <name>@<version> (<type>): <description> steps[phase:export, …] tools[…] bench[…] service fork of <name>@<version>`. A fork's clause says how far its origin has moved: `fork of @thetis/gateway-web@0.1.1, 0.2.0 is shipped now (unfork_package)`, or, when the copy changed nothing at all, `identical to the shipped 0.2.0: it is carrying no change and will see no further fix (unfork_package)`. The version is the one on disk; when the fence this turn runs in read an older one, the line ends `(update ready: 0.2.1 runs until this reply ends)`. This is the list the system prompt used to carry on every call; the prompt now points here instead. |
+| `install_package` | `source` (required): a path relative to home, a git URL, or `url#dir` | `installed <name>@<version> (<type>); steps: ...; tools: ...; replaced <name>. It takes effect when this reply ends.` The space applies the change once no reply is running. |
 | `uninstall_package` | `name` (required) | `uninstalled <name>`. The files stay. When the package was a fork, the original comes back. |
 | `fork_package` | `name` (required, an installed package), `as` (directory under `packages/`; default the unscoped name) | `forked <name>@<version> to packages/<as> as @<you>/<as>@<version>-fork.N ...` and the next step. Does not install. |
-| `unfork_package` | `name` (required, an installed fork), `deleteFiles` (default false) | `<name> is no longer installed; its files were kept. <origin>@<version> is back in its place.` The inverse of `fork_package`: the origin comes back with every change it has had since. Refused when the origin is not on disk here, which is what makes it safe to run on a forked gateway. |
-| `delete_package` | `name` (required) | `deleted <name> and its files at <path>; <original> is back in place. Live on the next turn.` Refuses `@thetis/*` packages. |
+| `unfork_package` | `name` (required, an installed fork), `deleteFiles` (default false) | `<name> is no longer installed; its files were kept. <origin>@<version> is back in its place. It takes effect when this reply ends.` The inverse of `fork_package`: the origin comes back with every change it has had since. Refused when the origin is not on disk here, which is what makes it safe to run on a forked gateway. |
+| `delete_package` | `name` (required) | `deleted <name> and its files at <path>; <original> is back in place. It takes effect when this reply ends.` Refuses `@thetis/*` packages. |
 | `package_config` | `name` (required) | The package's `ConfigReport` as text: the summary sentence, the fork chain it inherits from, one line per key (`key: state [source, inherited from X] = value`), and each declared key's help. A secret is `•••`. |
 | `configure_package` | `name`, `key` (required), `value`, `unset`, `json` | `set <key> on <name>: now <state> [<source>]. <name>: <summary>.` and `The service was restarted.` when the package declares a service. With `unset: true` the key leaves the person's layer and the reply says what it falls back to. `json: true` parses `value`. The reply never repeats the value. |
-| `spawn_subagent` | `task` (required), `label` (a short name the person sees, such as `research`) | `[subagent <session id> <label>]` on the first line, or `[subagent <session id>]` without a label, then the subagent's final reply. The subagent runs in the same userspace with the same files and packages. Stopping the parent turn stops it: the tool runs with `env.signal` and cancels the child when the signal aborts. A subagent may spawn subagents. |
+| `spawn_subagent` | `task` (required), `label` (a short name the person sees, such as `research`) | `[subagent <session id> <label>]` on the first line, or `[subagent <session id>]` without a label, then the subagent's final reply. The subagent runs in the same userspace with the same files and packages. Stopping the parent turn stops it: the tool runs with `env.signal` and cancels the child when the signal aborts. A subagent may spawn subagents. A failed child's result ends with how to go on: `Its work so far is kept. To continue it instead of starting again, call resume_subagent with id <id>.` when its error was marked `retryable` or its record kept the turn as `interrupted`, else `Files it wrote before failing are still there; look before starting the work again.` |
+| `resume_subagent` | `id` (required: the child's session id, or its whole `[subagent …]` line), `label` (optional, to name it the same way) | The same shape as `spawn_subagent`. It runs a turn with no input on the child, `sessions.send(id, [])`: the turn goes on from the saved conversation, adds no message, and does nothing again that had finished. It refuses a session that is not a child of this conversation. A child whose last turn finished is not run: its last reply is the answer. A child with a turn running answers `busy: …`. |
 
 Bench suites: `assembly-cost@1` and `tool-recall@1`, peer group `tools`. `BENCH.md` in this directory is the generated comparison.
 
@@ -58,14 +59,20 @@ spawn_subagent { task: "Read packages/gateway-cli/README.md and list every comma
 
 The reply begins `[subagent s_… cli survey]`. Readers parse that line with `/^\[subagent (s_[a-f0-9]+)(?: ([^\]]*))?\]/`; the web gateway uses it to tie the child's record to the call that spawned it. A stopped child answers `stopped: the subagent was stopped before it finished.` on the second line, with what it had said so far after that; a failed one answers `error: <message>` there.
 
+A child's turn that loses its connection to the model is retried inside the turn by `@thetis/harness-core`. Each retry drops the half-finished round, and the tool drops that round's text from "what it had said so far" when the `harness-core.retry` event with phase `waiting` arrives. When the retries run out, the error result says the child can be continued:
+
+```
+resume_subagent { id: "s_1a2b3c4d5e6f", label: "cli survey" }
+```
+
 ## Files
 
 | File | Content |
 |---|---|
-| `package.json` | The manifest: nine tools and the bench declaration. |
-| `src/index.ts` | The nine tool functions. Forking is `forkPackage` from `@thetis/runtime/lib/pkg-fs`; install, uninstall and delete go through `env.kernel.packages`; subagents through `env.kernel.sessions`, with the cancel cascade on `env.signal`. |
+| `package.json` | The manifest: ten tools and the bench declaration. |
+| `src/index.ts` | The ten tool functions. Forking is `forkPackage` from `@thetis/runtime/lib/pkg-fs`; install, uninstall and delete go through `env.kernel.packages`; subagents through `env.kernel.sessions`, with the cancel cascade on `env.signal`. |
 | `BENCH.md`, `bench/` | The generated benchmark view and reports. |
 
 ## Tests
 
-The package has no test directory of its own. `npm test` from the runtime root covers it through the host tests: `test/host/e2e.test.ts` runs the write, exec and install cycle through a real fence, and `packages/gateway-web/test/gateway.test.ts` spawns a subagent with the echo provider's `spawn:` cue, checks the result line and the child's record, and stops the parent while the child streams.
+`npm run build` compiles `test/` beside `src/`; `npm test` runs them. `test/list.test.ts` covers the package lines and the `update ready` suffix; `test/config.test.ts` the configuration tools; `test/subagent.test.ts` the stop cascade, the retry reset of the partial text, the `resume_subagent` hint on a failure, and `resume_subagent` itself (a turn with no input, a finished child not run again, a running child, a session of another conversation). `test/host/e2e.test.ts` at the runtime root runs the write, exec and install cycle through a real fence, and `packages/gateway-web/test/gateway.test.ts` spawns a subagent with the echo provider's `spawn:` cue.

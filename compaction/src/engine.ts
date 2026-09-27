@@ -87,6 +87,12 @@ export function recordFailure(state: CompactionState, at: string, trigger: Trigg
   };
 }
 
+/** The state after a person resumed a paused conversation: the failure budget fresh, the summary and the ledger as they were. */
+export function resumeState(state: CompactionState): CompactionState {
+  const { lastFailure: _lastFailure, ...rest } = state;
+  return { ...rest, failures: 0 };
+}
+
 /** The state after a reset: nothing summarized, the failure budget fresh, the ledger remembering it happened. */
 export function resetState(state: CompactionState, at: string): CompactionState {
   const { last: _last, lastFailure: _lastFailure, ...rest } = state;

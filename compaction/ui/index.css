@@ -7,6 +7,7 @@
 /* --- the chip: the mono `ctx 14%`, amber from 60% of the window, red from the trigger --- */
 .cmp-chip.is-warn { color: var(--warn); }
 .cmp-chip.is-err { color: var(--err); }
+.cmp-chip.is-paused { color: var(--warn); }
 .cmp-chip.is-busy { color: var(--accent); animation: pulse 1.4s var(--ease) infinite; }
 
 /* --- the dock --- */

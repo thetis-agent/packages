@@ -1,15 +1,17 @@
 {
   "name": "@thetis/tool-exec",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "license": "MIT",
   "description": "Tools for the model: install, fork, remove, delete and configure packages, and spawn subagents in your own space. Running commands is @thetis/terminal.",
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "test": "node --test \"dist/test/*.test.js\""
   },
   "thetis": {
     "type": "tool",
+    "label": "extensions and helper chats",
     "tools": [
       {
         "name": "list_packages",
@@ -23,11 +25,12 @@
             }
           }
         },
-        "export": "listPackages"
+        "export": "listPackages",
+        "reads": true
       },
       {
         "name": "install_package",
-        "description": "Install a package into your userspace from a directory path (relative to home) or a git URL. The package must have a package.json with a thetis field and be scoped @<you>/<name>. It becomes live on the next turn.",
+        "description": "Install a package into your userspace from a directory path (relative to home) or a git URL. The package must have a package.json with a thetis field and be scoped @<you>/<name>. It takes effect when this reply ends.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -39,7 +42,8 @@
             "source"
           ]
         },
-        "export": "installPackage"
+        "export": "installPackage",
+        "reads": false
       },
       {
         "name": "uninstall_package",
@@ -55,7 +59,8 @@
             "name"
           ]
         },
-        "export": "uninstallPackage"
+        "export": "uninstallPackage",
+        "reads": false
       },
       {
         "name": "fork_package",
@@ -76,7 +81,8 @@
             "name"
           ]
         },
-        "export": "forkPackage"
+        "export": "forkPackage",
+        "reads": false
       },
       {
         "name": "unfork_package",
@@ -97,7 +103,8 @@
             "name"
           ]
         },
-        "export": "unforkPackage"
+        "export": "unforkPackage",
+        "reads": false
       },
       {
         "name": "delete_package",
@@ -113,7 +120,8 @@
             "name"
           ]
         },
-        "export": "deletePackage"
+        "export": "deletePackage",
+        "reads": false
       },
       {
         "name": "package_config",
@@ -130,7 +138,8 @@
             "name"
           ]
         },
-        "export": "packageConfig"
+        "export": "packageConfig",
+        "reads": true
       },
       {
         "name": "configure_package",
@@ -164,12 +173,13 @@
             "key"
           ]
         },
-        "export": "configurePackage"
+        "export": "configurePackage",
+        "reads": false
       },
       {
         "name": "spawn_subagent",
         "concurrent": true,
-        "description": "Start a subagent session in your userspace (same files and packages), send it a task, and return its final reply. Several spawn_subagent calls in one reply run at the same time. The person watches the subagent work under its label. The first line of the result names it: [subagent <id> <label>]. Stopping your turn stops the subagent. A subagent may spawn subagents of its own.",
+        "description": "Start a subagent session in your userspace (same files and packages), send it a task, and return its final reply. Several spawn_subagent calls in one reply run at the same time. The person watches the subagent work under its label. The first line of the result names it: [subagent <id> <label>]. Stopping your turn stops the subagent. A subagent may spawn subagents of its own. When a subagent fails part-way and the result says it can be continued, use resume_subagent rather than spawning a new one.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -185,7 +195,31 @@
             "task"
           ]
         },
-        "export": "spawnSubagent"
+        "export": "spawnSubagent",
+        "reads": false
+      },
+      {
+        "name": "resume_subagent",
+        "concurrent": true,
+        "description": "Continue a subagent of this conversation from where its last turn stopped, for example after a dropped connection or a restart. Nothing it finished is done again and no message is added. The result has the same shape as spawn_subagent's. A subagent that had already finished answers with its last reply.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The subagent's session id, from the first line of its result: [subagent <id> ...]"
+            },
+            "label": {
+              "type": "string",
+              "description": "The short name it was given, so the result line names it the same way."
+            }
+          },
+          "required": [
+            "id"
+          ]
+        },
+        "export": "resumeSubagent",
+        "reads": false
       }
     ],
     "bench": {

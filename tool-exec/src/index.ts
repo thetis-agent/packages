@@ -4,11 +4,14 @@ import { contentText } from "@thetis/runtime/lib/content";
 // person can see; reading, editing and searching files is @thetis/tools-files. Everything here acts
 // inside the fence through the agent's env.
 import { resolve } from "node:path";
-import type { ConfigKeyState, ConfigReport, PackageInfo, Tool, ToolEnv } from "@thetis/runtime/contracts";
+import type { ConfigKeyState, ConfigReport, Message, PackageInfo, Tool, ToolEnv } from "@thetis/runtime/contracts";
 import { forkPackage as copyFork, forkVersion } from "@thetis/runtime/lib/pkg-fs";
 
 /** One path segment, as the kernel accepts in a package name. Keeps `as` from leaving packages/. */
 const DIR_NAME = /^[a-z0-9._-]+$/;
+
+/** When a change to what is installed reaches the running code: the space applies it once no reply is running. */
+const TAKES_EFFECT = "It takes effect when this reply ends.";
 
 /** A phase no production configuration lists. Its steps cannot run here, so naming them would mislead. */
 const BENCH_PHASE = "bench";
@@ -31,8 +34,9 @@ export const listPackages: Tool = async (args, env) => {
       // why a person is not seeing a change that shipped.
       const fork = forkLine(p.fork ?? p.forkedFrom);
       // The fence read its version when it opened; the files have moved on since. Said here because the
-      // version on the line is the one on disk, which is not the one this turn is running.
-      const loaded = p.loadedVersion && p.loadedVersion !== p.version ? ` (loaded ${p.loadedVersion}, ${p.version} on disk: a workspace reload applies it)` : "";
+      // version on the line is the one on disk, which is not the one this turn is running. It is applied
+      // when the turn ends, so the model has nothing to ask for.
+      const loaded = p.loadedVersion && p.loadedVersion !== p.version ? ` (update ready: ${p.loadedVersion} runs until this reply ends)` : "";
       return `- ${p.name}@${p.version} (${p.type})${p.description ? `: ${p.description}` : ""}${steps ? ` steps[${steps}]` : ""}${tools ? ` tools[${tools}]` : ""}${bench ? ` bench[${bench}]` : ""}${p.thetis.service ? " service" : ""}${fork}${loaded}`;
     });
   if (!lines.length) return wanted ? `no ${wanted} packages are installed in your userspace` : "no packages are installed in your userspace";
@@ -54,7 +58,7 @@ function forkLine(fork: PackageInfo["fork"] | undefined): string {
 export const installPackage: Tool = async (args, env) => {
   const info = await env.kernel.packages.install(String(args.source));
   const replaced = info.replaced ? `; replaced ${info.replaced}` : "";
-  return `installed ${info.name}@${info.version} (${info.type})${brings(info.thetis)}${replaced}. Live on the next turn.`;
+  return `installed ${info.name}@${info.version} (${info.type})${brings(info.thetis)}${replaced}. ${TAKES_EFFECT}`;
 };
 
 export const uninstallPackage: Tool = async (args, env) => {
@@ -88,12 +92,12 @@ export const unforkPackage: Tool = async (args, env) => {
   const name = String(args.name);
   const back = await env.kernel.packages.unfork(name, args.deleteFiles === true);
   const files = args.deleteFiles === true ? " and its files were deleted" : "; its files were kept";
-  return `${name} is no longer installed${files}. ${back.name}@${back.version} is back in its place. Live on the next turn.`;
+  return `${name} is no longer installed${files}. ${back.name}@${back.version} is back in its place. ${TAKES_EFFECT}`;
 };
 
 export const deletePackage: Tool = async (args, env) => {
   const r = await env.kernel.packages.delete(String(args.name));
-  return `deleted ${r.name} and its files at ${r.path}${r.restored ? `; ${r.restored} is back in place` : ""}. Live on the next turn.`;
+  return `deleted ${r.name} and its files at ${r.path}${r.restored ? `; ${r.restored} is back in place` : ""}. ${TAKES_EFFECT}`;
 };
 
 /**
@@ -107,34 +111,95 @@ export const deletePackage: Tool = async (args, env) => {
  */
 export const spawnSubagent: Tool = async (args, env) => {
   const child = await env.kernel.sessions.create(env.session.id);
-  const label = typeof args.label === "string" ? args.label.replace(/[\]\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) : "";
-  const head = `[subagent ${child.id}${label ? ` ${label}` : ""}]`;
+  const head = headOf(child.id, args.label);
   if (env.signal?.aborted) return `${head}\nstopped: the parent was stopped before the subagent started.`;
+  return drive(env, child.id, head, String(args.task));
+};
+
+/**
+ * Continues a subagent of this conversation from where its last turn stopped: a turn with no input, which
+ * runs over the saved conversation and adds no message, so nothing it finished is done again. The result has
+ * the same shape as `spawn_subagent`'s. A child whose last turn finished is not run again: its last reply is
+ * the answer, because a turn with no input after a finished reply would ask the model to go on from its own
+ * last word.
+ */
+export const resumeSubagent: Tool = async (args, env) => {
+  const id = /s_[a-f0-9]+/.exec(String(args.id ?? ""))?.[0];
+  if (!id) throw new Error("id must be a subagent session id, such as s_1a2b3c4d5e6f");
+  const record = await env.kernel.sessions.inspect(id);
+  if (record.parent !== env.session.id) throw new Error(`${id} is not a subagent of this conversation`);
+  const head = headOf(id, args.label);
+  if (record.status === "running") return `${head}\nbusy: the subagent is running a turn already. Wait, then call resume_subagent again if it stops.`;
+  const finished = record.interrupted ? null : finishedReply(record.conversation);
+  if (finished !== null) return `${head}\n${finished}`;
+  if (env.signal?.aborted) return `${head}\nstopped: the parent was stopped before the subagent resumed.`;
+  return drive(env, id, head, []);
+};
+
+/** `[subagent <id> <label>]`, the label cleaned to one short line, or `[subagent <id>]` without one. */
+function headOf(id: string, label: unknown): string {
+  const clean = typeof label === "string" ? label.replace(/[\]\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) : "";
+  return `[subagent ${id}${clean ? ` ${clean}` : ""}]`;
+}
+
+/** The text of a conversation's last message when it is a finished assistant reply: no tool calls, not marked cut off. */
+function finishedReply(conversation: Message[] | undefined): string | null {
+  const last = conversation?.at(-1);
+  if (!last || last.role !== "assistant" || last.toolCalls?.length) return null;
+  const mark = (last.extensions as Record<string, { partial?: boolean } | undefined> | undefined)?.[HARNESS];
+  if (mark?.partial) return null;
+  const text = contentText(last.content);
+  return text.trim() ? text : null;
+}
+
+/** harness-core's key on a message, where it marks a reply cut off part-way as `partial`. */
+const HARNESS = "@thetis/harness-core";
+/** harness-core's retry event: `waiting` means the half-finished round was dropped and will be asked again. */
+const RETRY_EVENT = "harness-core.retry";
+
+/** Runs one turn of the child and says how it ended, in the result shape both tools share. */
+async function drive(env: ToolEnv, id: string, head: string, input: string | []): Promise<string> {
   let reply = "";
   let partial = "";
-  let failure: { message: string; code?: string } | undefined;
+  let failure: { message: string; code?: string; retryable?: boolean } | undefined;
   try {
-    await env.kernel.sessions.send(child.id, String(args.task), (e) => {
+    await env.kernel.sessions.send(id, input, (e) => {
       if (e.type === "text") partial += e.delta;
       else if (e.type === "message" && e.message.role === "assistant") {
         if (contentText(e.message.content).trim()) reply = contentText(e.message.content);
         partial = "";
-      } else if (e.type === "error") failure = { message: e.message, code: e.code };
+      } else if (e.type === "extension" && e.name === RETRY_EVENT && (e.data as { phase?: string } | undefined)?.phase === "waiting") {
+        // The round is asked again from its start, so what it had said is not said any more.
+        partial = "";
+      } else if (e.type === "error") failure = { message: e.message, code: e.code, retryable: (e as { retryable?: boolean }).retryable === true };
     }, undefined, env.signal);
   } catch (err) {
-    if (!env.signal?.aborted && (err as { code?: string })?.code !== "cancelled") throw err;
+    const code = (err as { code?: string })?.code;
+    if (code === "busy") return `${head}\nbusy: the subagent is running a turn already. Wait, then call resume_subagent again if it stops.`;
+    if (!env.signal?.aborted && code !== "cancelled") throw err;
     failure = { message: "the subagent was stopped", code: "cancelled" };
   }
-  if (failure?.code === "cancelled") {
-    const said = partial.trim() || reply.trim();
-    return `${head}\nstopped: the subagent was stopped before it finished.${said ? `\nWhat it had said so far:\n${said}` : ""}`;
-  }
+  const said = partial.trim() || reply.trim();
+  const sofar = said ? `\nWhat it had said so far:\n${said}` : "";
+  if (failure?.code === "cancelled") return `${head}\nstopped: the subagent was stopped before it finished.${sofar}`;
   if (failure) {
-    const said = partial.trim() || reply.trim();
-    return `${head}\nerror: ${failure.message}${said ? `\nWhat it had said so far:\n${said}` : ""}\nFiles it wrote before failing are still there; look before starting the work again.`;
+    const next = (await resumable(env, id, failure))
+      ? `\nIts work so far is kept. To continue it instead of starting again, call resume_subagent with id ${id}.`
+      : "\nFiles it wrote before failing are still there; look before starting the work again.";
+    return `${head}\nerror: ${failure.message}${sofar}${next}`;
   }
   return `${head}\n${reply}`;
-};
+}
+
+/** Whether a failed child can be continued: its error said so, or its record kept the turn as interrupted. */
+async function resumable(env: ToolEnv, id: string, failure: { retryable?: boolean }): Promise<boolean> {
+  if (failure.retryable) return true;
+  try {
+    return Boolean((await env.kernel.sessions.inspect(id)).interrupted);
+  } catch {
+    return false;
+  }
+}
 
 /** The report as text: the summary, then one line per key, then its help. A secret is `•••`, never its value. */
 export const packageConfig: Tool = async (args, env) => {

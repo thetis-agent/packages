@@ -209,11 +209,12 @@ test("stop lets go of a running run without cancelling it; the next start resume
   assert.equal(onDisk.state, "running");
   await assert.rejects(uiCall({ op: "list" }, { root: f.home }), /the workflow service is not running/);
 
-  // the conversation is left with a user message last, so the restart sends the continue message
+  // the conversation is left with a user message last, so the restart goes on with a turn that has no input
   const again = await startWorkflows(f.env);
   t.after(() => again.stop());
-  await until(() => kernel.sends.length === 2, 2000, "the continue message");
-  assert.match(kernel.sends[1].input, /interrupted/);
+  await until(() => kernel.sends.length === 2, 2000, "the resume");
+  assert.deepEqual(kernel.sends[1].input, []);
+  assert.equal(kernel.sends[1].session, kernel.sends[0].session);
 });
 
 test("uiCall checks the op, and uiWatch yields the snapshot then events", async (t) => {

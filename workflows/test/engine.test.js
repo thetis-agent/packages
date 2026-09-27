@@ -1,7 +1,7 @@
 // The engine against a fake kernel: no socket, no queue, one run at a time.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CONTINUE_MESSAGE, DEFAULT_NUDGE, decide, executeRun, retry } from "../lib/engine.js";
+import { DEFAULT_NUDGE, RESUME_LIMIT, RETRY_MESSAGE, decide, executeRun, nextMove, retry } from "../lib/engine.js";
 import { newRun } from "../lib/runs.js";
 import { normalise } from "../lib/definition.js";
 import { fakeKernel, makeEnv, reply, text, toolCall } from "./helpers.js";
@@ -14,7 +14,7 @@ async function go(t, definition, script, { input = "https://notion.so/bug-a", ca
   t.after(f.done);
   run = run ?? newRun({ definition, input, number: 1, costCapUsd: cap, id: "r_0000000001" });
   const saves = [];
-  const deps = { kernel, env: f.env, save: (r) => saves.push(structuredClone(r)), touch: () => {}, user: "alice", graceMs: 2000, transientWaitMs: 1 };
+  const deps = { kernel, env: f.env, save: (r) => saves.push(structuredClone(r)), touch: () => {}, user: "alice", graceMs: 2000, pollMs: 5, yieldPauseMs: 1 };
   await executeRun(run, definition, deps);
   return { run, kernel, env: f.env, home: f.home, invoked: f.invoked, saves, deps };
 }
@@ -213,34 +213,76 @@ test("an error event fails the step and the run", async (t) => {
   assert.equal(run.history[0].status, "failed");
 });
 
-test("provider trouble continues the same conversation, keeping the step's budget; the third time fails", async (t) => {
+test("a turn that ends in an error fails the step at once: retrying the connection is the harness's work, inside the turn", async (t) => {
   const definition = def({ work: { type: "prompt", model: "opus", prompt: "x", budget: { toolCalls: 3 }, next: "finish" }, finish: { type: "done", summary: "{{work.text}}" } });
-  const timeout = { type: "error", message: "provider error: no response from openrouter within 180s", code: "provider" };
-  const { run, kernel } = await go(t, definition, (call) => (call.n === 0 ? [toolCall("read"), toolCall("read"), timeout] : reply("Plan written.")));
+  const timeout = { type: "error", message: "the connection to the model kept dropping (5 tries)", code: "provider", retryable: true };
+  const { run, kernel } = await go(t, definition, () => [toolCall("read"), timeout]);
+  assert.equal(run.state, "failed");
+  assert.equal(kernel.sends.length, 1, "no second send, and no continue message");
+  assert.match(run.reason, /kept dropping/);
+});
+
+test("a turn cut by an update goes on with a turn that has no input, keeping the step's budget", async (t) => {
+  const definition = def({ work: { type: "prompt", model: "opus", prompt: "x", budget: { toolCalls: 3 }, next: "finish" }, finish: { type: "done", summary: "{{work.text}}" } });
+  const { run, kernel } = await go(t, definition, (call) => (call.n === 0 ? [toolCall("read"), { cut: "reload" }] : reply("Plan written.")));
   assert.equal(run.state, "done", run.reason);
   assert.equal(run.reason, "Plan written.");
   assert.equal(kernel.sends.length, 2);
   assert.equal(kernel.sends[1].session, kernel.sends[0].session);
-  assert.equal(kernel.sends[1].input, CONTINUE_MESSAGE);
-  assert.equal(run.history[0].breaches, 0);
+  assert.deepEqual(kernel.sends[1].input, [], "the resume adds no message");
+  assert.match(run.history[0].note, /update of the space/);
 
-  // The budget carries across the continuation: two calls before the trouble, two after, over a budget of three.
-  const over = await go(t, definition, (call) => (call.n === 0 ? [toolCall("a"), toolCall("b"), timeout] : call.n === 1 ? [toolCall("c"), toolCall("d")] : reply("ok")));
+  // The budget carries across the resume: two calls before the cut, two after, over a budget of three.
+  const over = await go(t, definition, (call) => (call.n === 0 ? [toolCall("a"), toolCall("b"), { cut: "restart" }] : call.n === 1 ? [toolCall("c"), toolCall("d")] : reply("ok")));
   assert.equal(over.run.history[0].breaches, 1, "the carried count breached the budget");
 
-  const down = await go(t, definition, () => [timeout]);
+  // A turn that is cut every time fails the step after the limit.
+  const down = await go(t, definition, () => [{ cut: "crash" }]);
   assert.equal(down.run.state, "failed");
-  assert.equal(down.kernel.sends.length, 3);
-  assert.match(down.run.reason, /no response from openrouter/);
+  assert.equal(down.kernel.sends.length, RESUME_LIMIT + 1);
+
+  // A person's Stop is not a cut: the record keeps no interrupted turn, and the step fails.
+  const stopped = await go(t, definition, () => [{ type: "error", message: "turn cancelled", code: "cancelled" }]);
+  assert.equal(stopped.run.state, "failed");
+  assert.equal(stopped.kernel.sends.length, 1);
 });
 
-test("retrying a run at the prompt step it failed in continues that conversation", async (t) => {
+test("a turn that gives way to a restart waits until Thetis is steady, then goes on with no input", async (t) => {
+  const definition = def({ work: { type: "prompt", model: "opus", prompt: "x", next: "finish" }, finish: { type: "done", summary: "{{work.text}}" } });
+  const kernel = fakeKernel((call) => (call.n === 0 ? [toolCall("read"), { type: "yield", why: "restart" }] : reply("Finished after the restart.")));
+  let asks = 0;
+  kernel.turns = { yielding: async () => (++asks < 3 ? { why: "restart" } : false) };
+  const f = await makeEnv({ kernel });
+  t.after(f.done);
+  const run = newRun({ definition, input: "x", number: 1, costCapUsd: 40, id: "r_0000000002" });
+  await executeRun(run, definition, { kernel, env: f.env, save: () => {}, pollMs: 1 });
+  assert.equal(run.state, "done", run.reason);
+  assert.equal(run.reason, "Finished after the restart.");
+  assert.equal(asks, 3, "it asked until the restart was no longer pending");
+  assert.deepEqual(kernel.sends[1].input, []);
+});
+
+test("a budget or cost cut cancels with the reason budget", async (t) => {
+  const definition = def({ work: { type: "prompt", model: "opus", prompt: "x", budget: { toolCalls: 1 }, next: "finish" }, finish: { type: "done", summary: "" } });
+  const { kernel } = await go(t, definition, (call) => (call.n === 0 ? [toolCall("a"), toolCall("b"), { hang: true }] : reply("ok")));
+  assert.deepEqual(kernel.cancelOpts, [{ why: "budget" }]);
+});
+
+test("retrying a run at the prompt step it failed in goes on in that conversation", async (t) => {
   const definition = def({ work: { type: "prompt", model: "opus", prompt: "x", conversation: "new", next: "finish" }, finish: { type: "done", summary: "{{work.text}}" } });
   let down = true;
-  const { run, kernel, deps } = await go(t, definition, () => (down ? [{ type: "error", message: "provider error: 503", code: "provider" }] : reply("Recovered.")));
+  const kernel = fakeKernel(() => (down ? [{ type: "error", message: "the connection kept dropping", code: "provider" }] : reply("Recovered.")));
+  const f = await makeEnv({ kernel });
+  t.after(f.done);
+  const run = newRun({ definition, input: "x", number: 1, costCapUsd: 40, id: "r_0000000003" });
+  const deps = { kernel, env: f.env, save: () => {}, pollMs: 1 };
+  await executeRun(run, definition, deps);
   assert.equal(run.state, "failed");
   const conversation = run.history[0].conversation;
-  const opened = kernel.creates ?? null;
+
+  // The kernel kept the failed turn as interrupted: the retry goes on from it with no input.
+  const rec = await kernel.sessions.inspect(conversation);
+  kernel.sessions._set(conversation, { ...rec, interrupted: { turn: "t_0", at: "", error: { message: "cut" }, why: "provider" } });
   down = false;
   retry(run, definition);
   assert.equal(run.state, "queued");
@@ -249,10 +291,19 @@ test("retrying a run at the prompt step it failed in continues that conversation
   assert.equal(run.state, "done", run.reason);
   assert.equal(run.reason, "Recovered.");
   assert.equal(kernel.sends.at(-1).session, conversation);
-  assert.equal(kernel.sends.at(-1).input, CONTINUE_MESSAGE);
+  assert.deepEqual(kernel.sends.at(-1).input, []);
   assert.equal(run.conversations.length, 1, "no new conversation");
   assert.equal(run.resume, undefined);
-  void opened;
+
+  // Retried when its conversation ended on a reply, there is nothing cut to go on from: it is asked to carry on.
+  run.history.pop();
+  run.history[0].status = "failed";
+  run.state = "failed";
+  run.step = "work";
+  retry(run, definition);
+  await executeRun(run, definition, deps);
+  assert.equal(kernel.sends.at(-1).input, RETRY_MESSAGE);
+  assert.equal(run.state, "done", run.reason);
 
   // From another step, or a step that never opened a conversation, a retry starts that step afresh.
   run.state = "failed";
@@ -320,9 +371,9 @@ test("resume: an idle conversation whose last message is an assistant reply coun
   assert.equal(run.history[0].status, "done");
 });
 
-test("resume: otherwise the running turn is cancelled and the continue message is sent once", async (t) => {
+test("resume: a turn still running is waited for, never cancelled, and its reply is the step's result", async (t) => {
   const definition = def({ work: { type: "prompt", model: "opus", prompt: "x", budget: { toolCalls: 9 }, next: "finish" }, finish: { type: "done", summary: "{{work.text}}" } });
-  const kernel = fakeKernel(() => reply("Picked it back up."));
+  const kernel = fakeKernel(() => reply("should not be sent"));
   const f = await makeEnv({ kernel });
   t.after(f.done);
   kernel.sessions._set("s_prev02", { status: "running", conversation: [{ role: "user", content: text("x") }] });
@@ -330,19 +381,89 @@ test("resume: otherwise the running turn is cancelled and the continue message i
   let asked = 0;
   kernel.sessions.inspect = async (id) => {
     const rec = await inspect(id);
-    if (asked++ > 0) rec.status = "idle"; // the cancel lands
+    if (++asked > 2) {
+      // The other turn (the harness's own resume after a restart) finishes with a reply.
+      rec.status = "idle";
+      rec.conversation.push({ role: "assistant", content: text("Picked it back up.") });
+    }
     return rec;
   };
   const run = leftRunning(definition, "s_prev02");
+  await executeRun(run, definition, { kernel, env: f.env, save: () => {}, resume: true, pollMs: 1 });
+  assert.equal(run.state, "done", run.reason);
+  assert.deepEqual(kernel.cancels, [], "a running turn is never cancelled to resume it");
+  assert.equal(kernel.sends.length, 0);
+  assert.equal(run.reason, "Picked it back up.");
+});
+
+test("resume: an interrupted conversation goes on with a turn that has no input, and the step's counts carry on", async (t) => {
+  const definition = def({ work: { type: "prompt", model: "opus", prompt: "x", budget: { toolCalls: 9 }, next: "finish" }, finish: { type: "done", summary: "{{work.text}}" } });
+  const kernel = fakeKernel(() => reply("Picked it back up."));
+  const f = await makeEnv({ kernel });
+  t.after(f.done);
+  kernel.sessions._set("s_prev03", {
+    conversation: [{ role: "user", content: text("x") }, { role: "assistant", content: text("half of") }],
+    interrupted: { turn: "t_1", at: "", error: { message: "turn cancelled" }, why: "restart" },
+  });
+  const run = leftRunning(definition, "s_prev03");
   await executeRun(run, definition, { kernel, env: f.env, save: () => {}, resume: true });
   assert.equal(run.state, "done", run.reason);
-  assert.deepEqual(kernel.cancels, ["s_prev02"]);
   assert.equal(kernel.sends.length, 1);
-  assert.equal(kernel.sends[0].input, CONTINUE_MESSAGE);
-  assert.equal(kernel.sends[0].session, "s_prev02");
+  assert.deepEqual(kernel.sends[0].input, []);
+  assert.equal(kernel.sends[0].session, "s_prev03");
   assert.equal(run.reason, "Picked it back up.");
-  assert.equal(run.history[0].toolCalls, 3); // the step's counts carry on
+  assert.equal(run.history[0].toolCalls, 3);
   assert.equal(run.cost, 0.6);
+});
+
+test("resume: a send that finds the harness's own resume running waits for it and takes its reply", async (t) => {
+  const definition = def({ work: { type: "prompt", model: "opus", prompt: "x", next: "finish" }, finish: { type: "done", summary: "{{work.text}}" } });
+  const kernel = fakeKernel(() => reply("should not be sent"));
+  const f = await makeEnv({ kernel });
+  t.after(f.done);
+  kernel.sessions._set("s_prev04", { conversation: [{ role: "user", content: text("x") }], interrupted: { turn: "t_1", at: "", error: { message: "x" }, why: "crash" } });
+  const send = kernel.sessions.send;
+  const finished = [{ role: "user", content: text("x") }, { role: "assistant", content: text("Done by the resumer.") }];
+  let raced = false;
+  kernel.sessions.send = async (...args) => {
+    if (!raced) {
+      // Between the engine's read and its send, the harness started the resume itself.
+      raced = true;
+      kernel.sessions._set("s_prev04", { conversation: finished, status: "running" });
+      setTimeout(() => kernel.sessions._set("s_prev04", { conversation: finished }), 20);
+    }
+    return send(...args);
+  };
+  const run = leftRunning(definition, "s_prev04");
+  await executeRun(run, definition, { kernel, env: f.env, save: () => {}, resume: true, pollMs: 2 });
+  assert.equal(run.state, "done", run.reason);
+  assert.equal(run.reason, "Done by the resumer.");
+  assert.deepEqual(kernel.cancels, []);
+  assert.equal(kernel.sends.length, 0, "the busy send never started a turn");
+});
+
+test("resume: a step whose message never reached its conversation sends it", async (t) => {
+  const definition = def({ work: { type: "prompt", model: "opus", prompt: "Fix it", title: "Bug", next: "finish" }, finish: { type: "done", summary: "{{work.text}}" } });
+  const kernel = fakeKernel(() => reply("Fixed."));
+  const f = await makeEnv({ kernel });
+  t.after(f.done);
+  kernel.sessions._set("s_prev05", { conversation: [] });
+  const run = leftRunning(definition, "s_prev05");
+  run.history[0].at = 0;
+  await executeRun(run, definition, { kernel, env: f.env, save: () => {}, resume: true });
+  assert.equal(run.state, "done", run.reason);
+  assert.equal(kernel.sends[0].input, "Bug\n\nFix it");
+});
+
+test("nextMove: a cut record goes on with no input; a reply cut off part-way or retried is asked to carry on", () => {
+  const user = { role: "user", content: text("x") };
+  assert.deepEqual(nextMove({ conversation: [user, { role: "assistant", content: text("a") }], interrupted: { why: "yield" } }), { message: [] });
+  assert.deepEqual(nextMove({ conversation: [user, { role: "assistant", content: text("done") }] }), { done: "done" });
+  assert.deepEqual(nextMove({ conversation: [user, { role: "assistant", content: text("done") }] }, { retried: true }), { message: RETRY_MESSAGE });
+  assert.deepEqual(nextMove({ conversation: [user, { role: "assistant", content: text("hal"), extensions: { "@thetis/harness-core": { partial: true } } }] }), { message: RETRY_MESSAGE });
+  assert.deepEqual(nextMove({ conversation: [user] }), { message: [] });
+  assert.deepEqual(nextMove({ conversation: [user] }, { from: 1 }), { unsent: true });
+  assert.deepEqual(nextMove({ conversation: [] }), { unsent: true });
 });
 
 test("aborting the signal stops the run where it is without changing its state", async (t) => {

@@ -83,7 +83,8 @@ export const ConfigSchema = z.looseObject({
   keepTokens: z.number().int().nonnegative().default(20_000),
   minShedTokens: z.number().int().nonnegative().default(20_000),
   summaryModel: z.string().optional(),
-  summaryMaxTokens: z.number().int().positive().default(16_000),
+  summaryMaxTokens: z.number().int().positive().default(32_000),
+  summaryReasoning: z.boolean().default(true),
   summaryTimeoutMs: z.number().int().positive().default(240_000),
   maxFailures: z.number().int().positive().default(3),
 });
@@ -94,11 +95,16 @@ export function readConfig(raw: unknown): Config {
   return parsed.success ? parsed.data : ConfigSchema.parse({});
 }
 
-/** A manual request written by the dock, consumed at the start of the next turn. Kept in the home as `compaction/requests/<session>.json`. */
+/**
+ * A request written by the dock, consumed at the start of the next turn. Kept in the home as
+ * `compaction/requests/<session>.json`. `reset` sends the full history again; `resume` clears the failure
+ * count of a paused conversation, so automatic compaction runs again; neither: compact now.
+ */
 export const RequestSchema = z.looseObject({
   at: z.string(),
   instructions: z.string().optional(),
   reset: z.boolean().optional(),
+  resume: z.boolean().optional(),
 });
 export type Request = z.infer<typeof RequestSchema>;
 
@@ -150,6 +156,8 @@ export interface StateView {
   estimated: boolean;
   usedAt?: string;
   state: CompactionState;
+  /** Automatic compaction has failed `maxFailures` times in a row and waits for a person: Resume, or a manual request. */
+  paused: boolean;
   pending: Request | null;
   status: "idle" | "running";
   turns: number;

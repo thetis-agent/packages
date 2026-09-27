@@ -17,6 +17,9 @@ const NAME = "@thetis/compaction";
 const STATE = "compaction-state";
 const REQUEST = "compaction-request";
 const RESET = "compaction-reset";
+const RESUME = "compaction-resume";
+/** Where a person changes this package's settings: the extension's page, whose Configure button opens them. */
+const SETTINGS_PATH = "Extensions → Compaction → Configure";
 const CACHE_MAX = 32;
 const WARN_AT = 0.6; // the share of the window at which the chip turns amber, well before the trigger
 const BAR_CELLS = 40;
@@ -135,15 +138,25 @@ export default function install(ext) {
         return;
       }
       const used = usedOf(session, view);
-      button.textContent = `ctx ${percent(used, view.window)}%`;
-      button.title = `${view.estimated ? "≈" : ""}${tokens(used)} of ${tokens(view.window)} tokens · ${view.enabled ? `auto-compacts at ${percent(view.threshold, 1)}%` : "auto compaction is off"}`;
+      // A pause is state a person has to act on, so the chip itself says it, not only the dock.
+      button.textContent = `ctx ${percent(used, view.window)}%${view.paused ? " · paused" : ""}`;
+      button.title = chipTitle(view, used);
       button.classList.toggle("is-warn", used >= view.window * WARN_AT && used < view.trigger);
       button.classList.toggle("is-err", used >= view.trigger);
+      button.classList.toggle("is-paused", Boolean(view.paused));
     },
     open() {
       ext.open.dock("compaction");
     },
   });
+
+  /** The chip's tooltip in plain words: how full the chat's memory is, then what happens next. */
+  function chipTitle(view, used) {
+    const full = `How full this chat's memory is: ${view.estimated ? "about " : ""}${tokens(used)} of ${tokens(view.window)} tokens.`;
+    if (!view.enabled) return `${full} Automatic compaction is off.`;
+    if (view.paused) return `${full} Automatic compaction is paused after it failed. Open to resume it.`;
+    return `${full} Older messages are summarized at ${percent(view.threshold, 1)}%.`;
+  }
 
   /** The live figure when the stream moved it since the last answer, else the answer's. */
   function usedOf(session, view) {
@@ -196,7 +209,7 @@ export default function install(ext) {
     return el(
       "div",
       { class: `cmp-meter${tone}` },
-      el("div", { class: "cmp-bar", role: "meter", "aria-label": "Context window used", "aria-valuemin": "0", "aria-valuemax": String(view.window), "aria-valuenow": String(used) }, ...cells),
+      el("div", { class: "cmp-bar", role: "meter", "aria-label": "How full this chat's memory is", "aria-valuemin": "0", "aria-valuemax": String(view.window), "aria-valuenow": String(used) }, ...cells),
       el(
         "div",
         { class: "cmp-numbers mono" },
@@ -234,18 +247,32 @@ export default function install(ext) {
       disabled: acting || !can(RESET) || (state.cut === 0 && !pending) || Boolean(pending?.reset),
       onClick: () => confirmReset(session, view, reset),
     });
+    // Shown only while paused: the one button that undoes the pause the sentence above describes.
+    const resume = view.paused && !pending
+      ? ext.ui.button("Resume", {
+          tone: "primary",
+          title: "Start automatic compaction again with the next message",
+          disabled: acting || !can(RESUME),
+          onClick: () => act(session, RESUME, {}),
+        })
+      : null;
+    const settings = typeof ext.open?.place === "function"
+      ? ext.ui.button("Settings", { title: `Open ${SETTINGS_PATH}`, onClick: () => ext.open.place("marketplace", { name: NAME }) })
+      : null;
     return el(
       "div",
       { class: "cmp-actions" },
+      resume && el("div", { class: "cmp-row" }, resume),
       pending && el("p", { class: "cmp-pending" }, pendingLine(pending)),
       el("div", { class: "cmp-row" }, request, focus),
       el("div", { class: "cmp-row" }, reset),
-      el("p", { class: "cmp-hint" }, `Automatic compaction is ${view.enabled ? "on" : "off"} for this package. The setting lives in Control panel → Packages → compaction.`)
+      el("p", { class: "cmp-hint" }, `Automatic compaction is ${view.enabled ? "on" : "off"}. Change it in ${SETTINGS_PATH}.`, settings && " ", settings)
     );
   }
 
   /** There is no verb to withdraw a request, so the line says what is pending and how it is replaced. */
   function pendingLine(pending) {
+    if (pending.resume) return `Since ${clock(pending.at)}: automatic compaction starts again with the next message.`;
     const what = pending.reset ? "the full history is sent again" : pending.instructions ? `a compaction focused on “${pending.instructions}”` : "a compaction";
     return `Pending since ${clock(pending.at)}: ${what} at the start of the next message. Requesting the other replaces it.`;
   }

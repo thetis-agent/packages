@@ -9,7 +9,7 @@ import {
 } from "./schemas.js";
 import { project } from "./project.js";
 import { descriptorsFor, measure, measureRound, readLastCall, windowFor, type Measure } from "./measure.js";
-import { compactIfDue, resetState, triggerOf, type Situation } from "./engine.js";
+import { compactIfDue, resetState, resumeState, triggerOf, type Situation } from "./engine.js";
 
 export { NAME, readState, readConfig, freshState, CompactionStateSchema, ConfigSchema, RequestSchema, CompactionEventSchema } from "./schemas.js";
 export type { CompactionState, Config, Request, CompactionEvent, RoundHookArgs, RoundHookResult, StateView, LedgerRow, Compaction } from "./schemas.js";
@@ -17,7 +17,7 @@ export { estimate, boundaries, chooseCut, shed, dangling } from "./select.js";
 export { project, note, projectedIndex } from "./project.js";
 export { windowFor, measure, measureRound, descriptorsFor, forgetDescriptors, readLastCall } from "./measure.js";
 export { SUMMARY_INSTRUCTIONS, summaryRequest, summarize, extractSummary, instructionsWith } from "./summarize.js";
-export { decide, run, compactIfDue, recordFailure, resetState, triggerOf, THRASH_ROUNDS } from "./engine.js";
+export { decide, run, compactIfDue, recordFailure, resetState, resumeState, triggerOf, THRASH_ROUNDS } from "./engine.js";
 
 const REQUEST_LIMIT = 4000;
 
@@ -67,6 +67,7 @@ export async function compact(ctx: PackageStepContext): Promise<StepResult> {
     const descriptors = await descriptorsFor(ctx.env);
     const window = windowFor(ctx.call.model, config, descriptors);
     if (request) await deleteRequest(ctx.env, ctx.session.id);
+    if (request?.resume) state = resumeState(state);
     if (request?.reset) {
       const from = state.cut;
       state = resetState(state, new Date().toISOString());
@@ -77,7 +78,7 @@ export async function compact(ctx: PackageStepContext): Promise<StepResult> {
     const situation: Situation = {
       conversation: ctx.conversation, call: ctx.call, state, config, used: measured.used, estimated: measured.estimated, window,
       turn: { id: ctx.turn.id }, round: 1, emit: ctx.emit, providers: ctx.env.kernel.providers, signal: ctx.signal,
-      ...(request && !request.reset ? { manual: { instructions: request.instructions } } : {}),
+      ...(request && !request.reset && !request.resume ? { manual: { instructions: request.instructions } } : {}),
     };
     // A reset is a person asking for the full history: it goes out at least once, so the automatic check
     // waits for the next turn (the round hook still guards a turn that then grows past the window).
@@ -147,20 +148,28 @@ function fmtClock(iso: string): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+/** Where a person changes this package's settings, as the pages name it. */
+export const SETTINGS_PATH = "Extensions → Compaction → Configure";
+
+/** Whether automatic compaction has used its failure budget and waits for a person. */
+export function isPaused(state: CompactionState, config: Pick<Config, "maxFailures">): boolean {
+  return state.failures >= config.maxFailures;
+}
+
 /** The one plain sentence the dock leads with; the most pressing thing first. */
 export function sentenceFor(view: Omit<StateView, "sentence">, config: Pick<Config, "maxFailures">): string {
   const pct = (n: number) => `${Math.round((n / Math.max(1, view.window)) * 100)}%`;
   if (view.pending?.reset) return "The full history is sent again from the start of the next message.";
+  if (view.pending?.resume) return "Automatic compaction starts again with the next message.";
   if (view.pending) return "A compaction is requested and runs at the start of the next message.";
   const { state } = view;
   if (!view.enabled) {
     return state.summary
-      ? "Auto compaction is off for this package (Control panel → Packages → compaction); the existing summary is still sent."
-      : "Auto compaction is off for this package (Control panel → Packages → compaction).";
+      ? `Automatic compaction is off (${SETTINGS_PATH}); the existing summary is still sent.`
+      : `Automatic compaction is off (${SETTINGS_PATH}).`;
   }
-  if (state.failures >= config.maxFailures) {
-    const reason = state.lastFailure?.reason ?? "no reason recorded";
-    return `Auto compaction is paused after ${state.failures} failed attempts: ${reason}. Request a compaction to try again.`;
+  if (isPaused(state, config)) {
+    return `Automatic compaction is paused: it failed ${state.failures} times in a row. Resume starts it again with the next message.`;
   }
   if (state.cut > 0 && state.summary && state.last) {
     const l = state.last;
@@ -168,7 +177,7 @@ export function sentenceFor(view: Omit<StateView, "sentence">, config: Pick<Conf
     const cost = l.cost !== undefined ? `, $${l.cost.toFixed(2)}` : "";
     return `${state.cut} messages are summarized (compacted ${times}, last ${fmtClock(l.at)}, ${l.trigger}, ${fmtTokens(l.tokensBefore)} → ${fmtTokens(l.tokensAfter)} tokens${cost}).`;
   }
-  return `Auto compaction is on; the conversation is at ${pct(view.used)} of the window and compacts at ${pct(view.trigger)}.`;
+  return `Automatic compaction is on: this chat's memory is ${pct(view.used)} full, and older messages are summarized at ${pct(view.trigger)}.`;
 }
 
 /** `compaction-state`: everything the dock and the chip draw, for the conversation on screen. */
@@ -194,7 +203,7 @@ export async function uiState(args: Record<string, unknown>, env: UiCommandEnv):
   const view: Omit<StateView, "sentence"> = {
     enabled: config.enabled, model, window, threshold: config.threshold, trigger: triggerOf(config, window),
     used: measured.used, estimated: measured.estimated, ...(measured.usedAt ? { usedAt: measured.usedAt } : {}),
-    state, pending, status: record.status ?? "idle", turns: record.turns ?? 0,
+    state, paused: config.enabled && isPaused(state, config), pending, status: record.status ?? "idle", turns: record.turns ?? 0,
   };
   return { data: { ...view, sentence: sentenceFor(view, config) } satisfies StateView };
 }
@@ -211,6 +220,18 @@ export async function uiRequest(args: Record<string, unknown>, env: UiCommandEnv
   if (!parsed.success) throw new Error(`invalid request: ${parsed.error.issues.map((i) => i.message).join("; ")}`);
   const instructions = parsed.data.instructions?.trim();
   return putRequest(env, session, { at: new Date().toISOString(), ...(instructions ? { instructions } : {}) });
+}
+
+/**
+ * `compaction-resume`: clear the failure count of a paused conversation at the start of the next message, so
+ * automatic compaction runs again. A request already pending clears it too (a compaction that succeeds, or a
+ * reset), so that one is kept and answered.
+ */
+export async function uiResume(args: Record<string, unknown>, env: UiCommandEnv): Promise<UiCommandResult> {
+  const session = sessionOf(args, env);
+  const pending = await readRequest(env, session);
+  if (pending) return { data: { pending } };
+  return putRequest(env, session, { at: new Date().toISOString(), resume: true });
 }
 
 /** `compaction-reset`: send the full history again from the next message. Replaces a pending request. */

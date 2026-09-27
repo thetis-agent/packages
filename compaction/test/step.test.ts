@@ -37,7 +37,7 @@ test("above the trigger the step summarizes the prefix through the same system, 
   assert.equal(sent.model, "vendor/model");
   assert.equal(sent.system, "You are Thetis.");
   assert.deepEqual(sent.tools, ctx.call.tools);
-  assert.deepEqual(sent.params, { temperature: 0, max_tokens: 16000, tool_choice: "none" });
+  assert.deepEqual(sent.params, { temperature: 0, max_tokens: 32000, tool_choice: "none" }, "its own output budget, and the conversation's reasoning kept for the cache");
   assert.deepEqual(sent.hints, { cache: { affinity: "thetis:abc" }, context: false });
   assert.equal(sent.messages.length, 9, "the 8 summarized messages and the instructions");
   assert.deepEqual(sent.messages.slice(0, 8), conversation.slice(0, 8));
@@ -204,6 +204,28 @@ test("a manual request that finds nothing to summarize says so with a skipped ev
   assert.match(String(dataOf(events[0]).detail), /nothing older than the kept tail/);
   assert.equal(stateOf(result.harness).failures, 0, "not the model's fault");
   assert.equal(await store.get("s1"), undefined);
+});
+
+test("summaryReasoning off asks the model not to think, so the whole budget goes to the summary", async () => {
+  const provider = fakeProvider(summaryEvents());
+  const { ctx } = stepCtx({ conversation: conversationOf(10), config: { summaryReasoning: false, summaryMaxTokens: 20000 }, env: fakeEnv({ provider }) });
+  await compact(ctx);
+  assert.deepEqual(provider.sent[0].call.params, { temperature: 0, max_tokens: 20000, tool_choice: "none", reasoning: { enabled: false } });
+});
+
+test("a resume request clears the failure count of a paused conversation, and auto compaction runs again at once", async () => {
+  const provider = fakeProvider(summaryEvents());
+  const store = new MemoryStore();
+  await store.set("s1", { at: "2026-09-25T12:00:00.000Z", resume: true });
+  const paused = { ...summarized(0), cut: 0, summary: null, failures: 3, lastFailure: { at: "2026-09-25T11:00:00.000Z", reason: "the reply stopped at the output limit" } };
+  const { ctx, events } = stepCtx({ conversation: conversationOf(10), state: paused, env: fakeEnv({ provider, store }) });
+  const result = await compact(ctx);
+  const state = stateOf(result.harness);
+  assert.equal(provider.sent.length, 1, "the conversation is over the trigger, so it compacts");
+  assert.equal(state.failures, 0);
+  assert.equal(state.lastFailure, undefined);
+  assert.equal(dataOf(events[0]).trigger, "auto", "a resume is not a manual compaction");
+  assert.equal(await store.get("s1"), undefined, "the request is consumed");
 });
 
 test("a manual success resets the failure counter of a paused conversation", async () => {

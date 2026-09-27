@@ -45,8 +45,8 @@ const compacted = () => ({ ...freshState(), cut: 84, summary: "# Summary\n\nThe 
 function view(overrides = {}) {
   return {
     enabled: true, model: "anthropic/claude", window: 1_000_000, threshold: 0.75, trigger: 750_000,
-    used: 142_000, estimated: false, state: freshState(), pending: null, status: "idle", turns: 3,
-    sentence: "Auto compaction is on; the conversation is at 14% of the window and compacts at 75%.",
+    used: 142_000, estimated: false, state: freshState(), paused: false, pending: null, status: "idle", turns: 3,
+    sentence: "Automatic compaction is on: this chat's memory is 14% full, and older messages are summarized at 75%.",
     ...overrides,
   };
 }
@@ -168,7 +168,7 @@ test("the chip is hidden without a figure, and shows ctx 14% with the exact titl
   const button = f.chip();
   assert.equal(button.getAttribute("hidden"), null);
   assert.equal(text(button), "ctx 14%");
-  assert.equal(button.title, "142k of 1M tokens · auto-compacts at 75%");
+  assert.equal(button.title, "How full this chat's memory is: 142k of 1M tokens. Older messages are summarized at 75%.");
   assert.ok(button.classList.contains("mono"));
   assert.ok(!button.classList.contains("is-warn") && !button.classList.contains("is-err"));
   f.log.chips.context.open();
@@ -315,10 +315,10 @@ test("the dock shows the meter, the sentence, the actions and the hint; Compact 
   assert.equal(out.subtitle, "14% · 142k of 1M");
   assert.equal(f.log.requests.length, 1, "the view was read on open; drawing asks nothing more");
   const content = text(out.body);
-  assert.ok(content.includes("Auto compaction is on; the conversation is at 14% of the window and compacts at 75%."), "the server's sentence");
+  assert.ok(content.includes("Automatic compaction is on: this chat's memory is 14% full, and older messages are summarized at 75%."), "the server's sentence");
   assert.ok(content.includes("142k of 1M tokens · 14%"));
   assert.ok(content.includes("compacts at 750k (75%)"));
-  assert.ok(content.includes("Control panel → Packages → compaction"));
+  assert.ok(content.includes("Change it in Extensions → Compaction → Configure."));
   assert.equal(find(out.body, "cmp-cell").length, 40);
   assert.equal(find(out.body, "is-on").length, 6, "14% of forty cells");
   assert.equal(find(out.body, "cmp-cell").findIndex((c) => c.classList.contains("is-tick")), 30, "the tick sits at 75%");
@@ -385,6 +385,45 @@ test("Send the full history again is disabled with nothing compacted, asks throu
   out = f.draw();
   assert.match(text(find(out.body, "cmp-pending")[0]), /the full history is sent again at the start of the next message/);
   assert.equal(buttonNamed(out.body, "Send the full history again").getAttribute("disabled"), "", "a pending reset is not asked for twice");
+});
+
+test("a paused conversation says so on the chip and in the dock, whose Resume sends compaction-resume", async () => {
+  const f = fakeExt();
+  install(f.ext);
+  const state = { ...freshState(), failures: 3, lastFailure: { at: LAST.at, reason: "the reply stopped at the output limit" } };
+  const sentence = "Automatic compaction is paused: it failed 3 times in a row. Resume starts it again with the next message.";
+  await opened(f, "s_1", view({ used: 810_000, state, paused: true, sentence }));
+  const button = f.chip();
+  assert.equal(text(button), "ctx 81% · paused");
+  assert.ok(button.classList.contains("is-paused"));
+  assert.match(button.title, /paused after it failed\. Open to resume it\.$/);
+  let out = f.draw();
+  assert.ok(text(out.body).includes(sentence));
+  assert.match(text(find(out.body, "cmp-failure")[0]), /the reply stopped at the output limit/, "the reason stays in view");
+  buttonNamed(out.body, "Resume").click();
+  assert.deepEqual(f.log.requests.at(-1), { verb: "compaction-resume", session: "s_1", args: {} });
+  f.answer({ pending: { at: "2026-09-25T12:10:00.000Z", resume: true } });
+  await tick();
+  f.answer(view({ used: 810_000, state, paused: true, pending: { at: "2026-09-25T12:10:00.000Z", resume: true }, sentence: "Automatic compaction starts again with the next message." }));
+  await tick();
+  out = f.draw();
+  assert.equal(buttonNamed(out.body, "Resume"), undefined, "a pending resume hides the button");
+  assert.match(text(find(out.body, "cmp-pending")[0]), /automatic compaction starts again with the next message/);
+
+  const running = fakeExt();
+  install(running.ext);
+  await opened(running, "s_1", view());
+  assert.equal(buttonNamed(running.draw().body, "Resume"), undefined, "no Resume unless paused");
+});
+
+test("the dock's Settings button opens the extension's page when the shell can open places", async () => {
+  const f = fakeExt();
+  const places = [];
+  f.ext.open.place = (id, opts) => places.push({ id, opts });
+  install(f.ext);
+  await opened(f, "s_1", view());
+  buttonNamed(f.draw().body, "Settings").click();
+  assert.deepEqual(places, [{ id: "marketplace", opts: { name: NAME } }]);
 });
 
 test("the dock leads with the failure reason after a failed attempt, and the ledger says what failed", async () => {

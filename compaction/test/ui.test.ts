@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { uiState, uiRequest, uiReset, fmtTokens, sentenceFor } from "../src/index.js";
+import { uiState, uiRequest, uiReset, uiResume, fmtTokens, sentenceFor } from "../src/index.js";
 import { freshState, type StateView } from "../src/schemas.js";
 import { conversationOf, fakeEnv, MemoryStore, summarized, uiEnv } from "./fixtures.js";
 
@@ -26,7 +26,7 @@ test("uiState reads the record and answers the idle sentence with the percentage
   assert.equal(v.status, "idle");
   assert.equal(v.turns, 3);
   assert.deepEqual(v.state, freshState());
-  assert.equal(v.sentence, "Auto compaction is on; the conversation is at 40% of the window and compacts at 75%.");
+  assert.equal(v.sentence, "Automatic compaction is on: this chat's memory is 40% full, and older messages are summarized at 75%.");
 });
 
 test("uiState uses the last call's model and count when they describe the projection", async () => {
@@ -36,7 +36,7 @@ test("uiState uses the last call's model and count when they describe the projec
   assert.equal(v.model, "anthropic/x");
   assert.equal(v.window, 700);
   assert.deepEqual([v.used, v.estimated, v.usedAt], [350, false, lastCall.at]);
-  assert.equal(v.sentence, "Auto compaction is on; the conversation is at 50% of the window and compacts at 75%.");
+  assert.equal(v.sentence, "Automatic compaction is on: this chat's memory is 50% full, and older messages are summarized at 75%.");
 });
 
 test("uiState describes a summarized conversation, a pause, a pending request and the setting being off", async () => {
@@ -48,7 +48,11 @@ test("uiState describes a summarized conversation, a pause, a pending request an
 
   const paused = summarized(84, { failures: 3, lastFailure: { at: state.last!.at, reason: "boom" } });
   const inspectPaused = async () => record({ harness: { "@thetis/compaction": paused } });
-  assert.equal((await view(uiEnv(fakeEnv({ inspect: inspectPaused })))).sentence, "Auto compaction is paused after 3 failed attempts: boom. Request a compaction to try again.");
+  const pausedView = await view(uiEnv(fakeEnv({ inspect: inspectPaused })));
+  assert.equal(pausedView.sentence, "Automatic compaction is paused: it failed 3 times in a row. Resume starts it again with the next message.");
+  assert.equal(pausedView.paused, true);
+  assert.equal((await view(uiEnv(fakeEnv({ inspect })))).paused, false);
+  assert.equal((await view(uiEnv(fakeEnv({ inspect: inspectPaused }), { enabled: false }))).paused, false, "off is not paused");
 
   const store = new MemoryStore();
   await store.set("s1", { at: "2026-09-25T12:30:00.000Z", instructions: "x" });
@@ -56,8 +60,8 @@ test("uiState describes a summarized conversation, a pause, a pending request an
   assert.deepEqual(pending.pending, { at: "2026-09-25T12:30:00.000Z", instructions: "x" });
   assert.equal(pending.sentence, "A compaction is requested and runs at the start of the next message.");
 
-  assert.equal((await view(uiEnv(fakeEnv({ inspect }), { enabled: false }))).sentence, "Auto compaction is off for this package (Control panel → Packages → compaction); the existing summary is still sent.");
-  assert.equal((await view(uiEnv(fakeEnv({ inspect: async () => record() }), { enabled: false }))).sentence, "Auto compaction is off for this package (Control panel → Packages → compaction).");
+  assert.equal((await view(uiEnv(fakeEnv({ inspect }), { enabled: false }))).sentence, "Automatic compaction is off (Extensions → Compaction → Configure); the existing summary is still sent.");
+  assert.equal((await view(uiEnv(fakeEnv({ inspect: async () => record() }), { enabled: false }))).sentence, "Automatic compaction is off (Extensions → Compaction → Configure).");
 });
 
 test("uiState copes with a fence that has no storage", async () => {
@@ -94,11 +98,26 @@ test("uiRequest and uiReset write the pending request, each replacing the other"
   await assert.rejects(uiRequest({}, uiEnv(fakeEnv({ store }), {}, null)), /no conversation is open/);
 });
 
+test("uiResume writes a resume request, and keeps a request already pending, which clears the pause too", async () => {
+  const store = new MemoryStore();
+  const env = uiEnv(fakeEnv({ store }));
+  const resumed = (await uiResume({}, env)) as { data: { pending: Record<string, unknown> } };
+  assert.equal(resumed.data.pending.resume, true);
+  assert.deepEqual(await store.get("s1"), resumed.data.pending);
+  const inspect = async () => record({ harness: { "@thetis/compaction": summarized(84, { failures: 3 }) } });
+  assert.equal((await view(uiEnv(fakeEnv({ inspect, store })))).sentence, "Automatic compaction starts again with the next message.");
+
+  await uiRequest({ instructions: "keep it" }, env);
+  const kept = (await uiResume({}, env)) as { data: { pending: Record<string, unknown> } };
+  assert.equal(kept.data.pending.instructions, "keep it");
+  assert.equal(kept.data.pending.resume, undefined);
+});
+
 test("fmtTokens and sentenceFor read as a person would", () => {
   assert.deepEqual([fmtTokens(850), fmtTokens(21_000), fmtTokens(730_400), fmtTokens(1_200_000), fmtTokens(1_000_000)], ["850", "21k", "730k", "1.2M", "1M"]);
-  const base: Omit<StateView, "sentence"> = { enabled: true, model: "m", window: 1000, threshold: 0.75, trigger: 750, used: 140, estimated: true, state: freshState(), pending: null, status: "idle", turns: 1 };
+  const base: Omit<StateView, "sentence"> = { enabled: true, model: "m", window: 1000, threshold: 0.75, trigger: 750, used: 140, estimated: true, state: freshState(), paused: false, pending: null, status: "idle", turns: 1 };
   assert.equal(sentenceFor({ ...base, pending: { at: "x", reset: true } }, { maxFailures: 3 }), "The full history is sent again from the start of the next message.");
   assert.equal(sentenceFor({ ...base, state: summarized(4) }, { maxFailures: 3 }).startsWith("4 messages are summarized (compacted once, last "), true);
-  assert.equal(sentenceFor({ ...base, state: { ...freshState(), failures: 3 } }, { maxFailures: 3 }), "Auto compaction is paused after 3 failed attempts: no reason recorded. Request a compaction to try again.");
-  assert.equal(sentenceFor({ ...base, state: { ...freshState(), failures: 3 } }, { maxFailures: 5 }), "Auto compaction is on; the conversation is at 14% of the window and compacts at 75%.");
+  assert.equal(sentenceFor({ ...base, state: { ...freshState(), failures: 3 } }, { maxFailures: 3 }), "Automatic compaction is paused: it failed 3 times in a row. Resume starts it again with the next message.");
+  assert.equal(sentenceFor({ ...base, state: { ...freshState(), failures: 3 } }, { maxFailures: 5 }), "Automatic compaction is on: this chat's memory is 14% full, and older messages are summarized at 75%.");
 });

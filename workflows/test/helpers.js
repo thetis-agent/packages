@@ -3,8 +3,11 @@
 //
 // The script is `(call) => steps`, where `call` is `{ session, input, model, n }` (n counts every send)
 // and each step is a turn event to emit, `{ hang: true }` (wait until the turn is cancelled or aborted),
-// or `{ throw: "message" }`. A cancelled hang ends the way the kernel's does: an `error` event with code
-// `cancelled`, and the send resolves.
+// `{ throw: "message" }`, or `{ cut: why }` (the kernel cut the turn: the record keeps it as interrupted
+// with that `why`, and the send ends on a cancelled `error`). A cancelled hang ends the way the kernel's
+// does: an `error` event with code `cancelled`, and the send resolves. As the kernel does, a send with no
+// input (`[]`) adds no message, a send to a conversation with a turn running throws `busy`, a turn start
+// clears `interrupted`, and a `yield` event leaves it `{ why: "yield", clean: true }`.
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
@@ -25,6 +28,7 @@ export function fakeKernel(script = () => reply("ok"), { models = ["fable", "opu
   const sessions = new Map();
   const sends = [];
   const cancels = [];
+  const cancelOpts = [];
   const hanging = new Map(); // session -> resolve
   let n = 0;
   let ids = 0;
@@ -32,6 +36,7 @@ export function fakeKernel(script = () => reply("ok"), { models = ["fable", "opu
   const kernel = {
     sends,
     cancels,
+    cancelOpts,
     sessions: {
       async create() {
         const id = `s_${(++ids).toString(16).padStart(6, "0")}`;
@@ -41,9 +46,11 @@ export function fakeKernel(script = () => reply("ok"), { models = ["fable", "opu
       async send(session, input, onEvent, opts = {}, signal) {
         const rec = sessions.get(session);
         if (!rec) throw new Error(`no session ${session}`);
+        if (rec.status === "running") throw Object.assign(new Error(`session ${session} already has a turn in progress`), { code: "busy" });
         const call = { session, input, model: opts.model, n: n++ };
         sends.push(call);
-        rec.conversation.push({ role: "user", content: text(String(input)) });
+        if (!(Array.isArray(input) && input.length === 0)) rec.conversation.push({ role: "user", content: text(String(input)) });
+        delete rec.interrupted;
         rec.status = "running";
         try {
           for (const step of script(call) ?? []) {
@@ -59,16 +66,23 @@ export function fakeKernel(script = () => reply("ok"), { models = ["fable", "opu
               return;
             }
             if (step.throw) throw new Error(step.throw);
+            if (step.cut) {
+              rec.interrupted = { turn: `t_${call.n}`, at: new Date().toISOString(), error: { message: "turn cancelled", code: "cancelled" }, why: step.cut };
+              onEvent({ type: "error", message: "turn cancelled", code: "cancelled" });
+              return;
+            }
             await new Promise((r) => setImmediate(r));
             if (step.type === "message") rec.conversation.push(step.message);
+            if (step.type === "yield") rec.interrupted = { turn: `t_${call.n}`, at: new Date().toISOString(), error: { message: "gave way" }, why: "yield", clean: true };
             onEvent(step);
           }
         } finally {
           rec.status = "idle";
         }
       },
-      async cancel(session) {
+      async cancel(session, opts) {
         cancels.push(session);
+        cancelOpts.push(opts);
         const done = hanging.get(session);
         if (done) done("cancel");
         return !!done;

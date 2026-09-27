@@ -11,7 +11,8 @@ verification, a nudge every time a phase over-investigates, a RESULT line read b
 the watchdog a program should be. The first workflow built with it is the Nova Island bug fix.
 
 Nothing here touches the daemon. The service uses `kernel.sessions` (`create`, `send` with a per-turn
-`model`, `cancel`, `inspect`), `env.invokeTool` for tool steps, and the person's home for its files.
+`model`, and `send` with no input to resume; `cancel` with a reason; `inspect`), `kernel.turns.yielding` when
+the kernel has it, `env.invokeTool` for tool steps, and the person's home for its files.
 
 ## Files in the home
 
@@ -79,15 +80,25 @@ at most `max`; past that it goes to `exhausted`. Re-running a step overwrites wh
 For a `prompt` step the engine counts, from the turn's events: `tool.call` events, the largest
 `usage.prompt_tokens` (or `input_tokens`) seen, and wall-clock minutes. When any count passes its budget:
 
-1. **first breach** — `kernel.sessions.cancel(conversation)`, then the `nudge` text (default: *"Budget
+1. **first breach** — `kernel.sessions.cancel(conversation, { why: "budget" })`, then the `nudge` text (default: *"Budget
    reached. Stop exploring and finish now with what you have; say plainly what is unverified."*) is sent to
    the same conversation on the same model, with the budget counters reset;
 2. **second breach** — the turn is cancelled and the run goes to `onBreach`.
 
-A turn that fails with provider trouble (no response, a timeout, a rate limit, 429 or 5xx, overloaded) is
-not the step's failure: after a wait (30 s, then 60 s) the same conversation is sent *"Your previous turn was
-interrupted. Continue where you left off."*, at most twice, with the budget counters carried over. Any other
-error, or a third, fails the step.
+A budget cut and a cost-cap cut both cancel with the reason `budget`, which the kernel does not keep as an
+interrupted turn, so nothing resumes it by itself.
+
+A dropped connection to the model is retried inside the turn by `@thetis/harness-core`. A turn that still
+ends in an error has used those retries, and it fails the step; **Retry** in the run view goes on from where
+it stopped (see below). A turn that Thetis cut is not the step's failure. That is a turn whose record says
+`interrupted` with `why` `restart`, `reload` or `crash`, or a turn that gave way at a round boundary (a
+`yield` event) to a restart or an update. The step goes on with a turn that has no input,
+`kernel.sessions.send(conversation, [])`. That turn runs over the saved conversation, adds no message and
+does nothing again that had finished. After a `yield`, the engine first waits while `kernel.turns.yielding()`
+says a restart or an update is still on its way (a short pause on a kernel without it). When a send finds a
+turn already running in the conversation (`busy`: most often the harness's own resume after a restart), the
+engine waits for that turn to end and never cancels it. When its own send was a resume, it takes that turn's
+reply. At most three such resumes per turn, with the budget counters carried over; then the step fails.
 
 The cost of a run is the sum of `usage.cost` over its turns. When it reaches the cap the running turn is
 cancelled and the run ends as needs-you with the reason `Cost cap of $X reached`.
@@ -125,9 +136,19 @@ arguments>"`, so the run view can show what a step is doing without opening the 
 
 The queue runs `queued` runs oldest first, `concurrency` at a time, unless paused. `waiting` is an
 `approval` step. After the service starts (boot, `thetis reload`), a run left `running` is resumed at its
-current step: a `prompt` step whose conversation is idle and whose last message is an assistant reply
-counts as finished with that reply; otherwise the running turn (if any) is cancelled and *"Your previous
-turn was interrupted by a restart. Continue where you left off."* is sent once.
+current step. For a `prompt` step the engine first waits for any turn running in its conversation to end,
+and never cancels it. Then:
+- when the record says the last turn was cut (`interrupted`), or the conversation ends on something the
+  model has not answered, it goes on with a turn that has no input;
+- when the last message is a finished assistant reply, that reply is the step's result;
+- when the step's message never reached the conversation (its length is still the `at` the history entry
+  noted), the message is sent.
+
+**Retry** at the `prompt` step a run failed in goes on in that step's conversation. A cut turn goes on with
+no input. A conversation that ended on a reply (a second budget breach, or an older kernel that left a cut
+reply unmarked) is sent *"Carry on with the task. Your last reply did not finish it."*: there is no cut turn
+to go on from, and a turn with no input would ask the model to go on from its own last word. No message
+like "Your previous turn was interrupted" is ever sent.
 
 ## The service socket
 
@@ -148,7 +169,7 @@ a request `{ "i": 1, "op": "…", ...args }`, an answer `{ "i": 1, "ok": true, "
 | `runs` | `workflow?`, `limit?` | `[run…]` newest first, without `vars` |
 | `run` | `id` | the full run |
 | `cancel` | `id` | the run (a running turn is cancelled) |
-| `retry` | `id`, `from?` (step id; default the step it stopped at) | the run, queued again from that step, keeping its vars; retried at the `prompt` step it failed in, that step's conversation is continued (the continue message) rather than started again |
+| `retry` | `id`, `from?` (step id; default the step it stopped at) | the run, queued again from that step, keeping its vars; retried at the `prompt` step it failed in, the step goes on in its conversation (a turn with no input when its last turn was cut) rather than starting again |
 | `approve` | `id`, `decision` (`approved`/`rejected`), `note?` | the run |
 | `queue` | `paused?` | `{ paused, running: [run ids], queued: n }` |
 | `conversations` | — | `{ "<conversation id>": { title?, model? } }` for every conversation a run opened: the title it gave and the model its last prompt step ran on there |
@@ -183,5 +204,7 @@ each conversation, and Cancel / Retry from here / Approve / Reject).
 
 `npm test` here: the template filler, the validator, the engine against a fake kernel (a run through
 prompt → parse → branch → loop → done with a model per step, a budget breach that nudges and then takes
-`onBreach`, the cost cap, a follow-up on a parse miss, an approval, resume after a restart), and the
-socket.
+`onBreach`, the cost cap, a follow-up on a parse miss, an approval, resume after a restart: a cut turn
+goes on with no input, a turn that gave way waits for `turns.yielding`, a running turn is waited for and
+never cancelled, a busy send takes the other turn's reply, a Retry after a reply sends the carry-on
+message), and the socket.

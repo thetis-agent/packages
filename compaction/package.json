@@ -1,6 +1,6 @@
 {
   "name": "@thetis/compaction",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "Automatic context compaction: summarizes the older part of a long conversation into one note when the next request nears the model's window, keeps the recent tail verbatim, and never edits the record.",
   "type": "module",
@@ -14,10 +14,11 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test dist/test/"
+    "test": "node --test \"dist/test/*.test.js\" \"test/*.test.js\""
   },
   "thetis": {
     "type": "loader",
+    "label": "compaction",
     "config": {
       "enabled": {
         "type": "boolean",
@@ -54,8 +55,13 @@
       },
       "summaryMaxTokens": {
         "type": "number",
-        "default": 16000,
-        "help": "max_tokens of the summarization request. Reasoning counts against it on models that think."
+        "default": 32000,
+        "help": "max_tokens of the summarization request: its own output budget, not the conversation's. Reasoning counts against it on models that think."
+      },
+      "summaryReasoning": {
+        "type": "boolean",
+        "default": true,
+        "help": "Let the model think while it writes the summary, as the conversation does. Off sends reasoning: { enabled: false }, so the whole output budget goes to the summary; a model that must think refuses that, and on Anthropic models a change of thinking setting re-reads the history at full price instead of from the cache."
       },
       "summaryTimeoutMs": {
         "type": "number",
@@ -65,7 +71,7 @@
       "maxFailures": {
         "type": "number",
         "default": 3,
-        "help": "Consecutive failed attempts after which automatic compaction pauses for the conversation. A manual request from the dock tries again."
+        "help": "Consecutive failed attempts after which automatic compaction pauses for the conversation. The Compaction panel says so and has a Resume button; a manual request also tries again."
       }
     },
     "steps": [
@@ -90,7 +96,7 @@
           "id": "compaction",
           "label": "Compaction",
           "icon": "M3 5h14 M3 10h9 M3 15h5 M14 12l3 3-3 3",
-          "hint": "How much of the context window is used, and what has been summarized"
+          "hint": "How full this chat's memory is, and what has been summarized"
         }
       ],
       "commands": [
@@ -108,6 +114,11 @@
           "verb": "compaction-reset",
           "export": "uiReset",
           "label": "Send the full history again from the next message"
+        },
+        {
+          "verb": "compaction-resume",
+          "export": "uiResume",
+          "label": "Start automatic compaction again after it paused"
         }
       ]
     }
