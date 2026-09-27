@@ -1,6 +1,6 @@
 {
   "name": "@thetis/tool-exec",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "license": "MIT",
   "description": "Tools for the model: install, fork, remove, delete and configure packages, and spawn subagents in your own space. Running commands is @thetis/terminal.",
   "type": "module",
@@ -179,7 +179,7 @@
       {
         "name": "spawn_subagent",
         "concurrent": true,
-        "description": "Start a subagent session in your userspace (same files and packages), send it a task, and return its final reply. Several spawn_subagent calls in one reply run at the same time. The person watches the subagent work under its label. The first line of the result names it: [subagent <id> <label>]. Stopping your turn stops the subagent. A subagent may spawn subagents of its own. When a subagent fails part-way and the result says it can be continued, use resume_subagent rather than spawning a new one.",
+        "description": "Start a subagent session in your userspace (same files and packages), send it a task, and return its final reply. It runs on this conversation's model unless `model` names another. Several spawn_subagent calls in one reply run at the same time. The person watches the subagent work under its label. The first line of the result names it: [subagent <id> <label>]. Stopping your turn stops the subagent. A subagent may spawn subagents of its own. When a subagent fails part-way and the result says it can be continued, use resume_subagent rather than spawning a new one.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -189,6 +189,10 @@
             "label": {
               "type": "string",
               "description": "A short name for the subagent, shown to the person, for example research."
+            },
+            "model": {
+              "type": "string",
+              "description": "A model id for the subagent, when the task wants a different one than this conversation's. Leave it out to use this conversation's model."
             }
           },
           "required": [
@@ -212,6 +216,10 @@
             "label": {
               "type": "string",
               "description": "The short name it was given, so the result line names it the same way."
+            },
+            "model": {
+              "type": "string",
+              "description": "A model id for the continued turn. Leave it out to use this conversation's model."
             }
           },
           "required": [

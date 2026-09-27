@@ -45,18 +45,18 @@ test("a child send carries the parent's signal and reports cancellation without 
 const text = (t: string) => [{ type: "text", data: { text: t } }];
 
 /** A kernel whose one child answers `events` for every send, and whose record says what `record` holds. */
-function kernelWith(events: (input: unknown) => unknown[], record: Record<string, unknown> = {}) {
-  const sends: { session: string; input: unknown }[] = [];
+function kernelWith(events: (input: unknown) => unknown[], record: Record<string, unknown> = {}, model?: string) {
+  const sends: { session: string; input: unknown; opts?: { model?: string } }[] = [];
   const sessions = {
     create: async () => ({ id: "s_c0ffee" }),
-    send: async (session: string, input: unknown, onEvent: (e: unknown) => void) => {
-      sends.push({ session, input });
+    send: async (session: string, input: unknown, onEvent: (e: unknown) => void, opts?: { model?: string }) => {
+      sends.push({ session, input, opts });
       for (const e of events(input)) onEvent(e);
     },
     inspect: async (session: string) => ({ id: session, parent: "s_parent", status: "idle", conversation: [], ...record }),
     cancel: async () => false,
   };
-  const env = { session: { id: "s_parent" }, kernel: { sessions } } as unknown as ToolEnv;
+  const env = { session: { id: "s_parent" }, model, kernel: { sessions } } as unknown as ToolEnv;
   return { env, sends };
 }
 
@@ -106,7 +106,7 @@ test("resume_subagent sends a turn with no input to the child and answers like s
     { interrupted: { turn: "t_1", at: "", error: { message: "cut" }, why: "provider" }, conversation: [{ role: "user", content: text("task") }, { role: "assistant", content: text("half"), extensions: { "@thetis/harness-core": { partial: true } } }] },
   );
   const result = String(await resumeSubagent({ id: "s_c0ffee", label: "survey" }, env));
-  assert.deepEqual(sends, [{ session: "s_c0ffee", input: [] }]);
+  assert.deepEqual(sends, [{ session: "s_c0ffee", input: [], opts: undefined }]);
   assert.equal(result, "[subagent s_c0ffee survey]\nPicked up where it stopped.");
 });
 
@@ -133,4 +133,27 @@ test("resume_subagent does not run a child that had finished, nor one that is ru
 test("a child that another caller started meanwhile answers busy instead of throwing", async () => {
   const { env } = kernelWith(() => { throw Object.assign(new Error("session s_c0ffee already has a turn in progress"), { code: "busy" }); }, { conversation: [{ role: "user", content: text("task") }] });
   assert.match(String(await resumeSubagent({ id: "s_c0ffee" }, env)), /\nbusy:/);
+});
+
+// ---- the child's model ----
+
+test("a subagent runs on the model of the parent's turn, not the configured default", async () => {
+  const { env, sends } = kernelWith(() => [{ type: "message", message: { role: "assistant", content: text("done") } }], {}, "acme/fast-1");
+  await spawnSubagent({ task: "work" }, env);
+  assert.deepEqual(sends[0]?.opts, { model: "acme/fast-1" });
+});
+
+test("a model named on the call wins over the parent's, and no model at all leaves the choice to the kernel", async () => {
+  const named = kernelWith(() => [], {}, "acme/fast-1");
+  await spawnSubagent({ task: "work", model: " acme/big-9 " }, named.env);
+  assert.deepEqual(named.sends[0]?.opts, { model: "acme/big-9" });
+  const bare = kernelWith(() => []);
+  await spawnSubagent({ task: "work" }, bare.env);
+  assert.equal(bare.sends[0]?.opts, undefined);
+});
+
+test("resume_subagent continues the child on the parent's model too", async () => {
+  const { env, sends } = kernelWith(() => [], { interrupted: { why: "restart" }, conversation: [{ role: "user", content: text("task") }] }, "acme/fast-1");
+  await resumeSubagent({ id: "s_c0ffee" }, env);
+  assert.deepEqual(sends, [{ session: "s_c0ffee", input: [], opts: { model: "acme/fast-1" } }]);
 });

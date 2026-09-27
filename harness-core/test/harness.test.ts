@@ -173,7 +173,7 @@ function loopCtx(script: Script, over: { tools?: ToolSpec[]; hints?: Record<stri
     ...ctx.env,
     cwd: mkdtempSync(join(contextHome, "turn-")),
     invokeTool: async (ref, args, opts) => {
-      const call = { ref: { package: ref.package, export: ref.export, name: ref.name }, args, config: opts.config };
+      const call = { ref: { package: ref.package, export: ref.export, name: ref.name }, args, config: opts.config, model: opts.model };
       invoked.push(call);
       return over.invoke ? over.invoke(call, opts.signal) : `ran ${ref.name}`;
     },
@@ -195,7 +195,7 @@ test("callModel: a call to a tool the call withheld is resolved against the inst
   };
   const { ctx, events, invoked, configs } = loopCtx(script, { hints: { withheld: ["hidden_tool"] } });
   const out = await callModel(ctx);
-  assert.deepEqual(invoked, [{ ref: { package: "@a/p", export: "run", name: "hidden_tool" }, args: { a: 1 }, config: { for: "@a/p" } }], "the withheld tool ran under its own package with that package's effective configuration");
+  assert.deepEqual(invoked, [{ ref: { package: "@a/p", export: "run", name: "hidden_tool" }, args: { a: 1 }, config: { for: "@a/p" }, model: "m" }], "the withheld tool ran under its own package with that package's effective configuration and the turn's model");
   assert.deepEqual(configs, ["@a/p"]);
   assert.deepEqual(toolResults(out.conversation), [["hidden_tool", "ran hidden_tool"], ["never_declared", "error: unknown tool: never_declared"]]);
   assert.deepEqual(out.conversation!.map((m) => m.role), ["user", "assistant", "tool", "assistant", "tool", "assistant"]);
