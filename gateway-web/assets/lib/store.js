@@ -8,8 +8,9 @@
 const state = {
   user: null,          // { user, role }
   sessions: [],        // SessionSummary[] from the server
-  current: null,       // the active tab's session id
-  tabs: [],            // open session ids, in tab order
+  current: null,       // the conversation on screen (a session id), or null: a `+` draft, or a tab of another kind
+  activeTab: null,     // the tab shown, whatever its kind: { kind: "session" | <a package's tabs id>, id }, or null
+  tabs: [],            // open pane keys in tab order: a session id, or "<kind>:<id>" for a package's tab
   sessionFilter: null, // a package's narrowing of the sidebar list: (session) => boolean, or null
   running: new Set(),  // session ids with a turn in progress
   pending: new Set(),  // session ids with a send awaiting the server's 202

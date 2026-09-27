@@ -17,11 +17,12 @@ import type { KernelClient, Message, ModelChoices, SessionRecord, SessionSummary
 import { withoutTurnContext } from "@thetis/harness-core";
 import { HttpError, json, readBytes, readJson } from "./http.js";
 import { buildIdentity } from "./build.js";
+import { FrameTokens, TOKEN } from "./frames.js";
 import { handlePanel } from "./panel.js";
 import { serveFile } from "./static.js";
 import { sniffImage, type GatewayStore, type ResumedMark, type SessionUsage } from "./store.js";
 import { TurnHub, type RunningTurn } from "./turns.js";
-import { argsFromQuery, composeUi, openStream, runCommand, runRaw, serveExt } from "./ui.js";
+import { argsFromQuery, composeUi, framePath, mintFrame, openStream, runCommand, runRaw, serveExt, serveFrameFile } from "./ui.js";
 
 export interface GatewayOptions {
   /** Directory of the static assets. Defaults to the package's `assets/`. */
@@ -37,9 +38,22 @@ export interface GatewayOptions {
   user: string;
   /** The URL prefix the door routes here, for example `/alice`. Everything is served under it. Empty for the root. */
   base?: string;
+  /** How long a frame token serves before the page must mint another. Default 12 hours. */
+  frameTtlMs?: number;
 }
 
 const COOKIE = "thetis_web";
+/**
+ * The policy a frame's documents run under. `sandbox allow-scripts` gives the document an opaque origin
+ * with scripts: it can draw itself and nothing more. It may load its own pictures, styles, scripts, fonts
+ * and media from under its own token (`'self'` is the origin of the URL the policy came with, not the
+ * document's opaque one), fonts from Google, inline style and script because that is what a self-contained
+ * artboard is made of; it may not fetch, embed, submit or set a base, so nothing it holds can be sent
+ * anywhere. `frame-ancestors 'self'` keeps it inside this app.
+ */
+const framePolicy = (own = "'self'"): string =>
+  `sandbox allow-scripts; default-src 'none'; script-src ${own} 'unsafe-inline'; style-src ${own} 'unsafe-inline' https://fonts.googleapis.com; font-src ${own} data: https://fonts.gstatic.com; img-src ${own} data: blob:; media-src ${own}; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'`;
+export const FRAME_POLICY = framePolicy();
 const MODELS_TTL_MS = 60_000;
 /** `remember: false` sets this conversation's model without making it the person's default for new ones (a workflow naming its own conversations). */
 const ModelRequestSchema = z.looseObject({ model: z.string().trim().max(200, "model id too long").default(""), remember: z.boolean().default(true) });
@@ -188,6 +202,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
   const base = (opts.base ?? "").replace(/\/$/, "");
   const storeDir = opts.store ?? opts.env?.store;
   const hub = new TurnHub(kernel, log, turnEnded, opts.user);
+  const frames = new FrameTokens(opts.frameTtlMs !== undefined ? { ttlMs: opts.frameTtlMs } : {});
   const build = buildIdentity(assets);
   /** The build id with the installed packages' browser files counted in; the gateway's own part when the list cannot be read. */
   const currentBuild = async () => build(await kernel.packages.list().catch(() => []));
@@ -228,6 +243,18 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     const path = url.pathname.slice(base.length);
 
     if (path.startsWith("/assets/")) return serveFile(res, assets, path.slice("/assets/".length));
+    // The one route whose credential is in the URL: a frame token stands for the cookie, because the
+    // sandboxed document that fetches here has no origin to send one from. Nothing else is skipped.
+    if (path.startsWith("/f/")) {
+      if (method !== "GET" || !storeDir || !opts.env) throw new HttpError(404, "not found");
+      const seg = path.split("/").filter(Boolean);
+      const record = TOKEN.test(seg[1] ?? "") ? frames.lookup(seg[1]) : undefined;
+      if (!record || record.user !== opts.user) throw new HttpError(404, "not found");
+      const ctx = { kernel, env: opts.env, store: storeDir };
+      const abort = new AbortController();
+      const answer = await serveFrameFile(ctx, record, framePath(seg.slice(2)), abort.signal);
+      return sendFrame(req, res, answer, abort);
+    }
 
     const who = await authenticate(req);
     const user = who?.id;
@@ -258,6 +285,14 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       const abort = new AbortController();
       req.on("close", () => abort.abort());
       return pump(res, await openStream(ctx, who!, seg[2], seg[3], seg[4], url.searchParams, abort.signal), abort.signal);
+    }
+    if (seg[1] === "ext" && seg.length === 6 && seg[5] === "frame" && method === "POST") {
+      if (!storeDir || !opts.env) throw new HttpError(404, "no extensions here");
+      const ctx = { kernel, env: opts.env, store: storeDir };
+      const body = await readJson(req);
+      const minted = await mintFrame(ctx, who!, seg[2], seg[3], seg[4], body.args);
+      const token = frames.mint({ user, role: who!.role, pkg: minted.pkg.name, verb: minted.verb, args: minted.args });
+      return json(res, 201, { token, base: `f/${token}/` });
     }
     if (seg[1] === "ext" && seg.length === 6 && seg[5] === "raw" && (method === "GET" || method === "PUT")) {
       if (!storeDir || !opts.env) throw new HttpError(404, "no extensions here");
@@ -656,7 +691,24 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
    */
   function sendRaw(req: IncomingMessage, res: ServerResponse, answer: { status: number; headers: Record<string, string>; body: Readable | Buffer | string }, abort: AbortController): void {
     res.writeHead(answer.status, { ...answer.headers, "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'; sandbox" });
-    const { body } = answer;
+    pipeAnswer(req, res, answer.body, abort);
+  }
+
+  /**
+   * A frame's answer: the export's status and headers under the frame policy, `no-store` because the URL
+   * stays the same after the file changed, and no referrer so the token never travels in one. No
+   * `Cross-Origin-Resource-Policy`: the document that loads these has an opaque origin, which no site
+   * matches, so `same-site` refused the frame's own pictures; the token is what keeps them private. The
+   * body goes out as a raw one does.
+   */
+  function sendFrame(req: IncomingMessage, res: ServerResponse, answer: { status: number; headers: Record<string, string>; body: Readable | Buffer | string }, abort: AbortController): void {
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.writeHead(answer.status, { ...answer.headers, "Cache-Control": "private, no-store", "Content-Security-Policy": FRAME_POLICY });
+    pipeAnswer(req, res, answer.body, abort);
+  }
+
+  /** The body of a raw or frame answer, once the headers are out: a Buffer or string ends it, a Readable is piped and let go of with the browser. */
+  function pipeAnswer(req: IncomingMessage, res: ServerResponse, body: Readable | Buffer | string, abort: AbortController): void {
     if (!(body instanceof Readable)) return void res.end(body);
     const letGo = () => {
       if (!res.writableFinished) abort.abort(); // a download that finished was not let go of

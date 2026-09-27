@@ -30,6 +30,13 @@ export function mountComposer({ onSend, onStop, onModel }) {
   const fileInput = $("attach-file");
 
   stopBtn.addEventListener("click", () => onStop());
+  const wrap = form.closest(".composer-wrap") ?? form;
+
+  /** Whether the tab on screen is a package's (a canvas, say) rather than a conversation: nothing can be said there, so the composer is away. */
+  function away() {
+    const shown = store.get("activeTab");
+    return Boolean(shown && shown.kind !== "session");
+  }
 
   // ---- the attachments ----
 
@@ -38,6 +45,7 @@ export function mountComposer({ onSend, onStop, onModel }) {
 
   function takeFiles(files) {
     if (!files.length) return;
+    if (away()) { toast("This tab has no composer.", { tone: "error" }); return; }
     const id = store.get("current");
     if (id && store.isAgent(id)) { toast("A subagent has no composer.", { tone: "error" }); return; }
     for (const { reason } of attachments.add(files)) toast(reason, { tone: "error" });
@@ -188,6 +196,10 @@ export function mountComposer({ onSend, onStop, onModel }) {
   }
 
   function draw() {
+    // A package's tab: the whole composer is away, tray and pill included, and the focus stays where the package put it.
+    const gone = away();
+    setHidden(wrap, gone);
+    if (gone) return;
     const id = store.get("current");
     const running = id && store.isRunning(id);
     const busy = locked();
@@ -258,7 +270,7 @@ export function mountComposer({ onSend, onStop, onModel }) {
     draw();
   });
 
-  for (const key of ["current", "running", "pending", "creating", "sessions", "choices", "agents", "draftModel"]) store.watch(key, draw);
+  for (const key of ["current", "activeTab", "running", "pending", "creating", "sessions", "choices", "agents", "draftModel"]) store.watch(key, draw);
   store.watch("current", () => {
     input.value = "";
     attachments.clear();

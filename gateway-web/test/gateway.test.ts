@@ -319,6 +319,7 @@ test("the page carries a style nonce, the policy names that same nonce, and a se
   // The page and the policy have to agree, or the stylesheets an emulator writes at runtime are refused.
   assert.match(await first.text(), new RegExp(`<meta name="csp-nonce" content="${nonce.replace(/[+/=]/g, (c) => `\\${c}`)}">`));
   assert.match(policy, /script-src 'self'/, "nothing else in the policy moved");
+  assert.match(policy, /frame-src 'self'/, "the page may embed a package's frames, each under its own policy");
   const again = /nonce-([^']+)/.exec((await api(cookie, "/alice/")).headers.get("content-security-policy") ?? "")?.[1];
   assert.notEqual(again, nonce, "a nonce that repeated would be worth no more than 'unsafe-inline'");
 });

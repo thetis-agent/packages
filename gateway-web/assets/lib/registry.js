@@ -15,7 +15,7 @@ import { toast } from "./toast.js";
 /** The package name the shell registers its own pieces under. */
 export const BUILTIN = "@thetis/gateway-web";
 
-export const SLOTS = ["dock", "panel", "places", "sidebar", "chips", "composer", "shelf", "statusbar"];
+export const SLOTS = ["dock", "panel", "places", "sidebar", "chips", "composer", "shelf", "statusbar", "tabs"];
 
 const packages = new Map(); // package name -> { decl, failed: string | null, at: number, hidden: Set<"<slot>:<id>"> }
 const slots = new Map(SLOTS.map((slot) => [slot, new Map()])); // slot -> key -> entry
@@ -36,7 +36,7 @@ export function declare(extension) {
   packages.set(pkg, { decl: extension, failed: null, at: packages.size, hidden: new Set(Array.isArray(extension.hidden) ? extension.hidden : []) });
   for (const slot of SLOTS) {
     for (const decl of extension[slot] ?? []) {
-      const id = slot === "sidebar" ? decl.slot ?? decl.id : decl.id;
+      const id = decl.id;
       if (typeof id !== "string") continue;
       slots.get(slot).set(keyOf(pkg, id), { key: keyOf(pkg, id), package: pkg, id, decl, impl: null, order: typeof decl.order === "number" ? decl.order : 100 });
     }

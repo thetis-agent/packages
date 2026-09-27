@@ -16,7 +16,13 @@
  * dot, the label, the state, the spend, "Show in conversation" and, while it works, Stop. No rename, no
  * chips, no model, no archive: a child is work inside a conversation, not a conversation. Its events
  * reach its own pane as any session's do, and, through `applyChild`, the pane of every open ancestor,
- * where its block lives. */
+ * where its block lives.
+ *
+ * A package's tab is a third shape (`openKind`): a pane of a declared `tabs` kind, keyed `<kind>:<id>`, whose
+ * body the package draws whole through `open(root, handle)`; no chat bar, no transcript, no chips, never
+ * dropped for being far back. While one is shown `current` is null — no conversation is on screen, as in a
+ * `+` draft — and `activeTab` names it, which is what the composer hides on and the address bar writes. A
+ * kind declared but not yet registered shows "Loading…" and is drawn when its module lands. */
 
 import { fmtCost, shortModel } from "../lib/activity.js";
 import { api } from "../lib/api.js";
@@ -32,12 +38,15 @@ const ARCHIVE = ["M3.5 5.5h13v2.5h-13zM4.5 8v7.5h11V8M8 11h4"];
 const STOP = ["M6.5 6.5h7v7h-7z"];
 const KEEP = 5; // panes with their rows built: the shown one and the ones shown most recently
 
+/** The pane key of a tab: a conversation's is its session id; a package's is `<kind>:<id>`. */
+export const keyOf = (kind, id) => (kind === "session" ? id : `${kind}:${id}`);
+
 export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExample }) {
   const strip = $("tabs");
   const host = $("panes");
   const newTab = $("new-tab");
-  const panes = new Map(); // session id -> { id, agent, node, tab, dot, label, note, transcript, bar, chips, drawn, built }
-  const order = [];        // open session ids, in tab order
+  const panes = new Map(); // pane key -> { id, kind, agent, node, tab, dot, label, note, transcript, bar, chips, drawn, built } (a package's pane: kind, entry, params, body, impl)
+  const order = [];        // open pane keys, in tab order
   const recent = [];       // open session ids, most recently shown first: the first KEEP stay built
   const empty = el("section", { class: "pane is-empty is-active" }, emptyState("none", onNew));
   host.append(empty);
@@ -90,11 +99,81 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExa
     strip.insertBefore(tab, newTab);
     host.append(node);
     const transcript = mountTranscript(root, { session: id, brief: agent, onOpenAgent: (child) => { void open(child); } });
-    const pane = { id, agent, node, tab, dot, label, note, bar, chips, transcript, drawn: { turn: null, seq: 0 }, built: false, restored: false };
+    const pane = { id, kind: "session", agent, node, tab, dot, label, note, bar, chips, transcript, drawn: { turn: null, seq: 0 }, built: false, restored: false };
     panes.set(id, pane);
     drawChips(pane);
     drawBar(pane);
     return pane;
+  }
+
+  // ---- a package's pane ----
+
+  function createKindPane(entry, id, params) {
+    const key = keyOf(entry.id, id);
+    const body = el("div", { class: "kind-body" });
+    const node = el("section", { class: "pane is-kind", "data-kind": entry.id, "data-key": key, role: "tabpanel" }, body);
+    const label = el("span", { class: "tab-title" }, entry.decl.label || entry.id);
+    const note = el("span", { class: "tab-note" });
+    const tab = el(
+      "div",
+      { class: "tab is-kind", "data-kind": entry.id, "data-key": key },
+      el("button", { type: "button", class: "tab-open", role: "tab", onClick: () => activate(key) }, entry.decl.icon ? icon(entry.decl.icon, { size: 13, width: 1.6 }) : null, label, note),
+      el("button", { type: "button", class: "tab-close", title: "Close this tab", "aria-label": "Close this tab", onClick: () => close(key) }, icon(X, { size: 10, width: 2 }))
+    );
+    tab.title = entry.decl.label || entry.id;
+    strip.insertBefore(tab, newTab);
+    host.append(node);
+    const pane = { id, key, kind: entry.id, entry, params: params ?? {}, node, tab, label, note, body, impl: null, transcript: null, chips: null, built: true, drawn: { turn: null, seq: 0 } };
+    panes.set(key, pane);
+    mountKind(pane);
+    return pane;
+  }
+
+  /** Draws a package's pane: now when its module has registered, else "Loading…" until it does, or the broken note when it failed to load. */
+  function mountKind(pane) {
+    const entry = registry.entry("tabs", pane.entry.key);
+    clear(pane.body);
+    if (!entry?.impl?.open) {
+      pane.body.append(registry.failureOf(pane.entry.package) ? registry.broken(pane.entry.package) : el("div", { class: "panel-empty" }, "Loading…"));
+      return;
+    }
+    const handle = {
+      id: pane.id,
+      kind: pane.kind,
+      params: pane.params,
+      setTitle: (text) => { pane.label.textContent = text; pane.tab.title = text; },
+      setNote: (text) => { pane.note.textContent = text ?? ""; },
+      close: () => close(pane.key),
+    };
+    const out = registry.guard(entry.package, "tabs", entry.impl.open, pane.body, handle);
+    if (!out.ok) {
+      pane.body.append(registry.broken(entry.package));
+      return;
+    }
+    pane.impl = typeof out.value === "function" ? { unmount: out.value } : out.value && typeof out.value === "object" ? out.value : {};
+    if (isShown(pane)) hook(pane, "activate");
+  }
+
+  /** One of a package pane's hooks, if it gave one; a throw is the package's and is reported, never the shell's. */
+  function hook(pane, name) {
+    const fn = pane.impl?.[name];
+    if (typeof fn !== "function") return;
+    try {
+      fn();
+    } catch (err) {
+      console.error(`${pane.entry.package} threw in its tab's ${name}:`, err);
+    }
+  }
+
+  const isShown = (pane) => {
+    const shown = store.get("activeTab");
+    return Boolean(shown && shown.kind === pane.kind && shown.id === pane.id);
+  };
+
+  /** The package pane on screen, if the active tab is one. */
+  function shownKind() {
+    const shown = store.get("activeTab");
+    return shown && shown.kind !== "session" ? panes.get(keyOf(shown.kind, shown.id)) ?? null : null;
   }
 
   /** Builds a pane's rows from its record. A pane dropped while the record was on its way stays empty. */
@@ -157,6 +236,7 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExa
   // ---- the chat bar and the tab, from the store ----
 
   function drawBar(pane) {
+    if (pane.kind !== "session") return;
     if (pane.agent) return drawAgentBar(pane);
     const { id, bar } = pane;
     const session = store.session(id);
@@ -252,6 +332,10 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExa
   }
 
   registry.watch((change) => {
+    // A package's tab kind registered (or failed) after a pane was opened on its declaration: draw it now.
+    if (change.kind === "fail" || (change.kind === "register" && change.slot === "tabs")) {
+      for (const pane of panes.values()) if (pane.kind !== "session" && !pane.impl && (change.kind === "fail" ? pane.entry.package === change.package : pane.entry.key === registry.keyOf(change.package, change.id))) mountKind(pane);
+    }
     const about = change.kind === "declare" || change.kind === "fail" || change.kind === "redraw" || (change.kind === "register" && change.slot === "chips");
     if (!about) return;
     for (const pane of panes.values()) drawChips(pane, change.kind === "redraw" ? change.package : null);
@@ -259,11 +343,16 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExa
 
   // ---- open, activate, close ----
 
-  /** Shows a pane, building its rows first when it has none. Resolves once they are built. */
-  async function activate(id) {
-    const pane = panes.get(id);
+  /** Shows a pane, building its rows first when it has none. Resolves once they are built. `key` is a session id or a package pane's key. */
+  async function activate(key) {
+    const pane = panes.get(key);
     if (!pane) return;
-    store.set({ current: id });
+    const before = shownKind();
+    if (before && before !== pane) hook(before, "deactivate");
+    // One `set` for both, so a watcher of either sees them agree: a conversation on screen, or none and which tab instead.
+    const shown = store.get("activeTab");
+    const same = shown && shown.kind === pane.kind && shown.id === pane.id;
+    store.set({ current: pane.kind === "session" ? pane.id : null, activeTab: same ? shown : { kind: pane.kind, id: pane.id } });
     for (const p of panes.values()) {
       p.node.classList.toggle("is-active", p === pane);
       p.tab.classList.toggle("is-active", p === pane);
@@ -271,7 +360,11 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExa
     }
     empty.classList.remove("is-active");
     pane.tab.scrollIntoView({ block: "nearest", inline: "nearest" });
-    keep(id);
+    if (pane.kind !== "session") {
+      if (before !== pane) hook(pane, "activate");
+      return;
+    }
+    keep(key);
     if (pane.built) return pane.transcript.shown();
     await load(pane);
   }
@@ -285,29 +378,54 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExa
   }
 
   /**
+   * A package's tab: `entryKey` names the registry's `tabs` entry, `id` what the tab is about. The one already
+   * open for `id` is shown again; else a pane is made and shown. False when no package declares that kind here.
+   */
+  async function openKind(entryKey, id, params) {
+    const entry = registry.entry("tabs", entryKey);
+    if (!entry) return false;
+    const key = keyOf(entry.id, id);
+    if (!panes.has(key)) {
+      createKindPane(entry, id, params);
+      order.push(key);
+      store.set({ tabs: [...order] });
+    }
+    await activate(key);
+    return true;
+  }
+
+  function closeKind(entryKey, id) {
+    const entry = registry.entry("tabs", entryKey);
+    if (entry) close(keyOf(entry.id, id));
+  }
+
+  /**
    * Closes a pane, and tells `onClosed` once the tab is gone and the conversation on screen has moved off
    * it. The order is the point: what that hook does — discarding a conversation nothing was ever said in —
    * must not happen while the id is still `current`, still in `tabs`, and still the one in the address bar.
+   * A package's pane is unmounted first, and `onClosed` is not for it: nothing of it was on the server.
    */
-  function close(id) {
-    const pane = panes.get(id);
+  function close(key) {
+    const pane = panes.get(key);
     if (!pane) return;
-    const at = order.indexOf(id);
+    const at = order.indexOf(key);
     order.splice(at, 1);
-    recent.splice(recent.indexOf(id) >>> 0, 1);
-    panes.delete(id);
+    recent.splice(recent.indexOf(key) >>> 0, 1);
+    panes.delete(key);
+    const wasShown = isShown(pane);
+    if (pane.kind !== "session") hook(pane, "unmount");
     pane.node.remove();
     pane.tab.remove();
     store.set({ tabs: [...order] });
-    if (store.get("current") === id) {
+    if (wasShown) {
       const next = order[at] ?? order[at - 1];
       if (next) void activate(next); // `current` moves synchronously, inside activate, before it awaits anything
       else {
-        store.set({ current: null });
+        store.set({ current: null, activeTab: null });
         showEmpty("none");
       }
     }
-    onClosed?.(id);
+    if (pane.kind === "session") onClosed?.(pane.id);
   }
 
   /**
@@ -316,7 +434,9 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExa
    * nothing behind to be tidied away.
    */
   function showNew() {
-    store.set({ current: null });
+    const before = shownKind();
+    if (before) hook(before, "deactivate");
+    store.set({ current: null, activeTab: null });
     for (const p of panes.values()) {
       p.node.classList.remove("is-active");
       p.tab.classList.remove("is-active");
@@ -347,7 +467,7 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExa
 
   /** A load owns its event buffer until the snapshot and its sequence watermark have been restored. */
   function deliver(pane, message) {
-    if (!pane?.built) return;
+    if (!pane?.built || !pane.transcript) return;
     if (pane.loading) { pane.loading.events.push(message); return; }
     if (pane.id === message.session) {
       const turn = message.turn || "pending";
@@ -370,20 +490,23 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExa
 
   /** After a reconnect: every built pane is rebuilt from its record, which carries the turn in progress. */
   async function reload() {
-    await Promise.all([...panes.values()].filter((p) => p.built).map(load));
+    await Promise.all([...panes.values()].filter((p) => p.built && p.transcript).map(load));
   }
 
   for (const key of ["current", "sessions", "running", "activity", "choices", "agents"]) store.watch(key, drawAll);
 
   return {
     open,
+    openKind,
     activate,
     close,
+    closeKind,
     showNew,
     reveal,
     applyTurn,
     reload,
     list: () => [...order],
+    active: () => store.get("activeTab"),
     transcriptOf: (id) => panes.get(id)?.transcript ?? null,
   };
 }

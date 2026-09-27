@@ -33,7 +33,7 @@ metadata:
 | `dir` | The directory of browser files, relative to the package root. Default `ui`. It must not leave the package. |
 | `entry` | An ES module, relative to `dir`. The page imports it and calls its default export `install(ext)`. Optional. A `.js` file inside `dir`. |
 | `style` | A stylesheet, relative to `dir`. The page links it once. Optional. A `.css` file inside `dir`. |
-| `dock`, `panel`, `places`, `sidebar`, `chips`, `composer`, `shelf`, `statusbar` | Slot entries. Each entry has an `id` that matches `^[a-z][a-z0-9_-]{0,31}$`. It can have `label`, `icon`, `hint`, `note`, `wide`, `role`, and `order` (default 100). |
+| `dock`, `panel`, `places`, `sidebar`, `chips`, `composer`, `shelf`, `statusbar`, `tabs` | Slot entries. Each entry has an `id` that matches `^[a-z][a-z0-9_-]{0,31}$`. It can have `label`, `icon`, `hint`, `note`, `wide`, `role`, and `order` (default 100). |
 | `commands` | The verbs the package's own page may send. `verb` matches the id pattern. `export` names a function export of the package's `main`. `role` is the least role that may send it. Default: any signed-in person. |
 
 The slots:
@@ -43,7 +43,8 @@ The slots:
 | `dock` | A button in the rail. It opens a panel beside the transcript, 360px wide, or 620px with `wide: true`. |
 | `panel` | A section of the control panel. Panel ids are namespaced by package. |
 | `places` | An item in the sidebar's menu. It takes over the main pane. |
-| `sidebar` | Today only `{ id: "head" }`: a slot at the top of the sidebar. |
+| `sidebar` | `{ id: "head" }` (the default `slot`): one thing under the brand, the project switcher. `{ id, slot: "section", label }`: a collapsible section above the conversations, with the shell's heading, count and actions strip around a body the package draws (`mount(body, { setCount, setActions, expand })`). |
+| `tabs` | A kind of tab a package opens beside the conversations: `{ id: "canvas", label, icon }`. The module registers `ext.tab(id, { open(root, handle) })` and opens one with `ext.open.tab(id, key, params)`; the composer is hidden while such a tab is on screen, and the address bar names it `#<id>/<key>`. |
 | `chips` | A chip in the chat bar. |
 | `composer` | A control beside the model picker. |
 | `shelf` | A drawer above the composer. |
@@ -57,7 +58,8 @@ The slots:
 
 - A package without `ui` is skipped.
 - Every value is checked. A missing, empty, or too long string refuses the package. So does an id that does not match the pattern. So does an entry or verb declared twice. So does a `dir`, `entry`, or `style` that leaves its directory or does not exist.
-- A `dock`, `places`, `sidebar`, `chips`, `composer`, `shelf`, or `statusbar` id belongs to the first installed package that declares it. A later package with the same id is refused.
+- A `dock`, `places`, `sidebar`, `chips`, `composer`, `shelf`, `statusbar` or `tabs` id belongs to the first installed package that declares it. A later package with the same id is refused.
+- A command is `json` (the default), `raw` (bytes: `kind: "raw"`), a stream (`stream: true`) or a frame (`kind: "frame"`: documents served into a sandboxed iframe under a token the page mints, with no cookie; how `@thetis/canvases` shows the model's HTML). Each has its own route.
 - A refusal is `{ package, message }`. The rest still composes.
 - Entries and commands with a `role` above the person's role are left out. Hidden entries are named in `hidden` as `<slot>:<id>`.
 
@@ -163,6 +165,7 @@ The shell draws the header and the close button. `open` returns an unmount funct
 | `@thetis/terminal` | The terminal drawer (`shelf`) and its chip. |
 | `@thetis/compaction` | The `ctx` chip, the Compaction dock and the transcript card of a compaction. |
 | `@thetis/projects` | The sidebar head switcher and the Project place. |
+| `@thetis/canvases` | The **Canvases** section above the conversations and the canvas tab: boards of HTML artboards the model makes with the `canvas_*` tools, shown in sandboxed frames. |
 | `@thetis/effort` | The Effort pill beside the model picker (`composer` slot). Commands `effort-state`, `effort-set`, `effort-models`. |
 | `@thetis/harness-core` | No page files. The command `retry-now`, which the transcript's **Retry now** sends while a round waits to be sent again. |
 

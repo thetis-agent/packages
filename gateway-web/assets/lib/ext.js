@@ -11,6 +11,7 @@
 
 import { api, ApiError } from "./api.js";
 import { clear, el, icon, setHidden } from "./dom.js";
+import { frameSeam } from "./frame.js";
 import { awaitReturn, onTurnsIdle, turnsRunning } from "./lifecycle.js";
 import { renderMarkdown } from "./markdown.js";
 import { openMenu } from "./menu.js";
@@ -20,7 +21,7 @@ import * as registry from "./registry.js";
 import { store } from "./store.js";
 import { toast } from "./toast.js";
 
-let shell = null; // { send, openConversation, openDock, openPlace, openShelf, closeShelf, shelfOpen, openPanel }
+let shell = null; // { send, openConversation, openDock, openPlace, openShelf, closeShelf, shelfOpen, openPanel, openTab, closeTab }
 const turnWatchers = new Set();
 const creationWatchers = new Set();
 
@@ -107,6 +108,7 @@ export function createExt(extension) {
   const verbs = new Set(extension.commands ?? []);
   const streams = new Set(extension.streams ?? []);
   const raws = new Set(extension.raw ?? []);
+  const frames = new Set(extension.frames ?? []);
   const slot = (name) => (id, impl) => registry.register(name, pkg, id, impl);
 
   const ext = {
@@ -120,10 +122,16 @@ export function createExt(extension) {
     /** `ext.shelf(id, { mount })` registers; `ext.shelf.isOpen()` says whether the shelf is open right now. */
     shelf: Object.freeze(Object.assign(slot("shelf"), { isOpen: () => Boolean(shell.shelfOpen?.()) })),
     statusbar: slot("statusbar"),
+    /**
+     * `ext.tab(kind, { open })` registers a kind of tab: `open(root, handle)` draws one into `root`, the whole
+     * pane, and answers `{ unmount?, activate?, deactivate? }` (or the unmount function alone). `handle` is
+     * `{ id, kind, params, setTitle(text), setNote(text), close() }`.
+     */
+    tab: slot("tabs"),
     transcript: (render) => registry.addRenderer(pkg, render),
 
     /** Whether this package declares `verb` and the person's role clears it: how a UI hides an admin's control. */
-    can: (verb) => verbs.has(verb) || streams.has(verb) || raws.has(verb),
+    can: (verb) => verbs.has(verb) || streams.has(verb) || raws.has(verb) || frames.has(verb),
 
     async request(verb, { session, args } = {}) {
       if (!verbs.has(verb)) throw new Error(`${pkg} declares no command "${verb}".`);
@@ -204,11 +212,14 @@ export function createExt(extension) {
       place: (id, params) => shell.openPlace(entryKey("places", pkg, id), params),
       shelf: (id) => shell.openShelf(registry.keyOf(pkg, id)),
       panel: (id) => shell.openPanel(registry.keyOf(pkg, id)),
+      /** A tab of `kind` for `id`, beside the conversations: this package's own kind first, else another's by that id. The one already open for `id` is shown again. */
+      tab: (kind, id, params) => shell.openTab(entryKey("tabs", pkg, kind), id, params),
     }),
 
-    /** The shelf closes whoever is in it; nothing else on the page closes on a package's word. */
+    /** The shelf closes whoever is in it, and a tab of a kind closes by its id; nothing else on the page closes on a package's word. */
     close: Object.freeze({
       shelf: () => shell.closeShelf(),
+      tab: (kind, id) => shell.closeTab(entryKey("tabs", pkg, kind), id),
     }),
 
     dom: DOM,
@@ -234,6 +245,8 @@ export function createExt(extension) {
     },
     /** Only for a package that declared a raw command; a module must guard `ext.raw?.url` on an older gateway. */
     ...(raws.size ? { raw: rawSeam(pkg, raws) } : {}),
+    /** Only for a package that declared a `kind: "frame"` command; a module must guard `ext.frame?.url` on an older gateway. */
+    ...(frames.size ? { frame: frameSeam(pkg, frames) } : {}),
     /** The shell's renderer. `opts.image(src)` may turn a relative image path into a URL; one argument still works. */
     markdown: (text, opts) => renderMarkdown(text, opts),
   };

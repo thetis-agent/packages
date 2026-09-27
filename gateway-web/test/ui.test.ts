@@ -21,7 +21,7 @@ import { memoryStore } from "@thetis/runtime/lib/store";
 import { createDoor } from "@thetis/runtime/door";
 import { createLogin } from "@thetis/gateway-login";
 import { clientFromRpc } from "../src/client.js";
-import { createGateway } from "../src/server.js";
+import { createGateway, FRAME_POLICY } from "../src/server.js";
 import { GatewayStore } from "../src/store.js";
 import { HttpError } from "../src/http.js";
 import { composeUi, runRaw, type UiExtension } from "../src/ui.js";
@@ -152,7 +152,7 @@ test("composeUi: a raw verb is listed in raw, never in commands; kind and maxByt
   assert.deepEqual(asUser.extensions[0].raw, ["up", "down"], "the admin-only raw verb is not listed for a user");
   assert.deepEqual(asUser.extensions[0].streams, []);
   const why = Object.fromEntries(asUser.refused.map((r) => [r.package, r.message]));
-  assert.equal(why["@t/bad-kind"], 'command "up" kind must be json or raw');
+  assert.equal(why["@t/bad-kind"], 'command "up" kind must be json, raw or frame');
   assert.match(why["@t/bad-max"], /command "up" maxBytes must be a whole number of bytes between 1 and 536870912/);
   assert.match(why["@t/huge-max"], /maxBytes must be a whole number/);
   assert.match(why["@t/frac-max"], /maxBytes must be a whole number/);
@@ -163,6 +163,33 @@ test("composeUi: a raw verb is listed in raw, never in commands; kind and maxByt
   assert.deepEqual(asAdmin.extensions[0].raw, ["up", "down", "keep"]);
   const plain = composeUi([pkg("@t/no-raw", { commands: [{ verb: "a", export: "a" }] })], "user", scratch);
   assert.deepEqual(plain.extensions[0].raw, [], "always a list, so the page can test it");
+});
+
+test("composeUi: a frame verb is listed in frames and nowhere else and may not stream or carry maxBytes; a sidebar entry names its slot; a tab kind is shared", () => {
+  const framer = pkg("@t/framer", { commands: [{ verb: "plain", export: "a" }, { verb: "board", export: "b", kind: "frame" }, { verb: "keep", export: "c", kind: "frame", role: "admin" }], tabs: [{ id: "canvas", label: "Canvas" }], sidebar: [{ id: "canvases", slot: "section", label: "Canvases" }, { id: "head" }] });
+  const frameStream = pkg("@t/frame-stream", { commands: [{ verb: "b", export: "b", kind: "frame", stream: true }] });
+  const frameMax = pkg("@t/frame-max", { commands: [{ verb: "b", export: "b", kind: "frame", maxBytes: 10 }] });
+  const badSlot = pkg("@t/bad-slot", { sidebar: [{ id: "x", slot: "foot" }] } as never);
+  const dockSlot = pkg("@t/dock-slot", { dock: [{ id: "x", slot: "section" }] });
+  const secondTab = pkg("@t/second-tab", { tabs: [{ id: "canvas" }] });
+  const asUser = composeUi([framer, frameStream, frameMax, badSlot, dockSlot, secondTab], "user", scratch);
+  assert.deepEqual(asUser.extensions.map((e) => e.package), ["@t/framer"]);
+  const ext = asUser.extensions[0];
+  assert.deepEqual(ext.commands, ["plain"], "a frame verb is not a command");
+  assert.deepEqual(ext.frames, ["board"], "the admin-only frame verb is not listed for a user");
+  assert.deepEqual(ext.raw, []);
+  assert.deepEqual(ext.streams, []);
+  assert.deepEqual(ext.tabs, [{ id: "canvas", label: "Canvas", order: 100 }]);
+  assert.deepEqual(ext.sidebar, [{ id: "canvases", label: "Canvases", order: 100, slot: "section" }, { id: "head", order: 100 }], "slot crosses; head stays the default by its absence");
+  const why = Object.fromEntries(asUser.refused.map((r) => [r.package, r.message]));
+  assert.equal(why["@t/frame-stream"], 'command "b" cannot both stream and be a frame');
+  assert.equal(why["@t/frame-max"], 'command "b" maxBytes is for raw commands only');
+  assert.equal(why["@t/bad-slot"], 'sidebar entry "x" slot must be head or section');
+  assert.equal(why["@t/dock-slot"], 'dock entry "x" slot is for sidebar entries only');
+  assert.equal(why["@t/second-tab"], 'tabs entry "canvas" is already claimed by @t/framer');
+  assert.equal(asUser.refused.length, 5);
+  assert.deepEqual(composeUi([framer], "admin", scratch).extensions[0].frames, ["board", "keep"]);
+  assert.deepEqual(composeUi([pkg("@t/no-frame", { commands: [{ verb: "a", export: "a" }] })], "user", scratch).extensions[0].frames, [], "always a list, so the page can test it");
 });
 
 test("runRaw: a PUT hands the export the body and answers its return as data; a GET hands back the stream it answered", async () => {
@@ -334,6 +361,9 @@ before(async () => {
         { verb: "boom-raw", export: "uiBoom", kind: "raw" },
         { verb: "slow-raw", export: "uiSlow", kind: "raw" },
         { verb: "admin-raw", export: "uiBlob", kind: "raw", role: "admin" },
+        { verb: "frame", export: "uiFrame", kind: "frame" },
+        { verb: "bad-frame", export: "uiBadFrame", kind: "frame" },
+        { verb: "admin-frame", export: "uiFrame", kind: "frame", role: "admin" },
       ] } },
     })
   );
@@ -349,6 +379,9 @@ before(async () => {
       "export const uiBad = () => ({ nope: 1 });",
       "export const uiBoom = () => { throw new Error('no'); };",
       "export const uiSlow = () => new Promise(() => {});",
+      // A frame: the document at the root, one picture beside it, and the export's own refusal for anything else.
+      "export const uiFrame = (args, env, req) => req.path === '' ? ({ headers: { 'content-type': 'text/html; charset=utf-8', 'set-cookie': 'nope=1', 'cache-control': 'max-age=999', 'content-security-policy': 'default-src *' }, body: '<!doctype html><title>' + (args.canvas ?? 'none') + '</title><p>' + env.user + '</p>' }) : req.path === 'assets/a.png' ? ({ headers: { 'content-type': 'image/png' }, body: Buffer.from([137, 80, 78, 71]) }) : ({ status: 404, headers: { 'content-type': 'text/plain' }, body: 'not here: ' + req.path });",
+      "export const uiBadFrame = () => ({ headers: { 'content-type': 'application/pdf' }, body: 'x' });",
     ].join("\n")
   );
 
@@ -618,6 +651,65 @@ test("raw: an upload is read up to the command's maxBytes and answered as data; 
   assert.equal((await api(bob, at("blob"))).status, 401, "bob's cookie at alice's gateway");
   assert.equal((await api(alice, `/alice/api/packages/${encodeURIComponent(RAW)}`, { method: "DELETE" })).status, 200);
   assert.equal((await api(alice, at("blob"))).status, 404, "gone with the package");
+});
+
+test("frame: a token minted with the cookie serves the export's documents with no cookie at all, under the frame policy, and nothing else", async () => {
+  const alice = await cookieFor("alice", "wonderland");
+  const bob = await cookieFor("bob", "builder");
+  assert.equal((await api(alice, "/alice/api/packages", { method: "POST", body: JSON.stringify({ source: "packages/ui-raw" }) })).status, 201);
+  const listed = (await ui(alice)).extensions.find((e) => e.package === RAW)!;
+  assert.deepEqual(listed.frames, ["frame", "bad-frame"], "the admin-only one is not listed for alice");
+  assert.ok(!listed.commands.includes("frame") && !listed.raw.includes("frame"), "a frame verb is neither a command nor raw");
+  const mintAt = (verb: string) => `/alice/api/ext/${RAW}/${verb}/frame`;
+
+  // Minting: the cookie, the same-site check and the seam's checks, then a token that names the arguments.
+  assert.equal((await fetch(`${base}${mintAt("frame")}`, { method: "POST" })).status, 401, "minting needs the cookie");
+  assert.equal((await api(alice, mintAt("frame"), { method: "POST", body: "{}", headers: { "sec-fetch-site": "cross-site" } })).status, 403, "and must be same-site");
+  const minted = await post(alice, mintAt("frame"), { args: { canvas: "c_1" } });
+  assert.equal(minted.status, 201, JSON.stringify(minted.body));
+  const token = minted.body.token as string;
+  assert.match(token, /^[a-f0-9]{64}$/);
+  assert.equal(minted.body.base, `f/${token}/`);
+  assert.equal((await post(alice, mintAt("admin-frame"), {})).status, 403);
+  assert.equal((await post(alice, mintAt("echo"), {})).body.error, '"echo" is not a frame');
+  assert.equal((await post(alice, mintAt("nope"), {})).status, 404);
+  assert.equal((await post(alice, `/alice/api/ext/${RAW}/frame`, {})).body.error, '"frame" is a frame; mint a token for it', "not a command");
+  assert.deepEqual(await (await api(alice, `/alice/api/ext/${RAW}/frame/raw`)).json(), { error: '"frame" is a frame; mint a token for it' }, "not raw");
+  assert.deepEqual(await (await api(alice, `/alice/api/ext/${RAW}/frame/stream`)).json(), { error: '"frame" is a frame; mint a token for it' }, "not a stream");
+
+  // Serving: no cookie, the export's answer under the gateway's own policy and headers.
+  const at = (path: string, t = token, user = "alice") => `${base}/${user}/f/${t}/${path}`;
+  const doc = await fetch(at(""));
+  assert.equal(doc.status, 200);
+  assert.equal(doc.headers.get("content-type"), "text/html; charset=utf-8");
+  assert.equal(doc.headers.get("content-security-policy"), FRAME_POLICY, "the export's policy did not win");
+  assert.equal(doc.headers.get("cache-control"), "private, no-store", "nor its cache header");
+  assert.equal(doc.headers.get("set-cookie"), null, "nor may it set a cookie");
+  assert.equal(doc.headers.get("referrer-policy"), "no-referrer");
+  assert.equal(doc.headers.get("cross-origin-resource-policy"), null, "a resource policy would refuse the sandboxed document's own loads: its origin is opaque, which no site matches");
+  assert.equal(doc.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(await doc.text(), "<!doctype html><title>c_1</title><p>alice</p>", "the minted arguments and the minting person reach the export");
+  const png = await fetch(at("assets/a.png"));
+  assert.equal(png.status, 200);
+  assert.equal(png.headers.get("content-type"), "image/png");
+  assert.deepEqual(new Uint8Array(await png.arrayBuffer()), new Uint8Array([137, 80, 78, 71]), "a relative path under the token reaches the export as it was asked");
+  const missing = await fetch(at("assets/b.png"));
+  assert.equal(missing.status, 404);
+  assert.equal(await missing.text(), "not here: assets/b.png", "the export's own refusal is served as it is");
+  for (const bad of ["%2e%2e/x", "assets/%2e%2e/x", ".hidden", "a%5Cb", "a%00b", `${"d/".repeat(17)}x`]) assert.equal((await fetch(at(bad))).status, 404, `a path no document asks for: ${bad}`);
+  assert.equal((await fetch(at("", "0".repeat(64)))).status, 404, "an unknown token");
+  assert.equal((await fetch(at("", "nope"))).status, 404, "a malformed one");
+  assert.equal((await fetch(`${base}/alice/f/`)).status, 404);
+  assert.equal((await fetch(at(""), { method: "POST" })).status, 404, "only GET serves a frame");
+  assert.equal((await fetch(at("", token, "bob"))).status, 404, "alice's token is unknown at bob's gateway");
+  assert.equal((await post(bob, mintAt("frame"), {})).status, 401, "and bob's cookie cannot mint at alice's");
+  const badToken = (await post(alice, mintAt("bad-frame"), {})).body.token as string;
+  const bad = await fetch(at("", badToken));
+  assert.equal(bad.status, 502);
+  assert.match(((await bad.json()) as { error: string }).error, /a type a frame may not serve: application\/pdf/);
+
+  assert.equal((await api(alice, `/alice/api/packages/${encodeURIComponent(RAW)}`, { method: "DELETE" })).status, 200);
+  assert.equal((await fetch(at(""))).status, 404, "a token outlives its package by nothing: gone with it");
 });
 
 test("api/ui drops a package after it is removed", async () => {

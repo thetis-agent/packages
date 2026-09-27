@@ -314,6 +314,8 @@ bindShell({
   closeShelf: () => shelf.close(),
   shelfOpen: () => shelf.isOpen(),
   openPanel: (key) => places.open(registry.keyOf(registry.BUILTIN, PANEL_PLACE.id), { section: key }),
+  openTab: (key, id, params) => { places.close(); closeSidebar(); return tabs.openKind(key, id, params); },
+  closeTab: (key, id) => tabs.closeKind(key, id),
 });
 
 // --- the conversation on screen is named in the address bar ---
@@ -330,11 +332,30 @@ bindShell({
  * the conversation is remembered, not the whole row of tabs: the tabs are a working arrangement, the
  * conversation being read is the thing whose loss is felt. A subagent's pane names its conversation,
  * because that is where the child's block lives and a child cannot be reopened from its id alone.
+ *
+ * A package's tab is named the same way, as `#<kind>/<id>` (`#canvas/c_1a2b3c4d`): the tabs are not kept,
+ * so without it a refresh on a canvas would land on the newest conversation and lose the thing being looked at.
  */
 const CONVERSATION_IN_URL = /^#(s_[a-f0-9]+)$/;
+const TAB_IN_URL = /^#([a-z][a-z0-9_-]{0,31})\/([A-Za-z0-9_.-]{1,64})$/;
 
 function conversationInUrl() {
   return CONVERSATION_IN_URL.exec(location.hash)?.[1] ?? null;
+}
+
+function tabInUrl() {
+  const m = TAB_IN_URL.exec(location.hash);
+  return m ? { kind: m[1], id: m[2] } : null;
+}
+
+/** Opens a package's tab the address names, once the extensions have loaded. False when no package here declares that kind. */
+async function openNamedTab(kind, id) {
+  await extensionsReady;
+  const entry = registry.entries("tabs").find((e) => e.id === kind);
+  if (!entry) return false;
+  places.close();
+  closeSidebar();
+  return tabs.openKind(entry.key, id, { id });
 }
 
 /**
@@ -370,6 +391,15 @@ async function openNamed(id) {
 // Another conversation typed or pasted into the address bar of an open page switches to it. The page's own
 // changes to the hash are `replaceState`, which fires no `hashchange`, so this hears only the person.
 addEventListener("hashchange", () => {
+  const tab = tabInUrl();
+  if (tab) {
+    const shown = store.get("activeTab");
+    if (shown && shown.kind === tab.kind && shown.id === tab.id) return;
+    void openNamedTab(tab.kind, tab.id).then((ok) => {
+      if (!ok) toast(`Nothing here opens ${tab.kind} tabs.`, { tone: "error" });
+    });
+    return;
+  }
   const id = conversationInUrl();
   if (!id || id === store.get("current")) return;
   void openNamed(id).then((ok) => {
@@ -377,9 +407,14 @@ addEventListener("hashchange", () => {
   });
 });
 
-store.watch("current", (id) => {
-  const shown = id ? store.rootOf(id) : null;
-  const hash = shown ? `#${shown}` : "";
+/** What the address bar says: a conversation's root session, a package's tab as `#<kind>/<id>`, or nothing for a draft. */
+function hashFor(shown) {
+  if (!shown) return "";
+  return shown.kind === "session" ? `#${store.rootOf(shown.id)}` : `#${shown.kind}/${shown.id}`;
+}
+
+store.watch("activeTab", (shown) => {
+  const hash = hashFor(shown);
   if (hash === (location.hash || "")) return;
   // replaceState, not a new entry: Back belongs to wherever the person came from, not to every tab they clicked.
   history.replaceState(null, "", `${location.pathname}${location.search}${hash}`);
@@ -653,8 +688,14 @@ const connection = connect({
       // which opens in its own tab. Nothing named, or nothing by that name any more: the newest
       // conversation, as before. A draft kept from a new conversation brings the new conversation back.
       const sessions = store.get("sessions");
+      const wantedTab = tabInUrl();
       const wanted = conversationInUrl();
-      const named = wanted && draftAtLoad?.session !== null ? await openNamed(wanted) : false;
+      let named = false;
+      if (wantedTab) {
+        // A package's tab: the page waits for the extensions, since only the package can draw it.
+        named = await openNamedTab(wantedTab.kind, wantedTab.id);
+        if (!named) toast(`Nothing here opens ${wantedTab.kind} tabs.`, { tone: "error" });
+      } else if (wanted && draftAtLoad?.session !== null) named = await openNamed(wanted);
       const first = !named && draftAtLoad?.session !== null && sessions.find((s) => !s.archived);
       if (first) await openConversation(first.id);
       await restoreDraft(draftAtLoad);

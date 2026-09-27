@@ -6,7 +6,9 @@
 // gateway already holds and that package's effective configuration, fetched from the kernel on every call
 // so a change is live at once; nothing more: no other package's authority. A command declared
 // `kind: "raw"` answers bytes rather than JSON — a file to download, an upload to keep — and has a route of
-// its own; the checks in front of it are the same ones, from the same function.
+// its own; the checks in front of it are the same ones, from the same function. A command declared
+// `kind: "frame"` serves documents into a sandboxed iframe: the page mints a token for it once, with the
+// same checks, and the browser then fetches under that token with no cookie (see frames.ts).
 import { existsSync, statSync } from "node:fs";
 import { z } from "zod";
 import { parseSchema } from "@thetis/runtime/lib/validation";
@@ -19,10 +21,12 @@ import type { KernelClient, PackageInfo, StepEnv, UiCommandDecl, UiCommandEnv, U
 import { BODY_LIMIT, HttpError } from "./http.js";
 import { serveFile, within } from "./static.js";
 
-export const SLOTS = ["dock", "panel", "places", "sidebar", "chips", "composer", "shelf", "statusbar"] as const;
+export const SLOTS = ["dock", "panel", "places", "sidebar", "chips", "composer", "shelf", "statusbar", "tabs"] as const;
 export type Slot = (typeof SLOTS)[number];
 /** Slots where one id belongs to one package. Panel ids are namespaced by package in the browser, so both may stay. */
-const SHARED: Slot[] = ["dock", "places", "sidebar", "chips", "composer", "shelf", "statusbar"];
+const SHARED: Slot[] = ["dock", "places", "sidebar", "chips", "composer", "shelf", "statusbar", "tabs"];
+/** Where a sidebar entry mounts: under the brand, or as a collapsible section above the conversations. */
+const SIDEBAR_SLOTS = ["head", "section"] as const;
 const ID = /^[a-z][a-z0-9_-]{0,31}$/;
 const EXPORT = /^[A-Za-z_$][\w$]*$/;
 const PACKAGE_NAME = /^@[a-z0-9-]+\/[a-z0-9._-]+$/;
@@ -41,8 +45,8 @@ export const RAW_BODY_LIMIT = 512 * 1024 * 1024;
 const RESERVED_HEADERS = new Set(["set-cookie", "cache-control", "content-security-policy", "transfer-encoding", "connection"]);
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 
-/** How a declared command is called: a JSON command (the default), or a raw one that carries bytes. */
-export type UiCommandKind = "json" | "raw";
+/** How a declared command is called: a JSON command (the default), a raw one that carries bytes, or a frame one served by token. */
+export type UiCommandKind = "json" | "raw" | "frame";
 /** A validated command: the manifest's declaration with `kind` settled, and `maxBytes` filled for a raw one. */
 export interface UiCommandSpec extends UiCommandDecl {
   kind: UiCommandKind;
@@ -83,6 +87,8 @@ export interface UiExtension extends Record<Slot, UiEntryDecl[]> {
   streams: string[];
   /** The verbs declared with `kind: "raw"`. The page reaches these through `ext.raw`; they are not in `commands`. */
   raw: string[];
+  /** The verbs declared with `kind: "frame"`. The page reaches these through `ext.frame`; they are not in `commands`. */
+  frames: string[];
   /** Entries above the person's role, as `<slot>:<id>`, so the page can tell "hidden" from "never declared". */
   hidden: string[];
 }
@@ -150,12 +156,17 @@ function entry(raw: unknown, slot: Slot): UiEntryDecl {
   const note = text(raw.note, `${what} note`, 200);
   const under = text(raw.under, `${what} under`, 120);
   if (under !== undefined && slot !== "panel") fail(`${what} under is for panel entries only`);
+  if (raw.slot !== undefined) {
+    if (slot !== "sidebar") fail(`${what} slot is for sidebar entries only`);
+    if (!(SIDEBAR_SLOTS as readonly unknown[]).includes(raw.slot)) fail(`${what} slot must be head or section`);
+  }
   const need = role(raw.role, what);
   if (label !== undefined) out.label = label;
   if (icon !== undefined) out.icon = icon;
   if (hint !== undefined) out.hint = hint;
   if (note !== undefined) out.note = note;
   if (under !== undefined) out.under = under;
+  if (raw.slot !== undefined) out.slot = raw.slot as (typeof SIDEBAR_SLOTS)[number];
   if (raw.wide !== undefined) out.wide = raw.wide;
   if (need !== undefined) out.role = need;
   return out;
@@ -166,9 +177,10 @@ function command(raw: unknown): UiCommandSpec {
   const what = `command "${raw.verb}"`;
   if (typeof raw.export !== "string" || !EXPORT.test(raw.export)) fail(`${what} needs an export name`);
   if (raw.stream !== undefined && typeof raw.stream !== "boolean") fail(`${what} stream must be true or false`);
-  if (raw.kind !== undefined && raw.kind !== "json" && raw.kind !== "raw") fail(`${what} kind must be json or raw`);
-  const kind: UiCommandKind = raw.kind === "raw" ? "raw" : "json";
+  if (raw.kind !== undefined && raw.kind !== "json" && raw.kind !== "raw" && raw.kind !== "frame") fail(`${what} kind must be json, raw or frame`);
+  const kind: UiCommandKind = raw.kind === "raw" ? "raw" : raw.kind === "frame" ? "frame" : "json";
   if (kind === "raw" && raw.stream) fail(`${what} cannot both stream and be raw`);
+  if (kind === "frame" && raw.stream) fail(`${what} cannot both stream and be a frame`);
   if (raw.maxBytes !== undefined) {
     if (kind !== "raw") fail(`${what} maxBytes is for raw commands only`);
     if (typeof raw.maxBytes !== "number" || !Number.isInteger(raw.maxBytes) || raw.maxBytes < 1 || raw.maxBytes > RAW_BODY_LIMIT) fail(`${what} maxBytes must be a whole number of bytes between 1 and ${RAW_BODY_LIMIT}`);
@@ -242,7 +254,15 @@ export function composeUi(packages: PackageInfo[], role: UserRole, store: string
     }
     for (const slot of SHARED) for (const e of ui.slots[slot]) claimed.set(`${slot}:${e.id}`, pkg.name);
     const mine = ui.commands.filter((c) => clears(role, c.role));
-    const ext = { package: pkg.name, version: pkg.version, base: `ext/${pkg.name}/`, commands: mine.filter((c) => !c.stream && c.kind !== "raw").map((c) => c.verb), streams: mine.filter((c) => c.stream).map((c) => c.verb), raw: mine.filter((c) => c.kind === "raw").map((c) => c.verb) } as UiExtension;
+    const ext = {
+      package: pkg.name,
+      version: pkg.version,
+      base: `ext/${pkg.name}/`,
+      commands: mine.filter((c) => seamOf(c) === "command").map((c) => c.verb),
+      streams: mine.filter((c) => c.stream).map((c) => c.verb),
+      raw: mine.filter((c) => c.kind === "raw").map((c) => c.verb),
+      frames: mine.filter((c) => c.kind === "frame").map((c) => c.verb),
+    } as UiExtension;
     if (ui.entry !== undefined) ext.entry = ui.entry;
     if (ui.style !== undefined) ext.style = ui.style;
     for (const slot of SLOTS) ext[slot] = ui.slots[slot].filter((e) => clears(role, e.role));
@@ -302,18 +322,19 @@ function withTimeout<T>(run: () => Promise<T>, ms: number, message: string): Pro
   return Promise.race([Promise.resolve().then(run), clock]).finally(() => clearTimeout(timer));
 }
 
-type Seam = "command" | "stream" | "raw";
+type Seam = "command" | "stream" | "raw" | "frame";
 
-/** The seam a declaration belongs to: the three routes never share a verb. */
+/** The seam a declaration belongs to: the four routes never share a verb. */
 function seamOf(cmd: UiCommandSpec): Seam {
-  return cmd.stream ? "stream" : cmd.kind === "raw" ? "raw" : "command";
+  return cmd.stream ? "stream" : cmd.kind === "raw" ? "raw" : cmd.kind === "frame" ? "frame" : "command";
 }
 
 /** The sentence for a verb reached through the wrong route, naming the right one. */
 function wrongSeam(verb: string, have: Seam, want: Seam): string {
   if (have === "stream") return `"${verb}" streams; subscribe to it`;
   if (have === "raw") return `"${verb}" is raw; use its raw route`;
-  return want === "stream" ? `"${verb}" does not stream` : `"${verb}" is not raw`;
+  if (have === "frame") return `"${verb}" is a frame; mint a token for it`;
+  return want === "stream" ? `"${verb}" does not stream` : want === "frame" ? `"${verb}" is not a frame` : `"${verb}" is not raw`;
 }
 
 /** `args` as the stream and raw routes carry them: a JSON object in the query, bounded by what a URL may hold. */
@@ -437,6 +458,77 @@ export async function runRaw(ctx: CommandContext, who: { id: string; role: UserR
   if (body.length > limit) throw new HttpError(413, `That upload is larger than ${Math.round(limit / 1024)} KB.`);
   const result = await withTimeout(() => call({ method: "PUT", body }), ctx.timeoutMs ?? COMMAND_TIMEOUT_MS, `${pkg.name} did not answer "${verb}" in time`);
   return bounded(pkg, verb, result === undefined ? {} : { data: result });
+}
+
+/** What a frame may serve: documents, styles, scripts, pictures, fonts and media, and a plain-text refusal. Anything else is a 502 naming the package. */
+export const FRAME_TYPES = new Set([
+  "text/html", "text/plain", "text/css", "text/javascript", "application/javascript", "application/json", "image/svg+xml",
+  "image/png", "image/jpeg", "image/webp", "image/gif", "font/woff", "font/woff2", "font/ttf", "font/otf",
+  "video/mp4", "video/webm", "audio/mpeg",
+]);
+const FRAME_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,119}$/;
+const FRAME_DEPTH = 16;
+
+/**
+ * `POST api/ext/<scope>/<name>/<verb>/frame`: the shared checks for a `kind: "frame"` verb, so a token is
+ * only ever minted for a verb the person may reach. A frame is not about a conversation, so no session.
+ */
+export async function mintFrame(ctx: CommandContext, who: { id: string; role: UserRole }, scope: string, name: string, verb: string, args: unknown): Promise<{ pkg: PackageInfo; verb: string; args: Record<string, unknown> }> {
+  const resolved = await resolveCommand(ctx, who, scope, name, verb, "frame", undefined, args);
+  return { pkg: resolved.pkg, verb, args: resolved.args };
+}
+
+/**
+ * The relative path a frame request names, from its decoded segments: plain names only, no dot-files, no
+ * `..`, at most sixteen deep. The export is still the one that keeps a path inside what it serves; this
+ * refuses what no honest document would ask for, before any package sees it. `""` is the frame's root.
+ */
+export function framePath(segments: string[]): string {
+  if (segments.length > FRAME_DEPTH) throw new HttpError(404, "not found");
+  const out: string[] = [];
+  for (const raw of segments) {
+    let seg: string;
+    try {
+      seg = decodeURIComponent(raw);
+    } catch {
+      throw new HttpError(404, "not found");
+    }
+    if (!FRAME_SEGMENT.test(seg)) throw new HttpError(404, "not found");
+    out.push(seg);
+  }
+  return out.join("/");
+}
+
+/**
+ * `GET f/<token>/<path…>`: the export the token's record names, called as `(args, env, { path })` with the
+ * arguments minted for it and the environment of the person who minted it, read again on every request so a
+ * package removed since answers 404. The answer is checked as a raw one, then its type against what a frame
+ * may carry. No cookie was checked: the token stood for it.
+ */
+export async function serveFrameFile(ctx: CommandContext, record: { user: string; role: UserRole; pkg: string; verb: string; args: Record<string, unknown> }, path: string, signal?: AbortSignal): Promise<RawAnswer> {
+  const [scope, name] = record.pkg.split("/");
+  const { pkg, ui } = extensionOf(await ctx.kernel.packages.list(), ctx.store, scope, name);
+  const cmd = ui.commands.find((c) => c.verb === record.verb);
+  if (!cmd || seamOf(cmd) !== "frame") throw new HttpError(404, "not found");
+  let config: Record<string, unknown>;
+  try {
+    config = await ctx.kernel.config.effective(pkg.name);
+  } catch (err) {
+    throw new HttpError(500, `${pkg.name} configuration could not be read: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const env: UiCommandEnv & { signal?: AbortSignal } = { ...ctx.env, user: record.user, role: record.role, config, ...(signal ? { signal } : {}) };
+  const fn = await loadExport(ctx.store, pkg.name, cmd.export);
+  let raw: unknown;
+  try {
+    raw = await fn(record.args, env, { path });
+  } catch (err) {
+    if (err instanceof HttpError) throw err;
+    throw new HttpError(400, err instanceof Error ? err.message : String(err));
+  }
+  const answer = rawAnswer(pkg, record.verb, raw);
+  const type = (answer.headers["content-type"] ?? "").split(";")[0].trim().toLowerCase();
+  if (!FRAME_TYPES.has(type)) throw new HttpError(502, `${pkg.name} answered "${record.verb}" with a type a frame may not serve${type ? `: ${type}` : ""}`);
+  return answer;
 }
 
 /**
