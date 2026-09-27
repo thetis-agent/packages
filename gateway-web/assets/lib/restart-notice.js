@@ -5,8 +5,10 @@
  * answers that as `readable: false`, and this module then says nothing and stops asking.
  *
  * It asks when the page loads, when one of the person's turns ends (a restart is most often armed from
- * inside a turn), when the page comes back into view, every minute otherwise, and every ten seconds while
- * a restart is armed; between answers the countdown ticks on the page's own clock. A hidden page asks
+ * inside a turn), when the page comes back into view, every ten seconds while a restart is armed or one of
+ * the person's replies runs, and every minute otherwise; between answers the countdown ticks on the page's
+ * own clock. A reply running is when a restart matters most, since it pauses that reply: asked only once a
+ * minute, a restart armed during a long tool call was first shown after the reply had already paused. A hidden page asks
  * nothing. Once the connection drops while a restart is armed, the card waits for Thetis to come back
  * through `awaitReturn`, the same wait every other surface uses, and says so when it has. */
 
@@ -18,11 +20,13 @@ import { store } from "./store.js";
 export const RESTART_NOTICE = "thetis-restart";
 const ARMED_MS = 10_000;
 const IDLE_MS = 60_000;
+/** How often a page asks while an armed restart waits for replies to reach a safe point. */
+const DRAINING_MS = 2_000;
 /** How long after the latch's own deadline the page keeps waiting before it says Thetis has not come back. */
 const SETTLE_MS = 90_000;
 const BACK_SHOWN_MS = 6000;
 
-export function watchRestart() {
+export function watchRestart({ armedMs = ARMED_MS, idleMs = IDLE_MS } = {}) {
   let pending = null;   // { reason, by, firesAt?, deadlineAt? } on this page's clock, or null
   let timer = null;
   let tick = null;
@@ -38,7 +42,10 @@ export function watchRestart() {
   function schedule() {
     clearTimeout(timer);
     if (unreadable || away || !seen()) return;
-    timer = setTimeout(() => void poll(), pending ? ARMED_MS : IDLE_MS);
+    // While a restart is armed but its countdown has not started (replies are still reaching a safe point),
+    // ask often, so "restarts in N s" appears when the countdown does and not up to a poll later.
+    const draining = pending && pending.firesAt === undefined;
+    timer = setTimeout(() => void poll(), draining ? Math.min(armedMs, DRAINING_MS) : pending || turnsRunning() ? armedMs : idleMs);
   }
 
   async function poll() {
@@ -154,6 +161,14 @@ export function watchRestart() {
     void poll();
   }
 
+  // A reply starting shortens a minute's wait to ten seconds.
+  let running = turnsRunning();
+  const unwatch = store.watch("running", () => {
+    const now = turnsRunning();
+    if (now && !running && !busy) schedule();
+    running = now;
+  });
+
   if (typeof document !== "undefined") {
     document.addEventListener("visibilitychange", () => {
       if (seen()) pollSoon();
@@ -161,5 +176,5 @@ export function watchRestart() {
     });
   }
   pollSoon();
-  return { pollSoon };
+  return { pollSoon, stop: () => { unwatch(); clearTimeout(timer); clearInterval(tick); unreadable = true; } };
 }

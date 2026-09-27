@@ -180,9 +180,11 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
   hub.subscribe(opts.user, (message) => {
     const { event } = message;
     if (event.type !== "turn.start") return;
-    const resumed = (event as { resumed?: { why?: unknown } }).resumed;
+    const resumed = (event as { resumed?: { why?: unknown; for?: unknown } }).resumed;
     if (!resumed || typeof resumed !== "object") return;
-    void noteResumed(opts.user, message.session, event.turn, String(resumed.why ?? "")).catch((err: Error) => log(`[gateway-web] the resumed divider of ${message.session} was not kept: ${err.message}`));
+    // A clean pause names what it paused for, which is what the divider says it resumed after.
+    const why = resumed.why === "yield" && typeof resumed.for === "string" ? resumed.for : String(resumed.why ?? "");
+    void noteResumed(opts.user, message.session, event.turn, why).catch((err: Error) => log(`[gateway-web] the resumed divider of ${message.session} was not kept: ${err.message}`));
   });
   // The models list is hundreds of rows and a page asks for it once per load; the fence's providers change
   // rarely, so one answer serves for a minute and carries only what the picker draws.

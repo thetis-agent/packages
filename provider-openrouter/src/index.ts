@@ -137,7 +137,7 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
       try {
         let res: Response;
         try {
-          res = await post(`${baseUrl}/chat/completions`, headers, serialized, config.retries ?? 3, request);
+          res = await post(`${baseUrl}/chat/completions`, headers, serialized, config.retries ?? 1, request);
         } catch (err) {
           if (signal?.aborted) return; // the caller gave up; it is not waiting for an explanation
           return yield failed(request.reason ?? `openrouter request failed: ${reason(err)}`, { retryable: true, kind: request.reason ? "timeout" : "connection" });
@@ -435,6 +435,9 @@ function reason(err: unknown): string {
  * again with each: three tries that each wait a minute is three minutes of somebody's evening, and the point
  * of a bound is that adding attempts cannot buy more of it.
  */
+/** The longest this adapter waits between tries without the page being told. Longer waits are the harness's. */
+const SILENT_WAIT_MS = 10_000;
+
 async function post(url: string, headers: Record<string, string>, body: string, retries: number, scope: RequestScope): Promise<Response> {
   for (let attempt = 0; ; attempt++) {
     let res: Response;
@@ -453,7 +456,9 @@ async function post(url: string, headers: Record<string, string>, body: string, 
     if (res.ok || attempt >= retries) return res;
     const text = await res.clone().text();
     const wait = retryAfterMs(res.status, text, res.headers.get("retry-after"), attempt);
-    if (wait === undefined) return res;
+    // A wait long enough for a person to wonder is not spent here, where nothing on the page can show it: the
+    // refusal goes back labelled with the wait it asked for, and the harness waits it out in a row that says so.
+    if (wait === undefined || wait > SILENT_WAIT_MS) return res;
     process.stderr.write(`[provider-openrouter] ${res.status} on attempt ${attempt + 1}; retrying in ${Math.round(wait / 1000)}s\n`);
     await sleep(wait, scope.signal);
   }

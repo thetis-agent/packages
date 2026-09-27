@@ -33,7 +33,7 @@ Five more cover "nothing lost" and restarts: a failed turn's row (`.msg.is-end`,
 under Details) whose **Retry** posts `sessions/<id>/resume`, and the same row drawn again after a
 refresh from the record's `interrupted`; a `harness-core.retry` round that takes its half-drawn bubble
 off the page, counts down "Retrying in N s (2 of 5)", posts `ext/@thetis/harness-core/retry-now` for
-**Retry now** and `cancel` for **Stop**, puts "Reconnecting — attempt 2 of 5" on the sidebar row and
+**Retry now** and `cancel` for **Stop**, puts "Reconnecting — attempt 2 of 6" on the sidebar row and
 settles into "Reconnected after 1 retry."; the stream's own reconnect loop ("Reconnecting…", a new
 stream after `/api/me` answers) and a changed build id that asks (`.notice` "Thetis was updated",
 **Refresh**) because something is typed, then reloads on the same `#<id>` with the draft back in

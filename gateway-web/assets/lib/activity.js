@@ -74,8 +74,10 @@ export function applyActivity(session, event, startedAt, parent) {
       const data = event.data ?? {};
       if (event.name === "harness-core.retry") {
         if (data.phase === "waiting" || data.phase === "sending") {
-          const next = data.phase === "waiting" ? (Number(data.attempt) || 1) + 1 : Number(data.attempt) || 2;
-          return store.setActivity(session, { ...had, step: `Reconnecting — attempt ${next}${data.of ? ` of ${data.of}` : ""}`, tool: false });
+          // `attempt` is the retry's own number on both phases (harness-core counts retries), so the call it
+          // makes is one more, out of one more than the retries: the same count the transcript's row shows.
+          const next = (Number(data.attempt) || 1) + 1;
+          return store.setActivity(session, { ...had, step: `Reconnecting — attempt ${next}${data.of ? ` of ${Number(data.of) + 1}` : ""}`, tool: false });
         }
         if (data.phase === "recovered") return store.setActivity(session, { ...had, step: "Thinking", tool: false });
         return;

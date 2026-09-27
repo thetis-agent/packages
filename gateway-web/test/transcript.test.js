@@ -298,10 +298,32 @@ test("a failed turn leaves one plain sentence, the raw words under Details, and 
   row.querySelector("button").click();
   await settle();
   assert.deepEqual(requests.map((r) => [r.method, r.path]), [["POST", "api/sessions/s_1/resume"]]);
-  // The resumed turn starts: the row keeps its words and gives up its button.
+  // The resumed turn starts: the row goes and the divider says what happened, as a reopened page draws it.
   transcript.applyEvent({ type: "turn.start", resumed: { why: "provider", from: "t_1" } }, "", []);
-  assert.deepEqual(buttonsOf(ends(root)[0]), []);
+  assert.equal(ends(root).length, 0);
   assert.equal(root.querySelector(".msg.is-divider").textContent, "Retried");
+});
+
+test("a subagent's nested failure row, which has no button, goes too when the subagent is resumed", (t) => {
+  const { root, transcript } = pane(t, { nested: true, session: "s_child" });
+  transcript.applyEvent({ type: "turn.start" }, "do the child work");
+  transcript.applyEvent({ type: "error", code: "provider", kind: "connection", retryable: true, message: "provider error: cut" });
+  transcript.applyEvent({ type: "turn.end" });
+  assert.equal(ends(root).length, 1);
+  assert.deepEqual(buttonsOf(ends(root)[0]), [], "the block's Resume is the button");
+  transcript.applyEvent({ type: "turn.start", resumed: { why: "provider", from: "t_1" } }, "", []);
+  assert.equal(ends(root).length, 0);
+  assert.equal(root.querySelector(".msg.is-divider").textContent, "Retried");
+});
+
+test("a turn with input after a failure keeps the row's words and takes its button", (t) => {
+  const { root, transcript } = pane(t);
+  transcript.applyEvent({ type: "turn.start" }, "go on");
+  transcript.applyEvent({ type: "error", code: "provider", kind: "overloaded", retryable: true, message: "provider error: overloaded" });
+  transcript.applyEvent({ type: "turn.end" });
+  transcript.applyEvent({ type: "turn.start" }, "try something else");
+  assert.equal(ends(root).length, 1);
+  assert.deepEqual(buttonsOf(ends(root)[0]), []);
 });
 
 test("each kind has its own sentence, and a message with no kind is still read", () => {
@@ -398,7 +420,7 @@ test("a round being retried withdraws what it drew, counts down, and settles int
   assert.equal(root.querySelectorAll(".tool.is-writing").length, 0, "and its half-written tool call");
   assert.equal(root.querySelectorAll(".tool-run").length, 0, "with the run that held only that");
   const [row] = ends(root);
-  assert.match(row.querySelector(".end-text").textContent, /^The connection to the model dropped\. Retrying in [78] s \(2 of 5\)\.$/);
+  assert.match(row.querySelector(".end-text").textContent, /^The connection to the model dropped\. Retrying in [78] s \(2 of 6\)\.$/);
   assert.equal(row.querySelector(".end-raw").textContent, "the stream closed part-way");
   assert.deepEqual(buttonsOf(row), ["Retry now", "Stop"]);
   row.querySelectorAll("button")[0].click();
@@ -409,9 +431,10 @@ test("a round being retried withdraws what it drew, counts down, and settles int
     ["POST", "api/ext/@thetis/harness-core/retry-now", { session: "s_1", args: { session: "s_1" } }],
     ["POST", "api/sessions/s_1/cancel", undefined],
   ]);
-  transcript.applyEvent({ type: "extension", name: "harness-core.retry", data: { phase: "sending", round: 3, attempt: 2, of: 5, kind: "connection" } });
-  assert.match(row.querySelector(".end-text").textContent, /Retrying now \(2 of 5\)…$/);
-  transcript.applyEvent({ type: "extension", name: "harness-core.retry", data: { phase: "recovered", round: 3, attempt: 2, of: 5, kind: "connection" } });
+  // harness-core numbers the retry on every phase: the first retry is attempt 1, and it is the second call.
+  transcript.applyEvent({ type: "extension", name: "harness-core.retry", data: { phase: "sending", round: 3, attempt: 1, of: 5, kind: "connection" } });
+  assert.match(row.querySelector(".end-text").textContent, /Retrying now \(2 of 6\)…$/);
+  transcript.applyEvent({ type: "extension", name: "harness-core.retry", data: { phase: "recovered", round: 3, attempt: 1, of: 5, kind: "connection" } });
   assert.equal(row.querySelector(".end-text").textContent, "Reconnected after 1 retry.");
   assert.deepEqual(buttonsOf(row), []);
   transcript.applyEvent({ type: "text", delta: "Writing it again." });
@@ -422,14 +445,47 @@ test("a round being retried withdraws what it drew, counts down, and settles int
 test("when the retries run out the retry row becomes the failure row, with the tries counted", (t) => {
   const { root, transcript } = pane(t);
   transcript.applyEvent({ type: "turn.start" }, "go");
-  transcript.applyEvent({ type: "extension", name: "harness-core.retry", data: { phase: "waiting", round: 1, attempt: 4, of: 5, inMs: 16000, kind: "connection", reason: "cut" } });
+  transcript.applyEvent({ type: "extension", name: "harness-core.retry", data: { phase: "waiting", round: 1, attempt: 5, of: 5, inMs: 16000, kind: "connection", reason: "cut" } });
+  assert.match(ends(root)[0].querySelector(".end-text").textContent, /\(6 of 6\)\.$/, "the last retry is the sixth call of six, never 6 of 5");
+  transcript.applyEvent({ type: "extension", name: "harness-core.retry", data: { phase: "sending", round: 1, attempt: 5, of: 5, kind: "connection", reason: "cut" } });
   transcript.applyEvent({ type: "extension", name: "harness-core.retry", data: { phase: "exhausted", round: 1, attempt: 5, of: 5, kind: "connection", reason: "cut" } });
   transcript.applyEvent({ type: "error", code: "provider", kind: "connection", retryable: true, message: "provider error: cut" });
   transcript.applyEvent({ type: "turn.end" });
   const rows = ends(root);
   assert.equal(rows.length, 1, "one row for one stop");
-  assert.match(rows[0].querySelector(".end-text").textContent, /kept dropping \(5 tries\), so the reply stopped here/);
+  assert.match(rows[0].querySelector(".end-text").textContent, /kept dropping \(6 tries\), so the reply stopped here/);
   assert.deepEqual(buttonsOf(rows[0]), ["Retry"]);
+});
+
+test("a round that reconnects and drops again, over and over, is one row; the cut reply is marked and a Retry takes both away", (t) => {
+  // The shape harness-core emits for a stream that is cut part-way on every attempt: each retry's first
+  // text is a "recovered", and then the same round drops again (harness-core's retry.test pins it).
+  const { root, transcript } = pane(t);
+  transcript.applyEvent({ type: "turn.start" }, "go");
+  const retry = (phase, attempt) => transcript.applyEvent({ type: "extension", name: "harness-core.retry", data: { phase, round: 1, attempt, of: 2, inMs: 10, kind: "connection", reason: "cut" } });
+  transcript.applyEvent({ type: "text", delta: "Half" });
+  for (const attempt of [1, 2]) {
+    retry("waiting", attempt);
+    retry("sending", attempt);
+    retry("recovered", attempt);
+    assert.equal(ends(root).length, 1, "one row, whatever the attempt");
+    assert.equal(ends(root)[0].querySelector(".end-text").textContent, `Reconnected after ${attempt} ${attempt === 1 ? "retry" : "retries"}.`);
+    transcript.applyEvent({ type: "text", delta: "Half again" });
+  }
+  retry("exhausted", 2);
+  transcript.applyEvent({ type: "error", code: "provider", kind: "connection", retryable: true, message: "provider error: cut" });
+  transcript.applyEvent({ type: "turn.end" });
+  const rows = ends(root);
+  assert.equal(rows.length, 1, "the failure row alone");
+  assert.match(rows[0].querySelector(".end-text").textContent, /kept dropping \(3 tries\)/);
+  const cut = root.querySelector(".msg.is-assistant.is-partial");
+  assert.ok(cut, "the reply that was streaming is drawn as the record keeps it: partial");
+  assert.equal(cut.querySelector(".msg-cut").textContent, "cut off");
+  // Retry: the resume drops the cut reply before asking again, so the page does too, and the row goes.
+  transcript.applyEvent({ type: "turn.start", resumed: { why: "provider", from: "t_1" } }, "", []);
+  assert.equal(root.querySelectorAll(".msg.is-partial").length, 0);
+  assert.equal(ends(root).length, 0);
+  assert.equal(root.querySelector(".msg.is-divider").textContent, "Retried");
 });
 
 test("a failed subagent's badge says why in a line, offers Resume, and resume_subagent carries on in the same block", async (t) => {
@@ -464,4 +520,20 @@ test("a failed subagent's badge says why in a line, offers Resume, and resume_su
   assert.equal(block.querySelector(".agent-state").textContent, "done");
   assert.equal(block.querySelectorAll(":scope > pre.tool-pre").length, 1, "the resume's reply replaced the earlier error quote");
   assert.match(block.querySelector(":scope > pre.tool-pre").textContent, /All of slice A/);
+});
+
+test("a clean pause says what it paused for: a restart of Thetis or an update of the space", () => {
+  return import("../assets/lib/failure.js").then(({ failureSentence, failureShort }) => {
+    assert.match(failureSentence({ why: "yield", for: "restart", error: { message: "the turn stopped at a round boundary for a restart" } }), /^Thetis restarted during this reply/);
+    assert.match(failureSentence({ why: "yield", for: "reload", error: { message: "x" } }), /^Your space was updated during this reply/);
+    assert.equal(failureShort({ why: "yield", for: "restart", error: { message: "x" } }), "Thetis restarted");
+    assert.match(failureSentence({ why: "yield", error: { message: "x" } }), /^This reply paused for an update/);
+  });
+});
+
+test("a live resume after a paused restart draws the restart divider", (t) => {
+  const { root, transcript } = pane(t);
+  transcript.restore({ id: "s_1", conversation: [...EARLIER], usage: {}, children: [], turn: null, resumed: [] });
+  transcript.applyEvent({ type: "turn.start", turn: "t_5", session: "s_1", resumed: { why: "yield", from: "t_4", for: "restart" } }, "", []);
+  assert.equal(root.querySelector(".msg.is-divider").textContent, "Resumed after Thetis restarted");
 });

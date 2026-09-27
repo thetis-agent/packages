@@ -103,7 +103,7 @@ export const deletePackage: Tool = async (args, env) => {
 /**
  * The first line of the result is `[subagent <id>]` or `[subagent <id> <label>]`; every reader parses it with
  * `/^\[subagent (s_[a-f0-9]+)(?: ([^\]]*))?\]/`. The rest is the child's reply, or `stopped: …` with what it had
- * said when it was stopped, or `error: <message>` when its turn failed. The turn is driven with `send` rather
+ * said when it was stopped, or `error: <message>` when its turn failed or paused for a restart or an update. The turn is driven with `send` rather
  * than `ask` so a stop still yields the partial text, and so no error of the child's becomes a thrown error
  * here: a throw from a tool carries its stack back to the model, and the child's failure is a result, not a bug.
  * A stop of the parent turn aborts `env.signal`, and the child is cancelled with it, so a stop cascades down
@@ -162,6 +162,11 @@ async function drive(env: ToolEnv, id: string, head: string, input: string | [])
   let reply = "";
   let partial = "";
   let failure: { message: string; code?: string; retryable?: boolean } | undefined;
+  // Set when the child's turn stopped at a round boundary because Thetis asked it to (a drained restart or an
+  // update of this space): the turn ends without an error, but it did not finish, and nothing resumes a
+  // subagent by itself. Reported as a reply it would have been taken for the child's answer, and the rest of
+  // its task would have been dropped.
+  let yielded: string | undefined;
   try {
     await env.kernel.sessions.send(id, input, (e) => {
       if (e.type === "text") partial += e.delta;
@@ -172,6 +177,7 @@ async function drive(env: ToolEnv, id: string, head: string, input: string | [])
         // The round is asked again from its start, so what it had said is not said any more.
         partial = "";
       } else if (e.type === "error") failure = { message: e.message, code: e.code, retryable: (e as { retryable?: boolean }).retryable === true };
+      else if (e.type === "yield") yielded = String((e as { why?: unknown }).why ?? "") || "restart";
     }, undefined, env.signal);
   } catch (err) {
     const code = (err as { code?: string })?.code;
@@ -187,6 +193,10 @@ async function drive(env: ToolEnv, id: string, head: string, input: string | [])
       ? `\nIts work so far is kept. To continue it instead of starting again, call resume_subagent with id ${id}.`
       : "\nFiles it wrote before failing are still there; look before starting the work again.";
     return `${head}\nerror: ${failure.message}${sofar}${next}`;
+  }
+  if (yielded) {
+    const what = yielded === "reload" ? "an update of this space" : "a restart of Thetis";
+    return `${head}\nerror: the subagent paused at a safe point for ${what} before it finished.${sofar}\nIts work so far is kept. To continue it instead of starting again, call resume_subagent with id ${id}.`;
   }
   return `${head}\n${reply}`;
 }

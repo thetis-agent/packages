@@ -78,7 +78,9 @@ export function reasonOf(source) {
   if (!source) return { kind: undefined, why: undefined, message: "" };
   const error = source.error && typeof source.error === "object" ? source.error : source;
   const message = String(error.message || "");
-  const why = typeof source.why === "string" && WHY_LEAD[source.why] ? source.why : undefined;
+  // A clean pause says what it paused for (`for`): a restart of Thetis or an update of the person's space.
+  const said = source.why === "yield" && (source.for === "restart" || source.for === "reload") ? source.for : source.why;
+  const why = typeof said === "string" && WHY_LEAD[said] ? said : undefined;
   const kind = typeof error.kind === "string" && error.kind !== "other" ? error.kind : why ? undefined : guessKind(message);
   return { kind, why, message };
 }

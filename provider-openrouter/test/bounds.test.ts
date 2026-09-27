@@ -238,6 +238,15 @@ test("a refusal says whether it is final, and a transient one still refused afte
   assert.deepEqual(info((await refused(529, "overloaded")).events[0]), { retryable: true, kind: "overloaded", status: 529 });
 });
 
+test("a refusal that asks for a long wait is not waited out here, where the page cannot see it: it goes back at once with the wait", async () => {
+  const body = JSON.stringify({ error: { message: "slow down" } });
+  const started = Date.now();
+  const { events, requests } = await run(() => ({ status: 429, headers: { "Content-Type": "application/json", "Retry-After": "30" }, lines: [body] }), { retries: 3 });
+  assert.equal(requests, 1, "no quiet retry for a 30 s wait");
+  assert.ok(Date.now() - started < 5_000);
+  assert.deepEqual(info(events[0]), { retryable: true, kind: "rate-limit", status: 429, retryAfterMs: 30_000 });
+});
+
 test("no response at all (the socket closes before a header) is tried again like a refusal, and reported as a connection failure when it never comes", async () => {
   const recovered = await run((n) => (n === 1 ? "drop" : [chunk({ content: "hello" }, "stop"), "data: [DONE]\n\n"]), { retries: 2 });
   assert.deepEqual(recovered.events.map((e) => e.type), ["text"]);

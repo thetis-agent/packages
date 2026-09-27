@@ -80,3 +80,34 @@ test("ext.developer and ext.build read the person's switch and the page's build"
   assert.deepEqual(heard, [true, false]);
   assert.ok(FakeNode);
 });
+
+test("the restart notice asks every ten seconds while a reply runs, not once a minute, so a restart armed mid-reply shows", async (t) => {
+  const { watchRestart } = await import("../assets/lib/restart-notice.js");
+  const previous = globalThis.fetch;
+  let asked = 0;
+  let pending = null;
+  globalThis.fetch = async () => {
+    asked += 1;
+    return new Response(JSON.stringify({ pending, readable: true }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  store.set({ running: new Set(), connection: "online" });
+  const watch = watchRestart({ armedMs: 30, idleMs: 60_000 });
+  t.after(async () => {
+    watch.stop();
+    // The armed card waits for Thetis to go and come back; let it, so no wait is left open.
+    store.set({ connection: "reconnecting" });
+    store.set({ connection: "online" });
+    globalThis.fetch = previous;
+    store.set({ running: new Set() });
+  });
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  await wait(60);
+  assert.equal(asked, 1, "idle: the load's one question, then a minute's wait");
+  store.set({ running: new Set(["s_1"]) });
+  pending = { reason: "v1 test", by: "operator", deadlineInMs: 60_000 };
+  await wait(100);
+  assert.ok(asked >= 2, "a reply started: asked again within the short interval");
+  const card = document.body.querySelector('.notice[data-notice="thetis-restart"]');
+  assert.ok(card, "the countdown is shown while the reply still runs");
+  assert.match(card.querySelector(".notice-title").textContent, /^Thetis restarts soon · your reply will continue$/);
+});

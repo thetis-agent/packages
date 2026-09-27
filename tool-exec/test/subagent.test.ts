@@ -75,6 +75,21 @@ test("a retry that drops the half-finished round drops its text from what the ch
   assert.match(result, /call resume_subagent with id s_c0ffee\.$/);
 });
 
+test("a child that paused for a restart is not its answer: the result says so and how to continue it", async () => {
+  // The drain: the child's turn stops at a round boundary with a yield and no error. Taken as a reply, the
+  // parent went on as if its subagent had finished, and the rest of the child's task was never done.
+  const { env } = kernelWith(() => [
+    { type: "message", message: { role: "assistant", content: text("Running the build."), toolCalls: [{ id: "c1", name: "shell", args: { cmd: "make" } }] } },
+    { type: "yield", why: "restart" },
+  ]);
+  const result = String(await spawnSubagent({ task: "work", label: "build" }, env));
+  assert.match(result, /^\[subagent s_c0ffee build\]\nerror: the subagent paused at a safe point for a restart of Thetis before it finished\./);
+  assert.match(result, /What it had said so far:\nRunning the build\./);
+  assert.match(result, /call resume_subagent with id s_c0ffee\.$/);
+  const reload = kernelWith(() => [{ type: "yield", why: "reload" }]);
+  assert.match(String(await spawnSubagent({ task: "work" }, reload.env)), /paused at a safe point for an update of this space/);
+});
+
 test("a failure whose record is interrupted says it can be continued; one that is neither says to look at its files", async () => {
   const failed = () => [{ type: "error", message: "userspace agent exited", code: "fence" }];
   const interrupted = kernelWith(failed, { interrupted: { turn: "t_1", at: "", error: { message: "x" }, why: "failed" } });

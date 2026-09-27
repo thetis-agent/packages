@@ -226,16 +226,16 @@ test("a round being retried shows the countdown, Retry now asks harness-core, St
     ]);
     const row = f.page.locator(".pane.is-active .msg.is-end.is-retry");
     await row.waitFor();
-    assert.match(await row.locator(".end-text").innerText(), /^The connection to the model dropped\. Retrying in [5-8] s \(2 of 5\)\.$/);
+    assert.match(await row.locator(".end-text").innerText(), /^The connection to the model dropped\. Retrying in [5-8] s \(2 of 6\)\.$/);
     assert.equal(await f.page.getByText("Half a round").count(), 0, "the half round is taken off the page");
     await row.getByRole("button", { name: "Retry now" }).click();
     await row.getByRole("button", { name: "Stop" }).click();
     await f.page.waitForFunction(() => true);
     await f.page.waitForTimeout(100);
     assert.deepEqual(f.posts(), [["ext/@thetis/harness-core/retry-now", { session: f.id, args: { session: f.id } }], [`sessions/${f.id}/cancel`, null]]);
-    assert.match(await f.page.locator(".session-row.is-working, .session-list").first().innerText(), /Reconnecting — attempt 2 of 5/);
+    assert.match(await f.page.locator(".session-row.is-working, .session-list").first().innerText(), /Reconnecting — attempt 2 of 6/);
     await f.page.evaluate((id) => {
-      reviewEmit("turn", { session: id, turn: "t_browser", seq: 4, event: { type: "extension", name: "harness-core.retry", data: { phase: "recovered", round: 2, attempt: 2, of: 5, kind: "connection" } } });
+      reviewEmit("turn", { session: id, turn: "t_browser", seq: 4, event: { type: "extension", name: "harness-core.retry", data: { phase: "recovered", round: 2, attempt: 1, of: 5, kind: "connection" } } });
     }, f.id);
     await f.page.getByText("Reconnected after 1 retry.").waitFor();
   });

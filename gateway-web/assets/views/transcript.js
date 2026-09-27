@@ -203,8 +203,9 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   let frame = 0;          // the animation frame booked for the next catch-up, 0 when none
   let restoring = false;  // while a record is replayed nothing scrolls: one catch-up at the end
   let childRecords = new Map(); // child id -> ChildRecord, from the last restored record
-  let retry = null;             // the row of a round being retried: { node, text, details, actions, timer, until, next, of, kind, phase, tries }
+  let retry = null;             // the row of a round being retried: { node, text, details, actions, timer, until, next, of, kind, phase, round }
   let tries = 0;                // how many calls the last retried round made, for the failure row that may follow
+  let reconnected = null;       // the "Reconnected" row of this turn's last recovered round: { node, round }, taken over if that round drops again
   const writing = new Map();    // tool_call.progress index -> the card of a call whose arguments are still arriving
   const ended = [];             // end rows whose button still offers to carry on; the next turn takes their buttons
   const blocks = [];            // agent blocks, in the order they were placed
@@ -285,6 +286,7 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     writing.clear();
     ended.length = 0;
     tries = 0;
+    reconnected = null;
     draw();
   }
 
@@ -407,9 +409,20 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   function assistantRow(text, usage, model, { partial = false } = {}) {
     if (!contentText(text).trim() && !hasMedia(text)) return;
     const textEl = el("div", { class: "msg-text" }, ...renderContent(text));
-    const node = row("assistant", textEl, partial ? el("span", { class: "msg-cut", title: "The reply stopped part-way here. What it said is kept as it was." }, "cut off") : null, usageLine(usage, model));
+    const node = row("assistant", textEl, partial ? cutTag() : null, usageLine(usage, model));
     if (partial) node.classList.add("is-partial");
     decorated(node, "assistant");
+  }
+
+  function cutTag() {
+    return el("span", { class: "msg-cut", title: "The reply stopped part-way here. What it said is kept as it was." }, "cut off");
+  }
+
+  /** A live reply the turn stopped under becomes what a reopened transcript draws for it. */
+  function markCut(node) {
+    if (node.classList.contains("is-partial")) return;
+    node.classList.add("is-partial");
+    node.insertBefore(cutTag(), node.querySelector(".msg-usage")); // where a restored one has it: after the text, before the footnote
   }
 
   /** The model this conversation answers with, for the footnote of a live reply. */
@@ -556,8 +569,9 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
       const label = action === "continue" ? "Continue" : "Retry";
       const button = el("button", { type: "button", class: `ghost-btn sm end-action${action === "retry" ? " is-primary" : ""}`, title: action === "continue" ? "Carry on from where it stopped. Nothing is sent again." : "Try again from where it stopped. Everything before is kept, and nothing is sent twice.", onClick: () => { void carryOn(button, label); } }, label);
       actions.append(button);
-      ended.push(node);
     }
+    // A nested row has no button (its block has its own), but a resume of that subagent takes it away the same.
+    if (action) ended.push(node);
     return node;
   }
 
@@ -573,9 +587,16 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     }
   }
 
-  /** A new turn has started: the end rows above it keep their words and lose their buttons. */
-  function settleEnded() {
-    for (const node of ended.splice(0)) node.querySelector(".end-actions")?.replaceChildren();
+  /**
+   * A new turn has started. A turn with no input carries the stopped one on, so its rows go: the divider it
+   * draws says what happened, as a reopened transcript does, where no row is drawn for an `interrupted` the
+   * resume cleared. After a turn with input, the rows above it keep their words and lose their buttons.
+   */
+  function settleEnded(resuming) {
+    for (const node of ended.splice(0)) {
+      if (resuming) node.remove();
+      else node.querySelector(".end-actions")?.replaceChildren();
+    }
   }
 
   /** The row for a turn that failed, from its `error` event or the record's `interrupted`. */
@@ -623,7 +644,8 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   function drawRetry() {
     if (!retry) return;
     const left = retry.until ? Math.max(0, Math.ceil((retry.until - Date.now()) / 1000)) : 0;
-    const count = `(${retry.next} of ${retry.of})`;
+    // `next` counts calls, the first one included; `of` counts retries, so the calls are one more.
+    const count = retry.of ? `(${retry.next} of ${retry.of + 1})` : `(${retry.next})`;
     retry.text.textContent = retry.phase === "waiting" && left > 0 ? `${retryLead(retry.kind)} Retrying in ${left} s ${count}.` : `${retryLead(retry.kind)} Retrying now ${count}…`;
   }
 
@@ -631,6 +653,10 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     const phase = data?.phase;
     if (phase === "waiting" || phase === "sending") {
       if (phase === "waiting") withdrawRound();
+      // The round that reconnected dropped again: its quiet row gives way to the one counting down, so a
+      // round that keeps dropping is one row, not one per attempt.
+      if (!retry && reconnected && reconnected.round === data.round) reconnected.node.remove();
+      reconnected = null;
       if (!retry) {
         const text = el("span", { class: "end-text" });
         const details = el("pre", { class: "end-raw" });
@@ -644,9 +670,12 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
         );
       }
       retry.phase = phase;
+      retry.round = data.round;
       if (typeof data.kind === "string") retry.kind = data.kind;
       if (typeof data.of === "number") retry.of = data.of;
-      retry.next = phase === "waiting" ? (Number(data.attempt) || 1) + 1 : Number(data.attempt) || retry.next;
+      // `attempt` is the retry's own number on every phase (harness-core counts retries), so the call it
+      // makes is one more: the first retry is the second call.
+      retry.next = (Number(data.attempt) || retry.next - 1 || 1) + 1;
       tries = retry.next;
       if (typeof data.reason === "string") retry.details.textContent = data.reason;
       const until = Date.parse(data.until || "");
@@ -656,9 +685,11 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
       catchUp();
       return;
     }
-    if (phase === "recovered") return recovered(Number(data.attempt) || 2);
+    // `attempt` on these two is the retry's own number, so the calls made are one more.
+    if (phase === "recovered") return recovered((Number(data.attempt) || 1) + 1);
     if (phase === "exhausted") {
-      tries = Number(data.attempt) || Number(data.of) || tries;
+      tries = (Number(data.attempt) || Number(data.of) || Math.max(0, tries - 1)) + 1;
+      if (reconnected) { reconnected.node.remove(); reconnected = null; }
       if (retry) {
         retry.text.textContent = `${retryLead(retry.kind)} Tried ${tries} times.`;
         retry.actions.replaceChildren();
@@ -666,7 +697,10 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     }
   }
 
-  /** The round came back: the row settles into one quiet line, and stays as the record of what happened. */
+  /**
+   * The round came back: the row settles into one quiet line, and stays as the record of what happened.
+   * `attempt` is the call that came back, counting the first, so the retries were one fewer.
+   */
   function recovered(attempt = retry?.next ?? 2) {
     if (!retry) return;
     const n = Math.max(1, attempt - 1);
@@ -674,8 +708,10 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     retry.text.textContent = `Reconnected after ${n} ${n === 1 ? "retry" : "retries"}.`;
     retry.actions.replaceChildren();
     const node = retry.node;
+    const round = retry.round;
     clearRetry();
     tries = 0;
+    reconnected = { node, round };
     return node;
   }
 
@@ -1187,15 +1223,16 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   function applyEvent(event, input, messages) {
     switch (event.type) {
       case "turn.start": {
-        settleEnded();
+        const noInput = !pendingRow && !String(input ?? "").trim() && !messages?.length;
+        settleEnded(noInput && !restoring);
         clearRetry();
         tries = 0;
-        const noInput = !pendingRow && !String(input ?? "").trim() && !messages?.length;
+        reconnected = null;
         if (noInput && !restoring) dropCut();
         if (pendingRow) settleLocal();
         else if (messages?.length) { for (const message of messages) drawMessage(message); }
         else if (input) userRow(input);
-        if (event.resumed) divider(event.resumed.why);
+        if (event.resumed) divider(event.resumed.why === "yield" && event.resumed.for ? event.resumed.for : event.resumed.why);
         break;
       }
       case "text": {
@@ -1272,7 +1309,11 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
         break;
       case "error": {
         settleThinking();
+        // What was streaming when the turn stopped is kept in the record marked `partial`: draw it the way a
+        // reopened transcript does, so a resume takes it off the page here too.
+        const cut = live;
         settleLive();
+        if (cut?.node.parentElement) markCut(cut.node);
         clearWriting();
         const stopped = event.code === "cancelled" && !reasonOf(event).why;
         settleTools(stopped ? "stopped" : "no result");
