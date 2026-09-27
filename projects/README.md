@@ -44,7 +44,7 @@ A project directory does not open the fence, and a mount over it is not enough o
 | `skipped` | A mount is written down and the host has no directory there, so the fence opened without it. |
 | `unmounted` | It is outside the home and no mount covers it. The file tools cannot reach it. |
 
-`skipped` needs the operator's list, so for anyone but an admin it reads as `unmounted`. Both mean the same to them: the directory cannot be used.
+`skipped` needs the list written down for the person, `host.grants.mountsList`, which anyone may read about themselves (the kernel pins the call to the caller). On a kernel that refuses that self call the list is unknown and `skipped` reads as `unmounted`; both mean the directory cannot be used.
 
 ## Use
 

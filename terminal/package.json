@@ -1,6 +1,6 @@
 {
   "name": "@thetis/terminal",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "MIT",
   "description": "Long-lived shell sessions in your own space: five tools for the model, and the shelf that shows them live, so you and the agent stand at the same prompt.",
   "type": "module",

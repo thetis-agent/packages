@@ -10,7 +10,7 @@ import { checkouts } from "./checkout.js";
 import { beat, readLock, releaseLock } from "./lock.js";
 import { needsFor } from "./needs.js";
 import { runSmoke, smokeAgainst, smokeEntries } from "./smoke.js";
-import { daemonStartedAt } from "./stale.js";
+import { daemonStartedAt, markRebuilt, staleDaemon } from "./stale.js";
 
 const OUTPUT_TAIL = 16 * 1024;
 const HEARTBEAT_MS = 2_000;
@@ -158,6 +158,11 @@ export async function runJob(env, { before, by = "operator", then = "none", note
     },
   });
 
+  // Whether the daemon already ran older code than the disk before this job touched anything, read just
+  // before the checkout moves. When it did not, a build that ends up with the code it runs (a rollback, or
+  // an update that touched no daemon code) is marked, so the rewritten files do not read as "Restart to
+  // finish" afterwards.
+  let staleBefore = true;
   const fromRuntime = before.runtime.head;
   const fromPackages = before.packages.head;
   let changed = false; // whether the checkout has moved, so a failure from here on must be rolled back
@@ -179,6 +184,7 @@ export async function runJob(env, { before, by = "operator", then = "none", note
       return finish("done");
     }
     const baseline = await baselineOf();
+    staleBefore = hooks.staleBefore ?? (await staleDaemon(root, home).then((s) => s.daemon, () => true));
     changed = true;
     failed = (await step("pull the runtime", gitCmd(root, "merge", "--ff-only", fetched.runtime.upstreamHead))) ?? (await step("move packages to the pinned commit", gitCmd(root, "submodule", "update", "--init", "--recursive")));
     const moved = await checkouts(root);
@@ -205,6 +211,7 @@ export async function runJob(env, { before, by = "operator", then = "none", note
     }
     if (failed) return await rollBack(failed);
     changed = false;
+    if (!needs.restart && !staleBefore) markRebuilt(home);
     if (then !== "restart") return finish("done");
     if (needs.restart) return await restart(needs);
     return await reload(needs);
@@ -246,6 +253,7 @@ export async function runJob(env, { before, by = "operator", then = "none", note
     delete record.rollingBack;
     if (!failed) {
       record.rollback = { ok: true };
+      if (!staleBefore) markRebuilt(home);
       return finish("rolledback", error);
     }
     const hand = `cd ${root} && git reset --hard ${fromRuntime} && git submodule update --init --recursive && git -C packages reset --hard ${fromPackages} && npm ci && npm run build`;

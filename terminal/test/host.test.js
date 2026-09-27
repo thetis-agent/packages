@@ -247,12 +247,12 @@ test("init files left by shells that were never closed are removed when the host
 test("count says how many shells are open across every conversation", async (t) => {
   const { client } = await withHost(t, { sessions: 4 });
   const c = await client();
-  assert.deepEqual(await c.request("count", {}), { open: 0 });
+  assert.deepEqual(await c.request("count", {}), { open: 0, watched: 0 });
   await c.request("open", { conversation: "conv-a" });
   const b = await c.request("open", { conversation: "conv-b" });
-  assert.deepEqual(await c.request("count", {}), { open: 2 });
+  assert.deepEqual(await c.request("count", {}), { open: 2, watched: 0 });
   await c.request("close", { id: b.id });
-  assert.deepEqual(await c.request("count", {}), { open: 1 });
+  assert.deepEqual(await c.request("count", {}), { open: 1, watched: 0 });
 });
 
 test("closing the host closes every session in it", async (t) => {

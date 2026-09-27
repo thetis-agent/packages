@@ -37,7 +37,7 @@ import { applyActivityPhase, fmtCost, fmtDuration, fmtTokens } from "../lib/acti
 import { api } from "../lib/api.js";
 import { avatarFor } from "../lib/avatar.js";
 import { clear, el, icon } from "../lib/dom.js";
-import { failureSentence, failureShort, fmtChars, reasonOf, resumedSentence, retryLead } from "../lib/failure.js";
+import { failureSentence, failureShort, fmtChars, isPause, reasonOf, resumedSentence, retryLead } from "../lib/failure.js";
 import { gist, usageLine } from "../lib/transcript-format.js";
 import { renderMarkdown } from "../lib/markdown.js";
 import { hasRenderers, renderTranscript } from "../lib/registry.js";
@@ -602,6 +602,8 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   /** The row for a turn that failed, from its `error` event or the record's `interrupted`. */
   function failureRow(source, counted = 0) {
     const { message } = reasonOf(source);
+    // A planned pause is quiet: it resumes by itself, and Continue is there only if it never does.
+    if (isPause(source)) return endRow(failureSentence(source), { raw: message, tone: "quiet", action: "continue" });
     return endRow(failureSentence(source, { tries: counted }), { raw: message, action: "retry" });
   }
 

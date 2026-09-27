@@ -128,15 +128,29 @@ export default function install(ext) {
     );
   }
 
+  /* The extensions that add no tool at all (a dock, a step, a service) are one quiet line under the
+   * sections, by name, instead of a section each saying "This extension has no tools": in a dock about
+   * tools they are the answer to "is it installed", not something to read past. */
+  function toolless(packages, q) {
+    const names = packages.filter((pkg) => !pkg.tools.length && (!q || named(pkg, q))).map((pkg) => pkg.label || pkg.name);
+    if (!names.length) return null;
+    return el("p", { class: "ui-tools-empty ui-tools-toolless" }, `Also installed, with no tools: ${names.join(", ")}.`);
+  }
+
+  const named = (pkg, q) => pkg.name.toLowerCase().includes(q) || String(pkg.label ?? "").toLowerCase().includes(q);
+
   /** Fills `list` from `packages` and `lastCall` under the current filter. Client-side only; no request. */
   function render(list, packages, lastCall) {
     clear(list);
     const q = filter.trim().toLowerCase();
     const shown = packages
+      .filter((pkg) => pkg.tools.length)
       .map((pkg) => ({ ...pkg, tools: pkg.tools.filter((tool) => matches(tool, q)) }))
-      .filter((pkg) => !q || pkg.tools.length || pkg.name.toLowerCase().includes(q));
-    if (!shown.length) list.append(el("div", { class: "ui-tools-empty" }, q ? `No tool matches "${filter.trim()}".` : "No extensions are installed."));
+      .filter((pkg) => !q || pkg.tools.length || named(pkg, q));
+    const rest = toolless(packages, q);
+    if (!shown.length && !rest) list.append(el("div", { class: "ui-tools-empty" }, q ? `No tool matches "${filter.trim()}".` : packages.length ? "No extension here adds a tool." : "No extensions are installed."));
     for (const pkg of shown) list.append(section(pkg));
+    if (rest) list.append(rest);
     list.append(withheld(packages, lastCall, q));
   }
 

@@ -3,6 +3,9 @@
  * A user gets only the rows where they are the actor or the target -- the kernel narrows them, not this page
  * -- so Who and To stay (an admin's act on you names the admin) and the heading says whose rows these are.
  *
+ * The ids the journal uses for Thetis itself and for the host's command line (`daemon`, `operator`) are said
+ * as "Thetis" and "the host", and the raw kind rides in the tooltip only with developer details on.
+ *
  * The rows Thetis writes for its own plumbing (`host.call`: one per call a page makes to a host package, many
  * a minute) are hidden unless the person turned on "Show developer details" (`ext.developer()`); the filter
  * offers them only then. A journal that could not be read says so; it is never drawn as "nothing recorded". */
@@ -48,6 +51,12 @@ export const KIND_LABELS = Object.freeze({
   "config.reload": "Settings file read again",
   "host.call": "Server call",
 });
+
+/** Who the journal names by an internal id, in words: the server itself, and whoever typed at the host's command line. */
+export const ACTOR_WORDS = Object.freeze({ daemon: "Thetis", operator: "the host" });
+
+/** A journal's actor or target as a person reads it. */
+export const nameOf = (id) => (id ? ACTOR_WORDS[id] ?? id : "");
 
 /** The kinds only a developer wants: Thetis's own plumbing, not something a person did. */
 export const DEVELOPER_KINDS = new Set(["host.call"]);
@@ -133,9 +142,10 @@ export function mountActivity(ext, root, who = {}) {
       table(
         [
           { key: "at", label: "When", render: (r) => el("span", { class: "text-dim", title: r.at }, when(r.at)) },
-          { key: "kind", label: "What", render: (r) => el("span", { title: r.kind }, badge(kindLabel(r.kind), tone(r.kind))) },
-          { key: "actor", label: "Who", render: (r) => el("code", {}, r.actor || "Thetis") },
-          { key: "target", label: "To", render: (r) => el("code", {}, r.target || "") },
+          // The raw kind ("fence.reload") is a developer's word: it rides in the tooltip only when they asked for details.
+          { key: "kind", label: "What", render: (r) => el("span", { title: developer() ? r.kind : null }, badge(kindLabel(r.kind), tone(r.kind))) },
+          { key: "actor", label: "Who", render: (r) => el("code", {}, nameOf(r.actor) || "Thetis") },
+          { key: "target", label: "To", render: (r) => el("code", {}, nameOf(r.target)) },
           { key: "data", label: "Details", render: (r) => el("span", { class: "text-dim small" }, detail(r)) },
         ],
         shown,

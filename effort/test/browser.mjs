@@ -70,6 +70,7 @@ test("the pill shows for a thinking model, lists what it accepts, records a choi
       if (pathname.includes("/api/")) {
         const api = pathname.split("/api/")[1];
         if (api === "me") return route.fulfill({ json: { user: "review", role: "admin" } });
+        if (api === "restart") return route.fulfill({ json: { pending: null, readable: true } });
         if (api === "models") return route.fulfill({ json: MODELS });
         if (api === "ui") return route.fulfill({ json: { extensions: [{ package: "@thetis/effort", entry: "index.js", style: "index.css", composer: [{ id: "effort", label: "Effort", order: 110 }], commands: ["effort-state", "effort-set", "effort-models"] }], refused: [] } });
         if (api === "sessions") return route.fulfill({ json: sessions });

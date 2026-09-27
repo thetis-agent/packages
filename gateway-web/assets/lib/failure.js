@@ -85,8 +85,15 @@ export function reasonOf(source) {
   return { kind, why, message };
 }
 
+/** A turn that stopped cleanly at a round boundary for a restart or an update, to be resumed by itself. */
+export function isPause(source) {
+  return Boolean(source && typeof source === "object" && source.why === "yield");
+}
+
 /** The row's sentence. `tries` is how many times the call was made, when retries ran out. */
 export function failureSentence(source, { tries } = {}) {
+  // A clean pause is planned: nothing is lost and the reply continues by itself, so it is not a failure.
+  if (isPause(source)) return `This reply paused for ${source.for === "reload" ? "an update of your space" : "a restart of Thetis"}. It continues by itself when Thetis is back.`;
   const { kind, why } = reasonOf(source);
   if (why) return `${WHY_LEAD[why]}. Everything before it is kept.`;
   const lead = KIND_LEAD[kind];

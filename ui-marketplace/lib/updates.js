@@ -162,7 +162,7 @@ export async function shellsOf(env, installed) {
     const config = await env.kernel.config.effective(pkg.name).catch(() => ({}));
     const out = await within(2000, Promise.resolve(fn({}, { ...env, config })));
     const data = out?.data ?? out;
-    if (Number.isFinite(data?.open)) return data.open;
+    if (Number.isFinite(data?.open)) return Number.isFinite(data?.watched) ? { open: data.open, watched: data.watched } : data.open;
     const list = Array.isArray(data?.sessions) ? data.sessions : [];
     return list.filter((s) => !s?.closed && s?.state !== "closed").length;
   } catch {
@@ -175,5 +175,8 @@ export async function updatesFor(env, { installed, catalog, index }) {
   const openedAt = Date.now() - process.uptime() * 1000;
   const [lists, shells] = await Promise.all([updatesOf({ installed, catalog, index, openedAt, forkStateOf: await loadForkState() }), shellsOf(env, installed)]);
   const policy = env.config?.applyOwnChanges === "ask" ? "ask" : "auto";
-  return { ...lists, shells, applyOwnChanges: policy };
+  // `shells` is every open terminal session (an apply closes them all); `watched` the ones a browser is showing.
+  // A shell only the agent used is reopened by the agent, so it does not hold an automatic apply back.
+  const count = typeof shells === "object" ? shells : { open: shells, watched: shells };
+  return { ...lists, shells: count.open, watched: count.watched, applyOwnChanges: policy };
 }

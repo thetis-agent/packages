@@ -13,6 +13,9 @@ import { actionRunner } from "./update-notice.js";
 import { failedCard, failureSentence, toastError } from "./failed.js";
 import { stateBadge } from "./state.js";
 
+/** The job's state in words: the record says `rolledback`, a person reads "rolled back". */
+export const RECORD_WORDS = Object.freeze({ running: "running", done: "done", failed: "failed", rolledback: "rolled back", interrupted: "stopped part-way" });
+
 /** The one line a checkout gets: its commit, and the strongest true thing about where it stands. `tone` is the badge's. */
 export function checkoutLine(kind, c) {
   if (!c) return { text: "unknown", tone: "dim" };
@@ -115,7 +118,7 @@ export function mountOverview(ext, root, { flow } = {}) {
     return el(
       "details",
       { class: "ua-details", open: rec.state !== "done" ? "" : null },
-      el("summary", {}, "Last update: ", badge(rec.state, tone), rec.startedAt ? ` ${when(rec.startedAt)}` : "", rec.by ? ` by ${rec.by}` : ""),
+      el("summary", {}, "Last update: ", badge(RECORD_WORDS[rec.state] ?? rec.state, tone), rec.startedAt ? ` ${when(rec.startedAt)}` : "", rec.by ? ` by ${rec.by}` : ""),
       typeof from === "string" && typeof to === "string" ? el("p", { class: "text-dim" }, `${from} → ${to}`) : null,
       rec.error ? el("p", { class: "ua-error" }, rec.error) : null,
       rec.rollback ? el("p", { class: rec.rollback.ok ? "text-dim" : "ua-error" }, rec.rollback.ok ? "Rolled back to the version before." : `The rollback failed too${rec.rollback.error ? `: ${rec.rollback.error}` : "."}`) : null,

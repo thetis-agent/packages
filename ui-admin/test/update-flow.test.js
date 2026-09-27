@@ -94,8 +94,15 @@ test("describe: the failure table, each with its fix", () => {
   assert.match(fetch.body, /Nothing changed\.$/);
   assert.equal(fetch.actions[0].id, "retry");
   assert.equal(fail({ state: "failed", phase: "fetching", error: "Not possible to fast-forward, aborting." }).key, "not-ff");
-  const rolled = fail({ state: "rolledback", phase: "checking", from: { runtime: "8309ab0aa" }, rollback: { ok: true }, error: "the smoke check failed" });
+  const rolled = fail({ state: "rolledback", phase: "building", from: { runtime: "8309ab0aa" }, rollback: { ok: true }, error: "build failed (exit 2)" });
   assert.equal(rolled.body, "Building the update failed, so nothing was restarted. Thetis was rolled back to 8309ab0 and is running as before.");
+  // It built, and the check that the new version loads caught it: said as that, not as a build that broke.
+  const steps = [{ name: "build", ok: true }, { name: "check the new version loads", ok: false }, { name: "roll back the runtime", ok: true }, { name: "rebuild the old version", ok: true }];
+  const unloadable = fail({ state: "rolledback", phase: "checking", from: { runtime: "8309ab0aa" }, rollback: { ok: true }, steps, error: "the new version does not load: @thetis/ui-tools: boom" });
+  assert.equal(unloadable.key, "rolled-back-check");
+  assert.equal(unloadable.title, "The update didn't start");
+  assert.equal(unloadable.body, "The new version failed its start-up check (@thetis/ui-tools does not load), so nothing was restarted. Thetis was rolled back to 8309ab0 and is running as before.");
+  assert.equal(describe(idle({ phase: "following", record: { state: "running", phase: "checking", rollingBack: true, steps } })).title, "The update didn't start · rolling back");
   const refused = fail({ state: "failed", phase: "restarting", error: "The update is installed, but Thetis could not restart itself: x", restart: { state: "refused", message: "Refused: Restart=on-failure." } });
   assert.equal(refused.body, "Refused: Restart=on-failure.", "the latch's own sentence");
   assert.equal(refused.actions[0].id, "restart");
@@ -226,6 +233,36 @@ test("the flow: after the page reloaded itself on the new build, the admin who c
   assert.equal(describe(flow.state).title, "Back online");
   assert.equal(describe(flow.state).actions.length, 0, "the page already reloaded: no Reload page button");
   assert.equal(store.m.size, 0);
+  // A page that reloaded because its own workspace applied an update (no restart) says the update is in, not "Back online";
+  // and the first requests after such a reload can fail while the gateway comes back, so the record is asked again.
+  const store2 = memoryStore();
+  store2.setItem("thetis.ui-admin.update", JSON.stringify({ kind: "update", at: 1000 }));
+  const applied = { state: "done", phase: "done", to: { runtime: "fedcba98" }, needs: { restart: false, reload: ["ann", "bob"] }, reloaded: [{ user: "bob", ok: true }, { user: "ann", ok: true }] };
+  const slow = fakeExt({ "update-progress": [lost(), lost(), applied] });
+  const f2 = createUpdateFlow(slow, { wait: async () => {}, now: () => 5000, store: store2 });
+  await f2.resume();
+  assert.equal(slow.calls.filter((c) => c[0] === "update-progress").length, 3, "asked until the gateway answered");
+  assert.equal(describe(f2.state).key, "applied");
+  assert.equal(describe(f2.state).title, "Thetis is updated");
+  // The whole chain: Update, the job applies without a restart, the page's own workspace restarts and the page
+  // reloads; the click survives that reload, the new page says "Thetis is updated" once, and a page opened
+  // long after says nothing.
+  const store3 = memoryStore();
+  const t0 = Date.parse("2026-09-27T01:48:48Z");
+  const doneRec = { ...applied, finishedAt: "2026-09-27T01:48:48Z" };
+  const clicked = fakeExt({ "update-apply": [{ state: "started", then: "restart" }], "update-progress": [{ state: "running", phase: "reloading", needs: { restart: false, reload: ["ann"] } }, doneRec] });
+  const before = createUpdateFlow(clicked, { wait: async () => {}, now: () => t0, store: store3 });
+  await before.apply();
+  assert.equal(describe(before.state).key, "applied");
+  assert.equal(store3.m.size, 1, "the click is kept for the reload the update causes");
+  const after = createUpdateFlow(fakeExt({ "update-progress": [doneRec] }), { wait: async () => {}, now: () => t0 + 3000, store: store3 });
+  await after.resume();
+  assert.equal(describe(after.state).key, "applied", "the reloaded page says it once more");
+  assert.equal(store3.m.size, 0, "and then forgets");
+  store3.setItem("thetis.ui-admin.update", JSON.stringify({ kind: "update", at: t0 }));
+  const later = createUpdateFlow(fakeExt({ "update-progress": [doneRec] }), { wait: async () => {}, now: () => t0 + 10 * 60_000, store: store3 });
+  await later.resume();
+  assert.equal(describe(later.state), null, "a page opened ten minutes later has nothing to say about it");
   const nobody = createUpdateFlow(fakeExt({}), { store: memoryStore() });
   await nobody.resume();
   assert.equal(describe(nobody.state), null, "nobody clicked here: nothing to say");

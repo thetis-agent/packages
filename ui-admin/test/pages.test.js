@@ -259,3 +259,27 @@ test("Overview: a check that failed is said with Restart Thetis; the update card
   for (const gone of ["Update now", "Restart the daemon", "Reload 2 workspaces"]) assert.ok(!buttons(root2).some((b) => b.startsWith(gone.split(" ")[0] + " " + gone.split(" ")[1])), gone);
   assert.doesNotMatch(said, /projectRoot|systemPackagesDir|Kernel/, "the raw configuration moved to Advanced");
 });
+
+test("Activity: Thetis and the host are named in words, and the raw kind is a tooltip only with developer details on", async () => {
+  const { mountActivity, nameOf } = await import("../ui/activity.js");
+  assert.equal(nameOf("daemon"), "Thetis");
+  assert.equal(nameOf("operator"), "the host");
+  assert.equal(nameOf("bob"), "bob");
+  const rows = [
+    { at: "2026-09-27T01:07:34Z", kind: "daemon.stop", actor: "daemon", target: "daemon", data: {} },
+    { at: "2026-09-27T01:07:18Z", kind: "fence.reload", actor: "operator", target: "user1", data: {} },
+  ];
+  for (const developer of [false, true]) {
+    const ext = { ...fakeExt({ journal: rows }, { admin: false }), developer: () => developer };
+    const root = el("div");
+    mountActivity(ext, root, { role: "user" });
+    await settled();
+    const said = text(root);
+    assert.match(said, /Thetis stopped/);
+    assert.match(said, /Workspace restarted/);
+    assert.doesNotMatch(said, /daemon|operator/, "the ids are said as words");
+    assert.match(said, /the host/);
+    const titles = all(root, (n) => typeof n.props?.title === "string").map((n) => n.props.title);
+    assert.equal(titles.includes("fence.reload"), developer, "the raw kind only for a developer");
+  }
+});

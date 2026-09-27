@@ -41,7 +41,8 @@ stream after `/api/me` answers) and a changed build id that asks (`.notice` "The
 conversation and to a subagent, which opens as its own `.pane.is-agent` tab; and an armed restart
 (`GET api/restart` answering `pending`) shown to everyone as `.notice[data-notice="thetis-restart"]`
 "Thetis restarts in 20 s · your reply will continue" while a turn runs, "Thetis is restarting" once the
-stream drops, and "Thetis is back." when it reopens.
+stream drops, and "Thetis is back." when it reopens; the card sits clear of `#send` and `.rail-widen` (the
+corner is lifted above the composer and moved left of the rail, `clearance` in `lib/notice.js`).
 
 Three more cover the chrome (2026-09-27). The model picker: in a `+` draft the pill shows and reads the
 person's own default (`yours.model`, not the configured `model`), the list has the headings New chat,

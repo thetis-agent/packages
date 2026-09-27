@@ -1,6 +1,6 @@
 # @thetis/ui-tools
 
-The Tools dock of the web gateway: every tool the open conversation can call, one section per installed package, and a last section naming the declared tools the conversation's last call did not receive. It is a `ui` package with no build step and no dependencies. Its browser module runs in the page; its one command runs inside the person's own fence, where `@thetis/gateway-web` calls it as the person. Every person gets it by default.
+The Tools dock of the web gateway: every tool the open conversation can call, one section per installed package that adds tools, one line naming the extensions that add none, and a last section naming the declared tools the conversation's last call did not receive. It is a `ui` package with no build step and no dependencies. Its browser module runs in the page; its one command runs inside the person's own fence, where `@thetis/gateway-web` calls it as the person. Every person gets it by default.
 
 ## What it provides
 

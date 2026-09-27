@@ -193,7 +193,7 @@ export function createUpdater(deps) {
     const tried = readJson(deps.session, AUTO);
     // Once per set of changes: if the same changes are still here after an automatic apply, applying again would
     // only loop, so the card offers the button instead.
-    if (auto && data.applyOwnChanges !== "ask" && !data.shells && tried?.sig !== sig) {
+    if (auto && data.applyOwnChanges !== "ask" && !(data.watched ?? data.shells) && tried?.sig !== sig) {
       deps.session.set(AUTO, JSON.stringify({ sig, at: deps.now() }));
       return void applyOwn(data);
     }

@@ -561,7 +561,8 @@ export async function withPage(browser, name, options, run) {
     // reply that only called tools draws cards, and a tool message draws into its card).
     const rows = conversation.filter((m) => m.role === "user" || (m.role === "assistant" && String(typeof m.content === "string" ? m.content : "").trim())).length;
     if (rows) await page.locator(`.pane[data-session="${id}"] .msg`).nth(rows - 1).waitFor();
-    await page.locator(`.rail-btn[data-dock="${KEY.dock}"]`).waitFor();
+    // Registered, not necessarily visible: at phone width the rail gives way to the Panels menu.
+    await page.locator(`.rail-btn[data-dock="${KEY.dock}"]`).waitFor({ state: "attached" });
     await run(f);
     assert.deepEqual(errors, [], "the browser and the fixture should report no errors");
     await context.tracing.stop();

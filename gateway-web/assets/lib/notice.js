@@ -3,7 +3,8 @@
  * 3 extensions", "Thetis was updated · Refresh") and stays until its owner closes it or the person dismisses
  * it. One card per id: a second `notice(id, …)` replaces the first in place, so a countdown or a progress
  * sequence is one card that changes, never a pile. The corner is one column shared with the toasts, so the
- * two never overlap. */
+ * two never overlap, and it keeps clear of the composer and the rail (`clearance`), so a card never sits on
+ * the Send button. */
 
 import { el, icon } from "./dom.js";
 
@@ -19,8 +20,61 @@ export function cornerHost() {
     host = el("div", { class: "notice-host", role: "region", "aria-label": "Notices" });
     corner.append(host);
     document.body.append(corner);
+    watchLayout();
   }
   return corner;
+}
+
+const GAP = 16;
+
+/**
+ * Where the corner may sit without covering a control: `{ right, bottom }` in pixels from the viewport's
+ * edges. Right of it is the rail, when the rail runs down the window's right edge; under it is the
+ * composer, when the composer is on screen (no place over it) and reaches under the corner's column.
+ * A card that sat on the Send button or the rail's labels toggle took the one control a person needs
+ * while the card is up. The lift is capped, so a tall composer on a phone never pushes the corner away.
+ */
+export function clearance({ width, height, rail, composer, placeOpen, cornerWidth }) {
+  const right = rail && rail.width > 0 && rail.right >= width - 1 ? Math.round(rail.width) + GAP : GAP;
+  const left = width - right - cornerWidth;
+  const onScreen = composer && !placeOpen && composer.width > 0 && composer.height > 0 && composer.top < height;
+  const bottom = onScreen && composer.right > left ? Math.min(Math.round(height - composer.top) + 8, Math.round(height * 0.6)) : GAP;
+  return { right, bottom };
+}
+
+function place() {
+  if (!corner || typeof window === "undefined" || typeof corner.style?.setProperty !== "function") return;
+  const box = (id) => {
+    const node = document.getElementById?.(id);
+    return node && !node.hidden && typeof node.getBoundingClientRect === "function" ? node.getBoundingClientRect() : null;
+  };
+  const { right, bottom } = clearance({
+    width: window.innerWidth,
+    height: window.innerHeight,
+    rail: box("rail"),
+    composer: box("composer"),
+    placeOpen: Boolean(box("place")),
+    cornerWidth: corner.getBoundingClientRect?.().width || Math.min(420, window.innerWidth - 32),
+  });
+  // CSSOM, not a style attribute: the page's CSP forbids inline styles.
+  corner.style.setProperty("--corner-right", `${right}px`);
+  corner.style.setProperty("--corner-bottom", `${bottom}px`);
+}
+
+/** Places the corner now and whenever the window, the composer, the rail or an open place changes. */
+function watchLayout() {
+  place();
+  if (typeof window === "undefined") return;
+  window.addEventListener?.("resize", place);
+  const watched = ["composer", "rail", "place"].map((id) => document.getElementById?.(id)).filter(Boolean);
+  if (typeof ResizeObserver === "function") {
+    const sizes = new ResizeObserver(() => place());
+    for (const node of watched) sizes.observe(node);
+  }
+  if (typeof MutationObserver === "function") {
+    const shown = new MutationObserver(() => place());
+    for (const node of watched) shown.observe(node, { attributes: true, attributeFilter: ["hidden", "class"] });
+  }
 }
 
 function drawProgress(progress) {
@@ -68,6 +122,7 @@ function drawCard(id, spec) {
 
 function put(id, spec) {
   cornerHost();
+  place();
   const node = drawCard(id, spec);
   const had = cards.get(id);
   if (had) had.node.replaceWith(node);

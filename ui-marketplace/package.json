@@ -1,6 +1,6 @@
 {
   "name": "@thetis/ui-marketplace",
-  "version": "0.9.1",
+  "version": "0.9.3",
   "license": "MIT",
   "description": "The Extensions place of the web gateway: what you have, what is new, and what the registries offer, one page per extension, and the \"Updates ready\" card that keeps everyone's extensions current.",
   "type": "module",

@@ -107,6 +107,8 @@ test("Context shows an active first turn, complete request details and live usag
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "request details fit the mobile viewport");
     if (artifacts) await page.screenshot({ path: join(artifacts, "context-mobile.png"), fullPage: true });
     await page.locator("#dock .panel-close").click();
+    // Back to a desktop width: on a phone the rail gives way to the Panels menu, and the reopen below uses the rail.
+    await page.setViewportSize({ width: 1280, height: 800 });
     const before = requests;
     await notify();
     assert.equal(requests, before, "a closed dock does not fetch the request body");

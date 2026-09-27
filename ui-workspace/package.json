@@ -1,6 +1,6 @@
 {
   "name": "@thetis/ui-workspace",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "MIT",
   "description": "The Files place of the web gateway: a file browser and editor over your home, the shared directory, your folders and your projects' directories, with a Files panel beside the chat and file links in the transcript.",
   "type": "module",

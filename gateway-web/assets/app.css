@@ -1390,7 +1390,7 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 /* --- toasts --------------------------------------------------------------- */
 
 /* The corner: one column for the notices (persistent, on top) and the toasts (fading, under them). */
-.corner { position: fixed; right: var(--gap-4); bottom: var(--gap-4); z-index: 80; display: flex; flex-direction: column; gap: var(--gap-2); width: min(420px, calc(100vw - 32px)); pointer-events: none; }
+.corner { position: fixed; right: var(--corner-right, var(--gap-4)); bottom: var(--corner-bottom, var(--gap-4)); z-index: 80; display: flex; flex-direction: column; gap: var(--gap-2); width: min(420px, calc(100vw - 32px)); pointer-events: none; }
 .corner > * { pointer-events: auto; }
 .toast-host { display: flex; flex-direction: column; gap: var(--gap-2); }
 .toast-host:empty, .notice-host:empty { display: none; }
@@ -1816,6 +1816,9 @@ select.input { padding-right: 24px; }
   .panel-tree, .panel-nav-foot { display: none; }
   .place-body, .panel-main, .panel-col { min-width: 0; max-width: 100%; }
   .badge, .pill, .status-pill { white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
+  /* In a table that scrolls sideways a badge keeps its words whole: wrapping it there broke "Workspace
+     restarted" one letter group per line in a narrow column. */
+  td .badge, td .pill, td .status-pill { white-space: nowrap; overflow-wrap: normal; }
   .table-wrap, .md-table-wrap { max-width: 100%; overflow-x: auto; }
   .md-table td, .md-table th { overflow-wrap: normal; word-break: normal; }
   .shelf { max-height: 40vh; }

@@ -430,8 +430,8 @@ test("the configuration form's pure helpers: the control per key, what counts as
   assert.equal(missingText(k({ missing: ["A", "B"] })), "A, B are not in the environment");
   assert.equal(missingText(k()), null);
   assert.equal(brokenSentence([{ broken: false }]), null);
-  assert.equal(brokenSentence([{ broken: true }, { broken: false }]), "1 package is missing configuration");
-  assert.equal(brokenSentence([{ broken: true }, { broken: true }]), "2 packages are missing configuration");
+  assert.equal(brokenSentence([{ broken: true }, { broken: false }]), "1 extension is missing configuration");
+  assert.equal(brokenSentence([{ broken: true }, { broken: true }]), "2 extensions are missing configuration");
   assert.equal(reloadSentence({ changed: [], restarted: [] }), "Nothing changed.");
   assert.equal(reloadSentence(null), "Nothing changed.");
   assert.equal(reloadSentence({ changed: ["@thetis/exa", "@thetis/terminal"], restarted: [{ user: "alice", package: "@thetis/exa" }] }), "changed: @thetis/exa, @thetis/terminal; restarted: @thetis/exa for alice.");
@@ -486,6 +486,10 @@ test("the tree an admin reads: Overview, People, Extensions, Models, Access, Act
   assert.deepEqual(manifest.thetis.ui.notices.map((n) => [n.id, n.role]), [["thetis-update", "admin"]]);
   // No label or note an admin or a person reads says the machinery's words.
   for (const e of [...manifest.thetis.ui.panel, ...manifest.thetis.ui.notices]) assert.doesNotMatch(`${e.label} ${e.note}`, /\bfence|userspace|\breload|\bdaemon|\bpackage/i, e.id);
+  // The extension's own name in the Extensions place and the Tools dock, instead of "@thetis/ui-admin".
+  assert.equal(manifest.thetis.label, "control panel");
+  // A note a person reads says "your space" or nothing, never "workspace" (an admin's word).
+  assert.doesNotMatch(by.access.note, /workspace/i);
   const { advancedChildren } = await import("../ui/advanced.js");
   assert.deepEqual(advancedChildren().map((c) => [c.id, c.kind]), [["workspaces", "page"], ["fleet", "page"], ["server", "page"]]);
   const { tabsFor } = await import("../ui/access.js");

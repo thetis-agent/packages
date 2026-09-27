@@ -296,6 +296,16 @@ test("an armed restart is announced to everyone, then waited through, then Theti
     await f.page.waitForFunction(() => /^Thetis restarts in (1\d|20) s · your reply will continue$/.test(document.querySelector('.notice[data-notice="thetis-restart"] .notice-title')?.textContent ?? ""));
     assert.match(await card.locator(".notice-body").innerText(), /Reason: update to a01a8e0\. Your conversations are kept\./);
     assert.equal(await card.locator(".notice-x").count(), 0, "not dismissible while it is true");
+    for (const target of ["#send", ".rail-widen"]) {
+      const covers = await f.page.evaluate((sel) => {
+        const a = document.querySelector('.notice[data-notice="thetis-restart"]').getBoundingClientRect();
+        const node = document.querySelector(sel);
+        if (!node || !node.getClientRects().length) return false;
+        const b = node.getBoundingClientRect();
+        return !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
+      }, target);
+      assert.equal(covers, false, `the card never sits on ${target}`);
+    }
     await f.page.evaluate(() => { window.reviewFirstSource = window.reviewEvents; reviewEmit("error", {}); });
     await f.page.waitForFunction(() => document.querySelector('.notice[data-notice="thetis-restart"] .notice-title')?.textContent.startsWith("Thetis is restarting"));
     await f.page.waitForFunction(() => window.reviewEvents !== window.reviewFirstSource, null, { timeout: 5000 });

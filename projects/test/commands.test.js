@@ -51,7 +51,7 @@ test("save creates and updates; get shows the record, the mount state, the disab
     assert.deepEqual(data.states["/elsewhere"], { state: "unmounted", mode: null, kind: "none" });
     assert.equal(data.user, "alice");
     assert.equal(data.admin, false);
-    assert.equal(data.bound, null, "only an admin reads the mount list");
+    assert.equal(data.bound, null, "a kernel that refuses the self call: the list is unknown, not empty");
     assert.equal(data.instructions, "Be brief.");
     assert.deepEqual(data.mounts, [{ path: "/srv/repos", mode: "ro" }]);
     const exec = data.tools.find((g) => g.package === "@thetis/tool-exec").tools[0];
@@ -200,5 +200,15 @@ test("get lists the skills the loaders see, with the project's switches applied,
   );
   assert.deepEqual(data.tools[0].tools.map((t) => t.disabled), [false, false], "tools.disable is untouched");
   await assert.rejects(uiSave({ id: created.id, name: "P", disableSkills: ["Not An Id"] }, env), /skill id/);
+  await done();
+});
+
+test("get: a person who is not an admin reads their own written-down mounts, so a bind the fence dropped is skipped", async () => {
+  const { env, calls, done } = await makeEnv({ session: "s_1", packages: PACKAGES, role: "user", operator: (method, args) => (method === "host.grants.mountsList" ? { [args.user]: [{ path: "/srv/typo", mode: "rw" }] } : null) });
+  const created = (await uiSave({ name: "Typo", directories: ["/srv/typo/inner"] }, env)).data.project;
+  const { data } = await uiGet({ id: created.id }, env);
+  assert.deepEqual(data.bound, [{ path: "/srv/typo", mode: "rw" }]);
+  assert.deepEqual(data.states["/srv/typo/inner"], { state: "skipped", mode: "rw", kind: "none", mount: "/srv/typo" });
+  assert.deepEqual(calls.map((c) => [c.method, c.args]), [["host.grants.mountsList", { user: "alice" }]], "about themselves, and nothing else");
   await done();
 });

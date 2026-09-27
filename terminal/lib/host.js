@@ -20,6 +20,9 @@ import { randomBytes } from "node:crypto";
 import { basename, isAbsolute, resolve } from "node:path";
 import { openSession, DEFAULT_BUFFER_BYTES, DEFAULT_WAIT_MS } from "./session.js";
 
+/** How recent a browser's `seen` must be for a shell to count as one a person is watching. */
+const WATCHED_MS = 10 * 60_000;
+
 /** The socket name, under `<root>/run/`, beside the gateway's own. Plan section 1. */
 export const SOCKET = "term.sock";
 /** Sessions per person. The legacy limit was 4 per conversation; a person's fence is the unit now.
@@ -285,9 +288,15 @@ export async function startHost(env = {}) {
       return {};
     },
 
-    /** How many shells are open, across every conversation: what closes when this space is updated. */
+    /**
+     * How many shells are open, across every conversation: what closes when this space is updated. `watched`
+     * is how many of them a browser has had on screen in the last ten minutes -- the ones a person would miss.
+     * A shell only the agent uses is reopened by the agent, so it does not hold an automatic apply back.
+     */
     async count() {
-      return { open: open().length };
+      const since = Date.now() - WATCHED_MS;
+      const all = open();
+      return { open: all.length, watched: all.filter((s) => s.seenAt?.() > since).length };
     },
 
     async subscribe({ from, consumer } = {}, conn) {

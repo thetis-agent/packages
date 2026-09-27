@@ -143,7 +143,7 @@ test("roots: home, shared, mounts, and the project directories with their states
   assert.deepEqual(r.mounts, [{ path: mountRw, mode: "rw" }, { path: mountRo, mode: "ro" }]);
   assert.equal(r.user, "alice");
   assert.equal(r.admin, false);
-  assert.equal(r.bound, undefined);
+  assert.deepEqual(r.bound, [], "their own written-down list, which has nothing for them here");
   assert.equal(r.projects.length, 1);
   const p = r.projects[0];
   assert.equal(p.id, PROJECT);
@@ -153,7 +153,7 @@ test("roots: home, shared, mounts, and the project directories with their states
   const [ready, gone] = p.directories;
   assert.deepEqual(ready, { path: proj, name: "proj", parent: mountRw, state: "ready", mode: "rw", kind: "dir" });
   assert.deepEqual(gone, { path: "/nowhere/unmounted", name: "unmounted", parent: "/nowhere", state: "unmounted", mode: null, kind: "none" });
-  assert.equal(calls.length, 0, "a user asks the operator nothing");
+  assert.deepEqual(calls.map((c) => [c.method, c.args]), [["host.grants.mountsList", { user: "alice" }]], "a user asks for their own mount list, and nothing else");
   assert.deepEqual(r.folders, [
     { path: mountRw, name: basename(mountRw), mode: "rw", state: "ready", kind: "dir" },
     { path: mountRo, name: basename(mountRo), mode: "ro", state: "ready", kind: "dir" },
@@ -177,6 +177,18 @@ test("roots: an admin gets the bound list and a written-down mount the fence did
   assert.equal(gone.state, "skipped");
   assert.equal(gone.mount, "/nowhere/unmounted");
   assert.deepEqual(r.folders.at(-1), { path: "/nowhere/unmounted", name: "unmounted", mode: "ro", state: "skipped", kind: "none", mount: "/nowhere/unmounted" }, "a folder the fence did not take is listed as skipped for an admin");
+});
+
+test("roots: a person who is not an admin sees a mount of theirs whose host path is gone, as skipped", async () => {
+  const { env } = fakeEnv({ answers: { "host.grants.mountsList": { alice: [{ path: mountRw, mode: "rw" }, { path: "/nowhere/gone", mode: "ro" }] } } });
+  const r = await data(ws.roots({}, env));
+  assert.equal(r.admin, false);
+  assert.deepEqual(r.folders.at(-1), { path: "/nowhere/gone", name: "gone", mode: "ro", state: "skipped", kind: "none", mount: "/nowhere/gone" });
+  // A kernel from before self calls refuses the question: unknown, and the folders are the fence's own.
+  const refused = fakeEnv({ answers: { "host.grants.mountsList": () => { throw new Error("only an admin may use operator methods"); } } });
+  const r2 = await data(ws.roots({}, refused.env));
+  assert.equal(r2.bound, undefined);
+  assert.deepEqual(r2.folders.map((f) => f.state), ["ready", "ready"]);
 });
 
 test("folderRows: a mount whose path is gone inside the fence says so", async () => {

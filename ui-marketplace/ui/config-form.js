@@ -64,10 +64,10 @@ export function sourceText(k, layer, who) {
 /** The `${VAR}` names that did not resolve, one sentence. */
 export const missingText = (k) => (k.missing?.length ? `${k.missing.join(", ")} ${k.missing.length === 1 ? "is" : "are"} not in the environment` : null);
 
-/** The line above the cards, or null when every package is whole. */
+/** The line above the cards, or null when every extension is whole. */
 export function brokenSentence(reports) {
   const n = reports.filter((r) => r?.broken).length;
-  return n ? `${n} ${n === 1 ? "package is" : "packages are"} missing configuration` : null;
+  return n ? `${n} ${n === 1 ? "extension is" : "extensions are"} missing configuration` : null;
 }
 
 /** What `config.reload` did, in one sentence. */
@@ -111,7 +111,7 @@ export function configCard(ext, report, { layer, who = null, set, unset, onRepor
   const rawOf = (kind, box) => (kind === "checkbox" ? box.checked : box.value);
 
   async function clearKey(anchor, k) {
-    const ok = await confirm(anchor, { title: "Clear this key?", lines: [["package", current.package], ["key", k.key]], note: `The value stored at this layer is removed. ${k.key} falls back to the file or its default, or is not set.`, confirmLabel: "Clear", tone: "warn" });
+    const ok = await confirm(anchor, { title: "Clear this key?", lines: [["extension", current.package], ["key", k.key]], note: `The value stored at this layer is removed. ${k.key} falls back to the file or its default, or is not set.`, confirmLabel: "Clear", tone: "warn" });
     if (!ok || busy) return;
     busy = true;
     try {
@@ -200,7 +200,7 @@ export function configCard(ext, report, { layer, who = null, set, unset, onRepor
         current.inherits?.length ? el("span", { class: "text-faint" }, `inherits from ${current.inherits.join(", ")}`) : null,
         summaryLine(ext, current)
       ),
-      el("div", { class: "card-body" }, rows.length ? rows : el("p", { class: "text-faint" }, "This package declares no configuration and none is stored for it."), rows.length && editable ? el("div", { class: "card-actions" }, saveBtn) : null)
+      el("div", { class: "card-body" }, rows.length ? rows : el("p", { class: "text-faint" }, "This extension has no settings, and none are stored for it."), rows.length && editable ? el("div", { class: "card-actions" }, saveBtn) : null)
     );
   }
 

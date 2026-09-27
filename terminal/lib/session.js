@@ -257,6 +257,7 @@ export function openSession({
   let cwdNow = cwd;
   let lastOutputAt = Date.now();
   let lastActivityAt = Date.now();
+  let lastSeenAt = 0; // a browser showing it (`seen`); the agent's own use of a shell is not this
   let watchers = 0;
   let closed = false;
   let closedAt = null;
@@ -675,6 +676,12 @@ export function openSession({
     /** A browser has this session on screen. It keeps the idle reaper away, as typing does. */
     touch() {
       lastActivityAt = Date.now();
+      lastSeenAt = lastActivityAt;
+    },
+
+    /** When a browser last said it had this session on screen; 0 when none ever did. */
+    seenAt() {
+      return lastSeenAt;
     },
 
     rename(next) {

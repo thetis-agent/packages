@@ -25,7 +25,7 @@ import { staleDaemon } from "./lib/stale.js";
 // Only the four methods are exported as functions: every function export is callable as `host.update.<name>`.
 export { UPDATING } from "./lib/lock.js";
 
-const BEYOND = "Node itself, the OS packages the fence needs, and the systemd unit are updated by deploy/install.sh on the host.";
+const BEYOND = "Node itself, the OS packages the workspaces need, and the systemd unit are updated by deploy/install.sh on the host.";
 
 /** The real `git fetch` happens at most this often for the whole installation when a page asks with `fetch: "stale"`. */
 export const FETCH_EVERY_MS = 30 * 60_000;

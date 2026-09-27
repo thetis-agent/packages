@@ -524,10 +524,10 @@ test("a failed subagent's badge says why in a line, offers Resume, and resume_su
 
 test("a clean pause says what it paused for: a restart of Thetis or an update of the space", () => {
   return import("../assets/lib/failure.js").then(({ failureSentence, failureShort }) => {
-    assert.match(failureSentence({ why: "yield", for: "restart", error: { message: "the turn stopped at a round boundary for a restart" } }), /^Thetis restarted during this reply/);
-    assert.match(failureSentence({ why: "yield", for: "reload", error: { message: "x" } }), /^Your space was updated during this reply/);
+    assert.match(failureSentence({ why: "yield", for: "restart", error: { message: "the turn stopped at a round boundary for a restart" } }), /^This reply paused for a restart of Thetis\. It continues by itself/);
+    assert.match(failureSentence({ why: "yield", for: "reload", error: { message: "x" } }), /^This reply paused for an update of your space/);
     assert.equal(failureShort({ why: "yield", for: "restart", error: { message: "x" } }), "Thetis restarted");
-    assert.match(failureSentence({ why: "yield", error: { message: "x" } }), /^This reply paused for an update/);
+    assert.match(failureSentence({ why: "restart", error: { message: "x" } }), /^Thetis restarted during this reply/);
   });
 });
 
@@ -536,4 +536,12 @@ test("a live resume after a paused restart draws the restart divider", (t) => {
   transcript.restore({ id: "s_1", conversation: [...EARLIER], usage: {}, children: [], turn: null, resumed: [] });
   transcript.applyEvent({ type: "turn.start", turn: "t_5", session: "s_1", resumed: { why: "yield", from: "t_4", for: "restart" } }, "", []);
   assert.equal(root.querySelector(".msg.is-divider").textContent, "Resumed after Thetis restarted");
+});
+
+test("a planned pause is a quiet row with Continue, not an error with Retry", (t) => {
+  const { root, transcript } = pane(t);
+  transcript.restore({ id: "s_1", conversation: [...EARLIER], usage: {}, children: [], turn: null, resumed: [], interrupted: { turn: "t_4", at: "x", why: "yield", for: "restart", clean: true, error: { message: "the turn stopped at a round boundary for a restart", code: "yield" } } });
+  const row = root.querySelector(".msg.is-end");
+  assert.ok(row.attrs.class.includes("is-quiet"), row.attrs.class);
+  assert.match(row.textContent, /paused for a restart of Thetis/);
 });

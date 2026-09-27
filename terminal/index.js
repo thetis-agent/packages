@@ -406,11 +406,12 @@ export async function uiSeen(args, env) {
   return { data: {} };
 }
 
-/** sessions-count: how many shells are open in this space, across every conversation. An update of the
- *  space closes them all, so the page that offers one says how many first. */
+/** sessions-count: how many shells are open in this space, across every conversation, and how many of them a
+ *  browser is showing (`watched`). An update of the space closes them all, so the page that offers one says how
+ *  many first; only watched ones hold an automatic apply back. */
 export async function uiSessionsCount(_args, env) {
   const out = await call(env.root, "count", {});
-  return { data: { open: Number(out?.open) || 0 } };
+  return { data: { open: Number(out?.open) || 0, watched: Number(out?.watched) || 0 } };
 }
 
 /** rename: what the row calls it. A person names a session; the model cannot. */

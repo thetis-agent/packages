@@ -975,8 +975,7 @@ t("12. at phone width the explorer is the page, a file opens full width and Back
     await page.locator("#menu").click();
     await page.locator(`.menu-item[data-place="${KEY.place}"]`).click();
     await page.locator("#place:not([hidden]) .ws-place").waitFor();
-    await page.locator("#sidebar-veil").click({ position: { x: 385, y: 700 } }); // beside the drawer, not on it
-    await page.locator("#sidebar:not(.is-open)").waitFor();
+    await page.locator("#sidebar:not(.is-open)").waitFor(); // choosing a place closes the drawer by itself
     await f.row(HOME).waitFor();
     const place = page.locator("#place .ws-place");
     const explorer = page.locator("#place .ws-explorer-col");

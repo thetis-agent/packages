@@ -1,6 +1,6 @@
 {
   "name": "@thetis/ui-tools",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "MIT",
   "description": "The Tools dock of the web gateway: every tool the open conversation can call, one section per extension.",
   "type": "module",

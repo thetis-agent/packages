@@ -117,6 +117,22 @@ export function markOf(message: Message | undefined, key: "partial" | "notRun"):
  * A conversation that ends on a complete answer has nothing to resume, and a resume there would only make
  * the model talk again unasked.
  */
+/**
+ * The pending restart in a `restart.status` answer, as waits from `now`. An admin's answer carries the latch's
+ * `pending`; a person's is the countdown alone (`armed`, `reason`, `firesAt`, `deadlineAt`), with nobody's name
+ * in it. Both are the same restart, and a page must count down for either.
+ */
+export function restartPending(answer: unknown, now: number): { reason: string; by: string; firesInMs?: number; deadlineInMs?: number } | null {
+  type Pending = { reason?: unknown; by?: unknown; firesAt?: unknown; deadlineAt?: unknown };
+  const out = (answer && typeof answer === "object" ? answer : {}) as Pending & { pending?: Pending; armed?: unknown };
+  const p = out.pending ?? (out.armed === true ? out : undefined);
+  if (!p || typeof p !== "object") return null;
+  const inMs = (at: unknown) => (typeof at === "number" && Number.isFinite(at) ? Math.max(0, at - now) : undefined);
+  const firesInMs = inMs(p.firesAt);
+  const deadlineInMs = inMs(p.deadlineAt);
+  return { reason: String(p.reason ?? ""), by: String(p.by ?? ""), ...(firesInMs !== undefined ? { firesInMs } : {}), ...(deadlineInMs !== undefined ? { deadlineInMs } : {}) };
+}
+
 export function nothingToResume(rec: Pick<SessionRecord, "conversation"> & { interrupted?: unknown }, stopped?: string): string | undefined {
   if (rec.interrupted || stopped) return undefined;
   const last = rec.conversation.at(-1);
@@ -591,22 +607,13 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
    * it was readable by everyone) is answered as "nothing known": the notice is a courtesy, not a guard.
    */
   async function restartStatus(): Promise<{ pending: { reason: string; by: string; firesInMs?: number; deadlineInMs?: number } | null; readable: boolean }> {
-    let out: { pending?: { reason?: unknown; by?: unknown; firesAt?: unknown; deadlineAt?: unknown } };
+    let out: unknown;
     try {
-      out = ((await kernel.operator.call("restart.status")) ?? {}) as typeof out;
+      out = await kernel.operator.call("restart.status");
     } catch {
       return { pending: null, readable: false };
     }
-    const p = out.pending;
-    if (!p || typeof p !== "object") return { pending: null, readable: true };
-    const now = Date.now();
-    const inMs = (at: unknown) => (typeof at === "number" && Number.isFinite(at) ? Math.max(0, at - now) : undefined);
-    const firesInMs = inMs(p.firesAt);
-    const deadlineInMs = inMs(p.deadlineAt);
-    return {
-      pending: { reason: String(p.reason ?? ""), by: String(p.by ?? ""), ...(firesInMs !== undefined ? { firesInMs } : {}), ...(deadlineInMs !== undefined ? { deadlineInMs } : {}) },
-      readable: true,
-    };
+    return { pending: restartPending(out, Date.now()), readable: true };
   }
 
   /** The open streams per user, told `sessions` when this gateway changed the list, so every tab redraws it. */

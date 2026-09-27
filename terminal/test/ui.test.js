@@ -108,12 +108,13 @@ test("sessions-count answers how many shells are open, and seen is accepted for 
     await host.stop();
     await rm(root, { recursive: true, force: true });
   });
-  assert.deepEqual(await uiSessionsCount({}, { root }), { data: { open: 0 } });
+  assert.deepEqual(await uiSessionsCount({}, { root }), { data: { open: 0, watched: 0 } });
   const { connect } = await import("../lib/client.js");
   const c = await connect(root);
   const opened = await c.request("open", { conversation: "s_1" });
   c.close();
-  assert.deepEqual(await uiSessionsCount({}, { root }), { data: { open: 1 } });
+  assert.deepEqual(await uiSessionsCount({}, { root }), { data: { open: 1, watched: 0 } }, "the agent's own shell is not watched");
   assert.deepEqual(await uiSeen({ id: opened.id }, { root }), { data: {} });
+  assert.deepEqual(await uiSessionsCount({}, { root }), { data: { open: 1, watched: 1 } }, "a browser showing it is");
   await assert.rejects(() => uiSeen({}, { root }), /id is the session/);
 });

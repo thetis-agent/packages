@@ -16,12 +16,14 @@ The explorer's top level is what the fence can reach, and nothing more:
 - **Projects**, from `@thetis/projects`: each project with its directories, and for every directory
   the same state word the project page shows (`ready`, `empty-path`, `not-a-directory`, `skipped`,
   `unmounted`). A directory is reachable when it lies under the home or under a mount the fence took
-  (`THETIS_MOUNTS`); an admin also sees the mounts written down for them, which tells `skipped` (the
-  operator bound it, the host has nothing there) from `unmounted` (nobody bound it).
+  (`THETIS_MOUNTS`); the mounts written down for the person (`host.grants.mountsList`, which anyone
+  may read about themselves) tell `skipped` (the operator bound it, the host has nothing there) from
+  `unmounted` (nobody bound it). A kernel that refuses that self call leaves the list unknown (`bound`
+  absent), and then `skipped` cannot be told apart.
 - **Folders**, the person's mounts as roots of their own, each in its real state: the mounts the fence
   took (`THETIS_MOUNTS`), with `stateOf` from `@thetis/projects` saying what is at the path now
-  (`ready`, `empty-path`, `not-a-directory`), and for an admin the mounts written down that the fence
-  did not take, as `skipped`. A folder that is also a project directory is drawn once, under its
+  (`ready`, `empty-path`, `not-a-directory`), and the mounts written down that the fence did not
+  take, as `skipped`, for everyone. A folder that is also a project directory is drawn once, under its
   project.
 - **Mounts**, the raw `THETIS_MOUNTS` list, so a directory outside every project can still be named.
 

@@ -97,7 +97,7 @@ test("updates: the command answers the lists, the terminal count and the person'
   };
   try {
     const out = (await commands.updates({}, env)).data;
-    assert.deepEqual(Object.keys(out).sort(), ["applyOwnChanges", "forks", "items", "own", "shells"]);
+    assert.deepEqual(Object.keys(out).sort(), ["applyOwnChanges", "forks", "items", "own", "shells", "watched"]);
     assert.equal(out.items.length, 1);
     assert.equal(out.shells, 0, "no terminal installed: no sessions to close");
     assert.equal(out.applyOwnChanges, "ask");
@@ -369,6 +369,18 @@ test("own changes: applied by themselves when a reply ends and nothing runs and 
   await u.check("idle");
   await w.settle();
   assert.equal(w.sent.filter((s) => s[0] === "fence-reload").length, count + 1);
+});
+
+test("own changes: shells only the agent used do not hold an automatic apply back; one a person is watching does", async () => {
+  const own = [{ name: "@alice/moo", label: "moo", ui: false, at: 5 }];
+  const agentOnly = world({ answer: answer({ own, shells: 1, watched: 0 }) });
+  await createUpdater(agentOnly.deps).check("idle");
+  await agentOnly.settle();
+  assert.ok(agentOnly.sent.some((s) => s[0] === "fence-reload"), "the agent's own shell is reopened by the agent");
+  const watched = world({ answer: answer({ own, shells: 1, watched: 1 }) });
+  await createUpdater(watched.deps).check("idle");
+  await watched.settle();
+  assert.equal(watched.sent.some((s) => s[0] === "fence-reload"), false, "a shell on a person's screen is asked about");
 });
 
 test("own changes: ask, an open terminal, or page code all change what happens", async () => {

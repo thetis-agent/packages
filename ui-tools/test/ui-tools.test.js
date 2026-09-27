@@ -145,12 +145,14 @@ test("install registers the tools dock; the first draw asks once, later draws do
   const second = log.docks.tools.draw();
   assert.equal(second.subtitle, "2 tools from 1 extension");
   const sections = find(second.body, "ui-tools-section");
-  assert.deepEqual(sections.map((s) => s.props["data-package"]), ["@thetis/tools-files", "@thetis/prompt-cache", undefined]);
+  assert.deepEqual(sections.map((s) => s.props["data-package"]), ["@thetis/tools-files", undefined], "an extension with no tools gets no section of its own");
+  assert.deepEqual(find(second.body, "ui-tools-toolless").map(text), ["Also installed, with no tools: @thetis/prompt-cache."], "it is named on one line instead");
+  assert.doesNotMatch(text(second.body), /This extension has no tools/);
   assert.equal(find(second.body, "ui-tools-card").length, 2);
   assert.deepEqual(find(second.body, "badge").map(text), ["reads only", "can change things"]);
   assert.match(text(find(second.body, "ui-tools-card-params")[1]), /requires path, contents/);
-  assert.match(text(sections[2]), /Turned off right now.*No call yet in this conversation\./);
-  assert.equal(find(sections[2], "ui-tools-card").length, 0);
+  assert.match(text(sections[1]), /Turned off right now.*No call yet in this conversation\./);
+  assert.equal(find(sections[1], "ui-tools-card").length, 0);
   await tick();
   assert.equal(log.requests.length, 1, "a redraw does not ask again");
 });

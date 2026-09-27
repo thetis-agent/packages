@@ -1,12 +1,13 @@
 {
   "name": "@thetis/ui-admin",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "license": "MIT",
   "description": "The control panel's sections beyond Extensions, and the admin's Thetis update notice: Overview, People, Models, Access (mounts and SSH keys), Activity, Account and Advanced. Everyone sees Models, Access, Activity and Account about themselves; an admin sees all of them, about everyone.",
   "type": "module",
   "main": "index.js",
   "thetis": {
     "type": "ui",
+    "label": "control panel",
     "ui": {
       "dir": "ui",
       "entry": "index.js",
@@ -43,7 +44,7 @@
         {
           "id": "access",
           "label": "Access",
-          "note": "What a workspace can reach outside itself: host directories and SSH keys.",
+          "note": "Host directories and SSH keys: what can be reached from outside.",
           "order": 35
         },
         {

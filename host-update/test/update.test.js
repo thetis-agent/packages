@@ -397,3 +397,41 @@ test("stale.daemon: code on disk newer than the running daemon, named by what ch
     t.cleanup();
   }
 });
+
+test("a rollback's rebuild of the running code, or an update that touched no daemon code, is not 'Restart to finish'", async () => {
+  const t = installation();
+  try {
+    // The installation as the daemon loaded it an hour ago; this test process stands in for that daemon.
+    const past = new Date(Date.now() - 3600_000);
+    const age = (dir) => {
+      for (const entry of readdirSync(dir)) {
+        const path = join(dir, entry);
+        if (entry === ".git") continue;
+        if (statSync(path).isDirectory()) age(path);
+        utimesSync(path, past, past);
+      }
+    };
+    age(t.root);
+    // An npm whose build rewrites dist/, the way tsc does after a reset gives the sources new times.
+    const npm = join(t.base, "npm-writes");
+    writeFileSync(npm, `#!/bin/sh\nif [ "$1" = run ]; then mkdir -p "$PWD/dist/src" && echo "export const runtime = true;" > "$PWD/dist/src/index.js"; if [ -f "$PWD/FAIL_BUILD" ]; then echo "build broke" >&2; exit 2; fi; fi\nexit 0\n`);
+    chmodSync(npm, 0o755);
+    assert.equal((await update.check({}, t.env)).stale.daemon, false);
+    runtimeMoves(t, { "src/a.ts": "export const a = 2;\n", FAIL_BUILD: "1\n" });
+    await update.apply({ then: "restart" }, t.env, { npm });
+    assert.equal((await finished(t.home)).state, "rolledback");
+    assert.equal((await update.check({}, t.env)).stale.daemon, false, "the rebuilt files are the code the daemon runs");
+    // An update of a shipped package only: the build rewrites dist/ with the same code, and nothing asks for a restart.
+    upstreamMoves(t, { "greet/index.js": "export const hi = 2;\n" }, { "src/a.ts": "export const a = 1;\n", FAIL_BUILD: null });
+    await update.apply({ then: "none" }, t.env, { npm });
+    const done = await finished(t.home);
+    assert.deepEqual([done.state, done.needs.restart, done.error], ["done", false, null]);
+    assert.equal((await update.check({}, t.env)).stale.daemon, false);
+    // A change by hand after that is newer than the mark, and is said.
+    await sleep(20);
+    put(t.root, "dist/src/kernel.js", "export const k = 2;\n");
+    assert.deepEqual((await update.check({}, t.env)).stale, { daemon: true, why: ["Thetis's own code was rebuilt"] });
+  } finally {
+    t.cleanup();
+  }
+});

@@ -3,12 +3,13 @@
 // fence environment plus `user`, `role` and the `session` the page named, already checked to be the
 // person's own. Commands answer `{ data }`; a refusal is a thrown Error, which the gateway answers as
 // `400 { error }` with the sentence. The mounts a command reports are this fence's own, from
-// THETIS_MOUNTS: a person cannot call the operator's `host.grants.mountsList`, and does not need to.
+// THETIS_MOUNTS, and the list written down for them (`host.grants.mountsList`, a call anyone may make
+// about themselves) says which of those the fence did not take.
 //
-// Three commands are an admin's, because binding a host directory is the operator's authority and the
+// Two commands are an admin's, because binding a host directory is the operator's authority and the
 // kernel refuses `operator.*` to anyone else: `browse` lists host directories so a path can be picked
-// instead of typed, `mount` binds or unbinds one, and `get` adds the mount list an admin may read. They
-// act on the person's own fence alone: the user id comes from `env.user`, never from the page.
+// instead of typed, and `mount` binds or unbinds one. They act on the person's own fence alone: the user
+// id comes from `env.user`, never from the page.
 import { currentMounts, mountModeOf, stateOf } from "./lib/mounts.js";
 import { assignSession, isProjectId, listProjects, projectOfSession, readAssignments, readInstructions, readProject, removeProject, saveProject, validateProject } from "./lib/store.js";
 
@@ -63,12 +64,12 @@ async function skillList(env, disabled) {
 }
 
 /**
- * The mounts written down for this person, which only an admin may read. The list says what the operator
+ * The mounts written down for this person, which anyone may read about themselves (host-grants lists
+ * `mountsList` as a self call; an older kernel refuses, and that is null, unknown). The list says what the operator
  * asked for; `currentMounts` says what the fence took. The two differ when a host path is gone, and that
  * difference is the one a person cannot otherwise see, so the page is told about it.
  */
 async function boundMounts(env) {
-  if (env.role !== "admin") return null;
   try {
     const all = await env.kernel.operator.call("host.grants.mountsList", { user: env.user });
     const list = all?.[env.user];

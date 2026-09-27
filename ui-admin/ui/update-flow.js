@@ -23,6 +23,10 @@ export const RESTART_WAIT_MS = 4 * 60_000;
 /** A click remembered across the page reloading itself, for this long. */
 const REMEMBER_MS = 15 * 60_000;
 const REMEMBER_KEY = "thetis.ui-admin.update";
+/** How many times the page asks for the record after reloading itself before it gives up on saying the outcome. */
+const RESUME_TRIES = 10;
+/** How long after an update applied without a restart a reloaded page still says so. */
+const APPLIED_SAID_MS = 2 * 60_000;
 
 const short = (commit) => (typeof commit === "string" ? commit.slice(0, 7) : "");
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -91,9 +95,29 @@ export function failureOf(rec, check) {
     return { key: "interrupted", title: "The update stopped part-way", body: "Thetis stopped while the update ran. The checkout on the host needs a look.", tone: "warn", actions: [{ id: "log", label: "Show log" }] };
   }
   if (rec?.state === "rolledback" || rec?.rollback?.ok) {
-    return { key: "rolled-back", title: "The update didn't build", body: `Building the update failed, so nothing was restarted. Thetis was rolled back${from ? ` to ${from}` : ""} and is running as before.`, tone: "warn", actions: [{ id: "log", label: "Show log" }, { id: "retry", label: "Try again" }] };
+    const back = `Thetis was rolled back${from ? ` to ${from}` : ""} and is running as before.`;
+    // It built, and the check that the new version loads caught it: a different failure from a build that broke.
+    if (failedTheCheck(rec)) {
+      const who = /does not load: (@[a-z0-9-]+\/[a-z0-9._-]+)/i.exec(error)?.[1];
+      return { key: "rolled-back-check", title: "The update didn't start", body: `The new version failed its start-up check${who ? ` (${who} does not load)` : ""}, so nothing was restarted. ${back}`, tone: "warn", actions: [{ id: "log", label: "Show log" }, { id: "retry", label: "Try again" }] };
+    }
+    return { key: "rolled-back", title: "The update didn't build", body: `Building the update failed, so nothing was restarted. ${back}`, tone: "warn", actions: [{ id: "log", label: "Show log" }, { id: "retry", label: "Try again" }] };
   }
   return { key: "failed", title: "The update failed", body: `${error ? `${error.split("\n")[0]}. ` : ""}Nothing was restarted.`, tone: "error", actions: [{ id: "log", label: "Show log" }, { id: "retry", label: "Try again" }] };
+}
+
+/** Whether the job got as far as checking the new version and failed there: it built, but does not load. */
+function failedTheCheck(rec) {
+  const failed = (rec?.steps ?? []).find((s) => s && s.ok === false && !/^roll back|^rebuild/.test(String(s.name ?? "")));
+  if (failed) return /check/i.test(String(failed.name ?? ""));
+  return rec?.phase === "checking" || /does not load/i.test(String(rec?.error ?? ""));
+}
+
+/** The card for an update that went live without a restart: every workspace applied it, or the ones that could not are named. */
+function appliedCard(rec) {
+  const failedUsers = (Array.isArray(rec.reloaded) ? rec.reloaded : []).filter((r) => r && r.ok === false).map((r) => r.user);
+  const tail = failedUsers.length ? ` ${failedUsers.join(", ")} could not apply it yet; Advanced → Workspaces restarts one by hand.` : "";
+  return { key: "applied", title: "Thetis is updated", body: `Updated to ${short(rec.to?.runtime ?? rec.to) || "the new version"}. No restart was needed: the workspaces applied it.${tail}`, tone: failedUsers.length ? "warn" : "ok", actions: [], progress: { steps: stepsFor("apply"), at: 5 }, dismissible: true };
 }
 
 /** The calm "update by hand" card: a checkout with local changes cannot be pulled, and that is not a fault. */
@@ -118,17 +142,15 @@ export function describe(s) {
     const to = short(rec?.to?.runtime ?? rec?.to);
     const failed = kind === "update" && rec && (rec.state === "failed" || rec.state === "rolledback");
     if (failed) return { ...failureOf(rec, s.check), dismissible: true };
+    // The page reloaded itself because the workspaces applied the update; nothing restarted, so "Back online" would be wrong.
+    if (kind === "update" && rec?.state === "done" && !needsRestart(rec.needs) && !rec.restart?.fired) return appliedCard(rec);
     return { key: "back", title: "Back online", body: `${kind === "update" && to ? `Thetis is updated to ${to}. ` : "Thetis restarted. "}Replies that were running continue by themselves.`, tone: "ok", actions: s.reloadPage ? [{ id: "reload", label: "Reload page", primary: true }] : [], progress: { steps: stepsFor(kind), at: stepsFor(kind).length - 1 }, dismissible: true };
   }
   if (s.phase === "starting" || s.phase === "following" || s.phase === "away") {
     if (s.phase === "following" && rec && ["failed", "rolledback", "interrupted"].includes(rec.state)) return { ...failureOf(rec, s.check), dismissible: true };
-    if (s.phase === "following" && kind === "update" && rec?.state === "done" && !needsRestart(rec.needs)) {
-      const failedUsers = (Array.isArray(rec.reloaded) ? rec.reloaded : []).filter((r) => r && r.ok === false).map((r) => r.user);
-      const tail = failedUsers.length ? ` ${failedUsers.join(", ")} could not apply it yet; Advanced → Workspaces restarts one by hand.` : "";
-      return { key: "applied", title: "Thetis is updated", body: `Updated to ${short(rec.to?.runtime ?? rec.to) || "the new version"}. No restart was needed: the workspaces applied it.${tail}`, tone: failedUsers.length ? "warn" : "ok", actions: [], progress: { steps: stepsFor("apply"), at: 5 }, dismissible: true };
-    }
+    if (s.phase === "following" && kind === "update" && rec?.state === "done" && !needsRestart(rec.needs)) return appliedCard(rec);
     if (rec?.rollingBack) {
-      return { key: "rolling-back", title: "The update didn't build · rolling back", body: "Thetis keeps running the version before while it goes back to it.", tone: "warn", actions: [], progress: { steps: stepsFor("update"), at: PHASE_AT[rec.phase] ?? 2, failed: true }, dismissible: false };
+      return { key: "rolling-back", title: failedTheCheck(rec) ? "The update didn't start · rolling back" : "The update didn't build · rolling back", body: "Thetis keeps running the version before while it goes back to it.", tone: "warn", actions: [], progress: { steps: stepsFor("update"), at: PHASE_AT[rec.phase] ?? 2, failed: true }, dismissible: false };
     }
     const seq = kind === "restart" ? "restart" : rec && !needsRestart(rec.needs ?? s.check?.needs) ? "apply" : "update";
     const steps = stepsFor(seq, pausingOf(rec));
@@ -311,6 +333,10 @@ export function createUpdateFlow(ext, { wait = (ms) => new Promise((done) => set
           await refresh({ fetch: false });
           return;
         }
+        // Applied without a restart: the workspaces restarted, this page's own among them, so the page is
+        // about to reload itself on the new build. The click stays remembered, and the reloaded page says
+        // "Thetis is updated" once more (and then forgets); a page that does not reload keeps the card.
+        if (rec?.state === "done" && state.kind === "update" && !needsRestart(rec.needs)) return;
         forget();
         return;
       }
@@ -400,17 +426,26 @@ export function createUpdateFlow(ext, { wait = (ms) => new Promise((done) => set
   async function resume() {
     const got = recalled();
     if (!got) return;
+    // The page reloaded because its own workspace just restarted: the first requests can land before the
+    // gateway answers again. A few tries, a second apart, before the click is let go unsaid.
     let rec = null;
-    try {
-      rec = await readProgress();
-    } catch {
-      return;
+    for (let tries = 0; ; tries++) {
+      try {
+        rec = await readProgress();
+        break;
+      } catch {
+        if (tries >= RESUME_TRIES) return;
+        await wait(1000);
+      }
     }
     if (rec?.state === "running") {
       set({ kind: got.kind, record: rec, phase: "following" });
       return void follow();
     }
     forget();
+    // An update applied without a restart is said after the reload it caused, not on a page opened later.
+    const finished = Date.parse(rec?.finishedAt ?? "");
+    if (got.kind === "update" && rec?.state === "done" && !needsRestart(rec.needs) && Number.isFinite(finished) && now() - finished > APPLIED_SAID_MS) return;
     set({ kind: got.kind, record: rec, phase: "back", reloadPage: false });
   }
 
@@ -430,6 +465,10 @@ export function createUpdateFlow(ext, { wait = (ms) => new Promise((done) => set
     follow,
     wait: () => away(),
     toggleChanges: () => set({ showChanges: !state.showChanges }),
-    dismiss: () => set({ phase: state.phase === "back" || state.phase === "timeout" ? "idle" : state.phase, applyError: null, record: state.phase === "back" ? null : state.record }),
+    dismiss: () => {
+      // A dismissed outcome is said: the reloaded page need not say it again.
+      if (state.phase === "back" || (state.phase === "following" && state.record?.state === "done")) forget();
+      set({ phase: state.phase === "back" || state.phase === "timeout" ? "idle" : state.phase, applyError: null, record: state.phase === "back" ? null : state.record });
+    },
   };
 }

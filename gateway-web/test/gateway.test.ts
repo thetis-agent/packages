@@ -19,7 +19,7 @@ import { memoryStore } from "@thetis/runtime/lib/store";
 import { createDoor } from "@thetis/runtime/door";
 import { createLogin } from "@thetis/gateway-login";
 import { clientFromRpc } from "../src/client.js";
-import { createGateway, nothingToResume, pairUsage } from "../src/server.js";
+import { createGateway, nothingToResume, pairUsage, restartPending } from "../src/server.js";
 import { GatewayStore } from "../src/store.js";
 import type { TurnMessage } from "../src/turns.js";
 import type { ChildRecord } from "../src/server.js";
@@ -1119,6 +1119,16 @@ test("the page learns its build from /api/me and the stream, and the developer p
   assert.equal(((await (await api(bob, "/bob/api/me")).json()) as Me).prefs.developer, false, "bob's is his own");
   assert.equal((await api(cookie, "/alice/api/me/prefs", { method: "POST", body: JSON.stringify({ developer: "yes" }) })).status, 400);
   await api(cookie, "/alice/api/me/prefs", { method: "POST", body: JSON.stringify({ developer: false }) });
+});
+
+test("a person's countdown and an admin's latch answer are read as the same pending restart", () => {
+  const now = 1_000_000;
+  const person = { armed: true, reason: "update", at: now - 5_000, deadlineAt: now + 60_000, firesAt: now + 8_000, secondsLeft: 8, drain: true };
+  assert.deepEqual(restartPending(person, now), { reason: "update", by: "", firesInMs: 8_000, deadlineInMs: 60_000 });
+  const admin = { pending: { reason: "update", by: "root", at: now, deadlineAt: now + 60_000 }, armed: true };
+  assert.deepEqual(restartPending(admin, now), { reason: "update", by: "root", deadlineInMs: 60_000 });
+  assert.equal(restartPending({ armed: false }, now), null);
+  assert.equal(restartPending(undefined, now), null);
 });
 
 test("everyone may ask whether Thetis is about to restart; an older kernel's refusal is answered as nothing known", async () => {
