@@ -1,6 +1,6 @@
 # @thetis/exa
 
-Web search, page contents, summaries, direct answers and research runs through the Exa API, as tools for the model. It is a `tool` package that runs in the fence of whoever installs it. It is not in `systemPackages` by default: a person installs it from the Marketplace place, or an admin installs it for everyone. The fence's network mode must allow outbound HTTPS.
+Web search, page contents, summaries, direct answers and research runs through the Exa API, as tools for the model. It is a `tool` package that runs in the fence of whoever installs it. It is not in `systemPackages` by default: a person installs it from the Extensions place, or an admin installs it for everyone. The fence's network mode must allow outbound HTTPS.
 
 ## What it provides
 

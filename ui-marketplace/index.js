@@ -6,6 +6,7 @@
 // role and the kernel only for an admin's fence. Nothing here trusts the browser: `env.user` says who asked.
 import { readIndex, readReadme, readReadmeAsset, search as searchIndex } from "@thetis/marketplace";
 import { installedRow, matchesQuery, mergeRows } from "./lib/rows.js";
+import { updatesFor } from "./lib/updates.js";
 
 const PACKAGE_NAME = /^@[a-z0-9-]+\/[a-z0-9._-]+$/;
 const USER_ID = /^[a-z][a-z0-9-]{0,31}$/;
@@ -124,6 +125,15 @@ export async function unfork(args, env) {
   return { data: installedRow(await env.kernel.packages.unfork(name)) };
 }
 
+/**
+ * What the "Updates ready" card is drawn from: `{ items, own, forks, shells, applyOwnChanges }`, recomputed from
+ * the kernel's list, the index and the files on every call. See lib/updates.js for what each list means.
+ */
+export async function updates(_args, env) {
+  const [installed, catalog, index] = await Promise.all([env.kernel.packages.list(), catalogOf(env), readIndex(env)]);
+  return { data: await updatesFor(env, { installed, catalog, index }) };
+}
+
 /** An update is an install of the newer pinned source, as `thetis packages update` does. Refused when nothing is newer. */
 export async function update(args, env) {
   const name = packageName(args.name);
@@ -172,14 +182,17 @@ export async function configUnset(args, env) {
 const call = (env, method, a = {}) => env.kernel.operator.call(method, a);
 
 /**
- * Reloads the person's own workspace: the fence closes and opens again on the code on disk now, which is
- * what puts a package shipped with the service into service after its files change. The id is `env.user`
- * and never an argument, so this verb can only ever name the person who sent it; the kernel allows anyone
- * `fence.reload` for their own id and an admin for anyone's, and the operator channel is where it lives.
+ * Starts the person's own space again on the files on disk now, which is what puts an update into service.
+ * The id is `env.user` and never an argument, so this verb can only ever name the person who sent it; the
+ * kernel allows anyone `fence.reload` for their own id and an admin for anyone's.
+ *
+ * `drain: true` is the only mode the page sends: a reply that is running stops at its next safe point (the
+ * end of a model round), the space starts again, and the reply continues by itself afterwards. A kernel from
+ * before drain existed ignores the flag and refuses while a reply runs; the page then waits for the reply to
+ * finish and asks again. The page never cancels a reply to apply an update, so `force` is not offered here.
  */
 export async function fenceReload(args, env) {
-  // `force` cancels the person's own running turn first; without it the kernel refuses while one runs.
-  return { data: await call(env, "fence.reload", { user: env.user, ...(args.force === true ? { force: true } : {}) }) };
+  return { data: await call(env, "fence.reload", { user: env.user, ...(args.drain === true ? { drain: true } : {}) }) };
 }
 
 /** A system package, sent by name, is marked as everyone's default and linked into every person; anything else is installed for the admin and promoted. */

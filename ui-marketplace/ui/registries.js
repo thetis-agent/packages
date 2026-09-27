@@ -41,7 +41,7 @@ export function openRegistries(ext, root) {
   const kept = (id, make) => (boxes.has(id) ? boxes.get(id) : boxes.set(id, make()).get(id));
   const drop = (id) => boxes.delete(id);
 
-  const crumbBack = button("Marketplace", { tone: "quiet" });
+  const crumbBack = button("Extensions", { tone: "quiet" });
   crumbBack.addEventListener("click", () => ext.open.place("marketplace", {}));
   const crumb = el("nav", { class: "mk-crumb", "aria-label": "Where you are" }, crumbBack, el("span", { class: "mk-crumb-sep", "aria-hidden": "true" }, "›"), el("span", { class: "mk-crumb-name" }, "Registries"));
   const wrap = el("div", { class: "mk-reg" });
@@ -173,7 +173,7 @@ export function openRegistries(ext, root) {
     async function make() {
       const chosen = chooser.value();
       if (!chosen) return;
-      const ok = await confirm(go, { title: `A key for ${r.name}?`, lines: [["registry", r.name], ["url", r.url], ["key", chosen.auth === "generate" ? "generated on the host" : "the pasted private key"]], note: "The system workspace reloads with the key in its agent; the marketplace reaches this repository with it from the next refresh. Register the public half as a read-only deploy key.", confirmLabel: "Make it" });
+      const ok = await confirm(go, { title: `A key for ${r.name}?`, lines: [["registry", r.name], ["url", r.url], ["key", chosen.auth === "generate" ? "generated on the host" : "the pasted private key"]], note: "The system workspace starts again with the key in its agent; the marketplace reaches this repository with it from the next refresh. Register the public half as a read-only deploy key.", confirmLabel: "Make it" });
       if (!ok) return;
       go.disabled = true;
       const done = await send("registry-key", { name: r.name, ...chosen }, `${r.name} has a key. Add its public half as a deploy key.`, () => { drop(`key:${r.name}`); keying = null; fresh = r.name; tests.delete(r.name); });
@@ -210,7 +210,7 @@ export function openRegistries(ext, root) {
 
   async function revokeKey(anchor, args, label, fingerprint) {
     const keep = keepTick();
-    const ok = await confirm(anchor, { title: `Revoke the key for ${label}?`, lines: [["key", el("code", {}, fingerprint || "fingerprint unknown")], ["", keep.node]], note: "The system workspace reloads without it; a private registry refuses the next refresh until a key is added again. Remove the deploy key on the git host too.", confirmLabel: "Revoke", tone: "warn" });
+    const ok = await confirm(anchor, { title: `Revoke the key for ${label}?`, lines: [["key", el("code", {}, fingerprint || "fingerprint unknown")], ["", keep.node]], note: "The system workspace starts again without it; a private registry refuses the next refresh until a key is added again. Remove the deploy key on the git host too.", confirmLabel: "Revoke", tone: "warn" });
     if (!ok) return;
     const keepKey = !!keep.box.checked;
     await send("registry-key-revoke", { ...args, keepKey }, `The key for ${label} was revoked${keepKey ? "; the file was kept." : "."}`, () => args.name && tests.delete(args.name));

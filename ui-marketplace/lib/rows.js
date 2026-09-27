@@ -16,6 +16,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { ahead, behind, compareVersions, shortCommit } from "@thetis/marketplace";
+import { labelOf } from "./updates.js";
 
 const PIN = /@([0-9a-f]{40})$/;
 
@@ -98,9 +99,11 @@ function benchOf(info) {
 export function installedRow(info, installed = true) {
   return {
     name: info.name,
+    label: labelOf(info),
     version: info.version,
     type: info.type,
     description: info.description ?? "",
+    audience: typeof info.thetis?.audience === "string" ? info.thetis.audience : null,
     keywords: [],
     registry: null,
     source: null,
@@ -133,8 +136,62 @@ export function installedRow(info, installed = true) {
     steps: (info.thetis?.steps ?? []).map((s) => ({ id: s.id, phase: s.phase })),
     tools: (info.thetis?.tools ?? []).map((t) => ({ name: t.name, description: t.description ?? "" })),
     service: !!info.thetis?.service,
+    skills: skillCount(info.root, info.thetis?.skills),
+    pages: pageCount(info.thetis?.ui),
     bench: benchOf(info),
   };
+}
+
+/**
+ * How many skills a package brings: the `SKILL.md` files under the directory its manifest names. Read from
+ * disk, because the manifest names only the directory. Zero when there is none.
+ */
+export function skillCount(root, dir) {
+  if (!root || typeof dir !== "string" || !dir) return 0;
+  let n = 0;
+  const walk = (at, depth) => {
+    if (depth > 4) return;
+    let entries;
+    try {
+      entries = readdirSync(at, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.isDirectory()) walk(resolve(at, e.name), depth + 1);
+      else if (e.name === "SKILL.md") n += 1;
+    }
+  };
+  walk(resolve(root, dir), 0);
+  return n;
+}
+
+/** How many places, docks and panels a package adds to the page. */
+export function pageCount(ui) {
+  if (!ui || typeof ui !== "object") return 0;
+  return ["places", "dock", "panel", "sidebar", "shelf"].reduce((n, slot) => n + (Array.isArray(ui[slot]) ? ui[slot].length : 0), 0);
+}
+
+// ---- which rows are system components ----
+//
+// A person looking for something to add should see what they could want: tools, skills, integrations, pages.
+// The parts that make the installation run -- the host packages, the storage driver, the gateways, the model
+// provider, the harness itself, the index service, the benchmarks, the page's own plumbing -- are still
+// here, and an admin still needs them, but behind "Show system components". A manifest can say which it is
+// with `thetis.audience` ("system" or "everyone"); without one, the type and the name decide.
+
+const COMPONENT_TYPES = new Set(["host", "storage", "gateway", "provider", "skill-type", "service"]);
+const COMPONENT_NAMES = new Set(["harness-core", "prompt-cache", "bench", "bench-probe", "ui-admin", "ui-marketplace", "ui-context", "ui-tools", "ui-skills"]);
+/** The skill loaders are alternatives to one another. The one a person has is theirs; the others are components. */
+const SKILL_LOADERS = new Set(["skills-all", "skills-l1", "skills-hybrid"]);
+
+/** Whether a row is a system component, hidden until a person asks to see them. */
+export function isComponent(row) {
+  if (row.audience === "system") return true;
+  if (row.audience === "everyone") return false;
+  const base = String(row.name ?? "").replace(/^@[^/]+\//, "");
+  if (SKILL_LOADERS.has(base)) return !row.installed;
+  return COMPONENT_TYPES.has(row.type) || COMPONENT_NAMES.has(base);
 }
 
 /** A system package this person does not have, as a row: on disk, already built, installable by name. */
@@ -144,9 +201,11 @@ export const catalogRow = (info) => installedRow(info, false);
 export function indexRow(entry) {
   return {
     name: entry.name,
+    label: labelOf({ name: entry.name, thetis: { label: entry.label } }),
     version: entry.version,
     type: entry.type,
     description: entry.description ?? "",
+    audience: typeof entry.audience === "string" ? entry.audience : null,
     keywords: entry.keywords ?? [],
     registry: entry.registry,
     source: entry.source,
@@ -169,6 +228,8 @@ export function indexRow(entry) {
     steps: entry.steps ?? [],
     tools: (entry.tools ?? []).map((name) => ({ name, description: "" })),
     service: !!entry.service,
+    skills: 0,
+    pages: 0,
     bench: entry.bench ? { suites: entry.bench.suites ?? [], ...(entry.bench.peerGroup ? { peerGroup: entry.bench.peerGroup } : {}), reports: [] } : null,
   };
 }
@@ -210,7 +271,10 @@ export function mergeRows(installed, entries, index, { catalog = [], user = "" }
     byName.set(entry.name, withAhead(withUpdate(merged, newer.get(entry.name)), unshared.get(entry.name)));
   }
   const mine = user ? `@${user}/` : null;
-  return [...byName.values()].map((r) => (mine && r.installed && r.name.startsWith(mine) ? { ...r, own: true } : r));
+  return [...byName.values()].map((r) => {
+    const row = mine && r.installed && r.name.startsWith(mine) ? { ...r, own: true } : r;
+    return { ...row, component: isComponent(row) };
+  });
 }
 
 /** The page's own filter for the rows the index does not carry, the same rule the index search uses for a name match. */

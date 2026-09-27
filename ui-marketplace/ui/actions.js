@@ -1,36 +1,31 @@
-/* The actions a package page offers, and the confirm popover in front of each. For anyone: Install and
- * Remove -- one pair, whatever the package is, with the popover saying what the install of *this kind* of
- * package does: a system package is linked already built, a registry's offer is cloned and built in the
- * person's own space, and what it brings depends on its type (skills, tools, steps, a service, a place on
- * the page). Update or Reload my workspace or Go back to the package this was forked from, the three kinds
- * of behind: a registry holding a newer commit is installed, files on disk the workspace has not read are
- * put into service by reloading the workspace, and a fork's origin has moved on without it, which going
- * back takes. Delete, for a package of one's own, with its files. Publish to a registry -- with the
- * packages already on the branch that a push would carry with it, ticked one by one or named as the reason
- * it cannot go, and, for a fork whose origin the registry already holds, the two publishes it could be --
- * and Take out of a registry, the one act here that takes something away from everybody else. For an admin,
- * under the person's own actions: Make it the default for everyone and Stop it being the default, which
- * are the two states of one system package; Install for everyone, which turns a registry's offer into a
- * system package; and Install for a person. A host package and a storage driver have no Install at all,
- * and the hint says why. Every popover states the facts a person should read first and one sentence on what
- * happens next; nothing is sent until they confirm. After an action the place is re-opened on the page, or
- * on the gallery when the package is gone from here. */
+/* The actions an extension's page offers, and the confirm popover in front of each. For anyone: Install and
+ * Remove -- one pair, whatever the extension is, with the popover saying what installing *this kind* does.
+ * **Update**, one button for every kind of "something newer": it goes through the page's one updater
+ * (updates-notice.js), which fetches when a registry holds a newer commit, then applies, waits for the space
+ * to come back and refreshes the page. It never asks to cancel a reply: a running reply pauses at a safe point
+ * and continues. **Switch back to the official version**, for a person's copy that the official version has
+ * caught up with or moved past. Delete, for an extension of one's own, with its files. Publish to a registry
+ * -- with the packages already on the branch that a push would carry with it, ticked one by one or named as
+ * the reason it cannot go, and, for a fork whose origin the registry already holds, the two publishes it could
+ * be -- and Take out of a registry, the one act here that takes something away from everybody else.
+ *
+ * For an admin, in their own group under the person's actions and visually quieter: Make it the default for
+ * everyone and Stop it being the default, which are the two states of one system package; Install for
+ * everyone, which turns a registry's offer into a system package; and Install for a person. A host package and
+ * a storage driver have no Install at all, and the hint says why. Every popover states the facts a person
+ * should read first and one sentence on what happens next; nothing is sent until they confirm. After an action
+ * the place is re-opened on the page, or on the store when the extension is gone from here. */
 
-/** How long the page waits for its own workspace to answer again after it was reloaded. */
-const SETTLE_MS = 30_000;
+import { isBusy, lostGateway, updater } from "./updates-notice.js";
 
 /**
- * A request that lost its gateway, as against one a gateway refused with a sentence. Reloading your own
- * workspace closes the fence answering the page, which leaves either no answer at all (status 0) or the
- * door's own 502/503 while the socket is gone; anything else came from a gateway that is still there.
+ * Waits for the space to answer again after the gateway serving this page was replaced (switching the web
+ * gateway back to its official version does that). `ext.awaitReturn` is the seam's one implementation; a page
+ * from before it asks this page's own command until it answers.
  */
-const lostGateway = (err) => {
-  const status = Number(err?.status);
-  return !Number.isFinite(status) || status === 0 || status >= 502;
-};
-
-/** Asks the new workspace for this page until it answers, or until the deadline passes. */
-async function settle(ext, name, deadline = Date.now() + SETTLE_MS) {
+async function settle(ext, name, timeoutMs = 90_000) {
+  if (typeof ext.awaitReturn === "function") return (await ext.awaitReturn({ timeoutMs })) === "back";
+  const deadline = Date.now() + timeoutMs;
   for (;;) {
     try {
       await ext.request("show", { args: { name } });
@@ -54,30 +49,29 @@ const sourceOf = (row) => (row.system ? row.name : row.source);
 export function whatItBrings(type) {
   switch (type) {
     case "skill":
-      return "Its skills are offered to your agent from your next turn.";
+      return "Its skills are offered to your agent from your next message.";
     case "tool":
-      return "Its tools are offered to your agent from your next turn.";
+      return "Its tools are offered to your agent from your next message.";
     case "loader":
-      return "Its steps run in your turns from the next one.";
+      return "It works in your conversations from your next message.";
     case "provider":
-      return "Its models are yours to pick from your next turn.";
+      return "Its models are yours to pick from your next message.";
     case "service":
-      return "Its service starts in your workspace at once.";
     case "gateway":
-      return "Its service starts in your workspace at once and answers for you.";
+      return "It starts right away.";
     case "ui":
-      return "Its places and panels are on the page the next time it loads.";
+      return "It appears on the page after a refresh.";
     case "skill-type":
-      return "Its library is there for the packages that need it from your next turn.";
+      return "It is there for the extensions that need it from your next message.";
     default:
-      return "It is live on your next turn.";
+      return "It works from your next message.";
   }
 }
 
-/** The types nothing installs into a workspace, each with why. The page offers no Install for these and says this instead. */
+/** The types nothing installs for a person, each with why. The page offers no Install for these and says this instead. */
 export const NOT_INSTALLABLE = {
-  host: "A host package is loaded by the daemon by name and is never installed into a workspace.",
-  storage: "A storage driver runs on the host and is chosen by storage.driver in the configuration; it is never installed into a workspace.",
+  host: "This part runs in the Thetis server itself, so it is never installed for a person.",
+  storage: "This storage driver runs in the Thetis server and is chosen by storage.driver in the configuration, so it is never installed for a person.",
 };
 
 const count = (n) => `${n} ${n === 1 ? "person" : "people"}`;
@@ -143,9 +137,10 @@ export function actionsFor(ext, view, host) {
   const { button, busy, confirm } = ext.ui;
   const { row, user, role, people } = view;
   const admin = role !== "user";
-  const own = row.installed && row.name.startsWith(`@${user}/`);
   const buttons = [];
+  const adminButtons = [];
   const hints = [];
+  const label = row.label ?? row.name;
 
   const go = (name) => ext.open.place("marketplace", name ? { name } : {});
 
@@ -165,95 +160,50 @@ export function actionsFor(ext, view, host) {
   }
 
   /**
-   * Into the person's own workspace. The popover says which of the two installs this is, because they cost
-   * different things: a system package is already here and already built, so the install is a link and is
-   * over at once; a registry's offer is cloned and built in the person's own space and takes a minute.
+   * Into the person's own space. The popover says which of the two installs this is, because they cost
+   * different things: an extension the installation ships is already here and already built, so the install
+   * is over at once; a registry's offer is fetched and built for the person and takes a minute.
    */
   function installMe(anchor) {
-    const how = row.system ? "Nothing is fetched or built: the installation's copy is linked into your workspace." : "It is cloned from the registry and built in your own space.";
+    const how = row.system ? "It is already on this installation, so nothing is fetched." : "It is fetched and built for you, which can take a minute.";
     return run(
       anchor,
-      { title: `Install ${row.name}?`, lines: [["package", `${row.name}@${row.version}`], ["from", row.system ? "this installation" : row.registry || "a source"], ["into", "your workspace"]], note: `${how} ${whatItBrings(row.type)}`, confirmLabel: "Install" },
+      { title: `Install ${label}?`, lines: [["extension", `${label} ${row.version}`], ["for", "you"]], note: `${how} ${whatItBrings(row.type)}`, confirmLabel: "Install" },
       row.system ? "Installing…" : "Installing… this can take a minute.",
       () => ext.request("install", { args: { source: sourceOf(row) } }),
       (r) => {
-        ext.toast(`${r.name}@${r.version} is in your workspace.`, { tone: "good" });
+        ext.toast(`${label} is installed.`, { tone: "good" });
         go(r.name);
       }
     );
   }
 
   /**
-   * Reloads the person's own workspace, which is what puts a version the fence has not read into service.
-   * The popover says the cost plainly: the fence closes for a second, so every open shell session in it
-   * ends and this page loses its gateway. It does not go through `run`, because the request that closes the
-   * fence answering it is expected to be lost: that is the success, and the page waits for the new
-   * workspace rather than reporting a failure. After the deadline it says what to do instead.
-   */
-  async function reloadMe(anchor, force = false) {
-    const ok = force || (await confirm(anchor, {
-      title: "Reload your workspace?",
-      lines: [["package", row.name], ["loaded", `${row.update.installed} in your workspace`], ["on disk", row.update.available]],
-      note: "Your workspace closes and opens again on the code on disk, so its services, its provider and the agent itself are the new ones. The fence is gone for a second: every open shell session in it ends, and this page reconnects on its own. Conversations and files are untouched; a turn of yours still running is refused unless you cancel it.",
-      confirmLabel: "Reload",
-      tone: "warn",
-    }));
-    if (!ok) return;
-    const stop = busy(host, "Reloading your workspace… the page reconnects when it answers.");
-    try {
-      let services = [];
-      try {
-        const out = await ext.request("fence-reload", { args: force ? { force: true } : {} });
-        services = out?.data?.services ?? [];
-      } catch (err) {
-        // A turn of yours is running. The kernel refused rather than kill it; cancelling ends it as a cancel
-        // with what it has said and done kept, and that is offered here as the second question it is.
-        if (/has a turn running/.test(err?.message ?? "")) {
-          stop();
-          const again = await confirm(anchor, { title: "Cancel your running turn and reload?", lines: [["workspace", "yours"]], note: `${err.message}. Cancelling ends the turn as a cancel: what it has said and done so far is kept, and the conversation stays.`, confirmLabel: "Cancel the turn and reload", tone: "warn" });
-          return again ? reloadMe(anchor, true) : undefined;
-        }
-        if (!lostGateway(err)) throw err;
-        if (!(await settle(ext, row.name))) {
-          ext.toast(`Your workspace has not answered for ${SETTLE_MS / 1000} seconds. Reload this page, or ask an admin to reload the workspace.`, { tone: "error" });
-          return;
-        }
-      }
-      ext.toast(services.length ? `Your workspace was reloaded: ${services.join(", ")} restarted.` : "Your workspace was reloaded.", { tone: "good" });
-      go(row.name);
-    } catch (err) {
-      ext.toast(err?.message || "That did not work.", { tone: "error" });
-    } finally {
-      stop();
-    }
-  }
-
-  /**
-   * Goes back to the package this fork was copied from. It is the inverse of forking, and the way out of a
-   * fork that has stopped earning its keep: the shipped package goes on being fixed, and a person holding a
-   * copy of it sees none of that.
+   * Switches a person's copy back to the official version, then applies, the same as an update. It is the
+   * inverse of making a copy, and the way out of one that has stopped earning its keep: the official version
+   * goes on being fixed, and a person holding a copy of it sees none of that.
    *
-   * It does not go through `run`, for the same reason `reloadMe` does not. The package a person is most
-   * likely to have forked is the web gateway, and this page is being served by it, so stopping it is the
-   * first thing that happens and the request carrying the click dies with it. That lost answer is the
-   * success, not a failure, so the page waits for the package that replaced it to answer instead. When the
-   * fork is not a gateway the request simply returns and the wait never begins.
+   * The page's updater does it when there is one, so the card and this button are one act. Without one (an
+   * older page) the request is sent here. The copy a person is most likely to hold is the web gateway, which
+   * serves this page, so the request carrying the click can die with it: that lost answer is the success, and
+   * the page waits for the official version to answer instead.
    *
-   * The files stay. They are the person's own work and this page will not be the thing that throws them
-   * away; Delete, which they can reach once the shipped package is back, is what removes them.
+   * The files stay. They are the person's own work and this page will not be the thing that throws them away;
+   * Delete, which they can reach once the official version is back, is what removes them.
    */
   async function unforkMe(anchor) {
     const origin = row.update?.origin ?? row.fork?.name ?? row.forkedFrom?.name;
-    const shipped = row.update?.available ?? row.fork?.shipped ?? "";
     const ok = await confirm(anchor, {
-      title: `Go back to ${origin}?`,
-      lines: [["fork", `${row.name}@${row.version}`], ["goes back to", `${origin}@${shipped}`], ["your files", "kept where they are"]],
-      note: `${row.name} is removed from your setup and ${origin} takes its place, with every change it has had since you forked it.${row.type === "gateway" ? " This page is served by the package being replaced, so it will go quiet for a second and come back on its own." : ""} Your copy stays under packages/; Delete is what removes it.`,
-      confirmLabel: `Go back to ${origin}`,
+      title: "Switch back to the official version?",
+      lines: [["your copy", label], ["official version", origin], ["your files", "kept where they are"]],
+      note: "The official version takes your copy's place, with every fix it has had since. Your copy's files stay; Delete is what removes them.",
+      confirmLabel: "Switch back",
       tone: "warn",
     });
     if (!ok) return;
-    const stop = busy(host, `Going back to ${origin}…`);
+    const u = updater();
+    if (u) return void (await u.switchBack([{ name: row.name, label, origin, state: row.update?.identical ? "identical" : "superseded" }]));
+    const stop = busy(host, "Switching back…");
     try {
       let back = null;
       try {
@@ -261,11 +211,11 @@ export function actionsFor(ext, view, host) {
       } catch (err) {
         if (!lostGateway(err)) throw err;
         if (!(await settle(ext, origin))) {
-          ext.toast(`${origin} has not answered for ${SETTLE_MS / 1000} seconds. Reload this page, or ask an admin to run thetis packages unfork ${row.name}.`, { tone: "error" });
+          ext.toast("This is taking longer than usual. Refresh the page in a minute.", { tone: "error" });
           return;
         }
       }
-      ext.toast(`${back?.name ?? origin}${back?.version ? `@${back.version}` : ""} is back in place. Your fork's files are still under packages/.`, { tone: "good" });
+      ext.toast("You are on the official version again. Your copy's files are kept.", { tone: "good" });
       go(back?.name ?? origin);
     } catch (err) {
       ext.toast(err?.message || "That did not work.", { tone: "error" });
@@ -274,27 +224,46 @@ export function actionsFor(ext, view, host) {
     }
   }
 
-  function updateMe(anchor) {
-    return run(
-      anchor,
-      { title: "Update for you?", lines: [["package", `${row.name}@${row.update.version}`], ["from", row.update.registry], ["commit", `${row.update.from} → ${row.update.to}`]], note: "It is live on the next turn. The copy you have keeps working if the new one fails to build.", confirmLabel: "Update" },
-      "Updating… this can take a minute.",
-      () => ext.request("update", { args: { name: row.name } }),
-      (r) => {
-        ext.toast(`${r.name}@${r.version} is in place for you.`, { tone: "good" });
-        go(r.name);
+  /**
+   * One Update, whatever is behind. The page's updater fetches when a registry holds a newer commit, then
+   * applies, waits for the space and refreshes the page; a running reply pauses at a safe point and continues.
+   * Terminal sessions close, and the updater asks first when some are open. An older page without an updater
+   * sends the fetch here and leaves applying to the card.
+   */
+  async function updateMe() {
+    const u = updater();
+    if (u?.busy) return ext.toast("An update is already under way.", { tone: "warn" });
+    if (u) {
+      try {
+        const data = await u.refresh();
+        // The person's own extension changed on disk: that is applying their changes, not fetching anything.
+        if ((data.own ?? []).some((o) => o.name === row.name)) return void (await u.applyOwn(data, { asked: true }));
+        if ((data.items ?? []).some((i) => i.name === row.name)) return void (await u.updateSome([row.name]));
+      } catch {
+        /* the fallback below still fetches */
       }
-    );
+    }
+    if (row.update?.apply !== "install") return ext.toast("This update is applied from the Updates card.", { tone: "warn" });
+    const stop = busy(host, "Updating… this can take a minute.");
+    try {
+      await ext.request("update", { args: { name: row.name } });
+      ext.toast(`${label} is updated. It takes effect when your space next starts.`, { tone: "good" });
+      go(row.name);
+    } catch (err) {
+      ext.toast(isBusy(err) ? "A reply is running; try again when it is done." : err?.message || "That did not work.", { tone: "error" });
+    } finally {
+      stop();
+    }
   }
 
   function installFor(anchor, who) {
     return run(
       anchor,
-      { title: `Install for ${who}?`, lines: [["package", `${row.name}@${row.version}`], ["from", row.system ? "this installation" : row.registry || "a source"], ["into", `${who}'s workspace`]], note: `${row.system ? "The installation's copy is linked into their workspace." : "It is cloned and built in their space."} It is live on their next turn.`, confirmLabel: "Install" },
+      { title: `Install for ${who}?`, lines: [["extension", `${label} ${row.version}`], ["for", who]], note: `${row.system ? "It is already on this installation, so nothing is fetched." : "It is fetched and built for them."} They have it from their next message; a reply of theirs that is running keeps the old one until it ends.`, confirmLabel: "Install" },
       `Installing for ${who}… this can take a minute.`,
       () => ext.request("install-for", { args: { user: who, source: sourceOf(row) } }),
       (r) => {
-        ext.toast(`${r.name}@${r.version} is in ${who}'s workspace.`, { tone: "good" });
+        ext.toast(`${label} is installed for ${who}.`, { tone: "good" });
         go(row.name);
       }
     );
@@ -309,8 +278,8 @@ export function actionsFor(ext, view, host) {
     return run(
       anchor,
       row.system
-        ? { title: "Make it the default for everyone?", lines: [["package", `${row.name}@${row.version}`], ["for", "everyone, now and later"]], note: "Every person gets it on their next turn, and every new person is set up with it. Anyone can still remove it from their own workspace.", confirmLabel: "Make it the default" }
-        : { title: "Install for everyone?", lines: [["package", `${row.name}@${row.version}`], ["from", row.registry || "a source"], ["for", "everyone, now and later"]], note: "It is installed for you, copied under @thetis as a system package, and set up for every person now and later.", confirmLabel: "Install for everyone" },
+        ? { title: "Make it the default for everyone?", lines: [["extension", `${label} ${row.version}`], ["for", "everyone, now and later"]], note: "Every person has it from their next message, and every new person is set up with it. Anyone can still remove it for themselves.", confirmLabel: "Make it the default" }
+        : { title: "Install for everyone?", lines: [["extension", `${label} ${row.version}`], ["from", row.registry || "a source"], ["for", "everyone, now and later"]], note: "It is installed for you, becomes part of this installation, and every person is set up with it now and later.", confirmLabel: "Install for everyone" },
       row.system ? "Making it the default for everyone…" : "Installing for everyone… this can take a minute.",
       () => ext.request("install-everyone", { args: { source: sourceOf(row) } }),
       (r) => {
@@ -324,11 +293,11 @@ export function actionsFor(ext, view, host) {
   function unmarkEveryone(anchor) {
     return run(
       anchor,
-      { title: "Stop it being the default for everyone?", lines: [["package", row.name], ["now", "everyone gets it"], ["after", "each person installs it"]], note: "New people are no longer set up with it. Everyone who has it keeps it; a person removes it from their own page.", confirmLabel: "Stop being the default", tone: "warn" },
+      { title: "Stop it being the default for everyone?", lines: [["extension", label], ["now", "everyone gets it"], ["after", "each person installs it"]], note: "New people are no longer set up with it. Everyone who has it keeps it; a person removes it from their own page.", confirmLabel: "Stop being the default", tone: "warn" },
       "Taking the mark off…",
       () => ext.request("unmark-everyone", { args: { name: row.name } }),
       () => {
-        ext.toast(`${row.name} is no longer the default for everyone.`, { tone: "good" });
+        ext.toast(`${label} is no longer the default for everyone.`, { tone: "good" });
         go(row.name);
       }
     );
@@ -338,7 +307,7 @@ export function actionsFor(ext, view, host) {
     const base = row.name.slice(row.name.indexOf("/") + 1);
     return run(
       anchor,
-      { title: "Make it a system package for everyone?", lines: [["package", row.name], ["becomes", `@thetis/${base}`], ["for", "everyone, now and later"]], note: `A copy goes under @thetis as a system package. Everyone gets @thetis/${base} on their next turn. Your own copy ${row.name} is removed.`, confirmLabel: "Make it the default" },
+      { title: "Make it the default for everyone?", lines: [["extension", label], ["becomes", `@thetis/${base}`], ["for", "everyone, now and later"]], note: `A copy becomes part of this installation as @thetis/${base}, and every person has it from their next message. Your own copy ${row.name} is removed.`, confirmLabel: "Make it the default" },
       "Making it the default…",
       () => ext.request("promote", { args: { user, name: row.name } }),
       (r) => {
@@ -349,24 +318,24 @@ export function actionsFor(ext, view, host) {
   }
 
   /**
-   * Out of the person's own workspace, and nothing more. A system package is the installation's, so it stays
+   * Out of the person's own space, and nothing more. A system package is the installation's, so it stays
    * on disk and Install puts it back; one that is everyone's default stays everyone's, and the popover says
    * so, because "remove" on a package marked for everyone reads as though it might undo the mark.
    */
   function remove(anchor) {
-    const stops = "What it brings stops on your next turn; a service it runs stops now.";
+    const stops = "What it brings stops from your next message.";
     const note = row.replaced
-      ? `Its files stay in place; only the link is removed. ${row.replaced} comes back on the next turn.`
+      ? `Its files stay in place. ${row.replaced} comes back in its place.`
       : row.system
-        ? `It leaves your workspace only: the installation keeps its copy, and Install puts it back. ${stops}${row.everyone ? " It stays the default for everyone else, and a new person still gets it." : ""}`
-        : `Its files stay in place; only the link is removed. ${stops}`;
+        ? `The installation keeps its copy, and Install puts it back. ${stops}${row.everyone ? " It stays the default for everyone else, and a new person still gets it." : ""}`
+        : `Its files stay in place. ${stops}`;
     return run(
       anchor,
-      { title: "Remove this package?", lines: [["package", row.name], ["from", "your workspace"]], note, confirmLabel: "Remove", tone: "warn" },
+      { title: `Remove ${label}?`, lines: [["extension", label], ["for", "you"]], note, confirmLabel: "Remove", tone: "warn" },
       "Removing…",
       () => ext.request("remove", { args: { name: row.name } }),
       () => {
-        ext.toast(`${row.name} is out of your workspace.`, { tone: "good" });
+        ext.toast(`${label} is removed.`, { tone: "good" });
         go(row.available || row.system ? row.name : row.replaced || null);
       }
     );
@@ -375,7 +344,7 @@ export function actionsFor(ext, view, host) {
   function del(anchor) {
     return run(
       anchor,
-      { title: "Delete this package?", lines: [["package", row.name], row.forkedFrom && ["forked from", `${row.forkedFrom.name}@${row.forkedFrom.version}`], ["comes back", row.replaced || "nothing"]].filter(Boolean), note: "This deletes the files under packages/ too. Steps and tools it brings stop on the next turn.", confirmLabel: "Delete", tone: "warn" },
+      { title: `Delete ${label}?`, lines: [["extension", row.name], row.forkedFrom && ["copy of", row.forkedFrom.name], ["comes back", row.replaced || "nothing"]].filter(Boolean), note: "This deletes its files under packages/ too. What it brings stops from your next message.", confirmLabel: "Delete", tone: "warn" },
       "Deleting…",
       () => ext.request("delete", { args: { name: row.name } }),
       (r) => {
@@ -385,65 +354,66 @@ export function actionsFor(ext, view, host) {
     );
   }
 
-  const add = (label, tone, handler) => {
-    const b = button(label, { tone });
+  const add = (text, tone, handler, into = buttons) => {
+    const b = button(text, { tone });
     b.addEventListener("click", () => void handler(b));
-    buttons.push(b);
+    into.push(b);
     return b;
   };
+  const addAdmin = (text, handler) => add(text, "quiet", handler, adminButtons);
 
-  // One Install, whatever the package is, and none at all for the two types nothing installs into a
-  // workspace. The hint says what kind of install this is and what the package's type brings.
+  // One Install, whatever the extension is, and none at all for the two types nothing installs for a person.
+  // The hint says what the extension's type brings.
   const notInstallable = NOT_INSTALLABLE[row.type];
   if (!row.installed && notInstallable) hints.push(notInstallable);
   else if (!row.installed) {
     add("Install", "primary", installMe);
-    hints.push(`${row.system ? "A system package: shipped with this installation and already built, so installing it links the installation's copy into your workspace." : `Cloned from ${row.registry || "its registry"} and built in your own space.`} ${whatItBrings(row.type)}`);
+    hints.push(`${row.system ? "Part of this installation already, so installing it is instant." : "Fetched and built for you."} ${whatItBrings(row.type)}`);
   }
-  if (row.update?.apply === "unfork") {
-    add(`Go back to ${row.update.origin}`, "primary", unforkMe);
+  if (row.update?.apply === "unfork" || view.superseded) {
+    add("Switch back to the official version", "primary", unforkMe);
     hints.push(
-      row.update.identical
-        ? `Your fork is the same files as ${row.update.origin}@${row.update.available}, which is shipped here. It is changing nothing and it will never see another fix to ${row.update.origin}. Going back costs you nothing: your files stay where they are.`
-        : `You forked ${row.update.origin} at ${row.update.installed}; ${row.update.available} is shipped now, and everything between the two is missing from your copy. Going back keeps your files, so you can fork again from the new one.`
+      view.superseded
+        ? "Everything your copy changed is in the official version now. Switching back gets you its fixes; your files stay where they are."
+        : row.update?.identical
+          ? "Your copy is the same as the official version, so it misses every fix. Switching back costs nothing: your files stay where they are."
+          : "The official version is newer than what your copy was made from. Switching back keeps your files, so you can make a new copy from it."
     );
-  } else if (row.update?.apply === "reload") {
-    add("Reload my workspace", "primary", reloadMe);
-    hints.push(`Your workspace loaded ${row.update.installed} when it opened; ${row.update.available} is on disk. The files are installed already, so nothing is fetched or built: reloading the workspace is what puts them into service.`);
   } else if (row.update) {
-    add(`Update to ${row.update.version}`, "primary", updateMe);
-    hints.push(`The registry holds a newer commit (${row.update.from} → ${row.update.to}). Nothing changes until you take it, and the copy you have keeps working if the new one fails to build.`);
+    add("Update", "primary", updateMe);
+    hints.push("Update fetches what is needed and applies it. A reply that is running pauses at a safe point and continues afterwards.");
   }
   if (row.installed) add("Remove", "warn", remove);
   // Delete goes by where the files are, not by the name: a copy under this person's home is theirs to delete, whatever scope it was given.
   if (row.local) {
     add("Delete", "warn", del);
-    hints.push(row.replaced ? `Remove or Delete puts ${row.replaced} back in place.` : "Delete removes the package and its files under packages/.");
+    hints.push(row.replaced ? `Remove or Delete puts ${row.replaced} back in place.` : "Delete removes the extension and its files under packages/.");
   }
 
-  // The admin's actions come after the person's own, and they are about everyone, never about this
-  // workspace: Install and Remove above already are that. A system package is either everyone's default
-  // or not, and the one button here flips it -- when it can. `everyoneBy` says who made it everyone's,
-  // and a mark the configuration or a promotion made is not this page's to undo, so the hint says where
-  // that is undone rather than drawing a button that would refuse.
+  // The admin's actions come after the person's own, in their own quieter group, and they are about everyone,
+  // never about this person: Install and Remove above already are that. A system package is either
+  // everyone's default or not, and the one button here flips it -- when it can. `everyoneBy` says who made
+  // it everyone's, and a mark the configuration or a promotion made is not this page's to undo, so the hint
+  // says where that is undone rather than drawing a button that would refuse.
+  const adminHints = [];
   if (admin && row.system && !notInstallable) {
     if (!row.everyone) {
-      add("Make it the default for everyone", "quiet", installEveryone);
-      hints.push("Every person gets it now, and every new person is set up with it.");
+      addAdmin("Make it the default for everyone", installEveryone);
+      adminHints.push("Every person gets it now, and every new person is set up with it.");
     } else if (row.everyoneBy === "marked") {
-      add("Stop it being the default", "quiet", unmarkEveryone);
-      hints.push("It is everyone's default by an admin's mark. Taking the mark off stops new people being set up with it; everyone who has it keeps it.");
-    } else if (row.everyoneBy === "promoted") hints.push("It is everyone's default because it was promoted. Removing the promoted copy from the host is what undoes that.");
-    else hints.push('It is everyone\'s default by the installation\'s configuration (systemPackages "*"), which the control panel edits.');
+      addAdmin("Stop it being the default", unmarkEveryone);
+      adminHints.push("It is everyone's default by an admin's mark. Taking the mark off stops new people being set up with it; everyone who has it keeps it.");
+    } else if (row.everyoneBy === "promoted") adminHints.push("It is everyone's default because it was made so from a person's copy. Removing that copy from the host is what undoes it.");
+    else adminHints.push('It is everyone\'s default by the installation\'s configuration (systemPackages "*"), which the control panel edits.');
   }
   if (admin && !row.system && !row.installed && row.source && !notInstallable) {
-    add("Install for everyone", "quiet", installEveryone);
-    hints.push("It is installed for you, becomes a system package under @thetis, and every person gets it now and later.");
+    addAdmin("Install for everyone", installEveryone);
+    adminHints.push("It is installed for you, becomes part of this installation, and every person gets it now and later.");
   }
-  // Any copy of the admin's own that is not the installation's can be promoted, whatever its scope is called.
+  // Any copy of the admin's own that is not the installation's can be made the default, whatever its scope is called.
   if (admin && row.installed && !row.system) {
-    add("Make it the default for everyone", "quiet", promote);
-    hints.push("Making it the default copies the package under @thetis as a system package, adds it for every person, and removes your own copy.");
+    addAdmin("Make it the default for everyone", promote);
+    adminHints.push("This copies the extension into the installation as @thetis, adds it for every person, and removes your own copy.");
   }
 
   // An admin installs for one person from a picker: the people, then a button naming the chosen one.
@@ -834,5 +804,5 @@ export function actionsFor(ext, view, host) {
     if (offer.error) hints.push(`The registries could not be read just now (${offer.error}), so the versions above may be missing. Publish checks again before it asks you to confirm.`);
   }
 
-  return { buttons, hints, picker, publish };
+  return { buttons, adminButtons, adminHints, hints, picker, publish };
 }

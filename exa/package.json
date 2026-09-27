@@ -22,10 +22,11 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test dist/test/"
+    "test": "node --test \"dist/test/**/*.test.js\""
   },
   "thetis": {
     "type": "tool",
+    "label": "Exa web search",
     "config": {
       "apiKey": {
         "type": "string",
@@ -162,7 +163,8 @@
             "query"
           ]
         },
-        "export": "search"
+        "export": "search",
+        "reads": true
       },
       {
         "name": "exa_contents",
@@ -235,7 +237,8 @@
             "urls"
           ]
         },
-        "export": "contents"
+        "export": "contents",
+        "reads": true
       },
       {
         "name": "exa_summarize",
@@ -267,7 +270,8 @@
             "urls"
           ]
         },
-        "export": "summarize"
+        "export": "summarize",
+        "reads": true
       },
       {
         "name": "exa_find_similar",
@@ -348,7 +352,8 @@
             "url"
           ]
         },
-        "export": "findSimilar"
+        "export": "findSimilar",
+        "reads": true
       },
       {
         "name": "exa_answer",
@@ -395,7 +400,8 @@
             "query"
           ]
         },
-        "export": "answer"
+        "export": "answer",
+        "reads": true
       },
       {
         "name": "exa_research",
@@ -449,7 +455,8 @@
             "query"
           ]
         },
-        "export": "research"
+        "export": "research",
+        "reads": false
       },
       {
         "name": "exa_research_get",
@@ -466,7 +473,8 @@
             "id"
           ]
         },
-        "export": "researchGet"
+        "export": "researchGet",
+        "reads": true
       },
       {
         "name": "exa_research_cancel",
@@ -483,7 +491,8 @@
             "id"
           ]
         },
-        "export": "researchCancel"
+        "export": "researchCancel",
+        "reads": false
       },
       {
         "name": "exa_research_list",
@@ -501,7 +510,8 @@
             }
           }
         },
-        "export": "researchList"
+        "export": "researchList",
+        "reads": true
       },
       {
         "name": "exa_request",
@@ -537,7 +547,8 @@
             "path"
           ]
         },
-        "export": "request"
+        "export": "request",
+        "reads": false
       }
     ],
     "bench": {

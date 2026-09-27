@@ -1,6 +1,6 @@
 # @thetis/marketplace
 
-Mirrors the package registries this installation trusts and writes the searchable index that the Marketplace place of the web gateway (`@thetis/ui-marketplace`) reads. It is a `service` package in the default `systemPackages["_system"]`, so it runs in the system userspace fence: the one place that can write the shared directory, and one with egress to clone a remote registry.
+Mirrors the package registries this installation trusts and writes the searchable index that the Extensions place of the web gateway (`@thetis/ui-marketplace`) reads. It is a `service` package in the default `systemPackages["_system"]`, so it runs in the system userspace fence: the one place that can write the shared directory, and one with egress to clone a remote registry.
 
 ## What it provides
 

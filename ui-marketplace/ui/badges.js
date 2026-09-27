@@ -1,57 +1,53 @@
-/* The badges a row carries, the same on a card and on a page: whose the package is (System, Mine, or a
- * registry's offer), whether it is in this person's workspace, a fork's origin, an update or a reload on
- * offer, whether the work here has been published anywhere, and what the benchmarks say. `badge` is the
- * shell's, handed in so this module needs nothing of the seam. */
+/* The badges a row carries, the same on a card and on a page: whose the extension is (Included, Yours),
+ * whether the person has it, a copy against its official version, an update ready, whether the work here has
+ * been published anywhere, and what the benchmarks say. `badge` is the shell's, handed in so this module
+ * needs nothing of the seam. The words follow the rule for people: no workspace, reload, fork or commit. */
 
 /**
- * Whose the package is. A system package is the installation's -- shipped in the checkout or promoted into
- * it -- and says so whether or not this person has it, and whether or not it is everyone's default; the
- * default is a clause on the same badge, because "System" and "Everyone" were two badges for one fact
- * and a person read them as two kinds of package. A registry's offer names the registry; a person's own
- * package says so.
+ * Whose the extension is, in the words a person uses. `Included` is everyone's default: the installation gives
+ * it to every person. `Yours` is the person's own (their namespace, or a copy under their home). Anything else
+ * says nothing here: the section it is in (Installed or Discover) already says whether they have it, and
+ * where a registry offer comes from is a technical detail on its page.
  */
 export function stateBadge(badge, r) {
-  if (r.system) return badge(r.everyone ? "System · everyone" : "System", "accent");
-  if (r.own) return badge("Mine", "dim");
-  return badge(r.registry ? `from ${r.registry}` : "from a registry", "dim");
+  if (r.everyone) return badge("Included", "accent");
+  if (r.own || (r.installed && r.local && !r.fork && !r.forkedFrom)) return badge("Yours", "dim");
+  return null;
 }
 
-/** In this person's workspace, or nothing: the Install button is what says the other half. */
+/** In this person's space, or nothing: the Install button is what says the other half. */
 export const installedBadge = (badge, r) => (r.installed ? badge("Installed", "ok") : null);
 
 /**
- * What a fork is, against the package it was copied from as that package stands now. "fork of X 0.1.1" is
- * true and useless: it says nothing about whether X has moved on, and nothing about whether this copy
- * changed anything, which are the two facts that decide whether the fork is worth its cost. The strongest
- * true sentence wins, so a copy that is byte for byte the shipped package says so rather than saying "fork".
+ * A person's copy of an extension, against the official version as it stands now. The strongest true
+ * sentence wins: a copy with no changes says so rather than saying "your copy". `superseded` comes from the
+ * `updates` answer, which is the only place that compares the copy with what it was copied from; the page
+ * passes it in when it has it.
  */
-export function forkBadge(badge, r) {
+export function forkBadge(badge, r, { superseded = false } = {}) {
   const fork = r.fork;
-  if (!fork) return r.forkedFrom ? badge(`fork of ${r.forkedFrom.name} ${r.forkedFrom.version}`, "warn") : null;
-  // The origin is what everyone here gets by default. It is a clause on whichever sentence wins rather
-  // than a sentence of its own, because it is never the reason to act -- it is the context for acting. An
-  // admin cannot make that default this person's, since the kernel will not install a package over
-  // somebody's fork of it, so this row is the only place the decision reaches them.
-  const everyone = fork.everyone ? " · everyone else gets that one" : "";
-  if (fork.identical && fork.shipped) return badge(`identical to ${fork.name} ${fork.shipped}, which is shipped${everyone}`, "warn");
-  if (fork.shipped && fork.shipped !== fork.version) return badge(`fork of ${fork.name} ${fork.version} · ${fork.shipped} is shipped now${everyone}`, "warn");
-  return badge(`fork of ${fork.name} ${fork.version}${everyone}`, "warn");
+  const origin = fork?.name ?? r.forkedFrom?.name;
+  if (!origin) return null;
+  if (superseded) return badge("Your changes are in the official version", "warn");
+  if (!fork) return badge(`Your copy of ${origin}`, "warn");
+  // The origin is what everyone here gets by default. A clause, never the reason to act: the kernel will not
+  // install a package over somebody's copy of it, so this badge is the only place that reaches the person.
+  const everyone = fork.everyone ? " · everyone else uses the official one" : "";
+  if (fork.identical && fork.shipped) return badge(`Your copy has no changes${everyone}`, "warn");
+  if (fork.shipped && fork.shipped !== fork.version) return badge(`Your copy of ${origin} · the official version is newer${everyone}`, "warn");
+  return badge(`Your copy of ${origin}${everyone}`, "warn");
 }
 
 /**
- * Something newer than what is in service. Three kinds: the registry this came from holds a newer commit,
- * and an install takes it; or the files on disk have moved past the version this workspace loaded, and a
- * reload of the workspace is what puts them into service; or this is a fork and the package it was copied
- * from has gone on without it, and going back to that package is what takes the difference. Nothing has
- * been changed in any of the three; this is an offer.
+ * Something newer than what is in service, said the same way whatever catches it up: fetching a newer commit
+ * and applying it, or only applying files that are here already. The difference is the updater's business,
+ * not the person's. A copy whose official version moved on is the third kind, and says so in its own words.
  */
 export function updateBadge(badge, r) {
   const update = r.update;
   if (!update) return null;
-  // Terse, because this badge also rides on a gallery card beside the package's name. The card says there
-  // is something here to act on; the package page says which package, and at what version.
-  if (update.apply === "unfork") return badge(update.identical ? "identical to what is shipped" : `${update.available} is shipped now`, "warn");
-  return badge(`${update.apply === "reload" ? "reload" : "update"} to ${update.version}`, "warn");
+  if (update.apply === "unfork") return badge(update.identical ? "No changes · switch back" : "Official version is newer", "warn");
+  return badge("Update ready", "warn");
 }
 
 /**
@@ -109,9 +105,9 @@ export function aheadBadge(badge, r) {
   // Not "never published", which is a claim the index cannot support: it is built only from the registries
   // this installation mirrors, so its silence is a fact about what is mirrored here and not about the
   // world. A package can sit in a registry nobody here trusts, and saying otherwise sends somebody looking
-  // for a mistake that is not there. This is the sentence `thetis packages outdated` prints, word for word,
-  // and the one the page and the control panel say, so one package does not read two ways in three places.
-  if (a.state === "unpublished") return badge("no registry here lists it", "dim");
+  // for a mistake that is not there. "Local only" is the short form on a card; the page's technical details
+  // say the long one, "no registry here lists it", which is what `thetis packages outdated` prints.
+  if (a.state === "unpublished") return badge("Local only", "dim");
   return badge(`${a.version} here, ${a.published} published`, "warn");
 }
 
@@ -141,4 +137,7 @@ export function benchBadge(badge, r) {
  * is the longer and the truer of the two, so the update badge stands down for it here. The gallery, which
  * draws no fork badge, keeps the terse one.
  */
-export const stateBadges = (badge, r) => [stateBadge(badge, r), installedBadge(badge, r), forkBadge(badge, r), r.update?.apply === "unfork" ? null : updateBadge(badge, r), aheadBadge(badge, r), benchBadge(badge, r)].filter(Boolean);
+export const stateBadges = (badge, r, { superseded = false } = {}) => [stateBadge(badge, r), installedBadge(badge, r), forkBadge(badge, r, { superseded }), r.update?.apply === "unfork" ? null : updateBadge(badge, r)].filter(Boolean);
+
+/** The maintainer's badges, for the Technical details tab: published or not, and the benchmarks. */
+export const technicalBadges = (badge, r) => [aheadBadge(badge, r), benchBadge(badge, r)].filter(Boolean);

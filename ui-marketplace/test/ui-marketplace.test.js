@@ -137,26 +137,31 @@ test("rows: a system package nobody here has is a row of its own, installable by
   const orleans = rows.find((r) => r.name === "@thetis/skills-orleans");
   assert.equal(orleans.registry, "thetis", "the row learns the registry's word");
   assert.equal(orleans.readme, false);
-  assert.deepEqual(stateBadge(badge, orleans), { text: "System", tone: "accent" });
+  // The words a person uses: what everyone gets is Included, their own is Yours, and anything else says
+  // nothing on the badge, because the section it is in already says whether they have it.
+  assert.equal(stateBadge(badge, orleans), null);
   assert.equal(installedBadge(badge, orleans), null, "not here: the Install button says the other half");
-  assert.deepEqual(stateBadge(badge, rows[0]), { text: "System · everyone", tone: "accent" }, "one badge for the two facts that used to be two kinds of package");
+  assert.deepEqual(stateBadge(badge, rows[0]), { text: "Included", tone: "accent" });
   assert.deepEqual(installedBadge(badge, rows[0]), { text: "Installed", tone: "ok" });
-  assert.deepEqual(stateBadge(badge, rows[1]), { text: "Mine", tone: "dim" });
-  assert.deepEqual(stateBadge(badge, rows[5]), { text: "from thetis", tone: "dim" });
-  assert.equal(whatItBrings("skill"), "Its skills are offered to your agent from your next turn.");
-  assert.match(NOT_INSTALLABLE.host, /never installed into a workspace/);
+  assert.deepEqual(stateBadge(badge, rows[1]), { text: "Yours", tone: "dim" });
+  assert.equal(stateBadge(badge, rows[5]), null, "a registry's name is a technical detail");
+  assert.equal(whatItBrings("skill"), "Its skills are offered to your agent from your next message.");
+  assert.match(NOT_INSTALLABLE.host, /never installed for a person/);
+  // The parts that make the installation run are system components, hidden until asked for; the rest are not.
+  assert.deepEqual(rows.map((r) => [r.name, r.component]), [["@thetis/harness-core", true], ["@alice/mine", false], ["@thetis/skills-orleans", false], ["@thetis/hello", false], ["@thetis/host-grants", true], ["@thetis/memo", false]]);
+  assert.equal(orleans.label, "skills orleans", "no thetis.label: the name without its scope, dashes as spaces");
   // No catalog, no user: the rows are what they were, and nothing is anybody's own.
   const bare = mergeRows([shipped("@thetis/harness-core")], [], undefined);
   assert.deepEqual([bare[0].system, bare[0].everyone, bare[0].own], [true, true, false]);
 });
 
-test("rows: a copy the workspace has not loaded is behind its own disk, index or no index, and the badge says reload", () => {
+test("rows: a copy the space has not loaded is behind its own disk, index or no index, and the badge says Update ready", () => {
   const badge = (text, tone) => ({ text, tone });
   // The fence read 0.2.1 when it opened; the files on disk are 0.2.2. Nothing is fetched: a reload applies it.
   const loaded = { ...shipped("@thetis/skills-hybrid"), version: "0.2.2", loadedVersion: "0.2.1" };
   const bare = mergeRows([loaded], [], undefined);
   assert.deepEqual(bare[0].update, { apply: "reload", version: "0.2.2", installed: "0.2.1", available: "0.2.2" }, "no index is needed: a shipped package is behind its own disk");
-  assert.deepEqual(updateBadge(badge, bare[0]), { text: "reload to 0.2.2", tone: "warn" });
+  assert.deepEqual(updateBadge(badge, bare[0]), { text: "Update ready", tone: "warn" }, "one state for the person, whatever catches it up");
   const index = { version: 1, updatedAt: "2026-09-21T00:00:00.000Z", registries: [{ name: "thetis", url: REPO }], packages: [entry("@thetis/skills-hybrid", "0.2.2", NEW)] };
   const listed = mergeRows([loaded], index.packages, index);
   assert.deepEqual(listed[0].update, { apply: "reload", version: "0.2.2", installed: "0.2.1", available: "0.2.2" }, "an index entry does not change what applies it");
@@ -164,7 +169,7 @@ test("rows: a copy the workspace has not loaded is behind its own disk, index or
   // A stale pin and a different loaded version at once: the install wins, because it brings the pin and reopens.
   const both = mergeRows([{ ...fromRegistry("@thetis/exa", OLD), version: "0.2.0", loadedVersion: "0.1.0" }], [entry("@thetis/exa", "0.2.0", NEW)], { ...index, packages: [entry("@thetis/exa", "0.2.0", NEW)] });
   assert.equal(both[0].update.apply, "install");
-  assert.deepEqual(updateBadge(badge, both[0]), { text: "update to 0.2.0", tone: "warn" });
+  assert.deepEqual(updateBadge(badge, both[0]), { text: "Update ready", tone: "warn" });
   const current = mergeRows([{ ...shipped("@thetis/terminal"), loadedVersion: "0.1.0" }], [], undefined);
   assert.equal(current[0].update, null, "the version it loaded is the version on disk: nothing is behind");
   assert.equal(updateBadge(badge, current[0]), null);
@@ -201,26 +206,27 @@ test("rows: a fork carries what it was forked from and how far that has moved, a
   // anywhere shows it, which is why the badge has to say it in words.
   const same = mergeRows([forkOf({ name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.1.1", identical: true })], [], undefined);
   assert.deepEqual(same[0].update, { apply: "unfork", version: "0.1.1", installed: "0.1.1", available: "0.1.1", origin: "@thetis/gateway-web", identical: true });
-  assert.deepEqual(updateBadge(badge, same[0]), { text: "identical to what is shipped", tone: "warn" }, "terse: this one also rides on a gallery card beside the name");
-  assert.deepEqual(forkBadge(badge, same[0]), { text: "identical to @thetis/gateway-web 0.1.1, which is shipped", tone: "warn" });
+  assert.deepEqual(updateBadge(badge, same[0]), { text: "No changes · switch back", tone: "warn" }, "terse: this one also rides on a card beside the name");
+  assert.deepEqual(forkBadge(badge, same[0]), { text: "Your copy has no changes", tone: "warn" });
+  assert.deepEqual(forkBadge(badge, same[0], { superseded: true }), { text: "Your changes are in the official version", tone: "warn" }, "the updates answer knows more than the row, and the strongest true sentence wins");
   const moved = mergeRows([forkOf({ name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.2.0" })], [], undefined);
-  assert.deepEqual(updateBadge(badge, moved[0]), { text: "0.2.0 is shipped now", tone: "warn" });
-  assert.deepEqual(forkBadge(badge, moved[0]), { text: "fork of @thetis/gateway-web 0.1.1 · 0.2.0 is shipped now", tone: "warn" });
+  assert.deepEqual(updateBadge(badge, moved[0]), { text: "Official version is newer", tone: "warn" });
+  assert.deepEqual(forkBadge(badge, moved[0]), { text: "Your copy of @thetis/gateway-web · the official version is newer", tone: "warn" });
   const working = mergeRows([forkOf({ name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.1.1" })], [], undefined);
   assert.equal(working[0].update, null, "a fork that differs from the current origin is doing its job");
-  assert.deepEqual(forkBadge(badge, working[0]), { text: "fork of @thetis/gateway-web 0.1.1", tone: "warn" });
+  assert.deepEqual(forkBadge(badge, working[0]), { text: "Your copy of @thetis/gateway-web", tone: "warn" });
   // The origin is what everyone on this host gets, and the person holding the fork is the one it could not
   // be made the default for: the kernel refuses to install a package over somebody's fork of it. The badge
   // is where that decision reaches them, so it rides on whichever sentence wins rather than replacing one.
   const house = mergeRows([forkOf({ name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.2.0", everyone: true })], [], undefined);
-  assert.deepEqual(forkBadge(badge, house[0]), { text: "fork of @thetis/gateway-web 0.1.1 · 0.2.0 is shipped now · everyone else gets that one", tone: "warn" });
+  assert.deepEqual(forkBadge(badge, house[0]), { text: "Your copy of @thetis/gateway-web · the official version is newer · everyone else uses the official one", tone: "warn" });
   const houseSame = mergeRows([forkOf({ name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.1.1", identical: true, everyone: true })], [], undefined);
-  assert.deepEqual(forkBadge(badge, houseSame[0]), { text: "identical to @thetis/gateway-web 0.1.1, which is shipped · everyone else gets that one", tone: "warn" });
+  assert.deepEqual(forkBadge(badge, houseSame[0]), { text: "Your copy has no changes · everyone else uses the official one", tone: "warn" });
 
   // A row from a kernel that does not answer with `fork` still says what the manifest said, and no more.
   const old = mergeRows([{ ...shipped("@alice/thing", { everyone: false }), forkedFrom: { name: "@thetis/thing", version: "0.1.0" } }], [], undefined);
   assert.equal(old[0].fork, null);
-  assert.deepEqual(forkBadge(badge, old[0]), { text: "fork of @thetis/thing 0.1.0", tone: "warn" });
+  assert.deepEqual(forkBadge(badge, old[0]), { text: "Your copy of @thetis/thing", tone: "warn" });
 });
 
 test("search: no index answers the installed rows and says so; a query narrows through the index and the installed names", async () => {
@@ -329,17 +335,20 @@ test("unfork goes through the person's own packages and keeps the fork's files",
   }
 });
 
-test("fence-reload names the person who sent it and nobody else", async () => {
+test("fence-reload names the person who sent it and nobody else, drains, and never forces", async () => {
   const t = fakeEnv({ user: "alice", answers: { "fence.reload": (a) => ({ user: a.user, services: ["@thetis/gateway-web"] }) } });
   try {
     assert.deepEqual((await commands.fenceReload({}, t.env)).data, { user: "alice", services: ["@thetis/gateway-web"] });
     // The browser cannot ask for anyone else's: the id comes from the fence, so an argument is ignored.
     await commands.fenceReload({ user: "bob" }, t.env);
+    await commands.fenceReload({ drain: true }, t.env);
+    // Cancelling a reply to apply an update is not a thing the page can ask for.
     await commands.fenceReload({ force: true }, t.env);
     assert.deepEqual(t.calls, [
       { method: "fence.reload", args: { user: "alice" } },
       { method: "fence.reload", args: { user: "alice" } },
-      { method: "fence.reload", args: { user: "alice", force: true } },
+      { method: "fence.reload", args: { user: "alice", drain: true } },
+      { method: "fence.reload", args: { user: "alice" } },
     ]);
   } finally {
     t.cleanup();
@@ -449,7 +458,7 @@ test("rows: a version newer here than the registry holds is unpublished work, an
   // this installation mirrors, and a package can sit in one nobody here trusts.
   const mine = mergeRows([shipped("@thetis/package-publish")], index.packages, index);
   assert.deepEqual(mine[0].ahead, { state: "unpublished", version: "0.1.0", published: "", registry: "" });
-  assert.deepEqual(aheadBadge(badge, mine[0]), { text: "no registry here lists it", tone: "dim" }, "quiet: on a maintainer's machine this is true of nearly every package at once");
+  assert.deepEqual(aheadBadge(badge, mine[0]), { text: "Local only", tone: "dim" }, "quiet: on a maintainer's machine this is true of nearly every package at once");
   // Caught up, and a row the index only offers: nothing to say either way.
   const level = mergeRows([{ ...shipped("@thetis/exa"), version: "0.2.0" }], index.packages, index);
   assert.equal(level[0].ahead, null);
@@ -740,7 +749,7 @@ test("badges: the record answers about one package at one target, and says nothi
   const blank = { published: null, publishedAt: null, removed: null, removedAt: null, latest: null, commit: null };
   // The badge is the index's statement in every case: it is read on a gallery card too, where the record
   // cannot be had, and a badge that means one thing on the card and another on the page is two badges.
-  assert.deepEqual(aheadBadge(badge, row), { text: "no registry here lists it", tone: "dim" });
+  assert.deepEqual(aheadBadge(badge, row), { text: "Local only", tone: "dim" });
   assert.equal(publishRecord(at("@dev/hello", blank), "@dev/hello"), null, "asked and answered with nothing: this person has done neither act here");
   const published = at("@dev/hello", { ...blank, published: "0.2.0", publishedAt: "2026-09-22T10:00:00.000Z", latest: "published", commit: "abc1234" });
   assert.deepEqual(publishRecord(published, "@dev/hello"), { target: "solo", version: "0.2.0", at: "2026-09-22T10:00:00.000Z", removed: false, commit: "abc1234" });
