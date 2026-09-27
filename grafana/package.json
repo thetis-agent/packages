@@ -1,6 +1,6 @@
 {
   "name": "@bitmuse/grafana",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Grafana's HTTP API as tools: search, read, save and version dashboards, manage folders, data sources, annotations, alert rules, contact points, notification policies, mute timings and templates, run queries, and call any other endpoint, against one configured Grafana Cloud stack or self-hosted instance.",
   "keywords": [
     "grafana",
@@ -51,8 +51,7 @@
           "properties": {},
           "additionalProperties": false
         },
-        "export": "grafanaHealth",
-        "reads": true
+        "export": "grafanaHealth"
       },
       {
         "name": "grafana_search",
@@ -108,8 +107,7 @@
           },
           "additionalProperties": false
         },
-        "export": "grafanaSearch",
-        "reads": true
+        "export": "grafanaSearch"
       },
       {
         "name": "grafana_dashboard_get",
@@ -135,8 +133,7 @@
           ],
           "additionalProperties": false
         },
-        "export": "grafanaDashboardGet",
-        "reads": true
+        "export": "grafanaDashboardGet"
       },
       {
         "name": "grafana_dashboard_save",
@@ -200,8 +197,7 @@
           },
           "additionalProperties": false
         },
-        "export": "grafanaDashboardSave",
-        "reads": false
+        "export": "grafanaDashboardSave"
       },
       {
         "name": "grafana_dashboard_delete",
@@ -219,8 +215,7 @@
           ],
           "additionalProperties": false
         },
-        "export": "grafanaDashboardDelete",
-        "reads": false
+        "export": "grafanaDashboardDelete"
       },
       {
         "name": "grafana_dashboard_versions",
@@ -254,8 +249,7 @@
           ],
           "additionalProperties": false
         },
-        "export": "grafanaDashboardVersions",
-        "reads": false
+        "export": "grafanaDashboardVersions"
       },
       {
         "name": "grafana_dashboard_permissions",
@@ -281,8 +275,7 @@
           ],
           "additionalProperties": false
         },
-        "export": "grafanaDashboardPermissions",
-        "reads": false
+        "export": "grafanaDashboardPermissions"
       },
       {
         "name": "grafana_folder_list",
@@ -309,8 +302,7 @@
           },
           "additionalProperties": false
         },
-        "export": "grafanaFolderList",
-        "reads": true
+        "export": "grafanaFolderList"
       },
       {
         "name": "grafana_folder_save",
@@ -340,8 +332,7 @@
           ],
           "additionalProperties": false
         },
-        "export": "grafanaFolderSave",
-        "reads": false
+        "export": "grafanaFolderSave"
       },
       {
         "name": "grafana_folder_delete",
@@ -363,8 +354,7 @@
           ],
           "additionalProperties": false
         },
-        "export": "grafanaFolderDelete",
-        "reads": false
+        "export": "grafanaFolderDelete"
       },
       {
         "name": "grafana_datasource_list",
@@ -383,8 +373,7 @@
           },
           "additionalProperties": false
         },
-        "export": "grafanaDatasourceList",
-        "reads": true
+        "export": "grafanaDatasourceList"
       },
       {
         "name": "grafana_datasource_save",
@@ -407,8 +396,7 @@
           ],
           "additionalProperties": false
         },
-        "export": "grafanaDatasourceSave",
-        "reads": false
+        "export": "grafanaDatasourceSave"
       },
       {
         "name": "grafana_datasource_delete",
@@ -426,8 +414,7 @@
           ],
           "additionalProperties": false
         },
-        "export": "grafanaDatasourceDelete",
-        "reads": false
+        "export": "grafanaDatasourceDelete"
       },
       {
         "name": "grafana_query",
@@ -473,8 +460,7 @@
           ],
           "additionalProperties": false
         },
-        "export": "grafanaQuery",
-        "reads": true
+        "export": "grafanaQuery"
       },
       {
         "name": "grafana_annotation_list",
@@ -520,8 +506,7 @@
           },
           "additionalProperties": false
         },
-        "export": "grafanaAnnotationList",
-        "reads": true
+        "export": "grafanaAnnotationList"
       },
       {
         "name": "grafana_annotation_create",
@@ -562,8 +547,7 @@
           ],
           "additionalProperties": false
         },
-        "export": "grafanaAnnotationCreate",
-        "reads": false
+        "export": "grafanaAnnotationCreate"
       },
       {
         "name": "grafana_annotation_update",
@@ -600,8 +584,7 @@
           ],
           "additionalProperties": false
         },
-        "export": "grafanaAnnotationUpdate",
-        "reads": false
+        "export": "grafanaAnnotationUpdate"
       },
       {
         "name": "grafana_annotation_delete",
@@ -619,8 +602,7 @@
           ],
           "additionalProperties": false
         },
-        "export": "grafanaAnnotationDelete",
-        "reads": false
+        "export": "grafanaAnnotationDelete"
       },
       {
         "name": "grafana_alert_rule_list",
@@ -656,8 +638,7 @@
           },
           "additionalProperties": false
         },
-        "export": "grafanaAlertRuleList",
-        "reads": true
+        "export": "grafanaAlertRuleList"
       },
       {
         "name": "grafana_alert_rule_save",
@@ -689,8 +670,7 @@
           ],
           "additionalProperties": false
         },
-        "export": "grafanaAlertRuleSave",
-        "reads": false
+        "export": "grafanaAlertRuleSave"
       },
       {
         "name": "grafana_alert_rule_delete",
@@ -708,8 +688,7 @@
           ],
           "additionalProperties": false
         },
-        "export": "grafanaAlertRuleDelete",
-        "reads": false
+        "export": "grafanaAlertRuleDelete"
       },
       {
         "name": "grafana_alert_rule_group",
@@ -752,8 +731,7 @@
           ],
           "additionalProperties": false
         },
-        "export": "grafanaAlertRuleGroup",
-        "reads": false
+        "export": "grafanaAlertRuleGroup"
       },
       {
         "name": "grafana_contact_point_list",
@@ -785,8 +763,7 @@
           },
           "additionalProperties": false
         },
-        "export": "grafanaContactPointList",
-        "reads": true
+        "export": "grafanaContactPointList"
       },
       {
         "name": "grafana_contact_point_save",
@@ -813,8 +790,7 @@
           ],
           "additionalProperties": false
         },
-        "export": "grafanaContactPointSave",
-        "reads": false
+        "export": "grafanaContactPointSave"
       },
       {
         "name": "grafana_contact_point_delete",
@@ -832,8 +808,7 @@
           ],
           "additionalProperties": false
         },
-        "export": "grafanaContactPointDelete",
-        "reads": false
+        "export": "grafanaContactPointDelete"
       },
       {
         "name": "grafana_notification_policies",
@@ -870,8 +845,7 @@
           },
           "additionalProperties": false
         },
-        "export": "grafanaNotificationPolicies",
-        "reads": false
+        "export": "grafanaNotificationPolicies"
       },
       {
         "name": "grafana_mute_timings",
@@ -915,8 +889,7 @@
           },
           "additionalProperties": false
         },
-        "export": "grafanaMuteTimings",
-        "reads": false
+        "export": "grafanaMuteTimings"
       },
       {
         "name": "grafana_templates",
@@ -949,8 +922,7 @@
           },
           "additionalProperties": false
         },
-        "export": "grafanaTemplates",
-        "reads": false
+        "export": "grafanaTemplates"
       },
       {
         "name": "grafana_request",
@@ -994,8 +966,7 @@
           ],
           "additionalProperties": false
         },
-        "export": "grafanaRequest",
-        "reads": false
+        "export": "grafanaRequest"
       }
     ],
     "config": {
