@@ -4,7 +4,7 @@
 // `env.exec`, so a fence without git, or a package whose files are not in a checkout, answers nulls and
 // empties rather than errors: "not in a checkout" is a fact the page shows, not a fault. Every ref that
 // reaches a git command is checked first, because an argument shaped like an option would be one.
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 
 const PACKAGE_NAME = /^@[a-z0-9-]+\/[a-z0-9._-]+$/;
@@ -33,6 +33,36 @@ export function realRoot(root) {
 }
 
 /**
+ * The packages in a home's own folder (`<home>/packages/*`) whose manifest is a Thetis package, each as a record
+ * the way the kernel lists one (`thetis`, `forkedFrom` from the manifest, a local source) with `folder`, the path
+ * an install sends. A folder that cannot be read has none; a directory that is not a package is skipped.
+ */
+export function folderPackages(home) {
+  if (!home) return [];
+  let entries = [];
+  try {
+    entries = readdirSync(resolve(home, "packages"), { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const e of entries) {
+    if (!e.isDirectory() || e.name.startsWith(".")) continue;
+    const root = resolve(home, "packages", e.name);
+    try {
+      const m = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+      if (typeof m?.name !== "string" || typeof m.thetis?.type !== "string") continue;
+      const from = m.thetis.forkedFrom?.name ? { name: m.thetis.forkedFrom.name, version: m.thetis.forkedFrom.version ?? null } : null;
+      const folder = `packages/${e.name}`;
+      out.push({ name: m.name, version: String(m.version ?? ""), type: m.thetis.type, description: m.description ?? "", thetis: m.thetis, forkedFrom: from, source: { kind: "local", ref: folder }, root, folder });
+    } catch {
+      /* not a package: skipped */
+    }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
  * The installed record of one package, refused in one sentence when it is not here. `loadedIn` says whose
  * workspace the record came from, because `loadedVersion` on it is that workspace's word and no other's.
  */
@@ -47,7 +77,10 @@ export async function installedPackage(env, name) {
   if (elsewhere) return elsewhere;
   // Nobody has it, but it is on disk (one of Thetis's own parts nobody runs, say): its page still says what it is.
   const onDisk = typeof env.kernel.packages.catalog === "function" ? ((await env.kernel.packages.catalog().catch(() => [])) ?? []).find((p) => p.name === name) : null;
-  return onDisk ? { ...onDisk, loadedIn: null, nobody: true } : fail(`${name} is not installed in any workspace`);
+  if (onDisk) return { ...onDisk, loadedIn: null, nobody: true };
+  // Nobody installed it, and it is in the admin's own folder (a copy of theirs such as Notion (Read Only)).
+  const mine = folderPackages(env.cwd).find((p) => p.name === name);
+  return mine ? { ...mine, loadedIn: null, nobody: true } : fail(`${name} is not installed in any workspace`);
 }
 
 /** The package's record from the first workspace (every person, then the system's) whose list holds it, or null. */

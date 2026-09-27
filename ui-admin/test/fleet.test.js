@@ -267,6 +267,26 @@ test("fleet: the facts the one state reads -- label, what it brings, whose copy 
   assert.deepEqual(keyed.config.missing, [{ key: "apiKey", state: "missing", missing: ["EXA_API_KEY"], source: "default", help: "The Exa API key.", secret: true }], "the missing key travels without its value");
 });
 
+test("fleet: the admin's folder copies nobody installed are rows too, in their family, and their page opens", async () => {
+  const home = mkdtempSync(join(tmpdir(), "thetis-fleet-home-"));
+  const put = (dir, manifest) => {
+    mkdirSync(join(home, "packages", dir), { recursive: true });
+    writeFileSync(join(home, "packages", dir, "package.json"), JSON.stringify(manifest));
+  };
+  put("terminal-quiet", { name: "@root/terminal-quiet", version: "0.1.0-fork.1", description: "Quiet shells.", thetis: { type: "tool", label: "Quiet terminal", forkedFrom: { name: "@thetis/terminal", version: "0.1.0" } } });
+  put("draft", { name: "@root/draft", version: "0.0.1", thetis: { type: "tool" } });
+  put("not-a-package", { name: "left-pad", version: "1.0.0" });
+  const { env } = fakeEnv({ "users.list": users, "packages.list": (a) => lists[a.user] ?? [], status, "config.list": [], "journal.tail": [] });
+  env.cwd = home;
+  const { packages } = (await commands.fleet({}, env)).data;
+  const quiet = packages.find((p) => p.name === "@root/terminal-quiet");
+  assert.ok(quiet, "a copy in the admin's folder is listed");
+  assert.deepEqual([quiet.nobody, quiet.folder, quiet.label, quiet.forkedFrom], [true, "packages/terminal-quiet", "Quiet terminal", { name: "@thetis/terminal", version: "0.1.0" }]);
+  assert.ok(!packages.some((p) => p.name === "@root/draft" || p.name === "left-pad"), "only copies: a draft is the Extensions place's, a non-package nobody's");
+  const { installedPackage } = await import("../git.js");
+  assert.equal((await installedPackage(env, "@root/terminal-quiet")).folder, "packages/terminal-quiet", "its page reads it from the folder");
+});
+
 test("package-everyone turns an extension by Thetis on for everyone by name, a registry one by its pinned source, and off by the mark", async () => {
   const { env, calls } = fakeEnv({ "packages.installEveryone": (a) => ({ name: a.source.startsWith("@") ? a.source : "@thetis/exa", userspaces: ["root", "bob"] }), "packages.unmarkEveryone": null }, { own: [terminal, exa, { name: "@root/mine", version: "1.0.0", type: "tool", description: "", root: codeRoot, source: { kind: "local", ref: "packages/mine" } }, { name: "@tg/nova", version: "0.3.0", type: "skill", description: "", root: codeRoot, source: { kind: "git", ref: "https://x/r.git#nova@0123456789abcdef" } }] });
   assert.deepEqual((await commands.packageEveryone({ name: "@thetis/terminal", on: true }, env)).data, { name: "@thetis/terminal", on: true, userspaces: ["root", "bob"] });

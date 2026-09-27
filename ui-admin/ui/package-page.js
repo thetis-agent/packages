@@ -222,7 +222,8 @@ export function mountPackagePage(ext, root, { name, refresh, user = me(), open =
 
   /** The extension as the one state reads it, and that state. */
   const row = () => rowFromInfo(info, { config, where, user }) ?? { name, installed: false };
-  const said = () => described(row(), { user });
+  // A copy's official version, from the page's answer: the copy opens with its summary, as it does in the place.
+  const said = () => described(row(), { user, origin: info?.origin ?? null });
   const label = () => (info ? said().label : labelOf({ name }));
   /** The people who have it, by id: whom Remove for everyone… names. */
   const holders = () => (where?.people ?? []).filter((p) => p.installed).map((p) => p.user);
@@ -312,8 +313,8 @@ export function mountPackagePage(ext, root, { name, refresh, user = me(), open =
   }
 
   /**
-   * What is said and done about everybody at the foot of Who has it: Remove for everyone… with what it does, the
-   * line that sharing cannot be stopped yet on a shared copy, or "Only you have this. Use Remove for me." Down
+   * What is said and done about everybody at the foot of Who has it: Remove for everyone… with what it does (on a
+   * shared copy also that it stays shared), or "Only you have this. Use Remove for me." Down
    * there, so a destructive action is never the first or only button of the page, on a phone neither.
    */
   function everyoneTail() {
@@ -327,8 +328,8 @@ export function mountPackagePage(ext, root, { name, refresh, user = me(), open =
       const stays = info.everyoneBy === "promoted" ? " It stays shared, so people added later still get it." : info.everyoneBy === "marked" ? " New people still get it until it is turned off for everyone." : info.everyoneBy === "config" ? " New people still get it: Server settings give it to everyone." : "";
       remove.addEventListener("click", () => void act(remove, { verb: "package-remove", args: { user: "*" }, title: `Remove ${label()} for everyone?`, lines: [["people", named.join(", ")]], note: `It is taken away from ${listOf(named)} now. Their saved settings are kept.${stays}`, confirmLabel: "Remove for everyone", tone: "warn" }));
       out.push(remove);
-      // A shared copy cannot be un-shared yet (the kernel has no way): said beside the one button there is.
-      if (info.everyoneBy === "promoted") out.push(line(WORDS.cantStopSharing));
+      // What it does, the place's sentence; on a shared copy also that it stays shared (the kernel cannot un-share yet).
+      if (t.hints.removeEveryone) out.push(line(t.hints.removeEveryone));
     } else if (t.lines.includes(WORDS.onlyYou)) out.push(line(WORDS.onlyYou));
     return out;
   }

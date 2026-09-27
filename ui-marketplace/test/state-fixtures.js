@@ -52,7 +52,7 @@ const base = {
 const row = (extra) => ({ ...base, ...extra });
 const tools = (...names) => names.map((name) => ({ name, description: `${name} does one thing.` }));
 
-const NOTION_NEEDS = [{ key: "token", secret: true, help: "An internal connection or personal access token from https://www.notion.so/my-integrations. Every notion_* tool reads it." }];
+const NOTION_NEEDS = [{ key: "token", secret: true, help: "An internal connection or personal access token from https://www.notion.so/my-integrations." }];
 const EXA_HELP = "Your Exa API key, from the Exa dashboard (dashboard.exa.ai → API keys). Every search needs one; Exa charges per search on its own plans.";
 
 const shared = {

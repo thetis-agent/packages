@@ -370,8 +370,8 @@ test("package-info: the record, the registry's word and the checkout, each said 
   assert.deepEqual((await commands.packageInfo({ name: "@thetis/hello" }, journaled)).data.promotedFrom, { name: "@alice/hello", by: "alice", at: "2026-09-24T10:00:00Z", actor: "alice" });
   assert.equal((await commands.packageInfo({ name: "@alice/hello" }, journaled)).data.sharedAs, "@thetis/hello");
   // A copy names its official version from the packages on disk: the Provenance card's "Everyone's copy".
-  const withOrigin = { ...env, kernel: { ...env.kernel, packages: { ...env.kernel.packages, catalog: async () => [{ name: "@thetis/hello", version: "0.2.0", everyone: true, everyoneBy: "config", thetis: { label: "Hello" } }] } } };
-  assert.deepEqual((await commands.packageInfo({ name: "@alice/hello" }, withOrigin)).data.origin, { name: "@thetis/hello", label: "Hello", version: "0.2.0", everyone: true, everyoneBy: "config" });
+  const withOrigin = { ...env, kernel: { ...env.kernel, packages: { ...env.kernel.packages, catalog: async () => [{ name: "@thetis/hello", version: "0.2.0", everyone: true, everyoneBy: "config", thetis: { label: "Hello", summary: "Says hello." } }] } } };
+  assert.deepEqual((await commands.packageInfo({ name: "@alice/hello" }, withOrigin)).data.origin, { name: "@thetis/hello", label: "Hello", summary: "Says hello.", version: "0.2.0", everyone: true, everyoneBy: "config" }, "with its summary, which a copy without one opens with");
   const gone = { ...journaled, kernel: { ...journaled.kernel, packages: { ...journaled.kernel.packages, catalog: async () => [] } } };
   assert.equal((await commands.packageInfo({ name: "@alice/hello" }, gone)).data.sharedAs, null, "a shared copy taken away since is no reason to refuse sharing again");
   await refuses(commands.packageInfo, { name: "@alice/nope" }, env, /is not installed/);
@@ -438,7 +438,7 @@ test("the fleet's pure helpers: what a cell says, which rows need a look, and wh
 });
 
 test("the configuration form's pure helpers: the control per key, what counts as a change, the words for a source", async () => {
-  const { kindOf, readValue, sourceText, missingText, brokenSentence, reloadSentence, keyLabel, nameOf, isAdvanced, clearWords, summaryText, linkParts, MASK } = await import("../ui/config-form.js");
+  const { kindOf, readValue, sourceText, missingText, brokenSentence, reloadSentence, keyLabel, nameOf, isAdvanced, clearWords, summaryText, linkParts, footText, MASK } = await import("../ui/config-form.js");
   const k = (extra) => ({ key: "k", state: "set", secret: false, declared: true, ...extra });
   assert.equal(kindOf(k({ secret: true, type: "string" })), "secret");
   assert.deepEqual(["string", "number", "boolean", "object", "array"].map((type) => kindOf(k({ type }))), ["text", "number", "checkbox", "json", "json"]);
@@ -474,6 +474,12 @@ test("the configuration form's pure helpers: the control per key, what counts as
   assert.equal(sourceText(k({ source: "user" }), "user", "alice", "everyone"), "alice's own (used instead of everyone's)");
   assert.equal(sourceText(k({ source: "user", secret: true }), "user", "alice"), "alice's key");
   assert.equal(sourceText(k({ state: "missing" }), "system"), "Not set", "said once, in the row");
+  // Everyone's key in effect on the reader's own layer says whose it is, and the foot never claims it is theirs.
+  assert.equal(sourceText(k({ source: "system", secret: true }), "user"), "Set for everyone — your admin's key is used");
+  assert.equal(sourceText(k({ source: "system", secret: true }), "user", "alice"), "Set for everyone", "an admin reading alice's layer");
+  assert.equal(footText([k({ source: "system", secret: true })]), "Your admin set this key for everyone. A key you add here is only yours.");
+  assert.equal(footText([k({ source: "user", secret: true })]), "Only you can see and use this key.");
+  assert.equal(footText([k({ state: "missing", secret: true })]), "A key you add here is only yours.");
   // A key's name as a person says it; the raw key stays beside it in small type.
   assert.deepEqual(["apiKey", "baseUrl", "timeoutMs", "timeoutSeconds", "numResults", "maxCharacters", "token", "defaults", "ssh_key_path", "tag"].map((key) => keyLabel({ key })), ["API key", "Base URL", "Timeout (milliseconds)", "Timeout (seconds)", "Num results", "Max characters", "Token", "Defaults", "SSH key path", "Tag"]);
   assert.equal(nameOf("@thetis/exa"), "Exa");
@@ -609,6 +615,14 @@ test("configurationChildren: All extensions and Who has what first, then every e
   assert.deepEqual(family.map((k) => [k.id, k.label, (k.children ?? []).map((c) => c.label)]), [["@thetis/tool-exec", "Tool Exec", ["Your copy (Customized)", "sam's copy"]]], "one node per family, never two that read the same; a copy that changed nothing is not Customized");
   assert.equal(family[0].look, true, "the copy's review to-do is the family's, counted once on its root");
   assert.equal(family[0].children[0].look, undefined);
+  // A variant in the admin's folder that nobody installed is an extension too: listed under its family, by its own label.
+  const variant = await configurationChildren({ request: async (verb) => (verb === "fleet" ? { data: { packages: [
+    { name: "@thetis/notion", type: "tool", label: "Notion", version: "0.1.1", tools: ["notion_search"], everyone: true, everyoneBy: "promoted", promotedFrom: { name: "@bitmuse/notion", by: "bitmuse" }, state: "current", waiting: [], registry: null, config: null, mine: true, byUser: { bitmuse: { state: "current" }, sam: { state: "current" } } },
+    { name: "@bitmuse/notion", type: "tool", label: "Notion", version: "0.1.1", tools: ["notion_search"], source: { kind: "local", ref: "packages/notion" }, state: "current", waiting: [], registry: null, config: null, byUser: {}, nobody: true },
+    { name: "@bitmuse/notion-read", type: "tool", label: "Notion (Read Only)", version: "0.1.1-fork.1", tools: ["notion_search"], forkedFrom: { name: "@bitmuse/notion", version: "0.1.1" }, source: { kind: "local", ref: "packages/notion-read" }, folder: "packages/notion-read", state: "current", waiting: [], registry: null, config: null, byUser: {}, nobody: true },
+  ] } } : { data: [] }) }, { user: "bitmuse" });
+  assert.deepEqual(variant.slice(2).map((k) => [k.id, (k.children ?? []).map((c) => c.id)]), [["@thetis/notion", ["@bitmuse/notion", "@bitmuse/notion-read"]]], "the folder variant hangs under its family");
+  assert.equal(variant[2].children[1].label, "Notion (Read Only)");
   for (const k of kids) assert.equal(k.marks, undefined, "no glyphs, so the shell draws no glyph legend");
   // The fleet not answering: the tree still has its pages, and says nothing it does not know.
   const bare = await configurationChildren({ request: async () => Promise.reject(new Error("The requested module './lib/ssh.js' does not provide an export named 'isWithin'")) });

@@ -242,7 +242,7 @@ test("for everyone: the admin's table, the same on both surfaces", () => {
   const shared = everyoneActions({ ...find("bitmuse", "@thetis/notion"), sharedBy: { from: "@bitmuse/notion", owner: "bitmuse", at: "2026-09-27T10:28:31Z" } }, { family: fam("@thetis/notion"), user, holders: ["bitmuse", "sam"] });
   assert.deepEqual(shared.lines, ["Shared with everyone from Notion by you on 27 September 2026. Your people get this one."]);
   assert.deepEqual(shared.acts, ["removeEveryone"]);
-  assert.equal(shared.hints.removeEveryone, "Sharing can't be stopped yet; Remove for everyone takes it from the people who have it now.", "said beside the one act there is");
+  assert.equal(shared.hints.removeEveryone, "Takes it away from you and sam now. It stays shared, so people added later still get it.", "said beside the one act there is, never as if it had happened");
   // Its original: already shared, and nothing else.
   const original = act("@bitmuse/notion");
   assert.deepEqual([original.lines, original.acts, original.open], [["Already shared with everyone as Notion."], [], "@thetis/notion"]);
@@ -259,6 +259,7 @@ test("for everyone: the admin's table, the same on both surfaces", () => {
   const marked = everyoneActions({ name: "@thetis/w", label: "workflows", installed: true, system: true, everyone: true, everyoneBy: "marked" }, { user, holders: ["bitmuse", "sam"] });
   assert.deepEqual(marked.acts, ["turnOff", "removeEveryone"]);
   assert.equal(marked.hints.turnOff, "New people stop getting it; people who have it keep it.");
+  assert.equal(marked.hints.removeEveryone, "Takes it away from you and sam now.");
   // The configuration's: said so; admin-only: no Turn on; inside Thetis: nothing at all.
   assert.deepEqual(act("@thetis/skills-hybrid", { holders: ["bitmuse"] }).lines, ["Everyone gets it (set in Server settings).", "Only you have this. Use Remove for me."]);
   assert.deepEqual(act("@thetis/tool-operator", { holders: [] }), { lines: ["Only admins can have this."], acts: [], hints: {}, open: null, shared: null });

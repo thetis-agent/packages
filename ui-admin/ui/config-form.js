@@ -9,9 +9,9 @@
  * by a name a person says ("API key", "Timeout (milliseconds)"), the raw key only as the name's tooltip; one
  * line for where the value comes from ("Set for everyone", "Your key", "Not set"), said once. A value of one's
  * own is "used instead of everyone's" only when everyone has one too (`below`, what lies under the layer being
- * edited, when the owner knows it); the header never claims a key works, only that it is saved ("Key saved --
- * not checked yet"). A saved secret is shown masked (••••••••) with **Show** where it is revealable -- the
- * layer being viewed holds it, and it is not another person's -- which asks the owning package's
+ * edited, when the owner knows it); the header never claims a key works, only that it is saved ("Key saved —
+ * not checked yet"). A saved secret is shown masked (••••••••) with **Show** where it is revealable (the
+ * layer being viewed holds it, and it is not another person's), which asks the owning package's
  * `config-reveal` command for the value and turns into **Hide**; the command reveals a value only when that
  * layer is the one in effect for the person asking, and answers a sentence otherwise. Keys that are rarely
  * touched (no help, or a base URL, a timeout, headers, defaults) sit under an "Advanced" fold, unless every key
@@ -26,8 +26,10 @@
  * extension's label; its humanised name when not given), `people` (the names of who has it, for the clear
  * confirm at everyone's layer), `reveal(key)` (answers the value; by default the package's own `config-reveal`
  * command with `{ name, key, layer, user? }`), `advanced()` (the owner's own nodes for the Advanced fold, such as
- * an admin's words on the server's file). At a person's own layer the card ends "Only you can see and use this
- * key."
+ * an admin's words on the server's file). At a person's own layer the card ends in what is true of it: "Only
+ * you can see and use this key." when the key is theirs; "Your admin set this key for everyone. A key you add
+ * here is only yours." when everyone's is the one in effect, which the row says too ("Set for everyone — your
+ * admin's key is used", the box "Paste your own key to use instead").
  *
  * Kept byte-identical in @thetis/ui-admin and @thetis/ui-marketplace. A package's page may import only its
  * own files (packages/gateway-web/README.md), so the two copies are held together by a test rather than an
@@ -112,10 +114,25 @@ const listOf = (words) => {
 /** What the value at a person's own layer is called: "Your key", "Yours", "sam's key", "sam's own". */
 const ownNoun = (k, who) => (who ? `${who}'s ${k.secret ? "key" : "own"}` : k.secret ? "Your key" : "Yours");
 
+/** The value in effect is everyone's (an admin's, or the server's file), not the layer's own. */
+const everyones = (k) => k.state !== "unset" && k.state !== "missing" && (k.source === "system" || k.source === "file");
+
+/**
+ * The line a person's own form ends with, said only where it is true: everyone's key in effect, their own, or
+ * none yet. `keys` is the report's keys.
+ */
+export function footText(keys) {
+  const secret = keys.some((k) => k.secret);
+  if (keys.some((k) => k.secret && everyones(k))) return "Your admin set this key for everyone. A key you add here is only yours.";
+  if (keys.some((k) => k.source === "user" && k.state !== "unset")) return `Only you can see and use ${secret ? "this key" : "these settings"}.`;
+  return secret ? "A key you add here is only yours." : "Settings you save here are only yours.";
+}
+
 /**
  * Where the value came from, in words. `layer` is the layer being edited; `who` names the person whose layer
  * it is when that is not the reader; `below` is what the key falls back to under that layer ("everyone",
- * "default", "none", or undefined when not known). One line, never a second "not set" beside it.
+ * "default", "none", or undefined when not known). One line, never a second "not set" beside it. On the
+ * reader's own layer, everyone's key in effect says whose it is: "Set for everyone — your admin's key is used".
  */
 export function sourceText(k, layer, who = null, below = undefined) {
   if (k.state === "unset" || k.state === "missing" || !k.source) return "Not set";
@@ -123,7 +140,9 @@ export function sourceText(k, layer, who = null, below = undefined) {
   const from =
     k.source === "default"
       ? "Default"
-      : k.source === "file"
+      : k.secret && layer === "user" && !who && everyones(k)
+        ? "Set for everyone — your admin's key is used"
+        : k.source === "file"
         ? "Set for everyone in Server settings"
         : k.source === "system"
           ? "Set for everyone"
@@ -250,7 +269,8 @@ export function configCard(ext, report, { layer, who = null, me = null, below = 
 
   function control(kind, k, locked) {
     const common = { "aria-label": keyLabel(k), disabled: locked || null };
-    if (kind === "secret") return el("input", { ...common, class: "input cf-input", type: "password", placeholder: k.state === "set" ? "Type a new one to replace it" : "Paste it here", autocomplete: "new-password" });
+    const placeholder = k.state !== "set" ? "Paste it here" : layer === "user" && !who && everyones(k) ? "Paste your own key to use instead" : "Type a new one to replace it";
+    if (kind === "secret") return el("input", { ...common, class: "input cf-input", type: "password", placeholder, autocomplete: "new-password" });
     if (kind === "checkbox") return el("input", { ...common, class: "cf-check", type: "checkbox", checked: k.value === true || null });
     if (kind === "number") return el("input", { ...common, class: "input cf-input", type: "number", step: "any", value: typeof k.value === "number" ? String(k.value) : null });
     if (kind === "json") return el("textarea", { ...common, class: "input cf-json", rows: 4, spellcheck: "false" }, k.value === undefined ? "" : JSON.stringify(k.value, null, 2));
@@ -398,7 +418,7 @@ export function configCard(ext, report, { layer, who = null, me = null, below = 
         keys.length ? [...main, fold] : [el("p", { class: "text-faint" }, "This extension has no settings, and none are stored for it."), fold],
         keys.length && editable ? el("div", { class: "card-actions" }, saveBtn) : null,
         // A person's own layer is theirs alone: nobody else runs with it, and only they are shown it.
-        layer === "user" && !who && editable ? el("p", { class: "cf-foot text-faint" }, `Only you can see and use ${keys.some((k) => k.secret) ? "this key" : "these settings"}.`) : null
+        layer === "user" && !who && editable ? el("p", { class: "cf-foot text-faint" }, footText(keys)) : null
       )
     );
   }

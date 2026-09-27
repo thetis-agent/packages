@@ -117,6 +117,8 @@ export const WORDS = Object.freeze({
   onlyYou: "Only you have this. Use Remove for me.",
   removeForNote: "Their settings are kept. It stops for them from their next message. Everyone else keeps it.",
   cantStopSharing: "Sharing can't be stopped yet; Remove for everyone takes it from the people who have it now.",
+  takesAway: (names) => `Takes it away from ${names} now.`,
+  staysShared: "It stays shared, so people added later still get it.",
   shareLater: (whose, version) => `You can share your copy once it is based on ${whose} ${version}.`,
   privateCopy: (person, whose) => `This is your own copy. To give ${person} this extension, use ${whose} version:`,
   hiddenByPill: (labels, pill) => `${listOf(labels)} ${labels.length === 1 ? "is" : "are"} hidden by the '${pill}' filter`,
@@ -622,7 +624,7 @@ export function everyoneActions(row, { family = [], user = "", holders = null, o
     }
     if (!row.installed && !row.system && !others) return;
     out.acts.push("removeEveryone");
-    if (others?.length) out.hints.removeEveryone = `It is taken away from ${listOf(holders.map((h) => (h === user ? "you" : h)))} now.`;
+    if (others?.length) out.hints.removeEveryone = WORDS.takesAway(listOf(holders.map((h) => (h === user ? "you" : h))));
   };
   if (runsInsideThetis(row)) {
     out.lines.push(`${WORDS.inside}.`);
@@ -640,7 +642,7 @@ export function everyoneActions(row, { family = [], user = "", holders = null, o
     out.lines.push(`Shared with everyone from ${from}${who ? ` by ${who === user ? "you" : who}` : ""}${date}. Your people get this one.`);
     removable();
     // Unsharing needs the kernel to take the mark off a promoted copy, which it cannot yet: said beside the one act there is.
-    if (out.acts.includes("removeEveryone")) out.hints.removeEveryone = WORDS.cantStopSharing;
+    if (out.acts.includes("removeEveryone")) out.hints.removeEveryone = [out.hints.removeEveryone, WORDS.staysShared].filter(Boolean).join(" ");
     return out;
   }
   const promoted = sharedCopyOf(row, family);

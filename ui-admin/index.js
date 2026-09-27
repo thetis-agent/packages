@@ -206,7 +206,7 @@ async function originOf(env, name) {
   const found = ((await env.kernel.packages.catalog().catch(() => null)) ?? []).find((p) => p.name === name);
   if (!found) return null;
   const t = found.thetis ?? {};
-  return { name, label: typeof t.label === "string" && t.label.trim() ? t.label.trim() : null, version: found.version ?? null, everyone: Boolean(found.everyone), everyoneBy: found.everyoneBy ?? null };
+  return { name, label: typeof t.label === "string" && t.label.trim() ? t.label.trim() : null, summary: typeof t.summary === "string" && t.summary.trim() ? t.summary.trim() : null, version: found.version ?? null, everyone: Boolean(found.everyone), everyoneBy: found.everyoneBy ?? null };
 }
 
 /**

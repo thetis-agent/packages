@@ -8,7 +8,7 @@
 import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { newestMtime } from "@thetis/runtime/lib/freshness";
-import { installedPackage } from "./git.js";
+import { folderPackages, installedPackage } from "./git.js";
 
 const USER_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const PACKAGE_NAME = /^@[a-z0-9-]+\/[a-z0-9._-]+$/;
@@ -505,9 +505,23 @@ export async function fleet(_args, env) {
     r.versions.push(p.version);
     r.byUser[SYSTEM] = copyCell(p, spaces.get(SYSTEM) ?? null, system);
   }
+  // The admin's own folder copies nobody installed (a variant such as Notion (Read Only)): listed too, in their
+  // family, so the tree has every extension. Another person's folder is not readable from here.
+  for (const p of folderPackages(env.cwd)) {
+    if (!p.forkedFrom || rows.has(p.name)) continue;
+    const r = row(p);
+    r.versions.push(p.version);
+    r.onDisk = true;
+    r.folder = p.folder;
+  }
   // What is on disk and nobody has: listed too, so every extension of this server has a row and a page.
   for (const p of catalog) {
-    if (rows.has(p.name)) continue;
+    // A stand-in (the original a person's copy replaced) takes its facts from the disk: its label and summary.
+    if (rows.has(p.name)) {
+      const r = rows.get(p.name);
+      if (!r.info && p.thetis) r.info = p;
+      continue;
+    }
     const r = row(p);
     r.versions.push(p.version);
     r.onDisk = true;
@@ -544,6 +558,8 @@ export async function fleet(_args, env) {
       ...(promoted.has(r.name) ? { promotedFrom: promoted.get(r.name) } : {}),
       // On disk only: nobody has it, not even Thetis itself.
       ...(r.onDisk ? { nobody: true } : {}),
+      // In the admin's own folder, not installed: the path an install sends.
+      ...(r.folder ? { folder: r.folder } : {}),
       state: update ? "update" : "current",
       waiting,
       git: null,

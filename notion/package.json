@@ -1,6 +1,6 @@
 {
   "name": "@bitmuse/notion",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "The Notion API as eleven tools \u2014 search, read, write and comment on pages, query and inspect databases, list workspace users \u2014 sharing one client module instead of duplicating it.",
   "type": "module",
   "main": "index.js",
@@ -433,7 +433,7 @@
         "type": "string",
         "secret": true,
         "required": true,
-        "help": "An internal connection or personal access token from https://www.notion.so/my-integrations. Every notion_* tool reads it."
+        "help": "An internal connection or personal access token from https://www.notion.so/my-integrations."
       }
     }
   }

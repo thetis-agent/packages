@@ -384,7 +384,7 @@ test("an admin: one card per family, the other versions, and For everyone", asyn
     assert.deepEqual(await page.locator("#place .mk-banner .btn").allInnerTexts(), ["Set my key", "Set one for everyone"]);
     assert.deepEqual((await page.locator("#place .mk-versions li").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()), ["✓ Notion — you use this (shared with everyone)", "○ Notion — your original, in your folder Use instead", "○ Notion (Read Only) — a variant in your folder Use instead"]);
     assert.match(await page.locator("#place .mk-side").innerText(), /Shared with everyone from Notion by you\. Your people get this one\./);
-    assert.match(await page.locator("#place .mk-side").innerText(), /Sharing can't be stopped yet; Remove for everyone takes it from the people who have it now\./);
+    assert.match(await page.locator("#place .mk-side").innerText(), /Takes it away from [^.]+ now\. It stays shared, so people added later still get it\./);
     assert.equal(await page.locator("#place .mk-side .btn", { hasText: "Turn on for everyone" }).count(), 0);
     assert.deepEqual(await page.locator("#place .mk-person option").allInnerTexts(), ["sam (has it)"]);
     assert.equal(await page.locator("#place .mk-picker .btn").innerText(), "Remove for sam…");

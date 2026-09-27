@@ -315,7 +315,7 @@ test("an extension's page: the label, the publisher line and the chips; a shared
   assert.match(said, /bitmuse · has it/);
   assert.match(said, /sam \(you\) · has it/);
   assert.ok(buttons(root).includes("Remove for bitmuse…") && buttons(root).includes("Remove for me…"), "the reader's own line is Remove for me");
-  assert.match(said, /Sharing can't be stopped yet; Remove for everyone takes it from the people who have it now\./);
+  assert.match(said, /Takes it away from bitmuse and you now\. It stays shared, so people added later still get it\./, "never as if it had already happened");
   // The confirm names the people who lose it, and says it stays shared.
   all(root, (n) => n.tag === "button" && text(n) === "Remove for everyone…")[0].props.onClick();
   await settled();

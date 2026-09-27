@@ -124,17 +124,18 @@ export function withKnown(mine, all = []) {
 export const FALLBACK = Object.freeze({ place: false });
 
 /**
- * One installed row as a surface draws it: `{ label, publisher, state }`. With the place's module (`rules.place`)
- * it is exactly the place's verdict, family and giver included; without it, the fallback's.
+ * One installed row as a surface draws it: `{ label, publisher, summary, state }`. With the place's module
+ * (`rules.place`) it is exactly the place's verdict, family, giver and one plain line included (a copy without a
+ * summary of its own says its official version's); without it, the fallback's.
  */
 export function judged(r, rows, { rules = FALLBACK, user = "", admin = false } = {}) {
-  if (!rules.place) return { label: labelOf(r), publisher: publisherLine(r, { user, rows }), state: stateOf(r, { admin, user }) };
+  if (!rules.place) return { label: labelOf(r), publisher: publisherLine(r, { user, rows }), summary: summaryLine(r), state: stateOf(r, { admin, user }) };
   const m = rules.place;
   const family = m.familyOf(r, rows);
   const origin = m.officialOf(r, family);
   const label = m.labelOf(r, origin);
   const giver = typeof m.giverOf === "function" ? m.giverOf(r, { user, family: family.members }) : undefined;
-  return { label, publisher: m.publisherLine(r, { user, family: family.members }), state: m.stateOf(r, { admin, origin, label, user, giver }) };
+  return { label, publisher: m.publisherLine(r, { user, family: family.members }), summary: summaryLine(r, rules, origin), state: m.stateOf(r, { admin, origin, label, user, giver }) };
 }
 
 /** "16 installed · 20 part of Thetis": the place's own two numbers, from its own function. */
@@ -155,9 +156,12 @@ export function withSetup(rows, mine = []) {
   return rows.map((r) => (r.installed && byName.has(r.name) && !r.config ? { ...r, config: byName.get(r.name).config ?? { broken: false, summary: "", keys: [] } } : r));
 }
 
-/** The one plain line a row is said by: the place's, or the description's first sentence without it. */
-export function summaryLine(r, rules = FALLBACK) {
-  if (rules.place && typeof rules.place.summaryOf === "function") return rules.place.summaryOf(r);
+/**
+ * The one plain line a row is said by: the place's `summaryOf` (for a copy, its official version `origin`'s when
+ * it has none of its own), or the description's first sentence without the place.
+ */
+export function summaryLine(r, rules = FALLBACK, origin = null) {
+  if (rules.place && typeof rules.place.summaryOf === "function") return rules.place.summaryOf(r, origin);
   const s = String(r?.description ?? "").trim();
   return /^(.+?[.!?])(\s|$)/s.exec(s)?.[1] ?? s;
 }
@@ -246,7 +250,7 @@ export function mountPackages(root, { user, role }, shell) {
       { key: "name", label: "Extension", render: (r) => extensionCell(r, said(r)) },
       { key: "status", label: "Status", render: (r) => statusCell(said(r)) },
       { key: "version", label: "Version", render: (r) => el("code", { class: "text-dim" }, r.version) },
-      { key: "description", label: "What it does", render: (r) => el("span", { class: "text-dim" }, summaryLine(r, rules) || "—") },
+      { key: "description", label: "What it does", render: (r) => el("span", { class: "text-dim" }, said(r).summary || "—") },
     ];
   }
 

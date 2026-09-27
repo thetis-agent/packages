@@ -509,7 +509,7 @@ export function openPage(ext, root, params) {
       { id: "readme", label: "README", node: readme(view.readme, view.assets) },
       { id: "details", label: "Details", node: details({ ...view, row: r }, publishedLine, publishBlock) },
       admin ? { id: "people", label: "People", node: panelLink("Who has it, and installing or removing it for one person, are on its page in the Control panel.", "people") } : null,
-      admin ? { id: "activity", label: "Activity", node: panelLink("What happened to it -- installs, updates, settings changed -- is on its page in the Control panel.", "activity") } : null,
+      admin ? { id: "activity", label: "Activity", node: panelLink("What happened to it – installs, updates, settings changed – is on its page in the Control panel.", "activity") } : null,
     ].filter(Boolean);
     tabbed = tabs(panes, tab, onTab);
 

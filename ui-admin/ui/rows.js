@@ -127,10 +127,13 @@ export function contextOf(row, rows = []) {
 
 /**
  * What a surface draws for one row: its label, its publisher line, its one plain line and its state, read by an
- * admin -- the place's words for the same row.
+ * admin -- the place's words for the same row. `origin` is a copy's official version when the caller knows it
+ * and `rows` do not hold it (one extension's page): its label and summary are the copy's, as in the place.
  */
-export function described(row, { rows = [], user = "" } = {}) {
-  const { origin, family } = contextOf(row, rows);
+export function described(row, { rows = [], user = "", origin: known = null } = {}) {
+  const context = contextOf(row, rows);
+  const origin = context.origin ?? known;
+  const { family } = context;
   const label = labelOf(row, origin);
   const state = stateOf(row, { admin: true, origin, label, user, giver: giverOf(row, { user, family }) });
   return { label, publisher: publisherLine(row, { user, family }), summary: summaryOf(row, origin), state, origin };
