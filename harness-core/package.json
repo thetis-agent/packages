@@ -1,28 +1,40 @@
 {
   "name": "@thetis/harness-core",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "license": "MIT",
-  "description": "The default harness: the system prompt, the turn context line, every installed tool attached to the call, and the loop that sends it and runs the tools.",
+  "description": "The default harness: the system prompt, the turn context line, every installed tool attached to the call, the loop that sends it and runs the tools, the round retry, and the resume of turns a restart or an apply cut short.",
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test dist/test/"
+    "test": "node --test \"dist/test/**/*.test.js\""
   },
   "thetis": {
     "type": "loader",
+    "label": "chat engine",
     "config": {
       "turnContext": { "type": "boolean", "default": true, "help": "Append a [Turn context: <weekday> <date> <time> <zone>] line to each message from the person, so the model knows when it is." },
       "timeZone": { "type": "string", "help": "The IANA zone of the turn context line, for example Europe/Berlin. Unset means the zone of the daemon." },
-      "modelStallMs": { "type": "number", "default": 60000, "help": "How long the model may send nothing at all before the turn asks whether to keep waiting. The work keeps running while the question is out. A value of 0 or less is ignored: there is no way to switch the question off." },
-      "toolStallMs": { "type": "number", "default": 120000, "help": "How long a tool may run without returning before the turn asks whether to keep waiting. Builds and test runs live here, so it is longer than the model's." },
+      "modelStallMs": { "type": "number", "default": 60000, "help": "How long the model may send nothing at all before the page is told it is quiet. Nothing is asked and nothing is cancelled: the provider's own stall bound ends a dead stream, and the round is then sent again. A value of 0 or less is ignored." },
+      "toolStallMs": { "type": "number", "default": 120000, "help": "How long a tool may run without returning before the turn asks whether to keep waiting. The tool keeps running while the question is out. Builds and test runs live here." },
       "stallBackoff": { "type": "number", "default": 2, "help": "What the silence allowance is multiplied by after each continue, so a second question about the same work comes later than the first. Never less than 1." },
       "stallMaxMs": { "type": "number", "default": 900000, "help": "The longest the silence allowance grows to, however many times the same work was continued." },
-      "nudgeMs": { "type": "number", "default": 30000, "help": "How long one attempt at asking may take. An attempt that runs out counts as unanswered." },
-      "nudgeAttempts": { "type": "number", "default": 2, "help": "How many attempts the question gets. When they are used up the work is cancelled: an unanswered question never keeps waiting." },
-      "nudgeModel": { "type": "string", "help": "The model the question is put to. Unset means the turn's own model. Name a small fast model here when the turn's own model is a slow or expensive one, or one served by a provider you do not want to ask about itself." }
+      "nudgeMs": { "type": "number", "default": 30000, "help": "How long one attempt at asking about a quiet tool may take. An attempt that runs out counts as unanswered." },
+      "nudgeAttempts": { "type": "number", "default": 2, "help": "How many attempts the question about a quiet tool gets. When they are used up the tool is cancelled: an unanswered question never keeps waiting." },
+      "nudgeModel": { "type": "string", "help": "The model the question about a quiet tool is put to. Unset means the turn's own model. Name a small fast model here when the turn's own model is a slow or expensive one." },
+      "retryAttempts": { "type": "number", "default": 5, "help": "How many times a model request that failed in a way asking again could fix (the connection dropped, the upstream was overloaded or rate-limited, the stream went silent) is sent again, the same request, after a growing wait. An empty reply, broken tool arguments, a content filter stop and the output limit get one more try each. 0 sends nothing again." },
+      "retryBaseMs": { "type": "number", "default": 2000, "help": "The first wait before a failed request is sent again. Each later wait doubles, with a fifth either way of jitter: 2, 4, 8, 16, 32 seconds with the defaults." },
+      "retryMaxMs": { "type": "number", "default": 60000, "help": "The longest one wait grows to by doubling. A wait the provider asked for (Retry-After) is honoured even when longer." },
+      "retryBudgetMs": { "type": "number", "default": 300000, "help": "The most one reply spends waiting between retries, all rounds together. A wait that does not fit ends the retrying at once, and the reply stops with a Retry button." },
+      "autoResume": { "type": "boolean", "default": true, "help": "When your space starts or is updated, continue the replies that a restart, an update or a crash cut short in the last half hour, once each. Replies you stopped, and replies that failed for another reason, are left for you." },
+      "resumeMaxAgeMs": { "type": "number", "default": 1800000, "help": "How old a cut reply may be and still be continued automatically. Older ones wait for you." }
     },
     "steps": [
+      {
+        "id": "resume",
+        "phase": "history",
+        "export": "resumeTurn"
+      },
       {
         "id": "turn-context",
         "phase": "history",
@@ -48,7 +60,19 @@
         "phase": "after",
         "export": "recordCall"
       }
-    ]
+    ],
+    "service": {
+      "export": "resumer"
+    },
+    "ui": {
+      "commands": [
+        {
+          "verb": "retry-now",
+          "export": "uiRetryNow",
+          "label": "Send a failed model request again now, without waiting for the rest of the pause"
+        }
+      ]
+    }
   },
   "dependencies": {
     "zod": "^4.6.5"

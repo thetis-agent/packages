@@ -1,6 +1,6 @@
 {
   "name": "@thetis/provider-openrouter",
-  "version": "0.3.6",
+  "version": "0.4.0",
   "license": "MIT",
   "description": "Sends model calls to OpenRouter with streaming, tool calls, and prompt caching.",
   "type": "module",
@@ -14,6 +14,7 @@
   },
   "thetis": {
     "type": "provider",
+    "label": "OpenRouter models",
     "config": {
       "apiKey": {
         "type": "string",
@@ -42,7 +43,7 @@
       "retries": {
         "type": "number",
         "default": 3,
-        "help": "How many times a transient refusal (429, 408, 409, 425, 5xx, an in-flight budget 402) is tried again before it is reported."
+        "help": "How many times a request that got no response, or a transient refusal (429, 408, 409, 425, 5xx, an in-flight budget 402), is tried again before it is reported. A failure after the reply has started is not tried again here: it is reported, labelled, and the harness sends the round again."
       },
       "requestTimeoutMs": {
         "type": "number",

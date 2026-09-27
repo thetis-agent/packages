@@ -37,7 +37,7 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 180_000;
 export const DEFAULT_STREAM_STALL_MS = 120_000;
 
 /** Statuses worth a second try: the request was sound, the moment was wrong. */
-const TRANSIENT = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
+const TRANSIENT = new Set([408, 409, 425, 429, 500, 502, 503, 504, 529]);
 const MAX_WAIT_MS = 120_000;
 
 /**
@@ -48,12 +48,19 @@ const MAX_WAIT_MS = 120_000;
 export function retryAfterMs(status: number, body: string, retryAfter: string | null, attempt: number): number | undefined {
   const inFlight = status === 402 && /in_flight_budget/.test(body);
   if (!inFlight && !TRANSIENT.has(status)) return undefined;
+  return askedWaitMs(body, retryAfter) ?? backoffMs(attempt);
+}
+
+/** The wait a refusal asked for: the Retry-After header in seconds, else the hint in the body; undefined when it asked for none. */
+export function askedWaitMs(body: string, retryAfter: string | null): number | undefined {
   const header = Number(retryAfter);
   if (retryAfter && Number.isFinite(header) && header > 0) return Math.min(header * 1000, MAX_WAIT_MS);
   const hinted = /"Retry-After"\s*:\s*"?(\d+)/.exec(body);
   if (hinted) return Math.min(Number(hinted[1]) * 1000, MAX_WAIT_MS);
-  return Math.min(1000 * 2 ** attempt, MAX_WAIT_MS);
+  return undefined;
 }
+
+const backoffMs = (attempt: number): number => Math.min(1000 * 2 ** attempt, MAX_WAIT_MS);
 
 interface WireMessage extends OpenAiWireMessage {
   tool_calls?: { id: string; type: "function"; function: { name: string; arguments: string } }[];
@@ -93,10 +100,10 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
     },
 
     async *call(call: ProviderCall, signal?: AbortSignal, context?: ProviderContext): AsyncIterable<ProviderEvent> {
-      if (!apiKey) return yield { type: "error", message: "OpenRouter apiKey is not configured (set OPENROUTER_API_KEY)" };
+      if (!apiKey) return yield failed("OpenRouter apiKey is not configured (set OPENROUTER_API_KEY)", { retryable: false, kind: "auth" });
       let messages: WireMessage[];
       try { messages = await toWire(call, context); }
-      catch (error) { return yield { type: "error", message: reason(error) }; }
+      catch (error) { return yield failed(reason(error), { retryable: false, kind: "other" }); }
       const body = {
         model: call.model,
         messages,
@@ -116,13 +123,14 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
       // headers arrive. The second covers the open stream, and any byte at all resets it, so a model that
       // thinks for twenty minutes while sending SSE keepalives is never touched by it. What they rule out is
       // the one shape neither of them describes: a socket that is open and silent, for ever.
-      // One attempt per pass. A stream that the connection cuts before the provider has sent a single byte
-      // of the reply is made again, as a refused request is; see the end of the loop for why only that case.
-      for (let attempt = 0; ; attempt++) {
+      //
+      // One request per call. Once the headers are in, nothing here asks again: a failure after that point is
+      // one `error` event that says whether asking again could help (`retryable`) and what kind of failure it
+      // was, and the harness, which owns the round and can throw its half away, decides. Two retry policies
+      // stacked on one another is how a zero-byte cut once became an instant loop nobody could see.
       const request = requestScope(signal, requestTimeoutMs);
       let beat: ReturnType<typeof setInterval> | undefined;
-      // Whether anything at all has reached the consumer from this attempt: text, reasoning, a tool call's
-      // progress, usage. Once it has, the attempt cannot be quietly made again.
+      // Whether anything at all has reached the consumer: text, reasoning, a tool call's progress, usage.
       let produced = false;
       let saidText = false;
       let ended: "done" | "cut" = "cut";
@@ -132,9 +140,12 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
           res = await post(`${baseUrl}/chat/completions`, headers, serialized, config.retries ?? 3, request);
         } catch (err) {
           if (signal?.aborted) return; // the caller gave up; it is not waiting for an explanation
-          return yield { type: "error", message: request.reason ?? `openrouter request failed: ${reason(err)}` };
+          return yield failed(request.reason ?? `openrouter request failed: ${reason(err)}`, { retryable: true, kind: request.reason ? "timeout" : "connection" });
         }
-        if (!res.ok || !res.body) return yield { type: "error", message: refusal(res.status, await res.text()) };
+        if (!res.ok || !res.body) {
+          const text = await res.text();
+          return yield failed(refusal(res.status, text), classifyRefusal(res.status, text, res.headers.get("retry-after")));
+        }
         request.arrived();
         let lastByte = Date.now();
         beat = setInterval(() => {
@@ -153,7 +164,7 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
             step = await reading.next();
           } catch (err) {
             if (signal?.aborted) return;
-            return yield { type: "error", message: request.reason ?? `the openrouter stream failed: ${reason(err)}` };
+            return yield failed(request.reason ?? `the openrouter stream failed: ${reason(err)}`, { retryable: true, kind: request.reason ? "timeout" : "connection" });
           }
           if (step.done) break;
           const data = step.value;
@@ -165,9 +176,9 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
           try {
             chunk = parseSchema(StreamChunkSchema, JSON.parse(data), "OpenRouter stream");
           } catch (error) {
-            return yield { type: "error", message: `OpenRouter stream: ${reason(error)}` };
+            return yield failed(`OpenRouter stream: ${reason(error)}`, { retryable: false, kind: "other" });
           }
-          if (chunk.error) return yield { type: "error", message: chunk.error.message ?? JSON.stringify(chunk.error) };
+          if (chunk.error) return yield failed(chunk.error.message ?? JSON.stringify(chunk.error), classifyStreamError(chunk.error));
           if (typeof chunk.choices?.[0]?.finish_reason === "string") finish = chunk.choices[0].finish_reason;
           const delta = chunk.choices?.[0]?.delta;
           if (typeof delta?.content === "string") {
@@ -175,8 +186,8 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
               produced = saidText = true;
               yield { type: "text", delta: delta.content };
             }
-          } else if (delta?.content != null) return yield { type: "error", message: "OpenRouter returned an unsupported content delta" };
-          if (delta?.images || delta?.audio) return yield { type: "error", message: "This OpenRouter adapter does not yet decode generated image or audio streams" };
+          } else if (delta?.content != null) return yield failed("OpenRouter returned an unsupported content delta", { retryable: false, kind: "other" });
+          if (delta?.images || delta?.audio) return yield failed("This OpenRouter adapter does not yet decode generated image or audio streams", { retryable: false, kind: "other" });
           // A reasoning model sends its thinking beside the answer, and two spellings are in the wild:
           // `reasoning`, which is OpenRouter's normalization, and `reasoning_content`, which is what DeepSeek
           // and llama.cpp emit and OpenRouter passes through for some upstreams. Take whichever came. It is
@@ -208,41 +219,98 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
           }
         }
         // A stream that ends with neither the provider's [DONE] nor a finish_reason was cut under the reply:
-        // the connection dropped, or the upstream gave up without a word. Before this the adapter ended
-        // quietly and the harness took the empty message as the model finishing, so a turn simply stopped
-        // mid-work and nothing anywhere said so. With nothing received yet the request is made again, as a
-        // refused one is; with part of a reply received it cannot be, and the turn is told. A [DONE] without
-        // a finish_reason is taken as the provider's word that it finished; the empty-reply check below
-        // still stands over it.
+        // the connection dropped, or the upstream gave up without a word. Before this was noticed the adapter
+        // ended quietly and the harness took the empty message as the model finishing, so a turn simply stopped
+        // mid-work and nothing anywhere said so. It is reported, and reported as worth asking again: no tool
+        // of this reply has run, since tool calls are only yielded when a stream finishes. A [DONE] without a
+        // finish_reason is taken as the provider's word that it finished; the empty-reply check below still
+        // stands over it.
         if (finish === undefined && ended === "cut") {
-          if (!produced && attempt < (config.retries ?? 3) && !signal?.aborted) continue;
-          return yield { type: "error", message: `the connection closed before the reply finished${produced ? ", part-way through it" : `, before any of it arrived, ${attempt + 1} times`}: no finish reason was sent` };
+          return yield failed(`the connection closed before the reply finished${produced ? ", part-way through it" : ", before any of it arrived"}: no finish reason was sent`, { retryable: true, kind: "connection" });
         }
         // A reply cut off at the output limit is not an answer: its tool call arguments are half a JSON document,
         // and reasoning may have used the whole allowance with nothing said. Say so instead of ending quietly.
+        // Neither of these is worth the same request again; the harness decides what else to try.
         const cut = stopMessage(finish, body.max_tokens);
-        if (cut) return yield { type: "error", message: cut };
+        if (cut) return yield failed(cut, { retryable: false, kind: finish === "length" ? "output-limit" : "filter" });
         // A finished reply that says nothing and calls nothing is not the model finishing either: a turn that
         // ended on it would end mid-work with nothing to show, which reads as the agent dying. The reason is
-        // named so the person can see what came back.
-        if (!saidText && !pending.size) return yield { type: "error", message: `the model returned an empty reply (finish_reason: ${finish ?? "none"}${produced ? ", reasoning only" : ""})` };
+        // named so the person can see what came back. A second sample usually says something.
+        if (!saidText && !pending.size) return yield failed(`the model returned an empty reply (finish_reason: ${finish ?? "none"}${produced ? ", reasoning only" : ""})`, { retryable: true, kind: "other" });
         let calls: ToolCall[];
         try {
           calls = [...pending.entries()].sort((a, b) => a[0] - b[0]).map(([i, slot]) =>
             parseSchema(ToolCallSchema, { id: slot.id || `call_${i}`, name: slot.name, args: parseArgs(slot.args) }, "OpenRouter tool call"));
-        } catch (error) { return yield { type: "error", message: reason(error) }; }
+        } catch (error) {
+          // Nearly always a reply cut short inside the arguments; a second sample usually closes them.
+          return yield failed(reason(error), { retryable: true, kind: "other" });
+        }
         for (const toolCall of calls) yield { type: "tool_call", call: toolCall };
         return;
       } finally {
-        // Reached on a return, on a throw, on a retry's `continue`, and on the consumer abandoning the
-        // iteration, which is the case that matters: an abandoned request must not leave its socket and its
-        // two timers behind.
+        // Reached on a return, on a throw, and on the consumer abandoning the iteration, which is the case
+        // that matters: an abandoned request must not leave its socket and its two timers behind.
         if (beat) clearInterval(beat);
         request.release();
       }
-      }
     },
   };
+}
+
+/** The failure kinds an `error` event names, shared with the harness and the kernel's turn record. */
+export type FailureKind = "connection" | "rate-limit" | "overloaded" | "timeout" | "credits" | "context" | "output-limit" | "filter" | "auth" | "other";
+
+/** What an `error` event says besides its message: whether asking again could help, and why it failed. */
+export interface FailureInfo {
+  retryable: boolean;
+  kind: FailureKind;
+  status?: number;
+  retryAfterMs?: number;
+}
+
+/** One `error` event. The extra fields are optional in the contract, so a consumer that knows none of them loses nothing. */
+function failed(message: string, info: FailureInfo): ProviderEvent {
+  return { type: "error", message, ...info } as ProviderEvent;
+}
+
+/**
+ * What a refusal is, read from its status and body: whether the same request could succeed later, and
+ * which kind of failure a person should be told about. `retryAfterMs` is the wait the refusal asked for,
+ * from the Retry-After header or the hint OpenRouter puts in a 402's body, when it asked for one.
+ */
+export function classifyRefusal(status: number, body: string, retryAfter: string | null): FailureInfo {
+  const asked = askedWaitMs(body, retryAfter);
+  const wait = asked !== undefined ? { retryAfterMs: asked } : {};
+  if (status === 402) return /in_flight_budget/.test(body) ? { retryable: true, kind: "rate-limit", status, ...wait } : { retryable: false, kind: "credits", status };
+  if (status === 429) return { retryable: true, kind: "rate-limit", status, ...wait };
+  if (status === 408 || status === 504) return { retryable: true, kind: "timeout", status, ...wait };
+  if (status === 409 || status === 425) return { retryable: true, kind: "other", status, ...wait };
+  if (status >= 500) return { retryable: true, kind: "overloaded", status, ...wait };
+  if (status === 401 || status === 403) return { retryable: false, kind: "auth", status };
+  if (status === 400 || status === 413) return { retryable: false, kind: CONTEXT.test(body) ? "context" : "other", status };
+  return { retryable: false, kind: "other", status };
+}
+
+/** Wording that says the request is larger than the model's window. */
+const CONTEXT = /context.{0,20}(length|window|limit)|too (long|large)|maximum.{0,20}tokens|prompt is too long|reduce the length/i;
+
+/**
+ * An error OpenRouter sends inside an open stream: an upstream that failed after the headers. Its `code` is
+ * an HTTP status when it has one; an overloaded or failing upstream is worth asking again.
+ */
+export function classifyStreamError(error: { message?: string; code?: unknown }): FailureInfo {
+  const code = typeof error.code === "number" ? error.code : typeof error.code === "string" && /^\d{3}$/.test(error.code) ? Number(error.code) : undefined;
+  const text = error.message ?? "";
+  if (code !== undefined && code !== 200) {
+    const byCode = classifyRefusal(code, text, null);
+    if (byCode.retryable || code !== 400) return byCode;
+  }
+  if (/overloaded|capacity/i.test(text)) return { retryable: true, kind: "overloaded", ...(code ? { status: code } : {}) };
+  if (/rate.?limit/i.test(text)) return { retryable: true, kind: "rate-limit", ...(code ? { status: code } : {}) };
+  if (/timed? ?out|timeout/i.test(text)) return { retryable: true, kind: "timeout", ...(code ? { status: code } : {}) };
+  if (/upstream|provider returned error|internal|unavailable|connection/i.test(text)) return { retryable: true, kind: "overloaded", ...(code ? { status: code } : {}) };
+  if (CONTEXT.test(text)) return { retryable: false, kind: "context", ...(code ? { status: code } : {}) };
+  return { retryable: false, kind: "other", ...(code ? { status: code } : {}) };
 }
 
 /** How often a tool call whose arguments are still arriving is reported as `tool_call.progress`. */
@@ -369,7 +437,19 @@ function reason(err: unknown): string {
  */
 async function post(url: string, headers: Record<string, string>, body: string, retries: number, scope: RequestScope): Promise<Response> {
   for (let attempt = 0; ; attempt++) {
-    const res = await fetch(url, { method: "POST", headers, body, signal: scope.signal });
+    let res: Response;
+    try {
+      res = await fetch(url, { method: "POST", headers, body, signal: scope.signal });
+    } catch (err) {
+      // No response at all: `fetch failed`, a reset or a refused connection before any header. Nothing of the
+      // reply exists yet, so this is a refusal like any other and waits the same way. An abort is not: it is
+      // the caller or the deadline, and either one has already decided.
+      if (scope.signal.aborted || attempt >= retries) throw err;
+      const wait = backoffMs(attempt);
+      process.stderr.write(`[provider-openrouter] no response on attempt ${attempt + 1} (${reason(err)}); retrying in ${Math.round(wait / 1000)}s\n`);
+      await sleep(wait, scope.signal);
+      continue;
+    }
     if (res.ok || attempt >= retries) return res;
     const text = await res.clone().text();
     const wait = retryAfterMs(res.status, text, res.headers.get("retry-after"), attempt);
@@ -439,4 +519,9 @@ async function* sse(body: ReadableStream<Uint8Array>, touch: () => void): AsyncI
       if (line.startsWith("data:")) yield line.slice(5).trim();
     }
   }
+  // SSE ends every line with a newline, but a last `finish_reason` or `[DONE]` sent without one must not be
+  // read as the stream being cut under the reply.
+  buf += decoder.decode();
+  const last = buf.replace(/\r$/, "");
+  if (last.startsWith("data:")) yield last.slice(5).trim();
 }

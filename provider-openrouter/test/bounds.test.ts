@@ -65,6 +65,7 @@ test("a request that never gets a response is abandoned at its deadline, retries
     assert.equal(events[0].type, "error");
     assert.match((events[0] as { message: string }).message, /no response from openrouter within 0s|no response from openrouter within/);
     assert.match((events[0] as { message: string }).message, /retries and the waits between them included/);
+    assert.deepEqual(info(events[0]), { retryable: true, kind: "timeout" }, "a deadline is worth another try: the harness decides");
   } finally {
     await site.close();
   }
@@ -82,6 +83,7 @@ test("a stream that opens, sends something and then goes silent is abandoned at 
     assert.deepEqual(events.map((e) => e.type), ["text", "error"], "what did arrive is delivered first: nothing is thrown away");
     assert.equal((events[0] as { delta: string }).delta, "hello");
     assert.match((events[1] as { message: string }).message, /was open but sent nothing for 0s|was open but sent nothing/);
+    assert.deepEqual(info(events[1]), { retryable: true, kind: "timeout" });
   } finally {
     await site.close();
   }
@@ -125,20 +127,34 @@ test("the model list is bounded too: it is on the path of every call that has to
   }
 });
 
-// ---- a stream cut under the reply ----
+// ---- a stream cut under the reply, and how every failure is labelled ----
 //
 // The incident: a turn on production stopped mid-work, twice, with an empty assistant message and no error.
 // The upstream connection had closed with no finish_reason, the adapter ended quietly, and the harness took
-// the empty message as the model finishing. A cut before anything arrived is made again; a cut after part of
-// the reply is reported; a reply that finishes empty is reported.
-async function cutting(plan: ((n: number) => string[])): Promise<{ url: string; requests: () => number; close: () => Promise<void> }> {
+// the empty message as the model finishing. Every cut is now reported, never made again here: the harness
+// owns the round, can throw its half away, and waits before it asks again. What this adapter owes it is a
+// label on every error: whether the same request could succeed, and what kind of failure it was.
+
+/** What an error event says besides its message. */
+function info(e: ProviderEvent): Record<string, unknown> {
+  const { type: _type, message: _message, ...rest } = e as Record<string, unknown>;
+  return rest;
+}
+
+/** A server that answers the n-th request with `plan(n)`: a status, headers and body lines, or `"drop"` to close the socket before any header. */
+type Plan = { status?: number; headers?: Record<string, string>; lines: string[] } | "drop";
+
+async function cutting(plan: (n: number) => Plan | string[]): Promise<{ url: string; requests: () => number; close: () => Promise<void> }> {
   let n = 0;
   const open: import("node:net").Socket[] = [];
   const server = createServer((req, res) => {
     req.resume();
     n += 1;
-    res.writeHead(200, { "Content-Type": "text/event-stream" });
-    for (const line of plan(n)) res.write(line);
+    const raw = plan(n);
+    const step = Array.isArray(raw) ? { lines: raw } : raw;
+    if (step === "drop") return req.socket.destroy();
+    res.writeHead(step.status ?? 200, { "Content-Type": "text/event-stream", ...(step.headers ?? {}) });
+    for (const line of step.lines) res.write(line);
     res.end();
   });
   server.on("connection", (socket) => open.push(socket));
@@ -149,52 +165,93 @@ async function cutting(plan: ((n: number) => string[])): Promise<{ url: string; 
 
 const chunk = (delta: Record<string, unknown>, finish?: string) => `data: ${JSON.stringify({ choices: [{ delta, ...(finish ? { finish_reason: finish } : {}) }] })}\n\n`;
 
-test("a stream cut before any of the reply arrived is made again, and the reply that then comes is the reply", async () => {
-  const site = await cutting((n) => (n === 1 ? [] : [chunk({ content: "hello" }, "stop"), "data: [DONE]\n\n"]));
+async function run(plan: (n: number) => Plan | string[], opts: Record<string, unknown> = {}, call: ProviderCall = CALL) {
+  const site = await cutting(plan);
   try {
-    const provider = createProvider({ apiKey: "k", baseUrl: site.url, retries: 2, requestTimeoutMs: 5_000, streamStallMs: 5_000, cache: { enabled: false } });
-    const events = await collect(provider.call(CALL));
-    assert.deepEqual(events.map((e) => e.type), ["text"]);
-    assert.equal(site.requests(), 2, "one cut, one answer");
+    const provider = createProvider({ apiKey: "k", baseUrl: site.url, retries: 2, requestTimeoutMs: 5_000, streamStallMs: 5_000, cache: { enabled: false }, ...opts });
+    const events = await collect(provider.call(call));
+    return { events, requests: site.requests() };
   } finally {
     await site.close();
   }
+}
+
+test("a stream cut before any of the reply arrived is reported as worth another try, and is not asked again here", async () => {
+  const { events, requests } = await run(() => []);
+  assert.deepEqual(events.map((e) => e.type), ["error"]);
+  assert.match((events[0] as { message: string }).message, /closed before the reply finished, before any of it arrived/);
+  assert.deepEqual(info(events[0]), { retryable: true, kind: "connection" });
+  assert.equal(requests, 1, "one request: the old instant re-request with no wait is gone");
 });
 
-test("a stream cut every time is an error that says how many times, not an empty reply", async () => {
-  const site = await cutting(() => []);
-  try {
-    const provider = createProvider({ apiKey: "k", baseUrl: site.url, retries: 2, requestTimeoutMs: 5_000, streamStallMs: 5_000, cache: { enabled: false } });
-    const events = await collect(provider.call(CALL));
-    assert.deepEqual(events.map((e) => e.type), ["error"]);
-    assert.match((events[0] as { message: string }).message, /closed before the reply finished, before any of it arrived, 3 times/);
-    assert.equal(site.requests(), 3);
-  } finally {
-    await site.close();
-  }
+test("a stream cut part-way through the reply keeps what arrived and says it was cut, as worth another try", async () => {
+  const { events, requests } = await run(() => [chunk({ content: "half an ans" })]);
+  assert.deepEqual(events.map((e) => e.type), ["text", "error"]);
+  assert.match((events[1] as { message: string }).message, /closed before the reply finished, part-way through it/);
+  assert.deepEqual(info(events[1]), { retryable: true, kind: "connection" });
+  assert.equal(requests, 1);
 });
 
-test("a stream cut part-way through the reply is not made again: what arrived is kept and the error says it was cut", async () => {
-  const site = await cutting(() => [chunk({ content: "half an ans" })]);
-  try {
-    const provider = createProvider({ apiKey: "k", baseUrl: site.url, retries: 2, requestTimeoutMs: 5_000, streamStallMs: 5_000, cache: { enabled: false } });
-    const events = await collect(provider.call(CALL));
-    assert.deepEqual(events.map((e) => e.type), ["text", "error"]);
-    assert.match((events[1] as { message: string }).message, /closed before the reply finished, part-way through it/);
-    assert.equal(site.requests(), 1, "a retry would duplicate what the consumer already has");
-  } finally {
-    await site.close();
-  }
+test("a reply that finishes with no text and no tool call is an error naming the finish reason, worth one more sample", async () => {
+  const { events } = await run(() => [chunk({ reasoning: "hmm" }, "stop"), "data: [DONE]\n\n"]);
+  assert.deepEqual(events.map((e) => e.type), ["reasoning", "error"]);
+  assert.match((events[1] as { message: string }).message, /empty reply \(finish_reason: stop, reasoning only\)/);
+  assert.deepEqual(info(events[1]), { retryable: true, kind: "other" });
 });
 
-test("a reply that finishes with no text and no tool call is an error naming the finish reason", async () => {
-  const site = await cutting(() => [chunk({ reasoning: "hmm" }, "stop"), "data: [DONE]\n\n"]);
-  try {
-    const provider = createProvider({ apiKey: "k", baseUrl: site.url, requestTimeoutMs: 5_000, streamStallMs: 5_000, cache: { enabled: false } });
-    const events = await collect(provider.call(CALL));
-    assert.deepEqual(events.map((e) => e.type), ["reasoning", "error"]);
-    assert.match((events[1] as { message: string }).message, /empty reply \(finish_reason: stop, reasoning only\)/);
-  } finally {
-    await site.close();
-  }
+test("the output limit and the content filter are reported as not worth the same request again", async () => {
+  const length = await run(() => [chunk({ content: "a very long" }, "length"), "data: [DONE]\n\n"], { defaults: { max_tokens: 64 } });
+  assert.match((length.events.at(-1) as { message: string }).message, /output limit of 64 tokens/);
+  assert.deepEqual(info(length.events.at(-1)!), { retryable: false, kind: "output-limit" });
+  const filter = await run(() => [chunk({ content: "no" }, "content_filter"), "data: [DONE]\n\n"]);
+  assert.deepEqual(info(filter.events.at(-1)!), { retryable: false, kind: "filter" });
+});
+
+test("tool arguments that are not JSON are worth one more sample: they are nearly always a reply cut short", async () => {
+  const { events } = await run(() => [`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "c1", function: { name: "write", arguments: '{"path": "a' } }] }, finish_reason: "tool_calls" }] })}\n\n`, "data: [DONE]\n\n"]);
+  const error = events.find((e) => e.type === "error")!;
+  assert.match((error as { message: string }).message, /valid JSON/);
+  assert.deepEqual(info(error), { retryable: true, kind: "other" });
+});
+
+test("an error inside an open stream is labelled by its code and its words", async () => {
+  const upstream = (error: Record<string, unknown>) => () => [chunk({ content: "so" }), `data: ${JSON.stringify({ error })}\n\n`];
+  const bad = await run(upstream({ code: 502, message: "Upstream error from Anthropic" }));
+  assert.deepEqual(info(bad.events.at(-1)!), { retryable: true, kind: "overloaded", status: 502 });
+  const busy = await run(upstream({ message: "Overloaded" }));
+  assert.deepEqual(info(busy.events.at(-1)!), { retryable: true, kind: "overloaded" });
+  const limited = await run(upstream({ code: 429, message: "Rate limit exceeded" }));
+  assert.deepEqual(info(limited.events.at(-1)!), { retryable: true, kind: "rate-limit", status: 429 });
+  const invalid = await run(upstream({ code: 400, message: "This endpoint's maximum context length is 200000 tokens" }));
+  assert.deepEqual(info(invalid.events.at(-1)!), { retryable: false, kind: "context", status: 400 });
+});
+
+test("a refusal says whether it is final, and a transient one still refused after the retries carries the wait it asked for", async () => {
+  const body = (message: string) => JSON.stringify({ error: { message } });
+  const refused = (status: number, message: string, headers: Record<string, string> = {}) => run(() => ({ status, headers: { "Content-Type": "application/json", ...headers }, lines: [body(message)] }), { retries: 0 });
+  assert.deepEqual(info((await refused(400, "prompt is too long: 250000 tokens > 200000 maximum")).events[0]), { retryable: false, kind: "context", status: 400 });
+  assert.deepEqual(info((await refused(401, "No auth credentials found")).events[0]), { retryable: false, kind: "auth", status: 401 });
+  assert.deepEqual(info((await refused(402, "Insufficient credits")).events[0]), { retryable: false, kind: "credits", status: 402 });
+  assert.deepEqual(info((await refused(404, "No such model")).events[0]), { retryable: false, kind: "other", status: 404 });
+  assert.deepEqual(info((await refused(429, "slow down", { "Retry-After": "7" })).events[0]), { retryable: true, kind: "rate-limit", status: 429, retryAfterMs: 7000 });
+  assert.deepEqual(info((await refused(503, "busy")).events[0]), { retryable: true, kind: "overloaded", status: 503 });
+  assert.deepEqual(info((await refused(529, "overloaded")).events[0]), { retryable: true, kind: "overloaded", status: 529 });
+});
+
+test("no response at all (the socket closes before a header) is tried again like a refusal, and reported as a connection failure when it never comes", async () => {
+  const recovered = await run((n) => (n === 1 ? "drop" : [chunk({ content: "hello" }, "stop"), "data: [DONE]\n\n"]), { retries: 2 });
+  assert.deepEqual(recovered.events.map((e) => e.type), ["text"]);
+  assert.equal(recovered.requests, 2, "one dropped, one answered");
+  const never = await run(() => "drop", { retries: 1 });
+  assert.deepEqual(never.events.map((e) => e.type), ["error"]);
+  assert.match((never.events[0] as { message: string }).message, /openrouter request failed/);
+  assert.deepEqual(info(never.events[0]), { retryable: true, kind: "connection" });
+  assert.equal(never.requests, 2, "the retries were used");
+});
+
+test("a last line sent without its newline is still read: a final finish_reason is not a cut", async () => {
+  const { events } = await run(() => [chunk({ content: "hello" }), `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}`]);
+  assert.deepEqual(events.map((e) => e.type), ["text"]);
+  const done = await run(() => [chunk({ content: "hi" }, "stop"), "data: [DONE]"]);
+  assert.deepEqual(done.events.map((e) => e.type), ["text"]);
 });

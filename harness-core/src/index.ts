@@ -12,8 +12,15 @@ import { ContextRecorder } from "./context.js";
 import { z } from "zod";
 import { LastCallSchema, type LastCall } from "./schemas.js";
 import { RoundHookRefSchema, RoundHookResultSchema, type RoundHookArgs, type RoundHookResult } from "./round.js";
+import { backoffMs, backoffWait, classify, labelOf, retryConfig, takeRetryRequest, withLongerLimit, type Failure, type FailureKind, type Verdict } from "./retry.js";
+import { mark, unrun } from "./resume.js";
 export type { LastCall } from "./schemas.js";
 export type { RoundHookArgs, RoundHookRef, RoundHookResult } from "./round.js";
+export { RETRY_DEFAULTS, RETRY_POLL_MS, OUTPUT_LIMIT_CAP, OUTPUT_LIMIT_NOTE, backoffMs, classify, kindFromMessage, retryConfig, retryRequestPath, uiRetryNow, withLongerLimit } from "./retry.js";
+export type { Failure, FailureKind, FailureLabel, RetryConfig, Verdict } from "./retry.js";
+export { marksOf, resumeTurn } from "./resume.js";
+export type { Marks } from "./resume.js";
+export { AUTO_RESUME_WHY, RESUME_DEFAULTS, pick, resumable, resumeOnce, resumer, resumerConfig } from "./resumer.js";
 
 /** The key this package keeps its per-session state under; other packages read it by name. */
 const NAME = "@thetis/harness-core";
@@ -106,6 +113,8 @@ export async function recordCall(ctx: PackageStepContext): Promise<StepResult> {
 
 const STOPPED = "the turn was stopped before this tool ran";
 const FAILED = "the turn failed before this tool ran";
+/** A tool that had started when the turn stopped: it may have done some or all of its work, so it is not run again on a resume. */
+const STOPPED_RUNNING = "the turn was stopped while this tool was running, so its result was never seen; it may have done some or all of its work";
 
 // ---- the nudge ----
 //
@@ -118,6 +127,12 @@ const FAILED = "the turn failed before this tool ran";
 // stream, and a tool. Neither can be put on a deadline, because a deadline cannot tell a twenty-minute build
 // from a wedged socket, and killing the first to be safe from the second is how a turn that had done an
 // hour of work came to be thrown away whole.
+//
+// Of the two, only a tool is asked about. A silent model stream is the provider's to bound -- its own stall
+// watchdog abandons a stream that sends no bytes, and says so in a labelled error -- and a failed round is
+// this package's to send again (see "the round retry" below). Asking a model about its own silence, through
+// the same provider that is not answering, cancelled live calls three times and saved none. So a quiet model
+// is only reported (`stall`, for the page), never asked about and never cancelled.
 //
 // So nothing here is killed on a timer. What is bounded is the silence. When a wait has produced nothing for
 // long enough to be worth a question, the turn says so (`stall`) and asks the model, while the work goes on
@@ -132,7 +147,7 @@ const FAILED = "the turn failed before this tool ran";
 
 /** The numbers. Exported so the manifest, the README and the tests cannot quietly disagree with the code. */
 export const NUDGE_DEFAULTS = {
-  /** A model that has sent no text, no reasoning and no tool call for this long is worth a question. */
+  /** A model that has sent nothing at all for this long is reported as quiet. Nothing is asked and nothing is cancelled. */
   modelStallMs: 60_000,
   /** A tool that has been running this long without returning is worth a question. Builds and test runs live here. */
   toolStallMs: 120_000,
@@ -323,7 +338,7 @@ interface Watch {
  * it can do is start the question. `stop()` makes a question already in flight moot, which is the ordinary
  * case -- most stalls end because the work finished while somebody was being asked about it.
  */
-function watch(ctx: PackageStepContext, cfg: NudgeConfig, what: Watched, giveUp: () => void, args?: Record<string, unknown>): Watch {
+function watch(ctx: PackageStepContext, cfg: NudgeConfig, what: Watched, giveUp: () => void, args?: Record<string, unknown>, ask = true): Watch {
   let last = Date.now();
   let allowance = what.kind === "model" ? cfg.modelStallMs : cfg.toolStallMs;
   let continued = 0;
@@ -332,6 +347,8 @@ function watch(ctx: PackageStepContext, cfg: NudgeConfig, what: Watched, giveUp:
   const self: Watch = {
     touch: () => {
       last = Date.now();
+      // A report-only watch reports each silence once; the next sign of life ends it.
+      if (!ask) asking = false;
     },
     stop: () => {
       stopped = true;
@@ -377,6 +394,7 @@ function watch(ctx: PackageStepContext, cfg: NudgeConfig, what: Watched, giveUp:
   const timer = setInterval(() => {
     if (stopped || asking || Date.now() - last < allowance) return;
     asking = true;
+    if (!ask) return say({ type: "stall", what, ms: Date.now() - last });
     try {
       say({ type: "stall", what, ms: Date.now() - last });
       void askAbout(ctx, cfg, what, Date.now() - last, continued, args).then(settle, (err) => settle(unaskable(err)));
@@ -431,15 +449,23 @@ async function untilAborted<T>(signal: AbortSignal, work: Promise<T>): Promise<T
   }
 }
 
-/** Gives every tool call of the last assistant message a result when the turn ended before the tool ran.
- *  Only the results after that message count as answers: a provider may reuse an id across turns. */
-function closeDangling(conversation: Message[], reason: string): void {
+/**
+ * Gives every tool call of the last assistant message a result when the turn ended before the tool returned.
+ * Only the results after that message count as answers: a provider may reuse an id across turns. A call that
+ * never started is marked `notRun`, which is what lets a resume run it; one that had started (`started`) is
+ * said to have been running and is not marked, because running it again could do its work twice.
+ */
+function closeDangling(conversation: Message[], reason: string, started: ReadonlySet<string> = new Set()): void {
   let at = conversation.length - 1;
   while (at >= 0 && conversation[at].role !== "assistant") at--;
   const last = at >= 0 ? conversation[at] : undefined;
   if (!last?.toolCalls?.length) return;
   const answered = new Set(conversation.slice(at + 1).filter((m) => m.role === "tool").map((m) => m.toolCallId));
-  for (const tc of last.toolCalls) if (!answered.has(tc.id)) conversation.push({ role: "tool", content: textContent(`error: ${reason}`), toolCallId: tc.id, name: tc.name });
+  for (const tc of last.toolCalls) {
+    if (answered.has(tc.id)) continue;
+    if (started.has(tc.id)) conversation.push({ role: "tool", content: textContent(`error: ${STOPPED_RUNNING}`), toolCallId: tc.id, name: tc.name });
+    else conversation.push(mark({ role: "tool", content: textContent(`error: ${reason}`), toolCallId: tc.id, name: tc.name }, { notRun: true }));
+  }
 }
 
 /**
@@ -474,20 +500,30 @@ function toolSpec(pkg: string, t: ToolDecl): ToolSpec {
 interface Round {
   toolCalls: ToolCall[];
   usage?: Record<string, number>;
-  /** The provider's `error` event, or why its stream ended. */
-  failure?: string;
+  /** The provider's first `error` event, with its labels, or why its stream ended. */
+  failure?: Failure;
   cancelled?: boolean;
+  /** Characters of tool-call arguments that had arrived: what a retry throws away besides the text. */
+  toolChars: number;
 }
 
-async function callOnce(ctx: PackageStepContext, call: ProviderCall, partial: ContentStream, cfg: NudgeConfig, nth: number, context: ContextRecorder): Promise<Round> {
-  const round: Round = { toolCalls: [] };
-  // The stream's own controller, under the turn's: a nudge can end this one request without ending the turn,
-  // and everything the turn has already done is kept either way.
-  const own = new AbortController();
-  const bound = AbortSignal.any([ctx.signal, own.signal]);
-  const watcher = watch(ctx, cfg, { kind: "model", id: `${ctx.turn.id}#${nth}`, name: call.model }, () => own.abort());
+/**
+ * One request. The model's silence is watched only to be reported: the provider bounds a dead stream, and the
+ * loop sends a failed round again. `onFirst` is called at the first sign of a reply (anything but the request
+ * capture and an error), which is how a retried round says it has recovered.
+ */
+async function callOnce(ctx: PackageStepContext, call: ProviderCall, partial: ContentStream, cfg: NudgeConfig, nth: number, context: ContextRecorder, onFirst?: () => void): Promise<Round> {
+  const round: Round = { toolCalls: [], toolChars: 0 };
+  const progress = new Map<number, number>();
+  const watcher = watch(ctx, cfg, { kind: "model", id: `${ctx.turn.id}#${nth}`, name: call.model }, () => {}, undefined, false);
+  let first = onFirst;
   const onEvent = (e: ProviderEvent) => {
     watcher.touch(); // any event at all is the stream alive: text, thinking, a tool call, an accounting line
+    if (first && e.type !== "request" && e.type !== "error") {
+      const said = first;
+      first = undefined;
+      said();
+    }
     if (e.type === "request") {
       context.request(e.body, e.at);
     } else if (e.type === "text") {
@@ -498,6 +534,10 @@ async function callOnce(ctx: PackageStepContext, call: ProviderCall, partial: Co
       ctx.emit(e);
     } else if (e.type === "extension") {
       assertJson(e.data);
+      if (e.name === "tool_call.progress") {
+        const data = e.data as { index?: unknown; chars?: unknown } | null;
+        if (typeof data?.chars === "number") progress.set(typeof data.index === "number" ? data.index : 0, data.chars);
+      }
       ctx.emit(e);
     } else if (e.type === "reasoning") {
       // Forwarded and then forgotten. A reasoning model's thinking is worth watching while it happens, so a
@@ -512,22 +552,25 @@ async function callOnce(ctx: PackageStepContext, call: ProviderCall, partial: Co
       round.usage = e.usage;
       context.usage(e.usage);
       ctx.emit({ type: "usage", usage: e.usage });
-    } else if (e.type === "error") round.failure = e.message;
+    } else if (e.type === "error") round.failure ??= { message: e.message, ...labelOf(e as Record<string, unknown>) };
   };
   try {
-    await untilAborted(bound, ctx.env.kernel.providers.call(call, onEvent, bound));
+    await untilAborted(ctx.signal, ctx.env.kernel.providers.call(call, onEvent, ctx.signal));
     partial.finish();
   } catch (err) {
-    // Three ways out, and the order matters. The person stopping the turn wins over everything. A nudge that
-    // cancelled the stream is a failure of this request, not a stop of the turn: it is reported, the text
-    // streamed so far is kept, and the turn ends saying why. Anything else is the provider's own failure.
+    // The person stopping the turn wins over everything. A kernel call that ends as cancelled while this turn
+    // was not stopped is the provider's side going away under the request (its fence closing for an apply),
+    // which is a dropped line like any other and worth sending again. Anything else is the provider's own
+    // failure, labelled when the error carries labels.
     if (ctx.signal.aborted) round.cancelled = true;
-    else if (watcher.cancelled) round.failure = `the model call was cancelled after ${fmtMs(watcher.cancelled.ms)} of silence: ${watcher.cancelled.why}`;
-    else if (isCancelled(err)) round.cancelled = true;
-    else round.failure = errorMessage(err);
+    else if (isCancelled(err)) round.failure ??= { message: `the provider's request was cancelled under it: ${errorMessage(err)}`, retryable: true, kind: "connection" };
+    else round.failure ??= { message: errorMessage(err), ...labelOf((err ?? {}) as Record<string, unknown>) };
   } finally {
     watcher.stop();
   }
+  const streamed = [...progress.values()].reduce((a, b) => a + b, 0);
+  const finished = round.toolCalls.reduce((a, tc) => a + safeJson(tc.args).length, 0);
+  round.toolChars = Math.max(streamed, finished);
   return round;
 }
 
@@ -592,6 +635,48 @@ async function beforeRound(ctx: PackageStepContext, args: RoundHookArgs): Promis
   return undefined;
 }
 
+// ---- the round retry ----
+//
+// A round that fails in a way asking again could fix is sent again, the same request byte for byte, after a
+// growing wait: the half reply is thrown away, the page is told (`harness-core.retry`), and no finished round
+// is redone. What counts, how often and how long is `retry.ts`. The waits are not silence: the model watch
+// runs only while a request is open, and a person can end a wait early ("Retry now") or stop the turn in it.
+
+/** The data of one `harness-core.retry` event. JSON only: no field is ever `undefined`. */
+type RetryPhase = "waiting" | "sending" | "recovered" | "exhausted";
+
+function retryEvent(phase: RetryPhase, data: { round: number; attempt: number; of: number; kind: FailureKind; reason: string; inMs?: number; until?: string; dropped?: { text: number; tools: number } }): TurnEvent {
+  return { type: "extension", name: "harness-core.retry", data: { phase, ...data } } as TurnEvent;
+}
+
+/**
+ * Whether the kernel asks running turns to stop at their next round boundary (a drained restart or apply),
+ * and why. False when the kernel has no such question -- an older kernel -- or does not answer within a few
+ * seconds: a drain that cannot be asked about is a drain this turn does not take part in, and the kernel
+ * then cuts it at its deadline as before.
+ */
+async function yielding(ctx: PackageStepContext): Promise<{ why: string } | false> {
+  const turns = (ctx.env.kernel as unknown as { turns?: { yielding?: () => Promise<unknown> } }).turns;
+  if (typeof turns?.yielding !== "function") return false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const late = new Promise<false>((done) => {
+      timer = setTimeout(() => done(false), YIELD_ASK_MS);
+      timer.unref?.();
+    });
+    const answer = await untilAborted(ctx.signal, Promise.race([turns.yielding(), late]));
+    const why = (answer as { why?: unknown } | null)?.why;
+    return answer && typeof why === "string" ? { why } : false;
+  } catch {
+    return false;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/** How long the drain question may take before it counts as "no". */
+const YIELD_ASK_MS = 5_000;
+
 /**
  * execute: send the call, append the assistant message, run what the model asked for, and loop until it stops.
  * The provider is reached through the kernel (`kernel.providers.call`), which routes to the provider's own fence:
@@ -599,16 +684,18 @@ async function beforeRound(ctx: PackageStepContext, args: RoundHookArgs): Promis
  * configuration. A tool the call withheld (`hints.withheld`) is resolved by name against the installed packages.
  *
  * The step never throws. A step's result is atomic, so whatever the turn did before it stopped, by cancel or by
- * failure, is returned: text streamed so far becomes a partial assistant message, and a tool call that never ran
- * gets a result saying so, so the record stays a conversation the provider will accept on the next turn. Sixteen
- * tool calls are not worth losing to one refusal. On a provider failure the step emits one `error` event of code
- * `provider` and the `after` steps still run. On a cancel it emits nothing: the kernel ends the turn with the
- * single `cancelled` error. `ctx.signal` is checked mid-stream, between tool calls, and between rounds.
+ * failure, is returned: text streamed so far becomes an assistant message marked `partial`, and a tool call that
+ * never ran gets a result saying so, marked `notRun`, so the record stays a conversation the provider will accept
+ * on the next turn and a resume knows what to redo. Sixteen tool calls are not worth losing to one refusal. A
+ * round that fails in a way asking again could fix is sent again first (see "the round retry"); when that does
+ * not help, the step emits one `error` event of code `provider` carrying `retryable` and `kind`, and the `after`
+ * steps still run. On a cancel it emits nothing: the kernel ends the turn with the single `cancelled` error.
+ * `ctx.signal` is checked mid-stream, between tool calls, between rounds, and in every wait.
  *
- * Neither of the two long waits in here -- the stream, and each tool -- is ever simply waited on. Each runs
- * under its own controller beneath `ctx.signal`, watched for silence; see "the nudge" above for what happens
- * then. A cancelled tool is a tool result the model reads and the loop goes on; a cancelled stream ends the
- * turn the way a provider failure does, keeping everything.
+ * On a turn with no input -- a resume -- the tool calls a stopped turn never ran (`notRun`) run first, before
+ * the first model call. At the top of every round after the first, a drained restart or apply is asked about
+ * (`turns.yielding()`); when one is pending the turn stops there, clean, with a `yield` event, and is resumed
+ * after it.
  */
 export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
   const conversation = [...ctx.conversation];
@@ -617,53 +704,34 @@ export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
   // The live harness: the step's input until a round hook replaces it, and what the result is built on,
   // so a hook's state (a compaction's cut and summary) is saved with the turn and not lost to the loop.
   let harness: HarnessState = ctx.harness;
-  const finish = async (status: "complete" | "failed" | "cancelled"): Promise<StepResult> => {
+  const finish = async (status: "complete" | "failed" | "cancelled" | "yielded"): Promise<StepResult> => {
     await context.finish(status);
     // Keep the legacy summary for other inspectors, without duplicating the full request in the session.
     const { request: _request, ...lastCall } = context.lastCall ?? {};
     return { conversation, call, harness: { ...harness, [NAME]: { ...ownState(harness), lastCall } } };
   };
   let partial = new ContentStream();
-  const stop = (reason: string, failure?: string): Promise<StepResult> => {
+  // The tool calls of this turn that were handed to their tool: a stop among them must not call them "not run".
+  const started = new Set<string>();
+  const stop = (reason: string, failure?: Failure, verdict?: Verdict): Promise<StepResult> => {
     const message = partial.message();
-    if (message.content.length) conversation.push(message);
-    closeDangling(conversation, reason);
-    if (failure !== undefined) ctx.emit({ type: "error", message: `provider error: ${failure}`, code: "provider" });
+    if (message.content.length) conversation.push(mark(message, { partial: true }));
+    closeDangling(conversation, reason, started);
+    if (failure !== undefined) {
+      const v = verdict ?? classify(failure);
+      ctx.emit({ type: "error", message: `provider error: ${failure.message}`, code: "provider", retryable: v.retryable, kind: v.kind } as TurnEvent);
+    }
     return finish(failure === undefined ? "cancelled" : "failed");
   };
   const cfg = nudgeConfig(ctx.config ?? {});
-  // What the previous request was: how many of `call.messages` it carried and what the provider counted
-  // for it. Together they let a round hook price the next request without re-estimating the whole of it.
-  let priced = 0;
-  let usage: Record<string, number> | undefined;
-  for (let nth = 1; ; nth++) {
-    if (ctx.signal.aborted) return stop(STOPPED);
-    if (nth > 1) {
-      const hooked = await beforeRound(ctx, { conversation, call, harness, round: nth, usage, priced, turn: { id: ctx.turn.id }, emit: ctx.emit });
-      if (ctx.signal.aborted) return stop(STOPPED);
-      // Whole replacements, copied: the loop goes on appending to `call.messages`, and the hook's own array is its own.
-      if (hooked?.call?.messages) call.messages = [...hooked.call.messages];
-      if (hooked?.harness) harness = hooked.harness;
-    }
-    priced = call.messages.length;
-    await context.start(call);
-    const round = await callOnce(ctx, call, partial, cfg, nth, context);
-    usage = round.usage;
-    if (round.cancelled) return stop(STOPPED);
-    if (round.failure !== undefined) return stop(FAILED, round.failure);
-    const assistant = partial.message();
-    partial = new ContentStream();
-    if (round.toolCalls.length) assistant.toolCalls = round.toolCalls;
-    // A reply with nothing in it -- no text, no tool call -- is not the model finishing; it is a provider
-    // that ended its stream with nothing, and a turn that took it as the end stopped mid-work with nothing
-    // said. The provider adapter says so itself now; this is the same rule for every provider.
-    if (!assistant.content.length && !assistant.toolCalls?.length) return stop(FAILED, "the model returned an empty reply: no text and no tool call");
-    conversation.push(assistant);
-    call.messages.push(assistant);
-    ctx.emit({ type: "message", message: assistant, usage: round.usage });
-    if (!assistant.toolCalls?.length) break;
-    for (const batch of toolBatches(call, assistant.toolCalls)) {
-      if (ctx.signal.aborted) return stop(STOPPED);
+  const rc = retryConfig(ctx.config ?? {});
+  // What a turn has spent waiting between retries, all rounds together: `retryBudgetMs` bounds it.
+  let waited = 0;
+  /** Runs tool calls in their batches, appending each result; false when the turn was stopped among them. */
+  const runCalls = async (calls: ToolCall[]): Promise<boolean> => {
+    for (const batch of toolBatches(call, calls)) {
+      if (ctx.signal.aborted) return false;
+      for (const tc of batch) started.add(tc.id);
       const results = await Promise.all(batch.map((tc) => runTool(ctx, call, tc, cfg)));
       // Results are recorded in the order the model asked, whatever order they finished in; a stop
       // keeps the ones that had come back and `closeDangling` answers the rest.
@@ -672,8 +740,99 @@ export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
         conversation.push(result);
         call.messages.push(result);
       }
-      if (results.some((r) => !r)) return stop(STOPPED);
+      if (results.some((r) => !r)) return false;
     }
+    return true;
+  };
+  // A resume: the tools a stopped turn never ran are run now. Their `notRun` results come out of both the
+  // conversation and the request first; results of tools that did run, or that a dead step may have run
+  // halfway, stay as they are.
+  if (ctx.turn.input.length === 0) {
+    const pending = unrun(conversation);
+    if (pending.calls.length) {
+      conversation.splice(0, conversation.length, ...pending.rest);
+      call.messages = unrun(call.messages).rest;
+      if (!(await runCalls(pending.calls))) return stop(STOPPED);
+    }
+  }
+  // What the previous request was: how many of `call.messages` it carried and what the provider counted
+  // for it. Together they let a round hook price the next request without re-estimating the whole of it.
+  let priced = 0;
+  let usage: Record<string, number> | undefined;
+  for (let nth = 1; ; nth++) {
+    if (ctx.signal.aborted) return stop(STOPPED);
+    if (nth > 1) {
+      // A round boundary: nothing is streaming and every tool call has its result, so this is the one place
+      // a turn can stop with nothing partial and nothing dangling.
+      const drain = await yielding(ctx);
+      if (drain) {
+        ctx.emit({ type: "yield", why: drain.why } as unknown as TurnEvent);
+        return finish("yielded");
+      }
+      if (ctx.signal.aborted) return stop(STOPPED);
+      const hooked = await beforeRound(ctx, { conversation, call, harness, round: nth, usage, priced, turn: { id: ctx.turn.id }, emit: ctx.emit });
+      if (ctx.signal.aborted) return stop(STOPPED);
+      // Whole replacements, copied: the loop goes on appending to `call.messages`, and the hook's own array is its own.
+      if (hooked?.call?.messages) call.messages = [...hooked.call.messages];
+      if (hooked?.harness) harness = hooked.harness;
+    }
+    priced = call.messages.length;
+    // The round, sent again as many times as its failures allow. `sent` is `call` itself, except for the one
+    // attempt after an output-limit stop, which carries a raised limit and a note and is thrown away after.
+    let sent = call;
+    const tries = new Map<string, number>();
+    let recovering: { attempt: number; of: number; kind: FailureKind; reason: string } | undefined;
+    let round: Round;
+    for (;;) {
+      await context.start(sent);
+      const said = recovering;
+      round = await callOnce(ctx, sent, partial, cfg, nth, context, said ? () => ctx.emit(retryEvent("recovered", { round: nth, ...said })) : undefined);
+      usage = round.usage;
+      if (round.cancelled) return stop(STOPPED);
+      // A reply with nothing in it -- no text, no tool call -- is not the model finishing; it is a provider
+      // that ended its stream with nothing, and a turn that took it as the end stopped mid-work with nothing
+      // said. The provider adapter says so itself now; this is the same rule for every provider.
+      if (round.failure === undefined && !partial.message().content.length && !round.toolCalls.length) {
+        round.failure = { message: "the model returned an empty reply: no text and no tool call", retryable: true, kind: "other" };
+      }
+      if (round.failure === undefined) break;
+      const failure = round.failure;
+      const verdict = classify(failure);
+      const key = verdict.plan === "full" ? "full" : `${verdict.plan}:${verdict.kind}`;
+      const of = verdict.plan === "full" ? rc.retryAttempts : verdict.plan === "none" ? 0 : Math.min(1, rc.retryAttempts);
+      const used = tries.get(key) ?? 0;
+      if (used >= of) {
+        if (of > 0) ctx.emit(retryEvent("exhausted", { round: nth, attempt: used, of, kind: verdict.kind, reason: failure.message }));
+        return stop(FAILED, failure, verdict);
+      }
+      const waitMs = backoffMs(rc, used + 1, verdict.retryAfterMs);
+      if (waited + waitMs > rc.retryBudgetMs) {
+        const reason = `${failure.message}; the next wait (${fmtMs(waitMs)}) does not fit what is left of the retry budget (${fmtMs(Math.max(0, rc.retryBudgetMs - waited))} of ${fmtMs(rc.retryBudgetMs)})`;
+        ctx.emit(retryEvent("exhausted", { round: nth, attempt: used, of, kind: verdict.kind, reason }));
+        return stop(FAILED, { ...failure, message: reason }, verdict);
+      }
+      tries.set(key, used + 1);
+      // The half round goes: its text is in no message, and the page withdraws what it drew of it.
+      const dropped = { text: contentText(partial.message().content).length, tools: round.toolChars };
+      partial = new ContentStream();
+      await takeRetryRequest(ctx.env.cwd, ctx.session.id); // a click meant for an earlier wait is not one for this
+      ctx.emit(retryEvent("waiting", { round: nth, attempt: used + 1, of, inMs: waitMs, until: new Date(Date.now() + waitMs).toISOString(), kind: verdict.kind, reason: failure.message, dropped }));
+      const began = Date.now();
+      const outcome = await backoffWait(ctx.signal, ctx.env.cwd, ctx.session.id, waitMs);
+      waited += Date.now() - began;
+      if (outcome === "stopped") return stop(STOPPED);
+      ctx.emit(retryEvent("sending", { round: nth, attempt: used + 1, of, kind: verdict.kind, reason: failure.message }));
+      sent = verdict.plan === "longer" ? withLongerLimit(call, failure.message) : call;
+      recovering = { attempt: used + 1, of, kind: verdict.kind, reason: failure.message };
+    }
+    const assistant = partial.message();
+    partial = new ContentStream();
+    if (round.toolCalls.length) assistant.toolCalls = round.toolCalls;
+    conversation.push(assistant);
+    call.messages.push(assistant);
+    ctx.emit({ type: "message", message: assistant, usage: round.usage });
+    if (!assistant.toolCalls?.length) break;
+    if (!(await runCalls(assistant.toolCalls))) return stop(STOPPED);
   }
   return finish("complete");
 }

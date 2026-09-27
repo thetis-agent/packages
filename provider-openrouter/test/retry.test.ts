@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { refusal, retryAfterMs, stopMessage } from "../src/index.js";
+import { askedWaitMs, refusal, retryAfterMs, stopMessage } from "../src/index.js";
 
 test("a final refusal is not retried; a transient one waits for Retry-After, the body's hint, or a backoff", () => {
   assert.equal(retryAfterMs(401, "unauthorized", null, 0), undefined);
@@ -21,4 +21,11 @@ test("a reply cut at the output limit is reported; a normal stop is not", () => 
   assert.match(stopMessage("length", undefined) ?? "", /output limit;/);
   assert.equal(stopMessage("stop", 8192), undefined);
   assert.equal(stopMessage(undefined, 8192), undefined);
+});
+
+test("askedWaitMs reads only what the refusal asked for; a transient refusal with nothing asked falls back to the backoff", () => {
+  assert.equal(askedWaitMs("busy", "3"), 3000);
+  assert.equal(askedWaitMs('{"metadata":{"headers":{"Retry-After":"12"}}}', null), 12_000);
+  assert.equal(askedWaitMs("busy", null), undefined);
+  assert.equal(retryAfterMs(529, "overloaded", null, 1), 2000, "529 is transient too");
 });

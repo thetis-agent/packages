@@ -30,7 +30,7 @@ test("unsupported content produces an explicit provider error before a network r
   const call = { model: "model", messages: [{ role: "user" as const, content: [{ type: "@example/mesh", data: null }] }], tools: [], params: {} };
   const events = [];
   for await (const event of createProvider({ apiKey: "test", baseUrl: "http://must-not-be-called.invalid" }).call(call)) events.push(event);
-  assert.deepEqual(events, [{ type: "error", message: "OpenRouter does not support content type @example/mesh" }]);
+  assert.deepEqual(events, [{ type: "error", message: "OpenRouter does not support content type @example/mesh", retryable: false, kind: "other" }]);
   await assert.rejects(wireContent({ role: "user", content: [assetPart("a", "audio/wav")] }, context), /different media type/);
   await assert.rejects(wireContent({ role: "tool", content: [assetPart("a", "image/png")] }, context), /role tool/);
 });

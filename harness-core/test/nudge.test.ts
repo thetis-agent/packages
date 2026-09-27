@@ -8,13 +8,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import type { Message, PackageInfo, PackageStepContext, ProviderCall, ProviderEvent, ToolSpec, TurnEvent } from "@thetis/runtime/contracts";
-import { callModel, cancelledToolResult, fmtMs, NUDGE_DEFAULTS, nudgeConfig, readDecision } from "../src/index.js";
+import { callModel, cancelledToolResult, fmtMs, NUDGE_DEFAULTS, nudgeConfig, readDecision, RETRY_DEFAULTS, retryConfig } from "../src/index.js";
 
 const contextHome = mkdtempSync(join(tmpdir(), "thetis-context-test-"));
 after(() => rmSync(contextHome, { recursive: true, force: true }));
 
 /** The shipped numbers, scaled down. Everything in this file that waits, waits in tens of milliseconds. */
-const FAST = { modelStallMs: 40, toolStallMs: 40, stallBackoff: 2, stallMaxMs: 400, nudgeMs: 40, nudgeAttempts: 2 };
+const FAST = { modelStallMs: 40, toolStallMs: 40, stallBackoff: 2, stallMaxMs: 400, nudgeMs: 40, nudgeAttempts: 2, retryAttempts: 2, retryBaseMs: 5, retryMaxMs: 20, retryBudgetMs: 2_000 };
 
 type Answer = (n: number, onEvent: (e: ProviderEvent) => void, signal?: AbortSignal) => Promise<void>;
 type Script = (round: number, call: ProviderCall, onEvent: (e: ProviderEvent) => void, signal?: AbortSignal) => Promise<void>;
@@ -119,6 +119,7 @@ async function within<T>(ms: number, work: Promise<T>): Promise<T> {
 
 test("the numbers come from the configuration, and nothing in it can switch a bound off", () => {
   assert.deepEqual(nudgeConfig({}), { ...NUDGE_DEFAULTS, nudgeModel: undefined });
+  assert.deepEqual(retryConfig({}), RETRY_DEFAULTS);
   const set = nudgeConfig({ modelStallMs: 5_000, toolStallMs: 10_000, stallBackoff: 3, stallMaxMs: 60_000, nudgeMs: 4_000, nudgeAttempts: 5, nudgeModel: " small/fast " });
   assert.deepEqual(set, { modelStallMs: 5_000, toolStallMs: 10_000, stallBackoff: 3, stallMaxMs: 60_000, nudgeMs: 4_000, nudgeAttempts: 5, nudgeModel: "small/fast" });
   // Zero, negative and nonsense all fall back to the default rather than meaning "never ask".
@@ -335,45 +336,48 @@ test("nothing a watcher does can throw: the page going away neither kills the pr
 });
 
 // ---- a model stream that goes quiet ----
+//
+// A quiet model is reported and nothing more. The provider's own stall bound abandons a dead stream with a
+// labelled error, and the loop sends the round again; asking a model about its own silence, through the
+// provider that is not answering, cancelled live calls and saved none.
 
-test("a stream that opens and says nothing is asked about, and a cancel ends the turn keeping every tool round already done", async () => {
-  const script: Script = async (round, _call, onEvent, signal) => {
-    if (round === 1) {
-      onEvent({ type: "tool_call", call: { id: "c1", name: "read", args: {} } });
-      return;
+/** The provider's own bound firing: what provider-openrouter sends when a stream is open and silent. */
+const bound = (onEvent: (e: ProviderEvent) => void) => onEvent({ type: "error", message: "the openrouter stream was open but sent nothing for 0s, so it was abandoned", retryable: true, kind: "timeout" } as ProviderEvent);
+
+test("a quiet stream is reported, never asked about and never cancelled; the provider's bound ends it and the round is sent again", async () => {
+  const script: Script = async (round, _call, onEvent) => {
+    if (round === 1) return onEvent({ type: "tool_call", call: { id: "c1", name: "read", args: {} } });
+    if (round === 2) {
+      onEvent({ type: "text", delta: "here is what I fou" });
+      await new Promise((r) => setTimeout(r, 150)); // quiet for well over modelStallMs
+      return bound(onEvent);
     }
-    onEvent({ type: "text", delta: "here is what I fou" });
-    // ...and then nothing at all, for ever, until somebody decides otherwise.
-    await new Promise<void>((_, fail) => signal?.addEventListener("abort", () => fail(Object.assign(new Error("cancelled"), { code: "cancelled" })), { once: true }));
+    onEvent({ type: "text", delta: "here is what I found" });
   };
-  const { ctx, events } = harness({ script, tools: [tool("read")], nudge: decides("cancel", "it has sent nothing since the first few words"), invoke: async () => "the file" });
+  const { ctx, events, nudgeCalls } = harness({ script, tools: [tool("read")], invoke: async () => "the file" });
   const out = await within(3_000, callModel(ctx));
 
   const stall = firstOf(events, "stall")!;
   assert.equal(stall.what.kind, "model");
   assert.equal(stall.what.name, "vendor/model", "a model stall names the model");
   assert.equal(stall.what.id, "t1#2", "and which round of which turn it was");
-  const nudge = firstOf(events, "nudge")!;
-  assert.deepEqual([nudge.decision, nudge.by], ["cancel", "model"]);
-
-  const error = firstOf(events, "error")!;
-  assert.equal(error.code, "provider");
-  assert.match(error.message, /the model call was cancelled after .* of silence/);
-  assert.match(error.message, /it has sent nothing since the first few words/);
+  assert.equal(allOf(events, "stall").length, 1, "one silence is reported once");
+  assert.equal(nudgeCalls.length, 0, "nobody is asked about a model's silence");
+  assert.ok(!events.some((e) => e.type === "nudge" || e.type === "error"));
 
   assert.deepEqual(out.conversation!.map((m) => m.role), ["user", "assistant", "tool", "assistant"]);
-  assert.equal(contentText(out.conversation![2].content), "the file", "the tool round that was already done is kept");
-  assert.equal(contentText(out.conversation!.at(-1)!.content), "here is what I fou", "and so are the words that did arrive");
+  assert.equal(contentText(out.conversation![2].content), "the file", "the tool round that was already done is kept and not redone");
+  assert.equal(contentText(out.conversation!.at(-1)!.content), "here is what I found", "the cut half is gone; the retried reply is the reply");
 });
 
-test("a model call that never produces anything at all, with a provider that cannot be asked either, still ends", async () => {
-  // The shape of the incident this was built for: the request is sent, the socket is open, and nothing ever
-  // comes back -- so the question about it cannot be answered either, because it goes to the same place.
-  const { ctx, events } = harness({ script: () => new Promise(() => {}), nudge: never });
+test("a model call that never produces anything is reported once and left to its provider; the person's stop still ends it at once", async () => {
+  const control = new AbortController();
+  const { ctx, events, nudgeCalls } = harness({ script: () => new Promise(() => {}), nudge: never, signal: control.signal });
+  setTimeout(() => control.abort(), 200);
   const out = await within(3_000, callModel(ctx));
-  const nudge = firstOf(events, "nudge")!;
-  assert.deepEqual([nudge.decision, nudge.by, nudge.what.kind], ["cancel", "rule", "model"]);
-  assert.match(firstOf(events, "error")!.message, /the model call was cancelled after .* of silence/);
+  assert.equal(allOf(events, "stall").length, 1);
+  assert.equal(nudgeCalls.length, 0);
+  assert.ok(!events.some((e) => e.type === "nudge" || e.type === "error"), "a stop is the kernel's one cancelled error");
   assert.deepEqual(out.conversation!.map((m) => m.role), ["user"], "nothing was invented; the turn simply ends with what it had");
 });
 
@@ -393,7 +397,7 @@ test("the person's stop wins over a nudge in flight: the turn stops at once and 
   assert.ok(events.some((e) => e.type === "stall"), "the stall was announced before the person stopped it");
   assert.ok(!events.some((e) => e.type === "nudge"), "a decision about work the person already stopped is not worth announcing");
   assert.ok(!events.some((e) => e.type === "error"), "a stop is the kernel's one cancelled error, not this step's");
-  assert.equal(contentText(out.conversation!.at(-1)!.content), "error: the turn was stopped before this tool ran");
+  assert.equal(contentText(out.conversation!.at(-1)!.content), "error: the turn was stopped while this tool was running, so its result was never seen; it may have done some or all of its work");
 });
 
 // ---- the guarantee ----
@@ -414,24 +418,31 @@ const round1 = (name: string): Script => async (round, _call, onEvent) => {
   else onEvent({ type: "text", delta: "I will try something else." });
 };
 
+/** The model is silent, and the provider's own bound ends it, every time: the retries are used up. */
+const silentThenBound: Script = async (_round, _call, onEvent) => {
+  await new Promise((r) => setTimeout(r, 60));
+  bound(onEvent);
+};
+
 const GUARANTEE: NeverEnds[] = [
   {
-    what: "the model call never returns and the question about it is never answered",
-    setup: { script: () => new Promise(() => {}), nudge: never },
+    what: "the model call is silent every time and only the provider's own bound ends it",
+    setup: { script: silentThenBound, nudge: never },
     keeps: "the person's message",
   },
   {
-    what: "the model call never returns and the question errors every time",
-    setup: { script: () => new Promise(() => {}), nudge: errors("the provider is unreachable") },
+    what: "the model call is silent every time and the question would error, were it asked",
+    setup: { script: silentThenBound, nudge: errors("the provider is unreachable") },
     keeps: "the person's message",
   },
   {
-    what: "the stream opens, sends a few words, and then goes silent for ever",
+    what: "the stream opens, sends a few words, and then goes silent until the provider's bound ends it",
     setup: {
       script: async (round, _call, onEvent) => {
         if (round === 1) return onEvent({ type: "tool_call", call: { id: "c1", name: "t", args: {} } });
         onEvent({ type: "text", delta: "partly written" });
-        return new Promise<void>(() => {});
+        await new Promise((r) => setTimeout(r, 60));
+        bound(onEvent);
       },
       tools: [tool("t")],
       invoke: async () => "a real result",
@@ -465,8 +476,8 @@ const GUARANTEE: NeverEnds[] = [
     keeps: "I will try something else.",
   },
   {
-    what: "nothing in the turn ever returns: not the model, not the tool, not the question",
-    setup: { script: () => new Promise(() => {}), tools: [tool("t")], invoke: () => new Promise(() => {}), effective: () => new Promise(() => {}), nudge: never },
+    what: "nothing in the turn ever answers: the model only through its provider's bound, not the tool, not the question",
+    setup: { script: silentThenBound, tools: [tool("t")], invoke: () => new Promise(() => {}), effective: () => new Promise(() => {}), nudge: never },
     keeps: "the person's message",
   },
 ];
@@ -484,17 +495,24 @@ for (const fixture of GUARANTEE) {
     if (fixture.keeps === "the person's message") assert.match(record, /build the thing/);
     else assert.ok(record.includes(fixture.keeps), `${fixture.keeps} is still in the conversation`);
 
-    // 3. It said why, somewhere a person and the model can both read.
-    const nudge = firstOf(events, "nudge");
-    assert.ok(nudge, "a stall reached a decision");
-    assert.ok(nudge.why.trim().length > 0, "and the decision came with a reason");
+    // 3. It said why, somewhere a person and the model can both read. A tool's silence ends in a decision;
+    // a model's ends in the provider's own bound, which the turn's error names.
+    const toolStalled = allOf(events, "stall").some((e) => e.what.kind === "tool");
+    if (toolStalled) {
+      const nudge = firstOf(events, "nudge");
+      assert.ok(nudge, "a tool's stall reached a decision");
+      assert.ok(nudge.why.trim().length > 0, "and the decision came with a reason");
+    }
     const said = firstOf(events, "error")?.message ?? out.conversation!.filter((m) => m.role === "tool").map((m) => contentText(m.content)).join(" ");
-    assert.match(said, /cancelled/, "and the turn says out loud what was cancelled and why");
+    assert.match(said, /cancelled|abandoned/, "and the turn says out loud what was cancelled or abandoned and why");
+    if (!toolStalled) assert.ok(events.some((e) => e.type === "extension" && e.name === "harness-core.retry" && (e.data as { phase?: string }).phase === "exhausted"), "the round was sent again until the retries ran out");
 
-    // 4. Every wait in it was bounded, and each bound ended in a decision somebody or some rule made.
+    // 4. Every wait in it was bounded. Each tool stall ended in a decision somebody or some rule made; no
+    // model stall was ever asked about.
     for (const stall of allOf(events, "stall")) {
       const answer = allOf(events, "nudge").find((n) => n.what.id === stall.what.id);
-      assert.ok(answer, `the stall of ${stall.what.name} was decided, not left open`);
+      if (stall.what.kind === "tool") assert.ok(answer, `the stall of ${stall.what.name} was decided, not left open`);
+      else assert.equal(answer, undefined, "a model's silence is reported, never decided about");
     }
     // 5. And the conversation is still one a provider will accept: every tool call has an answer.
     for (const m of out.conversation!) {

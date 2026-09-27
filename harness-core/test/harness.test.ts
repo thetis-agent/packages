@@ -231,8 +231,8 @@ test("callModel: cancel mid-stream keeps the partial text, emits no error, and r
   const out = await callModel(ctx);
   assert.deepEqual(out.conversation, [
     { role: "user", content: textContent("go") },
-    { role: "assistant", content: textContent("one two ") },
-  ]);
+    { role: "assistant", content: textContent("one two "), extensions: { "@thetis/harness-core": { partial: true } } },
+  ], "the cut reply is kept, and marked as cut so a resume does not send it as a prefill");
   assert.deepEqual(events.filter((e) => e.type !== "context.updated").map((e) => e.type), ["text", "text"], "no error event: the kernel produces the one cancelled error");
 });
 
@@ -250,6 +250,7 @@ test("callModel: a cancel between tool calls closes the ones that never ran and 
   const out = await callModel(ctx);
   assert.equal(invoked.length, 1, "the second tool call was not started");
   assert.deepEqual(toolResults(out.conversation), [["t", "first ran"], ["t", "error: the turn was stopped before this tool ran"]]);
+  assert.deepEqual(out.conversation!.filter((m) => m.role === "tool").map((m) => m.extensions), [undefined, { "@thetis/harness-core": { notRun: true } }], "only the call that never started is marked for a resume to run");
   assert.ok(!events.some((e) => e.type === "error"));
 });
 
@@ -270,8 +271,8 @@ test("callModel: a cancel during a tool that ignores its signal returns at once,
   assert.equal(finished, false, "the tool is still running; its outcome is dropped");
   assert.deepEqual(out.conversation!.slice(1), [
     { role: "assistant", content: textContent("running "), toolCalls: [{ id: "c1", name: "t", args: {} }] },
-    { role: "tool", content: textContent("error: the turn was stopped before this tool ran"), toolCallId: "c1", name: "t" },
-  ]);
+    { role: "tool", content: textContent("error: the turn was stopped while this tool was running, so its result was never seen; it may have done some or all of its work"), toolCallId: "c1", name: "t" },
+  ], "a tool that had started is not marked notRun: a resume must not do its work twice");
   assert.ok(!events.some((e) => e.type === "error" || e.type === "tool.result"));
   await new Promise((r) => setTimeout(r, 250));
   assert.equal(finished, true);
@@ -291,7 +292,7 @@ test("callModel: a tool call id an earlier turn already answered is still closed
   ];
   setTimeout(() => control.abort(), 10);
   const out = await callModel(ctx);
-  assert.deepEqual(out.conversation!.slice(-2).map((m) => [m.role, contentText(m.content)]), [["assistant", ""], ["tool", "error: the turn was stopped before this tool ran"]]);
+  assert.deepEqual(out.conversation!.slice(-2).map((m) => [m.role, contentText(m.content)]), [["assistant", ""], ["tool", "error: the turn was stopped while this tool was running, so its result was never seen; it may have done some or all of its work"]]);
 });
 
 test("callModel: a provider failure keeps the tool call and its result, keeps the partial text, drops the tool call that came with the failure, and emits one provider error", async () => {
@@ -308,9 +309,9 @@ test("callModel: a provider failure keeps the tool call and its result, keeps th
   const out = await callModel(ctx);
   assert.deepEqual(out.conversation!.map((m) => m.role), ["user", "assistant", "tool", "assistant"]);
   assert.equal(contentText(out.conversation![2].content), JSON.stringify({ got: { n: 1 } }), "an object result is JSON");
-  assert.deepEqual(out.conversation![3], { role: "assistant", content: textContent("partial") }, "the text streamed before the failure is kept; the tool call that came with it is not");
+  assert.deepEqual(out.conversation![3], { role: "assistant", content: textContent("partial"), extensions: { "@thetis/harness-core": { partial: true } } }, "the text streamed before the failure is kept, marked as cut; the tool call that came with it is not");
   const errors = events.filter((e) => e.type === "error");
-  assert.deepEqual(errors, [{ type: "error", message: "provider error: the provider gave up", code: "provider" }]);
+  assert.deepEqual(errors, [{ type: "error", message: "provider error: the provider gave up", code: "provider", retryable: false, kind: "other" }], "an unlabelled failure whose words say nothing transient is not retried");
   assert.equal(out.call!.messages.length, 3, "the call carries what the provider accepted: the request, the reply, the tool result");
 });
 
@@ -323,7 +324,7 @@ test("callModel: a provider the kernel cannot reach is a provider failure too; a
   const { ctx, events } = loopCtx(script, { tools: [spec], invoke: async () => "ok" });
   const out = await callModel(ctx);
   assert.deepEqual(toolResults(out.conversation), [["t", "ok"]]);
-  assert.deepEqual(events.filter((e) => e.type === "error"), [{ type: "error", message: "provider error: no provider serves m", code: "provider" }]);
+  assert.deepEqual(events.filter((e) => e.type === "error"), [{ type: "error", message: "provider error: no provider serves m", code: "provider", retryable: false, kind: "other" }]);
   const coded = loopCtx(async (round, _c, onEvent) => (round === 1 ? onEvent({ type: "tool_call", call: { id: "c1", name: "t", args: {} } }) : onEvent({ type: "text", delta: "on" })), { tools: [spec], invoke: async () => { throw Object.assign(new Error("x"), { code: "other" }); } });
   const failed = await callModel(coded.ctx);
   assert.deepEqual(toolResults(failed.conversation), [["t", "error: x"]], "only code cancelled stops the loop; any other coded error is the tool's result");

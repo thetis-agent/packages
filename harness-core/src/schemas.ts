@@ -19,7 +19,7 @@ const UsageTurnSchema = z.looseObject({
   firstMessage: z.number().int().nonnegative(),
   at: z.string(),
   calls: z.number().int().nonnegative(),
-  status: z.enum(["running", "complete", "failed", "cancelled"]),
+  status: z.enum(["running", "complete", "failed", "cancelled", "yielded"]),
   usage: z.record(z.string(), z.number()),
 });
 export type UsageTurn = z.infer<typeof UsageTurnSchema>;

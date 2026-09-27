@@ -19,10 +19,31 @@ What `call()` does with a `ProviderCall`:
 - A reasoning model's thinking arrives on the same deltas as the answer, under `reasoning` (OpenRouter's normalization) or `reasoning_content` (DeepSeek, llama.cpp, and upstreams OpenRouter passes through); whichever came becomes a `reasoning` event. It is never folded into `text`: the thinking is not the reply, and nothing downstream keeps it.
 - Streamed tool call fragments are joined by index and emitted after the stream ends. Invalid JSON in arguments becomes `{ _raw: "<text>" }`.
 - Every usage chunk passes through `normalizeUsage`: `prompt_tokens`, `completion_tokens`, `total_tokens`, `cost`, `cache_read_tokens`, `cache_write_tokens`, `cache_read_ratio`, `reasoning_tokens`.
-- A transient refusal (`408`, `409`, `425`, `429`, `5xx`, or a `402` whose body names `in_flight_budget`) is tried again up to `retries` times, waiting for the `Retry-After` header, else the hint in the body, else 1, 2, 4 seconds, capped at 120 seconds. A final refusal (`401`, an empty account) becomes an `error` event at once, as `openrouter <status>: <message> (<reason>)`.
+- A transient refusal (`408`, `409`, `425`, `429`, `5xx`, `529`, or a `402` whose body names `in_flight_budget`) is tried again up to `retries` times, waiting for the `Retry-After` header, else the hint in the body, else 1, 2, 4 seconds, capped at 120 seconds. A request that gets no response at all (`fetch failed`, a connection reset or refused before any header) is tried again the same way, with the 1, 2, 4 second waits. A final refusal (`401`, an empty account) becomes an `error` event at once, as `openrouter <status>: <message> (<reason>)`.
 - Every request is bounded twice, and neither bound is a limit on how long a good answer may take. See "Bounded waits" below.
-- A stream that ends with neither `[DONE]` nor a `finish_reason` was cut under the reply. With nothing received yet the request is made again, up to `retries` times; with part of the reply received it cannot be, and the error says so (`the connection closed before the reply finished, part-way through it: no finish reason was sent`). A reply that finishes with no text and no tool call is an error too (`the model returned an empty reply (finish_reason: stop)`), because a turn that took it as the end stopped mid-work with nothing said.
+- A stream that ends with neither `[DONE]` nor a `finish_reason` was cut under the reply, and the error says so: `the connection closed before the reply finished, part-way through it: no finish reason was sent`, or `..., before any of it arrived: ...`. It is never made again here, whether or not anything had arrived; see "Errors and retries". A last line sent without its trailing newline is still read, so a final `finish_reason` or `[DONE]` is not mistaken for a cut. A reply that finishes with no text and no tool call is an error too (`the model returned an empty reply (finish_reason: stop)`), because a turn that took it as the end stopped mid-work with nothing said.
 - A reply that ends with `finish_reason` `length` is an error (`the reply stopped at the output limit of N tokens (max_tokens); reasoning counts against it, so raise defaults.max_tokens or ask for less at once`), because its tool call arguments would be half a JSON document. `content_filter` is an error too.
+
+## Errors and retries
+
+Every `error` event carries, besides its `message`, the labels the kernel's `ProviderEvent` declares as optional: `retryable` (whether the same request could succeed later), `kind` (`connection`, `rate-limit`, `overloaded`, `timeout`, `credits`, `context`, `output-limit`, `filter`, `auth` or `other`), and, when there is one, the HTTP `status` and the `retryAfterMs` the refusal asked for. The labels are this package's whole part in retrying once the headers are in. It asks again only before any of the reply exists (`post()`'s refusal retries, which are cheap, carry no partial output, and also serve direct callers such as the nudge and the compaction summary). After that, one policy decides, in the harness that owns the round and can throw its half away: `@thetis/harness-core` sends the round again after a growing wait. Two retry policies stacked on one another is how a zero-byte cut once became an instant loop nobody could see.
+
+| Failure | `retryable` | `kind` |
+|---|---|---|
+| The stream cut, before or part-way through the reply | `true` | `connection` |
+| The stream failed on read (reset, terminated) | `true` | `connection` |
+| No response at all, after `post()`'s own retries | `true` | `connection` |
+| The request deadline, or the stream stall bound | `true` | `timeout` |
+| A refusal still transient after `post()`'s retries: `429`, in-flight `402` | `true` | `rate-limit` (with `retryAfterMs` when asked) |
+| `408`, `504` | `true` | `timeout` |
+| `500`, `502`, `503`, `529`, and an error inside the stream that says upstream, overloaded or a 5xx code | `true` | `overloaded` |
+| An empty reply; tool arguments that are not JSON (nearly always a reply cut short) | `true` | `other` |
+| `finish_reason: length` | `false` | `output-limit` |
+| `finish_reason: content_filter` | `false` | `filter` |
+| `400` or `413` saying the prompt is too long | `false` | `context` |
+| `401`, `403`, no `apiKey` | `false` | `auth` |
+| `402` for an empty account | `false` | `credits` |
+| Anything else (`404`, a malformed chunk, unsupported content) | `false` | `other` |
 
 ## Configuration
 
@@ -35,7 +56,7 @@ What `call()` does with a `ProviderCall`:
 | `headers` | `{}` | Extra request headers, merged over `Authorization`, `HTTP-Referer` and `X-Title`. |
 | `defaults` | `{}` | Request fields sent with every call, under `call.params`. Set `max_tokens` here, and whatever turns reasoning on. |
 | `cache` | `{}` | The prompt caching policy: `enabled`, `ttl`, `systemTtl`, `anchorStride`, `maxBreakpoints`, `explicitVendors`, `overrides`, `hints` (`ignore`, `tune` or `override`), `affinity`. See `@thetis/prompt-cache`. |
-| `retries` | `3` | How many times a transient refusal is tried again. |
+| `retries` | `3` | How many times a request that got no response, or a transient refusal, is tried again. Nothing after the first byte of the reply is tried again here. |
 | `requestTimeoutMs` | `180000` | How long the whole attempt to get a response may take: every retry and every wait between them, counted from the first request. |
 | `streamStallMs` | `120000` | How long an open stream may send no bytes at all before it is abandoned. Any byte resets it. |
 
@@ -54,7 +75,7 @@ So there are two bounds, and they are deliberately about two different things:
 | `requestTimeoutMs` | From the first request until the response headers arrive, retries and the waits between them included. | Nothing. It is one budget for the whole attempt, so adding `retries` cannot buy more time. | A request that is accepted and never answered. |
 | `streamStallMs` | An open stream, from the last byte read. | Every byte. | A stream that is open and silent. |
 
-Neither is a limit on the reply. A model that thinks for twenty minutes sends SSE traffic while it does, and every chunk resets the stall bound; a long answer is never cut short by either. What is bounded is silence, not work, which is the same distinction `@thetis/harness-core` makes one layer up when it asks whether to keep waiting rather than killing a turn on a timer.
+Neither is a limit on the reply. A model that thinks for twenty minutes sends SSE traffic while it does, and every chunk resets the stall bound; a long answer is never cut short by either. What is bounded is silence, not work, which is the same distinction `@thetis/harness-core` makes one layer up when it asks whether to keep waiting on a quiet tool rather than killing a turn on a timer. A quiet model stream is this package's alone to bound: the harness only reports it, and sends the round again when this bound ends it.
 
 When a bound fires, the events already yielded stand: a stream that sent three paragraphs and then went quiet delivers those three paragraphs and then one `error` event saying what happened. When the caller's `signal` fires instead, the request is aborted and nothing further is yielded, because a caller that has given up is not waiting to be told why.
 
@@ -105,9 +126,9 @@ Reasoning tokens are output tokens: they count against `defaults.max_tokens` and
 | File | Content |
 |---|---|
 | `package.json` | The manifest: the provider export. |
-| `src/index.ts` | `createProvider`, `retryAfterMs`, `refusal`, `stopMessage`, `requestScope`, the wire conversion, the SSE reader. |
+| `src/index.ts` | `createProvider`, `retryAfterMs`, `askedWaitMs`, `classifyRefusal`, `classifyStreamError`, `refusal`, `stopMessage`, `requestScope`, the wire conversion, the SSE reader. |
 | `test/retry.test.ts` | Which refusals are retried and for how long; the refusal and stop sentences. |
-| `test/bounds.test.ts` | Both bounds against a local server that accepts the connection and then says nothing: the deadline, the stream stall, the caller's signal, and a normal stream that neither bound touches. |
+| `test/bounds.test.ts` | Both bounds against a local server that accepts the connection and then says nothing: the deadline, the stream stall, the caller's signal, and a normal stream that neither bound touches. Against a server that cuts, refuses or drops on cue: every failure's `retryable` and `kind`, a cut never made again, a dropped connection tried again in `post()`, and a last line without its newline. |
 
 ## Tests
 
