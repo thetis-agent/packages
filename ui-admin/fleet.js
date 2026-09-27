@@ -5,7 +5,7 @@
 // fence alone; a fork lands in the admin's own home the way tool-exec's does, because the page's Fork
 // means "fork it and use it". The marketplace library is imported when asked, so an installation without
 // it still answers everything but the registry's word.
-import { realpathSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { newestMtime } from "@thetis/runtime/lib/freshness";
 import { installedPackage } from "./git.js";
@@ -167,6 +167,40 @@ export function copyState(copy, space, { newer = filesNewer } = {}) {
 
 // ---- where one package runs ----
 
+/** Folder copies marked with whether the admin has each installed under its own name. */
+async function withInstalled(env, copies) {
+  const mine = await env.kernel.packages.list().catch(() => []);
+  return copies.map((f) => ({ ...f, installed: (Array.isArray(mine) ? mine : []).some((p) => p.name === f.name) }));
+}
+
+/**
+ * The copies in the asking admin's own folder (`<home>/packages/*`) made from any of `origins`, installed or
+ * not: `notion-read` made from `@bitmuse/notion` is a copy of the shared Notion too. Another person's folder is
+ * not readable from here, so only the admin's own are counted this way; installed copies anyone runs come from
+ * the lists. A folder that cannot be read has none.
+ */
+export function folderCopies(home, origins, user) {
+  if (!home) return [];
+  let entries = [];
+  try {
+    entries = readdirSync(resolve(home, "packages"), { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const e of entries) {
+    if (!e.isDirectory() || e.name.startsWith(".")) continue;
+    try {
+      const m = JSON.parse(readFileSync(resolve(home, "packages", e.name, "package.json"), "utf8"));
+      const from = m?.thetis?.forkedFrom?.name;
+      if (typeof m?.name === "string" && from && origins.has(from)) out.push({ user, name: m.name, version: String(m.version ?? ""), label: typeof m.thetis.label === "string" ? m.thetis.label : null, folder: `packages/${e.name}` });
+    } catch {
+      /* not a package: skipped */
+    }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 /**
  * package-where: every person's copy of one package, the workspace it is loaded in and whether that
  * workspace runs older code than the disk, the services that workspace runs, and the configuration's
@@ -213,7 +247,11 @@ export async function packageWhere(args, env) {
     })
   );
   const list = rows.map((r) => r.row);
-  const forks = rows.flatMap((r) => r.forks);
+  // A shared copy's own copies include the ones made from the original it was shared from.
+  const from = name.startsWith("@thetis/") ? (await promotions(env)).get(name)?.name ?? null : null;
+  const installedForks = rows.flatMap((r) => r.forks);
+  const folder = folderCopies(env.cwd, new Set([name, ...(from ? [from] : [])]), env.user).filter((f) => !installedForks.some((i) => i.user === f.user && i.name === f.name));
+  const forks = [...installedForks.map((f) => ({ ...f, installed: true })), ...(folder.length ? await withInstalled(env, folder) : [])];
   const counts = {
     people: list.length,
     installed: list.filter((r) => r.installed).length,
@@ -346,6 +384,27 @@ export async function packageUnfork(args, env) {
   return { data: { name: back?.name ?? own.forkedFrom.name, version: back?.version ?? null, from: name } };
 }
 
+// ---- Thetis's own parts ----
+//
+// The Extensions place lists the parts that make Thetis run (the host packages, the storage driver, the
+// gateways, the model providers, the harness, the index service, the page's own plumbing) under "Part of
+// Thetis", apart from what a person added or was given, and counts only the rest as Installed. The Control
+// panel says the same number, so the rule is `@thetis/ui-marketplace`'s `lib/rows.js` `isComponent`, restated
+// (a package imports only its own files and its declared dependencies) and held to it by `test/fleet.test.js`.
+
+const COMPONENT_TYPES = new Set(["host", "storage", "gateway", "provider", "skill-type", "service"]);
+const COMPONENT_NAMES = new Set(["harness-core", "prompt-cache", "bench", "bench-probe", "ui-admin", "ui-marketplace", "ui-context", "ui-tools", "ui-skills"]);
+const SKILL_LOADERS = new Set(["skills-all", "skills-l1", "skills-hybrid"]);
+
+/** Whether a row is one of Thetis's own parts: `audience`, then the type and the name. `installed` is for the reader. */
+export function isComponent(row) {
+  if (row.audience === "system") return true;
+  if (row.audience === "everyone") return false;
+  const base = String(row.name ?? "").replace(/^@[^/]+\//, "");
+  if (SKILL_LOADERS.has(base)) return !row.installed;
+  return COMPONENT_TYPES.has(row.type) || COMPONENT_NAMES.has(base);
+}
+
 // ---- the fleet ----
 
 /** The configuration reports at one layer, by package; a refusal is an empty map. */
@@ -435,7 +494,9 @@ export async function fleet(_args, env) {
     const report = system.get(r.name);
     const version = commonVersion(r.versions);
     // An install wins over applying, as the library says: an install brings the new pin and reopens the workspace.
-    const found = behind.get(r.name);
+    // A copy whose official version moved on (`unfork`) is not an update of what anyone runs: it is Customized,
+    // and the copy's page says what using Thetis's version would do.
+    const found = behind.get(r.name)?.apply === "unfork" ? null : behind.get(r.name);
     const waiting = Object.entries(r.byUser).filter(([, c]) => c.state === "update" && !c.fork).map(([who]) => who);
     const update = found ? { apply: found.apply, version: found.version } : waiting.length ? { apply: "reload", version } : null;
     return {
@@ -450,6 +511,8 @@ export async function fleet(_args, env) {
       byUser: r.byUser,
       // Installed for the person asking: their own copy, not a fork of theirs standing in for it.
       mine: Boolean(r.byUser[env.user] && !r.byUser[env.user].fork),
+      // One of Thetis's own parts, as the Extensions place decides it: not counted among what is installed.
+      component: isComponent({ name: r.name, type: r.type, audience: facts.audience, installed: Boolean(r.byUser[env.user] && !r.byUser[env.user].fork) }),
       ...(promoted.has(r.name) ? { promotedFrom: promoted.get(r.name) } : {}),
       state: update ? "update" : "current",
       waiting,

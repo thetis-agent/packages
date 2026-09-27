@@ -100,6 +100,9 @@ export function installedRow(info, installed = true) {
   return {
     name: info.name,
     label: labelOf(info),
+    // Whether the manifest named it, or the label was made from the package name: a copy that named itself is
+    // an extension of its own ("Notion (read only)"), and one that did not reads as its origin.
+    labelGiven: typeof info.thetis?.label === "string" && !!info.thetis.label.trim(),
     version: info.version,
     type: info.type,
     description: info.description ?? "",
@@ -141,8 +144,20 @@ export function installedRow(info, installed = true) {
     skills: skillCount(info.root, info.thetis?.skills),
     hasSkills: typeof info.thetis?.skills === "string" && !!info.thetis.skills,
     pages: pageCount(info.thetis?.ui),
+    screens: screensOf(info.thetis?.ui),
     bench: benchOf(info),
   };
+}
+
+/**
+ * The screens a package adds that a person can open, for the Overview's "Adds the Workflows screen: ☰ →
+ * Workflows": its places, then its docks, each `{ slot, id, label }`.
+ */
+export function screensOf(ui) {
+  if (!ui || typeof ui !== "object") return [];
+  const out = [];
+  for (const slot of ["places", "dock"]) for (const e of Array.isArray(ui[slot]) ? ui[slot] : []) if (e && typeof e.id === "string") out.push({ slot: slot === "places" ? "place" : "dock", id: e.id, label: typeof e.label === "string" ? e.label : e.id });
+  return out;
 }
 
 /**
@@ -266,6 +281,7 @@ export function indexRow(entry) {
   return {
     name: entry.name,
     label: labelOf({ name: entry.name, thetis: { label: entry.label } }),
+    labelGiven: typeof entry.label === "string" && !!entry.label.trim(),
     version: entry.version,
     type: entry.type,
     description: entry.description ?? "",
@@ -296,6 +312,7 @@ export function indexRow(entry) {
     skills: 0,
     hasSkills: !!entry.skills,
     pages: Number.isFinite(entry.pages) ? entry.pages : 0,
+    screens: [],
     bench: entry.bench ? { suites: entry.bench.suites ?? [], ...(entry.bench.peerGroup ? { peerGroup: entry.bench.peerGroup } : {}), reports: [] } : null,
   };
 }
@@ -334,12 +351,62 @@ export function mergeRows(installed, entries, index, { catalog = [], user = "" }
       continue;
     }
     const merged = { ...have, registry: entry.registry, source: entry.source, available: true, tip: entry.version, readme: !!entry.readme, keywords: entry.keywords ?? [], description: have.description || entry.description || "" };
-    byName.set(entry.name, withAhead(withUpdate(merged, newer.get(entry.name)), unshared.get(entry.name)));
+    byName.set(entry.name, withAhead(withUpdate(renamed(merged, entry), newer.get(entry.name)), unshared.get(entry.name)));
+  }
+  // A system package on disk newer than the one a person installed from a registry names it too.
+  for (const info of catalog) {
+    const have = byName.get(info.name);
+    if (have && have.installed) byName.set(info.name, renamed(have, { version: info.version, label: typeof info.thetis?.label === "string" ? info.thetis.label : null }));
   }
   const mine = user ? `@${user}/` : null;
   return [...byName.values()].map((r) => {
     const row = mine && r.installed && r.name.startsWith(mine) ? { ...r, own: true } : r;
     return { ...row, component: isComponent(row) };
+  });
+}
+
+/**
+ * One name per extension: the label of the newest version anybody here can see, so a person who has not
+ * updated and one who never installed it read the same name. When that changes the label of the version the
+ * person runs, `wasLabel` keeps the old one, and the update's sentence says "Now called <new>." `newer` is an
+ * index entry or a catalog entry: `{ version, label }`.
+ */
+export function renamed(row, newer) {
+  if (!newer?.label || compareVersions(newer.version, row.version) <= 0) return row;
+  const label = labelOf({ name: row.name, thetis: { label: newer.label } });
+  if (label === row.label) return row;
+  return { ...row, label, labelGiven: true, ...(row.installed ? { wasLabel: row.wasLabel ?? row.label } : {}) };
+}
+
+/**
+ * What the journal says about the rows, laid onto them: `givenBy` (the admin who installed it for this
+ * person, when the latest install of an installed row was somebody else's), `sharedBy` on a promoted copy
+ * (`{ from, owner, at }`: the original, whose it was, when), and `markedBy` on something an admin turned on for
+ * everyone. `entries` is `journal.tail` as the person may read it -- the rows they are in -- oldest first; the
+ * machine's own actors ("operator", "_system") are nobody.
+ */
+export function withJournal(rows, entries, user = "") {
+  if (!Array.isArray(entries) || !entries.length) return rows;
+  const person = (a) => typeof a === "string" && a && a !== "operator" && a !== "_system" && a !== "system";
+  const installs = new Map();
+  const shared = new Map();
+  const marked = new Map();
+  for (const e of entries) {
+    const d = e?.data ?? {};
+    if (e?.kind === "package.install" && e.target === user && typeof d.name === "string") installs.set(d.name, e.actor);
+    else if (e?.kind === "package.promote" && typeof d.promoted === "string") shared.set(d.promoted, { from: typeof d.name === "string" ? d.name : null, owner: e.target ?? null, at: e.at ?? null });
+    else if (e?.kind === "package.everyone" && typeof e.target === "string") {
+      if (d.on === false) marked.delete(e.target);
+      else if (person(e.actor)) marked.set(e.target, e.actor);
+    }
+  }
+  return rows.map((r) => {
+    const by = r.installed ? installs.get(r.name) : undefined;
+    const extra = {};
+    if (person(by) && by !== user) extra.givenBy = by;
+    if (r.everyoneBy === "promoted" && shared.has(r.name)) extra.sharedBy = shared.get(r.name);
+    if (r.everyone && r.everyoneBy === "marked" && marked.has(r.name)) extra.markedBy = marked.get(r.name);
+    return Object.keys(extra).length ? { ...r, ...extra } : r;
   });
 }
 

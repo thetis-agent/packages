@@ -46,6 +46,14 @@ test("the menu is drawn on the body with the shell's rows, a rule, a shortcut, a
   assert.equal(document.body.querySelector(".menu"), null);
 });
 
+test("a menu whose items carry no icon draws no icon column", () => {
+  const close = openMenu({ x: 10, y: 10 }, [{ label: "Delete files…", run() {} }, { label: "Copy technical id", run() {} }]);
+  const menu = document.body.querySelector(".menu");
+  assert.equal(menu.querySelectorAll(".menu-icon").length, 0, "no empty gutter before the labels");
+  assert.equal(menu.querySelectorAll(".menu-label").length, 2);
+  close();
+});
+
 test("arrows wrap over the enabled rows, Home and End reach the ends, Enter and Space choose", () => {
   const { ran, rows, menu } = opened();
   menu.dispatchEvent(key("ArrowUp"));

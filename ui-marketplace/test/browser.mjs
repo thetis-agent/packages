@@ -33,7 +33,7 @@ const REPO = "https://github.com/thetis-agent/packages.git";
 const OLD = "1".repeat(40);
 const NEW = "2".repeat(40);
 const sys = (name, type, extra = {}) => ({ name, version: "0.1.0", type, description: `${name.slice(8)} does its job.`, root: ROOT, thetis: { type }, source: { kind: "system", ref: "/sys" }, everyone: true, everyoneBy: "config", loadedVersion: "0.1.0", ...extra });
-const EXA_KEY = { apiKey: { type: "string", secret: true, required: true, help: "The Exa API key; put it in .env as EXA_API_KEY and reference it, since a tool call without one fails." } };
+const EXA_KEY = { apiKey: { type: "string", secret: true, required: true, help: "Your Exa API key, from the Exa dashboard (dashboard.exa.ai → API keys). Every search needs one." } };
 const installed = [
   sys("@thetis/gateway-web", "gateway", { version: "0.13.1", loadedVersion: "0.13.0", thetis: { type: "gateway", label: "web gateway", ui: { places: [{ id: "x" }] } } }),
   sys("@thetis/terminal", "tool", { description: "Long-lived shell sessions in your own space.", thetis: { type: "tool", tools: ["shell", "shell_read", "shell_send"].map((name) => ({ name, description: `${name} does one thing. And more.` })) } }),
@@ -51,8 +51,8 @@ const rows = withFolder(mergeRows(installed, index.packages, index, { catalog, u
 const CONFIG = { "@thetis/exa": { package: "@thetis/exa", inherits: [], keys: [{ key: "apiKey", state: "missing", secret: true, declared: true, type: "string", required: true, help: EXA_KEY.apiKey.help }], summary: "apiKey is required and not set", broken: true } };
 const UPDATES = {
   items: [
-    { name: "@thetis/gateway-web", label: "web gateway", from: "0.13.0", to: "0.13.1", apply: "apply" },
-    { name: "@thetis/exa", label: "exa", from: "0.1.0", to: "0.2.0", apply: "install" },
+    { name: "@thetis/gateway-web", label: "Web Gateway", from: "0.13.0", to: "0.13.1", apply: "apply" },
+    { name: "@thetis/exa", label: "Exa", from: "0.1.0", to: "0.2.0", apply: "install" },
   ],
   own: [],
   forks: [],
@@ -144,34 +144,47 @@ test("the card, the store and an extension's page, and Update all through a drop
     const card = page.locator(`[data-notice="${NAME}:updates"]`);
     await card.waitFor();
     assert.equal(await card.locator(".notice-title").innerText(), "Updates ready");
-    assert.equal(await card.locator(".notice-body").innerText(), "Updates for 2 extensions: web gateway and exa.");
+    assert.equal(await card.locator(".notice-body").innerText(), "Updates for 2 extensions: Web Gateway and Exa.");
     if (shots) await page.screenshot({ path: join(shots, "market-card.png") });
 
-    // Review opens the store at "Needs your attention".
+    // Review opens the store at "Needs your attention", and the card goes while the place is open.
     await card.locator(".notice-action", { hasText: "Review" }).click();
     await page.locator("#place .mk-store #mk-attention").waitFor();
+    await page.waitForFunction((n) => !document.querySelector(`[data-notice="${n}:updates"]`), NAME);
     const titles = () => page.locator("#place .mk-section-title").allInnerTexts();
-    // The configuration reports arrive after the rows: Exa's missing key then counts as well as its update.
-    await page.locator('#place #mk-attention .mk-card[data-name="@thetis/exa"] [data-chip="needsSetup"]').waitFor();
-    assert.deepEqual(await titles(), ["Needs your attention (2)", "Added by you (1)", "Discover (2)", "Built in (1)", "In your folder (1)", "Part of Thetis (1)"], "the storage driver and the restart tool are an admin's, so a person never sees them");
-    assert.deepEqual(await page.locator("#place .mk-chip").allInnerTexts(), ["All", "Tools", "Skills", "Pages", "Models"], "the type chips are always there");
-    assert.match(await page.locator("#place .mk-status").innerText(), /^2 updates ready · checked 15 min ago$/);
-    assert.equal(await page.locator("#place .mk-legend").innerText(), "Tools let your assistant do things. Skills teach it how. Pages add a screen. Models add a model provider.");
-    assert.equal(await page.locator("#place .mk-system-toggle").count(), 0, "no system components checkbox any more");
-    assert.equal(await page.locator("#place details.mk-fold[open]").count(), 0, "the three folds start folded");
-    const exaCard = page.locator('#place #mk-added .mk-card[data-name="@thetis/exa"]');
+    // The configuration reports arrive after the rows: Exa's missing key then shows on its card.
+    await page.locator('#place #mk-installed .mk-card[data-name="@thetis/exa"] [data-chip="needsSetup"]').waitFor();
+    assert.deepEqual(await titles(), ["Needs your attention (2)", "Installed (2)", "Discover (2)", "Drafts in your folder (1)", "Part of Thetis (1)"], "the storage driver and the restart tool are an admin's, so a person never sees them");
+    assert.deepEqual(await page.locator("#place .mk-chip").allInnerTexts(), ["All", "Tools", "Skills", "Pages", "Models", "Background"], "the type chips are always there");
+    assert.equal(await page.locator("#place .mk-status").innerText(), "Updates ready: Web Gateway and Exa Web Search · checked 15 min ago");
+    assert.equal(await page.locator("#place .mk-legend").innerText(), "Tools let your assistant do things. Skills teach it how. Pages add a screen. Models add a model provider. Background parts work without a screen or tools.");
+    assert.equal(await page.locator("#place details.mk-fold[open]").count(), 0, "the folds start folded");
+    // The to-do strip: one row each, a sentence and one action; Update N is exactly the Update rows.
+    assert.deepEqual(await page.locator("#place .mk-todo").evaluateAll((n) => n.map((r) => [r.dataset.name, r.dataset.kind, r.querySelector(".btn").textContent])), [["@thetis/gateway-web", "update", "Update"], ["@thetis/exa", "update", "Update"]]);
+    assert.equal(await page.locator('#place .mk-todo[data-name="@thetis/exa"] .mk-todo-reason').innerText(), "Version 0.2.0 is ready; you have 0.1.0, and it still needs setting up.");
+    assert.equal(await page.locator("#place #mk-attention .mk-section-head .btn").innerText(), "Update 2");
+    assert.deepEqual(await page.locator("#place .mk-pill-btn").evaluateAll((n) => n.map((b) => b.firstChild.textContent)), ["All", "Added by you", "For everyone", "Customized"]);
+    const exaCard = page.locator('#place #mk-installed .mk-card[data-name="@thetis/exa"]');
     assert.equal(await exaCard.locator(".mk-card-label").innerText(), "Exa Web Search");
+    assert.equal(await exaCard.locator(".mk-card-label").getAttribute("title"), "@thetis/exa", "the id is the title's tooltip, not the card's");
+    assert.equal(await exaCard.getAttribute("title"), null);
     assert.equal(await exaCard.locator(".mk-card-by").innerText(), "by Thetis · Tools");
-    assert.deepEqual(await exaCard.locator(".badge").allInnerTexts(), ["Needs setup", "Update available"]);
+    assert.deepEqual(await exaCard.locator(".mk-card-chips .badge").allInnerTexts(), ["Needs setup", "Update available"]);
     assert.equal(await exaCard.locator('[data-chip="needsSetup"]').getAttribute("title"), "Something must be set before it works. Open it to set it up.");
-    assert.doesNotMatch(await page.locator("#place .mk-store").innerText(), /\bIncluded\b|\bYours\b|Installed\b|Local only/, "none of the old badges");
+    assert.equal(await exaCard.locator(".mk-card-desc").innerText(), "Web search and page contents.");
+    assert.doesNotMatch(await page.locator("#place .mk-store").innerText(), /\bIncluded\b|\bYours\b|Local only|comes with Thetis/, "none of the old words");
+    // The pills narrow Installed.
+    await page.locator('#place .mk-pill-btn[data-pill="everyone"]').click();
+    await page.waitForFunction(() => document.querySelector("#place #mk-installed .mk-section-title")?.textContent === "Installed (1)");
+    await page.locator('#place .mk-pill-btn[data-pill=""]').click();
     if (shots) await page.screenshot({ path: join(shots, "market-store.png") });
 
-    // The search: a synonym finds web search, and the folds open while they have something.
+    // The search: a synonym finds web search, an empty section is not drawn, and a fold opens while it has something.
     await page.locator("#place .mk-search").fill("internet");
-    await page.waitForFunction(() => [...document.querySelectorAll("#place .mk-section-title")].map((n) => n.textContent).join("|").startsWith("Needs your attention (2)|Added by you (1)|Discover (0)"));
+    await page.locator('#place #mk-installed .mk-card[data-name="@thetis/exa"]').waitFor();
+    await page.waitForFunction(() => !document.querySelector("#place #mk-discover"));
     await page.locator("#place .mk-search").fill("draft");
-    await page.locator("#place details#mk-folder[open]").waitFor();
+    await page.locator("#place details#mk-drafts[open]").waitFor();
     await page.locator("#place .mk-search").fill("");
     await page.locator('#place .mk-chip[data-kind="Skills"]').click();
     await page.waitForFunction(() => document.querySelector("#place #mk-discover .mk-section-title")?.textContent === "Discover (1)");
@@ -184,30 +197,36 @@ test("the card, the store and an extension's page, and Update all through a drop
     await page.locator("#place .mk-hero .mk-title").waitFor();
     assert.equal(await page.locator("#place .mk-crumb-name").innerText(), "Notes");
     assert.equal(await page.locator("#place .mk-title").getAttribute("title"), "@thetis/notes", "the package id is the title's tooltip");
-    assert.equal(await page.locator("#place .mk-needs").innerText(), "Needs: your notes service token (token)");
+    assert.equal(await page.locator("#place .mk-needs").innerText(), "Needs a notes service token.");
     await page.locator("#place .mk-actions .btn", { hasText: "Install" }).click();
     await page.locator(".popover").waitFor();
-    assert.match(await page.locator(".popover-note").innerText(), /You'll set it up next: your notes service token \(token\)\./);
+    assert.match(await page.locator(".popover-note").innerText(), /^Nothing to download\. .*You'll set it up next: a notes service token\.$/);
+    assert.match(await page.locator(".popover .kv").innerText(), /from\s+Thetis · Tools/, "never 'by by'");
     await page.locator(".popover .btn", { hasText: "Cancel" }).click();
     await page.locator("#place .mk-crumb .btn").click();
 
-    // An extension's page: the chips, the reason, Update first, Installed ✓ ▾ with Remove for me, Set up, and the tabs.
-    await page.locator('#place #mk-added .mk-card[data-name="@thetis/exa"]').click();
+    // An extension's page: the chips, the reason with its link, Update first, Installed ✓ ▾ with Remove for me, Set up, and the tabs.
+    await page.locator('#place #mk-installed .mk-card[data-name="@thetis/exa"]').click();
     await page.locator("#place .mk-hero .mk-title").waitFor();
     assert.equal(await page.locator("#place .mk-title").innerText(), "Exa Web Search");
     assert.equal(await page.locator("#place .mk-by").innerText(), "by Thetis · Tools");
-    assert.equal(await page.locator("#place .mk-banner").innerText(), "Add the Exa API key (apiKey) in Settings to start using it.");
+    assert.equal(await page.locator("#place .mk-banner").innerText(), "Exa Web Search needs an Exa API key before it works. Get one at dashboard.exa.ai.");
+    assert.equal(await page.locator("#place .mk-banner a").getAttribute("href"), "https://dashboard.exa.ai");
     assert.deepEqual(await page.locator("#place .mk-actions .btn").allInnerTexts(), ["Update", "Installed ✓ ▾", "Set up", "⋯"]);
     assert.deepEqual(await page.locator("#place .mk-tab").allInnerTexts(), ["Overview", "Settings", "README", "Details"]);
     assert.equal(await page.locator("#place .mk-readme").count(), 0, "the README waits on its tab");
     const pageText = await page.locator("#place .mk-hero").innerText();
-    assert.doesNotMatch(pageText, /workspace|reload|fence|\.env|1111111|2222222/i, "no mechanism words, no .env and no commit on the top of the page");
+    assert.doesNotMatch(pageText, /workspace|reload|fence|\.env|1111111|2222222|\(apiKey\)/i, "no mechanism words, no .env, no key name and no commit on the top of the page");
     await page.locator("#place .mk-actions .btn", { hasText: "Installed" }).click();
     assert.deepEqual(await page.locator(".menu .menu-label").allInnerTexts(), ["Remove for me"]);
     await page.locator(".menu .menu-item", { hasText: "Remove for me" }).click();
     await page.locator(".popover").waitFor();
-    assert.match(await page.locator(".popover-note").innerText(), /Your saved settings are kept\./);
+    assert.match(await page.locator(".popover-note").innerText(), /Also delete my saved settings/);
+    assert.equal(await page.locator(".popover .mk-tick").isChecked(), false, "kept unless the person says so");
     await page.locator(".popover .btn", { hasText: "Cancel" }).click();
+    await page.locator("#place .mk-more").click();
+    assert.deepEqual(await page.locator(".menu .menu-label").allInnerTexts(), ["Copy technical id (@thetis/exa)"]);
+    await page.keyboard.press("Escape");
     await page.locator("#place .mk-actions .btn", { hasText: "Set up" }).click();
     await page.locator('#place .mk-tab[data-tab="settings"][aria-selected="true"]').waitFor();
     await page.locator("#place .cf-card").waitFor();
@@ -215,8 +234,11 @@ test("the card, the store and an extension's page, and Update all through a drop
     await page.locator("#place .mk-tab", { hasText: "README" }).click();
     await page.locator("#place .mk-readme").waitFor();
     await page.locator("#place .mk-tab", { hasText: "Details" }).click();
-    assert.match(await page.locator("#place .mk-technical .kv").innerText(), /1111111 → 2222222/, "the commit pair lives here");
-    assert.match(await page.locator("#place .mk-technical .kv").innerText(), /@thetis\/exa/, "and the package id");
+    const detailsText = await page.locator("#place .mk-technical .kv").innerText();
+    assert.match(detailsText, /1111111 → 2222222/, "the commit pair lives here");
+    assert.match(detailsText, /@thetis\/exa/, "and the package id");
+    assert.match(detailsText, /kind\s+Tools/);
+    assert.doesNotMatch(detailsText, /^type\b/m, "one field name, Kind");
 
     // A part of Thetis: required, so no Remove of any kind.
     await page.locator("#place .mk-crumb .btn").click();
@@ -228,9 +250,9 @@ test("the card, the store and an extension's page, and Update all through a drop
     await page.locator("#place .mk-crumb .btn").click();
     await page.locator("#place .mk-store #mk-attention").waitFor();
 
-    // Update all: the fetch, one drained apply, the space going away and coming back, and the refresh.
+    // Update 2: the fetch, one drained apply, the space going away and coming back, and the refresh.
     const before = await page.evaluate(() => window.esCount);
-    await card.locator(".notice-action", { hasText: "Update all" }).click();
+    await page.locator("#place #mk-attention .mk-section-head .btn", { hasText: "Update 2" }).click();
     await page.waitForFunction(() => document.querySelector(`[data-notice$=":updates"] .notice-title`)?.textContent === "Updating");
     await page.waitForTimeout(100);
     assert.deepEqual(sent.filter(([v]) => v === "update" || v === "fence-reload"), [["update", { name: "@thetis/exa" }], ["fence-reload", { drain: true }]]);
@@ -241,7 +263,7 @@ test("the card, the store and an extension's page, and Update all through a drop
     await page.evaluate(() => reviewEmit("open", {}));
     await reloaded;
     await online();
-    await page.locator(".toast", { hasText: "Updated: web gateway and exa." }).waitFor();
+    await page.locator(".toast", { hasText: "Updated: Web Gateway and Exa." }).waitFor();
     assert.equal(await page.locator(`[data-notice="${NAME}:updates"]`).count(), 0, "nothing left to update, so no card");
     if (shots) await page.screenshot({ path: join(shots, "market-after.png") });
     assert.deepEqual(errors, []);
@@ -295,6 +317,7 @@ test("an admin: one card per family, the other versions, and For everyone", asyn
         if (verb === "config-show") return route.fulfill({ json: { data: all.find((r) => r.name === args.name)?.config ?? { package: args.name, inherits: [], keys: [], summary: "every key is set", broken: false } } });
         if (verb === "publish-targets") return route.fulfill({ json: { data: { available: false, targets: [] } } });
         if (verb === "people") return route.fulfill({ json: { data: [{ id: "bitmuse", role: "admin" }, { id: "sam", role: "user" }] } });
+        if (verb === "holders") return route.fulfill({ json: { data: { name: args.name, users: args.name.startsWith("@bitmuse/") ? ["bitmuse"] : args.name === "@thetis/tool-operator" ? [] : ["bitmuse", "sam"] } } });
         if (verb === "show") {
           const row = all.find((r) => r.name === args.name);
           return route.fulfill({ json: { data: { ...facts, row, family: familyOf(row, all).members.filter((m) => m.name !== row.name), readme: null, assets: {} } } });
@@ -328,52 +351,85 @@ test("an admin: one card per family, the other versions, and For everyone", asyn
     // Open the place from the ≡ menu, as a person does.
     await page.locator("#menu").click();
     await page.locator(".menu-item", { hasText: "Extensions" }).first().click();
-    await page.locator("#place .mk-store #mk-added").waitFor();
+    await page.locator("#place .mk-store #mk-installed").waitFor();
     await page.locator('#place [data-chip="needsSetup"]').first().waitFor();
     const titles = await page.locator("#place .mk-section-title").allInnerTexts();
-    assert.deepEqual(titles, ["Needs your attention (4)", "Added by you (2)", "Discover (2)", "Built in (2)", "In your folder (2)", "Part of Thetis (1)"]);
+    assert.deepEqual(titles, ["Needs your attention (5)", "Installed (4)", "Discover (2)", "Part of Thetis (1)"], "no Drafts: the folder copies of Notion are in its card");
+    assert.deepEqual(await page.locator("#place .mk-todo").evaluateAll((n) => n.map((r) => [r.dataset.kind, r.querySelector(".btn").textContent])), [["optional", "Set up"], ["review", "Review"], ["setup", "Set up"], ["setup", "Set up"], ["update", "Update"]]);
+    assert.equal(await page.locator("#place #mk-attention .mk-section-head .btn").innerText(), "Update 1", "the copy behind Thetis's version is never counted");
+    assert.equal(await page.locator("#place .mk-update-note").innerText(), "Your own copies are not touched.");
     assert.deepEqual(await page.locator("#place #mk-discover .mk-card").evaluateAll((n) => n.map((c) => c.dataset.name)), ["@thetis/tool-operator", "@tg/lore"], "no second Notion and no Thetis tool-exec: bitmuse has a version of each");
-    const copy = page.locator('#place #mk-added .mk-card[data-name="@bitmuse/tool-exec"]');
+    const copy = page.locator('#place #mk-installed .mk-card[data-name="@bitmuse/tool-exec"]');
     assert.equal(await copy.locator(".mk-card-label").innerText(), "Extensions and Helper Chats");
-    assert.deepEqual(await copy.locator(".badge").allInnerTexts(), ["Update available", "Customized"]);
+    assert.deepEqual(await copy.locator(".badge").allInnerTexts(), ["Customized"]);
     if (shots) await page.screenshot({ path: join(shots, "market-admin-store.png"), fullPage: true });
 
-    // The promoted Notion: by you, For everyone, its other versions, and how it came to be everyone's.
-    await page.locator("#place details#mk-builtin > summary").click();
-    await page.locator('#place #mk-builtin .mk-card[data-name="@thetis/notion"]').click();
+    // The shared Notion: by you, the neutral setup, its other versions, and how it came to be everyone's.
+    await page.locator('#place #mk-installed .mk-card[data-name="@thetis/notion"]').click();
     await page.locator("#place .mk-side").waitFor();
     assert.equal(await page.locator("#place .mk-by").innerText(), "by you · Tools");
-    assert.deepEqual(await page.locator("#place .mk-hero .badge").allInnerTexts(), ["For everyone"]);
-    assert.deepEqual((await page.locator("#place .mk-versions li").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()).sort(), ["@bitmuse/notion — your original · published to thetis Install", "notion-read — your copy in your folder · not installed Install"]);
-    assert.match(await page.locator("#place .mk-side").innerText(), /Shared with everyone from @bitmuse\/notion by you\./);
-    assert.deepEqual(await page.locator("#place .mk-tab").allInnerTexts(), ["Overview", "README", "Details", "People", "Activity"]);
+    assert.deepEqual(await page.locator("#place .mk-hero-head .badge").allInnerTexts(), ["Needs setup", "For everyone"]);
+    assert.match(await page.locator("#place .mk-banner").innerText(), /^You gave everyone Notion\. Set it up if you use it, or remove it for yourself\./);
+    assert.deepEqual(await page.locator("#place .mk-banner .btn").allInnerTexts(), ["Set my key", "Set one for everyone"]);
+    assert.deepEqual((await page.locator("#place .mk-versions li").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()).sort(), ["○ Notion (Read Only) — your copy in your folder Use instead", "○ Notion — your original · published to thetis Use instead"]);
+    assert.match(await page.locator("#place .mk-side").innerText(), /Shared with everyone from Notion by you\. Your people get this one\./);
+    assert.match(await page.locator("#place .mk-side").innerText(), /It is taken away from you and sam now\./);
+    assert.equal(await page.locator("#place .mk-side .btn", { hasText: "Turn on for everyone" }).count(), 0);
+    assert.deepEqual(await page.locator("#place .mk-person option").allInnerTexts(), ["sam (has it)"]);
+    assert.equal(await page.locator("#place .mk-picker .btn").innerText(), "Remove for sam…");
+    assert.deepEqual(await page.locator("#place .mk-tab").allInnerTexts(), ["Overview", "Settings", "README", "Details", "People", "Activity"]);
+    await page.locator("#place .mk-versions .btn").first().click();
+    await page.locator(".popover").waitFor();
+    assert.match(await page.locator(".popover-note").innerText(), /replaces Notion \(shared with everyone\) for you\. Everyone else keeps Notion \(shared with everyone\)\./);
+    await page.locator(".popover .btn", { hasText: "Cancel" }).click();
     if (shots) await page.screenshot({ path: join(shots, "market-admin-notion.png"), fullPage: true });
 
-    // The original: never shared a second time.
-    await page.locator("#place .mk-version-link", { hasText: "@bitmuse/notion" }).first().click();
-    await page.waitForFunction(() => document.querySelector("#place .mk-crumb-name")?.textContent === "Notion" && document.querySelector("#place .mk-title")?.title === "@bitmuse/notion");
+    // The original: already shared, Open it, and nothing else.
+    await page.locator('#place .mk-version-link[title="@bitmuse/notion"]').click();
+    await page.waitForFunction(() => document.querySelector("#place .mk-title")?.title === "@bitmuse/notion");
     assert.match(await page.locator("#place .mk-side").innerText(), /Already shared with everyone as Notion\./);
-    assert.equal(await page.locator("#place .mk-side .btn", { hasText: "Share with everyone" }).count(), 0);
-    assert.equal(await page.locator("#place .mk-needs").innerText(), "Needs: an internal connection or personal access token from https://www.notion.so/my-integrations (token)");
+    assert.deepEqual(await page.locator(`#place .mk-side-block[aria-label="For everyone"] .btn`).allInnerTexts(), ["Open it"], "no Share, no Turn on, no Remove, no picker");
+    assert.equal(await page.locator("#place .mk-needs").innerText(), "Needs an internal connection or personal access token. Get one at https://www.notion.so/my-integrations.");
+    assert.equal(await page.locator("#place .mk-actions .btn").first().innerText(), "Use instead");
 
-    // The copy of an older official version: Use Thetis's version leads, and sharing it is not offered.
+    // The copy of an older official version: a Review, what using Thetis's version does, and no sharing.
     await page.locator("#place .mk-crumb .btn").click();
-    await page.locator('#place #mk-added .mk-card[data-name="@bitmuse/tool-exec"]').click();
+    await page.locator('#place #mk-installed .mk-card[data-name="@bitmuse/tool-exec"]').click();
     await page.locator("#place .mk-side").waitFor();
     assert.equal(await page.locator("#place .mk-actions .btn").first().innerText(), "Use Thetis's version");
-    assert.equal(await page.locator("#place .mk-banner").innerText(), "Thetis's version 0.4.1 is newer than the 0.3.3 your copy was made from.");
+    assert.equal(await page.locator("#place .mk-banner").innerText(), "Thetis's 0.4.1 is newer than your copy (made from 0.3.3).");
+    assert.match(await page.locator("#place .mk-hero").innerText(), /Use Thetis's version replaces your changes with Thetis's 0\.4\.1\. Your copy's files stay in your folder\./);
     assert.match(await page.locator("#place .mk-side").innerText(), /Your copy is older than Thetis's 0\.4\.1; sharing it would replace it for everyone\./);
-    assert.equal(await page.locator("#place .mk-side .btn", { hasText: "Remove for everyone" }).count(), 1);
+    assert.match(await page.locator("#place .mk-side").innerText(), /Only you have this\. Use Remove for me\./);
+    assert.equal(await page.locator("#place .mk-side .btn", { hasText: "Remove for everyone" }).count(), 0, "a private copy is nobody else's to remove");
     await page.locator("#place .mk-more").click();
-    assert.deepEqual(await page.locator(".menu .menu-label").allInnerTexts(), ["Delete files…", "Technical id"]);
+    assert.deepEqual(await page.locator(".menu .menu-label").allInnerTexts(), ["Delete files…", "Copy technical id (@bitmuse/tool-exec)"]);
     await page.keyboard.press("Escape");
     if (shots) await page.screenshot({ path: join(shots, "market-admin-copy.png"), fullPage: true });
 
-    // The server's missing key is the admin's Needs setup, with where to fix it.
+    // The server's missing key is the admin's Needs setup, with where to fix it and the way there.
     await page.locator("#place .mk-crumb .btn").click();
-    await page.locator('#place #mk-attention .mk-card[data-name="@thetis/skills-hybrid"]').click();
+    await page.locator('#place #mk-attention .mk-todo[data-name="@thetis/skills-hybrid"] .mk-todo-label').click();
     await page.locator("#place .mk-banner").waitFor();
     assert.match(await page.locator("#place .mk-banner").innerText(), /OPENROUTER_API_KEY is not in the server's environment.*Control panel → Extensions → Skill Loader → Settings/);
+    assert.equal(await page.locator("#place .mk-banner .btn").last().innerText(), "Set it for everyone");
+
+    // An admin-only extension: no Turn on for everyone, and a picker of admins only (there is none but me).
+    await page.locator("#place .mk-crumb .btn").click();
+    await page.locator('#place #mk-discover .mk-card[data-name="@thetis/tool-operator"]').click();
+    await page.locator("#place .mk-side").waitFor();
+    assert.match(await page.locator("#place .mk-side").innerText(), /Only admins can have this\./);
+    assert.equal(await page.locator("#place .mk-side .btn").count(), 0);
+
+    // At phone width the side panel comes before the tabs, and the tabs scroll rather than being cut.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator("#place .mk-crumb .btn").click();
+    await page.locator('#place #mk-installed .mk-card[data-name="@thetis/notion"]').click();
+    await page.locator("#place .mk-side").waitFor();
+    const [side, tabs] = await Promise.all([page.locator("#place .mk-side").boundingBox(), page.locator("#place .mk-tabs").boundingBox()]);
+    assert.ok(side.y < tabs.y, "the family and the admin's acts before a long tool list");
+    assert.equal(await page.locator("#place .mk-tabs").evaluate((n) => getComputedStyle(n).overflowX), "auto");
+    if (shots) await page.screenshot({ path: join(shots, "market-admin-phone.png"), fullPage: true });
     assert.deepEqual(errors, []);
   } catch (error) {
     await page.screenshot({ path: "/tmp/market-browser-admin.png", fullPage: true }).catch(() => {});

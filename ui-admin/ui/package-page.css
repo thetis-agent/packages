@@ -38,7 +38,9 @@
 .btn.is-primary .ua-tag.is-admin { color: #fff; background: rgba(255, 255, 255, .18); border-color: rgba(255, 255, 255, .35); }
 
 /* The tabs. */
-.ua-pkg-tabs { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--hairline); padding-bottom: 6px; }
+.ua-pkg-tabs { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--hairline); padding-bottom: 6px; overflow-x: auto; scrollbar-width: none; }
+.ua-pkg-tabs::-webkit-scrollbar { display: none; }
+.ua-pkg-tab { flex: none; white-space: nowrap; }
 .ua-pkg-tab { appearance: none; display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: var(--r-sm); border: 1px solid transparent; background: none; color: var(--text-dim); font: inherit; font-size: var(--text-sm); cursor: pointer; }
 .ua-pkg-tab:hover { color: var(--text); background: var(--surface-2); }
 .ua-pkg-tab.is-on { color: var(--text); background: var(--accent-wash); border-color: var(--accent-edge); }
@@ -73,9 +75,9 @@
 .ua-lineage-node.is-promoted { stroke: var(--text-faint); }
 .ua-lineage-node.is-none { stroke-dasharray: 3 3; stroke: var(--text-faint); }
 .ua-lineage-node.is-fork { stroke: var(--warn); }
-.ua-lineage-text { font-family: var(--font); font-size: 11px; fill: var(--text-dim); }
+.ua-lineage-text { font-family: var(--font); font-size: 12px; fill: var(--text-dim); }
 .ua-lineage-text.is-strong { fill: var(--text); font-weight: 600; }
-.ua-lineage-text.is-mono { font-family: var(--mono); font-size: 10.5px; fill: var(--text-faint); }
+.ua-lineage-text.is-mono { font-family: var(--mono); font-size: 11px; fill: var(--text-faint); }
 .ua-lineage-text.is-fork { fill: var(--warn); }
 .ua-lineage-text.is-dim { fill: var(--text-faint); }
 
@@ -93,19 +95,16 @@
 .ua-mini-row code { font-family: var(--mono); flex: none; }
 .ua-mini-subject { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Where it runs: the person picker card, and the tab's table. */
+/* Who has it: one line per person, their state in a few words and the one action that fits. */
 .ua-where-body { display: flex; flex-direction: column; gap: 12px; }
-.ua-person-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; }
-.ua-person-row .ua-person { min-width: 0; width: 100%; }
-.ua-person-row .btn { padding: 0 9px; }
-.ua-person-facts { grid-template-columns: 84px minmax(0, 1fr); row-gap: 8px; }
-.ua-person-facts dd { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
-.ua-person-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.ua-person-actions .btn { justify-content: center; white-space: nowrap; }
-.ua-person-actions .btn:only-child, .ua-person-actions .btn.is-primary, .ua-person-actions .btn.is-warn { grid-column: 1 / -1; }
+.ua-person-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ua-person-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--hairline); font-size: var(--text-sm); }
+.ua-person-line:last-child { border-bottom: 0; }
+.ua-person-who { min-width: 0; overflow-wrap: anywhere; }
+.ua-person-acts { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.ua-person-acts .btn { white-space: nowrap; }
 .ua-where-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--hairline); font-size: var(--text-xs); color: var(--text-faint); }
 .ua-where-foot b { color: var(--text); font-weight: 600; }
-.ua-where.is-full .ua-person-facts { grid-template-columns: 120px 1fr; }
 .ua-where-table .table-wrap { border: 0; border-radius: 0; }
 
 /* Files. */
@@ -145,6 +144,8 @@
   .ua-pkg-title-row { flex-direction: column; }
   .ua-pkg-actions-col { align-items: flex-start; }
   .ua-pkg-actions, .ua-pkg-legend { justify-content: flex-start; }
+  .ua-pkg-actions-col { max-width: none; }
+  .ua-pkg-action-line { text-align: left; max-width: none; }
   .ua-files { grid-template-columns: minmax(0, 1fr); }
   .ua-pkg-body.is-configuration .cf-row { grid-template-columns: minmax(0, 1fr); }
   .ua-pkg-body.is-configuration .cf-control { grid-column: 1; grid-row: auto; }

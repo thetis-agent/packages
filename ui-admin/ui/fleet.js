@@ -2,9 +2,9 @@
  * extensions: the extensions installed for the admin reading it (the same count the Extensions place and the
  * shell's own Extensions section give), with "everywhere" one chip away, each row in the columns every
  * extension list uses: Extension (its label and publisher line), its chips, Version, and What it does. `full`
- * is Advanced → Extensions by person: the same rows with a column per person, each cell the version that
- * person runs and whether their workspace applied it; `_system` is "Thetis itself", and the table scrolls
- * inside its box. The chips are `state.js`'s one state; the per-person words are the server's.
+ * is Extensions → Who has what ("Every extension and which people have it."): the same rows with a column per
+ * person, each cell the version that person runs and whether their workspace applied it; `_system` is "Thetis
+ * itself", and the table scrolls inside its box. Its counters say "waiting for a reload" and "customised copies". The chips are `state.js`'s one state; the per-person words are the server's.
  *
  * Two actions. "Update N extensions" installs each extension whose registry holds a newer commit than its
  * pin, behind one confirm that lists them. "Apply updates for N people" restarts the workspaces that have
@@ -14,7 +14,8 @@
 
 import { reloadWorkspace, outcomeSentence, UPDATING } from "./workspaces.js";
 import { failedCard, toastError } from "./failed.js";
-import { chipBadges, labelOf, WORDS } from "./state.js";
+import { labelOf, WORDS } from "./state.js";
+import { chipBadges } from "./words.js";
 import { described, rowFromFleet } from "./rows.js";
 
 /** The label a person reads for a fleet row. */
@@ -214,7 +215,7 @@ export function mountFleet(ext, root, { refresh, onOpen, user, mode = "full" } =
 
   function tiles() {
     const s = stats ?? {};
-    return el("div", { class: "ua-fl-tiles" }, tile("up to date", s.current, "ok"), tile("update ready", s.updates, s.updates ? "warn" : null), tile("people to apply", s.waiting, s.waiting ? "warn" : null), tile("own copies", s.forks, null), tile("needs setup", s.broken, s.broken ? "err" : null));
+    return el("div", { class: "ua-fl-tiles" }, tile("up to date", s.current, "ok"), tile("update ready", s.updates, s.updates ? "warn" : null), tile("waiting for a reload", s.waiting, s.waiting ? "warn" : null), tile("customised copies", s.forks, null), tile("needs setup", s.broken, s.broken ? "err" : null));
   }
 
   function filterRow() {
@@ -232,9 +233,9 @@ export function mountFleet(ext, root, { refresh, onOpen, user, mode = "full" } =
     const state = cellState(entry);
     if (state === "none") return el("span", { class: "ua-fl-cell is-none", title: "not installed" }, "—");
     const version = (state === "update" ? entry.loaded : entry.version) ?? entry.version ?? "?";
-    const title = state === "broken" ? "needs setup: a setting is missing" : state === "update" ? `Update ready: runs ${entry.loaded ?? "an older copy"}, ${entry.version} is on disk` : state === "fork" ? `their own copy${entry.forkOf ? ` (${entry.forkOf})` : ""}` : "Up to date";
+    const title = state === "broken" ? "needs setup: a setting is missing" : state === "update" ? `Update ready: runs ${entry.loaded ?? "an older copy"}, ${entry.version} is on disk` : state === "fork" ? `their customised copy${entry.forkOf ? ` (${entry.forkOf})` : ""}` : "Up to date";
     const cls = state === "update" ? "reload" : state;
-    return el("span", { class: `ua-fl-cell is-${cls}`, title }, state === "fork" ? `${version} · own copy` : version);
+    return el("span", { class: `ua-fl-cell is-${cls}`, title }, state === "fork" ? `${version} · customised copy` : version);
   }
 
   /** The Extension cell: the label a person reads, the raw id as its tooltip, and the publisher line under it. */
@@ -292,11 +293,13 @@ export function mountFleet(ext, root, { refresh, onOpen, user, mode = "full" } =
 
   function draw() {
     clear(wrap);
-    if (failed) return void put(wrap, heading(full ? "Extensions by person" : "All extensions"), failedCard(ext, "The extensions", failed, { admin: true, retry: () => void load() }));
+    if (failed) return void put(wrap, heading(full ? "Who has what" : "All extensions"), failedCard(ext, "The extensions", failed, { admin: true, retry: () => void load() }));
     const installs = toInstall().length;
     const behind = workspacesBehind(packages, user);
     const mine = installedForMe(packages).length;
-    const count = full ? `${packages.length} ${packages.length === 1 ? "extension" : "extensions"} across ${columns().length} ${columns().length === 1 ? "workspace" : "workspaces"}` : `${mine} installed`;
+    // The Extensions place's Installed count: what the reader has, Thetis's own parts apart.
+    const parts = installedForMe(packages).filter((p) => p.component).length;
+    const count = full ? `${packages.length} ${packages.length === 1 ? "extension" : "extensions"} across ${columns().length} ${columns().length === 1 ? "workspace" : "workspaces"}` : `${mine - parts} installed${parts ? ` · ${parts} part of Thetis` : ""}`;
     const installBtn = installs ? button(`Update ${installs} ${installs === 1 ? "extension" : "extensions"}`, { tone: "primary", onClick: () => void installAll(installBtn) }) : null;
     // No button when everyone has applied what is on disk: there would be nothing for it to do.
     const applyBtn = behind.length ? button(`Apply updates for ${behind.length} ${behind.length === 1 ? "person" : "people"}`, { tone: "primary", disabled: updating ? true : null, title: updating ? UPDATING : "Restart the workspaces that have not applied the code on disk; running replies pause at a safe point", onClick: () => void applyAll(applyBtn) }) : null;
@@ -305,8 +308,8 @@ export function mountFleet(ext, root, { refresh, onOpen, user, mode = "full" } =
     drawReport();
     put(
       wrap,
-      el("div", { class: "toolbar" }, heading(full ? "Extensions by person" : "All extensions", count), el("div", { class: "toolbar-gap" }), applyBtn, installBtn),
-      full ? null : el("p", { class: "text-dim ua-fl-sub" }, "Every extension installed here. Everywhere adds what only other people or Thetis itself have."),
+      el("div", { class: "toolbar" }, heading(full ? "Who has what" : "All extensions", count), el("div", { class: "toolbar-gap" }), applyBtn, installBtn),
+      el("p", { class: "text-dim ua-fl-sub" }, full ? "Every extension and which people have it." : "Every extension installed here. Everywhere adds what only other people or Thetis itself have."),
       !installs && !behind.length && packages.length ? el("p", { class: "text-dim" }, badge("Up to date", "ok"), " Every workspace runs the code on disk.") : null,
       updating && behind.length ? el("p", { class: "text-dim" }, `${UPDATING} Applying waits until then.`) : null,
       reportEl,

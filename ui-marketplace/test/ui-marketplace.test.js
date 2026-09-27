@@ -143,10 +143,11 @@ test("rows: a system package nobody here has is a row of its own, installable by
   assert.equal(publisherLine(rows[1], { user: "alice" }), "by you", "a tool type with no tools brings nothing to name");
   assert.equal(publisherLine(rows[5], { user: "alice" }), "by Thetis · Tools");
   assert.deepEqual(stateOf(rows[0]).chips, [], "Thetis's own, everyone's by configuration: no chip");
-  assert.deepEqual(stateOf(rows.find((r) => r.name === "@thetis/hello")).chips.map((c) => c.label), ["For everyone"]);
+  assert.deepEqual(stateOf(rows.find((r) => r.name === "@thetis/hello"), { admin: true }).chips.map((c) => c.label), ["For everyone"]);
+  assert.deepEqual(stateOf(rows.find((r) => r.name === "@thetis/hello")).chips, [], "on something a person does not have, For everyone is said to an admin only");
   assert.equal(whatItBrings("skill"), "Its skills are offered to your assistant from your next message.");
   assert.equal(whatItBrings({ type: "tool", tools: [], pages: 1 }), "It appears on the page after a refresh.", "a tool extension without tools never promises tools");
-  assert.match(NOT_INSTALLABLE.host, /never installed for a person/);
+  assert.equal(NOT_INSTALLABLE.host, "Runs inside Thetis itself.");
   // The parts that make the installation run are system components, hidden until asked for; the rest are not.
   assert.deepEqual(rows.map((r) => [r.name, r.component]), [["@thetis/harness-core", true], ["@alice/mine", false], ["@thetis/skills-orleans", false], ["@thetis/hello", false], ["@thetis/host-grants", true], ["@thetis/memo", false]]);
   assert.equal(orleans.label, "skills orleans", "no thetis.label: the name without its scope, dashes as spaces");
@@ -161,7 +162,7 @@ test("rows: a copy the space has not loaded is behind its own disk, index or no 
   const bare = mergeRows([loaded], [], undefined);
   assert.deepEqual(bare[0].update, { apply: "reload", version: "0.2.2", installed: "0.2.1", available: "0.2.2" }, "no index is needed: a shipped package is behind its own disk");
   assert.deepEqual(stateOf(bare[0]).chips.map((c) => c.label), ["Update available"], "one state for the person, whatever catches it up");
-  assert.equal(stateOf(bare[0]).reason, "Version 0.2.2 is ready; you have 0.2.1. Updating keeps your settings.");
+  assert.equal(stateOf(bare[0]).reason, "Version 0.2.2 is ready; you have 0.2.1.");
   const index = { version: 1, updatedAt: "2026-09-21T00:00:00.000Z", registries: [{ name: "thetis", url: REPO }], packages: [entry("@thetis/skills-hybrid", "0.2.2", NEW)] };
   const listed = mergeRows([loaded], index.packages, index);
   assert.deepEqual(listed[0].update, { apply: "reload", version: "0.2.2", installed: "0.2.1", available: "0.2.2" }, "an index entry does not change what applies it");
@@ -206,10 +207,10 @@ test("rows: a fork carries what it was forked from and how far that has moved, a
   const same = mergeRows([forkOf({ name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.1.1", identical: true })], [], undefined);
   assert.deepEqual(same[0].update, { apply: "unfork", version: "0.1.1", installed: "0.1.1", available: "0.1.1", origin: "@thetis/gateway-web", identical: true });
   assert.deepEqual(stateOf(same[0]).chips, [], "a copy with no changes is not customized, and nothing newer is ready");
-  assert.deepEqual(stateOf(same[0], { superseded: true }).chips.map((c) => c.label), ["Update available"], "the updates answer knows more than the row");
+  assert.equal(stateOf(same[0], { superseded: true }).todo.kind, "review", "the updates answer knows more than the row, and it is a Review, not an update");
   const moved = mergeRows([forkOf({ name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.2.0" })], [], undefined);
-  assert.deepEqual(stateOf(moved[0]).chips.map((c) => c.label), ["Update available", "Customized"]);
-  assert.equal(stateOf(moved[0]).reason, "Thetis's version 0.2.0 is newer than the 0.1.1 your copy was made from.");
+  assert.deepEqual(stateOf(moved[0]).chips.map((c) => c.label), ["Customized"], "a copy behind its official version is never Update available");
+  assert.equal(stateOf(moved[0]).reason, "Thetis's 0.2.0 is newer than your copy (made from 0.1.1).");
   const working = mergeRows([forkOf({ name: "@thetis/gateway-web", version: "0.1.1", shipped: "0.1.1" })], [], undefined);
   assert.equal(working[0].update, null, "a fork that differs from the current origin is doing its job");
   assert.deepEqual(stateOf(working[0]).chips.map((c) => c.label), ["Customized"]);
@@ -305,7 +306,7 @@ test("install, remove, delete and update go through the person's own packages; u
     await assert.rejects(commands.update({ name: "@thetis/memo" }, t.env), /not behind its registry/);
     await assert.rejects(commands.update({ name: "@thetis/nope" }, t.env), /not installed here/);
     assert.deepEqual(
-      t.calls.map((c) => c.method + ":" + (c.source ?? c.name)),
+      t.calls.filter((c) => c.method !== "journal.tail").map((c) => c.method + ":" + (c.source ?? c.name)),
       ["install:@thetis/exa", "uninstall:@thetis/exa", "delete:@alice/mine", `install:${REPO}#exa@${NEW}`],
       "an update is an install of the newer pinned source"
     );
@@ -449,7 +450,7 @@ test("rows: a version newer here than the registry holds is unpublished work, an
   // this installation mirrors, and a package can sit in one nobody here trusts.
   const mine = mergeRows([shipped("@thetis/package-publish")], index.packages, index);
   assert.deepEqual(mine[0].ahead, { state: "unpublished", version: "0.1.0", published: "", registry: "" });
-  assert.deepEqual(aheadBadge(badge, mine[0]), { text: "Local only", tone: "dim" }, "quiet: on a maintainer's machine this is true of nearly every package at once");
+  assert.equal(aheadBadge(badge, mine[0]), null, "no badge at all: on a maintainer's machine this is true of nearly every package at once, and Details says it");
   // Caught up, and a row the index only offers: nothing to say either way.
   const level = mergeRows([{ ...shipped("@thetis/exa"), version: "0.2.0" }], index.packages, index);
   assert.equal(level[0].ahead, null);
@@ -740,7 +741,7 @@ test("badges: the record answers about one package at one target, and says nothi
   const blank = { published: null, publishedAt: null, removed: null, removedAt: null, latest: null, commit: null };
   // The badge is the index's statement in every case: it is read on a gallery card too, where the record
   // cannot be had, and a badge that means one thing on the card and another on the page is two badges.
-  assert.deepEqual(aheadBadge(badge, row), { text: "Local only", tone: "dim" });
+  assert.equal(aheadBadge(badge, row), null);
   assert.equal(publishRecord(at("@dev/hello", blank), "@dev/hello"), null, "asked and answered with nothing: this person has done neither act here");
   const published = at("@dev/hello", { ...blank, published: "0.2.0", publishedAt: "2026-09-22T10:00:00.000Z", latest: "published", commit: "abc1234" });
   assert.deepEqual(publishRecord(published, "@dev/hello"), { target: "solo", version: "0.2.0", at: "2026-09-22T10:00:00.000Z", removed: false, commit: "abc1234" });
@@ -849,4 +850,69 @@ test("holders and remove-everyone: who has it, then out of each of their spaces;
   }
   const manifest = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
   for (const verb of ["holders", "remove-everyone"]) assert.equal(manifest.thetis.ui.commands.find((c) => c.verb === verb)?.role, "admin", `${verb} is an admin's`);
+});
+
+test("config-reveal: a saved secret, only the one in effect for the person and only from the layer it comes from", async () => {
+  const report = { package: "@thetis/exa", inherits: [], keys: [{ key: "apiKey", state: "set", secret: true, source: "user" }, { key: "shared", state: "set", secret: true, source: "system" }, { key: "none", state: "missing", secret: true }], summary: "", broken: false };
+  const t = fakeEnv({ reports: { "@thetis/exa": report }, effective: { "@thetis/exa": { apiKey: "sk-mine", shared: "sk-everyone" } } });
+  try {
+    assert.deepEqual((await commands.configReveal({ name: "@thetis/exa", key: "apiKey", layer: "user" }, t.env)).data, { value: "sk-mine" });
+    const refused = /This value is not the one in effect for you, so it cannot be shown here\./;
+    await assert.rejects(commands.configReveal({ name: "@thetis/exa", key: "shared", layer: "user" }, t.env), refused, "everyone's key, looked at from the person's own layer");
+    assert.deepEqual((await commands.configReveal({ name: "@thetis/exa", key: "shared", layer: "system" }, t.env)).data, { value: "sk-everyone" });
+    await assert.rejects(commands.configReveal({ name: "@thetis/exa", key: "none", layer: "user" }, t.env), refused);
+    await assert.rejects(commands.configReveal({ name: "@thetis/exa", key: "nope", layer: "user" }, t.env), refused);
+    await assert.rejects(commands.configReveal({ name: "@thetis/exa", key: "bad key", layer: "user" }, t.env), /a configuration key is a word/);
+  } finally {
+    t.cleanup();
+  }
+  assert.ok(JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).thetis.ui.commands.some((c) => c.verb === "config-reveal" && c.export === "configReveal" && !c.role), "any person may reveal their own");
+});
+
+test("rows: the journal says who gave a person what, who shared a copy and when, and who turned it on", async () => {
+  const { withJournal, renamed } = await import("../lib/rows.js");
+  const rows = [
+    { name: "@thetis/publish", installed: true },
+    { name: "@thetis/mine", installed: true },
+    { name: "@thetis/notion", installed: true, everyone: true, everyoneBy: "promoted" },
+    { name: "@thetis/workflows", installed: true, everyone: true, everyoneBy: "marked" },
+  ];
+  const journal = [
+    { at: "1", kind: "package.install", actor: "bitmuse", target: "sam", data: { name: "@thetis/publish" } },
+    { at: "2", kind: "package.install", actor: "bitmuse", target: "sam", data: { name: "@thetis/mine" } },
+    { at: "3", kind: "package.install", actor: "sam", target: "sam", data: { name: "@thetis/mine" } },
+    { at: "4", kind: "package.promote", actor: "operator", target: "bitmuse", data: { name: "@bitmuse/notion", promoted: "@thetis/notion" } },
+    { at: "5", kind: "package.everyone", actor: "bitmuse", target: "@thetis/workflows", data: {} },
+  ];
+  const out = withJournal(rows, journal, "sam");
+  assert.equal(out[0].givenBy, "bitmuse");
+  assert.equal(out[1].givenBy, undefined, "the person installed it again themselves: theirs");
+  assert.deepEqual(out[2].sharedBy, { from: "@bitmuse/notion", owner: "bitmuse", at: "4" });
+  assert.equal(out[3].markedBy, "bitmuse");
+  assert.equal(withJournal(rows, [], "sam"), rows);
+  // One name: the newest version's label, and the old one kept for "Now called …".
+  const r = renamed({ name: "@thetis/skills-orleans", label: "skills orleans", version: "0.1.0", installed: true }, { version: "0.1.1", label: "Orleans docs" });
+  assert.deepEqual([r.label, r.wasLabel], ["Orleans docs", "skills orleans"]);
+  assert.equal(renamed({ name: "@a/x", label: "x", version: "1.0.0" }, { version: "0.9.0", label: "old" }).label, "x", "an older version never renames");
+});
+
+test("fork diff: the files a copy changed since it was made, from the base it recorded", async () => {
+  const { changedFiles, fileHashes, FORK_BASE } = await import("../lib/fork-diff.js");
+  const dir = mkdtempSync(join(tmpdir(), "fork-diff-"));
+  try {
+    mkdirSync(join(dir, "dist"), { recursive: true });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "@thetis/x", version: "1.0.0", thetis: { type: "tool" } }));
+    writeFileSync(join(dir, "dist", "index.js"), "one");
+    writeFileSync(join(dir, "README.md"), "read me");
+    assert.equal(changedFiles(dir), null, "no base: not known");
+    writeFileSync(join(dir, FORK_BASE), JSON.stringify(fileHashes(dir)));
+    // A fork rewrites its name, version and forkedFrom: those are not the person's changes.
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "@me/x", version: "1.0.0-fork.1", thetis: { type: "tool", forkedFrom: { name: "@thetis/x", version: "1.0.0" } } }));
+    assert.deepEqual(changedFiles(dir), []);
+    writeFileSync(join(dir, "dist", "index.js"), "two");
+    rmSync(join(dir, "README.md"));
+    assert.deepEqual(changedFiles(dir), ["README.md", "dist/index.js"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

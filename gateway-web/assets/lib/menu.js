@@ -59,6 +59,8 @@ export function openMenu(at, items, { onClose } = {}) {
     }
   }
 
+  // A menu whose items carry no icon has no icon column: an empty gutter reads as something missing.
+  const iconed = (items ?? []).some((item) => item && item !== "-" && item.icon);
   for (const item of items ?? []) {
     if (item === "-") {
       rows.push(el("div", { class: "menu-sep", role: "separator" }));
@@ -68,7 +70,7 @@ export function openMenu(at, items, { onClose } = {}) {
     const row = el(
       "button",
       { type: "button", role: "menuitem", class: `menu-item${item.danger ? " is-danger" : ""}`, disabled: item.disabled ? true : null, onClick: (event) => { event.stopPropagation(); choose(row); } },
-      el("span", { class: "menu-icon" }, item.icon ? icon(item.icon, { size: 16, width: 1.6 }) : null),
+      iconed ? el("span", { class: "menu-icon" }, item.icon ? icon(item.icon, { size: 16, width: 1.6 }) : null) : null,
       el(
         "span",
         { class: "menu-text" },

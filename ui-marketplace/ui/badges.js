@@ -72,9 +72,9 @@ export function aheadBadge(badge, r) {
   // Not "never published", which is a claim the index cannot support: it is built only from the registries
   // this installation mirrors, so its silence is a fact about what is mirrored here and not about the
   // world. A package can sit in a registry nobody here trusts, and saying otherwise sends somebody looking
-  // for a mistake that is not there. "Local only" is the short form on a card; the page's technical details
-  // say the long one, "no registry here lists it", which is what `thetis packages outdated` prints.
-  if (a.state === "unpublished") return badge("Local only", "dim");
+  // for a mistake that is not there. So it is no badge at all: the Details tab's "published" row says "not in
+  // any registry", which is the whole of what is known.
+  if (a.state === "unpublished") return null;
   return badge(`${a.version} here, ${a.published} published`, "warn");
 }
 

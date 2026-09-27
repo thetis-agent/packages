@@ -15,6 +15,8 @@
  *   nothing else is running and no terminal is open, when their setting says `auto`. Otherwise the card says
  *   "Changes ready" with [Apply].
  * - A copy of an extension that carries nothing the official version lacks gets "Use Thetis's version".
+ * - While the Extensions place is open (`hold()`), the "Updates ready" card stays away: the place's own status
+ *   line and "Needs your attention" say the same thing, and the card would sit over its cards.
  * - Applying never cancels a reply. A running reply pauses at a safe point and continues afterwards. Open
  *   terminal sessions close, so that is asked once, and only when there are some.
  *
@@ -90,6 +92,7 @@ export function createUpdater(deps) {
   let last = null;
   let busy = false;
   let pending = false;
+  let held = 0; // how many open Extensions views are holding the card back
   const stops = [];
 
   const readJson = (store, key) => {
@@ -175,7 +178,7 @@ export function createUpdater(deps) {
     const hidden = dismissed();
     const items = data.items ?? [];
     const itemsSig = signatureOf.updates(items);
-    if (!items.length || hidden.updates === itemsSig) close("updates");
+    if (!items.length || hidden.updates === itemsSig || held > 0) close("updates");
     else show("updates", { ...words.updates(items), tone: "info", actions: [{ label: "Review", run: () => deps.openReview() }, { label: "Update all", primary: true, run: () => void updateAll() }], onDismiss: () => dismiss("updates", itemsSig) });
 
     const forks = data.forks ?? [];
@@ -346,6 +349,25 @@ export function createUpdater(deps) {
     for (const s of stops.splice(0)) if (typeof s === "function") s();
   }
 
+  /**
+   * Keeps the "Updates ready" card away while an Extensions view is open, and answers the function that lets it
+   * back. Going from the store to an extension's page lets go and holds again at once, so the card comes back
+   * only a moment after the last view has closed, and never flickers between the two.
+   */
+  function hold() {
+    held += 1;
+    if (!busy) close("updates");
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      held -= 1;
+      deps.later(400, () => {
+        if (held === 0 && !busy && last && !deps.running()) draw(last);
+      });
+    };
+  }
+
   return {
     start,
     stop,
@@ -355,6 +377,7 @@ export function createUpdater(deps) {
     updateSome,
     applyOwn,
     switchBack,
+    hold,
     get last() {
       return last;
     },

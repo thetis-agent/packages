@@ -5,9 +5,17 @@
  * and one listener closes the top one. A floating menu, a picker's list and a popover are above all of
  * these; they handle their own Escape, and while one is open this stack is left alone.
  *
+ * A place is never closed by Escape: it is somewhere a person went (the Extensions place, the Control
+ * panel), and one Escape too many — after a menu or a confirm had already closed, or in the search box —
+ * used to throw away the whole page they were reading. Its ✕ and the menu leave it. Escape closes what sits
+ * over it (a menu, a popover, the drawer) and, with no place on top, the dock.
+ *
  * Kept free of the DOM (the listener is `onEscape`) so it runs under `node:test`. */
 
-export function createLayers() {
+/** The layers Escape never closes: somewhere a person went, left by its own ✕. */
+export const KEPT = Object.freeze(["place"]);
+
+export function createLayers({ kept = KEPT } = {}) {
   const stack = []; // [{ id, close }], bottom first
 
   const at = (id) => stack.findIndex((layer) => layer.id === id);
@@ -28,10 +36,11 @@ export function createLayers() {
     top: () => stack.at(-1)?.id ?? null,
     /** The open ids, bottom first. */
     list: () => stack.map((layer) => layer.id),
-    /** Closes the top layer. Answers whether there was one. */
+    /** Closes the top layer, unless it is one Escape never closes. Answers whether one closed. */
     escape() {
-      const layer = stack.pop();
-      if (!layer) return false;
+      const layer = stack.at(-1);
+      if (!layer || kept.includes(layer.id)) return false;
+      stack.pop();
       layer.close();
       return true;
     },

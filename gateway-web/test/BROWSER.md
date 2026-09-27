@@ -51,12 +51,12 @@ Your default and Recent, the configured default as "Thetis default · …", and 
 and creates nothing, an example button in `.transcript-empty.is-new` fills `#input` without sending, and
 the first send's `POST api/sessions` carries `{ model }`. The rail: each `.rail-btn` has its label as
 `aria-label` and "Label — hint" as `title`; `.rail-widen` shows `.rail-label`s; the ≡ menu lists Files,
-Extensions, Control panel in that order; Escape closes a place opened over the dock, then the dock. A phone
+Extensions, Control panel in that order; Escape never closes a place opened over the dock (its `.place-close` does), and then closes the dock. A phone
 (390×844): no `#rail`, `#panels-btn` opens the docks as a menu; the shelf is at most 40% of the height
 even with a larger remembered height; choosing a place from the menu in the drawer closes the drawer; the
 control panel shows `.panel-select` instead of the tree, and the Extensions section links to the
 Extensions place with **Manage extensions**; with the drawer opened over the place, Escape closes the
-drawer and then the place; the page never scrolls sideways.
+drawer and never the place (its `.place-close` does); the page never scrolls sideways.
 
 ## Setup
 
@@ -464,7 +464,7 @@ after the one fix in `ui/state.js` (see the last paragraph); screenshots `.playw
     `<home>/projects/p_<id>.json` holding three directories while `p_<id>.md` and `tools.disable` are
     unchanged; `.pj-actions` shows no `.pj-unsaved`. Now type a character into `textarea.pj-instructions`
     and `input.pj-name`: `.pj-unsaved` reads "Not saved yet: the name and the instructions." and no request
-    is sent. Press Escape to close the place and open Settings again: the typed name and instructions are
+    is sent. Close the place with its ✕ and open Settings again: the typed name and instructions are
     still there with a `.toast` "Unsaved changes from before are still here.", and `.pj-unsaved` still names
     them. Click the `.pj-dir-remove` of `/tmp/thetis-phase5-extra`: another `…/save`, the record back to
     two directories, the record's `name` still `thetis-check` — an unsaved name is never written by a
@@ -554,7 +554,7 @@ with `devpass123`, `users add bob` with `bobpass123`, `serve` with the pid kept,
 35. **As bob**: sign in as `bob` / `bobpass123` in the same tab and open the Marketplace. Expect the exa card
     **System · everyone** and **Installed**. Open `@thetis/bench-probe`: **System**, no **Installed**, one
     **Install** button, no picker, no admin action; confirm it and expect **Installed** and **Remove**. The crumb
-    returns to the gallery; Escape closes the place and `#app` loses `is-place`. From a shell with bob's
+    returns to the gallery; Escape leaves the place open, its ✕ closes it and `#app` loses `is-place`. From a shell with bob's
     cookie, `POST /bob/api/ext/@thetis/ui-marketplace/install-everyone` and `.../people` with
     `sec-fetch-site: same-origin` answer `403 {"error":"only an admin can send \"…\""}`; `GET /bob/api/admin/users`
     and `GET /bob/api/marketplace` answer `404`.
@@ -1606,7 +1606,7 @@ another tab signs the first tab out, so the member step comes last. Screenshots 
      head "Files" with the subtitle "Home and Shared" when the conversation has no project, `.ws-group`
      headers "Workspace" and "Nova", the Open the Workspace and Refresh the directories actions. Right-click
      `tide.ts` there: the same items with **Open in Workspace** first. Click the row: `#place` opens with
-     the `tide.ts` tab active, the row `.is-selected` and `src` expanded; Escape closes the place and the
+     the `tide.ts` tab active, the row `.is-selected` and `src` expanded; the place's ✕ closes it and the
      dock is still open with its rows.
 135. **File links in the transcript**: with a conversation open send `read: <F>/nova/src/tide.ts` (type
      into `#input` and press Enter). Expect `details.tool[data-tool]` for `read_path` whose `.tool-gist`
@@ -1614,7 +1614,7 @@ another tab signs the first tab out, so the member step comes last. Screenshots 
      and under the run's body a `.ws-touched` "Files in this run:" with one `a.ws-link` for the path. Send
      `list: <F>/nova/src`: a `get_directory` card linked the same way, its own strip naming the directory.
      Click a link: the Workspace opens on `tide.ts` (`.ws-tab.is-active`, the row selected, the editor
-     visible); Escape returns to the conversation. Right-click the link: `body > .menu.is-floating` with
+     visible); the place's ✕ returns to the conversation (Escape never closes a place). Right-click the link: `body > .menu.is-floating` with
      Open in Workspace, **Reveal in Files**, Download, Copy path, Rename, Delete…; Reveal in Files opens the
      dock with `.dock .tree-item[data-path$="/src/tide.ts"].is-selected` inside the dock's viewport.
 136. **Bind now**: as dev, click **Bind now** on the orleans row. Expect the button disabled, a toast

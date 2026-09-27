@@ -1,7 +1,8 @@
-// The one state per extension (lib/state.js) over the fixture rows in state-fixtures.js: the chips and the
-// reasons, the publisher line, the families and their headline, the place's sections for an admin and for a
-// person who is not one, what nothing removes and what only an admin is offered, the Needs line, and the
-// search with its synonyms. Then that ui/state.js is the same file, because the page may import only its own.
+// The one state per extension (lib/state.js) over the fixture rows in state-fixtures.js: the chips, the reasons
+// and the to-do rows, the publisher line and the one label, the families and their other versions, the admin's
+// table for everyone, the place's sections for an admin and for a person who is not one, what nothing removes
+// and what only an admin is offered, the Needs line and the setup sentence, and the search with its synonyms.
+// Then that ui/state.js is the same file, because the page may import only its own.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -11,9 +12,10 @@ import * as state from "../lib/state.js";
 import { EXPECTED_CHIPS, FIXTURES } from "./state-fixtures.js";
 
 const {
-  ADMIN_ONLY, CHIPS, CHIP_ORDER, FILTERS, FOR_EVERYONE_BY, KINDS, REQUIRED, SYNONYMS, WORDS,
-  compareVersions, familiesOf, familyOf, headlineOf, isAdminOnly, isRequired, kindsOf, labelOf, matches, needsLine, officialOf,
-  originOf, otherVersions, phraseOf, placeSections, publisherLine, publisherOf, setupOf, stateOf, titleCase, typeOf, updateOf, useOriginLabel,
+  ADMIN_ONLY, CHIPS, CHIP_ORDER, FILTERS, FOR_EVERYONE_BY, KINDS, PILLS, REQUIRED, SYNONYMS, WORDS,
+  behindOf, compareVersions, dateWords, everyoneActions, familiesOf, familyOf, giverOf, headlineOf, humanKey, isAdminOnly, isRequired, isVariant, kindsOf, labelOf, linkOf,
+  matches, needsLine, nounOf, officialOf, originOf, otherVersions, placeSections, publisherLine, publisherOf, publisherShort, runsInsideThetis, setupOf, setupSentence, stateOf,
+  summaryOf, titleCase, typeOf, updateOf, useOriginLabel,
 } = state;
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -25,7 +27,7 @@ function shown(who, name) {
   const row = find(who, name);
   const family = familyOf(row, rows);
   const origin = officialOf(row, family);
-  return stateOf(row, { admin, user, origin, label: labelOf(row, origin) });
+  return stateOf(row, { admin, user, origin, label: labelOf(row, origin), giver: giverOf(row, { user, family: family.members }) });
 }
 
 test("state: the chips every reader sees on every fixture row, at most two and in the one order", () => {
@@ -45,16 +47,35 @@ test("state: the chips every reader sees on every fixture row, at most two and i
   assert.equal(CHIPS.customized.tooltip, "You are using your own changed copy instead of the official one.");
   assert.equal(CHIPS.forEveryone.tooltip, "An admin gives this to every person.");
   assert.deepEqual(FOR_EVERYONE_BY, ["marked", "promoted", null], "the installation's own list is Thetis's built-ins, and carries no chip");
+  // For everyone on something the person does not have is said to an admin only.
+  const marked = { name: "@thetis/w", everyone: true, everyoneBy: "marked", installed: false };
+  assert.deepEqual(stateOf(marked, { user: "sam" }).chips, []);
+  assert.deepEqual(stateOf(marked, { admin: true, user: "bitmuse" }).chips.map((c) => c.label), ["For everyone"]);
 });
 
-test("state: an unset required key is the person's to set, said with the key's help and never the server's .env", () => {
+test("state: an unset required key is the person's to set, said as '<Label> needs <noun> before it works', with its link and never the key's name", () => {
   for (const who of ["bitmuse", "sam"]) {
     const s = shown(who, "@thetis/exa");
     assert.equal(s.attention, true);
     assert.equal(s.waiting, false);
-    assert.equal(s.reason, "Add the Exa API key (apiKey) in Settings to start using it.");
-    assert.doesNotMatch(s.reason, /\.env|environment/);
+    assert.equal(s.reason, "Exa Web Search needs an Exa API key before it works. Get one at dashboard.exa.ai.");
+    assert.deepEqual(s.setup.link, { text: "dashboard.exa.ai", href: "https://dashboard.exa.ai" });
+    assert.doesNotMatch(s.reason, /\.env|environment|\(apiKey\)/);
+    assert.deepEqual(s.todo, { kind: "setup", tone: "err", action: "Set up", reason: s.reason });
   }
+});
+
+test("state: something given to everyone that needs a personal setting is a neutral row: who gave it, and that it is optional", () => {
+  const b = shown("bitmuse", "@thetis/notion");
+  assert.equal(b.todo.kind, "optional");
+  assert.equal(b.todo.tone, "dim");
+  assert.equal(b.reason, "You gave everyone Notion. Set it up if you use it, or remove it for yourself.");
+  assert.equal(b.setup.reason, "Notion needs an internal connection or personal access token before it works. Get one at https://www.notion.so/my-integrations.");
+  const s = shown("sam", "@thetis/notion");
+  assert.equal(s.reason, "bitmuse gave everyone Notion. Set it up if you use it, or remove it for yourself.");
+  // An admin who installed it for one person gave it to them.
+  const given = { name: "@thetis/x", label: "x", installed: true, givenBy: "bitmuse", config: { keys: [{ key: "token", state: "missing", secret: true, help: "" }], broken: true } };
+  assert.equal(stateOf(given, { user: "sam", giver: "bitmuse" }).reason, "bitmuse gave you X. Set it up if you use it, or remove it for yourself.");
 });
 
 test("state: a ${VAR} default missing on the server is Needs setup for an admin, with where to fix it, and a grey line for anyone else", () => {
@@ -66,11 +87,12 @@ test("state: a ${VAR} default missing on the server is Needs setup for an admin,
   assert.deepEqual(person.chips, [], "a person cannot fix it, so it is not their chip");
   assert.equal(person.attention, false);
   assert.equal(person.waiting, true);
+  assert.equal(person.todo, null);
   assert.equal(person.reason, "Waiting for your admin to finish setting this up.");
   // A key declared for admins only is the admin's too; a ${VAR} the person wrote themselves is theirs.
   const system = { name: "@thetis/x", installed: true, config: { keys: [{ key: "secure", state: "missing", scope: "system", required: true }], broken: true } };
   assert.equal(setupOf(system).waiting, true);
-  assert.equal(setupOf(system, { admin: true, label: "X" }).reason, "secure is not set. Set it for everyone in Control panel → Extensions → X → Settings.");
+  assert.equal(setupOf(system, { admin: true, label: "X" }).reason, "Secure is not set. Set it for everyone in Control panel → Extensions → X → Settings.");
   const mine = { name: "@thetis/x", installed: true, config: { keys: [{ key: "token", state: "missing", missing: ["MY_TOKEN"], source: "user" }], broken: true } };
   assert.equal(setupOf(mine).chip, true);
   // A short report that says broken and names nothing is still the person's, in the kernel's words.
@@ -79,20 +101,33 @@ test("state: a ${VAR} default missing on the server is Needs setup for an admin,
   assert.equal(setupOf({ ...find("sam", "@thetis/exa"), installed: false }).chip, false);
 });
 
-test("state: a copy of an older official version is Update available and Customized, with the versions in its reason", () => {
+test("state: a copy the official version moved past is Customized and a Review, never an update", () => {
   const s = shown("bitmuse", "@bitmuse/tool-exec");
-  assert.deepEqual(s.update, { kind: "origin", to: "0.4.1", from: "0.3.3", reason: "Thetis's version 0.4.1 is newer than the 0.3.3 your copy was made from." });
-  assert.equal(s.reason, s.update.reason);
+  assert.equal(s.update, null);
+  assert.deepEqual(s.behind, { kind: "origin", to: "0.4.1", from: "0.3.3", reason: "Thetis's 0.4.1 is newer than your copy (made from 0.3.3)." });
+  assert.deepEqual(s.todo, { kind: "review", tone: "dim", action: "Review", reason: s.behind.reason });
+  assert.equal(s.attention, false, "not counted with the updates");
   // A copy without the kernel's fork facts reads the official member's version instead.
   const loose = { name: "@a/x", installed: true, forkedFrom: { name: "@thetis/x", version: "1.0.0" } };
-  assert.equal(updateOf(loose, { origin: { name: "@thetis/x", version: "1.1.0" } }).to, "1.1.0");
-  assert.equal(updateOf(loose, { origin: { name: "@thetis/x", version: "1.0.0" } }), null, "the same version is nothing newer");
+  assert.equal(behindOf(loose, { origin: { name: "@thetis/x", version: "1.1.0" } }).to, "1.1.0");
+  assert.equal(behindOf(loose, { origin: { name: "@thetis/x", version: "1.0.0" } }), null, "the same version is nothing newer");
   // A copy of a person's extension goes back to their version, not Thetis's.
   assert.equal(useOriginLabel(find("bitmuse", "@bitmuse/notion-read"), "bitmuse"), "Use your original");
   assert.equal(useOriginLabel(find("bitmuse", "@bitmuse/notion-read"), "sam"), "Use bitmuse's version");
   assert.equal(useOriginLabel(find("bitmuse", "@bitmuse/tool-exec"), "bitmuse"), "Use Thetis's version");
-  // The reload kind and the install kind are one state for the person.
-  assert.equal(shown("sam", "@thetis/gateway-web").reason, "Version 0.16.1 is ready; you have 0.16.0. Updating keeps your settings.");
+});
+
+test("state: an update is only a real newer version of what the person runs, and says a new name when it has one", () => {
+  assert.equal(shown("sam", "@thetis/gateway-web").reason, "Version 0.16.1 is ready; you have 0.16.0.");
+  assert.equal(shown("sam", "@thetis/gateway-web").todo.action, "Update");
+  assert.equal(updateOf({ installed: true, version: "0.3.3-fork.1", update: { apply: "reload", installed: "0.3.3-fork.1", available: "0.3.3-fork.1" } }), null, "never 'X is ready; you have X'");
+  assert.equal(updateOf({ installed: true, version: "1.0.0", update: { apply: "unfork", version: "1.1.0" } }), null);
+  assert.equal(updateOf({ installed: true, version: "1.0.0", update: { apply: "install", version: "1.0.0", from: "aaaaaaa", to: "bbbbbbb" } }).reason, "A newer build of 1.0.0 is ready.");
+  const renamed = { installed: true, version: "0.1.0", label: "Orleans docs", wasLabel: "skills orleans", update: { apply: "install", version: "0.1.1", from: "a", to: "b" } };
+  assert.equal(updateOf(renamed).reason, "Version 0.1.1 is ready; you have 0.1.0. Now called Orleans Docs.");
+  // Update and setup at once: one row, the update, which says the rest.
+  const both = { name: "@thetis/x", label: "x", installed: true, version: "1.0.0", update: { apply: "install", version: "1.1.0", from: "a", to: "b" }, config: { keys: [{ key: "k", state: "missing" }], broken: true } };
+  assert.equal(stateOf(both).todo.reason, "Version 1.1.0 is ready; you have 1.0.0, and it still needs setting up.");
 });
 
 test("publisher: by Thetis, by you, by <person>, from <registry>, then the first two kinds", () => {
@@ -105,15 +140,34 @@ test("publisher: by Thetis, by you, by <person>, from <registry>, then the first
   assert.equal(line("sam", "@bitmuse/notion"), "from thetis · Tools", "an offer is from its registry");
   assert.equal(line("bitmuse", "@bitmuse/notion"), "by you · Tools", "unless it is yours");
   assert.equal(line("sam", "@thetis/gateway-web"), "by Thetis · Page · Background");
+  assert.equal(publisherShort(find("sam", "@thetis/exa")), "Thetis · Tools", "a confirm's from row, never 'by by'");
   assert.equal(publisherOf({ name: "@thetis/lonely", everyoneBy: "promoted" }).text, "by Thetis", "a promoted copy whose original is not here");
+  assert.equal(publisherOf({ name: "@thetis/n", everyoneBy: "promoted", sharedBy: { owner: "rae" } }).text, "by rae", "the journal's word, when the original is not here");
   // Kinds: from what the manifest brings, never from a type that brings nothing.
   assert.deepEqual(kindsOf({ type: "tool", tools: [] }), []);
   assert.deepEqual(kindsOf({ type: "skill" }), ["Skills"]);
-  assert.deepEqual(kindsOf({ type: "provider" }), ["Models", "Background"].slice(0, 1));
   assert.equal(typeOf({ type: "tool", tools: [{ name: "a" }], pages: 1, service: true }), "Tools · Page");
   assert.deepEqual(KINDS.map((k) => k.id), ["Tools", "Skills", "Page", "Models", "Background"]);
-  assert.deepEqual(FILTERS.map((f) => f.label), ["All", "Tools", "Skills", "Pages", "Models"]);
-  assert.equal(WORDS.legend, "Tools let your assistant do things. Skills teach it how. Pages add a screen. Models add a model provider.");
+  assert.deepEqual(FILTERS.map((f) => f.label), ["All", "Tools", "Skills", "Pages", "Models", "Background"]);
+  assert.deepEqual(PILLS.map((p) => p.label), ["All", "Added by you", "For everyone", "Customized"]);
+  assert.equal(WORDS.legend, "Tools let your assistant do things. Skills teach it how. Pages add a screen. Models add a model provider. Background parts work without a screen or tools.");
+});
+
+test("labels: one name per extension, Title Case; a variant keeps its own, a copy without one reads as its origin", () => {
+  const { rows } = FIXTURES.bitmuse;
+  const byName = new Map(rows.map((r) => [r.name, r]));
+  assert.equal(labelOf(byName.get("@bitmuse/tool-exec"), byName.get("@thetis/tool-exec")), "Extensions and Helper Chats");
+  assert.equal(labelOf(byName.get("@bitmuse/notion-read"), byName.get("@bitmuse/notion")), "Notion (Read Only)");
+  assert.equal(isVariant(byName.get("@bitmuse/notion-read"), byName.get("@bitmuse/notion")), true);
+  assert.equal(labelOf({ name: "@a/x-copy", label: "x copy", labelGiven: false, forkedFrom: { name: "@a/x" } }, { name: "@a/x", label: "Ex" }), "Ex", "a label made from the name is not the copy's own");
+  assert.equal(titleCase("web gateway"), "Web Gateway");
+  assert.equal(titleCase("Exa web search"), "Exa Web Search");
+  assert.equal(titleCase("extensions and helper chats"), "Extensions and Helper Chats");
+  assert.equal(titleCase("skill loader (all)"), "Skill Loader (All)");
+  // One line under a card: a part of Thetis in plain words, anything else the description's first sentence.
+  assert.equal(summaryOf({ name: "@thetis/gateway-web", component: true, description: "Your browser interface: long." }), "The web page you are using now.");
+  assert.equal(summaryOf({ name: "@thetis/x", description: "Does one thing. Then more." }), "Does one thing.");
+  assert.equal(dateWords("2026-09-27T10:28:31.237Z"), "27 September 2026");
 });
 
 test("families: a copy joins its origin, a promoted copy joins the original, and the headline is the person's own", () => {
@@ -134,86 +188,129 @@ test("families: a copy joins its origin, a promoted copy joins the original, and
   // Two packages that share an unscoped name and nothing else stay apart.
   const apart = familiesOf([{ name: "@alice/grafana" }, { name: "@thetis/grafana", system: true }]);
   assert.equal(apart.length, 2);
-  // A copy takes its official member's label.
-  assert.equal(labelOf(byName.get("@bitmuse/tool-exec"), byName.get("@thetis/tool-exec")), "Extensions and Helper Chats");
-  assert.equal(labelOf(byName.get("@bitmuse/notion-read"), byName.get("@bitmuse/notion")), "Notion");
-  assert.equal(titleCase("web gateway"), "Web Gateway");
-  assert.equal(titleCase("Exa web search"), "Exa Web Search");
-  assert.equal(titleCase("extensions and helper chats"), "Extensions and Helper Chats");
 });
 
-test("other versions: one line each, saying whose it is and whether it is here, with Install where it can be", () => {
+test("other versions: ✓ the one you use, ○ the rest with how each stands to you, and Use instead where it can be", () => {
   const { rows, user } = FIXTURES.bitmuse;
   const fam = familyOf(find("bitmuse", "@thetis/notion"), rows);
   const lines = otherVersions(fam, find("bitmuse", "@thetis/notion"), { user, admin: true });
-  assert.deepEqual(lines.map((l) => [l.text, l.install]).sort(), [
-    ["@bitmuse/notion — your original · published to thetis", true],
-    ["notion-read — your copy in your folder · not installed", true],
+  assert.deepEqual(lines.map((l) => [l.text, l.action]).sort(), [
+    ["○ Notion (Read Only) — your copy in your folder", "use"],
+    ["○ Notion — your original · published to thetis", "use"],
   ].sort());
+  // From the copy's page, the one in use is ticked.
+  const fromCopy = otherVersions(fam, find("bitmuse", "@bitmuse/notion-read"), { user, admin: true });
+  assert.ok(fromCopy.some((l) => l.text === "✓ Notion — you use this" && l.action === null));
   // sam reads the same family from the other side.
   const samFam = familyOf(find("sam", "@thetis/notion"), FIXTURES.sam.rows);
-  assert.deepEqual(otherVersions(samFam, find("sam", "@thetis/notion"), { user: "sam" }).map((l) => l.text), ["@bitmuse/notion — from thetis · published to thetis"]);
-  // Once the original is installed, it reads as the original.
-  const original = { ...find("bitmuse", "@bitmuse/notion"), folder: null, installed: true };
-  const again = otherVersions({ members: [find("bitmuse", "@thetis/notion"), original] }, find("bitmuse", "@thetis/notion"), { user });
-  assert.equal(again[0].text, "@bitmuse/notion — your original · installed");
+  assert.deepEqual(otherVersions(samFam, find("sam", "@thetis/notion"), { user: "sam" }).map((l) => l.text), ["○ Notion — from thetis · published to thetis"]);
+  // The official version of the copy in use goes back through "Use Thetis's version", not a second install.
+  const toolExec = familyOf(find("bitmuse", "@bitmuse/tool-exec"), rows);
+  assert.equal(otherVersions(toolExec, find("bitmuse", "@bitmuse/tool-exec"), { user, admin: true })[0].action, null);
+});
+
+test("for everyone: the admin's table, the same on both surfaces", () => {
+  const { rows, user } = FIXTURES.bitmuse;
+  const fam = (name) => familyOf(find("bitmuse", name), rows).members;
+  const act = (name, extra = {}) => everyoneActions(find("bitmuse", name), { family: fam(name), user, ...extra });
+  // The shared copy: who shared it, when, and that people get this one; Remove for everyone names who loses it.
+  const shared = everyoneActions({ ...find("bitmuse", "@thetis/notion"), sharedBy: { from: "@bitmuse/notion", owner: "bitmuse", at: "2026-09-27T10:28:31Z" } }, { family: fam("@thetis/notion"), user, holders: ["bitmuse", "sam"] });
+  assert.deepEqual(shared.lines, ["Shared with everyone from Notion by you on 27 September 2026. Your people get this one."]);
+  assert.deepEqual(shared.acts, ["removeEveryone"]);
+  assert.equal(shared.hints.removeEveryone, "It is taken away from you and sam now.");
+  // Its original: already shared, and nothing else.
+  const original = act("@bitmuse/notion");
+  assert.deepEqual([original.lines, original.acts, original.open], [["Already shared with everyone as Notion."], [], "@thetis/notion"]);
+  // A variant copy: never "Already shared"; a copy of Thetis's older one says why it is not shared; only mine: no Remove.
+  assert.deepEqual(act("@bitmuse/notion-read").lines, []);
+  const behind = act("@bitmuse/tool-exec", { holders: ["bitmuse"], origin: find("bitmuse", "@thetis/tool-exec") });
+  assert.deepEqual(behind.lines, ["Your copy is older than Thetis's 0.4.1; sharing it would replace it for everyone.", "Only you have this. Use Remove for me."]);
+  assert.deepEqual(behind.acts, []);
+  // By Thetis, not for everyone: Turn on; nobody else has it: no Remove.
+  assert.deepEqual(act("@thetis/exa", { holders: [] }).acts, ["turnOn"]);
+  // Marked: Turn off with its hint, and Remove naming the people.
+  const marked = everyoneActions({ name: "@thetis/w", label: "workflows", installed: true, system: true, everyone: true, everyoneBy: "marked" }, { user, holders: ["bitmuse", "sam"] });
+  assert.deepEqual(marked.acts, ["turnOff", "removeEveryone"]);
+  assert.equal(marked.hints.turnOff, "New people stop getting it; people who have it keep it.");
+  // The configuration's: said so; admin-only: no Turn on; inside Thetis: nothing at all.
+  assert.deepEqual(act("@thetis/skills-hybrid", { holders: ["bitmuse"] }).lines, ["Everyone gets it (set in Server settings).", "Only you have this. Use Remove for me."]);
+  assert.deepEqual(act("@thetis/tool-operator", { holders: [] }), { lines: ["Only admins can have this."], acts: [], hints: {}, open: null, shared: null });
+  assert.deepEqual(everyoneActions({ name: "@thetis/gateway-login", type: "gateway", system: true }, { user }).lines, ["Runs inside Thetis itself."]);
+  assert.deepEqual(everyoneActions({ name: "@thetis/gateway-web", type: "gateway", installed: true, system: true, everyone: true, everyoneBy: "config" }, { user }).acts, [], "Required: never removed");
 });
 
 test("sections: an admin's place and a person's place from the same installation", () => {
   const names = (list) => list.map((e) => e.row.name);
   const b = placeSections(FIXTURES.bitmuse.rows, FIXTURES.bitmuse);
-  assert.deepEqual(names(b.attention), ["@bitmuse/tool-exec", "@thetis/exa", "@thetis/skills-hybrid", "@thetis/gateway-web"]);
-  assert.deepEqual(names(b.added), ["@bitmuse/tool-exec", "@thetis/exa"]);
+  assert.deepEqual(b.attention.map((e) => [e.row.name, e.todo.kind]), [["@thetis/notion", "optional"], ["@bitmuse/tool-exec", "review"], ["@thetis/exa", "setup"], ["@thetis/skills-hybrid", "setup"], ["@thetis/gateway-web", "update"]]);
+  assert.deepEqual(b.updates, ["@thetis/gateway-web"], "Update N is exactly the Update rows");
+  assert.deepEqual(names(b.installed), ["@thetis/notion", "@bitmuse/tool-exec", "@thetis/exa", "@thetis/skills-hybrid"]);
+  assert.deepEqual(b.installed.map((e) => e.pills), [["everyone"], ["mine", "customized"], ["mine"], ["everyone"]]);
   assert.deepEqual(names(b.discover), ["@thetis/tool-operator", "@tg/lore"], "never a version of what they have; the admin's own tool is offered to an admin");
-  assert.deepEqual(names(b.builtin), ["@thetis/notion", "@thetis/skills-hybrid"]);
-  assert.deepEqual(names(b.folder), ["@bitmuse/notion", "@bitmuse/notion-read"]);
+  assert.deepEqual(names(b.drafts), [], "the folder copies of Notion are in its card's Other versions");
   assert.deepEqual(names(b.thetis), ["@thetis/gateway-web"]);
-  assert.equal(b.installed, 5, "installed for this person: the number the Control panel says too");
-  assert.equal(b.added[0].label, "Extensions and Helper Chats");
-  assert.equal(b.added[0].publisher, "by you · Tools");
+  assert.deepEqual(b.counts, { installed: 4, mine: 2, everyone: 2, customized: 1, thetis: 1, updates: 1, attention: 5 });
+  assert.equal(b.installed[1].label, "Extensions and Helper Chats");
+  assert.equal(b.installed[1].publisher, "by you · Tools");
+  assert.deepEqual(names(placeSections(FIXTURES.bitmuse.rows, { ...FIXTURES.bitmuse, pill: "customized" }).installed), ["@bitmuse/tool-exec"]);
 
   const s = placeSections(FIXTURES.sam.rows, FIXTURES.sam);
-  assert.deepEqual(names(s.attention), ["@thetis/exa", "@thetis/gateway-web"], "the server's missing key is not sam's attention");
-  assert.deepEqual(names(s.added), ["@thetis/exa"]);
+  assert.deepEqual(names(s.attention), ["@thetis/notion", "@thetis/exa", "@thetis/gateway-web"], "the server's missing key is not sam's attention");
+  assert.deepEqual(names(s.installed), ["@thetis/notion", "@thetis/exa", "@thetis/skills-hybrid", "@thetis/tool-exec"]);
   assert.deepEqual(names(s.discover), ["@tg/lore"], "no restart tool for a person, and no second Notion");
-  assert.deepEqual(names(s.builtin), ["@thetis/notion", "@thetis/skills-hybrid", "@thetis/tool-exec"]);
-  assert.deepEqual(s.builtin[1].state.waiting, true);
-  assert.deepEqual(names(s.folder), []);
+  assert.equal(s.installed[2].state.waiting, true);
+  assert.deepEqual(names(s.drafts), []);
   // The search narrows every section, and finds a family by any of its versions.
-  assert.deepEqual(names(placeSections(FIXTURES.sam.rows, { ...FIXTURES.sam, q: "google" }).added), ["@thetis/exa"], "google finds web search");
-  assert.deepEqual(names(placeSections(FIXTURES.bitmuse.rows, { ...FIXTURES.bitmuse, q: "reading only" }).builtin), ["@thetis/notion"], "found through notion-read, shown as the family's card");
+  assert.deepEqual(names(placeSections(FIXTURES.sam.rows, { ...FIXTURES.sam, q: "google" }).installed), ["@thetis/exa"], "google finds web search");
+  assert.deepEqual(names(placeSections(FIXTURES.bitmuse.rows, { ...FIXTURES.bitmuse, q: "reading only" }).installed), ["@thetis/notion"], "found through notion-read, shown as the family's card");
+  // A family that is only a folder is a draft; a part a person does not have is not theirs to see.
+  const draft = { name: "@sam/idea", label: "idea", folder: { dir: "packages/idea" }, local: true, tools: [{ name: "t" }] };
+  const part = { name: "@thetis/gateway-cli", type: "gateway", component: true, system: true };
+  const more = placeSections([...FIXTURES.sam.rows, draft, part], FIXTURES.sam);
+  assert.deepEqual(names(more.drafts), ["@sam/idea"]);
+  assert.ok(!names(more.thetis).includes("@thetis/gateway-cli"));
+  assert.ok(names(placeSections([...FIXTURES.sam.rows, part], { ...FIXTURES.sam, user: "x", admin: true }).thetis).includes("@thetis/gateway-cli"));
 });
 
-test("required and admin-only: the rules as data, and what they decide", () => {
+test("required, admin-only and inside Thetis: the rules as data, and what they decide", () => {
   assert.deepEqual(REQUIRED.types, ["gateway", "provider", "storage", "host"]);
   assert.deepEqual(REQUIRED.names, ["@thetis/harness-core", "@thetis/marketplace", "@thetis/ui-marketplace", "@thetis/ui-admin", "@thetis/gateway-login", "@thetis/gateway-web"]);
   assert.equal(isRequired(find("sam", "@thetis/gateway-web")), true);
   assert.equal(isRequired({ name: "@thetis/ui-admin", type: "ui" }), true);
   assert.equal(isRequired({ name: "@bitmuse/ui-admin", type: "ui", forkedFrom: { name: "@thetis/ui-admin", version: "1" } }), true, "a copy of a required extension is required");
   assert.equal(isRequired(find("sam", "@thetis/exa")), false);
-  assert.deepEqual([ADMIN_ONLY.audience, ADMIN_ONLY.types, ADMIN_ONLY.names], ["admin", ["host", "storage"], ["@thetis/gateway-login"]]);
+  assert.deepEqual([ADMIN_ONLY.audience, ADMIN_ONLY.types, ADMIN_ONLY.names, ADMIN_ONLY.line], ["admin", ["host", "storage"], ["@thetis/gateway-login"], "Only admins can have this."]);
   assert.equal(isAdminOnly(find("sam", "@thetis/tool-operator")), true);
   assert.equal(isAdminOnly({ name: "@thetis/store-toml", type: "storage" }), true);
-  assert.equal(isAdminOnly({ name: "@thetis/gateway-login", type: "gateway" }), true);
   assert.equal(isAdminOnly(find("sam", "@thetis/exa")), false);
+  assert.equal(runsInsideThetis({ name: "@thetis/store-toml", type: "storage" }), true);
+  assert.equal(runsInsideThetis({ name: "@thetis/gateway-login", type: "gateway" }), true);
+  assert.equal(runsInsideThetis({ name: "@thetis/marketplace", type: "service" }), true);
+  assert.equal(runsInsideThetis(find("sam", "@thetis/gateway-web")), false, "the web gateway a person has runs in their space");
   assert.equal(WORDS.required, "Required by Thetis");
 });
 
-test("needs: the Needs line from the manifest, in the key's own words and never the server's", () => {
-  assert.equal(needsLine(find("sam", "@thetis/exa")), "Needs: the Exa API key (apiKey)");
-  assert.equal(needsLine(find("sam", "@bitmuse/notion")), "Needs: an internal connection or personal access token from https://www.notion.so/my-integrations (token)");
-  assert.equal(needsLine({ needs: [{ key: "url", help: "Base URL of the Grafana instance, e.g. https://x.grafana.net." }, { key: "token", secret: true, help: "" }] }), "Needs: base URL of the Grafana instance (url) and a secret value (token)");
-  assert.equal(needsLine({ needs: [{ key: "k", help: "Put it in .env as K." }] }), "Needs: a value (k)", "an .env sentence is the admin's, so it is not said");
+test("needs: the key's help as a short noun with its link, never the key's name, examples or the server's .env", () => {
+  assert.equal(needsLine(find("sam", "@thetis/exa")), "Needs an Exa API key. Get one at dashboard.exa.ai.");
+  assert.equal(needsLine(find("sam", "@bitmuse/notion")), "Needs an internal connection or personal access token. Get one at https://www.notion.so/my-integrations.");
+  assert.equal(needsLine({ needs: [{ key: "url", help: "Base URL of the Grafana instance, e.g. https://x.grafana.net (Cloud) or http://localhost:3000." }, { key: "token", secret: true, help: "" }] }), "Needs the base URL of the Grafana instance and a token.");
+  assert.equal(needsLine({ needs: [{ key: "apiKey", help: "Put it in .env as K." }] }), "Needs an API key.", "an .env sentence is the admin's, so it is not said");
   assert.equal(needsLine({ needs: [] }), null);
-  assert.equal(phraseOf("The OpenRouter API key, sent as the bearer token of every request; put it in .env."), "the OpenRouter API key, sent as the bearer token of every request");
+  assert.equal(nounOf({ key: "token", help: "A service account token (glsa_…) from Administration → Users. Every tool reads it." }).noun, "a service account token");
+  assert.equal(linkOf("Base URL, e.g. https://x.grafana.net or http://localhost:3000."), null, "an example is not a link");
+  assert.equal(setupSentence("Notion", [{ key: "token", help: "An internal connection token from https://www.notion.so/my-integrations." }]), "Notion needs an internal connection token before it works. Get one at https://www.notion.so/my-integrations.");
+  assert.equal(humanKey("apiKey"), "API key");
+  assert.equal(humanKey("timeoutMs"), "timeout (ms)");
 });
 
-test("search: name, label, description, tool names and synonyms", () => {
+test("search: name, label, description, tool names, and a narrow list of synonyms that look only at names", () => {
   const exa = find("sam", "@thetis/exa");
   for (const q of ["exa", "web", "internet", "google", "search", "EXA_CONTENTS", "deep research"]) assert.equal(matches(exa, q), true, q);
   assert.equal(matches(exa, "notion"), false);
   assert.equal(matches(exa, "web", "Skills"), false, "the kind filter narrows too");
-  assert.deepEqual(SYNONYMS, [["web", "internet", "google", "search"]]);
+  assert.deepEqual(SYNONYMS, [["web", "internet", "google"]]);
+  assert.equal(matches({ name: "@thetis/files", label: "Files", description: "The Files place of the web gateway." }, "google"), false, "a synonym is not looked for in a description");
+  assert.equal(matches({ name: "@thetis/lore", label: "lore", description: "Search the lore." }, "google"), false, "search is nobody's synonym");
   assert.equal(matches({ name: "@a/x", skillList: [{ name: "orleans/grains", description: "Grains." }] }, "grains"), true, "a skill's name");
 });
 

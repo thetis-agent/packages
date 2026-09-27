@@ -11,15 +11,15 @@ import { join } from "node:path";
 import * as commands from "../index.js";
 import { labelOf, newestChange, shellsOf, updatesOf } from "../lib/updates.js";
 import { createUpdater, isBusy, listOf, lostGateway, shellsLine, signatureOf, words } from "../ui/updates-notice.js";
-import { bringsLine, sections, withConfig } from "../ui/gallery.js";
-import { whatYouGet } from "../ui/page.js";
+import { bringsLine, sections, statusText, withConfig } from "../ui/gallery.js";
+import { changedLine, whatYouGet } from "../ui/page.js";
 
 const REPO = "https://github.com/thetis-agent/packages.git";
 const OLD = "1".repeat(40);
 const NEW = "2".repeat(40);
 
 const shipped = (name, extra = {}) => ({ name, version: "0.1.0", type: "tool", description: "", root: "/nowhere", thetis: { type: "tool" }, source: { kind: "system", ref: "/sys" }, loadedVersion: "0.1.0", ...extra });
-const entry = (name, version, commit) => ({ name, version, type: "tool", description: "", keywords: [], registry: "thetis", url: REPO, dir: name.slice(8), commit, source: `${REPO}#${name.slice(8)}@${commit}`, steps: [], tools: [], service: false });
+const entry = (name, version, commit, extra = {}) => ({ name, version, type: "tool", description: "", keywords: [], registry: "thetis", url: REPO, dir: name.slice(8), commit, source: `${REPO}#${name.slice(8)}@${commit}`, steps: [], tools: [], service: false, ...extra });
 const indexOf = (...packages) => ({ version: 1, updatedAt: "2026-09-27T00:00:00.000Z", registries: [{ name: "thetis", url: REPO }], packages });
 
 // ---- the server half ----
@@ -32,9 +32,15 @@ test("updates: a newer commit is fetched first, a newer version on disk is only 
   ];
   const out = await updatesOf({ installed, index: indexOf(entry("@thetis/exa", "0.2.0", NEW)), openedAt: Date.now(), newestOf: () => 0 });
   assert.deepEqual(out.items, [
-    { name: "@thetis/exa", label: "exa", from: "0.1.0", to: "0.2.0", apply: "install" },
-    { name: "@thetis/gateway-web", label: "web gateway", from: "0.13.0", to: "0.13.1", apply: "apply" },
-  ]);
+    { name: "@thetis/exa", label: "Exa", from: "0.1.0", to: "0.2.0", apply: "install" },
+    { name: "@thetis/gateway-web", label: "Web Gateway", from: "0.13.0", to: "0.13.1", apply: "apply" },
+  ], "labels in Title Case, the ones the cards say, never an id");
+  // The newest version's label names it, so the card and the toast say what the place says.
+  const renamed = await updatesOf({ installed, index: indexOf(entry("@thetis/exa", "0.2.0", NEW, { label: "Exa web search" })), openedAt: Date.now(), newestOf: () => 0 });
+  assert.equal(renamed.items[0].label, "Exa Web Search");
+  // Two versions that are the same are nothing to update.
+  const same = await updatesOf({ installed: [{ ...shipped("@thetis/x"), version: "0.3.3-fork.1", loadedVersion: "0.3.3-fork.1" }], index: undefined, openedAt: Date.now(), newestOf: () => 0 });
+  assert.deepEqual(same.items, []);
   assert.deepEqual(out.own, []);
   assert.deepEqual(out.forks, []);
   assert.equal(labelOf({ name: "@thetis/ui-workspace" }), "workspace", "the page's own prefix is not part of the name");
@@ -57,9 +63,9 @@ test("updates: the person's own extensions count when their files changed after 
   assert.deepEqual(
     out.own.map((o) => [o.name, o.label, o.ui]),
     [
-      ["@alice/moo", "moo", false],
-      ["@alice/new", "new", true],
-      ["@alice/bumped", "bumped", false],
+      ["@alice/moo", "Moo", false],
+      ["@alice/new", "New", true],
+      ["@alice/bumped", "Bumped", false],
     ]
   );
   assert.equal(out.own[0].at, opened + 5000, "the change's own time, so the next edit is a new set");
@@ -77,9 +83,9 @@ test("updates: a copy is offered back only when it carries nothing the official 
   const states = { "/home/@alice/tool-exec": "superseded", "/home/@alice/gateway-web": "unknown", "/home/@alice/terminal": "diverged" };
   const out = await updatesOf({ installed, catalog, index: undefined, openedAt: Date.now() + 1e9, newestOf: () => 0, forkStateOf: (root) => states[root] });
   assert.deepEqual(out.forks, [
-    { name: "@alice/tool-exec", label: "tool exec", origin: "@thetis/tool-exec", state: "superseded" },
+    { name: "@alice/tool-exec", label: "Tool Exec", origin: "@thetis/tool-exec", state: "superseded" },
     // No recorded base: the kernel's byte-for-byte flag is what is left, and it says identical.
-    { name: "@alice/gateway-web", label: "web gateway", origin: "@thetis/gateway-web", state: "identical" },
+    { name: "@alice/gateway-web", label: "Web Gateway", origin: "@thetis/gateway-web", state: "identical" },
   ]);
   // An older runtime without the comparison: only the identical copy can be said anything about.
   const bare = await updatesOf({ installed, catalog, index: undefined, openedAt: Date.now() + 1e9, newestOf: () => 0, forkStateOf: null });
@@ -233,6 +239,26 @@ test("card: Updates ready names what has an update, with Review and Update all; 
   await u.check();
   assert.equal(w.cards.has("updates"), false);
   assert.ok(w.closed.includes("updates"));
+});
+
+test("card: while the Extensions place is open the Updates card stays away, and comes back after the last view lets go", async () => {
+  const w = world({ answer: answer({ items: ITEMS }) });
+  const u = createUpdater(w.deps);
+  await u.check();
+  assert.equal(w.cards.has("updates"), true);
+  const first = u.hold();
+  assert.equal(w.cards.has("updates"), false, "the place's status line says it instead");
+  await u.check();
+  assert.equal(w.cards.has("updates"), false, "a check while it is held draws no card");
+  // The store hands over to a page: one lets go as the other holds, and the card does not flicker back.
+  const second = u.hold();
+  first();
+  await w.settle();
+  assert.equal(w.cards.has("updates"), false);
+  second();
+  second();
+  await w.settle();
+  assert.equal(w.cards.has("updates"), true, "back once nothing holds it");
 });
 
 test("card: never asked, shown or changed while a reply is running; it appears when the reply ends", async () => {
@@ -441,45 +467,47 @@ test("card words: lists read as a sentence, and signatures change only when the 
 
 // ---- the store and the page ----
 
-test("store: Needs your attention, Added by you, Discover, and the three folds, fed by the same updates answer", () => {
+test("store: a to-do strip, Installed with its pills, Discover, Drafts and Part of Thetis, and one update verdict", () => {
   const rows = [
     { name: "@thetis/gateway-web", label: "web gateway", type: "gateway", installed: true, system: true, everyone: true, everyoneBy: "config", component: true, update: { apply: "reload", version: "0.13.1", installed: "0.13.0", available: "0.13.1" } },
     { name: "@thetis/exa", label: "Exa web search", type: "tool", installed: true, system: true, everyone: false, component: false, update: null, tools: [{ name: "exa_search" }] },
     { name: "@thetis/terminal", label: "terminal", type: "tool", installed: true, system: true, everyone: true, everyoneBy: "config", component: false, update: null, tools: [{ name: "shell" }] },
     { name: "@thetis/store-toml", label: "store toml", type: "storage", installed: false, system: true, component: true, update: null },
     { name: "@thetis/skills-orleans", label: "skills orleans", type: "skill", installed: false, system: true, component: false, update: null },
-    { name: "@alice/copy", label: "copy", type: "tool", installed: true, local: true, component: false, forkedFrom: { name: "@thetis/thing", version: "0.1.0" }, fork: { name: "@thetis/thing", version: "0.1.0", shipped: "0.2.0" }, update: { apply: "unfork", version: "0.2.0", installed: "0.1.0", available: "0.2.0", origin: "@thetis/thing" } },
+    { name: "@alice/copy", label: "copy", labelGiven: false, type: "tool", installed: true, local: true, component: false, forkedFrom: { name: "@thetis/thing", version: "0.1.0" }, fork: { name: "@thetis/thing", version: "0.1.0", shipped: "0.2.0" }, update: { apply: "unfork", version: "0.2.0", installed: "0.1.0", available: "0.2.0", origin: "@thetis/thing" } },
     { name: "@thetis/thing", label: "thing", type: "tool", installed: false, system: true, component: false, update: null },
     { name: "@alice/draft", label: "draft", type: "tool", installed: false, folder: { dir: "packages/draft" }, local: true, component: false, update: null },
   ];
   const plain = sections(rows, { user: "alice" });
-  assert.deepEqual(plain.attention.map((e) => e.row.name), ["@thetis/gateway-web", "@alice/copy"], "an update to a part of Thetis is still the person's to take");
-  assert.deepEqual(plain.added.map((e) => e.row.name), ["@thetis/exa", "@alice/copy"]);
-  assert.equal(plain.added[1].label, "Thing", "a copy takes its official version's label");
-  assert.deepEqual(plain.added[1].state.chips.map((c) => c.label), ["Update available", "Customized"]);
+  assert.deepEqual(plain.attention.map((e) => [e.row.name, e.todo.kind, e.todo.action]), [["@thetis/gateway-web", "update", "Update"], ["@alice/copy", "review", "Review"]], "an update to a part of Thetis is still the person's to take; a copy behind is a Review");
+  assert.deepEqual(plain.all.updates, ["@thetis/gateway-web"], "Update N is exactly the Update rows: never the copy");
+  assert.equal(statusText(plain.all, { checked: "15 min ago" }), "Updates ready: Web Gateway · checked 15 min ago");
+  assert.deepEqual(plain.installed.map((e) => e.row.name), ["@thetis/exa", "@thetis/terminal", "@alice/copy"]);
+  assert.equal(plain.installed[2].label, "Thing", "a copy without a label of its own takes its official version's");
+  assert.deepEqual(plain.installed[2].state.chips.map((c) => c.label), ["Customized"]);
   assert.deepEqual(plain.discover.map((e) => e.row.name), ["@thetis/skills-orleans"], "the copy's official version is not offered again");
-  assert.deepEqual(plain.builtin.map((e) => e.row.name), ["@thetis/terminal"]);
-  assert.deepEqual(plain.folder.map((e) => e.row.name), ["@alice/draft"]);
+  assert.deepEqual(plain.drafts.map((e) => e.row.name), ["@alice/draft"]);
   assert.deepEqual(plain.thetis.map((e) => e.row.name), ["@thetis/gateway-web"], "a storage driver is an admin's: never offered to anybody else");
   assert.deepEqual(sections(rows, { user: "alice", admin: true }).thetis.map((e) => e.row.name), ["@thetis/gateway-web", "@thetis/store-toml"]);
-  assert.equal(plain.installed, 4);
-  // With the `updates` answer, an update whose card is not in the section is still a line there.
-  const withAnswer = sections(rows, { user: "alice", updates: answer({ items: ITEMS, own: [{ name: "@alice/moo", label: "moo" }] }) });
-  assert.deepEqual(withAnswer.extra.map((i) => i.name), ["@thetis/exa", "@thetis/compaction"], "the answer knows of updates the rows do not show");
-  assert.deepEqual(withAnswer.own.map((o) => o.name), ["@alice/moo"]);
-  assert.equal(withAnswer.items.length, 3, "Update all takes the whole answer");
+  assert.deepEqual(plain.all.counts.installed, 3, "the number the Control panel says too");
+  assert.deepEqual(sections(rows, { user: "alice", pill: "everyone" }).installed.map((e) => e.row.name), ["@thetis/terminal"]);
+  assert.deepEqual(sections(rows, { user: "alice", pill: "mine" }).installed.map((e) => e.row.name), ["@thetis/exa", "@alice/copy"]);
+  // The person's own changes waiting to be applied come from the `updates` answer.
+  assert.deepEqual(sections(rows, { user: "alice", updates: answer({ items: ITEMS, own: [{ name: "@alice/moo", label: "moo" }] }) }).own.map((o) => o.name), ["@alice/moo"]);
   // A search narrows every section, synonyms included, and a type chip narrows by what it brings.
   const found = sections(rows, { user: "alice", q: "internet" });
-  assert.deepEqual([...found.added, ...found.discover].map((e) => e.row.name), ["@thetis/exa"], "internet finds web search");
-  assert.deepEqual(found.extra, [], "a search does not pad the section with lines it did not find");
+  assert.deepEqual([...found.installed, ...found.discover].map((e) => e.row.name), ["@thetis/exa"], "internet finds web search");
+  assert.equal(found.all.counts.installed, 3, "the counts are the unnarrowed place's");
   assert.deepEqual(sections(rows, { user: "alice", kind: "Skills" }).discover.map((e) => e.row.name), ["@thetis/skills-orleans"]);
+  assert.equal(statusText({ attention: [] }), "All up to date");
 });
 
 test("store: a card's foot says what it brings, and the configuration reports fold onto installed rows", () => {
   assert.equal(bringsLine({ tools: [{}, {}] }), "2 tools");
   assert.equal(bringsLine({ tools: [], skills: 4 }), "4 skills");
   assert.equal(bringsLine({ tools: [], pages: 1 }), "1 page");
-  assert.equal(bringsLine({ tools: [], type: "provider" }), "models");
+  assert.equal(bringsLine({ tools: [], type: "provider" }), "Models");
+  assert.equal(bringsLine({ tools: [], type: "loader" }), "Runs in the background", "a card's foot is never empty");
   const rows = withConfig([{ name: "@a/x", installed: true }, { name: "@a/y", installed: false }], new Map([["@a/x", { broken: true }], ["@a/y", { broken: true }]]));
   assert.deepEqual(rows.map((r) => !!r.config), [true, false], "only an installed row has a report of its own");
 });
@@ -488,4 +516,6 @@ test("page: what you get is counted in the words a person uses", () => {
   assert.equal(whatYouGet({ tools: [{}, {}, {}], skills: 2, pages: 1 }), "3 tools · 2 skills · 1 page");
   assert.equal(whatYouGet({ tools: [{}], skills: 0, pages: 0, service: true }), "1 tool · runs in the background");
   assert.equal(whatYouGet({ tools: [], skills: 0, pages: 0 }), null);
+  assert.equal(changedLine({ changed: ["dist/src/index.js"], fork: { version: "0.3.3" } }), "You changed 1 file since 0.3.3: dist/src/index.js.");
+  assert.equal(changedLine({ forkedFrom: { version: "1.0.0" } }), null, "not known without a base");
 });

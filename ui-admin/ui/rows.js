@@ -4,7 +4,8 @@
  * workspace; `package-info` with `config-show` and `package-where` gives one extension's page. Nothing here asks
  * anything: it only reshapes what was read, and `described` works out what a surface draws from a row. */
 
-import { baseOf, labelOf, listOf, originNameOf, publisherLine, scopeOf, stateOf, waitingSentence } from "./state.js";
+import { baseOf, giverOf, labelOf, listOf, originNameOf, publisherLine, scopeOf, stateOf } from "./state.js";
+import { waitingSentence } from "./words.js";
 
 /** The name a person reads when the manifest gives no label: the bare name, a `ui-` prefix dropped, dashes as spaces. */
 const bare = (name) => baseOf(name).replace(/^ui-/, "").replace(/[-_.]+/g, " ").trim() || String(name ?? "");
@@ -18,6 +19,8 @@ function common(p, user) {
   return {
     name: p.name,
     label: p.label || bare(p.name),
+    // Whether the manifest names it: a customised copy with a label of its own keeps it (a variant).
+    labelGiven: Boolean(p.label),
     version: p.version ?? null,
     type: p.type ?? null,
     description: p.description ?? "",
@@ -39,6 +42,8 @@ function common(p, user) {
     service: Boolean(p.service),
     steps: p.steps ?? 0,
     promotedFrom: p.promotedFrom ?? null,
+    // A shared copy's origin as the place's rows carry it: the original, whose it was, when.
+    sharedBy: p.promotedFrom?.name ? { from: p.promotedFrom.name, owner: p.promotedFrom.by ?? null, at: p.promotedFrom.at ?? null } : null,
   };
 }
 
@@ -64,7 +69,10 @@ export function rowFromFleet(p, { user = "" } = {}) {
   return {
     ...common(p, user),
     registry: p.registry?.registry ?? null,
-    update: install ? { apply: "install", version: p.registry.update.version } : waiting.length || p.state === "update" ? { apply: "reload", available: p.version, installed: loaded ?? p.version, waiting: waiting.length } : null,
+    // A copy whose official version moved on is not an update of what anyone runs (it is Customized, and its page
+    // says what using Thetis's version would do), so the kind `unfork` is never one here; nor is a reload whose
+    // loaded version is not known to differ, which would read "Version X is ready; you have X".
+    update: install ? { apply: "install", version: p.registry.update.version } : waiting.length && (!loaded || loaded !== p.version) ? { apply: "reload", available: p.version, installed: loaded && loaded !== p.version ? loaded : null, waiting: waiting.length } : null,
     config,
   };
 }
@@ -78,16 +86,17 @@ export function rowFromInfo(info, { config = null, where = null, user = "" } = {
   if (!info) return null;
   const reg = info.registry;
   const waiting = where?.counts?.waiting ?? 0;
-  const install = reg?.update && reg.update.apply !== "reload";
+  const install = reg?.update?.apply === "install";
   const people = (where?.people ?? []).filter((p) => p.installed && p.config?.broken).map((p) => p.user);
   const report = config?.broken ? config : people.length ? { broken: true, summary: `A setting is missing for ${listOf(people)}`, keys: [] } : config;
   return {
     ...common(info, user),
     registry: reg?.registry ?? null,
+    // `unfork` (a copy's official version moved on) is never an update; see `rowFromFleet`.
     update: install
       ? { apply: "install", version: reg.update.version }
-      : info.loaded?.behindDisk || waiting || reg?.update
-        ? { apply: "reload", available: info.version, installed: info.loaded?.behindDisk ? info.loaded.version : info.version, waiting }
+      : info.loaded?.behindDisk || waiting || reg?.update?.apply === "reload"
+        ? { apply: "reload", available: info.version, installed: info.loaded?.behindDisk ? info.loaded.version : null, waiting }
         : null,
     config: report ?? null,
   };
@@ -114,7 +123,10 @@ export function contextOf(row, rows = []) {
 export function described(row, { rows = [], user = "" } = {}) {
   const { origin, family } = contextOf(row, rows);
   const label = labelOf(row, origin);
-  const state = stateOf(row, { admin: true, origin, label, user });
-  const waitingFor = row.update?.apply === "reload" && row.update.waiting && !state.setup.chip && state.update?.kind === "update" ? waitingSentence(row.update.waiting) : null;
-  return { label, publisher: publisherLine(row, { user, family }), state: waitingFor ? { ...state, reason: `${waitingFor}.` } : state, origin };
+  const state = stateOf(row, { admin: true, origin, label, user, giver: giverOf(row, { user, family }) });
+  // Applying, when the version the reader's own workspace runs is not known to differ: who is waiting, never
+  // "Version X is ready; you have X".
+  const reload = row.update?.apply === "reload" && !state.setup.chip && state.update?.kind === "update";
+  const waitingFor = reload && row.update.waiting ? `${waitingSentence(row.update.waiting)}.` : reload && !row.update.installed ? `Version ${row.update.available} is on disk and goes live when updates are applied.` : null;
+  return { label, publisher: publisherLine(row, { user, family }), state: waitingFor ? { ...state, reason: waitingFor } : state, origin };
 }

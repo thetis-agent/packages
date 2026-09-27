@@ -7,7 +7,8 @@
 import { readIndex, readReadme, readReadmeAsset, search as searchIndex } from "@thetis/marketplace";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { folderRows, installedRow, matchesQuery, mergeRows, skillList, withFolder } from "./lib/rows.js";
+import { changedFiles } from "./lib/fork-diff.js";
+import { folderRows, installedRow, matchesQuery, mergeRows, skillList, withFolder, withJournal } from "./lib/rows.js";
 import { familyOf, isRequired, matches } from "./lib/state.js";
 import { updatesFor } from "./lib/updates.js";
 
@@ -47,13 +48,30 @@ async function catalogOf(env) {
  */
 const homeOf = (env) => (typeof env.home === "string" ? env.home : process.env.THETIS_HOME_DIR || "");
 
+/** The journal kinds the rows learn from: who installed a thing for this person, who shared what, who turned what on. */
+const JOURNAL_KINDS = ["package.install", "package.promote", "package.everyone"];
+
+/**
+ * The journal rows this person may read about those three acts, oldest first. The kernel lets a person read
+ * the rows they are in and an admin every row; a kernel or a gateway that refuses is no journal, and the rows
+ * are then what they were without it.
+ */
+async function journalOf(env) {
+  if (typeof env.kernel.operator?.call !== "function") return [];
+  const lists = await Promise.all(JOURNAL_KINDS.map((kind) => env.kernel.operator.call("journal.tail", { kind, limit: 500 }).catch(() => [])));
+  return lists
+    .flatMap((l) => (Array.isArray(l) ? l : []))
+    .sort((a, b) => String(a?.at ?? "").localeCompare(String(b?.at ?? "")));
+}
+
 /**
  * The rows, and -- with `folder` -- the person's own folder laid over them: the packages under their home's
- * `packages/` that are not installed, which the Extensions place lists under "In your folder".
+ * `packages/` that are not installed, which the Extensions place lists under "Drafts in your folder". The
+ * journal adds who gave the person what, and when a shared copy was shared.
  */
 async function rowsOf(env, { folder = false } = {}) {
-  const [installed, catalog, index] = await Promise.all([env.kernel.packages.list(), catalogOf(env), readIndex(env)]);
-  const rows = mergeRows(installed, index?.packages ?? [], index, { catalog, user: env.user });
+  const [installed, catalog, index, journal] = await Promise.all([env.kernel.packages.list(), catalogOf(env), readIndex(env), journalOf(env)]);
+  const rows = withJournal(mergeRows(installed, index?.packages ?? [], index, { catalog, user: env.user }), journal, env.user);
   return { installed, catalog, index, rows: folder ? withFolder(rows, folderRows(homeOf(env), installed.map((p) => p.name))) : rows };
 }
 
@@ -124,7 +142,9 @@ export async function show(args, env) {
   const info = installed.find((p) => p.name === name) ?? catalog.find((p) => p.name === name) ?? null;
   const root = info?.root ?? (found.folder ? resolve(homeOf(env), found.folder.dir) : null);
   const manifest = info?.thetis ?? (root ? readManifest(root)?.thetis : null);
-  const row = { ...found, skillList: skillList(root, manifest?.skills) };
+  // A copy says what it changed since it was made, so "Use Thetis's version" can say what it replaces.
+  const changed = found.forkedFrom || found.fork ? changedFiles(root) : null;
+  const row = { ...found, skillList: skillList(root, manifest?.skills), ...(changed ? { changed } : {}) };
   const entry = index?.packages.find((e) => e.name === name && e.registry === row.registry && e.source === row.source);
   const fromIndex = entry && (!root || entry.version === row.version) ? ((await readReadme(env, entry)) ?? null) : null;
   const readme = fromIndex ?? diskReadme(root) ?? (entry ? ((await readReadme(env, entry)) ?? null) : null);
@@ -229,6 +249,26 @@ export async function configSet(args, env) {
 
 export async function configUnset(args, env) {
   return { data: await env.kernel.config.unset(packageName(args.name), configKey(args.key)) };
+}
+
+const NOT_IN_EFFECT = "This value is not the one in effect for you, so it cannot be shown here.";
+
+/**
+ * A saved secret, shown once because the person pressed Show. Only the value in effect for the person who asks,
+ * and only when the layer they are looking at is the one it comes from: a person reads their own key on their
+ * own layer, and an admin reads everyone's on the everyone layer when nobody's own key is over it for them.
+ * The value is `kernel.config.effective`'s, the same the extension receives, and it is never written anywhere.
+ */
+export async function configReveal(args, env) {
+  const name = packageName(args.name);
+  const key = configKey(args.key);
+  const layer = args.layer === "system" ? "system" : args.layer === "file" ? "file" : "user";
+  const report = await env.kernel.config.show(name);
+  const k = (Array.isArray(report?.keys) ? report.keys : []).find((x) => x?.key === key);
+  if (!k || k.state === "missing" || k.state === "unset" || k.source !== layer) fail(NOT_IN_EFFECT);
+  const value = (await env.kernel.config.effective(name))?.[key];
+  if (value === undefined || value === null) fail(NOT_IN_EFFECT);
+  return { data: { value } };
 }
 
 const call = (env, method, a = {}) => env.kernel.operator.call(method, a);

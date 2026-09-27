@@ -21,7 +21,7 @@ function fakeDoc() {
   };
 }
 
-test("escape closes the top layer first, one per press", () => {
+test("escape closes the top layer first, one per press, and never a place", () => {
   const layers = createLayers();
   const closed = [];
   layers.open("dock", () => closed.push("dock"));
@@ -30,10 +30,12 @@ test("escape closes the top layer first, one per press", () => {
   assert.equal(layers.top(), "drawer");
   assert.equal(layers.escape(), true);
   assert.deepEqual(closed, ["drawer"], "the drawer over the place goes first");
+  assert.equal(layers.escape(), false, "a place is somewhere a person went: Escape leaves it open");
+  assert.deepEqual(closed, ["drawer"]);
+  assert.deepEqual(layers.list(), ["dock", "place"], "and it stays on the stack");
+  layers.remove("place"); // its ✕
   layers.escape();
-  assert.deepEqual(closed, ["drawer", "place"]);
-  layers.escape();
-  assert.deepEqual(closed, ["drawer", "place", "dock"]);
+  assert.deepEqual(closed, ["drawer", "dock"], "with no place on top, the dock closes");
   assert.equal(layers.escape(), false, "nothing left: nothing happens");
 });
 
@@ -66,7 +68,11 @@ test("the listener leaves Escape to an open menu or popover, and to a key alread
   assert.deepEqual(closed, [], "a rename box that took the key keeps it");
   doc.press("Enter");
   assert.deepEqual(closed, []);
+  const kept = doc.press();
+  assert.deepEqual(closed, [], "one Escape too many never throws away the place");
+  assert.equal(kept.defaultPrevented, false);
+  layers.open("dock", () => closed.push("dock"));
   const event = doc.press();
-  assert.deepEqual(closed, ["place"]);
+  assert.deepEqual(closed, ["dock"]);
   assert.equal(event.defaultPrevented, true);
 });

@@ -1,38 +1,31 @@
-/* Where an extension runs. The card holds a person picker instead of a row per person, so it is the same
- * size with fifty people as with three: a select whose options each say the person's state in a few
- * words, previous and next, the facts for the chosen person (their copy, when their workspace opened and
- * whether it applied the copy on disk, the service, the settings), the buttons that act on that person,
- * and a footer with the counts ("3 people haven't applied it yet"). Remove for them is not there for an
- * extension Required by Thetis. There is no restart button here:
- * applying updates is one action for everyone, on the extensions pages, and restarting one workspace is
- * Advanced → Workspaces. The tab shows the same card at full width and, under it, a table of everyone. All
- * of it is `package-where`'s answer; a person the answer does not know is not shown. */
+/* Who has an extension, and where it runs. The Overview's card is a list of people, one line each: the person
+ * and their state in a few words ("bitmuse · needs setup", "sam · has it", "carl · doesn't have it"), and the one
+ * action that fits: Remove for <person>… for someone who has it (never on an extension Required by Thetis), Install
+ * for <person> for someone who does not (only admins, for an extension only admins can have; nobody, for one that
+ * runs inside Thetis itself), and a ⋯ with their settings and their activity. The footer counts ("2 of 3 have
+ * it", "1 person hasn't applied it yet"). The Advanced tab's Where it runs shows the same list at full width and,
+ * under it, a table of everyone with what their workspace runs. There is no restart button here: applying
+ * updates is one action for everyone, on the extensions pages. All of it is `package-where`'s answer; a person
+ * the answer does not know is not shown. */
 
-import { stateBadge, stateWord, waitingSentence } from "./state.js";
+import { stateBadge, waitingSentence } from "./words.js";
 
-const when = (iso) => {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-};
-
-/** The few words beside a person's name in the picker: what is worth knowing before choosing them. */
+/** The few words beside a person's name: what is worth knowing about theirs. */
 export function personSummary(p) {
-  if (!p.installed) return "not installed";
-  const bits = [];
-  if (p.forkedFrom) bits.push("own copy");
-  if (p.loaded?.state === "update") bits.push(stateWord("update").toLowerCase());
-  if (p.config?.broken) bits.push("needs setup");
-  return bits.length ? bits.join(", ") : stateWord("current").toLowerCase();
+  if (!p.installed) return "doesn't have it";
+  if (p.config?.broken) return "needs setup";
+  if (p.forkedFrom) return "uses a customised copy";
+  if (p.loaded?.state === "update") return "waiting for a reload";
+  return "has it";
 }
 
-/** The person card. `full` widens it for the tab. */
+/** The person list. `full` widens it for the Advanced tab. */
 export function whereCard(ext, ctx, { alive, full = false } = {}) {
   const { el, clear } = ext.dom;
-  const { badge, button, card, put } = ext.ui;
+  const { button, card, put } = ext.ui;
   const where = ctx.where;
-  const name = ctx.name;
   const body = el("div", { class: "ua-where-body" });
-  const head = el("span", { class: "ua-card-title" }, "Where it runs", ctx.tag("admin"));
+  const head = el("span", { class: "ua-card-title" }, "Who has it", ctx.tag("admin"));
   const node = card(head, body);
   node.classList.add("ua-where");
   if (full) node.classList.add("is-full");
@@ -42,55 +35,55 @@ export function whereCard(ext, ctx, { alive, full = false } = {}) {
   }
   const people = where.people;
   const counts = where.counts ?? {};
-  let at = Math.max(0, people.findIndex((p) => p.installed));
+  const label = ctx.label ?? ctx.name;
+
+  function actionsFor(p) {
+    const out = [];
+    if (ctx.inside) return out;
+    if (p.installed) {
+      // Thetis cannot work without a Required extension: there is no Remove of any kind for it.
+      if (!ctx.required) {
+        const remove = button(`Remove for ${p.user}…`, { tone: "warn", onClick: () => void ctx.act(remove, { verb: "package-remove", args: { user: p.user }, title: `Remove ${label} for ${p.user}?`, lines: [], note: "Their settings are kept. What it adds stops from their next message.", confirmLabel: `Remove for ${p.user}`, tone: "warn" }) });
+        out.push(remove);
+      }
+      const more = button("⋯", { title: `${p.user}'s settings and activity` });
+      more.setAttribute("aria-label", `More for ${p.user}`);
+      more.addEventListener("click", () => ext.ui.menu?.(more, [
+        { label: `${p.user === ctx.user ? "Your" : `${p.user}'s`} settings`, run: () => ctx.show("configuration", { layer: p.user }) },
+        { label: `${p.user === ctx.user ? "Your" : `${p.user}'s`} activity`, run: () => ctx.show("activity", { actor: p.user }) },
+      ]));
+      out.push(more);
+    } else if (!ctx.adminOnly || p.role === "admin") {
+      const install = button(`Install for ${p.user}`, { onClick: () => void ctx.act(install, { verb: "package-install-for", args: { user: p.user }, title: `Install ${label} for ${p.user}?`, lines: [], note: "It is theirs from their next message.", confirmLabel: `Install for ${p.user}` }) });
+      out.push(install);
+    }
+    for (const b of out) b.classList.add("is-sm");
+    return out;
+  }
 
   function draw() {
     clear(body);
-    const p = people[at];
-    const select = el("select", { class: "input ua-person", "aria-label": "Person", onChange: () => { at = Number(select.value); draw(); } }, ...people.map((x, i) => el("option", { value: String(i), selected: i === at || null }, `${x.user} · ${personSummary(x)}`)));
-    const prev = button("‹", { title: "Previous person", onClick: () => { at = (at + people.length - 1) % people.length; draw(); } });
-    const next = button("›", { title: "Next person", onClick: () => { at = (at + 1) % people.length; draw(); } });
-    prev.setAttribute("aria-label", "Previous person");
-    next.setAttribute("aria-label", "Next person");
-    prev.classList.add("is-sm");
-    next.classList.add("is-sm");
-    const facts = [[el("dt", {}, "who"), el("dd", {}, p.user, el("span", { class: "text-faint" }, ` · ${p.role}${p.status && p.status !== "active" ? ` · ${p.status}` : ""}`))]];
-    if (p.installed) {
-      facts.push([el("dt", {}, "has it as"), el("dd", {}, el("code", {}, p.version ?? "?"), p.forkedFrom ? [" ", badge(`Customized · a copy of ${p.forkedFrom.name} ${p.forkedFrom.version}`, "dim")] : null, p.replaced ? el("span", { class: "text-faint" }, ` instead of ${p.replaced}`) : null)]);
-      const l = p.loaded;
-      const loaded = l?.openedAt ? [stateBadge(ext, l.state), el("span", { class: "text-faint" }, ` workspace opened ${when(l.openedAt)}`)] : [el("span", { class: "ua-dot is-dim" }), " workspace not open"];
-      facts.push([el("dt", {}, "in service"), el("dd", {}, ...loaded)]);
-      facts.push([el("dt", {}, "service"), el("dd", {}, Array.isArray(p.services) && p.services.includes(name) ? "running in their workspace" : el("span", { class: "text-faint" }, "none from this extension"))]);
-      facts.push([el("dt", {}, "setup"), el("dd", {}, p.config ? (p.config.broken ? el("span", { class: "ua-err" }, p.config.summary || "needs setup") : el("span", { class: "ua-ok" }, "set up")) : el("span", { class: "text-faint" }, "not read"))]);
-    } else facts.push([el("dt", {}, "has it"), el("dd", { class: "text-faint" }, "not installed for them")]);
-    const actions = [];
-    if (p.installed) {
-      const layer = button("Their settings", { onClick: () => ctx.show("configuration", { layer: p.user }) });
-      const activity = button("Their activity", { onClick: () => ctx.show("activity", { actor: p.user }) });
-      actions.push(layer, activity);
-      // Thetis cannot work without a Required extension: there is no Remove of any kind for it.
-      if (!ctx.required) {
-        const remove = button("Remove for them", { tone: "warn", onClick: () => void ctx.act(remove, { verb: "package-remove", args: { user: p.user }, title: `Remove for ${p.user}?`, lines: [["workspace", p.user]], note: "Only their link is removed; the files stay, and their saved settings are kept. Its tools stop on their next reply.", confirmLabel: "Remove", tone: "warn" }) });
-        actions.push(remove);
-      }
-    } else {
-      const install = button("Install for them", { tone: "primary", onClick: () => void ctx.act(install, { verb: "package-install-for", args: { user: p.user }, title: `Install for ${p.user}?`, lines: [["workspace", p.user]], note: "Their workspace gets the extension on its next reply.", confirmLabel: "Install" }) });
-      actions.push(install);
-    }
-    for (const b of actions) b.classList.add("is-sm");
+    const rows = people.map((p) =>
+      el(
+        "li",
+        { class: `ua-person-line${p.installed ? " is-on" : ""}`, "data-user": p.user },
+        el("span", { class: "ua-person-who" }, el("b", {}, p.user), el("span", { class: p.config?.broken ? "ua-err" : "text-faint" }, ` · ${personSummary(p)}`)),
+        el("span", { class: "ua-person-acts" }, ...actionsFor(p))
+      )
+    );
     const waiting = counts.waiting ?? people.filter((x) => x.installed && x.loaded?.state === "update").length;
+    const nobodyElse = ctx.adminOnly && people.some((p) => !p.installed && p.role !== "admin");
     put(
       body,
-      el("div", { class: "ua-person-row" }, el("span", { class: "text-faint" }, "Person"), select, prev, next),
-      el("dl", { class: "kv ua-person-facts" }, ...facts.flat()),
-      el("div", { class: "ua-person-actions" }, ...actions),
+      el("ul", { class: "ua-person-list" }, ...rows),
+      ctx.inside ? el("p", { class: "text-faint" }, "Runs inside Thetis itself: nobody installs or removes it.") : nobodyElse ? el("p", { class: "text-faint" }, "Only admins can have this.") : null,
       el(
         "div",
         { class: "ua-where-foot" },
         el("span", {}, el("b", {}, String(counts.installed ?? people.filter((x) => x.installed).length)), ` of ${counts.people ?? people.length} have it`),
         waiting ? el("span", { class: "ua-warn" }, waitingSentence(waiting)) : null,
-        counts.forks ? el("span", {}, el("b", { class: "ua-warn" }, String(counts.forks)), ` own ${counts.forks === 1 ? "copy" : "copies"}`) : null,
-        counts.broken ? el("span", {}, el("b", { class: "ua-err" }, String(counts.broken)), " need setup") : null
+        counts.forks ? el("span", {}, el("b", {}, String(counts.forks)), ` customised ${counts.forks === 1 ? "copy" : "copies"}`) : null,
+        counts.broken ? el("span", {}, el("b", { class: "ua-err" }, String(counts.broken)), ` ${counts.broken === 1 ? "needs" : "need"} setup`) : null
       )
     );
   }
@@ -115,10 +108,10 @@ export function mountWhere(ext, host, ctx) {
         table(
           [
             { key: "user", label: "Person", render: (p) => el("span", {}, el("b", {}, p.user), " ", el("span", { class: "text-faint" }, p.role)) },
-            { key: "version", label: "Version", render: (p) => (p.installed ? el("span", {}, el("code", {}, p.version ?? "?"), p.forkedFrom ? [" ", badge("own copy", "warn")] : null) : el("span", { class: "text-faint" }, "not installed")) },
+            { key: "version", label: "Version", render: (p) => (p.installed ? el("span", {}, el("code", {}, p.version ?? "?"), p.forkedFrom ? [" ", badge("customised copy", "dim")] : null) : el("span", { class: "text-faint" }, "doesn't have it")) },
             { key: "loaded", label: "In service", render: (p) => (p.installed && p.loaded?.openedAt ? stateBadge(ext, p.loaded.state) : el("span", { class: "text-faint" }, p.installed ? "not open" : "—")) },
             { key: "service", label: "Service", render: (p) => (Array.isArray(p.services) && p.services.includes(ctx.name) ? "running" : el("span", { class: "text-faint" }, "—")) },
-            { key: "config", label: "Setup", render: (p) => (!p.installed ? el("span", { class: "text-faint" }, "—") : p.config ? (p.config.broken ? el("span", { class: "ua-err" }, p.config.summary || "needs setup") : el("span", { class: "ua-ok" }, "set up")) : el("span", { class: "text-faint" }, "not read")) },
+            { key: "config", label: "Setup", render: (p) => (!p.installed ? el("span", { class: "text-faint" }, "—") : p.config ? (p.config.broken ? el("span", { class: "ua-err" }, "needs setup") : el("span", { class: "ua-ok" }, "nothing missing")) : el("span", { class: "text-faint" }, "not read")) },
           ],
           people,
           { rowKey: (p) => p.user }

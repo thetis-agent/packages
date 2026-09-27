@@ -312,6 +312,31 @@ test("config-list, config-show, config-set, config-unset and config-reload pass 
   }
 });
 
+test("config-reveal: a saved value only when the layer viewed is the one in effect for the asker, read from their own fence, never logged", async () => {
+  const secret = "sk-exa-hunter2-never-logged";
+  // bitmuse has no own key: everyone's is in effect for them. The kernel's report says where each value comes from.
+  const shown = { package: "@thetis/exa", keys: [{ key: "apiKey", state: "set", secret: true, source: "system", redacted: true }, { key: "ref", state: "set", secret: true, source: "system", value: "${EXA_KEY}" }, { key: "baseUrl", state: "unset" }] };
+  const asked = [];
+  const env = (report = shown) => ({ user: "bitmuse", role: "admin", kernel: { config: { show: async (name) => (asked.push(["show", name]), report), effective: async (name) => (asked.push(["effective", name]), { apiKey: secret, ref: "resolved-from-env" }) }, operator: { call: async () => { throw new Error("the operator is never asked"); } } } });
+  const lines = await captured(async () => {
+    assert.deepEqual((await commands.configReveal({ name: "@thetis/exa", key: "apiKey", layer: "system" }, env())).data, { value: secret });
+    assert.deepEqual((await commands.configReveal({ name: "@thetis/exa", key: "ref", layer: "system" }, env())).data, { value: "${EXA_KEY}" }, "a reference is answered as the reference, never what the environment holds");
+    await refuses(commands.configReveal, { name: "@thetis/exa", key: "apiKey", layer: "user" }, env(), new RegExp(commands.NOT_IN_EFFECT.replace(/[.]/g, "\\.")));
+    await refuses(commands.configReveal, { name: "@thetis/exa", key: "apiKey", layer: "user", user: "sam" }, env(), /not the one in effect for you/);
+    await refuses(commands.configReveal, { name: "@thetis/exa", key: "baseUrl", layer: "system" }, env(), /Nothing is saved/);
+    await refuses(commands.configReveal, { name: "@thetis/exa", key: "apiKey", layer: "everyone" }, env(), /layer is system or user/);
+    // Their own key is in effect: everyone's cannot be shown, their own can.
+    const own = { package: "@thetis/exa", keys: [{ key: "apiKey", state: "set", secret: true, source: "user", redacted: true }] };
+    await refuses(commands.configReveal, { name: "@thetis/exa", key: "apiKey", layer: "system" }, env(own), /not the one in effect for you/);
+    assert.deepEqual((await commands.configReveal({ name: "@thetis/exa", key: "apiKey", layer: "user", user: "bitmuse" }, env(own))).data, { value: secret });
+    // Not installed for the asker: nothing is in effect for them.
+    const none = { user: "bitmuse", kernel: { config: { show: async () => { throw new Error("@thetis/exa is not installed in bitmuse"); } } } };
+    await refuses(commands.configReveal, { name: "@thetis/exa", key: "apiKey", layer: "system" }, none, /not the one in effect for you/);
+  });
+  assert.deepEqual(lines, [], "the value is never written anywhere but the answer");
+  assert.ok(asked.every(([, name]) => name === "@thetis/exa"));
+});
+
 test("package-info: the record, the registry's word and the checkout, each said only when it is there", async () => {
   const info = { name: "@alice/hello", version: "0.1.0-fork.1", type: "loader", description: "Says hello.", root: "/home/alice/packages/hello", everyone: false, forkedFrom: { name: "@thetis/hello", version: "0.1.0" }, replaced: "@thetis/hello", source: { kind: "local", ref: "packages/hello" } };
   const execs = [];
@@ -327,7 +352,7 @@ test("package-info: the record, the registry's word and the checkout, each said 
     },
   };
   const out = await commands.packageInfo({ name: "@alice/hello" }, env);
-  assert.deepEqual(out.data, { name: "@alice/hello", version: "0.1.0-fork.1", type: "loader", description: "Says hello.", label: null, audience: null, root: "/home/alice/packages/hello", everyone: false, everyoneBy: null, forkedFrom: { name: "@thetis/hello", version: "0.1.0" }, fork: null, replaced: "@thetis/hello", source: { kind: "local", ref: "packages/hello" }, promotedFrom: null, sharedAs: null, tools: [], hasSkills: false, pages: 0, service: false, steps: 0, loaded: null, registry: null, git: { branch: "main", upstream: "origin/main", ahead: 2, behind: 1, changed: 2, commit: "abc1234" }, dependencies: [], dependents: [] });
+  assert.deepEqual(out.data, { name: "@alice/hello", version: "0.1.0-fork.1", type: "loader", description: "Says hello.", label: null, audience: null, root: "/home/alice/packages/hello", everyone: false, everyoneBy: null, forkedFrom: { name: "@thetis/hello", version: "0.1.0" }, fork: null, replaced: "@thetis/hello", source: { kind: "local", ref: "packages/hello" }, promotedFrom: null, sharedAs: null, origin: null, systemOnly: false, tools: [], hasSkills: false, pages: 0, service: false, steps: 0, loaded: null, registry: null, git: { branch: "main", upstream: "origin/main", ahead: 2, behind: 1, changed: 2, commit: "abc1234" }, dependencies: [], dependents: [] });
   assert.ok(execs[0].includes("'/home/alice/packages/hello'") && execs[0].endsWith("-- ."), "git is asked about this package's files only");
   const bare = await commands.packageInfo({ name: "@alice/hello" }, { ...env, exec: async () => ({ code: 128, stdout: "", stderr: "not a git repository" }) });
   assert.equal(bare.data.git, null);
@@ -344,6 +369,9 @@ test("package-info: the record, the registry's word and the checkout, each said 
   const journaled = { ...env, kernel: { packages: { list: async () => [info, { ...info, name: "@thetis/hello", version: "0.1.0", everyone: true, everyoneBy: "promoted", forkedFrom: undefined, replaced: undefined, source: { kind: "system", ref: "/data/packages/hello" } }], catalog: async () => [{ name: "@thetis/hello" }] }, operator: { call: async (method, args) => (method === "journal.tail" && args.kind === "package.promote" ? promote : null) } } };
   assert.deepEqual((await commands.packageInfo({ name: "@thetis/hello" }, journaled)).data.promotedFrom, { name: "@alice/hello", by: "alice", at: "2026-09-24T10:00:00Z", actor: "alice" });
   assert.equal((await commands.packageInfo({ name: "@alice/hello" }, journaled)).data.sharedAs, "@thetis/hello");
+  // A copy names its official version from the packages on disk: the Provenance card's "Everyone's copy".
+  const withOrigin = { ...env, kernel: { ...env.kernel, packages: { ...env.kernel.packages, catalog: async () => [{ name: "@thetis/hello", version: "0.2.0", everyone: true, everyoneBy: "config", thetis: { label: "Hello" } }] } } };
+  assert.deepEqual((await commands.packageInfo({ name: "@alice/hello" }, withOrigin)).data.origin, { name: "@thetis/hello", label: "Hello", version: "0.2.0", everyone: true, everyoneBy: "config" });
   const gone = { ...journaled, kernel: { ...journaled.kernel, packages: { ...journaled.kernel.packages, catalog: async () => [] } } };
   assert.equal((await commands.packageInfo({ name: "@alice/hello" }, gone)).data.sharedAs, null, "a shared copy taken away since is no reason to refuse sharing again");
   await refuses(commands.packageInfo, { name: "@alice/nope" }, env, /is not installed/);
@@ -354,9 +382,10 @@ test("the package card's facts: source, fork, registry and checkout in words", a
   const { packageFacts } = await import("../ui/package-card.js");
   const base = { name: "@thetis/exa", version: "0.1.0", type: "tool", root: "/srv/packages/exa", everyone: true, forkedFrom: null, replaced: null, source: { kind: "system", ref: "exa" }, registry: null, git: null };
   const words = (info) => Object.fromEntries(packageFacts(info).map(([k, v, tone]) => [k, tone ? `${v} [${tone}]` : v]));
-  assert.deepEqual(words(base), { version: "0.1.0 · tool", default: "everyone gets it", source: "shipped with Thetis", registry: "not in the marketplace index", checkout: "not in a git checkout", files: "/srv/packages/exa" });
+  assert.deepEqual(words(base), { version: "0.1.0 · tool", default: "Everyone gets it", source: "by Thetis", registry: "not in the marketplace index", checkout: "not in a git checkout", files: "/srv/packages/exa" });
+  assert.equal(words({ ...base, everyoneBy: "config" }).default, "Everyone gets it (set in Server settings)", "never the server's settings file");
   const git = words({ ...base, everyone: false, source: { kind: "git", ref: "https://x/registry.git#exa@0123456789abcdef" }, registry: { registry: "main", version: "0.2.0", commit: "fedcba9876543210", update: { version: "0.2.0", installed: "0123456789abcdef", available: "fedcba9876543210", source: "https://x/registry.git#exa@fedcba9876543210" } }, git: { branch: "main", upstream: "origin/main", ahead: 1, behind: 0, changed: 0, commit: "0123456" } });
-  assert.equal(git.default, "only the people it was installed for");
+  assert.equal(git.default, "Only the people it was installed for");
   assert.equal(git.source, "https://x/registry.git · exa · pinned to 0123456");
   assert.match(git.registry, /^main holds 0\.2\.0 \(fedcba9\); this copy is 0123456: Update ready \[warn\]$/);
   assert.equal(git.checkout, "on main · at 0123456 · 1 commit not pushed · nothing uncommitted here [warn]");
@@ -404,7 +433,7 @@ test("the fleet's pure helpers: what a cell says, which rows need a look, and wh
 });
 
 test("the configuration form's pure helpers: the control per key, what counts as a change, the words for a source", async () => {
-  const { kindOf, readValue, sourceText, missingText, brokenSentence, reloadSentence } = await import("../ui/config-form.js");
+  const { kindOf, readValue, sourceText, missingText, brokenSentence, reloadSentence, keyLabel, nameOf, isAdvanced, clearWords, summaryText, MASK } = await import("../ui/config-form.js");
   const k = (extra) => ({ key: "k", state: "set", secret: false, declared: true, ...extra });
   assert.equal(kindOf(k({ secret: true, type: "string" })), "secret");
   assert.deepEqual(["string", "number", "boolean", "object", "array"].map((type) => kindOf(k({ type }))), ["text", "number", "checkbox", "json", "json"]);
@@ -427,12 +456,33 @@ test("the configuration form's pure helpers: the control per key, what counts as
   assert.match(readValue("json", "[1]", k({ type: "object" })).error, /object is expected/);
   assert.match(readValue("json", "{}", k({ type: "array" })).error, /array is expected/);
   assert.match(readValue("json", "null", k({ type: "object" })).error, /null cannot be stored/);
-  assert.equal(sourceText(k({ state: "unset" }), "system"), "not set");
-  assert.equal(sourceText(k({ source: "file" }), "system"), "from the file");
-  assert.equal(sourceText(k({ source: "default" }), "system"), "default");
-  assert.equal(sourceText(k({ source: "system", inheritedFrom: "@bitmuse/notion" }), "system"), "set for everyone · inherited from @bitmuse/notion");
-  assert.equal(sourceText(k({ source: "user" }), "user"), "set by you");
-  assert.equal(sourceText(k({ source: "user" }), "user", "alice"), "set by alice");
+  assert.equal(sourceText(k({ state: "unset" }), "system"), "Not set");
+  assert.equal(sourceText(k({ source: "file" }), "system"), "Set for everyone in Server settings");
+  assert.equal(sourceText(k({ source: "default" }), "system"), "Default");
+  assert.equal(sourceText(k({ source: "system", inheritedFrom: "@bitmuse/notion" }), "system"), "Set for everyone · inherited from @bitmuse/notion");
+  assert.equal(sourceText(k({ source: "system" }), "user"), "Set for everyone", "a person's view of everyone's value");
+  assert.equal(sourceText(k({ source: "user" }), "user"), "Your own (used instead of everyone's)");
+  assert.equal(sourceText(k({ source: "user" }), "user", "alice"), "alice's own (used instead of everyone's)");
+  // A key's name as a person says it; the raw key stays beside it in small type.
+  assert.deepEqual(["apiKey", "baseUrl", "timeoutMs", "timeoutSeconds", "numResults", "maxCharacters", "token", "defaults", "ssh_key_path", "tag"].map((key) => keyLabel({ key })), ["API key", "Base URL", "Timeout (milliseconds)", "Timeout (seconds)", "Num results", "Max characters", "Token", "Defaults", "SSH key path", "Tag"]);
+  assert.equal(nameOf("@thetis/exa"), "Exa");
+  assert.equal(nameOf("@bitmuse/ui-tool-exec"), "Tool Exec");
+  // Rarely touched: folded under Advanced. A key that must be set never is.
+  assert.deepEqual(["baseUrl", "timeoutMs", "headers", "defaults", "apiKey"].map((key) => isAdvanced(k({ key, help: "Some help." }))), [true, true, true, true, false]);
+  assert.equal(isAdvanced(k({ key: "tag" })), true, "no help to go by");
+  assert.equal(isAdvanced(k({ key: "baseUrl", required: true })), false);
+  assert.equal(isAdvanced(k({ key: "baseUrl", state: "missing" })), false);
+  // The Clear confirms, in plain words.
+  const secret = k({ key: "apiKey", secret: true, required: true });
+  assert.deepEqual(clearWords(secret, { layer: "user" }), { title: "Remove your own key?", note: "You will use everyone's key again." });
+  assert.deepEqual(clearWords(secret, { layer: "user", who: "sam" }), { title: "Remove sam's own key?", note: "sam uses everyone's key again." });
+  assert.deepEqual(clearWords(secret, { layer: "system", label: "Exa Web Search", people: ["bitmuse", "sam"] }), { title: "Remove everyone's key?", note: "bitmuse and sam lose Exa Web Search unless they set their own." });
+  assert.equal(clearWords(secret, { layer: "system", label: "Exa Web Search", people: ["sam"] }).note, "sam loses Exa Web Search unless they set their own.");
+  assert.equal(clearWords(k({ key: "baseUrl" }), { layer: "system" }).note, "People who have not set their own go back to the default.");
+  assert.doesNotMatch(JSON.stringify(clearWords(secret, { layer: "system", people: ["sam"] })), /layer|falls back|file/, "no machinery words");
+  assert.equal(summaryText({ broken: true, keys: [{ key: "apiKey", state: "missing" }, { key: "baseUrl", state: "set" }] }), "API key is not set");
+  assert.equal(summaryText({ broken: false, keys: [{ key: "apiKey", state: "set" }] }), "Nothing missing");
+  assert.equal(MASK, "••••••••");
   assert.equal(missingText(k({ state: "missing", missing: ["OPENROUTER_API_KEY"] })), "OPENROUTER_API_KEY is not in the environment");
   assert.equal(missingText(k({ missing: ["A", "B"] })), "A, B are not in the environment");
   assert.equal(missingText(k()), null);
@@ -498,14 +548,14 @@ test("the tree an admin reads: Overview, People, Extensions, Models, Access, Act
   // A note a person reads says "your space" or nothing, never "workspace" (an admin's word).
   assert.doesNotMatch(by.access.note, /workspace/i);
   const { advancedChildren } = await import("../ui/advanced.js");
-  assert.deepEqual(advancedChildren().map((c) => [c.id, c.kind]), [["workspaces", "page"], ["fleet", "page"], ["server", "page"]]);
+  assert.deepEqual(advancedChildren().map((c) => [c.id, c.kind]), [["workspaces", "page"], ["server", "page"]], "every extension by person is Extensions → Who has what now");
   const { tabsFor } = await import("../ui/access.js");
   assert.deepEqual(tabsFor("admin").map((t) => t.label), ["Mounts", "SSH keys", "Registries"]);
   assert.deepEqual(tabsFor("user").map((t) => t.label), ["Mounts", "SSH keys"], "registries are the installation's: a user has no tab for them");
 });
 
-test("configurationChildren: All extensions first, then every extension, the ones that ask for something with one mark", async () => {
-  const { configurationChildren, FLEET, markOf } = await import("../ui/configuration.js");
+test("configurationChildren: All extensions and Who has what first, then every extension, one node per family, the ones that ask for something with one mark", async () => {
+  const { configurationChildren, FLEET, WHO, markOf } = await import("../ui/configuration.js");
   const reports = [
     { package: "@thetis/exa", summary: "apiKey is required and not set", broken: true, keys: [{ key: "apiKey" }] },
     { package: "@thetis/tools-files", summary: "every key is set", broken: false, keys: [] },
@@ -516,40 +566,40 @@ test("configurationChildren: All extensions first, then every extension, the one
     { name: "@thetis/terminal", type: "service", state: "current", waiting: [], registry: null, config: { broken: false }, byUser: { bitmuse: { fork: true, state: "current" }, dev: { state: "current" } } },
     { name: "@thetis/tools-files", state: "current", waiting: [], registry: null, config: { broken: false }, byUser: { dev: { state: "current" } } },
     { name: "@bitmuse/moo", state: "current", waiting: [], registry: null, config: { broken: false }, byUser: { bitmuse: { state: "current", broken: true } } },
-    { name: "@thetis/skills-hybrid", state: "update", waiting: ["dev", "root", "bob"], registry: { version: "0.2.2", update: { apply: "reload", version: "0.2.2" } }, config: { broken: false }, byUser: { dev: { state: "update" } } },
+    { name: "@thetis/skills-hybrid", version: "0.2.2", state: "update", waiting: ["dev", "root", "bob"], registry: { version: "0.2.2", update: { apply: "reload", version: "0.2.2" } }, config: { broken: false }, byUser: { dev: { state: "update" } } },
     { name: "@thetis/compaction", version: "0.1.0", state: "update", waiting: [], registry: { version: "0.2.0", update: { apply: "install", version: "0.2.0" } }, config: null, byUser: { dev: { state: "current" } } },
+    { name: "@thetis/ui-marketplace", type: "ui", label: "extensions", version: "0.11.0", state: "current", waiting: [], registry: null, config: null, byUser: { dev: { state: "current" } } },
   ] };
   const request = async (verb) => (verb === "config-list" ? { data: reports } : verb === "fleet" ? { data: fleet } : { data: null });
   const kids = await configurationChildren({ request }, { user: "bitmuse" });
   assert.equal(FLEET, "*");
-  assert.deepEqual(kids[0], { id: "*", label: "All extensions", kind: "page", note: "Every extension installed here" });
+  assert.deepEqual(kids.slice(0, 2), [{ id: "*", label: "All extensions", kind: "page", note: "Every extension installed here" }, { id: WHO, label: "Who has what", kind: "page", note: "Every extension and which people have it" }], "Who has what sits under Extensions now");
   assert.deepEqual(
-    kids.slice(1).map((k) => [k.id, k.label, k.mark]),
-    [["@thetis/compaction", "Compaction", "warn"], ["@thetis/exa", "Exa", "err"], ["@bitmuse/moo", "Moo", "err"], ["@thetis/skills-hybrid", "Skills Hybrid", "warn"], ["@thetis/terminal", "Terminal", undefined], ["@thetis/tools-files", "Tools Files", undefined]],
-    "every extension is in the tree by its label in Title Case; one that asks for nothing carries no mark, so it is not counted"
+    kids.slice(2).map((k) => [k.id, k.label, k.mark]),
+    [["@thetis/compaction", "Compaction", "warn"], ["@thetis/exa", "Exa", "err"], ["@thetis/ui-marketplace", "Extensions page", undefined], ["@bitmuse/moo", "Moo", "err"], ["@thetis/skills-hybrid", "Skills Hybrid", "warn"], ["@thetis/terminal", "Terminal", undefined], ["@thetis/tools-files", "Tools Files", undefined]],
+    "every extension is in the tree by its label in Title Case; the Extensions place's own entry is the Extensions page; one that asks for nothing carries no mark, so it is not counted"
   );
-  const by = Object.fromEntries(kids.slice(1).map((k) => [k.id, k]));
-  assert.equal(by["@thetis/terminal"].note, "by Thetis · Background · @thetis/terminal", "no mark: the publisher line and the id");
-  assert.equal(by["@thetis/skills-hybrid"].note, "3 people haven't applied it yet.");
-  assert.equal(by["@thetis/compaction"].note, "Version 0.2.0 is ready; you have 0.1.0. Updating keeps your settings.");
-  assert.equal(by["@thetis/exa"].note, "apiKey is required and not set. Open Settings to fix it.");
-  assert.equal(by["@bitmuse/moo"].note, "A setting is missing for bitmuse. Open Settings to fix it.");
-  // An official extension and someone's copy of it read the same: the tree tells them apart by who they are by.
+  const by = Object.fromEntries(kids.slice(2).map((k) => [k.id, k]));
+  assert.equal(by["@thetis/terminal"].note, "by Thetis · Background", "no mark: the publisher line");
+  assert.equal(by["@thetis/skills-hybrid"].note, "Update available — 3 people haven't applied it yet.", "a mark's tooltip is the chip and the one sentence why");
+  assert.match(by["@thetis/compaction"].note, /^Update available — Version 0\.2\.0 is ready/);
+  assert.match(by["@thetis/exa"].note, /^Needs setup — /);
+  // An official extension and someone's customised copy of it are one node: the copy hangs under it.
   const twins = await configurationChildren({ request: async (verb) => (verb === "fleet" ? { data: { packages: [
-    { name: "@thetis/tool-exec", type: "tool", label: "tool exec", version: "0.4.1", state: "current", waiting: [], registry: null, config: null, byUser: { sam: { state: "current" } } },
-    { name: "@bitmuse/tool-exec", type: "tool", label: "tool exec", version: "0.3.3-fork.1", forkedFrom: { name: "@thetis/tool-exec", version: "0.3.3" }, fork: { name: "@thetis/tool-exec", version: "0.3.3", shipped: "0.4.1" }, state: "current", waiting: [], registry: null, config: null, byUser: { bitmuse: { state: "current" } } },
+    { name: "@thetis/tool-exec", type: "tool", label: "tool exec", version: "0.4.1", tools: ["install"], state: "current", waiting: [], registry: null, config: null, byUser: { sam: { state: "current" } } },
+    { name: "@bitmuse/tool-exec", type: "tool", label: "tool exec", version: "0.3.3-fork.1", tools: ["install"], forkedFrom: { name: "@thetis/tool-exec", version: "0.3.3" }, fork: { name: "@thetis/tool-exec", version: "0.3.3", shipped: "0.4.1" }, state: "current", waiting: [], registry: null, config: null, byUser: { bitmuse: { state: "current" } } },
+    { name: "@sam/tool-exec", type: "tool", label: "tool exec", version: "0.4.1-fork.1", tools: ["install"], forkedFrom: { name: "@thetis/tool-exec", version: "0.4.1" }, fork: { name: "@thetis/tool-exec", version: "0.4.1", shipped: "0.4.1" }, state: "current", waiting: [], registry: null, config: null, byUser: { sam: { state: "current" } } },
   ] } } : { data: [] }) }, { user: "bitmuse" });
-  assert.deepEqual(twins.slice(1).map((k) => [k.label, k.mark]), [["Tool Exec (by Thetis)", undefined], ["Tool Exec (by you)", "warn"]], "the copy whose official version is newer asks for attention");
-  assert.match(twins.find((k) => k.id === "@bitmuse/tool-exec").note, /Thetis's version 0\.4\.1 is newer than the 0\.3\.3 your copy was made from/);
+  assert.deepEqual(twins.slice(2).map((k) => [k.id, k.label, (k.children ?? []).map((c) => c.label)]), [["@thetis/tool-exec", "Tool Exec", ["Tool Exec — your copy", "Tool Exec — sam's copy"]]], "one node per family, never two that read the same");
   for (const k of kids) assert.equal(k.marks, undefined, "no glyphs, so the shell draws no glyph legend");
-  // Neither command answering: the tree still has its first page, and says nothing it does not know.
+  // Neither command answering: the tree still has its pages, and says nothing it does not know.
   const bare = await configurationChildren({ request: async () => Promise.reject(new Error("The requested module './lib/ssh.js' does not provide an export named 'isWithin'")) });
-  assert.deepEqual(bare.map((k) => k.id), ["*"]);
+  assert.deepEqual(bare.map((k) => k.id), ["*", WHO]);
   assert.equal(markOf(null, null), null);
 });
 
 test("the three words: a server state becomes Up to date, Update ready or Restart needed, and only two of them ask for anything", async () => {
-  const { stateWord, stateTone, actionable, waitingSentence, shortName } = await import("../ui/state.js");
+  const { stateWord, stateTone, actionable, waitingSentence, shortName } = await import("../ui/words.js");
   assert.deepEqual(["current", "update", "restart", undefined, "stale"].map(stateWord), ["Up to date", "Update ready", "Restart needed", "Up to date", "Up to date"]);
   assert.deepEqual(["current", "update", "restart"].map(stateTone), ["ok", "warn", "warn"]);
   assert.deepEqual(["current", "update", "restart"].map(actionable), [false, true, true]);

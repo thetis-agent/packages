@@ -246,10 +246,10 @@ test("All extensions: what is installed for you, in the columns every list uses,
   everywhere.props.onClick();
   const wide = text(root);
   assert.match(wide, /Provider Openrouterby Thetis · ModelsNeeds setup/);
-  assert.match(wide, /OPENROUTER_API_KEY is not in the server's environment, so apiKey has no value\. Set it for everyone in Control panel → Extensions → Provider Openrouter → Settings\./);
+  assert.match(wide, /OPENROUTER_API_KEY is not in the server's environment, so API key has no value\. Set it for everyone in Control panel → Extensions → Provider Openrouter → Settings\./);
 });
 
-test("Extensions by person: the system workspace's column is Thetis itself, and the table scrolls in its own box", async () => {
+test("Who has what: every extension and which people have it; the system workspace's column is Thetis itself, and the table scrolls in its own box", async () => {
   const { mountFleet, SYSTEM_COLUMN } = await import("../ui/fleet.js");
   const fleet = { people: [{ user: "root" }], packages: [{ name: "@thetis/gateway-login", type: "gateway", version: "0.1.0", source: { kind: "system" }, state: "current", waiting: [], registry: null, config: null, scope: "system", byUser: { _system: { version: "0.1.0", state: "current" } } }], stats: {} };
   const ext = fakeExt({ fleet, "update-check": { updating: false } });
@@ -260,6 +260,11 @@ test("Extensions by person: the system workspace's column is Thetis itself, and 
   const heads = all(root, (n) => n.tag === "th").map(text);
   assert.ok(heads.includes("Thetis itself") && !heads.includes("_system"), heads.join("|"));
   assert.ok(all(root, (n) => String(n.props.class ?? "").includes("ua-fl-scroll")).length === 1, "the table's own scroll box");
+  assert.match(text(root), /Who has what/);
+  assert.match(text(root), /Every extension and which people have it\./);
+  assert.match(text(root), /waiting for a reload/);
+  assert.match(text(root), /customised copies/);
+  assert.doesNotMatch(text(root), /people to apply|own copies/);
 });
 
 // The Overview draws its lineage as SVG through `document`; the fake DOM stands in for it on these pages.
@@ -270,7 +275,7 @@ function pageAnswers({ info, where, config = { package: info.name, broken: false
   return { "package-info": info, "package-where": where, "config-show": config, "package-log": { commits: [] }, "package-readme": { text: null } };
 }
 
-test("an extension's page: the label, the publisher line and the chips; Remove for everyone names the people; Required has no Remove", async () => {
+test("an extension's page: the label, the publisher line and the chips; a shared copy says where it came from; Remove for everyone names the people; Required has no Remove", async () => {
   const { mountPackagePage } = await import("../ui/package-page.js");
   const people = [{ user: "bitmuse", role: "admin", installed: true, version: "0.1.1" }, { user: "sam", role: "user", installed: true, version: "0.1.1" }];
   const notion = { name: "@thetis/notion", label: "Notion", version: "0.1.1", type: "tool", tools: ["notion_search"], description: "The Notion API.", everyone: true, everyoneBy: "promoted", source: { kind: "system", ref: "/data/packages/notion" }, promotedFrom: { name: "@bitmuse/notion", by: "bitmuse", at: "2026-09-24T10:00:00Z" }, registry: null, git: null, dependencies: [], dependents: [] };
@@ -286,14 +291,27 @@ test("an extension's page: the label, the publisher line and the chips; Remove f
   assert.equal(title.props.title, "@thetis/notion", "the raw id is the tooltip");
   assert.match(said, /by bitmuse · Tools/, "a shared copy is by the person it was shared from");
   assert.match(said, /For everyone/);
+  assert.match(said, /Shared with everyone from Notion by bitmuse on 24 September 2026\. Your people get this one\./, "the header says whose it is and that it is the one people get");
   assert.match(said, /Shared with everyone from @bitmuse\/notion by bitmuse on 2026-09-24/, "Provenance tells the truth");
-  assert.doesNotMatch(said, /shipped with Thetis|Default for everyone|Up to date|set up/);
+  assert.match(said, /Shared copy/);
+  assert.doesNotMatch(said, /shipped with Thetis|comes with Thetis|Default for everyone|shared by bitmuse/);
+  assert.ok(!buttons(root).some((b) => /Stop sharing/.test(b)), "the kernel cannot stop a promotion, so nothing offers to");
   assert.ok(buttons(root).includes("Remove for everyone…"));
   assert.ok(!buttons(root).includes("Turn on for everyone…") && !buttons(root).includes("Share with everyone…"), "a shared copy is neither turned on nor shared again");
-  // The confirm names the people who lose it.
+  // The people, one line each, with the action that fits.
+  assert.match(said, /bitmuse · has it/);
+  assert.ok(buttons(root).includes("Remove for bitmuse…") && buttons(root).includes("Remove for sam…"));
+  // The confirm names the people who lose it, and says it stays shared.
   all(root, (n) => n.tag === "button" && text(n) === "Remove for everyone…")[0].props.onClick();
   await settled();
   assert.deepEqual(asked.lines.find(([k]) => k === "people"), ["people", "bitmuse, sam"]);
+  assert.match(asked.note, /It is taken away from bitmuse and you now\./, "the reader (sam) is \"you\"");
+  assert.match(asked.note, /It stays shared, so people added later still get it\./);
+  assert.deepEqual(asked.lines[0], ["extension", "Notion"], "the confirm names the extension by its label");
+  all(root, (n) => n.tag === "button" && text(n) === "Remove for sam…")[0].props.onClick();
+  await settled();
+  assert.equal(asked.title, "Remove Notion for sam?");
+  assert.equal(asked.note, "Their settings are kept. What it adds stops from their next message.");
 
   // Required by Thetis: no Remove of any kind, here or for one person.
   const core = { ...notion, name: "@thetis/harness-core", label: "harness core", type: "loader", everyoneBy: "config", promotedFrom: null, tools: [] };
@@ -302,38 +320,78 @@ test("an extension's page: the label, the publisher line and the chips; Remove f
   mountPackagePage(ext2, root2, { name: "@thetis/harness-core", user: "bitmuse" });
   await settled();
   assert.match(text(root2), /Required by Thetis/);
+  assert.match(text(root2), /Everyone gets it \(set in Server settings\)/);
   assert.ok(!buttons(root2).some((b) => /Remove/.test(b)), buttons(root2).join("|"));
 });
 
-test("an extension's page: Turn on and off for everyone, Share with everyone, and never a silent downgrade", async () => {
+test("an extension's page: what everyone gets, one row of the decision table per kind of extension", async () => {
   const { mountPackagePage } = await import("../ui/package-page.js");
-  const people = [{ user: "bitmuse", role: "admin", installed: true, version: "0.3.3-fork.1" }];
-  const where = { people, counts: { people: 1, installed: 1 } };
-  const exa = { name: "@thetis/exa", version: "0.1.0", type: "tool", tools: ["exa_search"], description: "", everyone: false, everyoneBy: null, source: { kind: "system", ref: "exa" }, registry: null, git: null, dependencies: [], dependents: [] };
-  const draw = async (info, user = "bitmuse") => {
-    const ext = fakeExt(pageAnswers({ info, where: { ...where, people: people.map((p) => ({ ...p, version: info.version })) } }));
+  const both = [{ user: "bitmuse", role: "admin", installed: true }, { user: "sam", role: "user", installed: true }];
+  const exa = { name: "@thetis/exa", label: "Exa Web Search", version: "0.1.0", type: "tool", tools: ["exa_search"], description: "", everyone: false, everyoneBy: null, source: { kind: "system", ref: "exa" }, registry: null, git: null, dependencies: [], dependents: [] };
+  const draw = async (info, { people = both, config, user = "bitmuse" } = {}) => {
+    const ext = fakeExt(pageAnswers({ info, where: { people: people.map((p) => ({ ...p, version: p.installed ? info.version : null })), counts: { people: people.length, installed: people.filter((p) => p.installed).length } }, ...(config ? { config } : {}) }));
+    let asked = null;
+    ext.ui.confirm = async (_anchor, opts) => ((asked = opts), false);
     const root = el("div");
-    mountPackagePage(ext, root, { name: info.name, user });
+    mountPackagePage(ext, root, { name: info.name, user, open: () => {} });
     await settled();
-    return root;
+    const click = async (label) => {
+      all(root, (n) => n.tag === "button" && text(n) === label)[0].props.onClick?.();
+      await settled();
+      return asked;
+    };
+    return { root, said: text(root), buttons: buttons(root), click };
   };
-  assert.ok(buttons(await draw(exa)).includes("Turn on for everyone…"));
-  assert.ok(buttons(await draw({ ...exa, everyone: true, everyoneBy: "marked" })).includes("Turn off for everyone…"));
-  assert.match(text(await draw({ ...exa, everyone: true, everyoneBy: "config" })), /For everyone by the server's settings file/);
-  // A person's own extension is shared, with the words the contract gives.
+  // By Thetis, not for everyone: Turn on, and the confirm says when it needs a key nobody has.
+  const needsKey = { package: "@thetis/exa", broken: true, summary: "apiKey is required and not set", keys: [{ key: "apiKey", state: "missing", required: true, secret: true, help: "Your Exa API key, from the Exa dashboard." }] };
+  const on = await draw(exa, { config: needsKey, people: both.map((p) => ({ ...p, config: { broken: true } })) });
+  assert.ok(on.buttons.includes("Turn on for everyone…"));
+  const onAsked = await on.click("Turn on for everyone…");
+  assert.match(onAsked.note, /It needs an Exa API key\. Nobody has one yet: set one for everyone first, or each person sets their own\./);
+  // Marked for everyone: Turn off and Remove, each saying what happens to whom.
+  const marked = await draw({ ...exa, everyone: true, everyoneBy: "marked" });
+  assert.ok(marked.buttons.includes("Turn off for everyone…") && marked.buttons.includes("Remove for everyone…"));
+  assert.equal((await marked.click("Turn off for everyone…")).note, "New people stop getting it; people who have it keep it.");
+  assert.match((await marked.click("Remove for everyone…")).note, /^It is taken away from you and sam now\./);
+  // Only the reader has it, or nobody: no Remove for everyone.
+  const alone = await draw(exa, { people: [{ user: "bitmuse", role: "admin", installed: true }, { user: "sam", role: "user", installed: false }] });
+  assert.ok(!alone.buttons.includes("Remove for everyone…"));
+  assert.match(alone.said, /Only you have this\. Use Remove for me\./);
+  assert.ok(alone.buttons.includes("Install for sam"), "the person picker offers Install to someone who does not have it");
+  // Admin-only: no Turn on, and no Install for a person who is not an admin.
+  const operator = { ...exa, name: "@thetis/tool-operator", label: "Restart Tool", audience: "admin" };
+  const adminOnly = await draw(operator, { people: [{ user: "bitmuse", role: "admin", installed: true }, { user: "sam", role: "user", installed: false }, { user: "ada", role: "admin", installed: false }] });
+  assert.ok(!adminOnly.buttons.includes("Turn on for everyone…") && !adminOnly.buttons.includes("Install for sam"));
+  assert.ok(adminOnly.buttons.includes("Install for ada"), "another admin may be given it");
+  assert.match(adminOnly.said, /Only admins can have this\./);
+  // Runs inside Thetis itself: no Install, no Turn on, no Remove.
+  const login = { ...exa, name: "@thetis/gateway-login", label: "Sign-in Page", type: "service", tools: [], systemOnly: true };
+  const inside = await draw(login, { people: both.map((p) => ({ ...p, installed: false })) });
+  assert.match(inside.said, /Runs inside Thetis itself/);
+  assert.ok(!inside.buttons.some((b) => /Install|Turn on|Remove/.test(b)), inside.buttons.join("|"));
+  // A person's own extension is shared, with the words the contract gives; its original once shared says so and nothing else.
   const mine = { ...exa, name: "@bitmuse/moo", label: "moo", source: { kind: "local", ref: "packages/moo" } };
-  assert.ok(buttons(await draw(mine)).includes("Share with everyone…"));
-  assert.match(text(await draw({ ...mine, sharedAs: "@thetis/moo" })), /Already shared with everyone as Moo/);
-  // A customised copy whose official version is newer: Update available, Use Thetis's version, and no Share.
-  const copy = { ...exa, name: "@bitmuse/tool-exec", label: "tool exec", version: "0.3.3-fork.1", forkedFrom: { name: "@thetis/tool-exec", version: "0.3.3" }, fork: { name: "@thetis/tool-exec", version: "0.3.3", shipped: "0.4.1", identical: false, everyone: true }, source: { kind: "local", ref: "packages/tool-exec" } };
-  const root = await draw(copy);
-  const said = text(root);
-  assert.match(said, /Update available/);
-  assert.match(said, /Customized/);
-  assert.match(said, /by you · Tools/);
-  assert.match(said, /Your copy is older than Thetis's 0\.4\.1; sharing it would replace it for everyone\./);
-  assert.ok(!buttons(root).includes("Share with everyone…"), "never a silent downgrade");
-  assert.ok(buttons(root).includes("Use Thetis's version"));
+  const own = await draw(mine, { people: [{ user: "bitmuse", role: "admin", installed: true }] });
+  assert.ok(own.buttons.includes("Share with everyone…"));
+  assert.match((await own.click("Share with everyone…")).note, /Everyone gets a shared copy named Moo\. Your own stays yours\./);
+  const original = await draw({ ...mine, sharedAs: "@thetis/moo" });
+  assert.match(original.said, /Already shared with everyone as Moo\./);
+  assert.ok(original.buttons.includes("Open it"));
+  assert.ok(!original.buttons.some((b) => /for everyone/.test(b)), "nothing else: the shared copy is the one to act on");
+  // A variant copy of one's own original is shared on its own, never "Already shared".
+  const variant = await draw({ ...mine, name: "@bitmuse/moo-read", label: "Moo (read only)", forkedFrom: { name: "@bitmuse/moo", version: "0.1.0" }, sharedAs: null }, { people: [{ user: "bitmuse", role: "admin", installed: true }] });
+  assert.doesNotMatch(variant.said, /Already shared/);
+  // A customised copy whose official version is newer: Customized, Use Thetis's version with what it costs, and no Share.
+  const copy = { ...exa, name: "@bitmuse/tool-exec", label: "tool exec", version: "0.3.3-fork.1", forkedFrom: { name: "@thetis/tool-exec", version: "0.3.3" }, fork: { name: "@thetis/tool-exec", version: "0.3.3", shipped: "0.4.1", identical: false, everyone: true }, origin: { name: "@thetis/tool-exec", label: "Tool Exec", version: "0.4.1", everyone: true }, source: { kind: "local", ref: "packages/tool-exec" } };
+  const cust = await draw(copy, { people: [{ user: "bitmuse", role: "admin", installed: true }] });
+  assert.match(cust.said, /Customized/);
+  assert.match(cust.said, /by you · Tools/);
+  assert.match(cust.said, /Your copy is older than Thetis's 0\.4\.1; sharing it would replace it for everyone\./);
+  assert.match(cust.said, /Tool Exec 0\.4\.1 \(Thetis's\)/, "Provenance names everyone's copy");
+  assert.ok(!cust.buttons.includes("Share with everyone…"), "never a silent downgrade");
+  assert.ok(!cust.buttons.includes("Update"), "a copy behind Thetis's version is not an update");
+  const back = await cust.click("Use Thetis's version");
+  assert.match(back.note, /Use Thetis's version replaces your changes with Thetis's 0\.4\.1\. Your copy's files stay in your folder/);
 });
 
 test("the README tab reads this extension's own README, and says when its title names the extension it was shared from", async () => {

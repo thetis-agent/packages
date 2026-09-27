@@ -1,44 +1,52 @@
-/* The Extensions place: one toolbar -- a search box, the type chips (All, Tools, Skills, Pages, Models) and a line
- * on whether everything is up to date -- the one-line legend of the types, then the sections `placeSections`
- * (state.js) sorts the families into:
+/* The Extensions place: one toolbar -- a search box, the type chips (All, Tools, Skills, Pages, Models,
+ * Background) and a line on whether everything is up to date -- the one-line legend of the types, then the
+ * sections `placeSections` (state.js) sorts the families into:
  *
- * - **Needs your attention (n)**, only when n > 0: what the person has that needs setting up or has an update,
- *   with **Update all** beside it, fed by the same `updates` answer as the "Updates ready" card, so the two
- *   agree. The person's own changes waiting to be applied are a line above it, with **Apply**.
- * - **Added by you (n)**: what they installed themselves or made.
+ * - **Needs your attention (n)**, only when n > 0: a compact to-do strip, one row per extension -- its label, one
+ *   sentence why, and one action: **Update**, **Set up** or **Review**. **Update N** beside the heading updates
+ *   exactly the Update rows, and says "Your own copies are not touched." The person's own changes waiting to be
+ *   applied are a line above it, with **Apply**.
+ * - **Installed (n)**: what the person has, with the pills **All · Added by you · For everyone · Customized**.
+ *   `n` is the number the Control panel says too. Something an admin installed for them says "Given to you by
+ *   <admin>".
  * - **Discover (n)**: what they could add. Never a version of something they already have, never an extension
- *   only an admin may add, unless they are one.
- * - Three folded sections: **Built in** (what everyone gets), **In your folder** (copies under their home's
- *   `packages/` that are not installed) and **Part of Thetis** (the parts that make it run).
+ *   only an admin may have, unless they are one.
+ * - Two folded sections: **Drafts in your folder** (extensions that exist only as folders under their home's
+ *   `packages/`; hidden when there are none) and **Part of Thetis** (the parts that make it run -- for a person
+ *   who is not an admin, only the ones they have).
  *
- * One card per extension family: an original, its copies and a promoted copy of it are one extension with
- * several versions, and the card shows the person's own. A card is the label with at most two chips, the
- * publisher line ("by Thetis · Tools"), two lines of description, and what it brings with its version.
+ * One card per extension family: an original, its copies and a shared copy of it are one extension with
+ * several versions, and the card shows the person's own. A card is the label (its package id only as the
+ * label's tooltip), the publisher line ("by Thetis · Tools"), a row of at most two chips, one line of what it
+ * does, and what it brings with its version.
  *
- * Every row is read once, with the person's folder, and the search and the type chips narrow them here, so a
- * key press is not a round trip; `matches` (state.js) is the search, with its synonyms. The configuration
- * report of each installed extension comes from one `config-list` call after the rows, and folds into the
- * rows so a card's Needs setup is the page's. The query, the type and which folds are open are kept, so
- * coming back from an extension's page shows the same list. Clicking a card re-opens the place with the name.
- * An admin also gets **Registries** in the toolbar, the page in registries.js. */
+ * Every row is read once, with the person's folder, and the search and the chips narrow them here, so a key
+ * press is not a round trip; while a search or a type narrows the list, a section with nothing in it is not
+ * drawn. The configuration report of each installed extension comes from one `config-list` call after the
+ * rows, and folds into the rows so a card's Needs setup is the page's. The query, the type, the pill and which
+ * folds are open are kept, so coming back from an extension's page shows the same list. While the place is
+ * open the "Updates ready" card stays away: the status line says it. An admin also gets **Registries** in the
+ * toolbar, the page in registries.js. */
 
 import { chipNodes } from "./badges.js";
-import { FILTERS, WORDS, placeSections } from "./state.js";
+import { FILTERS, PILLS, WORDS, isCopy, kindsOf, placeSections } from "./state.js";
 import { updater } from "./updates-notice.js";
 
-/** Kept across opens: the query, the type chip, and which folded sections are open. */
-const last = { q: "", kind: "", open: { builtin: false, folder: false, thetis: false } };
+/** Kept across opens: the query, the type chip, the Installed pill, and which folded sections are open. */
+const last = { q: "", kind: "", pill: "", open: { drafts: false, thetis: false } };
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** "11 tools", "4 skills", "1 page": the first thing an extension brings, for the card's foot. */
+/** "11 tools", "4 skills", "1 page", "Models", "Runs in the background": what an extension brings, for the card's foot. Never empty. */
 export function bringsLine(r) {
   if (r.tools?.length) return plural(r.tools.length, "tool");
   if (r.skills) return plural(r.skills, "skill");
   if (r.pages) return plural(r.pages, "page");
-  if (r.type === "provider") return "models";
-  if (r.service) return "runs in the background";
-  return "";
+  const kinds = kindsOf(r);
+  if (kinds.includes("Models")) return "Models";
+  if (kinds.includes("Skills")) return "Skills";
+  if (kinds.includes("Page")) return "A page";
+  return "Runs in the background";
 }
 
 /** The rows with each installed extension's configuration report folded on, so `stateOf` reads it. */
@@ -48,18 +56,26 @@ export function withConfig(rows, reports) {
 }
 
 /**
- * The sections, for a person, with the `updates` answer taken into account: an update the answer lists whose
- * extension has no card in "Needs your attention" (a search narrowed it away, or it is a version the card does
- * not show) is still counted there, as a plain line. Exported for the tests: this is the whole of the store's
+ * The sections for a person, narrowed by the search, the type and the pill, and `all`: the same unnarrowed,
+ * which is what the status line, the attention count and Update N go by. `own` is the person's own changes
+ * waiting to be applied, from the `updates` answer. Exported for the tests: this is the whole of the store's
  * filtering.
  */
-export function sections(rows, { user = "", admin = false, updates = null, q = "", kind = "" } = {}) {
+export function sections(rows, { user = "", admin = false, updates = null, q = "", kind = "", pill = "" } = {}) {
   const superseded = (updates?.forks ?? []).filter((f) => f.state === "superseded").map((f) => f.name);
-  const s = placeSections(rows, { user, admin, superseded, q, kind });
-  const shown = new Set(s.attention.map((e) => e.row.name));
-  const extra = q || kind ? [] : (updates?.items ?? []).filter((i) => !shown.has(i.name));
-  return { ...s, extra, own: updates?.own ?? [], items: updates?.items ?? [] };
+  const all = placeSections(rows, { user, admin, superseded });
+  const s = q || kind || pill ? placeSections(rows, { user, admin, superseded, q, kind, pill }) : all;
+  return { ...s, all, own: updates?.own ?? [] };
 }
+
+/** "All up to date", or "Updates ready: Orleans Docs and Web Gateway" -- the one verdict, from the Update rows. */
+export function statusText(all, { checked = "", failed = 0 } = {}) {
+  const labels = all.attention.filter((e) => e.todo.kind === "update").map((e) => e.label);
+  const head = labels.length ? `Updates ready: ${labels.length > 3 ? `${labels.slice(0, 3).join(", ")} and ${labels.length - 3} more` : listWords(labels)}` : "All up to date";
+  return `${head}${checked ? ` · checked ${checked}` : ""}${failed ? ` · ${failed} ${failed === 1 ? "registry" : "registries"} could not be checked` : ""}`;
+}
+
+const listWords = (w) => (w.length <= 1 ? w.join("") : `${w.slice(0, -1).join(", ")} and ${w[w.length - 1]}`);
 
 export function openGallery(ext, root, params) {
   const { el, clear } = ext.dom;
@@ -70,6 +86,8 @@ export function openGallery(ext, root, params) {
   let pending = null; // the `updates` answer, or null when this page cannot ask for it
   let reports = new Map(); // package -> its short configuration report, for installed packages
   let facts = { indexed: false, updatedAt: null, registries: [], total: 0 };
+  // While the place is open the "Updates ready" card stays away; the status line says what it would.
+  const release = updater()?.hold?.() ?? null;
 
   const input = el("input", { class: "input mk-search", type: "search", placeholder: "Search extensions…", "aria-label": "Search extensions", value: last.q, spellcheck: "false" });
   input.addEventListener("input", () => {
@@ -77,7 +95,7 @@ export function openGallery(ext, root, params) {
     draw();
   });
   const chips = el("div", { class: "mk-chips", role: "group", "aria-label": "Type" });
-  const status = el("p", { class: "mk-status" });
+  const status = el("p", { class: "mk-status", role: "status" });
   const body = el("div", { class: "mk-store" });
   // The admins' way to the registries themselves; nobody else can send those verbs, so nobody else sees it.
   const registriesBtn = ext.can("registries") ? button("Registries", { title: "Which registries are mirrored, and the key each private one is read with", onClick: () => ext.open.place("marketplace", { view: "registries" }) }) : null;
@@ -141,51 +159,65 @@ export function openGallery(ext, root, params) {
     }
   }
 
-  /** "All up to date · checked 15 min ago", or how many updates are ready. The time is the index's last refresh. */
-  function drawStatus() {
-    const n = pending?.items?.length ?? 0;
-    const checked = facts.updatedAt ? ` · checked ${when(facts.updatedAt) || "just now"}` : "";
-    const failed = facts.registries.filter((r) => r.error).length;
-    status.textContent = `${n ? `${plural(n, "update")} ready` : "All up to date"}${checked}${failed ? ` · ${failed} ${failed === 1 ? "registry" : "registries"} could not be checked` : ""}`;
+  /** The status line: the one update verdict, and when the registries were last read. */
+  function drawStatus(all) {
+    const checked = facts.updatedAt ? when(facts.updatedAt) || "just now" : "";
+    status.textContent = statusText(all, { checked, failed: facts.registries.filter((r) => r.error).length });
   }
+
+  const open = (name, extra = {}) => ext.open.place("marketplace", { name, ...extra });
 
   function card(entry) {
     const r = entry.row;
     const { state } = entry;
-    const brings = bringsLine(r);
     return el(
       "button",
-      { type: "button", class: `mk-card${r.installed ? " is-installed" : ""}`, "data-name": r.name, title: r.name, onClick: () => ext.open.place("marketplace", { name: r.name }) },
-      el("div", { class: "mk-card-head" }, el("span", { class: "mk-card-label" }, entry.label), state.chips.length ? el("div", { class: "tags" }, ...chipNodes(badge, state.chips)) : null),
+      { type: "button", class: `mk-card${r.installed ? " is-installed" : ""}`, "data-name": r.name, onClick: () => open(r.name) },
+      el("div", { class: "mk-card-head" }, el("span", { class: "mk-card-label", title: r.name }, entry.label), r.version ? el("span", { class: "mk-card-version" }, `v${r.version}`) : null),
       el("p", { class: "mk-card-by" }, entry.publisher),
-      el("p", { class: "mk-card-desc" }, r.description || "No description."),
-      state.waiting ? el("span", { class: "mk-card-waiting" }, WORDS.waiting) : null,
-      el("span", { class: "mk-card-foot" }, el("span", {}, brings), r.version ? el("span", { class: "mk-card-version" }, `v${r.version}`) : null)
+      el("div", { class: "mk-card-chips tags" }, ...chipNodes(badge, state.chips)),
+      el("p", { class: "mk-card-desc" }, entry.summary || "No description."),
+      entry.given ? el("span", { class: "mk-card-note" }, entry.given) : state.waiting ? el("span", { class: "mk-card-note" }, WORDS.waiting) : null,
+      el("span", { class: "mk-card-foot" }, el("span", {}, bringsLine(r)))
     );
   }
 
-  /** An update whose extension has no card here (a search narrowed it away): a plain line, still counted. */
-  function updateLine(item) {
-    return el("div", { class: "mk-card mk-card-plain" }, el("span", { class: "mk-card-label" }, item.label), el("span", { class: "mk-card-foot" }, el("span", {}, "Update available"), el("span", { class: "mk-card-version" }, `${item.from} → ${item.to}`)));
+  /** One to-do row: the label (which opens the page), the one sentence, and the one action. */
+  function todoRow(entry, u) {
+    const { todo, row: r } = entry;
+    const act = () => {
+      if (todo.kind === "update" && u) return void u.updateSome([r.name]);
+      open(r.name, todo.kind === "setup" || todo.kind === "optional" ? { tab: "settings" } : {});
+    };
+    return el(
+      "li",
+      { class: `mk-todo is-${todo.tone}`, "data-name": r.name, "data-kind": todo.kind },
+      el("button", { type: "button", class: "mk-todo-label", title: r.name, onClick: () => open(r.name) }, entry.label),
+      el("span", { class: "mk-todo-reason" }, todo.reason),
+      button(todo.action, { tone: todo.kind === "update" || todo.kind === "setup" ? "primary" : "quiet", onClick: act })
+    );
   }
 
-  function section(id, title, count, children, { action = null, empty = null } = {}) {
+  function section(id, title, count, content, { action = null, empty = null, extra = null } = {}) {
     return el(
       "section",
       { class: "mk-section", id, "aria-label": title },
       el("div", { class: "mk-section-head" }, el("h3", { class: "mk-section-title" }, `${title} (${count})`), action),
-      count ? el("div", { class: "mk-cards" }, ...children) : empty ? el("p", { class: "mk-none" }, empty) : null
+      extra,
+      count ? content : empty ? el("p", { class: "mk-none" }, empty) : null
     );
   }
 
+  const cards = (entries) => el("div", { class: "mk-cards" }, ...entries.map(card));
+
   /** A folded section. It opens by itself while a search has something in it, and otherwise keeps what the person chose. */
-  function fold(key, id, title, entries) {
+  function fold(key, id, title, entries, note) {
     const searching = !!(last.q || last.kind);
     const node = el(
       "details",
       { class: "mk-fold", id, open: (searching ? entries.length > 0 : last.open[key]) || null },
-      el("summary", { class: "mk-fold-head" }, el("span", { class: "mk-section-title" }, `${title} (${entries.length})`)),
-      entries.length ? el("div", { class: "mk-cards" }, ...entries.map(card)) : el("p", { class: "mk-none" }, "Nothing here.")
+      el("summary", { class: "mk-fold-head" }, el("span", { class: "mk-section-title" }, `${title} (${entries.length})`), note ? el("span", { class: "mk-fold-note" }, note) : null),
+      cards(entries)
     );
     node.addEventListener("toggle", () => {
       if (!searching) last.open[key] = node.open;
@@ -193,25 +225,56 @@ export function openGallery(ext, root, params) {
     return node;
   }
 
+  /** The pills over Installed, each with how many it holds. */
+  function pills(counts) {
+    return el(
+      "div",
+      { class: "mk-pills", role: "group", "aria-label": "Show" },
+      ...PILLS.map((p) => {
+        const active = last.pill === p.id;
+        const n = p.id ? counts[p.id] : counts.installed;
+        return el("button", { type: "button", class: `mk-pill-btn${active ? " is-active" : ""}`, "data-pill": p.id, "aria-pressed": String(active), disabled: !n && !active ? true : null, onClick: () => { last.pill = p.id; draw(); } }, p.label, el("span", { class: "mk-pill-n" }, String(n)));
+      })
+    );
+  }
+
   function draw() {
     drawChips();
-    drawStatus();
+    const s = sections(withConfig(rows, reports), { ...who, updates: pending, q: last.q, kind: last.kind, pill: last.pill });
+    drawStatus(s.all);
     clear(body);
-    const s = sections(withConfig(rows, reports), { ...who, updates: pending, q: last.q, kind: last.kind });
     const u = updater();
-    const attention = s.attention.length + s.extra.length;
-    const updateAll = s.items.length && u ? button("Update all", { tone: "primary", onClick: () => void u.updateAll() }) : null;
+    const narrowed = !!(last.q || last.kind);
+    const updateNames = s.all.updates;
+    const updateN = updateNames.length && u ? button(`Update ${updateNames.length}`, { tone: "primary", title: "Update exactly the extensions with an Update button below", onClick: () => void u.updateSome(updateNames) }) : null;
     const ownLine = s.own.length && u
       ? el("div", { class: "mk-own" }, el("span", {}, `Your changes to ${s.own.map((o) => o.label).join(", ")} are ready to use.`), button("Apply", { tone: "primary", onClick: () => void u.applyOwn(pending, { asked: true }) }))
       : null;
-    const narrowed = last.q || last.kind;
+    const attention = s.attention.length
+      ? section("mk-attention", WORDS.sections.attention, s.attention.length, el("ul", { class: "mk-todos" }, ...s.attention.map((e) => todoRow(e, u))), {
+          // The note only where it is news: a person with copies of their own.
+          action: updateN ? el("div", { class: "mk-update-n" }, rows.some((r) => r.installed && isCopy(r)) ? el("span", { class: "mk-update-note" }, WORDS.updateAllNote) : null, updateN) : null,
+        })
+      : null;
+    // While a search or a type narrows the list, a section with nothing in it is not drawn at all.
+    const installed = narrowed && !s.installed.length
+      ? null
+      : section("mk-installed", WORDS.sections.installed, s.installed.length, cards(s.installed), {
+          extra: s.all.counts.installed ? pills(s.all.counts) : null,
+          empty: last.pill ? "None of these." : narrowed ? null : "Nothing installed yet. Discover has what you can add.",
+        });
+    const discover = narrowed && !s.discover.length ? null : section("mk-discover", WORDS.sections.discover, s.discover.length, cards(s.discover), { empty: "Nothing else to add right now." });
+    const drafts = s.drafts.length ? fold("drafts", "mk-drafts", WORDS.sections.drafts, s.drafts, "Extensions in your home's packages folder that are not installed.") : null;
+    const thetis = s.thetis.length ? fold("thetis", "mk-thetis", WORDS.sections.thetis, s.thetis, who.admin ? "The parts that make Thetis run." : "The parts that make Thetis run, as you have them.") : null;
+    const nothing = narrowed && !s.attention.length && !s.installed.length && !s.discover.length && !s.drafts.length && !s.thetis.length ? el("p", { class: "mk-none" }, "Nothing matches.") : null;
     put(
       body,
       ownLine,
-      attention ? section("mk-attention", WORDS.sections.attention, attention, [...s.attention.map(card), ...s.extra.map(updateLine)], { action: updateAll }) : null,
-      section("mk-added", WORDS.sections.added, s.added.length, s.added.map(card), { empty: narrowed ? "Nothing you added matches." : "Nothing added yet. Discover has what you can add." }),
-      section("mk-discover", WORDS.sections.discover, s.discover.length, s.discover.map(card), { empty: narrowed ? "Nothing to add matches." : "Nothing else to add right now." }),
-      el("div", { class: "mk-folds" }, fold("builtin", "mk-builtin", WORDS.sections.builtin, s.builtin), fold("folder", "mk-folder", WORDS.sections.folder, s.folder), fold("thetis", "mk-thetis", WORDS.sections.thetis, s.thetis)),
+      attention,
+      installed,
+      discover,
+      drafts || thetis ? el("div", { class: "mk-folds" }, drafts, thetis) : null,
+      nothing,
       !facts.indexed && who.admin ? el("p", { class: "panel-hint mk-hint" }, `No marketplace index yet. ${registriesBtn ? "Registries are set under Registries above" : "Registries are configured under packages[\"@thetis/marketplace\"].registries"}; the service refreshes them on a timer.`) : null
     );
   }
@@ -219,5 +282,6 @@ export function openGallery(ext, root, params) {
   void load();
   return () => {
     alive = false;
+    release?.();
   };
 }

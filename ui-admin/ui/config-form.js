@@ -1,14 +1,29 @@
-/* The configuration form one package gets. It is drawn the same in the control panel (an admin, at the
- * system layer or one person's) and in the marketplace (a person, at their own layer). The state of every
- * key is the kernel's: the report says whether a value reaches the package, where it came from, and which
- * `${VAR}` did not resolve, and the row says that in one line next to the control that fixes it. Nothing
- * here guesses a state, and a secret's value never arrives: its box is write-only and the row says `set`
- * or `not set`. Save sends one write per key that changed; a JSON box that does not parse is marked in
- * place and nothing is sent.
+/* The settings form one extension gets. It is drawn the same in the control panel (an admin, at everyone's
+ * layer or one person's) and in the Extensions place (a person, at their own layer). The state of every key is
+ * the kernel's: the report says whether a value reaches the extension, where it came from, and which `${VAR}`
+ * did not resolve, and the row says that in one line next to the control that fixes it. Nothing here guesses
+ * a state. Save sends one write per key that changed; a JSON box that does not parse is marked in place and
+ * nothing is sent.
+ *
+ * What a person reads: the card is headed by the extension's label ("Exa Web Search"), never its id; each key
+ * by a name a person says ("API key", "Timeout (milliseconds)"), the raw key beside it in small type; one line
+ * for where the value comes from ("Set for everyone", "Your own (used instead of everyone's)", "Not set").
+ * A saved secret is shown masked (••••••••) with **Show**, which asks the owning package's `config-reveal`
+ * command for the value and turns into **Hide**; the command reveals a value only when the layer being viewed
+ * is the one in effect for the person asking, and answers a sentence otherwise. Keys that are rarely touched
+ * (no help, or a base URL, a timeout, headers, defaults) sit under an "Advanced" fold, unless every key would.
+ * Clear asks in plain words what happens next ("Remove your own key? You will use everyone's key again.").
+ *
+ * `configCard(ext, report, opts)`: `layer` ("system" or "user"), `who` (the person whose layer it is when it is
+ * not the reader's own), `set(key, value)` and `unset(key)` (each answers the report afterwards), `onReport`
+ * (called with the new report after a save or a clear, so the owner can redraw its chip and banner at once),
+ * `label` (the extension's label; its humanised name when not given), `people` (the names of who has it, for
+ * the clear confirm at everyone's layer), `reveal(key)` (answers the value; by default the package's own
+ * `config-reveal` command with `{ name, key, layer, user? }`).
  *
  * Kept byte-identical in @thetis/ui-admin and @thetis/ui-marketplace. A package's page may import only its
- * own files (packages/gateway-web/README.md), so the two copies are held together by a test rather than an import.
- * The pure helpers are exported for that test; they touch no DOM. */
+ * own files (packages/gateway-web/README.md), so the two copies are held together by a test rather than an
+ * import. The pure helpers are exported for that test; they touch no DOM. */
 
 /** The control a key gets, from its declared type, or from its value when it is not declared. */
 export function kindOf(k) {
@@ -54,15 +69,67 @@ export function readValue(kind, raw, k) {
   return same(parsed, orig) ? { same: true } : { value: parsed };
 }
 
-/** Where the value came from, in words. `layer` is the layer being edited; `who` names the person when it is not the reader. */
+// ---- words ---------------------------------------------------------------------------------------------
+
+/** Words spelled as a person spells them inside a key's name. */
+const ACRONYMS = Object.freeze({ api: "API", url: "URL", uri: "URI", id: "ID", ssh: "SSH", http: "HTTP", https: "HTTPS", json: "JSON", llm: "LLM", mcp: "MCP", ui: "UI" });
+/** Unit suffixes, said in brackets after the rest: `timeoutMs` → "Timeout (milliseconds)". */
+const UNITS = Object.freeze({ ms: "milliseconds", millis: "milliseconds", sec: "seconds", secs: "seconds", seconds: "seconds", s: "seconds", min: "minutes", mins: "minutes", minutes: "minutes", kb: "KB", mb: "MB" });
+/** A few whole names whose plain reading is not the split one. */
+const KNOWN = Object.freeze({ apikey: "API key", apitoken: "API token", baseurl: "Base URL", token: "Token" });
+
+/** A key's name as a person reads it: `apiKey` → "API key", `baseUrl` → "Base URL", `timeoutMs` → "Timeout (milliseconds)". */
+export function keyLabel(k) {
+  const raw = String(k?.key ?? k ?? "");
+  if (KNOWN[raw.toLowerCase()]) return KNOWN[raw.toLowerCase()];
+  const words = raw.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").split(/[\s_.-]+/).filter(Boolean).map((w) => w.toLowerCase());
+  if (!words.length) return raw;
+  const unit = words.length > 1 && UNITS[words.at(-1)] ? UNITS[words.pop()] : null;
+  const said = words.map((w, i) => ACRONYMS[w] ?? (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w)).join(" ");
+  return unit ? `${said} (${unit})` : said;
+}
+
+/** An extension's name when the owner gave no label: the part after the scope, dashes as spaces, words capitalised. */
+export function nameOf(pkg) {
+  const base = String(pkg ?? "").replace(/^@[^/]+\//, "").replace(/^ui-/, "").replace(/[-_.]+/g, " ").trim();
+  return base ? base.replace(/\b[a-z]/g, (c) => c.toUpperCase()) : String(pkg ?? "");
+}
+
+/** "a", "a and b", "a, b and c". */
+const listOf = (words) => {
+  const w = words.filter(Boolean);
+  return w.length <= 1 ? w.join("") : `${w.slice(0, -1).join(", ")} and ${w[w.length - 1]}`;
+};
+
+/**
+ * Where the value came from, in words. `layer` is the layer being edited; `who` names the person whose layer
+ * it is when that is not the reader. One line, never a second "not set" beside it.
+ */
 export function sourceText(k, layer, who) {
-  if (k.state === "unset" || !k.source) return "not set";
-  const from = k.source === "default" ? "default" : k.source === "file" ? "from the file" : k.source === "system" ? "set for everyone" : who ? `set by ${who}` : "set by you";
+  if (k.state === "unset" || !k.source) return "Not set";
+  const from =
+    k.source === "default"
+      ? "Default"
+      : k.source === "file"
+        ? "Set for everyone in Server settings"
+        : k.source === "system"
+          ? "Set for everyone"
+          : who
+            ? `${who}'s own (used instead of everyone's)`
+            : "Your own (used instead of everyone's)";
   return k.inheritedFrom ? `${from} · inherited from ${k.inheritedFrom}` : from;
 }
 
 /** The `${VAR}` names that did not resolve, one sentence. */
 export const missingText = (k) => (k.missing?.length ? `${k.missing.join(", ")} ${k.missing.length === 1 ? "is" : "are"} not in the environment` : null);
+
+/** The card's one line: what is still missing, by the names a person reads, or that nothing is. */
+export function summaryText(report) {
+  const missing = (report?.keys ?? []).filter((k) => k?.state === "missing");
+  if (missing.length) return `${listOf(missing.map(keyLabel))} ${missing.length === 1 ? "is" : "are"} not set`;
+  if (report?.broken) return report.summary || "Something is missing";
+  return (report?.keys ?? []).length ? "Nothing missing" : "";
+}
 
 /** The line above the cards, or null when every extension is whole. */
 export function brokenSentence(reports) {
@@ -81,27 +148,56 @@ export function reloadSentence(result) {
   return parts.join("; ") + ".";
 }
 
-/** The package's one sentence, red when it is broken. */
-export function summaryLine(ext, report) {
-  return ext.dom.el("span", { class: `cf-summary${report.broken ? " is-broken" : ""}` }, report.summary || "");
-}
+/** Rarely touched: no help to go by, or a base URL, a timeout, headers or defaults. A key that must be set never is. */
+const ADVANCED_NAME = /url$|timeout|headers?$|defaults?$|retr(y|ies)|concurrency|proxy|(^|[a-z])ms$/i;
+export const isAdvanced = (k) => !k.required && k.state !== "missing" && (!k.help || ADVANCED_NAME.test(k.key));
 
 /**
- * One package's card: the header (the name, what it inherits from, the summary), a row per key, Save.
- * `set(key, value)` and `unset(key)` write one key at `layer` and answer the report afterwards; the card
- * redraws itself from that answer and hands it to `onReport`, so the owner can recount what is broken.
- * `who` names the person whose layer this is when it is not the reader's own.
+ * The Clear confirm, in plain words: `{ title, note }`. At a person's layer the person goes back to everyone's
+ * value; at everyone's, the people who have not set their own lose what needs it, or go back to the default.
+ * `label` is the extension's label, `people` who has it, `who` whose layer it is when not the reader's.
  */
-export function configCard(ext, report, { layer, who = null, set, unset, onReport }) {
+export function clearWords(k, { layer, who = null, label = "", people = [] } = {}) {
+  const secret = !!k.secret;
+  const noun = secret ? "key" : keyLabel(k);
+  if (layer === "user") {
+    const whose = who ? `${who}'s` : "your";
+    return { title: `Remove ${whose} own ${noun}?`, note: `${who ? `${who} uses` : "You will use"} everyone's ${noun} again.` };
+  }
+  const names = listOf(people);
+  const many = people.length !== 1;
+  if (k.required) {
+    const lose = names ? `${names} ${many ? "lose" : "loses"} ${label || "it"}` : `Everyone loses ${label || "it"}`;
+    return { title: `Remove everyone's ${noun}?`, note: k.scope === "system" ? `${lose} until it is set again.` : `${lose} unless they set their own.` };
+  }
+  return { title: `Remove everyone's ${noun}?`, note: "People who have not set their own go back to the default." };
+}
+
+/** The masked form of a saved secret. */
+export const MASK = "••••••••";
+
+/** The package's own `config-reveal`, the way both packages declare it. */
+const revealBy = (ext, name, layer, who) => (key) => ext.request("config-reveal", { args: { name, key, layer, ...(who ? { user: who } : {}) } }).then((out) => out?.data?.value);
+
+/**
+ * One extension's card: the header (its label, what it inherits from, what is missing), a row per key (the
+ * rarely touched ones folded under Advanced), Save. The card redraws itself from each answer and hands it to
+ * `onReport`, so the owner redraws its chip and banner straight away.
+ */
+export function configCard(ext, report, { layer, who = null, set, unset, onReport, label = null, people = [], reveal = null }) {
   const { el, clear } = ext.dom;
   const { badge, button, confirm, put } = ext.ui;
   const shell = el("div", { class: "card cf-card", "data-package": report.package });
+  const title = label || nameOf(report.package);
+  const show = reveal ?? revealBy(ext, report.package, layer, who);
   let current = report;
   let busy = false;
+  let advancedOpen = false;
+  const shown = new Map(); // key -> the revealed value, while it is shown
 
   function control(kind, k, locked) {
-    const common = { "aria-label": k.key, disabled: locked || null };
-    if (kind === "secret") return el("input", { ...common, class: "input cf-input", type: "password", placeholder: k.state === "set" ? "new value" : "value", autocomplete: "new-password" });
+    const common = { "aria-label": keyLabel(k), disabled: locked || null };
+    if (kind === "secret") return el("input", { ...common, class: "input cf-input", type: "password", placeholder: k.state === "set" ? "Type a new one to replace it" : "Paste it here", autocomplete: "new-password" });
     if (kind === "checkbox") return el("input", { ...common, class: "cf-check", type: "checkbox", checked: k.value === true || null });
     if (kind === "number") return el("input", { ...common, class: "input cf-input", type: "number", step: "any", value: typeof k.value === "number" ? String(k.value) : null });
     if (kind === "json") return el("textarea", { ...common, class: "input cf-json", rows: 4, spellcheck: "false" }, k.value === undefined ? "" : JSON.stringify(k.value, null, 2));
@@ -111,14 +207,16 @@ export function configCard(ext, report, { layer, who = null, set, unset, onRepor
   const rawOf = (kind, box) => (kind === "checkbox" ? box.checked : box.value);
 
   async function clearKey(anchor, k) {
-    const ok = await confirm(anchor, { title: "Clear this key?", lines: [["extension", current.package], ["key", k.key]], note: `The value stored at this layer is removed. ${k.key} falls back to the file or its default, or is not set.`, confirmLabel: "Clear", tone: "warn" });
+    const words = clearWords(k, { layer, who, label: title, people });
+    const ok = await confirm(anchor, { title: words.title, lines: [["extension", title], ["setting", keyLabel(k)]], note: words.note, confirmLabel: "Remove", tone: "warn" });
     if (!ok || busy) return;
     busy = true;
     try {
       current = await unset(k.key);
-      ext.toast(`${k.key} was cleared for ${current.package}.`, { tone: "good" });
+      shown.delete(k.key);
+      ext.toast(`${keyLabel(k)} was removed for ${title}.`, { tone: "good" });
     } catch (err) {
-      ext.toast(`${k.key}: ${err.message}`, { tone: "error" });
+      ext.toast(`${keyLabel(k)}: ${err.message}`, { tone: "error" });
     } finally {
       busy = false;
     }
@@ -126,30 +224,59 @@ export function configCard(ext, report, { layer, who = null, set, unset, onRepor
     onReport?.(current);
   }
 
+  /** The masked value and Show, or the value and Hide; a refusal is said in a toast and the mask stays. */
+  function secretValue(k) {
+    const text = el("code", { class: "cf-ref cf-mask" }, shown.has(k.key) ? shown.get(k.key) : MASK);
+    const toggle = button(shown.has(k.key) ? "Hide" : "Show", { title: shown.has(k.key) ? "Hide the value again" : "Show the saved value" });
+    toggle.classList.add("is-sm");
+    toggle.addEventListener("click", async () => {
+      if (shown.has(k.key)) {
+        shown.delete(k.key);
+        text.textContent = MASK;
+        toggle.textContent = "Show";
+        return;
+      }
+      toggle.disabled = true;
+      try {
+        const value = await show(k.key);
+        const said = typeof value === "string" ? value : JSON.stringify(value);
+        shown.set(k.key, said);
+        text.textContent = said;
+        toggle.textContent = "Hide";
+      } catch (err) {
+        ext.toast(err.message, { tone: "warn" });
+      } finally {
+        toggle.disabled = false;
+      }
+    });
+    return [text, toggle];
+  }
+
   function row(k, controls) {
     const kind = kindOf(k);
-    // A key declared for the system is set by an admin at the system layer; a person's own layer never overrides it.
+    // A key declared for the system is set by an admin at everyone's layer; a person's own layer never overrides it.
     const locked = k.scope === "system" && layer === "user";
     const box = control(kind, k, locked);
     const error = el("p", { class: "cf-error", hidden: true });
     controls.set(k.key, { read: () => readValue(kind, rawOf(kind, box), k), error });
-    const marks = [k.required ? badge("required", "dim") : null, k.scope === "system" ? badge("admins only", "accent") : null, k.declared ? null : badge("not declared", "dim")];
+    const bad = k.state === "missing" || (k.required && k.state === "unset");
+    const marks = [k.required ? badge("required", "dim") : null, k.scope === "system" ? badge("admins only", "accent") : null];
     const state = [];
-    if (kind === "secret") state.push(badge(k.state === "set" ? "set" : "not set", k.state === "set" ? "ok" : k.required || k.state === "missing" ? "err" : "dim"));
-    if (kind === "secret" && typeof k.value === "string") state.push(el("code", { class: "cf-ref" }, k.value));
-    state.push(el("span", { class: "text-faint" }, sourceText(k, layer, who)));
+    // A saved secret: masked, with Show. A `${VAR}` reference is not the secret itself, so it is shown as it is.
+    if (kind === "secret" && k.state !== "unset" && k.source) state.push(...(typeof k.value === "string" ? [el("code", { class: "cf-ref" }, k.value)] : secretValue(k)));
+    state.push(el("span", { class: bad ? "cf-source cf-missing" : "cf-source text-faint" }, sourceText(k, layer, who)));
     const missing = missingText(k);
-    // Clear only where an unset changes anything: the value this layer holds, for this package itself.
+    // Clear only where an unset changes anything: the value this layer holds, for this extension itself.
     const clearable = !locked && k.source === layer && !k.inheritedFrom && k.state !== "unset";
     const clearBtn = clearable ? button("Clear", { tone: "warn", onClick: () => void clearKey(clearBtn, k) }) : null;
     return el(
       "div",
       { class: `cf-row${k.state === "missing" ? " is-missing" : ""}`, "data-key": k.key },
-      el("div", { class: "cf-key" }, el("code", {}, k.key), ...marks),
+      el("div", { class: "cf-key" }, el("b", { class: "cf-name" }, keyLabel(k)), el("code", { class: "cf-raw text-faint", title: "The setting's name in the extension's files" }, k.key), ...marks),
       k.help ? el("p", { class: "cf-help" }, k.help) : null,
       el("div", { class: "cf-control" }, box, ...state, clearBtn),
       missing ? el("p", { class: "cf-missing" }, missing) : null,
-      locked ? el("p", { class: "text-faint" }, "Set by an admin in the control panel, for everyone.") : null,
+      locked ? el("p", { class: "text-faint" }, "Set by an admin in the Control panel, for everyone.") : null,
       error
     );
   }
@@ -164,7 +291,7 @@ export function configCard(ext, report, { layer, who = null, set, unset, onRepor
       if (out.error) bad = true;
       else if (!out.same) changes.push([key, out.value]);
     }
-    if (bad) return void ext.toast("Fix the marked keys first. Nothing was sent.", { tone: "error" });
+    if (bad) return void ext.toast("Fix the marked settings first. Nothing was sent.", { tone: "error" });
     if (!changes.length) return void ext.toast("Nothing changed.", { tone: "good" });
     if (busy) return;
     busy = true;
@@ -173,11 +300,13 @@ export function configCard(ext, report, { layer, who = null, set, unset, onRepor
     try {
       for (const [key, value] of changes) {
         current = await set(key, value);
+        shown.delete(key);
         written += 1;
       }
-      ext.toast(`${written} ${written === 1 ? "key" : "keys"} saved for ${current.package}. ${current.summary}`, { tone: current.broken ? "warn" : "good" });
+      const missing = summaryText(current);
+      ext.toast(`Saved for ${title}. ${current.broken ? `${missing}.` : "It is used from the next call; nothing checks it before then."}`, { tone: current.broken ? "warn" : "good" });
     } catch (err) {
-      ext.toast(`${changes[written][0]}: ${err.message}${written ? ` (${written} saved before it)` : ""}`, { tone: "error" });
+      ext.toast(`${keyLabel({ key: changes[written][0] })}: ${err.message}${written ? ` (${written} saved before it)` : ""}`, { tone: "error" });
     } finally {
       busy = false;
     }
@@ -188,19 +317,25 @@ export function configCard(ext, report, { layer, who = null, set, unset, onRepor
   function draw() {
     clear(shell);
     const controls = new Map();
-    const rows = current.keys.map((k) => row(k, controls));
+    const keys = current.keys ?? [];
+    // Every key under the fold would hide the whole form behind one click: then nothing is folded.
+    const folded = keys.filter(isAdvanced).length < keys.length ? keys.filter(isAdvanced) : [];
+    const main = keys.filter((k) => !folded.includes(k)).map((k) => row(k, controls));
+    const extra = folded.map((k) => row(k, controls));
     const saveBtn = button("Save", { tone: "primary", onClick: () => void save(saveBtn, controls) });
-    const editable = current.keys.some((k) => !(k.scope === "system" && layer === "user"));
+    const editable = keys.some((k) => !(k.scope === "system" && layer === "user"));
+    const fold = extra.length ? el("details", { class: "cf-advanced", open: advancedOpen || null, onToggle: (e) => { advancedOpen = e.currentTarget.open; } }, el("summary", {}, `Advanced (${extra.length})`), ...extra) : null;
+    const summary = summaryText(current);
     put(
       shell,
       el(
         "div",
         { class: "card-head cf-head" },
-        el("code", {}, current.package),
+        el("span", { class: "cf-title", title: current.package }, title),
         current.inherits?.length ? el("span", { class: "text-faint" }, `inherits from ${current.inherits.join(", ")}`) : null,
-        summaryLine(ext, current)
+        summary ? el("span", { class: `cf-summary${current.broken ? " is-broken" : ""}` }, summary) : null
       ),
-      el("div", { class: "card-body" }, rows.length ? rows : el("p", { class: "text-faint" }, "This extension has no settings, and none are stored for it."), rows.length && editable ? el("div", { class: "card-actions" }, saveBtn) : null)
+      el("div", { class: "card-body" }, keys.length ? [...main, fold] : el("p", { class: "text-faint" }, "This extension has no settings, and none are stored for it."), keys.length && editable ? el("div", { class: "card-actions" }, saveBtn) : null)
     );
   }
 

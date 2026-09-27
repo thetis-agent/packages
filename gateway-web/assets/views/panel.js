@@ -14,7 +14,9 @@
  * any depth), and selecting one mounts the entry with `child` naming it. That is how the packages with
  * configuration sit under Extensions, each with a page of its own, without the shell knowing what
  * configuration is. The children are read when the panel opens, when a module registers late, when the
- * parent section is shown, and when a page asks through `refresh`. */
+ * parent section is shown, and when a page asks through `refresh`. A place opened with `{ section, child,
+ * tab, layer }` hands `tab` and `layer` to that first page only, so another surface can link straight to an
+ * extension's Settings at everyone's layer. */
 
 import { api } from "../lib/api.js";
 import { clear, el } from "../lib/dom.js";
@@ -142,7 +144,8 @@ function openPanel(root, params) {
     if (!closed) drawNav();
   }
 
-  function show(key, child = null) {
+  /** `want` is a deep link's tab and layer (`params.tab`, `params.layer`), handed to the first page drawn only. */
+  function show(key, child = null, want = null) {
     unmount?.();
     unmount = null;
     current = { key: key ?? null, child };
@@ -156,7 +159,7 @@ function openPanel(root, params) {
     if (entry.decl.note) main.append(el("p", { class: "panel-note" }, entry.decl.note));
     if (!entry.impl?.mount) return main.append(registry.failureOf(entry.package) ? registry.broken(entry.package) : el("div", { class: "panel-empty" }, "Loading…"));
     // `open(child)` lets a page of a hung entry send the reader to a sibling page (a fleet row to its package).
-    const who = { role, user: store.get("user")?.user, child, refresh: () => void refreshChildren(), open: (next) => { show(key, next); tree.reveal(nodeKey(key, next)); } };
+    const who = { role, user: store.get("user")?.user, child, refresh: () => void refreshChildren(), open: (next) => { show(key, next); tree.reveal(nodeKey(key, next)); }, ...(want?.tab ? { tab: want.tab } : {}), ...(typeof want?.layer === "string" ? { layer: want.layer } : {}) };
     const out = registry.guard(entry.package, "panel", entry.impl.mount, main, who);
     if (!out.ok) return main.append(registry.broken(entry.package));
     unmount = typeof out.value === "function" ? out.value : null;
@@ -185,7 +188,7 @@ function openPanel(root, params) {
     collect(allowed);
     const wanted = params?.section && [...sections, ...hung].some((e) => e.key === params.section) ? params.section : sections[0]?.key;
     const child = typeof params?.child === "string" ? params.child : null;
-    show(wanted, child);
+    show(wanted, child, child ? { tab: typeof params?.tab === "string" ? params.tab : null, layer: typeof params?.layer === "string" ? params.layer : null } : null);
     // Showing a section reads the children under it; the rest are read here, once.
     const shown = sections.find((s) => s.key === wanted);
     if (!shown || !hung.some((e) => hangsUnder(e, shown))) await refreshChildren();

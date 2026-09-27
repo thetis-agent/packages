@@ -1,8 +1,8 @@
 {
   "name": "@thetis/ui-marketplace",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "license": "MIT",
-  "description": "The Extensions place of the web gateway: what needs your attention, what you added, what you could add, one card per extension family and one page per extension, and the \"Updates ready\" card that keeps everyone's extensions current.",
+  "description": "The Extensions place of the web gateway: what needs your attention, what you have, what you could add, one card per extension family and one page per extension, and the \"Updates ready\" card that keeps everyone's extensions current.",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -50,6 +50,7 @@
         { "verb": "config-list", "export": "configList", "label": "Whether each of my packages is configured" },
         { "verb": "config-set", "export": "configSet", "label": "Set one configuration key for me" },
         { "verb": "config-unset", "export": "configUnset", "label": "Clear one configuration key for me" },
+        { "verb": "config-reveal", "export": "configReveal", "label": "Show one of my saved secrets, when it is the one in effect for me" },
         { "verb": "fence-reload", "export": "fenceReload", "label": "Apply updates to my space" },
         { "verb": "install-everyone", "export": "installEveryone", "label": "Make a package the default for everyone", "role": "admin" },
         { "verb": "unmark-everyone", "export": "unmarkEveryone", "label": "Stop a package being the default for everyone", "role": "admin" },

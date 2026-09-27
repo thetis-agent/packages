@@ -16,7 +16,7 @@
  * control here is off and says why: the update restarts what it needs by itself. */
 
 import { failedCard, isLost, toastError } from "./failed.js";
-import { stateBadge } from "./state.js";
+import { stateBadge } from "./words.js";
 
 export { isLost };
 

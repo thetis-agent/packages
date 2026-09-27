@@ -1,8 +1,8 @@
-/* Advanced: the troubleshooting half of the control panel, for an admin. Three pages hang under it (the
+/* Advanced: the troubleshooting half of the control panel, for an admin. Two pages hang under it (the
  * manifest's `advanced-pages` entry, `under: "advanced"`): Workspaces (each workspace's code, restart and
- * force, the Thetis server's own card), Extensions by person (the full matrix, one column per person) and
- * Server settings (the configuration as the kernel reports it, secrets hidden). An extension opened from the
- * matrix is drawn here too, as its full page. The section itself is a short index of the three. */
+ * force, the Thetis server's own card) and Server settings (the configuration as the kernel reports it,
+ * secrets hidden). Every extension in every workspace is Extensions → Who has what now; an old link to
+ * `fleet` here still draws it. The section itself is a short index of the pages. */
 
 import { mountFleet } from "./fleet.js";
 import { mountPackagePage } from "./package-page.js";
@@ -11,7 +11,6 @@ import { failedCard } from "./failed.js";
 
 export const PAGES = Object.freeze([
   { id: "workspaces", label: "Workspaces", kind: "page", note: "Each workspace's code, and restarting one" },
-  { id: "fleet", label: "Extensions by person", kind: "page", note: "Every extension in every workspace" },
   { id: "server", label: "Server settings", kind: "page", note: "The configuration as Thetis reads it, secrets hidden" },
 ]);
 
@@ -29,7 +28,7 @@ export function mountAdvanced(ext, root, who = {}) {
     wrap,
     heading("Advanced", "for troubleshooting"),
     ...PAGES.map((p) => card(p.label, el("p", { class: "text-dim" }, p.note), el("div", { class: "card-actions" }, button("Open", { onClick: () => who.open?.(p.id) })))),
-    el("p", { class: "panel-hint" }, "Everyday updating is on the Overview and under Extensions. These pages are for when one workspace or one extension needs a hand.")
+    el("p", { class: "panel-hint" }, "Everyday updating is on the Overview and under Extensions, where Who has what lists every extension and which people have it. These pages are for when one workspace needs a hand.")
   );
 }
 

@@ -2,7 +2,7 @@
 // into one package's "where it runs", the journal about it, the update and remove paths, and the matrix.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as commands from "../fleet.js";
@@ -73,10 +73,30 @@ test("package-where: every person's copy, the workspace it runs in, the forks, a
   assert.deepEqual(people[1].forkedFrom, { name: "@thetis/terminal", version: "0.1.0" });
   assert.deepEqual(people[1].config, { broken: true, summary: "shell is required and not set" }, "the configuration is asked at bob's layer");
   assert.deepEqual(people[1].loaded, { openedAt: "2026-09-21T05:27:00Z", state: "current" }, "bob's copy is newer on disk, but a tool's code is read on every call: it is not behind");
-  assert.deepEqual(forks, [{ user: "bob", name: "@bob/terminal", version: "0.1.0-fork.1" }]);
+  assert.deepEqual(forks, [{ user: "bob", name: "@bob/terminal", version: "0.1.0-fork.1", installed: true }]);
   assert.deepEqual(counts, { people: 2, installed: 2, waiting: 0, forks: 1, broken: 1 }, "bob has it as his own copy, with a broken key, and nobody waits to apply it");
   assert.deepEqual(calls.filter((c) => c.method === "config.show").map((c) => c.args), [{ name: "@thetis/terminal", user: "root" }, { name: "@bob/terminal", user: "bob" }], "config is read where the package is installed, under the fork's name for a fork");
   await assert.rejects(commands.packageWhere({ name: "nope" }, env), /looks like @scope\/name/);
+});
+
+test("package-where: a shared copy's customised copies include the ones in the admin's own folder, made from the original", async () => {
+  const home = mkdtempSync(join(tmpdir(), "thetis-home-"));
+  for (const [dir, manifest] of [
+    ["notion-read", { name: "@root/notion-read", version: "0.1.0", thetis: { type: "tool", label: "Notion (read only)", forkedFrom: { name: "@root/notion", version: "0.1.0" } } }],
+    ["notion", { name: "@root/notion", version: "0.1.1", thetis: { type: "tool", label: "Notion" } }],
+    ["other", { name: "@root/other", version: "1.0.0", thetis: { type: "tool", forkedFrom: { name: "@thetis/exa", version: "0.1.0" } } }],
+  ]) {
+    mkdirSync(join(home, "packages", dir), { recursive: true });
+    writeFileSync(join(home, "packages", dir, "package.json"), JSON.stringify(manifest));
+  }
+  assert.deepEqual(commands.folderCopies(home, new Set(["@thetis/notion", "@root/notion"]), "root"), [{ user: "root", name: "@root/notion-read", version: "0.1.0", label: "Notion (read only)", folder: "packages/notion-read" }]);
+  assert.deepEqual(commands.folderCopies(join(home, "nowhere"), new Set(["@root/notion"]), "root"), [], "a home without packages/ has none");
+  const notion = { name: "@thetis/notion", version: "0.1.1", type: "tool", everyone: true, everyoneBy: "promoted", root: codeRoot, source: { kind: "system", ref: "notion" } };
+  const { env } = fakeEnv({ "users.list": users, "packages.list": () => [notion], status, "config.show": () => null, "journal.tail": [{ at: "2026-09-24T10:00:00Z", kind: "package.promote", data: { name: "@root/notion", promoted: "@thetis/notion" } }] }, { own: [notion] });
+  env.cwd = home;
+  const { forks, counts } = (await commands.packageWhere({ name: "@thetis/notion" }, env)).data;
+  assert.deepEqual(forks, [{ user: "root", name: "@root/notion-read", version: "0.1.0", label: "Notion (read only)", folder: "packages/notion-read", installed: false }]);
+  assert.equal(counts.forks, 1, "own copies count the folder copy");
 });
 
 test("package-activity: only the entries about the package, newest first, cut to the limit", async () => {
@@ -265,4 +285,15 @@ test("package-unfork puts the admin's own copy back on its official version, and
   assert.deepEqual((await commands.packageUnfork({ name: "@root/terminal" }, env)).data, { name: "@thetis/terminal", version: "0.1.0", from: "@root/terminal" });
   await assert.rejects(commands.packageUnfork({ name: "@thetis/exa" }, env), /not a copy/);
   await assert.rejects(commands.packageUnfork({ name: "@bob/terminal" }, env), /not installed in your workspace/);
+});
+
+test("Thetis's own parts are the Extensions place's: the same rule as its lib/rows.js, so the Control panel's Installed count is the place's", async () => {
+  const place = await import("../../ui-marketplace/lib/rows.js");
+  const cases = [
+    { name: "@thetis/gateway-web", type: "gateway" }, { name: "@thetis/provider-echo", type: "provider" }, { name: "@thetis/gateway-login", type: "service" },
+    { name: "@thetis/harness-core", type: "loader" }, { name: "@thetis/ui-admin", type: "ui" }, { name: "@bitmuse/ui-admin", type: "ui" },
+    { name: "@thetis/skills-hybrid", type: "loader", installed: true }, { name: "@thetis/skills-hybrid", type: "loader", installed: false },
+    { name: "@thetis/exa", type: "tool" }, { name: "@thetis/workflows", type: "ui" }, { name: "@thetis/x", type: "service", audience: "everyone" }, { name: "@thetis/y", type: "tool", audience: "system" },
+  ];
+  for (const r of cases) assert.equal(commands.isComponent(r), place.isComponent(r), `${r.name} ${r.type} ${r.installed ?? ""}`);
 });

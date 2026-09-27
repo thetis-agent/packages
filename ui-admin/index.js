@@ -168,7 +168,20 @@ export async function packageInfo(args, env) {
   // Only while that copy is still on disk: a shared copy taken away since is no reason to refuse sharing again.
   const sharedAs = promotedAs && typeof env.kernel.packages.catalog === "function" ? ((await env.kernel.packages.catalog().catch(() => null)) ?? [{ name: promotedAs }]).some((p) => p.name === promotedAs) ? promotedAs : null : promotedAs;
   const { label, audience, fork, tools, hasSkills, pages, service, steps } = factsOf(info);
-  return { data: { name, version, type, description, label, audience, root, everyone: Boolean(everyone), everyoneBy: everyoneBy ?? null, forkedFrom: forkedFrom ?? null, fork, replaced: replaced ?? null, source: source ?? null, promotedFrom, sharedAs, tools, hasSkills, pages, service, steps, loaded: loadedWord(info, version), registry, git, dependencies, dependents } };
+  // A copy's official version, as the Provenance card names it: "Everyone's copy: Tool Exec 0.4.1 (Thetis's)".
+  const origin = forkedFrom?.name ? await originOf(env, forkedFrom.name) : null;
+  // Installed in no person's workspace, only in the system's: the sign-in page, the registries' service, a provider.
+  const systemOnly = info.loadedIn === "_system";
+  return { data: { name, version, type, description, label, audience, root, everyone: Boolean(everyone), everyoneBy: everyoneBy ?? null, forkedFrom: forkedFrom ?? null, fork, replaced: replaced ?? null, source: source ?? null, promotedFrom, sharedAs, origin, systemOnly, tools, hasSkills, pages, service, steps, loaded: loadedWord(info, version), registry, git, dependencies, dependents } };
+}
+
+/** The official record a copy was made from, from the packages on disk: its label, version and whether everyone gets it. */
+async function originOf(env, name) {
+  if (typeof env.kernel.packages.catalog !== "function") return null;
+  const found = ((await env.kernel.packages.catalog().catch(() => null)) ?? []).find((p) => p.name === name);
+  if (!found) return null;
+  const t = found.thetis ?? {};
+  return { name, label: typeof t.label === "string" && t.label.trim() ? t.label.trim() : null, version: found.version ?? null, everyone: Boolean(found.everyone), everyoneBy: found.everyoneBy ?? null };
 }
 
 /**
@@ -220,6 +233,35 @@ export async function configSet(args, env) {
 
 export async function configUnset(args, env) {
   return { data: await call(env, "config.unset", layerOf(args, { name: packageName(args.name), key: configKey(args.key) })) };
+}
+
+/** What `config-reveal` answers when the layer asked about is not the one whose value the asker runs with. */
+export const NOT_IN_EFFECT = "This value is not the one in effect for you, so it cannot be shown here.";
+
+/**
+ * config-reveal: one saved value, for the settings form's Show. Revealed only when the layer being viewed
+ * (`layer`: "system" is everyone's, "user" the asker's own; another person's own layer never) is the one whose
+ * value is in effect for the person asking, read from their own fence: `config.show` says which layer the value
+ * comes from, `config.effective` what it is. A `${VAR}` reference is answered as the reference, never as what the
+ * server's environment holds. The value travels only in the answer: nothing here logs it or puts it in a message.
+ */
+export async function configReveal(args, env) {
+  const name = packageName(args.name);
+  const key = configKey(args.key);
+  const layer = args.layer === "user" ? "user" : args.layer === "system" ? "system" : fail("layer is system or user");
+  if (layer === "user" && args.user !== undefined && args.user !== "" && args.user !== env.user) fail(NOT_IN_EFFECT);
+  let report;
+  try {
+    report = await env.kernel.config.show(name);
+  } catch {
+    fail(NOT_IN_EFFECT);
+  }
+  const k = (Array.isArray(report?.keys) ? report.keys : []).find((x) => x?.key === key);
+  if (!k || k.state === "unset" || !k.source) fail("Nothing is saved for this setting.");
+  if (k.source !== layer) fail(NOT_IN_EFFECT);
+  if (typeof k.value === "string" && /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(k.value)) return { data: { value: k.value } };
+  const values = await env.kernel.config.effective(name);
+  return { data: { value: values?.[key] ?? null } };
 }
 
 /** Re-reads thetis.config.json and the env file. Answers what changed and which services were restarted for it. */

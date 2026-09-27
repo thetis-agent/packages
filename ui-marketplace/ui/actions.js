@@ -1,19 +1,21 @@
 /* The actions an extension's page offers, and the confirm popover in front of each, in the words of the
  * contract every screen shares (state.js):
  *
- * - For anyone: **Install**, or **Installed ✓ ▾** once it is theirs, whose menu holds **Remove for me** and,
- *   for a copy, **Use Thetis's version**. **Update** when something newer is ready: it goes through the page's
- *   one updater (updates-notice.js), which fetches, applies, waits for the space to come back and refreshes;
- *   a running reply pauses at a safe point and continues. **Use Thetis's version** leads for a copy the
- *   official version has moved past. An extension Thetis requires has no Remove of any kind: the button area
- *   says "Required by Thetis". One only an admin may add has no Install for anyone else.
+ * - For anyone: **Install**, or **Installed ✓ ▾** once it is theirs, whose menu holds **Remove for me** (its
+ *   confirm offers "Also delete my saved settings") and, for a copy, **Use Thetis's version**. **Update** when
+ *   a newer version of what they run is ready: it goes through the page's one updater (updates-notice.js),
+ *   which fetches, applies, waits for the space to come back and refreshes; a running reply pauses at a safe
+ *   point and continues. **Use Thetis's version** leads for a copy the official version has moved past, and the
+ *   page says what it replaces. An extension Thetis requires has no Remove of any kind: the button area says
+ *   "Required by Thetis". One only an admin may have, one that runs inside Thetis itself, and -- for a person
+ *   who is not an admin -- one of Thetis's own parts they do not have, have no Install.
  * - Behind **⋯**: **Delete files…** for a copy under the person's home, **Publish…** for extensions whose files
- *   are theirs, and the technical id.
- * - For an admin, in the side panel's **For everyone**: **Turn on for everyone…** and **Turn off for
- *   everyone…** for an extension by Thetis or a registry, **Share with everyone…** for the admin's own (a
- *   promoted copy), **Remove for everyone…** naming the people who lose it, and **Install for <person>**. The
- *   original of a promoted copy says "Already shared with everyone as <label>"; a copy older than Thetis's
- *   version says why sharing it is not offered.
+ *   are theirs, and **Copy technical id (<id>)**.
+ * - For an admin, in the side panel's **For everyone**: what state.js's `everyoneActions` answers -- **Turn on
+ *   for everyone…**, **Turn off for everyone…**, **Share with everyone…**, **Remove for everyone…** (naming the
+ *   people who lose it) -- each with its one-line hint, the table's lines ("Already shared with everyone as
+ *   Notion." with **Open it**), and a person picker: "sam (has it)" gives **Remove for sam…**, anyone else
+ *   **Install for sam**. For an extension only admins may have, the picker lists admins only.
  *
  * Publishing -- with the packages already on the branch that a push would carry with it, ticked one by one or
  * named as the reason it cannot go, and, for a fork whose origin the registry already holds, the two
@@ -23,7 +25,7 @@
  * sent until they confirm. After an action the place is re-opened on the page, or on the store when the
  * extension is gone from here. */
 
-import { ADMIN_ONLY, WORDS, baseOf, isAdminOnly, isPromoted, isRequired, kindsOf, listOf, needText, needsOf, originNameOf, ownerWord, scopeOf, titleCase, useOriginLabel } from "./state.js";
+import { ADMIN_ONLY, WORDS, baseOf, everyoneActions, isAdminOnly, isPromoted, isRequired, kindsOf, listOf, needText, needsOf, originNameOf, ownerWord, publisherShort, runsInsideThetis, scopeOf, titleCase, useOriginLabel } from "./state.js";
 import { isBusy, lostGateway, updater } from "./updates-notice.js";
 
 /**
@@ -68,10 +70,43 @@ export function whatItBrings(row) {
   return kinds.map((k) => BRINGS[k]).join(" ");
 }
 
+/** How an install gets its files, in one sentence: nothing to download for what is already here. */
+export const howItInstalls = (row, whom = "you") => (row.system ? "Nothing to download." : row.folder && !row.installed ? "It is built from your folder, which can take a minute." : `It is downloaded and built for ${whom}, which can take a minute.`);
+
+/**
+ * Installs `row` in place of `inUse`, the member of the same family the person uses now: the confirm says
+ * "<X> replaces <Y> for you. Everyone else keeps <Y>.", then X is installed and Y removed for them. With no
+ * `inUse` it is a plain Install. `x`/`y` are the two labels, told apart by how each stands to the person when
+ * they are the same word. Shared by the page's own button and the Other versions rows.
+ */
+export async function useInstead(ext, anchor, { row, label, relation = "", inUse = null, inUseLabel = "", inUseRelation = "the one you use" }) {
+  const use = !!inUse && inUse.name !== row.name;
+  const x = use && label === inUseLabel ? `${label} (${relation.split(" · ")[0]})` : label;
+  const y = use && label === inUseLabel ? `${inUseLabel} (${inUseRelation || "the one you use"})` : inUseLabel;
+  const source = row.system ? row.name : row.folder && !row.installed ? row.folder.dir : row.source;
+  const how = howItInstalls(row);
+  const ok = await ext.ui.confirm(anchor, {
+    title: use ? `Use ${label} instead?` : `Install ${label}?`,
+    lines: [["extension", `${label} ${row.version}`], ["for", "you"]],
+    note: use ? `${x} replaces ${y} for you. Everyone else keeps ${y}. ${how}` : `${how} ${whatItBrings(row)}`,
+    confirmLabel: use ? "Use instead" : "Install",
+  });
+  if (!ok) return;
+  try {
+    const out = await ext.request("install", { args: { source } });
+    const now = out?.data?.name ?? row.name;
+    if (use && inUse.name !== now) await ext.request("remove", { args: { name: inUse.name } }).catch(() => null);
+    ext.toast(use ? `You use ${label} now. Everyone else keeps ${inUseLabel}.` : `${label} is installed.`, { tone: "good" });
+    ext.open.place("marketplace", { name: now });
+  } catch (err) {
+    ext.toast(err?.message || "That did not work.", { tone: "error" });
+  }
+}
+
 /** The types nothing installs for a person, each with why. The page offers no Install for these and says this instead. */
 export const NOT_INSTALLABLE = {
-  host: "This part runs in the Thetis server itself, so it is never installed for a person.",
-  storage: "This storage driver runs in the Thetis server and is chosen by storage.driver in the configuration, so it is never installed for a person.",
+  host: `${WORDS.inside}.`,
+  storage: `${WORDS.inside}.`,
 };
 
 const count = (n) => `${n} ${n === 1 ? "person" : "people"}`;
@@ -133,13 +168,21 @@ function passengerLine(row, target) {
   return `${at ? at.slice(1) : "this version"} · ${held}`;
 }
 
+/** The button words of the admin's acts for everyone, and each one's tone: the destructive one last and amber. */
+const EVERYONE_ACTS = {
+  turnOn: { text: "Turn on for everyone…", tone: "quiet" },
+  turnOff: { text: "Turn off for everyone…", tone: "quiet" },
+  share: { text: "Share with everyone…", tone: "quiet" },
+  removeEveryone: { text: "Remove for everyone…", tone: "warn" },
+};
 
 /**
- * The page's actions for one extension. `view` is `{ row, family, user, role, people, publish, state, label,
- * origin, publisher }`. Answers the nodes the page places: `primary` (the leading buttons), `required` (the
- * "Required by Thetis" line, or null), `more` (the ⋯ button), `adminButtons`/`adminLines`/`picker` for the side
- * panel's For everyone, `hints` (at most one sentence under the buttons), and the Publish block with its own
- * hints for the Details tab. `onPublish` is how ⋯ → Publish… shows that tab.
+ * The page's actions for one extension. `view` is `{ row, family, user, role, people, holders, publish, state,
+ * label, origin, publisher, config }`. Answers the nodes the page places: `primary` (the leading buttons),
+ * `required` (the "Required by Thetis" line, or null), `more` (the ⋯ button), for the side panel's For everyone
+ * `adminActs` (`[{ button, hint }]`), `adminLines`, `openShared` (Open it, for the original of a shared copy)
+ * and `picker`, `hints` (the sentences under the buttons), and the Publish block with its own hints for the
+ * Details tab. `onPublish` is how ⋯ → Publish… shows that tab.
  */
 export function actionsFor(ext, view, host, { onPublish = null, onSettings = null } = {}) {
   const { el } = ext.dom;
@@ -147,14 +190,16 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
   const { row, user, role, people } = view;
   const admin = role !== "user";
   const primary = [];
-  const adminButtons = [];
+  const adminActs = [];
   const adminLines = [];
   const hints = [];
   const publishHints = [];
   const label = view.label ?? titleCase(row.label ?? row.name);
   const family = view.family ?? [];
   const required = isRequired(row);
+  const inside = runsInsideThetis(row);
   const needs = needsOf(row);
+  const holders = Array.isArray(view.holders) ? view.holders : null;
 
   const go = (name, extra = {}) => ext.open.place("marketplace", name ? { name, ...extra } : {});
 
@@ -175,16 +220,15 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
 
   /**
    * Into the person's own space. The popover says which of the installs this is, because they cost different
-   * things: one that comes with Thetis is already here and built, a copy in the person's folder is built from
-   * there, and a registry's offer is fetched and built. Something with required keys says it is set up next,
-   * and the page opens on its Settings once it is in.
+   * things: one that is already here needs nothing downloaded, a copy in the person's folder is built from
+   * there, and a registry's offer is downloaded and built. Something with required keys says it is set up
+   * next, and the page opens on its Settings once it is in.
    */
   function installMe(anchor) {
-    const how = row.system ? "It comes with Thetis, so nothing is fetched." : row.folder ? "It is built from your folder, which can take a minute." : "It is fetched and built for you, which can take a minute.";
     const next = needs.length ? ` You'll set it up next: ${listOf(needs.map(needText))}.` : "";
     return run(
       anchor,
-      { title: `Install ${label}?`, lines: [["extension", `${label} ${row.version}`], ["by", view.publisher ?? ""], ["for", "you"]].filter(([, v]) => v), note: `${how} ${whatItBrings(row)}${next}`, confirmLabel: "Install" },
+      { title: `Install ${label}?`, lines: [["extension", `${label} ${row.version}`], ["from", publisherShort(row, { user, family: [row, ...family] })], ["for", "you"]].filter(([, v]) => v), note: `${howItInstalls(row)} ${whatItBrings(row)}${next}`, confirmLabel: "Install" },
       row.system ? "Installing…" : "Installing… this can take a minute.",
       () => ext.request("install", { args: { source: sourceOf(row) } }),
       (r) => {
@@ -194,6 +238,13 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
     );
   }
 
+  /** What going back to the official version does to this copy, in the words the page and the confirm share. */
+  const official = originNameOf(row);
+  const whose = ownerWord(official, user);
+  const officialVersion = view.state?.behind?.to ?? row.fork?.shipped ?? null;
+  const officialWords = whose === "your" ? "your original" : `${whose}${officialVersion ? ` ${officialVersion}` : " version"}`;
+  const replaceLine = `${useOriginLabel(row, user)} replaces your changes with ${officialWords}. Your copy's files stay in your folder.`;
+
   /**
    * Puts a person's copy back on the extension it was copied from, then applies, the same as an update. The
    * page's updater does it when there is one, so the card and this button are one act. The copy a person is
@@ -202,12 +253,13 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
    * The copy's files stay in the person's folder; Delete files… is what removes them.
    */
   async function unforkMe(anchor) {
-    const origin = row.update?.origin ?? originNameOf(row);
+    const origin = row.update?.origin ?? official;
     const act = useOriginLabel(row, user);
+    const changed = Array.isArray(row.changed) && row.changed.length ? ` Your changes to ${row.changed.length === 1 ? row.changed[0] : `${row.changed.length} files`} stop being used.` : "";
     const ok = await confirm(anchor, {
       title: `${act}?`,
-      lines: [["your copy", row.name], ["goes back to", origin], ["your files", "kept in your folder"]],
-      note: `${ownerWord(origin, user) === "your" ? "Your original" : `${ownerWord(origin, user).replace(/^./, (c) => c.toUpperCase())} version`} takes your copy's place, with every fix it has had since. Your copy's files stay; Delete files… is what removes them.`,
+      lines: [["your copy", label], ["goes back to", officialWords], ["your files", "kept in your folder"]],
+      note: `${replaceLine}${changed} Delete files… is what removes them.`,
       confirmLabel: act,
       tone: "warn",
     });
@@ -267,20 +319,38 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
     }
   }
 
-  /** Out of the person's own space, and nothing more. The files and the saved settings stay. */
-  function removeMe(anchor) {
+  /**
+   * Out of the person's own space. The files stay; the saved settings stay unless the person ticks "Also
+   * delete my saved settings", which clears each key of their own layer after the extension is gone.
+   */
+  async function removeMe(anchor) {
     const back = row.replaced ? ` ${row.replaced} comes back in its place.` : "";
     const others = row.everyone ? " Everyone else keeps it." : "";
-    return run(
-      anchor,
-      { title: `Remove ${label} for you?`, lines: [["extension", label], ["for", "you"]], note: `What it brings stops from your next message. Your saved settings are kept. Install puts it back.${others}${back}`, confirmLabel: "Remove for me", tone: "warn" },
-      "Removing…",
-      () => ext.request("remove", { args: { name: row.name } }),
-      () => {
-        ext.toast(`${label} is removed for you. Your settings are kept.`, { tone: "good" });
-        go(row.available || row.system || row.folder ? row.name : row.replaced || null);
+    const tick = el("input", { type: "checkbox", class: "mk-tick" });
+    const note = el("span", { class: "mk-confirm-note" }, `What it brings stops from your next message. Install puts it back.${others}${back}`, el("label", { class: "mk-confirm-tick" }, tick, " Also delete my saved settings"));
+    const ok = await confirm(anchor, { title: `Remove ${label} for you?`, lines: [["extension", label], ["for", "you"]], note, confirmLabel: "Remove for me", tone: "warn" });
+    if (!ok) return;
+    const wipe = tick.checked;
+    const stop = busy(host, "Removing…");
+    try {
+      let cleared = 0;
+      if (wipe) {
+        // Read before the removal: the report of a package that is gone may not be given.
+        const report = (await ext.request("config-show", { args: { name: row.name } }).catch(() => null))?.data;
+        const mine = (report?.keys ?? []).filter((k) => k.source === "user" && !k.inheritedFrom);
+        for (const k of mine) {
+          await ext.request("config-unset", { args: { name: row.name, key: k.key } });
+          cleared += 1;
+        }
       }
-    );
+      await ext.request("remove", { args: { name: row.name } });
+      ext.toast(`${label} is removed for you. ${wipe ? (cleared ? "Your saved settings are deleted." : "You had no saved settings.") : "Your settings are kept."}`, { tone: "good" });
+      go(row.available || row.system || row.folder ? row.name : row.replaced || null);
+    } catch (err) {
+      ext.toast(err?.message || "That did not work.", { tone: "error" });
+    } finally {
+      stop();
+    }
   }
 
   function del(anchor) {
@@ -299,7 +369,7 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
   function installFor(anchor, who) {
     return run(
       anchor,
-      { title: `Install for ${who}?`, lines: [["extension", `${label} ${row.version}`], ["for", who]], note: `${row.system ? "It comes with Thetis, so nothing is fetched." : "It is fetched and built for them."} They have it from their next message; a reply of theirs that is running keeps the old one until it ends.`, confirmLabel: "Install" },
+      { title: `Install ${label} for ${who}?`, lines: [["extension", `${label} ${row.version}`], ["for", who]], note: `${howItInstalls(row, "them")} They have it from their next message; a reply of theirs that is running keeps going without it until it ends.`, confirmLabel: `Install for ${who}` },
       `Installing for ${who}… this can take a minute.`,
       () => ext.request("install-for", { args: { user: who, source: sourceOf(row) } }),
       () => {
@@ -309,16 +379,38 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
     );
   }
 
+  function removeFor(anchor, who) {
+    return run(
+      anchor,
+      { title: `Remove ${label} for ${who}?`, lines: [["extension", label], ["for", who]], note: `Their settings are kept. It stops for them from their next message.${row.everyone ? " Everyone else keeps it." : ""}`, confirmLabel: `Remove for ${who}`, tone: "warn" },
+      `Removing for ${who}…`,
+      () => ext.request("remove-for", { args: { user: who, name: row.name } }),
+      () => {
+        ext.toast(`${label} is removed for ${who}. Their settings are kept.`, { tone: "good" });
+        go(row.name);
+      }
+    );
+  }
+
+  /** The keys it needs that nobody has set for everyone, from the admin's own report when there is one. */
+  const unsetForEveryone = () => needs.filter((n) => {
+    const k = (view.config?.keys ?? []).find((x) => x.key === n.key);
+    return !k || !(k.state === "set" && (k.source === "system" || k.source === "file"));
+  });
+
   /**
    * Every person gets it, now and later. On an extension by Thetis the extension is marked and linked into
-   * every person; on a registry's offer it is first installed for the admin and made part of Thetis.
+   * every person; on a registry's offer it is first installed for the admin and made part of Thetis. When it
+   * needs a key nobody has set for everyone, the confirm says so and what to do about it.
    */
   function turnOn(anchor) {
+    const missing = unsetForEveryone();
+    const key = missing.length ? ` It needs ${listOf(missing.map(needText))}. Nobody has one yet: set one for everyone first, or each person sets their own.` : "";
     return run(
       anchor,
       row.system
-        ? { title: `Turn on ${label} for everyone?`, lines: [["extension", `${label} ${row.version}`], ["for", "everyone, now and later"]], note: "Every person has it from their next message, and every new person starts with it. Anyone can still remove it for themselves.", confirmLabel: "Turn on for everyone" }
-        : { title: `Turn on ${label} for everyone?`, lines: [["extension", `${label} ${row.version}`], ["from", row.registry || "a source"], ["for", "everyone, now and later"]], note: "It is fetched, becomes part of Thetis, and every person has it now and later.", confirmLabel: "Turn on for everyone" },
+        ? { title: `Turn on ${label} for everyone?`, lines: [["extension", `${label} ${row.version}`], ["for", "everyone, now and later"]], note: `Every person has it from their next message, and every new person starts with it. Anyone can still remove it for themselves.${key}`, confirmLabel: "Turn on for everyone" }
+        : { title: `Turn on ${label} for everyone?`, lines: [["extension", `${label} ${row.version}`], ["from", row.registry || "a source"], ["for", "everyone, now and later"]], note: `It is downloaded, becomes part of Thetis, and every person has it now and later.${key}`, confirmLabel: "Turn on for everyone" },
       row.system ? "Turning it on for everyone…" : "Turning it on for everyone… this can take a minute.",
       () => ext.request("install-everyone", { args: { source: sourceOf(row) } }),
       (r) => {
@@ -332,7 +424,7 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
   function turnOff(anchor) {
     return run(
       anchor,
-      { title: `Turn off ${label} for everyone?`, lines: [["extension", label]], note: "New people stop getting it; people who have it keep it.", confirmLabel: "Turn off for everyone", tone: "warn" },
+      { title: `Turn off ${label} for everyone?`, lines: [["extension", label]], note: WORDS.turnOffHint, confirmLabel: "Turn off for everyone", tone: "warn" },
       "Turning it off for everyone…",
       () => ext.request("unmark-everyone", { args: { name: row.name } }),
       () => {
@@ -347,7 +439,7 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
     const shared = `@thetis/${baseOf(row.name)}`;
     return run(
       anchor,
-      { title: `Share ${label} with everyone?`, lines: [["extension", label], ["shared copy", shared], ["for", "everyone, now and later"]], note: `Everyone gets a shared copy named ${label}. Your own stays yours.`, confirmLabel: "Share with everyone" },
+      { title: `Share ${label} with everyone?`, lines: [["extension", label], ["for", "everyone, now and later"]], note: `Everyone gets a shared copy named ${label}. Your own stays yours.`, confirmLabel: "Share with everyone" },
       "Sharing with everyone…",
       () => ext.request("promote", { args: { user, name: row.name } }),
       (r) => {
@@ -358,25 +450,31 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
   }
 
   /**
-   * Out of every person's space. The confirm names who loses it, read before the popover opens; nothing is
-   * removed until the admin agrees. What decides whether new people still get it is said too, because
-   * removing is not the same as turning off.
+   * Out of every person's space. The confirm names who loses it, read again before the popover opens; nothing
+   * is removed until the admin agrees. What decides whether new people still get it is said too, plainly,
+   * because removing is not the same as turning off -- and a shared copy cannot be stopped from here.
    */
   async function removeEveryone(anchor) {
-    let users = [];
+    let users = holders ?? [];
     const reading = busy(host, "Finding who has it…");
     try {
-      users = (await ext.request("holders", { args: { name: row.name } }))?.data?.users ?? [];
+      users = (await ext.request("holders", { args: { name: row.name } }))?.data?.users ?? users;
     } catch (err) {
       return ext.toast(err?.message || "That did not work.", { tone: "error" });
     } finally {
       reading();
     }
     if (!users.length && !(row.everyone && row.everyoneBy === "marked")) return ext.toast(`Nobody has ${label}.`, { tone: "warn" });
-    const still = row.everyone && row.everyoneBy === "config" ? " New people still get it, because the installation's configuration gives it to everyone." : row.everyone && row.everyoneBy === "promoted" ? " New people still get it, because it is a shared copy." : row.everyone ? " It is turned off for everyone too, so new people stop getting it." : "";
+    const still = row.everyone && row.everyoneBy === "config"
+      ? " New people still get it: the server's settings give it to everyone."
+      : isPromoted(row)
+        ? " It stays shared: every new person still gets it, and sharing cannot be stopped from here."
+        : row.everyone
+          ? " It is turned off for everyone too, so new people stop getting it."
+          : "";
     return run(
       anchor,
-      { title: `Remove ${label} for everyone?`, lines: [["extension", label], ["people who lose it", users.length ? users.join(", ") : "nobody has it now"]], note: `It is taken out of each of their spaces from their next message. Their saved settings are kept.${still}`, confirmLabel: "Remove for everyone", tone: "warn" },
+      { title: `Remove ${label} for everyone?`, lines: [["extension", label], ["people who lose it", users.length ? listOf(users) : "nobody has it now"]], note: `It is taken away from ${users.length ? listOf(users) : "nobody"} now, from their next message. Their saved settings are kept.${still}`, confirmLabel: "Remove for everyone", tone: "warn" },
       "Removing for everyone…",
       () => ext.request("remove-everyone", { args: { name: row.name } }),
       (r) => {
@@ -395,19 +493,20 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
 
   // ---- the person's own ----
 
-  const notInstallable = NOT_INSTALLABLE[row.type];
   let installedBtn = null;
-  const official = view.state?.update?.kind === "origin" || !!view.superseded;
+  const behind = !!view.state?.behind || !!view.superseded;
   if (!row.installed) {
-    if (!admin && isAdminOnly(row)) hints.push(ADMIN_ONLY.line);
-    else if (notInstallable) hints.push(notInstallable);
+    if (inside) hints.push(`${WORDS.inside}.`);
+    else if (!admin && isAdminOnly(row)) hints.push(ADMIN_ONLY.line);
+    else if (!admin && row.component) hints.push("Part of Thetis. Your admin decides who has it.");
+    else if (view.inUse && view.inUse.name !== row.name) primary.push(make("Use instead", "primary", (b) => useInstead(ext, b, { row, label, relation: view.relation ?? "", inUse: view.inUse, inUseLabel: view.inUseLabel ?? "", inUseRelation: view.inUseRelation || "the one you use" })));
     else primary.push(make("Install", "primary", installMe));
   } else {
-    if (official) primary.push(make(useOriginLabel(row, user), "primary", unforkMe));
-    else if (row.update) primary.push(make("Update", "primary", updateMe));
+    if (view.state?.update) primary.push(make("Update", "primary", updateMe));
+    else if (behind && official) primary.push(make(useOriginLabel(row, user), "quiet", unforkMe));
     const menuItems = [
-      originNameOf(row) && !official ? { label: useOriginLabel(row, user), run: () => void unforkMe(installedBtn) } : null,
-      required ? null : { label: "Remove for me", hint: "Your saved settings are kept", danger: true, run: () => void removeMe(installedBtn) },
+      official && !(behind && !view.state?.update) ? { label: useOriginLabel(row, user), run: () => void unforkMe(installedBtn) } : null,
+      required ? null : { label: "Remove for me", hint: "Your saved settings are kept unless you say so", danger: true, run: () => void removeMe(installedBtn) },
     ].filter(Boolean);
     // "Installed ✓" is the state, drawn as the button that holds what can be done to it; a required extension has nothing to hold.
     installedBtn = button(menuItems.length ? "Installed ✓ ▾" : "Installed ✓", { tone: "quiet", title: menuItems.length ? "What you can do with it" : null });
@@ -417,8 +516,15 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
       installedBtn.addEventListener("click", () => ext.ui.menu?.(installedBtn, menuItems));
     } else installedBtn.disabled = true;
     primary.push(installedBtn);
+    // A copy the official version moved past: what using it does, and what the person changed.
+    if (behind && official) {
+      hints.push(replaceLine);
+      const files = Array.isArray(row.changed) ? row.changed : null;
+      const base = row.fork?.version ?? row.forkedFrom?.version ?? null;
+      if (files?.length) hints.push(`You changed ${files.length === 1 ? "1 file" : `${files.length} files`}${base ? ` since ${base}` : ""}: ${files.slice(0, 5).join(", ")}${files.length > 5 ? ` and ${files.length - 5} more` : ""}.`);
+    }
   }
-  if (row.installed && onSettings && view.hasSettings) primary.push(make("Set up", view.state?.chips?.some((c) => c.id === "needsSetup") ? "primary" : "quiet", () => onSettings(), "Your own values for this extension"));
+  if (row.installed && onSettings && view.hasSettings) primary.push(make("Set up", !admin && view.state?.chips?.some((c) => c.id === "needsSetup") ? "primary" : "quiet", () => onSettings(), "Your own values for this extension"));
 
   // ⋯: the files, publishing, and the id -- the technical things, out of the way of the person's own act.
   const mine = row.local || row.own || scopeOf(row.name) === user;
@@ -426,7 +532,7 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
   const moreItems = [
     row.local && row.installed ? { label: "Delete files…", danger: true, run: () => void del(more) } : null,
     canPublish && onPublish ? { label: "Publish…", run: () => onPublish() } : null,
-    { label: "Technical id", hint: row.name, run: () => { navigator.clipboard?.writeText(row.name).then(() => ext.toast(`Copied ${row.name}.`, { tone: "good" }), () => ext.toast(row.name)); } },
+    { label: `Copy technical id (${row.name})`, run: () => { navigator.clipboard?.writeText(row.name).then(() => ext.toast(`Copied ${row.name}.`, { tone: "good" }), () => ext.toast(row.name)); } },
   ].filter(Boolean);
   const more = button("⋯", { tone: "quiet", title: "More" });
   more.classList.add("mk-more");
@@ -436,40 +542,37 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
 
   // ---- for everyone: an admin's acts, about every person and never about this one ----
 
+  let openShared = null;
   if (admin) {
-    const promoted = family.find((m) => isPromoted(m) && m.name !== row.name) ?? null;
-    const originScope = scopeOf(originNameOf(row));
-    if (row.system && !notInstallable) {
-      if (!row.everyone) adminButtons.push(make("Turn on for everyone…", "quiet", turnOn));
-      else if (row.everyoneBy === "marked") adminButtons.push(make("Turn off for everyone…", "quiet", turnOff));
-      else if (row.everyoneBy === "promoted") {
-        const original = family.find((m) => !isPromoted(m) && !originNameOf(m) && scopeOf(m.name) !== "thetis");
-        adminLines.push(original ? `Shared with everyone from ${original.name} by ${scopeOf(original.name) === user ? "you" : scopeOf(original.name)}.` : "Shared with everyone from a person's copy.");
-      } else adminLines.push("Everyone gets it by the installation's configuration, which the Control panel edits.");
-    } else if (!row.system && promoted) adminLines.push(`Already shared with everyone as ${titleCase(promoted.label ?? baseOf(promoted.name))}.`);
-    else if (!row.system && !row.installed && row.source && !notInstallable) adminButtons.push(make("Turn on for everyone…", "quiet", turnOn));
-    if (row.installed && !row.system && !promoted) {
-      if (originScope === "thetis" && view.state?.update?.kind === "origin") adminLines.push(`Your copy is older than Thetis's ${view.state.update.to}; sharing it would replace it for everyone.`);
-      else if (originScope === "thetis") adminLines.push(`Thetis already has ${label}, so this copy is not shared under that name.`);
-      else adminButtons.push(make("Share with everyone…", "quiet", share));
-    }
-    if (!required && (row.installed || row.system)) adminButtons.push(make("Remove for everyone…", "warn", removeEveryone));
+    const table = everyoneActions(row, { family: [row, ...family], user, holders, origin: view.origin ?? null, label });
+    // What runs inside Thetis says so once, under the buttons, and not again here.
+    if (!inside) adminLines.push(...table.lines);
+    const handlers = { turnOn, turnOff, share, removeEveryone };
+    // The destructive one last, whatever order the table gave.
+    const order = ["turnOn", "turnOff", "share", "removeEveryone"];
+    for (const id of order.filter((a) => table.acts.includes(a))) adminActs.push({ button: make(EVERYONE_ACTS[id].text, EVERYONE_ACTS[id].tone, handlers[id]), hint: table.hints[id] ?? null });
+    if (table.open) openShared = button("Open it", { tone: "quiet", onClick: () => go(table.open) });
   }
 
-  // An admin installs for one person from a picker: the people, then a button naming the chosen one.
+  // An admin installs for one person, or removes it for one who has it, from a picker: the people -- only the
+  // admins for what only admins may have -- each marked when they have it, then a button naming the act.
   let picker = null;
-  const others = (people || []).filter((p) => p.id !== user);
-  if (admin && others.length && !row.everyone && !notInstallable && (row.source || row.system)) {
-    const select = el("select", { class: "input mk-person", "aria-label": "Person" }, ...others.map((p) => el("option", { value: p.id }, p.id)));
-    const b = button(`Install for ${select.value}`, { tone: "quiet" });
+  const pickable = admin && !required && !inside && !openShared && !!(row.source || row.system) && !(row.folder && !row.available);
+  const others = (people || []).filter((p) => p.id !== user && (!isAdminOnly(row) || p.role === "admin"));
+  if (pickable && others.length) {
+    const has = (id) => !!holders?.includes(id);
+    const select = el("select", { class: "input mk-person", "aria-label": "Person" }, ...others.map((p) => el("option", { value: p.id }, has(p.id) ? `${p.id} (has it)` : p.id)));
+    const b = button("", { tone: "quiet" });
+    const name = () => (has(select.value) ? `Remove for ${select.value}…` : `Install for ${select.value}`);
+    b.textContent = name();
     select.addEventListener("change", () => {
-      b.textContent = `Install for ${select.value}`;
+      b.textContent = name();
     });
-    b.addEventListener("click", () => void installFor(b, select.value));
+    b.addEventListener("click", () => void (has(select.value) ? removeFor(b, select.value) : installFor(b, select.value)));
     picker = el("div", { class: "mk-picker" }, select, b);
   }
 
-  const requiredLine = required ? el("span", { class: "mk-required", title: "Nothing removes it, for anyone" }, WORDS.required) : null;
+  const requiredLine = required && row.installed ? el("span", { class: "mk-required", title: "Nothing removes it, for anyone" }, WORDS.required) : null;
 
   /**
    * Publishing this package to a registry. Two things have to be settled before anything happens: which
@@ -847,5 +950,5 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
   }
 
 
-  return { primary, more, required: requiredLine, adminButtons, adminLines, hints, picker, publish, publishHints };
+  return { primary, more, required: requiredLine, adminActs, adminLines, openShared, hints, picker, publish, publishHints };
 }

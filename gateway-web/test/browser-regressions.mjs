@@ -361,7 +361,7 @@ test("the rail: every button names itself, and widened it shows the labels in wo
     await f.page.locator(".rail-widen").click();
     assert.equal(await todo.locator(".rail-label").innerText(), "Todo");
     assert.equal(await f.page.locator("#panels-btn").isVisible(), false, "the phone's Panels button stays off a wide screen");
-    // Escape closes the dock; with a place opened over it, the place goes first.
+    // Escape closes the dock, but never a place opened over it: the place's ✕ does, and then Escape reaches the dock.
     await todo.click();
     await f.page.locator("#dock:not([hidden])").waitFor();
     await f.page.locator("#menu").click();
@@ -369,6 +369,8 @@ test("the rail: every button names itself, and widened it shows the labels in wo
     await f.page.locator(".sidebar-head .menu .menu-item", { hasText: "Files" }).click();
     await f.page.locator(".review-place").waitFor();
     await f.page.keyboard.press("Escape");
+    assert.equal(await f.page.locator("#place").isHidden(), false, "one Escape too many never throws away the place");
+    await f.page.locator("#place .place-close").click();
     assert.equal(await f.page.locator("#place").isHidden(), true);
     assert.equal(await f.page.locator("#dock").isHidden(), false, "the dock under the place is still open");
     await f.page.keyboard.press("Escape");
@@ -414,7 +416,7 @@ test("a phone: the rail is a Panels menu, a place closes the drawer, Escape take
     assert.match(await listed.first().innerText(), /by you · Page/, "by its label, with the publisher line under it (the signed-in person is review)");
     assert.equal(await listed.first().locator("[title='@review/extras']").count(), 1, "the raw id is the label's tooltip");
 
-    // Drawer over the place: Escape closes the drawer first, then the place.
+    // Drawer over the place: Escape closes the drawer, and never the place under it.
     await f.page.locator("#place .chat-menu").click();
     await f.page.waitForFunction(() => document.querySelector("#sidebar").classList.contains("is-open"));
     await f.page.keyboard.press("Escape");
@@ -422,6 +424,8 @@ test("a phone: the rail is a Panels menu, a place closes the drawer, Escape take
     assert.equal(await f.page.locator("#place").isHidden(), false, "the place is still open");
     assert.ok(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "nothing pushes the page sideways");
     await f.page.keyboard.press("Escape");
+    assert.equal(await f.page.locator("#place").isHidden(), false, "a second Escape leaves the place too");
+    await f.page.locator("#place .place-close").click();
     assert.equal(await f.page.locator("#place").isHidden(), true);
     assert.ok(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   });

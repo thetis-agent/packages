@@ -67,7 +67,7 @@ test("the control panel and the Extensions place give the same state for the sam
 });
 
 test("the shared words and rules are the same data", () => {
-  for (const k of ["CHIPS", "CHIP_ORDER", "MAX_CHIPS", "FOR_EVERYONE_BY", "REQUIRED", "ADMIN_ONLY", "FILTERS", "SYNONYMS"]) assert.deepEqual(ours[k], reference[k], k);
+  for (const k of ["CHIPS", "CHIP_ORDER", "MAX_CHIPS", "FOR_EVERYONE_BY", "REQUIRED", "ADMIN_ONLY", "INSIDE", "FILTERS", "PILLS", "SYNONYMS"]) assert.deepEqual(ours[k], reference[k], k);
   assert.deepEqual(ours.KINDS.map((k) => k.id), reference.KINDS.map((k) => k.id));
   const words = (w) => ({ ...w, settingsPath: w.settingsPath("Exa") });
   assert.deepEqual(words(ours.WORDS), words(reference.WORDS));
@@ -79,16 +79,22 @@ test("the rows say what the contract says they do", () => {
   assert.equal(say(ROWS.shipped).publisher, "by Thetis · Tools");
   assert.deepEqual(say(ROWS.marked).chips.map((c) => c[1]), ["For everyone"]);
   assert.equal(say(ROWS.promoted, { admin: false, user: "sam" }).publisher, "by bitmuse · Tools", "a shared copy is by the person it came from");
-  assert.deepEqual(say(ROWS.copyBehind).chips.map((c) => c[1]), ["Update available", "Customized"]);
+  assert.deepEqual(say(ROWS.copyBehind).chips.map((c) => c[1]), ["Customized"], "a copy behind its official version is not an update");
+  assert.equal(say(ROWS.copyBehind).attention, false);
   assert.equal(say(ROWS.copyBehind).label, "Tool Exec");
   assert.equal(say(ROWS.copyBehind).useOrigin, "Use Thetis's version");
-  assert.deepEqual(say(ROWS.everything).chips.map((c) => c[1]), ["Needs setup", "Update available"], "at most two, in order");
+  assert.deepEqual(say(ROWS.everything).chips.map((c) => c[1]), ["Needs setup", "Customized"], "at most two, in order");
   assert.equal(say(ROWS.missingAdmins, { admin: false, user: "sam" }).waiting, true, "a person waits for the admin");
   assert.deepEqual(say(ROWS.missingAdmins, { admin: false, user: "sam" }).chips, []);
   assert.match(say(ROWS.missingAdmins).reason, /Set it for everyone in Control panel → Extensions → OpenRouter → Settings\./);
   assert.equal(say(ROWS.offer).publisher, "from thirteen-games · Skills");
   for (const k of ["gateway", "copyOfRequired", "login", "storage"]) assert.equal(say(ROWS[k]).required, true, k);
   for (const k of ["operator", "storage", "login"]) assert.equal(say(ROWS[k]).adminOnly, true, k);
+});
+
+test("ui/state.js is the Extensions place's lib/state.js, byte for byte", async () => {
+  const { readFileSync } = await import("node:fs");
+  assert.equal(readFileSync(new URL("../ui/state.js", import.meta.url), "utf8"), readFileSync(new URL("../../ui-marketplace/lib/state.js", import.meta.url), "utf8"), "packages/ui-admin/ui/state.js has drifted from packages/ui-marketplace/lib/state.js: copy the place's over it");
 });
 
 test("the Extensions place's own fixture rows: both give its expected chips, and the same sentence, for bitmuse and for sam", () => {

@@ -8,7 +8,7 @@
  * files live in. There is no restart button here: applying updates is one action for everyone, on the
  * extensions pages. The pure `packageFacts` is exported so a test can check the words without a DOM. */
 
-import { stateBadge, stateWord } from "./state.js";
+import { stateBadge, stateWord } from "./words.js";
 
 const short = (commit) => (typeof commit === "string" ? commit.slice(0, 7) : "");
 
@@ -38,13 +38,13 @@ export function packageFacts(info) {
   const facts = [];
   facts.push(["version", `${info.version} · ${info.type}`]);
   // A system package is the installation's whether or not it is everyone's default; the default is the second fact, with whose word made it so.
-  const by = info.everyoneBy === "config" ? " by the server's settings file" : info.everyoneBy === "promoted" ? ": shared with everyone from a person's extension" : info.everyoneBy === "marked" ? " by an admin's choice" : "";
-  facts.push(["default", info.everyone ? `everyone gets it${by}` : info.source?.kind === "system" ? "optional: each person installs it" : "only the people it was installed for"]);
+  const by = info.everyoneBy === "config" ? " (set in Server settings)" : info.everyoneBy === "promoted" ? ": a shared copy of a person's extension" : info.everyoneBy === "marked" ? ": an admin turned it on for everyone" : "";
+  facts.push(["default", info.everyone ? `Everyone gets it${by}` : info.source?.kind === "system" ? "Optional: each person installs it" : "Only the people it was installed for"]);
   const src = info.source;
   if (!src) facts.push(["source", "unknown"]);
   // A shared copy lives beside the extensions Thetis ships, but it was not shipped: it is a person's extension.
   else if (info.everyoneBy === "promoted") facts.push(["source", sharedSentence(info.promotedFrom)]);
-  else if (src.kind === "system") facts.push(["source", "shipped with Thetis"]);
+  else if (src.kind === "system") facts.push(["source", "by Thetis"]);
   else if (src.kind === "local") facts.push(["source", `a directory: ${src.ref}`]);
   else {
     const { url, dir, pin } = splitSource(src.ref);

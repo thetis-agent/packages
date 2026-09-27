@@ -1,6 +1,6 @@
 {
   "name": "@thetis/ui-admin",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "license": "MIT",
   "description": "The control panel's sections beyond Extensions, and the admin's Thetis update notice: Overview, People, Models, Access (mounts and SSH keys), Activity, Account and Advanced. Everyone sees Models, Access, Activity and Account about themselves; an admin sees all of them, about everyone.",
   "type": "module",
@@ -61,14 +61,14 @@
         {
           "id": "advanced",
           "label": "Advanced",
-          "note": "For troubleshooting: each workspace, every extension in every workspace, and the server's settings.",
+          "note": "For troubleshooting: each workspace, and the server's settings.",
           "role": "admin",
           "order": 50
         },
         {
           "id": "advanced-pages",
           "label": "Advanced pages",
-          "note": "A troubleshooting page.",
+          "note": "For troubleshooting.",
           "role": "admin",
           "order": 51,
           "under": "advanced"
@@ -258,6 +258,12 @@
           "verb": "config-unset",
           "export": "configUnset",
           "label": "Clear one configuration key",
+          "role": "admin"
+        },
+        {
+          "verb": "config-reveal",
+          "export": "configReveal",
+          "label": "Show one saved value, when it is the one in effect for you",
           "role": "admin"
         },
         {

@@ -20,6 +20,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { behind } from "@thetis/marketplace";
+import { titleCase } from "./state.js";
 
 /**
  * The name a person reads. `thetis.label` in the manifest when the author gave one, otherwise the name
@@ -104,16 +105,28 @@ export async function updatesOf({ installed, catalog = [], index, openedAt, newe
     const edited = Number.isFinite(openedAt) && newest > openedAt;
     // `at` is the change's own time, so the page can tell one set of changes from the next one to the same
     // package; `ui` says the change may touch the page itself, which then refreshes after applying.
-    if (added || edited) own.push({ name: p.name, label: labelOf(p), ui: !!p.thetis?.ui, at: Math.round(newest) });
+    if (added || edited) own.push({ name: p.name, label: titleCase(labelOf(p)), ui: !!p.thetis?.ui, at: Math.round(newest) });
   }
   const mine = new Set(own.map((o) => o.name));
 
+  // The name a person reads is the newest version's, Title Case, the same the place's cards say: a registry's
+  // entry for what is fetched, the files on disk (the installed manifest) for what is applied.
+  const named = (name, info) => {
+    const entry = (index?.packages ?? []).filter((e) => e.name === name && typeof e.label === "string" && e.label).sort((a, b) => String(b.version).localeCompare(String(a.version), undefined, { numeric: true }))[0];
+    return titleCase(entry?.label ?? labelOf(info ?? { name }));
+  };
   const items = [];
   for (const b of behind(installed, index)) {
     if (b.apply === "unfork" || mine.has(b.name)) continue;
     const info = byName.get(b.name);
-    if (b.apply === "install") items.push({ name: b.name, label: labelOf(info), from: info?.version ?? "", to: b.version, apply: "install" });
-    else items.push({ name: b.name, label: labelOf(info), from: b.installed, to: b.available, apply: "apply" });
+    // Two versions that are the same are nothing to update, whatever else moved.
+    if (b.apply === "install") {
+      if (String(b.version) === String(info?.version ?? "") && b.installed === b.available) continue;
+      items.push({ name: b.name, label: named(b.name, info), from: info?.version ?? "", to: b.version, apply: "install" });
+    } else {
+      if (!b.available || String(b.available) === String(b.installed)) continue;
+      items.push({ name: b.name, label: titleCase(labelOf(info)), from: b.installed, to: b.available, apply: "apply" });
+    }
   }
 
   const forks = [];
@@ -131,7 +144,7 @@ export async function updatesOf({ installed, catalog = [], index, openedAt, newe
     }
     // Without a recorded base, or without the comparison, the kernel's byte-for-byte flag is the one fact left.
     if (state !== "superseded" && state !== "identical") state = fork.identical && (state === null || state === "unknown") ? "identical" : null;
-    if (state) forks.push({ name: p.name, label: labelOf(origin ?? p), origin: fork.name, state });
+    if (state) forks.push({ name: p.name, label: titleCase(labelOf(origin ?? p)), origin: fork.name, state });
   }
 
   return { items, own, forks };

@@ -11,7 +11,7 @@
 import { describe, dirtyOf, incomingOf, recordOf, staleOf } from "./update-flow.js";
 import { actionRunner } from "./update-notice.js";
 import { failedCard, failureSentence, toastError } from "./failed.js";
-import { stateBadge } from "./state.js";
+import { stateBadge } from "./words.js";
 
 /** The job's state in words: the record says `rolledback`, a person reads "rolled back". */
 export const RECORD_WORDS = Object.freeze({ running: "running", done: "done", failed: "failed", rolledback: "rolled back", interrupted: "stopped part-way" });

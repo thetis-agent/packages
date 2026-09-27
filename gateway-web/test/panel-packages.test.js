@@ -1,8 +1,9 @@
 // The built-in Extensions section's list: the columns every extension list uses, the count of what is
-// installed for this person, and the chips of the Extensions contract's one state. The Extensions place's
-// `lib/state.js` is the reference for the chips; the section restates the few rules it needs (a page imports
-// only its own package's files), and this test gives both the same rows and expects the same answers. The
-// place's module is imported by relative path here only.
+// installed for this person, and the chips of the Extensions contract's one state. With the Extensions place
+// here the section judges the place's rows with the place's own module, so its answers are the place's; this
+// test hands it the place's `lib/state.js` (imported by relative path here only) and expects exactly that. The
+// fallback, for when the place is gone, restates only the chips, the label, the publisher line and Required,
+// and is held to the place's chips over the same rows.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -37,7 +38,7 @@ function placeRow(r, user) {
   return { ...r, label, installed: true, system: r.source === "system", own, local: r.source === "local", registry: null, tools: r.tools.map((name) => ({ name, description: "" })), update: r.loaded ? { apply: "reload", available: r.version, installed: r.loaded } : null, config: r.config ?? null };
 }
 
-test("the section's list says what the Extensions place says about the same rows, for an admin and for a person", () => {
+test("without the place, the fallback gives the place's chips, label, publisher line and Required for the same rows", () => {
   const rows = Object.values(ROWS);
   for (const ctx of [{ admin: true, user: "bitmuse" }, { admin: false, user: "bitmuse" }, { admin: false, user: "sam" }]) {
     const family = rows.map((r) => placeRow(r, ctx.user));
@@ -47,12 +48,32 @@ test("the section's list says what the Extensions place says about the same rows
       const what = `${key} for ${ctx.user}${ctx.admin ? " (admin)" : ""}`;
       assert.deepEqual(ours.chips.map((c) => [c.id, c.label, c.tone, c.tooltip]), theirs.chips.map((c) => [c.id, c.label, c.tone, c.tooltip]), what);
       assert.equal(ours.attention, theirs.attention, what);
-      assert.equal(ours.reason, theirs.reason, what);
       assert.equal(ours.waiting, theirs.waiting, what);
       assert.equal(list.labelOf(r), reference.labelOf(placeRow(r, ctx.user)), what);
       assert.equal(list.publisherLine(r, { user: ctx.user, rows }), reference.publisherLine(placeRow(r, ctx.user), { user: ctx.user, family }), what);
       assert.equal(list.isRequired(r), reference.isRequired(placeRow(r, ctx.user)), what);
     }
+  }
+  assert.equal(list.countLine(rows.map((r) => placeRow(r, "bitmuse"))), `${rows.length} installed`);
+});
+
+test("with the place here, the section says exactly what the place says: its label, publisher line, state and Installed count", () => {
+  const rules = { place: reference };
+  for (const ctx of [{ admin: true, user: "bitmuse" }, { admin: false, user: "sam" }]) {
+    const rows = [...Object.values(ROWS).map((r) => placeRow(r, ctx.user)), { name: "@bitmuse/notion", label: "Notion", installed: false, local: true, tools: [], config: null }];
+    for (const r of rows.filter((x) => x.installed)) {
+      const said = list.judged(r, rows, { rules, ...ctx });
+      const family = reference.familyOf(r, rows);
+      const origin = reference.officialOf(r, family);
+      const label = reference.labelOf(r, origin);
+      assert.equal(said.label, label, r.name);
+      assert.equal(said.publisher, reference.publisherLine(r, { user: ctx.user, family: family.members }), r.name);
+      assert.deepEqual(said.state, reference.stateOf(r, { ...ctx, origin, label, giver: reference.giverOf(r, { user: ctx.user, family: family.members }) }), r.name);
+    }
+    const promoted = list.judged(rows.find((r) => r.name === "@thetis/notion"), rows, { rules, ...ctx });
+    assert.match(promoted.publisher, ctx.user === "bitmuse" ? /^by you/ : /^by bitmuse/, "a shared copy finds its person among every row the place knows");
+    const parts = rows.filter((r) => r.installed && r.component).length;
+    assert.equal(list.countLine(rows, { rules, ...ctx }), `${reference.placeSections(rows, ctx).counts.installed} installed${parts ? ` · ${parts} part of Thetis` : ""}`, "the place's Installed count");
   }
 });
 
@@ -65,7 +86,24 @@ test("the words: Required, the waiting line, the chips and a promoted copy whose
   assert.equal(list.publisherLine(ROWS.shipped, { user: "sam", rows: [] }), "by Thetis · Tools");
   assert.equal(list.publisherLine(ROWS.promotedAlone, { user: "sam", rows: [ROWS.promotedAlone, api({ name: "@bitmuse/notion" })] }), "by bitmuse · Tools");
   assert.equal(list.labelOf(ROWS.copyBehind), "Tool Exec");
-  assert.deepEqual(list.stateOf(ROWS.copyBehind).chips.map((c) => c.label), ["Update available", "Customized"]);
+  assert.deepEqual(list.stateOf(ROWS.copyBehind).chips.map((c) => c.label), ["Customized"], "a copy behind its official version is not an update");
   assert.deepEqual(list.stateOf(ROWS.missingAdmins, { admin: false }).chips, []);
   assert.equal(list.stateOf(ROWS.missingAdmins, { admin: false }).waiting, true);
+});
+
+test("the place's rows add a registry's newer commit to what is installed, and nothing else", () => {
+  const mine = [api({ name: "@thetis/orleans", version: "0.1.0" }), api({ name: "@thetis/terminal" }), ROWS.copyBehind];
+  const all = [
+    { name: "@thetis/orleans", update: { apply: "install", version: "0.1.1", from: "abc1234", to: "def5678" } },
+    { name: "@thetis/terminal", update: { apply: "reload", version: "0.2.0" } },
+    { name: "@bitmuse/tool-exec", update: { apply: "unfork", version: "0.4.1" } },
+    { name: "@bitmuse/notion" },
+  ];
+  const known = list.withKnown(mine, all);
+  assert.deepEqual(known[0].update, { apply: "install", version: "0.1.1" });
+  assert.equal(known[1].update, undefined, "applying what is on disk is the row's own `loaded`");
+  assert.equal(known[2].update, undefined, "a customised copy behind Thetis's version is not an update");
+  assert.equal(known.length, 3, "the count is still what is installed");
+  assert.deepEqual(list.stateOf(known[0]).chips.map((c) => c.label), ["Update available"]);
+  assert.equal(list.stateOf(known[0]).reason, "Version 0.1.1 is ready; you have 0.1.0.");
 });
