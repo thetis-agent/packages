@@ -1,6 +1,6 @@
 {
   "name": "@thetis/ui-admin",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "license": "MIT",
   "description": "The control panel's sections beyond Extensions, and the admin's Thetis update notice: Overview, People, Models, Access (mounts and SSH keys), Activity, Account and Advanced. Everyone sees Models, Access, Activity and Account about themselves; an admin sees all of them, about everyone.",
   "type": "module",
@@ -134,6 +134,12 @@
           "verb": "models",
           "export": "models",
           "label": "List the models"
+        },
+        {
+          "verb": "model-set",
+          "export": "modelSet",
+          "label": "Set the default model",
+          "role": "admin"
         },
         {
           "verb": "config",

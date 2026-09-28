@@ -51,6 +51,15 @@ test("users, models, config and journal read through the operator", async () => 
   assert.deepEqual(calls[6].args, { limit: 200, kind: undefined }, "200 rows by default, every kind");
 });
 
+test("model-set writes through the host, reads the file again, and answers the default in effect", async () => {
+  const { env, calls } = fakeEnv({ "host.config.modelSet": { model: "a/b", was: "echo" }, "config.reload": { dispatch: ["model"], fence: [], boot: [] }, "config.get": { model: "a/b" } });
+  assert.deepEqual(await commands.modelSet({ model: " a/b " }, env), { data: { model: "a/b", was: "echo", reload: { dispatch: ["model"], fence: [], boot: [] } } });
+  assert.deepEqual(calls.map((c) => c.method), ["host.config.modelSet", "config.reload", "config.get"]);
+  assert.deepEqual(calls[0].args, { model: "a/b" });
+  await assert.rejects(commands.modelSet({}, env), /model must be a model id/);
+  assert.equal(calls.length, 3, "a refusal asks the kernel nothing");
+});
+
 test("the manifest's role table: a user sees their own account, models, access and activity; the rest is an admin's", async () => {
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   const panel = Object.fromEntries(manifest.thetis.ui.panel.map((e) => [e.id, e.role ?? null]));

@@ -117,6 +117,19 @@ export async function models(_args, env) {
   return { data: { model: config.model, models: list } };
 }
 
+/**
+ * Makes `model` the default a new conversation starts with. The host writes the file's `model`
+ * (`@thetis/host-config`), and the file is read again, which puts it into service from the next turn; an
+ * empty model goes back to the built-in default. Answers the default now in effect and what the reload moved.
+ */
+export async function modelSet(args, env) {
+  if (typeof args.model !== "string") fail("model must be a model id, or empty for the built-in default");
+  const set = await call(env, "host.config.modelSet", { model: args.model.trim() });
+  const reload = await call(env, "config.reload");
+  const config = await call(env, "config.get");
+  return { data: { model: config.model, was: set?.was ?? null, reload } };
+}
+
 /** The provider packages installed in this fence's own workspace. A list that cannot be read marks nothing. */
 async function ownProviders(env) {
   try {

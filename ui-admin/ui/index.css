@@ -92,3 +92,7 @@
 /* "Apply updates for N people": one line per person, whatever became of theirs. */
 .ua-apply-report .ua-steps { margin: 0; padding-left: 18px; }
 .ua-own-copy .card-body { padding-top: 10px; padding-bottom: 10px; }
+
+/* Models: the default-model field and its button, one row under the facts. */
+.ua-model-set { margin-top: var(--gap-3); align-items: center; }
+.ua-model-set .input { flex: 1 1 16rem; min-width: 0; font-family: var(--mono); }

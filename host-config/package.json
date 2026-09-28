@@ -1,0 +1,25 @@
+{
+  "name": "@thetis/host-config",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Writes the keys of thetis.config.json an admin may change from the Control panel: today the default model. A host package: loaded by the daemon per call as host.config.<export>, never installed into a fence.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "devDependencies": {
+    "@thetis/runtime": "file:../.."
+  },
+  "thetis": {
+    "type": "host",
+    "label": "server settings",
+    "summary": "The default model, set from the Control panel.",
+    "host": {
+      "name": "config"
+    }
+  },
+  "peerDependencies": {
+    "@thetis/runtime": "^0.2.0"
+  }
+}
