@@ -1,6 +1,6 @@
 {
   "name": "@thetis/skills-l1",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "description": "Puts one brief per skill in the system prompt and offers load_skill, which returns a body once per conversation; universal skills are always in full.",
   "type": "module",
@@ -15,6 +15,7 @@
     "type": "loader",
     "label": "skill loader (catalogue)",
     "summary": "Another way to give your assistant its skills: a list, loaded on request.",
+    "conflicts": ["@thetis/skills-hybrid", "@thetis/skills-all"],
     "steps": [
       { "id": "bench-import", "phase": "bench", "export": "importCorpus" },
       { "id": "catalogue", "phase": "prompt", "export": "catalogue" },

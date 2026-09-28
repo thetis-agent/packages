@@ -1,6 +1,6 @@
 {
   "name": "@thetis/skills-hybrid",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "license": "MIT",
   "description": "One brief per skill always in the prompt, a few cards retrieved for the conversation by dense and lexical ranking fused, pinned once, and skill_search for the rest.",
   "type": "module",
@@ -15,6 +15,10 @@
     "type": "loader",
     "label": "skill loader",
     "summary": "Gives your assistant the skills a conversation needs.",
+    "conflicts": [
+      "@thetis/skills-l1",
+      "@thetis/skills-all"
+    ],
     "config": {
       "fusionWeight": {
         "type": "number",
