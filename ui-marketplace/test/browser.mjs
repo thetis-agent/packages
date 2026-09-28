@@ -477,7 +477,7 @@ test("an admin: one card per family, the other versions, and For everyone", asyn
 // A maintainer publishing their own copy to the registry every installation ships, which takes @thetis alone:
 // the confirm names the name it goes out under and that the space moves to it, and after the publish the
 // page switches the space with the published commit, and says so once.
-test("publishing your own copy renames it into the registry's scope and moves your space to it", async () => {
+test("publishing your own copy renames it into the registry's scope, moves your space to it, and retires the promoted copy", async () => {
   const user = "bitmuse";
   const SSH = "git@github.com:thetis-agent/packages.git";
   const gcloud = {
@@ -486,6 +486,8 @@ test("publishing your own copy renames it into the registry's scope and moves yo
     local: true,
     own: true,
   };
+  // The copy promoted here before it was published: the same @thetis name, for everyone, with no pin.
+  const promoted = { ...installedRow({ ...sys("@thetis/gcloud", "tool", { everyone: true, everyoneBy: "promoted" }), thetis: { type: "tool", label: "Google Cloud", forkedFrom: undefined, tools: [{ name: "gcloud_run", description: "Run gcloud." }] } }, false), everyone: true, everyoneBy: "promoted" };
   const context = await browser.newContext({ viewport: { width: 1300, height: 900 } });
   const page = await context.newPage();
   page.setDefaultTimeout(5000);
@@ -523,7 +525,7 @@ test("publishing your own copy renames it into the registry's scope and moves yo
         if (verb === "config-list") return route.fulfill({ json: { data: [] } });
         if (verb === "config-show") return route.fulfill({ json: { data: { package: args.name, inherits: [], keys: [], summary: "every key is set", broken: false } } });
         if (verb === "publish-targets") return route.fulfill({ json: { data: { available: true, canRemove: false, targets: [{ name: "thetis", url: SSH }] } } });
-        if (verb === "show") return route.fulfill({ json: { data: { ...facts, row: gcloud, family: [], readme: null, assets: {} } } });
+        if (verb === "show") return route.fulfill({ json: { data: { ...facts, row: gcloud, family: [promoted], readme: null, assets: {} } } });
         if (verb === "people") return route.fulfill({ json: { data: [{ id: user, role: "admin" }] } });
         if (verb === "holders") return route.fulfill({ json: { data: { name: args.name, users: [user] } } });
         if (verb === "publish") {
@@ -533,6 +535,10 @@ test("publishing your own copy renames it into the registry's scope and moves yo
         if (verb === "use-published") {
           sent.push({ verb, args });
           return route.fulfill({ json: { data: { name: "@thetis/gcloud", from: "@bitmuse/gcloud", settings: ["project", "credentialsJson"] } } });
+        }
+        if (verb === "retire-promoted") {
+          sent.push({ verb, args });
+          return route.fulfill({ json: { data: { name: args.name, moved: ["sam"], failed: [], retired: true, keptAt: "/data/packages-retired/gcloud-x" } } });
         }
         throw new Error(`Unexpected verb: ${verb}`);
       }
@@ -576,12 +582,14 @@ test("publishing your own copy renames it into the registry's scope and moves yo
     assert.match(confirmText, /thetis takes @thetis packages only/);
     assert.match(confirmText, /your space runs @thetis\/gcloud@0\.1\.0 with your settings, in place of @bitmuse\/gcloud; its files stay in your folder/);
     assert.match(confirmText, /your folder copy keeps the name @bitmuse\/gcloud/);
+    assert.match(confirmText, /the promoted @thetis\/gcloud here is retired: everyone on it moves to @thetis\/gcloud@0\.1\.0/);
     if (shots) await page.locator(".popover").screenshot({ path: join(shots, "market-publish-rename.png") });
     await page.locator(".popover .btn", { hasText: "Publish 0.1.0" }).click();
-    await page.locator(".toast", { hasText: "Your space now runs it. Your settings came with it (2)." }).waitFor();
+    await page.locator(".toast", { hasText: "Your space now runs it. Your settings came with it (2). The promoted copy is retired: sam moved to it." }).waitFor();
     const used = sent.find((s) => s.verb === "use-published");
     assert.deepEqual(used?.args, { name: "@bitmuse/gcloud", package: "@thetis/gcloud", url: SSH, directory: "gcloud", commit: NEW }, "the switch names the commit the publish pushed");
-    assert.deepEqual(sent.map((s) => [s.verb, !!s.args.dryRun]), [["publish", true], ["publish", false], ["use-published", false]], "a dry run, the publish, then the switch, once each");
+    assert.deepEqual(sent.map((s) => [s.verb, !!s.args.dryRun]), [["publish", true], ["publish", false], ["use-published", false], ["retire-promoted", false]], "a dry run, the publish, the switch, then the retirement, once each");
+    assert.deepEqual(sent.at(-1).args, { name: "@thetis/gcloud", url: SSH, directory: "gcloud", commit: NEW });
     assert.deepEqual(errors, []);
   } catch (error) {
     await page.screenshot({ path: "/tmp/market-browser-publish.png", fullPage: true }).catch(() => {});

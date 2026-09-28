@@ -435,3 +435,23 @@ test("a rollback's rebuild of the running code, or an update that touched no dae
     t.cleanup();
   }
 });
+
+test("retirePromoted: the promoted copy moves aside by its manifest's name, is journalled, and is never deleted", async () => {
+  const home = mkdtempSync(join(tmpdir(), "thetis-retire-"));
+  try {
+    put(home, "packages/grafana/package.json", JSON.stringify({ name: "@thetis/grafana", version: "0.2.1" }));
+    put(home, "packages/grafana/index.js", "export {};\n");
+    put(home, "packages/other/package.json", JSON.stringify({ name: "@thetis/other", version: "1.0.0" }));
+    const rows = [];
+    const out = await update.retirePromoted({ name: "@thetis/grafana" }, { home, journal: (r) => rows.push(r) });
+    assert.equal(existsSync(join(home, "packages/grafana")), false);
+    assert.ok(existsSync(join(out.keptAt, "index.js")), "kept, not deleted");
+    assert.ok(out.keptAt.startsWith(join(home, "packages-retired", "grafana-")));
+    assert.ok(existsSync(join(home, "packages/other/package.json")), "nothing else moves");
+    assert.deepEqual(rows.map((r) => [r.kind, r.target]), [["package.retire", "@thetis/grafana"]]);
+    await assert.rejects(update.retirePromoted({ name: "@thetis/grafana" }, { home, journal: () => {} }), (e) => e.code === "not-found");
+    await assert.rejects(update.retirePromoted({ name: "@bitmuse/grafana" }, { home, journal: () => {} }), /named @thetis/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});

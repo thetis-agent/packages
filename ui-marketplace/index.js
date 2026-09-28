@@ -276,16 +276,12 @@ export async function update(args, env) {
 export async function usePublished(args, env) {
   const from = packageName(args.name);
   const to = packageName(args.package);
-  const url = typeof args.url === "string" && args.url.trim() ? args.url.trim() : fail("the url the package was published to is needed");
-  const dir = typeof args.directory === "string" && /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)?$/.test(args.directory) ? args.directory : fail("the directory the registry keeps it in is needed");
-  const commit = typeof args.commit === "string" && /^[0-9a-f]{40}$/.test(args.commit) ? args.commit : fail("the commit the publish pushed is needed");
+  const source = await publishedSource(env, args);
   const mine = (await env.kernel.packages.list()).find((p) => p.name === from);
   if (!mine) fail(`${from} is not installed here`);
   if (mine.source?.kind !== "local") fail(`${from} is not a copy from your folder, so there is nothing to switch from`);
-  const index = await readIndex(env);
-  const mirrored = index?.registries.find((r) => sameRepository(r.url, url));
   const carried = to === from ? [] : await ownSettings(env, from);
-  const info = await env.kernel.packages.install(pinnedSource(mirrored?.url ?? url, dir, commit));
+  const info = await env.kernel.packages.install(source);
   if (info.name !== to) fail(`the registry answered with ${info.name} where ${to} was published; ${from} is left installed`);
   const settings = [];
   for (const [key, value] of carried) {
@@ -294,6 +290,50 @@ export async function usePublished(args, env) {
   }
   if (to !== from) await env.kernel.packages.uninstall(from);
   return { data: { ...installedRow(info), from, settings } };
+}
+
+/**
+ * The pinned source of what a publish pushed: `{ url, directory, commit }` from its answer, over the url this
+ * installation mirrors that repository by when it mirrors it (the publish may have pushed over ssh, and the
+ * mirror is what every other install from that registry uses).
+ */
+async function publishedSource(env, args) {
+  const url = typeof args.url === "string" && args.url.trim() ? args.url.trim() : fail("the url the package was published to is needed");
+  const dir = typeof args.directory === "string" && /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)?$/.test(args.directory) ? args.directory : fail("the directory the registry keeps it in is needed");
+  const commit = typeof args.commit === "string" && /^[0-9a-f]{40}$/.test(args.commit) ? args.commit : fail("the commit the publish pushed is needed");
+  const mirrored = (await readIndex(env))?.registries.find((r) => sameRepository(r.url, url));
+  return pinnedSource(mirrored?.url ?? url, dir, commit);
+}
+
+/**
+ * Retires this installation's promoted copy of a package that has just been published under the same name.
+ * The promoted copy is a second @thetis package of that name with no pin, so everyone on it would stay on it
+ * whatever is published next. Each person on it is moved to the published version (same name, so their
+ * settings stay), and only when every one of them moved is the copy taken out of the installation, by
+ * `host.update.retirePromoted`, which keeps its files. Anyone who could not be moved is named and the copy
+ * stays, so nobody is left linked to a directory that is gone.
+ */
+export async function retirePromoted(args, env) {
+  const name = packageName(args.name);
+  const source = await publishedSource(env, args);
+  const promoted = (await catalogOf(env)).find((p) => p.name === name && p.everyoneBy === "promoted");
+  if (!promoted) fail(`${name} is not a promoted package here`);
+  const people = await everyone(env);
+  const moved = [];
+  const failed = [];
+  for (const person of people) {
+    const held = ((await call(env, "packages.list", { user: person.id }).catch(() => [])) ?? []).find((p) => p?.name === name);
+    if (!held || held.source?.kind !== "system") continue;
+    try {
+      await call(env, "packages.install", { user: person.id, source });
+      moved.push(person.id);
+    } catch (err) {
+      failed.push({ user: person.id, error: err?.message || String(err) });
+    }
+  }
+  if (failed.length) return { data: { name, moved, failed, retired: false } };
+  const kept = await call(env, "host.update.retirePromoted", { name });
+  return { data: { name, moved, failed, retired: true, keptAt: kept?.keptAt ?? null } };
 }
 
 /** The keys a person set for themselves on one package, with their values, secrets included. */

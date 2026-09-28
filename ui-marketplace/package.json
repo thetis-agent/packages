@@ -1,6 +1,6 @@
 {
   "name": "@thetis/ui-marketplace",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "license": "MIT",
   "description": "The Extensions place of the web gateway: what needs your attention, what you have, what you could add, one card per extension family and one page per extension, and the \"Updates ready\" card that keeps everyone's extensions current.",
   "type": "module",
@@ -47,6 +47,7 @@
         { "verb": "publish-targets", "export": "publishTargets", "label": "Where this workspace may publish" },
         { "verb": "publish", "export": "publish", "label": "Publish a package to a registry" },
         { "verb": "use-published", "export": "usePublished", "label": "Switch my space to what I just published" },
+        { "verb": "retire-promoted", "export": "retirePromoted", "label": "Move everyone off a promoted copy onto what was published", "role": "admin" },
         { "verb": "unpublish", "export": "unpublish", "label": "Take a package out of a registry" },
         { "verb": "changes", "export": "changes", "label": "What a copy of mine changed since it was made, file by file" },
         { "verb": "config-show", "export": "configShow", "label": "What one of my packages is configured with" },

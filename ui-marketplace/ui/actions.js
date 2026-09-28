@@ -766,6 +766,9 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
     const renamed = preview.renamedFrom ? preview.package : null;
     const published = preview.package ?? row.name;
     const switching = !copy && row.installed && row.local;
+    // This installation's promoted copy of the name being published: a second @thetis package of that name
+    // with no pin, which everyone on it would never move off. An admin's publish retires it.
+    const promotedCopy = admin ? [row, ...family].find((m) => m.name === published && m.everyoneBy === "promoted") : null;
     const ok = await confirm(anchor, {
       title: copy || renamed ? `Publish ${(copy ?? row).name} as ${published}?` : `Publish ${row.name}?`,
       lines: [
@@ -775,6 +778,7 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
         preview.branch && ["branch", preview.branch],
         copy && ["your copy", `${copy.name}@${copy.version}, still a fork`],
         renamed && ["name", `${published}: ${target || "that registry"} takes ${published.split("/")[0]} packages only`],
+        promotedCopy && ["for everyone", `the promoted ${published} here is retired: everyone on it moves to ${published}@${now}, and new people install it from ${target || "the registry"} until this installation ships it`],
         switching && ["then", renamed ? `your space runs ${published}@${now} with your settings, in place of ${row.name}; its files stay in your folder` : `your space runs ${published}@${now} from ${target || "the registry"}; your folder copy stays on disk`],
         // Never a count. A person agreeing to publish somebody else's work alongside their own reads the
         // names or they have not agreed to anything.
@@ -796,25 +800,48 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
       // Beside the result, because believing this wrongly means believing your own workspace moved when it
       // did not. `fork` is set by the publishing package only when the origin is what was published.
       const mine = out.fork ? ` Your copy is still ${out.fork.name} ${out.fork.version}, a fork.` : "";
-      const said = `${out.package ?? row.name}@${out.now ?? now} is in ${out.target ?? target}${at}.${rode}${mine}`;
-      if (!switching || !out.commit) {
-        ext.toast(said, { tone: "good" });
+      const said = [`${out.package ?? row.name}@${out.now ?? now} is in ${out.target ?? target}${at}.${rode}${mine}`];
+      if ((!switching && !promotedCopy) || !out.commit) {
+        ext.toast(said[0], { tone: "good" });
         return go(row.name);
       }
+      // What follows a publish, each said once in one toast. The publish stands whatever happens after it.
       stop();
-      const moving = busy(host, `Switching your space to ${out.package ?? row.name}…`);
-      try {
-        const used = (await ext.request("use-published", { args: { name: row.name, package: out.package ?? row.name, url: out.url, directory: out.directory, commit: out.commit } }))?.data ?? {};
-        const kept = used.settings?.length ? ` Your settings came with it (${used.settings.length}).` : "";
-        ext.toast(`${said} Your space now runs it.${kept}`, { tone: "good" });
-        go(out.package ?? row.name);
-      } catch (err) {
-        // The publish stands; only the switch did not happen, and the copy is still what runs here.
-        ext.toast(`${said} Switching your space to it did not work: ${err?.message || "no answer"}. ${row.name} is still installed.`, { tone: "warn" });
-        go(row.name);
-      } finally {
-        moving();
+      const pinned = { url: out.url, directory: out.directory, commit: out.commit };
+      let tone = "good";
+      let landed = row.name;
+      if (switching) {
+        const moving = busy(host, `Switching your space to ${out.package ?? row.name}…`);
+        try {
+          const used = (await ext.request("use-published", { args: { name: row.name, package: out.package ?? row.name, ...pinned } }))?.data ?? {};
+          said.push(`Your space now runs it.${used.settings?.length ? ` Your settings came with it (${used.settings.length}).` : ""}`);
+          landed = out.package ?? row.name;
+        } catch (err) {
+          tone = "warn";
+          said.push(`Switching your space to it did not work: ${err?.message || "no answer"}. ${row.name} is still installed.`);
+        } finally {
+          moving();
+        }
       }
+      if (promotedCopy) {
+        const retiring = busy(host, `Moving everyone off the promoted ${published}…`);
+        try {
+          const r = (await ext.request("retire-promoted", { args: { name: published, ...pinned } }))?.data ?? {};
+          const who = r.moved?.length ? `${r.moved.join(", ")} moved to it` : "nobody else was on it";
+          if (r.retired) said.push(`The promoted copy is retired: ${who}.`);
+          else {
+            tone = "warn";
+            said.push(`The promoted copy stays, because ${(r.failed ?? []).map((f) => `${f.user} (${f.error})`).join(", ")} could not be moved; ${who}.`);
+          }
+        } catch (err) {
+          tone = "warn";
+          said.push(`Retiring the promoted copy did not work: ${err?.message || "no answer"}.`);
+        } finally {
+          retiring();
+        }
+      }
+      ext.toast(said.join(" "), { tone });
+      go(landed);
     } catch (err) {
       ext.toast(err?.message || "That did not work.", { tone: "error" });
     } finally {

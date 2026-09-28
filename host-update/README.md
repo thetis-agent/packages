@@ -14,6 +14,7 @@ Four exports, each `(args, env) => Promise<unknown>` with `env` the `HostEnv` of
 | `apply` | `then?: "restart" \| "none"` | Starts the job and answers at once: `{ state: "started", then, from, last }`. Refused with `busy` while another job holds the lock, and with `invalid` when a checkout has local changes ("Can't update: the server's copy has local changes (…). Commit or discard them on the host, then try again.") or tracks no upstream. `then: "restart"` puts the result into service; anything else (the default) leaves that to whoever asked, and the record's `needs` says what is left. |
 | `progress` | — | The job's record (below), or null when no update has run here. |
 | `restart` | `reason?` | Asks for a restart through `env.restart(reason, by)`, which arms the kernel's restart latch in drain mode. For the case "the code on disk is newer than the running daemon, and there is nothing to download": the dev-box **Restart to finish**. Without a reason, one is made from `stale.why`. Answers the latch's own `{ state, message }`; `{ state: "refused", why: "updating" }` while an update holds the lock, and `{ state: "refused", why: "unsupported" }` on a daemon whose `HostEnv` has no `restart` ("This Thetis version cannot restart itself from here yet…"). |
+| `retirePromoted` | `name` | Takes the promoted copy of `name` (an `@thetis/*` name) out of the installation: the directory under `<home>/packages` whose manifest has that name is moved to `<home>/packages-retired/<dir>-<time>`, never deleted, and a `package.retire` row is journalled. `not-found` when nothing promoted has that name. `@thetis/ui-marketplace`'s `retire-promoted` calls it after an admin publishes that name, once every person on the promoted copy has been moved to the published version; a promoted package is everyone's while its directory is there, so after this nobody new is given it until the installation ships it. |
 
 ### `check`
 
@@ -75,7 +76,7 @@ Node itself, the OS packages the fence needs, and the systemd unit are `deploy/i
 
 | File | Content |
 |---|---|
-| `index.js` | The four exports, and the fetch throttle. |
+| `index.js` | The five exports, and the fetch throttle. |
 | `lib/checkout.js` | `git`, `runtimeState`, `packagesState`, `checkouts`: what git says about the two checkouts. |
 | `lib/job.js` | `runJob`, `readState`: the steps, the rollback, the restart or the reloads, and the record. |
 | `lib/lock.js` | `takeLock`, `readLock`, `updating`, `releaseLock`, `beat`, and the `UPDATING` sentence. |

@@ -3,17 +3,18 @@
 // building can only happen here: a host package the daemon loads per call as `host.update.<export>`. The
 // kernel has already checked that the caller is an admin or the operator and journalled the call.
 //
-// Four exports. `check` says where the two checkouts stand against their upstream, what an update would
+// Five exports. `check` says where the two checkouts stand against their upstream, what an update would
 // need (a restart, or reloads of named workspaces), whether the running daemon is older than the code on
 // disk, and whether an update is installing; it reaches the remotes at most once per half hour when asked
 // with `fetch: "stale"`. `apply` runs the whole update as one job on the host -- download, install, build,
 // a check that the new version loads, a rollback if any of that fails, then the restart or the reloads --
 // and answers at once. `progress` reads the job's record. `restart` asks for a restart when the code on disk
 // is already newer than the daemon and there is nothing to download: the dev-box "Restart to finish".
+// `retirePromoted` takes a promoted copy out of the installation once the package has been published.
 //
 // What this cannot update: Node itself, the OS packages the fence needs, and the systemd unit. Those are
 // deploy/install.sh's, run on the host; the answer names them so nobody looks for them here.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { checkouts } from "./lib/checkout.js";
 import { assert } from "./lib/error.js";
@@ -22,7 +23,7 @@ import { takeLock, updating, UPDATING } from "./lib/lock.js";
 import { needsFor } from "./lib/needs.js";
 import { staleDaemon } from "./lib/stale.js";
 
-// Only the four methods are exported as functions: every function export is callable as `host.update.<name>`.
+// Only the five methods are exported as functions: every function export is callable as `host.update.<name>`.
 export { UPDATING } from "./lib/lock.js";
 
 const BEYOND = "Node itself, the OS packages the workspaces need, and the systemd unit are updated by deploy/install.sh on the host.";
@@ -146,4 +147,35 @@ export async function restart(args, env) {
     reason = stale.daemon ? `Restart to finish: ${stale.why.join("; ")} since Thetis started` : "Restart asked for from the control panel";
   }
   return env.restart(reason, args.actor ? String(args.actor) : "operator");
+}
+
+/**
+ * Takes a promoted copy out of this installation: `<home>/packages/<dir>`, found by the name in its manifest,
+ * is moved to `<home>/packages-retired/<dir>-<time>`, never deleted. Promoting a package copies it under
+ * @thetis for everyone; once the package is published, that copy is a second @thetis package of the same name
+ * with no pin to follow, so everyone on it stays on it whatever is published next. The page moves each of
+ * its holders to the published version first and then calls this. A promoted package is everyone's for as
+ * long as its directory is there, so after this nobody new is seeded with it; they install it from the
+ * registry, and once this installation ships it, it can be marked for everyone again.
+ */
+export async function retirePromoted(args, env) {
+  const name = typeof args.name === "string" ? args.name.trim() : "";
+  assert(/^@thetis\/[a-z0-9][a-z0-9._-]*$/.test(name), "a promoted package is named @thetis/<name>");
+  const base = join(env.home, "packages");
+  const dir = existsSync(base) ? readdirSync(base).find((d) => manifestName(join(base, d)) === name) : undefined;
+  assert(dir, `${name} is not a promoted package here: nothing in ${base} has that name`, "not-found");
+  const retired = join(env.home, "packages-retired");
+  mkdirSync(retired, { recursive: true });
+  const to = join(retired, `${dir}-${new Date().toISOString().replace(/[:.]/g, "-")}`);
+  renameSync(join(base, dir), to);
+  env.journal({ kind: "package.retire", target: name, data: { from: join(base, dir), to } });
+  return { name, from: join(base, dir), keptAt: to };
+}
+
+function manifestName(dir) {
+  try {
+    return JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).name;
+  } catch {
+    return undefined;
+  }
 }

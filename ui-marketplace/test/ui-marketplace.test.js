@@ -1077,3 +1077,44 @@ test("use-published: refused for anything that is not a copy from the person's f
     wrong.cleanup();
   }
 });
+
+test("retire-promoted: everyone on the promoted copy moves to the published version, then the copy is taken out; anyone who cannot move keeps it", async () => {
+  const promoted = { ...shipped("@thetis/grafana"), everyoneBy: "promoted", source: { kind: "system", ref: "/data/packages/grafana" } };
+  const index = { version: 1, updatedAt: "2026-09-28T00:00:00.000Z", registries: [{ name: "thetis", url: REPO }], packages: [] };
+  const lists = {
+    bitmuse: [{ ...promoted, source: { kind: "git", ref: `${REPO}#grafana@${NEW}` } }],
+    sam: [promoted],
+    ana: [promoted],
+    lee: [],
+  };
+  const answers = {
+    "users.list": [{ id: "bitmuse", role: "admin" }, { id: "sam", role: "user" }, { id: "ana", role: "user" }, { id: "lee", role: "user" }, { id: "_system", role: "system" }],
+    "packages.list": (a) => lists[a.user] ?? [],
+    "packages.install": (a) => ({ ...promoted, source: { kind: "git", ref: a.source } }),
+    "host.update.retirePromoted": (a) => ({ name: a.name, keptAt: "/data/packages-retired/grafana-x" }),
+  };
+  const args = { name: "@thetis/grafana", url: "git@github.com:thetis-agent/packages.git", directory: "grafana", commit: NEW };
+  const ok = fakeEnv({ role: "admin", catalog: [promoted], index, answers });
+  try {
+    const out = (await commands.retirePromoted(args, ok.env)).data;
+    assert.deepEqual([out.moved, out.failed, out.retired, out.keptAt], [["sam", "ana"], [], true, "/data/packages-retired/grafana-x"], "only the people on the promoted copy; the admin already runs the published one");
+    assert.deepEqual(ok.calls.filter((c) => c.method === "packages.install").map((c) => c.args), [{ user: "sam", source: `${REPO}#grafana@${NEW}` }, { user: "ana", source: `${REPO}#grafana@${NEW}` }], "over the url this installation mirrors");
+    assert.equal(ok.calls.at(-1).method, "host.update.retirePromoted", "the copy goes last");
+  } finally {
+    ok.cleanup();
+  }
+  const stuck = fakeEnv({ role: "admin", catalog: [promoted], index, answers: { ...answers, "packages.install": (a) => { if (a.user === "ana") throw new Error("ana holds a fork of @thetis/grafana"); return promoted; } } });
+  try {
+    const out = (await commands.retirePromoted(args, stuck.env)).data;
+    assert.deepEqual([out.moved, out.failed.map((f) => f.user), out.retired], [["sam"], ["ana"], false]);
+    assert.ok(!stuck.calls.some((c) => c.method === "host.update.retirePromoted"), "nobody is left linked to a directory that is gone");
+  } finally {
+    stuck.cleanup();
+  }
+  const none = fakeEnv({ role: "admin", catalog: [{ ...promoted, everyoneBy: "marked" }], index, answers });
+  try {
+    await assert.rejects(commands.retirePromoted(args, none.env), /not a promoted package here/);
+  } finally {
+    none.cleanup();
+  }
+});
