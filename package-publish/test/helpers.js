@@ -22,7 +22,9 @@ export function git(cwd, ...args) {
 
 export async function temp() {
   const root = await mkdtemp(join(tmpdir(), "thetis-publish-"));
-  return { root, home: await ensure(join(root, "home")), cleanup: () => rm(root, { recursive: true, force: true }) };
+  // Retried: a git process that outlives the test (a detached `gc --auto` after a push) can still be writing
+  // under the root while it is removed, and rmdir then meets a directory that is not empty yet.
+  return { root, home: await ensure(join(root, "home")), cleanup: () => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }) };
 }
 
 const ensure = async (p) => (await mkdir(p, { recursive: true }), p);
@@ -48,6 +50,9 @@ export async function makeRegistry(root, name) {
   const path = join(root, `${name}.git`);
   await ensure(path);
   git(path, "init", "--bare", "-b", "main", ".");
+  // No detached `gc --auto` after a push: it would go on writing into the registry after the test ended.
+  git(path, "config", "gc.auto", "0");
+  git(path, "config", "receive.autogc", "false");
   return path;
 }
 
