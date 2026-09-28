@@ -10,7 +10,7 @@
 // What else is riding on the branch, and why consent for it is asked for by name, is in `passengers.js`.
 // Which package a fork's publish is, and why the question is asked once rather than every time, is in
 // `fork.js`. Both were moved out of here because a removal pushes a branch too and asks the same questions.
-import { cp, mkdir, rm } from "node:fs/promises";
+import { cp, mkdir, readFile, rm } from "node:fs/promises";
 import { basename, join, normalize } from "node:path";
 import { few, refuse, tail } from "./refuse.js";
 import { pickTarget, verifyOf, workDirOf } from "./config.js";
@@ -20,6 +20,7 @@ import { assertSound, mainOf, withOrigin, withVersion } from "./manifest.js";
 import { locate, resolvePackage } from "./locate.js";
 import { cannotRide, journalRow, notNamed, rider, sortPassengers } from "./passengers.js";
 import { recordPublish } from "./record.js";
+import { parseRegistryRules, registryRefusal, REGISTRY_RULES_FILE } from "@thetis/runtime/lib/registry-rules";
 import { bumpVersion, compareVersions, isVersion } from "./semver.js";
 
 /** What a person and a page both read: the whole act as fields, no prose-only result. */
@@ -81,6 +82,15 @@ export async function publish(args = {}, env) {
   }
 
   const { named: riders, unnamed, blocked } = sortPassengers(where, target, args.with);
+
+  // What the registry says it accepts, in its own `thetis-registry.json`. The registry every installation
+  // ships as its system tree accepts @thetis alone, and a personal package pushed there is offered to
+  // everybody as something that cannot be installed. Asked of the clone, so the rule is the registry's
+  // and not this workspace's opinion of it; the riders named are held to it too, since the push carries them.
+  const rules = await registryRules(where.repo, target);
+  for (const refusal of [name, ...riders.map((p) => p.package).filter(Boolean)].map((n) => registryRefusal(rules, n)).filter(Boolean)) {
+    refuse("scope", `${target.name} refuses this publish: ${refusal}. Publish it to a registry of its own, or rename it into an accepted scope.`);
+  }
 
   // The two gates about the state of the tree around the package, rather than about this publish being a
   // good one. A dry run reports them instead of refusing: it changes nothing, so there is nothing to
@@ -293,4 +303,14 @@ function runtimeArtifact(pkg, where) {
   const main = normalize(entry);
   if (main.startsWith("/") || main === ".." || main.startsWith("../")) return null;
   return join(where.dir, main.split("/")[0]);
+}
+
+/** The target's own rules, read from its clone. A rules file that is not a rule refuses the publish rather than being taken for no rule. */
+async function registryRules(repo, target) {
+  const text = await readFile(join(repo, REGISTRY_RULES_FILE), "utf8").catch(() => undefined);
+  try {
+    return parseRegistryRules(text);
+  } catch (err) {
+    refuse("registry-rules", `${target.name} has a ${REGISTRY_RULES_FILE} that cannot be read as a rule: ${err.message}. Fix it in the registry first.`);
+  }
 }

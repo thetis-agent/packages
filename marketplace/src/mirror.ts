@@ -4,10 +4,11 @@
 
 import type { ExecOptions } from "@thetis/runtime/contracts";
 import { mirrorCommand, pinnedSource } from "@thetis/runtime/lib/pkg-fs";
+import { parseRegistryRules, registryRefusal, REGISTRY_RULES_FILE, type RegistryRules } from "@thetis/runtime/lib/registry-rules";
 import { IndexableManifestSchema } from "./schemas.js";
 import {
   readIndex, readmeAssetFile, readmeAssetPath, readmeAssetsOf, readmeAssetType, readmeDir, readmeFile, readmePath, README_ASSET_CAP, README_CAP, README_TRUNCATED, writeIndex,
-  type FileEnv, type IndexedPackage, type MarketplaceIndex, type Registry, type RegistryState,
+  type FileEnv, type IndexedPackage, type MarketplaceIndex, type Registry, type RegistryState, type Rejected,
 } from "./index-file.js";
 
 export interface MirrorEnv extends FileEnv {
@@ -24,8 +25,9 @@ export async function refresh(env: MirrorEnv, registries: Registry[]): Promise<M
   for (const registry of registries) {
     try {
       const commit = await mirror(env, registry);
-      packages.push(...(await scan(env, registry, commit)));
-      states.push({ ...registry, commit });
+      const { entries, rejected } = await scan(env, registry, commit);
+      packages.push(...entries);
+      states.push({ ...registry, commit, ...(rejected.length ? { rejected } : {}) });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       packages.push(...(previous?.packages ?? []).filter((p) => p.registry === registry.name));
@@ -50,24 +52,35 @@ async function mirror(env: MirrorEnv, registry: Registry): Promise<string> {
   return (await run(env, `git -C ${q(dir)} rev-parse HEAD`)).trim();
 }
 
-/** Every package.json with a `thetis` field at the first or second level of the clone, each with its README copied beside the index. */
-async function scan(env: MirrorEnv, registry: Registry, commit: string): Promise<IndexedPackage[]> {
+/**
+ * Every package.json with a `thetis` field at the first or second level of the clone, each with its README
+ * copied beside the index, and every one that is left out with the reason. A package that cannot be
+ * installed is never offered, and it is never dropped in silence either: the registry's state names it, the
+ * service logs it, and the Registries page shows it, so whoever published it hears about it.
+ */
+async function scan(env: MirrorEnv, registry: Registry, commit: string): Promise<{ entries: IndexedPackage[]; rejected: Rejected[] }> {
   const dir = `${REPOS_DIR}/${slugOf(registry.url)}`;
+  const rules = await rulesOf(env, dir);
   const listing = await run(env, `find ${q(dir)} -mindepth 2 -maxdepth 3 \\( -name package.json -o -name README.md \\) -not -path '*/node_modules/*' | sort`);
   const files = listing.split("\n").filter(Boolean);
   // `find -name` is exact, so a `readme.md` is not a README: the copy is what a package page renders, and one name is the rule.
   const readmes = new Set(files.filter((f) => f.endsWith("/README.md")));
   const out: IndexedPackage[] = [];
+  const rejected: Rejected[] = [];
   const assets: { entry: IndexedPackage; paths: string[] }[] = [];
   for (const file of files.filter((f) => f.endsWith("/package.json"))) {
+    const at = file.slice(dir.length + 1, -"/package.json".length);
     let manifest: unknown;
     try {
       manifest = JSON.parse(await env.readFile(file));
-    } catch {
+    } catch (err) {
+      rejected.push({ dir: at, reason: `package.json is not JSON: ${err instanceof Error ? err.message : String(err)}` });
       continue;
     }
-    const entry = describe(manifest, registry, file.slice(dir.length + 1, -"/package.json".length), commit);
-    if (!entry) continue;
+    const verdict = judge(manifest, registry, at, commit, rules);
+    if (verdict.rejected) rejected.push(verdict.rejected);
+    if (!verdict.entry) continue;
+    const entry = verdict.entry;
     const readme = `${dir}/${entry.dir}/README.md`;
     const wanted = readmes.has(readme) ? await copyReadme(env, readme, entry) : null;
     entry.readme = Array.isArray(wanted);
@@ -76,7 +89,31 @@ async function scan(env: MirrorEnv, registry: Registry, commit: string): Promise
   }
   await copyAssets(env, dir, assets);
   await dropStaleReadmes(env, registry, out);
-  return out;
+  return { entries: out, rejected };
+}
+
+/** The registry's own rules. A rules file that is not a rule fails the refresh, which keeps the last good index and says why. */
+async function rulesOf(env: MirrorEnv, dir: string): Promise<RegistryRules> {
+  const text = await env.readFile(`${dir}/${REGISTRY_RULES_FILE}`).catch(() => undefined);
+  return parseRegistryRules(text);
+}
+
+/**
+ * What the index does with one manifest: offers it, passes over it (no `thetis` field is not a Thetis
+ * package, and a storage driver is never installed), or rejects it with a reason a person can act on.
+ */
+export function judge(raw: unknown, registry: Registry, dir: string, commit: string, rules: RegistryRules = {}): { entry?: IndexedPackage; rejected?: Rejected } {
+  if (!raw || typeof raw !== "object" || (raw as { thetis?: unknown }).thetis === undefined) return {};
+  const name = typeof (raw as { name?: unknown }).name === "string" ? (raw as { name: string }).name : undefined;
+  const parsed = IndexableManifestSchema.safeParse(raw);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return { rejected: { dir, ...(name ? { name } : {}), reason: `the manifest does not validate: ${issue ? `${issue.path.join(".") || "package.json"}: ${issue.message}` : "unknown shape"}` } };
+  }
+  const refusal = registryRefusal(rules, parsed.data.name);
+  if (refusal) return { rejected: { dir, name: parsed.data.name, reason: refusal } };
+  const entry = describe(parsed.data, registry, dir, commit);
+  return entry ? { entry } : {};
 }
 
 /**

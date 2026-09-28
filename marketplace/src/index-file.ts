@@ -3,7 +3,7 @@
 // service runs, and read by every fence, where the gateways run. Nothing has to import this module.
 
 import { MarketplaceIndexSchema, type MarketplaceIndex, type IndexedPackage } from "./schemas.js";
-export type { Registry, RegistryState, IndexedPackage, MarketplaceIndex } from "./schemas.js";
+export type { Registry, RegistryState, Rejected, IndexedPackage, MarketplaceIndex } from "./schemas.js";
 
 export const INDEX_FILE = "marketplace/index.json";
 

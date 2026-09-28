@@ -22,6 +22,8 @@ export const startService: Service = async (env) => {
       const index = await refresh(env, registries);
       const failed = index.registries.filter((r) => r.error);
       env.log(`indexed ${index.packages.length} packages from ${registries.length} registries${failed.length ? `; failed: ${failed.map((r) => `${r.name} (${r.error})`).join(", ")}` : ""}`);
+      // One line per package left out, each on its own, so none of them hides in the summary above.
+      for (const r of index.registries) for (const x of r.rejected ?? []) env.log(`ERROR: ${r.name} holds ${x.dir}/${x.name ? ` (${x.name})` : ""}, which is not offered: ${x.reason}`);
     } catch (err) {
       env.log(`refresh failed: ${err instanceof Error ? err.message : String(err)}`);
     }

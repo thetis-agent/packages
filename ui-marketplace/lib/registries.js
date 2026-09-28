@@ -115,6 +115,8 @@ function rowOf(r, keys, states) {
     deployKeysUrl: deployKeysUrl(r.url),
     error: typeof state?.error === "string" && state.error ? state.error : null,
     commit: typeof state?.commit === "string" ? state.commit : null,
+    // What the registry holds that the index would not offer, each with why: whoever published it has to hear.
+    rejected: Array.isArray(state?.rejected) ? state.rejected.filter((x) => x && typeof x.dir === "string").map((x) => ({ dir: x.dir, name: typeof x.name === "string" ? x.name : null, reason: String(x.reason ?? "") })) : [],
   };
 }
 

@@ -500,6 +500,7 @@ test("store: a to-do strip, Installed with its pills, Discover, Drafts and Part 
   assert.equal(found.all.counts.installed, 3, "the counts are the unnarrowed place's");
   assert.deepEqual(sections(rows, { user: "alice", kind: "Skills" }).discover.map((e) => e.row.name), ["@thetis/skills-orleans"]);
   assert.equal(statusText({ attention: [] }), "All up to date");
+  assert.equal(statusText({ attention: [] }, { rejected: 2 }), "All up to date · 2 broken packages in the registries, see Registries");
 });
 
 test("store: a card's foot says what it brings, and the configuration reports fold onto installed rows", () => {

@@ -101,6 +101,41 @@ test("refresh mirrors a registry and indexes its packages", async () => {
   }
 });
 
+test("a registry's own rules and a manifest that does not validate keep a package out of the index, and each is named", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "thetis-market-"));
+  try {
+    const registry = join(tmp, "registry");
+    mkdirSync(join(registry, "greet"), { recursive: true });
+    mkdirSync(join(registry, "gcloud"), { recursive: true });
+    mkdirSync(join(registry, "broken"), { recursive: true });
+    mkdirSync(join(registry, "notes"), { recursive: true });
+    writeFileSync(join(registry, "thetis-registry.json"), JSON.stringify({ scopes: ["@thetis"] }));
+    writeFileSync(join(registry, "greet", "package.json"), JSON.stringify({ name: "@thetis/greet", version: "1.0.0", thetis: { type: "tool" } }));
+    writeFileSync(join(registry, "gcloud", "package.json"), JSON.stringify({ name: "@bitmuse/gcloud", version: "0.1.0", thetis: { type: "tool" } }));
+    writeFileSync(join(registry, "broken", "package.json"), JSON.stringify({ name: "@thetis/broken", thetis: { type: "tool" } }));
+    writeFileSync(join(registry, "notes", "package.json"), JSON.stringify({ name: "plain", version: "1.0.0" }));
+    await sh("git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -q -m init", registry);
+    const home = join(tmp, "home");
+    mkdirSync(home);
+    const env = envAt(home);
+    const index = await refresh(env, [{ name: "thetis", url: `file://${registry}` }]);
+    assert.deepEqual(index.packages.map((p) => p.name), ["@thetis/greet"], "neither is offered");
+    const rejected = index.registries[0].rejected ?? [];
+    assert.deepEqual(rejected.map((r) => [r.dir, r.name]), [["broken", "@thetis/broken"], ["gcloud", "@bitmuse/gcloud"]], "and neither vanishes: a plain directory is the only thing passed over in silence");
+    assert.match(rejected[1].reason, /not in @thetis/);
+    assert.match(rejected[0].reason, /does not validate: version/);
+
+    // A rules file that is not a rule fails the refresh: it keeps what the registry offered before and says why.
+    writeFileSync(join(registry, "thetis-registry.json"), "{ scopes");
+    await sh("git -c user.email=t@t -c user.name=t commit -qam garble", registry);
+    const again = await refresh(env, [{ name: "thetis", url: `file://${registry}` }]);
+    assert.match(again.registries[0].error ?? "", /thetis-registry.json is not JSON/);
+    assert.deepEqual(again.packages.map((p) => p.name), ["@thetis/greet"]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("a README is copied capped, only under its exact name, and leaves with its package", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "thetis-market-"));
   try {

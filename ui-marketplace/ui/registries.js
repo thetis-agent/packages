@@ -20,6 +20,11 @@ export function refreshLine(r) {
   return { tone: "dim", text: "Not refreshed yet." };
 }
 
+/** The packages a registry holds that nobody is offered, one line each: where, what, and why. */
+export function rejectedText(rejected) {
+  return rejected.map((x) => `${x.dir}/${x.name ? ` ${x.name}` : ""}: ${x.reason}`).join("\n");
+}
+
 /** The derived authentication, as the badge says it. */
 export function authBadgeOf(r) {
   if (r.auth !== "ssh") return { text: "no authentication", tone: "dim" };
@@ -238,14 +243,15 @@ export function openRegistries(ext, root) {
     return el(
       "div",
       { class: `card mk-reg-card${fresh === r.name ? " is-fresh" : ""}`, "data-registry": r.name },
-      el("div", { class: "card-head mk-reg-head" }, el("code", { class: "mk-reg-name" }, r.name), badge(a.text, a.tone), r.error ? badge("refresh failed", "err") : null, fresh === r.name ? badge("new", "accent") : null, el("span", { class: "toolbar-gap" }), editBtn, removeBtn),
+      el("div", { class: "card-head mk-reg-head" }, el("code", { class: "mk-reg-name" }, r.name), badge(a.text, a.tone), r.error ? badge("refresh failed", "err") : null, r.rejected?.length ? badge(`${r.rejected.length} not offered`, "err") : null, fresh === r.name ? badge("new", "accent") : null, el("span", { class: "toolbar-gap" }), editBtn, removeBtn),
       el(
         "div",
         { class: "card-body mk-reg-body" },
         row("URL", el("code", { class: "mk-wrap" }, r.url)),
         editing === r.name ? kept(`edit:${r.name}`, () => editBox(r)) : null,
         ...auth,
-        row("Refresh", el("span", { class: `mk-reg-refresh is-${refresh.tone}` }, refresh.text), r.error ? el("pre", { class: "mk-reg-pre" }, r.error) : null)
+        row("Refresh", el("span", { class: `mk-reg-refresh is-${refresh.tone}` }, refresh.text), r.error ? el("pre", { class: "mk-reg-pre" }, r.error) : null),
+        r.rejected?.length ? row("Not offered", el("pre", { class: "mk-reg-pre" }, rejectedText(r.rejected))) : null
       )
     );
   }

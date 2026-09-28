@@ -64,10 +64,10 @@ export function sections(rows, { user = "", admin = false, updates = null, q = "
 }
 
 /** "All up to date", or "Updates ready: Orleans Docs and Web Gateway" -- the one verdict, from the Update rows. */
-export function statusText(all, { checked = "", failed = 0 } = {}) {
+export function statusText(all, { checked = "", failed = 0, rejected = 0 } = {}) {
   const labels = all.attention.filter((e) => e.todo.kind === "update").map((e) => e.label);
   const head = labels.length ? `Updates ready: ${labels.length > 3 ? `${labels.slice(0, 3).join(", ")} and ${labels.length - 3} more` : listWords(labels)}` : "All up to date";
-  return `${head}${checked ? ` · checked ${checked}` : ""}${failed ? ` · ${failed} ${failed === 1 ? "registry" : "registries"} could not be checked` : ""}`;
+  return `${head}${checked ? ` · checked ${checked}` : ""}${failed ? ` · ${failed} ${failed === 1 ? "registry" : "registries"} could not be checked` : ""}${rejected ? ` · ${rejected} broken ${rejected === 1 ? "package" : "packages"} in the registries, see Registries` : ""}`;
 }
 
 const listWords = (w) => (w.length <= 1 ? w.join("") : `${w.slice(0, -1).join(", ")} and ${w[w.length - 1]}`);
@@ -179,7 +179,9 @@ export function openGallery(ext, root, params) {
   /** The status line: the one update verdict, and when the registries were last read. */
   function drawStatus(all) {
     const checked = facts.updatedAt ? when(facts.updatedAt) || "just now" : "";
-    status.textContent = statusText(all, { checked, failed: facts.registries.filter((r) => r.error).length });
+    // Broken packages are an admin's to chase, so only an admin is told; nobody is ever offered one.
+    const rejected = who.admin ? facts.registries.reduce((n, r) => n + (r.rejected?.length ?? 0), 0) : 0;
+    status.textContent = statusText(all, { checked, failed: facts.registries.filter((r) => r.error).length, rejected });
   }
 
   const open = (name, extra = {}) => ext.open.place("marketplace", { name, ...extra });

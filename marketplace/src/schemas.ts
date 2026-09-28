@@ -1,7 +1,9 @@
 import { z } from "zod";
 
 export const RegistrySchema = z.looseObject({ name: z.string(), url: z.string() });
-export const RegistryStateSchema = RegistrySchema.extend({ commit: z.string().optional(), error: z.string().optional() });
+/** A package directory the registry holds that the index leaves out, and why: a manifest that does not validate, or a name the registry's own rules refuse. */
+export const RejectedSchema = z.looseObject({ dir: z.string(), name: z.string().optional(), reason: z.string() });
+export const RegistryStateSchema = RegistrySchema.extend({ commit: z.string().optional(), error: z.string().optional(), rejected: z.array(RejectedSchema).optional() });
 const StepSchema = z.looseObject({ id: z.string(), phase: z.string() });
 const BenchSchema = z.looseObject({ suites: z.array(z.string()), corpus: z.string().optional(), peerGroup: z.string().optional() });
 
@@ -33,5 +35,6 @@ export const IndexableManifestSchema = z.looseObject({
 
 export type Registry = z.infer<typeof RegistrySchema>;
 export type RegistryState = z.infer<typeof RegistryStateSchema>;
+export type Rejected = z.infer<typeof RejectedSchema>;
 export type IndexedPackage = z.infer<typeof IndexedPackageSchema>;
 export type MarketplaceIndex = z.infer<typeof MarketplaceIndexSchema>;

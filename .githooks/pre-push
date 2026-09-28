@@ -1,0 +1,64 @@
+#!/usr/bin/env node
+// Refuses a push that would put a package this registry does not accept on the remote. The rule is the
+// registry's own `thetis-registry.json`; this repository is also the tree every Thetis installation ships,
+// where only @thetis/* can be installed by name. The commits being pushed are checked, not the working tree.
+// Enable it once per clone: git config core.hooksPath .githooks
+//
+// Also runnable by hand against a commit: .githooks/pre-push --check [<commit>]
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+
+const git = (...args) => execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 << 20 });
+const show = (commit, path) => {
+  try {
+    return git("show", `${commit}:${path}`);
+  } catch {
+    return undefined;
+  }
+};
+
+function problemsAt(commit) {
+  const out = [];
+  const rulesText = show(commit, "thetis-registry.json");
+  let scopes;
+  if (rulesText !== undefined) {
+    try {
+      scopes = JSON.parse(rulesText).scopes;
+    } catch (err) {
+      return [`thetis-registry.json is not JSON: ${err.message}`];
+    }
+  }
+  const manifests = git("ls-tree", "-r", "--name-only", commit).split("\n").filter((f) => /^[^/]+(\/[^/]+)?\/package\.json$/.test(f) && !f.includes("node_modules/"));
+  for (const file of manifests) {
+    let m;
+    try {
+      m = JSON.parse(show(commit, file));
+    } catch (err) {
+      out.push(`${file}: not JSON (${err.message})`);
+      continue;
+    }
+    if (m?.thetis === undefined) continue;
+    if (typeof m.name !== "string" || !m.name) out.push(`${file}: a Thetis package with no name`);
+    else if (Array.isArray(scopes) && !scopes.includes(m.name.split("/")[0])) out.push(`${file}: ${m.name} is not in ${scopes.join(" or ")}, the only scopes this registry accepts`);
+    if (typeof m.version !== "string" || !m.version) out.push(`${file}: ${m.name ?? "a package"} has no version`);
+    if (typeof m.thetis !== "object" || Array.isArray(m.thetis) || typeof m.thetis?.type !== "string") out.push(`${file}: thetis.type is missing`);
+  }
+  return out;
+}
+
+const ZERO = /^0+$/;
+const commits = process.argv[2] === "--check"
+  ? [process.argv[3] ?? "HEAD"]
+  : readFileSync(0, "utf8").split("\n").filter(Boolean).map((line) => line.split(" ")[1]).filter((sha) => sha && !ZERO.test(sha));
+
+let failed = false;
+for (const commit of commits) {
+  const problems = problemsAt(commit);
+  if (!problems.length) continue;
+  failed = true;
+  process.stderr.write(`push refused: ${commit.slice(0, 12)} holds packages this registry does not accept:\n${problems.map((p) => `  ${p}`).join("\n")}\n`);
+}
+if (failed) {
+  process.stderr.write("A personal package belongs in a registry of its own, not in the tree every installation ships.\n");
+  process.exit(1);
+}

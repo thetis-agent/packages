@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as commands from "../index.js";
 import { deployKeysUrl } from "../lib/registries.js";
-import { authBadgeOf, refreshLine } from "../ui/registries.js";
+import { authBadgeOf, refreshLine, rejectedText } from "../ui/registries.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC = "https://github.com/thetis-agent/packages.git";
@@ -81,7 +81,7 @@ test("every registry verb is declared for admins only, so the gateway answers 40
 });
 
 test("registries: the configured list merged with the repository keys and the index's last refresh; a key no registry names is listed apart", async () => {
-  const index = { version: 1, updatedAt: "2026-09-23T00:00:00.000Z", registries: [{ name: "thetis", url: PUBLIC, commit: "c".repeat(40) }, { name: "team", url: PRIVATE, error: "git clone failed: Permission denied (publickey)." }], packages: [] };
+  const index = { version: 1, updatedAt: "2026-09-23T00:00:00.000Z", registries: [{ name: "thetis", url: PUBLIC, commit: "c".repeat(40), rejected: [{ dir: "gcloud", name: "@bitmuse/gcloud", reason: "@bitmuse/gcloud is not in @thetis" }, { dir: "garbled", reason: "package.json is not JSON" }] }, { name: "team", url: PRIVATE, error: "git clone failed: Permission denied (publickey)." }], packages: [] };
   // The key was made under another spelling of the same repository: sameRepository matches it.
   const t = fakeEnv({ registries: [{ name: "thetis", url: PUBLIC }, { name: "team", url: PRIVATE, note: "kept" }, { url: "/srv/local-reg.git" }], keys: [keyState("ssh://git@github.com/Thirteen-Games/thetis-packages"), keyState("git@gitlab.com:x/y.git", { present: false })], index });
   try {
@@ -92,9 +92,12 @@ test("registries: the configured list merged with the repository keys and the in
     const [pub, team, local] = data.registries;
     assert.deepEqual([pub.name, pub.auth, pub.key, pub.error, pub.commit, pub.keyable], ["thetis", "none", null, null, "c".repeat(40), true]);
     assert.equal(pub.deployKeysUrl, "https://github.com/thetis-agent/packages/settings/keys");
+    assert.deepEqual(pub.rejected, [{ dir: "gcloud", name: "@bitmuse/gcloud", reason: "@bitmuse/gcloud is not in @thetis" }, { dir: "garbled", name: null, reason: "package.json is not JSON" }], "what the index left out, each with why");
+    assert.equal(rejectedText(pub.rejected), "gcloud/ @bitmuse/gcloud: @bitmuse/gcloud is not in @thetis\ngarbled/: package.json is not JSON");
     assert.equal(team.auth, "ssh");
     assert.deepEqual(team.key, { repo: "ssh://git@github.com/Thirteen-Games/thetis-packages", alias: "thetis-repo-abc", present: true, publicKey: "ssh-ed25519 AAAAC3Nz thetis", fingerprint: "SHA256:abc", hosts: 1 }, "the public part only: the key's host path is not the page's business");
     assert.equal(team.error, "git clone failed: Permission denied (publickey).");
+    assert.deepEqual(team.rejected, []);
     assert.equal(team.deployKeysUrl, "https://github.com/thirteen-games/thetis-packages/settings/keys");
     assert.deepEqual([local.name, local.auth, local.keyable, local.deployKeysUrl], ["local-reg", "none", false, null], "a nameless entry takes slugOfUrl; a local path cannot take a key");
     assert.deepEqual(data.orphans.map((k) => [k.repo, k.present, k.deployKeysUrl]), [["git@gitlab.com:x/y.git", false, null]]);

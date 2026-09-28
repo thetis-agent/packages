@@ -120,6 +120,32 @@ test("a directory in the registry that holds another package is not overwritten"
   assert.equal(versionIn(bare, "main", "hello"), "0.4.0");
 });
 
+test("a registry that accepts only some scopes refuses any other, before anything is committed", async (t) => {
+  const fx = await temp();
+  t.after(fx.cleanup);
+  const bare = await makeRegistry(fx.root, "reg");
+  await seedRegistry(fx.root, bare, { hello: manifest("@thetis/hello", "0.4.0") });
+  const rules = await makeCheckout(fx.root, bare, "rules");
+  await writeFile(join(rules, "thetis-registry.json"), JSON.stringify({ scopes: ["@thetis"] }));
+  git(rules, "add", "-A");
+  git(rules, ...AUTHOR, "commit", "-m", "rules");
+  git(rules, "push", "origin", "main");
+  await makePackage(join(fx.home, "packages", "gcloud"), manifest("@bitmuse/gcloud", "0.1.0"));
+  const env = makeEnv(fx.home, { config: oneTarget(bare) });
+
+  const err = await refusal(publish({ package: "packages/gcloud" }, env));
+  assert.equal(err.code, "scope");
+  assert.match(err.message, /reg refuses this publish: @bitmuse\/gcloud is not in @thetis, the only scope this registry accepts \(thetis-registry.json\)\. Publish it to a registry of its own/);
+  assert.equal(show(bare, "main", "gcloud/package.json"), null, "nothing reached the registry");
+
+  // A rules file that is not a rule is not taken for no rule.
+  await writeFile(join(rules, "thetis-registry.json"), "{ scopes");
+  git(rules, ...AUTHOR, "commit", "-am", "garble");
+  git(rules, "push", "origin", "main");
+  const garbled = await refusal(publish({ package: "packages/gcloud" }, env));
+  assert.equal(garbled.code, "registry-rules");
+});
+
 test("a package that is the root of the registry repository has no single directory to commit", async (t) => {
   const fx = await temp();
   t.after(fx.cleanup);

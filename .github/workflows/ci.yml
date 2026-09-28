@@ -40,6 +40,13 @@ jobs:
           cache: npm
           cache-dependency-path: runtime/package-lock.json
 
+      # The registry's own rule (thetis-registry.json), checked the way the pre-push hook checks it. This is the
+      # tree every installation ships as its system packages, so a package under another scope is an offer
+      # nobody can install. Loud here, for a push made from a clone without the hook enabled.
+      - name: Every package is one this registry accepts
+        working-directory: runtime/packages
+        run: node .githooks/pre-push --check HEAD
+
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends bubblewrap
 
       # `npm install`, not `npm ci`: the parent's lockfile pins the submodule commit it knows about, and a
