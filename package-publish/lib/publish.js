@@ -17,7 +17,7 @@ import { pickTarget, verifyOf, workDirOf } from "./config.js";
 import { chooseAs, forkedFrom, originVersion, unscoped } from "./fork.js";
 import { asIdentity, FALLBACK_IDENTITY, git, gitSays, headCommit, identityOf, lines, mustGit } from "./git.js";
 import { assertSound, mainOf, withOrigin, withVersion } from "./manifest.js";
-import { locate, resolvePackage } from "./locate.js";
+import { findPackageDir, locate, resolvePackage } from "./locate.js";
 import { cannotRide, journalRow, notNamed, rider, sortPassengers } from "./passengers.js";
 import { recordPublish } from "./record.js";
 import { parseRegistryRules, registryRefusal, REGISTRY_RULES_FILE } from "@thetis/runtime/lib/registry-rules";
@@ -51,11 +51,24 @@ export async function publish(args = {}, env) {
   if (choice.blocker) stop(choice.blocker.code, choice.blocker.message, { origin: found.origin, fork: { name: pkg.name, version: pkg.version } });
   const asOrigin = choice.as === "origin";
 
+  // What the registry says it accepts, in its own `thetis-registry.json`, asked of the clone so the rule is
+  // the registry's and not this workspace's opinion of it. A registry that takes one scope is where a person
+  // publishes to share: `@bitmuse/gcloud` sent to the registry every installation ships goes out as
+  // `@thetis/gcloud`, said in the confirm before anything is pushed, rather than refused.
+  const rules = await registryRules(found.repo, target);
+  const into = asOrigin ? null : await scopeInto({ rules, pkg, origin, found, target });
+
   // As its origin, the publish is aimed at the origin's own directory and measured against the origin's own
   // version. Everything downstream then reads exactly as an ordinary publish of that package, which is what
   // it is: what lands in the registry is the origin at a new version, not a copy of it under another name.
-  const where = asOrigin ? { ...found, dir: found.origin?.dir ?? unscoped(origin.name), holds: found.origin?.version ?? null, holdsName: found.origin?.name ?? null } : found;
-  const name = asOrigin ? origin.name : pkg.name;
+  const where = asOrigin
+    ? { ...found, dir: found.origin?.dir ?? unscoped(origin.name), holds: found.origin?.version ?? null, holdsName: found.origin?.name ?? null }
+    : into
+      ? { ...found, dir: into.dir, holds: into.holds, holdsName: into.holdsName }
+      : found;
+  const name = asOrigin ? origin.name : into ? into.name : pkg.name;
+  // Under another name in the registry, as an as-origin publish is: the copy's manifest is rewritten there.
+  const renamed = asOrigin || !!into;
   const now = asOrigin ? originVersion({ args, pkg, origin, holds: where.holds, target }) : named;
 
   // A directory in the registry that holds some other package is the one way the destination can be wrong
@@ -83,11 +96,7 @@ export async function publish(args = {}, env) {
 
   const { named: riders, unnamed, blocked } = sortPassengers(where, target, args.with);
 
-  // What the registry says it accepts, in its own `thetis-registry.json`. The registry every installation
-  // ships as its system tree accepts @thetis alone, and a personal package pushed there is offered to
-  // everybody as something that cannot be installed. Asked of the clone, so the rule is the registry's
-  // and not this workspace's opinion of it; the riders named are held to it too, since the push carries them.
-  const rules = await registryRules(where.repo, target);
+  // The riders named are held to the registry's rule too, since the push carries them under their own names.
   for (const refusal of [name, ...riders.map((p) => p.package).filter(Boolean)].map((n) => registryRefusal(rules, n)).filter(Boolean)) {
     refuse("scope", `${target.name} refuses this publish: ${refusal}. Publish it to a registry of its own, or rename it into an accepted scope.`);
   }
@@ -119,10 +128,10 @@ export async function publish(args = {}, env) {
   // under their own name and at their own version, and what the registry gets is written into the copy.
   if (!dryRun && !asOrigin && now !== pkg.version) await env.writeFile(join(pkg.path, "package.json"), withVersion(pkg.text, pkg.manifest, now));
   if (where.mode === "copy") await copyInto(pkg.path, join(where.repo, where.dir));
-  if (asOrigin) await env.writeFile(join(where.repo, where.dir, "package.json"), withOrigin(pkg.manifest, origin.name, now));
+  if (renamed) await env.writeFile(join(where.repo, where.dir, "package.json"), withOrigin(pkg.manifest, name, now));
 
   const artifact = runtimeArtifact(pkg, where);
-  const files = dryRun ? await wouldStage(env, where, pkg, now, asOrigin, artifact) : await stage(env, where, artifact);
+  const files = dryRun ? await wouldStage(env, where, pkg, now, renamed, artifact) : await stage(env, where, artifact);
   // Forks run their copied build; a sound local copy is not proof that git included its entrypoint.
   if (!dryRun && !pkg.manifest.scripts?.build) {
     await assertSound(pkg.manifest, where.dir, async (path) => (await git(env, where.repo, ["cat-file", "-e", `:${path}`])).code === 0);
@@ -145,6 +154,8 @@ export async function publish(args = {}, env) {
     forkedFrom: origin?.name ?? null,
     /** Set only when the origin is what was published: the copy the code came out of, left as it was. */
     fork: asOrigin ? { name: pkg.name, version: pkg.version } : null,
+    /** Set when the registry's scope renamed it: the name this workspace knows it by, which is left as it was. */
+    renamedFrom: into ? pkg.name : null,
     target: target.name,
     url: where.url,
     branch: where.branch,
@@ -312,5 +323,44 @@ async function registryRules(repo, target) {
     return parseRegistryRules(text);
   } catch (err) {
     refuse("registry-rules", `${target.name} has a ${REGISTRY_RULES_FILE} that cannot be read as a rule: ${err.message}. Fix it in the registry first.`);
+  }
+}
+
+/**
+ * Where a package outside the registry's one accepted scope goes, renamed into it: `@bitmuse/gcloud` to a
+ * registry of `@thetis` alone is `@thetis/gcloud`. It lands where the registry keeps that name, or else in
+ * the directory it keeps the old name in (the same package, now under the registry's scope), or else in its
+ * own slug. Null when the name is accepted as it is. A registry of several scopes cannot be guessed for, a
+ * package inside the registry's own checkout would have to be renamed in the person's own files, and a fork
+ * whose new name is its origin is publishing its origin, which is a different act with its own version.
+ */
+async function scopeInto({ rules, pkg, origin, found, target }) {
+  if (!registryRefusal(rules, pkg.name)) return null;
+  const scopes = rules.scopes ?? [];
+  if (scopes.length !== 1) {
+    refuse("scope", `${target.name} takes packages in ${scopes.join(" or ")}, and ${pkg.name} is in neither, so there is no one name to publish it under. Rename it into one of them in its package.json and publish again.`);
+  }
+  const name = `${scopes[0]}/${unscoped(pkg.name)}`;
+  if (found.mode !== "copy") {
+    refuse("scope", `${target.name} takes ${scopes[0]} packages only, and ${pkg.name} sits in its checkout at ${found.repo}, where a publish commits your own files as they are. Rename it to ${name} in ${pkg.path}/package.json and publish again.`);
+  }
+  if (origin?.name === name) {
+    refuse("scope", `${target.name} takes ${scopes[0]} packages only, so ${pkg.name} would go out as ${name}, which is the package it was forked from. Publish it as its origin to make it the next version of ${name}.`);
+  }
+  const held = found.branchOnRemote ? await findPackageDir(found.repo, name) : null;
+  if (held) return { name, dir: held.dir, holds: held.version, holdsName: held.name };
+  const dir = found.holdsName === pkg.name ? found.dir : unscoped(pkg.name);
+  const there = found.branchOnRemote ? await manifestIn(join(found.repo, dir)) : null;
+  // The registry still holding this very package under its old name is the same package moving scope: it
+  // is replaced, and measured against the version it held. Anything else there is somebody else's.
+  if (there?.name === pkg.name) return { name, dir, holds: there.version ?? null, holdsName: name };
+  return { name, dir, holds: null, holdsName: there?.name ?? null };
+}
+
+async function manifestIn(dir) {
+  try {
+    return JSON.parse(await readFile(join(dir, "package.json"), "utf8"));
+  } catch {
+    return null;
   }
 }

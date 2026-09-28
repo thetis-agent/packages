@@ -1026,3 +1026,54 @@ test("config-show: an admin's report carries what each key falls back to under t
     person.cleanup();
   }
 });
+
+test("use-published: the space moves to what was published, through the mirrored url, with the person's settings, and the copy goes", async () => {
+  const copy = { ...shipped("@bitmuse/gcloud"), everyone: false, source: { kind: "local", ref: "packages/gcloud" } };
+  const index = { version: 1, updatedAt: "2026-09-28T00:00:00.000Z", registries: [{ name: "thetis", url: REPO }], packages: [] };
+  const reports = {
+    "@bitmuse/gcloud": {
+      package: "@bitmuse/gcloud", inherits: [], summary: "", broken: false,
+      keys: [
+        { key: "project", state: "set", source: "user" },
+        { key: "credentialsJson", state: "set", source: "user", secret: true },
+        { key: "region", state: "set", source: "default" },
+        { key: "zone", state: "missing" },
+      ],
+    },
+  };
+  const effective = { "@bitmuse/gcloud": { project: "p-1", credentialsJson: "{\"secret\":1}", region: "us-central1" } };
+  const { env, calls, cleanup } = fakeEnv({ installed: [copy], index, reports, effective });
+  env.kernel.packages.install = async (source) => (calls.push({ method: "install", source }), { ...shipped("@thetis/gcloud"), everyone: false, source: { kind: "git", ref: source } });
+  try {
+    const args = { name: "@bitmuse/gcloud", package: "@thetis/gcloud", url: "git@github.com:thetis-agent/packages.git", directory: "gcloud", commit: NEW };
+    const out = (await commands.usePublished(args, env)).data;
+    assert.deepEqual([out.name, out.from, out.settings], ["@thetis/gcloud", "@bitmuse/gcloud", ["project", "credentialsJson"]], "only what the person set, secrets included; a default stays a default");
+    const acts = calls.filter((c) => ["install", "config.set", "uninstall"].includes(c.method));
+    assert.deepEqual(acts, [
+      { method: "install", source: `${REPO}#gcloud@${NEW}` },
+      { method: "config.set", name: "@thetis/gcloud", key: "project", value: "p-1" },
+      { method: "config.set", name: "@thetis/gcloud", key: "credentialsJson", value: "{\"secret\":1}" },
+      { method: "uninstall", name: "@bitmuse/gcloud" },
+    ], "the new one first, over the url this installation mirrors, then the settings, then the copy");
+  } finally {
+    cleanup();
+  }
+});
+
+test("use-published: refused for anything that is not a copy from the person's folder, and a wrong answer leaves the copy", async () => {
+  const args = { name: "@bitmuse/gcloud", package: "@thetis/gcloud", url: REPO, directory: "gcloud", commit: NEW };
+  const shippedOne = fakeEnv({ installed: [{ ...shipped("@bitmuse/gcloud"), source: { kind: "git", ref: "x" } }] });
+  try {
+    await assert.rejects(commands.usePublished(args, shippedOne.env), /not a copy from your folder/);
+    await assert.rejects(commands.usePublished({ ...args, commit: "abc" }, shippedOne.env), /commit/);
+  } finally {
+    shippedOne.cleanup();
+  }
+  const wrong = fakeEnv({ installed: [{ ...shipped("@bitmuse/gcloud"), source: { kind: "local", ref: "packages/gcloud" } }] });
+  try {
+    await assert.rejects(commands.usePublished(args, wrong.env), /answered with @thetis\/new where @thetis\/gcloud was published; @bitmuse\/gcloud is left installed/);
+    assert.ok(!wrong.calls.some((c) => c.method === "uninstall"), "nothing was removed");
+  } finally {
+    wrong.cleanup();
+  }
+});

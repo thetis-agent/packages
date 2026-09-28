@@ -5,6 +5,8 @@
 // the admin verbs go through `env.kernel.operator.call`, which the gateway allows only past the declared
 // role and the kernel only for an admin's fence. Nothing here trusts the browser: `env.user` says who asked.
 import { readIndex, readReadme, readReadmeAsset, search as searchIndex } from "@thetis/marketplace";
+import { sameRepository } from "@thetis/runtime/lib/git-url";
+import { pinnedSource } from "@thetis/runtime/lib/pkg-fs";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { changedFiles, changesOf } from "./lib/fork-diff.js";
@@ -261,6 +263,46 @@ export async function update(args, env) {
   if (!row.update) fail(`${name} is not behind its registry`);
   const info = await env.kernel.packages.install(row.update.source);
   return { data: { ...installedRow(info), from: row.update.from, to: row.update.to } };
+}
+
+/**
+ * After a person publishes their own copy, their space runs what they published: the version everybody
+ * else now installs, at the commit the publish pushed, through the url this installation already mirrors
+ * that repository by (the publish may have pushed over ssh). A copy the registry's scope renamed
+ * (`@bitmuse/gcloud` out as `@thetis/gcloud`) carries the person's own settings across, secrets included,
+ * read here in their own fence as `config-reveal` reads them; then the copy is removed for them, its files
+ * left in their folder. The new one is installed first, so a failure leaves the space as it was.
+ */
+export async function usePublished(args, env) {
+  const from = packageName(args.name);
+  const to = packageName(args.package);
+  const url = typeof args.url === "string" && args.url.trim() ? args.url.trim() : fail("the url the package was published to is needed");
+  const dir = typeof args.directory === "string" && /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)?$/.test(args.directory) ? args.directory : fail("the directory the registry keeps it in is needed");
+  const commit = typeof args.commit === "string" && /^[0-9a-f]{40}$/.test(args.commit) ? args.commit : fail("the commit the publish pushed is needed");
+  const mine = (await env.kernel.packages.list()).find((p) => p.name === from);
+  if (!mine) fail(`${from} is not installed here`);
+  if (mine.source?.kind !== "local") fail(`${from} is not a copy from your folder, so there is nothing to switch from`);
+  const index = await readIndex(env);
+  const mirrored = index?.registries.find((r) => sameRepository(r.url, url));
+  const carried = to === from ? [] : await ownSettings(env, from);
+  const info = await env.kernel.packages.install(pinnedSource(mirrored?.url ?? url, dir, commit));
+  if (info.name !== to) fail(`the registry answered with ${info.name} where ${to} was published; ${from} is left installed`);
+  const settings = [];
+  for (const [key, value] of carried) {
+    await env.kernel.config.set(to, key, value);
+    settings.push(key);
+  }
+  if (to !== from) await env.kernel.packages.uninstall(from);
+  return { data: { ...installedRow(info), from, settings } };
+}
+
+/** The keys a person set for themselves on one package, with their values, secrets included. */
+async function ownSettings(env, name) {
+  const report = await env.kernel.config.show(name).catch(() => null);
+  const keys = (Array.isArray(report?.keys) ? report.keys : []).filter((k) => k?.source === "user" && k.state !== "missing" && k.state !== "unset").map((k) => k.key);
+  if (!keys.length) return [];
+  const values = (await env.kernel.config.effective(name)) ?? {};
+  return keys.filter((k) => values[k] !== undefined && values[k] !== null).map((k) => [k, values[k]]);
 }
 
 const CONFIG_KEY = /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/;

@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { rm, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { publish } from "../lib/publish.js";
 import { AUTHOR, git, makeCheckout, makeEnv, makePackage, makeRegistry, manifest, refusal, seedRegistry, show, temp, versionIn } from "./helpers.js";
@@ -120,31 +120,69 @@ test("a directory in the registry that holds another package is not overwritten"
   assert.equal(versionIn(bare, "main", "hello"), "0.4.0");
 });
 
-test("a registry that accepts only some scopes refuses any other, before anything is committed", async (t) => {
-  const fx = await temp();
-  t.after(fx.cleanup);
+/** A registry whose root says which scopes it takes, with whatever packages it already holds. */
+async function ruledRegistry(fx, scopes, packages = { hello: manifest("@thetis/hello", "0.4.0") }) {
   const bare = await makeRegistry(fx.root, "reg");
-  await seedRegistry(fx.root, bare, { hello: manifest("@thetis/hello", "0.4.0") });
-  const rules = await makeCheckout(fx.root, bare, "rules");
-  await writeFile(join(rules, "thetis-registry.json"), JSON.stringify({ scopes: ["@thetis"] }));
+  await seedRegistry(fx.root, bare, packages);
+  const rules = await makeCheckout(fx.root, bare, `rules-${Math.random().toString(36).slice(2, 6)}`);
+  await writeFile(join(rules, "thetis-registry.json"), JSON.stringify({ scopes }));
   git(rules, "add", "-A");
   git(rules, ...AUTHOR, "commit", "-m", "rules");
   git(rules, "push", "origin", "main");
+  return { bare, rules };
+}
+
+test("a registry that takes one scope publishes a package from another under it, and says so", async (t) => {
+  const fx = await temp();
+  t.after(fx.cleanup);
+  const { bare } = await ruledRegistry(fx, ["@thetis"]);
   await makePackage(join(fx.home, "packages", "gcloud"), manifest("@bitmuse/gcloud", "0.1.0"));
   const env = makeEnv(fx.home, { config: oneTarget(bare) });
 
-  const err = await refusal(publish({ package: "packages/gcloud" }, env));
-  assert.equal(err.code, "scope");
-  assert.match(err.message, /reg refuses this publish: @bitmuse\/gcloud is not in @thetis, the only scope this registry accepts \(thetis-registry.json\)\. Publish it to a registry of its own/);
+  const dry = await publish({ package: "packages/gcloud", dryRun: true }, env);
+  assert.deepEqual([dry.ok, dry.package, dry.renamedFrom, dry.directory, dry.first], [true, "@thetis/gcloud", "@bitmuse/gcloud", "gcloud", true], "the confirm can say what it becomes before anything is pushed");
+
+  const out = await publish({ package: "packages/gcloud" }, env);
+  assert.equal(out.package, "@thetis/gcloud");
+  assert.equal(JSON.parse(show(bare, "main", "gcloud/package.json")).name, "@thetis/gcloud", "what lands is the registry's name");
+  assert.equal(JSON.parse(await readFile(join(fx.home, "packages", "gcloud", "package.json"), "utf8")).name, "@bitmuse/gcloud", "your own copy keeps its name");
+
+  // The next publish of the same copy is the next version of the package the registry now holds.
+  await expectRefusal(publish({ package: "packages/gcloud" }, env), "not-newer", /@thetis\/gcloud 0\.1\.0 does not move past 0\.1\.0/);
+  assert.equal((await publish({ package: "packages/gcloud", bump: "patch" }, env)).now, "0.1.1");
+});
+
+test("the registry still holding the package under its old name is the same package moving scope", async (t) => {
+  const fx = await temp();
+  t.after(fx.cleanup);
+  const { bare } = await ruledRegistry(fx, ["@thetis"], { gcloud: manifest("@bitmuse/gcloud", "0.1.0") });
+  await makePackage(join(fx.home, "packages", "gcloud"), manifest("@bitmuse/gcloud", "0.2.0"));
+  const env = makeEnv(fx.home, { config: oneTarget(bare) });
+  const out = await publish({ package: "packages/gcloud" }, env);
+  assert.deepEqual([out.package, out.directory, out.was, out.now], ["@thetis/gcloud", "gcloud", "0.1.0", "0.2.0"]);
+  assert.equal(JSON.parse(show(bare, "main", "gcloud/package.json")).name, "@thetis/gcloud");
+});
+
+test("a registry of several scopes, or one whose rule is broken, is a refusal that says what to do", async (t) => {
+  const fx = await temp();
+  t.after(fx.cleanup);
+  const { bare, rules } = await ruledRegistry(fx, ["@thetis", "@team"]);
+  await makePackage(join(fx.home, "packages", "gcloud"), manifest("@bitmuse/gcloud", "0.1.0"));
+  const env = makeEnv(fx.home, { config: oneTarget(bare) });
+  await expectRefusal(publish({ package: "packages/gcloud" }, env), "scope", /takes packages in @thetis or @team, and @bitmuse\/gcloud is in neither/);
   assert.equal(show(bare, "main", "gcloud/package.json"), null, "nothing reached the registry");
 
-  // A rules file that is not a rule is not taken for no rule.
   await writeFile(join(rules, "thetis-registry.json"), "{ scopes");
   git(rules, ...AUTHOR, "commit", "-am", "garble");
   git(rules, "push", "origin", "main");
-  const garbled = await refusal(publish({ package: "packages/gcloud" }, env));
-  assert.equal(garbled.code, "registry-rules");
+  await expectRefusal(publish({ package: "packages/gcloud" }, env), "registry-rules", /cannot be read as a rule/);
 });
+
+async function expectRefusal(promise, code, pattern) {
+  const err = await refusal(promise);
+  assert.equal(err.code, code, err.message);
+  assert.match(err.message, pattern);
+}
 
 test("a package that is the root of the registry repository has no single directory to commit", async (t) => {
   const fx = await temp();

@@ -760,24 +760,35 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
     // one thing somebody would reasonably assume otherwise -- so it is said before they agree and again
     // after it is done.
     const copy = preview.as === "origin" ? preview.fork : null;
+    // A registry of one scope publishes a person's own package under that scope, and a copy from their own
+    // folder is then replaced here by what they published: sharing it is what they meant, and running the
+    // version everybody else gets is the rest of that. Both are said before they agree.
+    const renamed = preview.renamedFrom ? preview.package : null;
+    const published = preview.package ?? row.name;
+    const switching = !copy && row.installed && row.local;
     const ok = await confirm(anchor, {
-      title: copy ? `Publish ${copy.name} as ${preview.package}?` : `Publish ${row.name}?`,
+      title: copy || renamed ? `Publish ${(copy ?? row).name} as ${published}?` : `Publish ${row.name}?`,
       lines: [
         ["package", `${preview.package ?? row.name}@${now}`],
         ["to", preview.url ? `${target} · ${preview.url}` : target || "the configured registry"],
         ["version", first ? `${now}, the first version ${target || "that registry"} would hold of it` : `${was} → ${now}`],
         preview.branch && ["branch", preview.branch],
         copy && ["your copy", `${copy.name}@${copy.version}, still a fork`],
+        renamed && ["name", `${published}: ${target || "that registry"} takes ${published.split("/")[0]} packages only`],
+        switching && ["then", renamed ? `your space runs ${published}@${now} with your settings, in place of ${row.name}; its files stay in your folder` : `your space runs ${published}@${now} from ${target || "the registry"}; your folder copy stays on disk`],
         // Never a count. A person agreeing to publish somebody else's work alongside their own reads the
         // names or they have not agreed to anything.
         also.length && ["also publishing", also.join(", ")],
       ].filter(Boolean),
-      note: `${copy ? `What lands in ${target || "the registry"} is ${preview.package} itself, under its own name; ${copy.name} stays here exactly as it is, a fork at ${copy.version}. ` : ""}This pushes to a registry other installations read: everyone mirroring ${target || "it"} gets ${now} on their next refresh, and a version once published is not taken back.${also.length ? ` ${also.length === 1 ? "The package" : "The packages"} above ${also.length === 1 ? "is" : "are"} published in ${also.length === 1 ? "its" : "their"} own right, each one checked the same way.` : " Only this package's own directory is committed."}`,
+      note: `${renamed ? `${target || "The registry"} gets it as ${published}; your folder copy keeps the name ${row.name}. ` : ""}${copy ? `What lands in ${target || "the registry"} is ${preview.package} itself, under its own name; ${copy.name} stays here exactly as it is, a fork at ${copy.version}. ` : ""}This pushes to a registry other installations read: everyone mirroring ${target || "it"} gets ${now} on their next refresh, and a version once published is not taken back.${also.length ? ` ${also.length === 1 ? "The package" : "The packages"} above ${also.length === 1 ? "is" : "are"} published in ${also.length === 1 ? "its" : "their"} own right, each one checked the same way.` : " Only this package's own directory is committed."}`,
       confirmLabel: `Publish ${now}`,
       tone: "warn",
     });
     if (!ok) return;
-    const stop = busy(host, `Publishing to ${target || "the registry"}…`);
+    const publishing = busy(host, `Publishing to ${target || "the registry"}…`);
+    let done = false;
+    // Once only: the switch that follows a publish ends this busy line itself, and so does the finally.
+    const stop = () => done || ((done = true), publishing());
     try {
       const out = (await ext.request("publish", { args }))?.data ?? {};
       const at = out.commit ? ` (${String(out.commit).slice(0, 7)})` : "";
@@ -785,8 +796,25 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
       // Beside the result, because believing this wrongly means believing your own workspace moved when it
       // did not. `fork` is set by the publishing package only when the origin is what was published.
       const mine = out.fork ? ` Your copy is still ${out.fork.name} ${out.fork.version}, a fork.` : "";
-      ext.toast(`${out.package ?? row.name}@${out.now ?? now} is in ${out.target ?? target}${at}.${rode}${mine}`, { tone: "good" });
-      go(row.name);
+      const said = `${out.package ?? row.name}@${out.now ?? now} is in ${out.target ?? target}${at}.${rode}${mine}`;
+      if (!switching || !out.commit) {
+        ext.toast(said, { tone: "good" });
+        return go(row.name);
+      }
+      stop();
+      const moving = busy(host, `Switching your space to ${out.package ?? row.name}…`);
+      try {
+        const used = (await ext.request("use-published", { args: { name: row.name, package: out.package ?? row.name, url: out.url, directory: out.directory, commit: out.commit } }))?.data ?? {};
+        const kept = used.settings?.length ? ` Your settings came with it (${used.settings.length}).` : "";
+        ext.toast(`${said} Your space now runs it.${kept}`, { tone: "good" });
+        go(out.package ?? row.name);
+      } catch (err) {
+        // The publish stands; only the switch did not happen, and the copy is still what runs here.
+        ext.toast(`${said} Switching your space to it did not work: ${err?.message || "no answer"}. ${row.name} is still installed.`, { tone: "warn" });
+        go(row.name);
+      } finally {
+        moving();
+      }
     } catch (err) {
       ext.toast(err?.message || "That did not work.", { tone: "error" });
     } finally {

@@ -473,3 +473,120 @@ test("an admin: one card per family, the other versions, and For everyone", asyn
     await context.close();
   }
 });
+
+// A maintainer publishing their own copy to the registry every installation ships, which takes @thetis alone:
+// the confirm names the name it goes out under and that the space moves to it, and after the publish the
+// page switches the space with the published commit, and says so once.
+test("publishing your own copy renames it into the registry's scope and moves your space to it", async () => {
+  const user = "bitmuse";
+  const SSH = "git@github.com:thetis-agent/packages.git";
+  const gcloud = {
+    ...installedRow({ name: "@bitmuse/gcloud", version: "0.1.0", type: "tool", description: "The gcloud CLI as tools.", root: ROOT, thetis: { type: "tool", label: "Google Cloud", tools: [{ name: "gcloud_run", description: "Run gcloud." }] }, source: { kind: "local", ref: "packages/gcloud" } }, true),
+    folder: { dir: "packages/gcloud" },
+    local: true,
+    own: true,
+  };
+  const context = await browser.newContext({ viewport: { width: 1300, height: 900 } });
+  const page = await context.newPage();
+  page.setDefaultTimeout(5000);
+  const errors = [];
+  const sent = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.addInitScript(() => {
+    window.EventSource = class extends EventTarget {
+      static CLOSED = 2;
+      readyState = 1;
+      constructor() {
+        super();
+        window.reviewEvents = this;
+      }
+      close() {
+        this.readyState = 2;
+      }
+    };
+    window.reviewEmit = (kind, value) => window.reviewEvents.dispatchEvent(new MessageEvent(kind, { data: JSON.stringify(value) }));
+  });
+  await page.route(`${ORIGIN}/**`, async (route) => {
+    try {
+      const pathname = new URL(route.request().url()).pathname;
+      if (pathname.includes(`/ext/${NAME}/`) && !pathname.includes("/api/")) {
+        const file = pathname.split(`/ext/${NAME}/`)[1];
+        return route.fulfill({ body: await readFile(join(UI, file)), contentType: TYPES[extname(file)] });
+      }
+      if (pathname.includes(`/api/ext/${NAME}/`)) {
+        const verb = pathname.split(`/api/ext/${NAME}/`)[1];
+        const args = route.request().postDataJSON()?.args ?? {};
+        const facts = { updatedAt: new Date().toISOString(), registries: [{ name: "thetis", url: REPO }], total: 0, indexed: true, user, role: "admin" };
+        const published = { ok: true, package: "@thetis/gcloud", renamedFrom: "@bitmuse/gcloud", as: "itself", fork: null, target: "thetis", url: SSH, branch: "main", directory: "gcloud", was: null, now: "0.1.0", first: true, blockers: [] };
+        if (verb === "updates") return route.fulfill({ json: { data: { items: [], own: [], forks: [], shells: 0, applyOwnChanges: "auto" } } });
+        if (verb === "search") return route.fulfill({ json: { data: { ...facts, rows: [gcloud] } } });
+        if (verb === "config-list") return route.fulfill({ json: { data: [] } });
+        if (verb === "config-show") return route.fulfill({ json: { data: { package: args.name, inherits: [], keys: [], summary: "every key is set", broken: false } } });
+        if (verb === "publish-targets") return route.fulfill({ json: { data: { available: true, canRemove: false, targets: [{ name: "thetis", url: SSH }] } } });
+        if (verb === "show") return route.fulfill({ json: { data: { ...facts, row: gcloud, family: [], readme: null, assets: {} } } });
+        if (verb === "people") return route.fulfill({ json: { data: [{ id: user, role: "admin" }] } });
+        if (verb === "holders") return route.fulfill({ json: { data: { name: args.name, users: [user] } } });
+        if (verb === "publish") {
+          sent.push({ verb, args });
+          return route.fulfill({ json: { data: args.dryRun ? { ...published, dryRun: true } : { ...published, dryRun: false, commit: NEW, committed: true, pushed: true } } });
+        }
+        if (verb === "use-published") {
+          sent.push({ verb, args });
+          return route.fulfill({ json: { data: { name: "@thetis/gcloud", from: "@bitmuse/gcloud", settings: ["project", "credentialsJson"] } } });
+        }
+        throw new Error(`Unexpected verb: ${verb}`);
+      }
+      if (pathname.includes("/api/")) {
+        const api = pathname.split("/api/")[1];
+        if (api === "me") return route.fulfill({ json: { user, role: "admin" } });
+        if (api === "models") return route.fulfill({ json: { model: "m", models: [{ id: "m", name: "M" }] } });
+        if (api === "ui") return route.fulfill({ json: { extensions: [declaration()], refused: [] } });
+        if (api === "sessions") return route.fulfill({ json: [] });
+        return route.fulfill({ json: {} });
+      }
+      const file = pathname.includes("/assets/") ? pathname.split("/assets/")[1] : "index.html";
+      let body = await readFile(join(ASSETS, file));
+      if (file === "index.html") body = Buffer.from(body.toString().replace("{{base}}", "/review").replace("{{nonce}}", "test"));
+      await route.fulfill({ body, contentType: TYPES[extname(file)] || "application/octet-stream" });
+    } catch (error) {
+      errors.push(error.message);
+      await route.fulfill({ status: 500, json: { error: error.message } }).catch(() => {});
+    }
+  });
+  try {
+    await page.goto(`${ORIGIN}/review/`);
+    await page.waitForFunction(() => window.reviewEvents);
+    await page.evaluate(() => {
+      reviewEmit("open", {});
+      reviewEmit("snapshot", { running: [] });
+    });
+    await page.locator("#menu").click();
+    await page.locator(".menu-item", { hasText: "Extensions" }).first().click();
+    await page.locator('#place .mk-card[data-name="@bitmuse/gcloud"]').click();
+    await page.locator("#place .mk-side").waitFor();
+    // ⋯ → Publish… is how a person finds it; it opens the Details tab at the Publish block.
+    await page.locator("#place .mk-more").click();
+    await page.locator(".menu .menu-label", { hasText: "Publish…" }).click();
+    await page.locator("#place .mk-publish-block").waitFor();
+    await page.locator("#place .mk-bump").selectOption("");
+    await page.locator("#place .mk-publish .btn", { hasText: "Publish to thetis" }).click();
+    await page.locator(".popover").waitFor();
+    assert.equal(await page.locator(".popover-head span").first().innerText(), "Publish @bitmuse/gcloud as @thetis/gcloud?");
+    const confirmText = (await page.locator(".popover").innerText()).replace(/\s+/g, " ");
+    assert.match(confirmText, /thetis takes @thetis packages only/);
+    assert.match(confirmText, /your space runs @thetis\/gcloud@0\.1\.0 with your settings, in place of @bitmuse\/gcloud; its files stay in your folder/);
+    assert.match(confirmText, /your folder copy keeps the name @bitmuse\/gcloud/);
+    if (shots) await page.locator(".popover").screenshot({ path: join(shots, "market-publish-rename.png") });
+    await page.locator(".popover .btn", { hasText: "Publish 0.1.0" }).click();
+    await page.locator(".toast", { hasText: "Your space now runs it. Your settings came with it (2)." }).waitFor();
+    const used = sent.find((s) => s.verb === "use-published");
+    assert.deepEqual(used?.args, { name: "@bitmuse/gcloud", package: "@thetis/gcloud", url: SSH, directory: "gcloud", commit: NEW }, "the switch names the commit the publish pushed");
+    assert.deepEqual(sent.map((s) => [s.verb, !!s.args.dryRun]), [["publish", true], ["publish", false], ["use-published", false]], "a dry run, the publish, then the switch, once each");
+    assert.deepEqual(errors, []);
+  } catch (error) {
+    await page.screenshot({ path: "/tmp/market-browser-publish.png", fullPage: true }).catch(() => {});
+    throw error;
+  } finally {
+    await context.close();
+  }
+});
