@@ -1,4 +1,4 @@
-import { wireContent } from "./content.js";
+import { wireContent, wireToolResult } from "./content.js";
 import { parseSchema } from "@thetis/runtime/lib/validation";
 import { ToolCallSchema } from "@thetis/runtime/schemas";
 import { ModelReasoningSchema, ModelsResponseSchema, ProviderErrorSchema, StreamChunkSchema, ToolArgumentsSchema } from "./schemas.js";
@@ -7,7 +7,7 @@ import type { z } from "zod";
 // Prompt caching is applied at the wire. The policy comes from this package's own `cache` config; a
 // `cache` hint on the call may tune it within the configured `hints` mode.
 import type { Message, ModelDescriptor, Provider, ProviderCall, ProviderContext, ProviderEvent, ToolCall } from "@thetis/runtime/contracts";
-import { applyHint, applyOpenAiCompatible, normalizeUsage, readHint, resolvePolicy, type CacheConfig, type OpenAiWireMessage } from "@thetis/prompt-cache";
+import { applyHint, applyOpenAiCompatible, normalizeUsage, readHint, resolvePolicy, type CacheConfig, type OpenAiContentPart, type OpenAiWireMessage } from "@thetis/prompt-cache";
 
 export interface OpenRouterConfig {
   apiKey?: string;
@@ -82,6 +82,10 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
     ...(config.headers ?? {}),
   };
 
+  // What each model takes as input, from the last model list. A model not in it is assumed to take media,
+  // so that an unlisted model gets the image and says so if it cannot, rather than being blinded by a guess.
+  const modalities = new Map<string, string[]>();
+
   return {
     async models(): Promise<ModelDescriptor[]> {
       // The model list is asked for on the path of every call that has to resolve a model, and it is cached
@@ -91,6 +95,7 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
       const body = parseSchema(ModelsResponseSchema, await res.json(), "OpenRouter models");
       // The keys are left out when OpenRouter lists no window or no reasoning, so a descriptor never says
       // `contextLength: undefined`, and a model that does not think carries no `reasoning` at all.
+      for (const m of body.data) if (m.architecture?.input_modalities) modalities.set(m.id, m.architecture.input_modalities);
       return body.data.map((m) => ({
         id: m.id,
         name: m.name,
@@ -102,7 +107,10 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
     async *call(call: ProviderCall, signal?: AbortSignal, context?: ProviderContext): AsyncIterable<ProviderEvent> {
       if (!apiKey) return yield failed("OpenRouter apiKey is not configured (set OPENROUTER_API_KEY)", { retryable: false, kind: "auth" });
       let messages: WireMessage[];
-      try { messages = await toWire(call, context); }
+      // The model list is read once when media is about to go out and nobody has asked for it on this
+      // provider yet; a failure there only means the model's modalities stay unknown.
+      if (!modalities.size && carriesMedia(call)) await this.models().catch(() => {});
+      try { messages = await toWire(call, context, (mediaType) => accepts(modalities.get(call.model), mediaType)); }
       catch (error) { return yield failed(reason(error), { retryable: false, kind: "other" }); }
       const body = {
         model: call.model,
@@ -479,10 +487,27 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-async function toWire(call: ProviderCall, context?: ProviderContext): Promise<WireMessage[]> {
+async function toWire(call: ProviderCall, context?: ProviderContext, accepts: (mediaType: string) => boolean = () => true): Promise<WireMessage[]> {
   const out: WireMessage[] = [];
   if (call.system) out.push({ role: "system", content: call.system });
-  for (const m of call.messages) out.push(await messageToWire(m, context));
+  // Media from tool results waits until the run of tool messages ends: an assistant's tool calls must be
+  // answered by tool messages with nothing between them, so the user message that carries the media goes after.
+  let pending: OpenAiContentPart[] = [];
+  const flush = () => {
+    if (pending.length) out.push({ role: "user", content: pending });
+    pending = [];
+  };
+  for (const m of call.messages) {
+    if (m.role === "tool") {
+      const { text, media } = await wireToolResult(m, context, accepts);
+      out.push({ role: "tool", content: text, tool_call_id: m.toolCallId, name: m.name });
+      pending.push(...media);
+      continue;
+    }
+    flush();
+    out.push(await messageToWire(m, context));
+  }
+  flush();
   return out;
 }
 
@@ -497,6 +522,17 @@ async function messageToWire(m: Message, context?: ProviderContext): Promise<Wir
   }
   if (m.role === "tool") return { role: "tool", content, tool_call_id: m.toolCallId, name: m.name };
   return { role: m.role, content };
+}
+
+function carriesMedia(call: ProviderCall): boolean {
+  return call.messages.some((m) => Array.isArray(m.content) && m.content.some((p) => p?.type !== "text"));
+}
+
+/** Whether a model with these input modalities takes this media type. Unknown modalities take everything. */
+export function accepts(modalities: string[] | undefined, mediaType: string): boolean {
+  if (!modalities) return true;
+  const kind = mediaType === "application/pdf" ? "file" : mediaType.split("/")[0];
+  return modalities.includes(kind);
 }
 
 function parseArgs(raw: string): Record<string, unknown> {

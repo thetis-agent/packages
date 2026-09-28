@@ -16,7 +16,7 @@ export const ModelReasoningSchema = z.looseObject({
 export const ModelsResponseSchema = z.looseObject({
   // `context_length` is the model's window in tokens; a package that sizes a request against the window
   // (compaction) reads it as `contextLength`. OpenRouter lists it for nearly every model, but not for all.
-  data: z.array(z.looseObject({ id: z.string().min(1), name: z.string().optional(), context_length: z.number().int().positive().optional(), reasoning: ModelReasoningSchema.nullish() })),
+  data: z.array(z.looseObject({ id: z.string().min(1), name: z.string().optional(), context_length: z.number().int().positive().optional(), reasoning: ModelReasoningSchema.nullish(), architecture: z.looseObject({ input_modalities: z.array(z.string()).optional() }).nullish() })),
 });
 
 export const ProviderErrorSchema = z.looseObject({

@@ -15,6 +15,37 @@ export async function wireContent(message: Message, context?: ProviderContext): 
   return output;
 }
 
+/**
+ * A tool result split for the wire. The chat-completions format lets a `tool` message carry text only, so
+ * the text stays in the tool message and the media (a screenshot, say) comes back as parts for a `user`
+ * message the caller puts after the run of tool messages, the way OpenAI-compatible agents show a model what
+ * a tool saw. Each medium leaves a line in the tool text saying where it went, so the model can tie the two
+ * together. A model known not to take images gets that line instead of the image, and nothing is thrown.
+ */
+export async function wireToolResult(message: Message, context: ProviderContext | undefined, accepts: (mediaType: string) => boolean): Promise<{ text: string; media: OpenAiContentPart[] }> {
+  const parts = normalizeContent(message.content);
+  if (parts.every(isTextPart)) return { text: contentText(parts), media: [] };
+  let text = "";
+  const media: OpenAiContentPart[] = [];
+  const label = message.name ? `${message.name}` : "the tool";
+  for (const part of parts) {
+    if (isTextPart(part)) { text += part.data.text; continue; }
+    const name = isAssetPart(part) ? part.data.name ?? part.data.mediaType : part.type;
+    if (isAssetPart(part) && !accepts(part.data.mediaType)) {
+      text += `\n[${name}: not shown, this model does not take ${part.data.mediaType.split("/")[0]} input]`;
+      continue;
+    }
+    try {
+      const wired = await wirePart(part, context);
+      media.push({ type: "text", text: `[${name}, returned by ${label}${message.toolCallId ? ` (${message.toolCallId})` : ""}]` }, wired);
+      text += `\n[${name}: attached in the next message]`;
+    } catch (error) {
+      text += `\n[${name}: could not be sent: ${error instanceof Error ? error.message : String(error)}]`;
+    }
+  }
+  return { text: text.replace(/^\n/, ""), media };
+}
+
 async function wirePart(part: ContentPart, context?: ProviderContext): Promise<OpenAiContentPart> {
   if (isTextPart(part)) return { type: "text", text: part.data.text };
   if (!isAssetPart(part)) throw new Error(`OpenRouter does not support content type ${part.type}`);
