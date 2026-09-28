@@ -158,7 +158,14 @@ export class Arena {
 
     const log = opts.log ?? (() => {});
     // Records in memory: a bench home is thrown away with the run, and the arms' packages are the only ones in its system directory.
-    const kernel = await createKernel(config, (c) => c.bind(T.log, () => log).bind(T.store, () => memoryStore()));
+    // No environment for a run without an upstream model. A package default like `${OPENROUTER_API_KEY}`
+    // would otherwise resolve from the checkout's .env or the shell, and a suite that needs no model would
+    // quietly call a paid endpoint and measure something CI, which has no key, never sees: tool-groups'
+    // dense routing loaded groups on a developer's machine and not on the runner, and the reports differed.
+    const kernel = await createKernel(config, (c) => {
+      c.bind(T.log, () => log).bind(T.store, () => memoryStore());
+      if (!opts.upstream) c.bind(T.env, () => ({ snapshot: () => ({}) }));
+    });
     // Admins, because an arm may have to install a system-scoped candidate into its own userspace.
     for (const arm of opts.arms) kernel.users.create(users.get(arm.id) as string, "admin");
 

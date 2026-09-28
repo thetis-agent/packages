@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { T } from "@thetis/runtime";
 import { Arena, BENCH_PHASE } from "../src/arena.js";
 import { runTask, probeRan } from "../src/runner.js";
 import { loadSuite, strata, validateSuite, visible } from "../src/suite.js";
@@ -89,6 +90,13 @@ after(async () => {
 
 const task = { id: "t-read", query: "Read src/index.ts and say what it exports.", turns: 2 };
 const run = (arm: string) => runTask(arena, arm, task, 0, { runId: "r1" });
+
+test("a run without an upstream model resolves no environment, so no package default reaches a real key", () => {
+  // tool-groups defaults its embeddings key to ${OPENROUTER_API_KEY}; with the checkout's .env behind it the
+  // dense fallback called a paid endpoint and routed differently from CI, which has no key.
+  assert.ok(Object.keys(process.env).length > 0, "this process has an environment");
+  assert.deepEqual(arena.kernel.container.get(T.env).snapshot(), {});
+});
 
 test("a package cannot pass malformed harness claims into scoring", async () => {
   await assert.rejects(run("corrupt"), /bench.*claims.*direct/i);

@@ -110,7 +110,8 @@ test("systemPrompt appends the guide and nothing of the person's: no package lis
   assert.doesNotMatch(result.call!.system!, /remember the cat|Session notes|standing notes/, "harness.notes and THETIS.md are not prompt text");
   assert.match(result.call!.system!, /## Working style/);
   assert.doesNotMatch(result.call!.system!, /subagent\. Your final reply/, "a top-level session gets no subagent line");
-  assert.doesNotMatch(result.call!.system!, /s1/, "the session id is not in the prompt, so a child's prompt can match its parent's");
+  // As a word: the prompt names the home, a mkdtemp directory whose random suffix now and then holds "s1".
+  assert.doesNotMatch(result.call!.system!, /\bs1\b/, "the session id is not in the prompt, so a child's prompt can match its parent's");
 });
 
 test("systemPrompt adds one line for a subagent and nothing else changes", async () => {
