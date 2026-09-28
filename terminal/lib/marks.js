@@ -72,6 +72,10 @@ export function initFile({ rc, rows = 24, cols = 120 } = {}) {
     // \[ \] tell readline the escapes take no width; without them the shell miscounts the prompt and
     // line editing corrupts itself as soon as a command is longer than the terminal is wide.
     "PS1='\\[\\033]133;A\\033\\\\\\]'\"${PS1:-\\$ }\"'\\[\\033]133;B\\033\\\\\\]'",
+    // PS0 is printed once a line has been read and before it runs, so the command-executed mark is where
+    // the echo of a line ends, however readline drew it: wrapped, redrawn at the margin, prompt and all.
+    // The person's own PS0, if any, is display too and comes first.
+    "PS0=\"${PS0:-}\"'\\033]133;C\\033\\\\'",
     "",
   ].join("\n");
 }

@@ -142,20 +142,49 @@ function clean(s) {
  * The pty echoes what we wrote. Drop that first line when it is exactly what we sent, and only then.
  * `prompted` loosens "exactly" to "ends with": an unframed shell carries no prompt-start mark, so the
  * prompt it printed cannot be cut by offset and is still sitting in front of the echo.
+ *
+ * `text` still has its carriage returns, because the echo is judged before they are resolved. When the
+ * prompt and the command are wider than the terminal, readline puts its cursor back after the wrap by
+ * returning to the start of the row and re-printing what is already there (`<command>\r'`). On the
+ * screen that is the command, once; resolved as an overwrite it is only the re-printed tail, which
+ * matches nothing, and the tail leaked into the agent's output wherever the prompt was long enough.
  */
 function stripEcho(text, sent, prompted = false) {
   if (!sent) return text;
   const want = sent.trim();
   if (!want) return text;
   const nl = text.indexOf("\n");
-  const first = (nl === -1 ? text : text.slice(0, nl)).trim();
+  // The line's own ending (`\r\n`) is not a redraw, and control characters are not content either.
+  const line = (nl === -1 ? text : text.slice(0, nl)).replace(/\r+$/, "").replace(CONTROL, "");
+  const first = normaliseReturns(line).trim();
   // Readline can horizontally scroll a long input line, displaying only a '<'-prefixed suffix.
   const scrolled = first.length > 1 && first.startsWith("<") && want.endsWith(first.slice(1));
   // With the terminal's echo off (`stty -echo`) the line is not shown, only the Enter that ended it. An
   // echoing terminal always shows the command first, so an empty first line can only be that Enter.
-  if (nl !== -1 && first === "" && text.slice(0, nl).trim() === "") return text.slice(nl + 1);
-  if (first !== want && !scrolled && !(prompted && first.endsWith(want))) return text;
+  if (nl !== -1 && line.trim() === "") return text.slice(nl + 1);
+  if (first !== want && !scrolled && !(prompted && first.endsWith(want)) && !redrawnEcho(line, want, prompted)) return text;
   return nl === -1 ? "" : text.slice(nl + 1);
+}
+
+/**
+ * Whether a line holding carriage returns shows `want` once. At the right margin readline writes the
+ * character that fills the row, returns to the row's start, and goes on from that same character, so each
+ * piece after a return re-prints the last character of what came before it (`...Failed!|` then
+ * `\r|Passed!"`; with the whole command on the first row, just `\r'`). The pieces put back together that
+ * way must be exactly the command; nothing else is taken for the echo, so output that merely contains the
+ * command is never dropped.
+ */
+function redrawnEcho(line, want, prompted) {
+  const pieces = line.split("\r").filter((p) => p !== "");
+  if (pieces.length < 2) return false;
+  let overlapped = pieces[0];
+  for (const piece of pieces.slice(1)) overlapped += overlapped.endsWith(piece[0]) ? piece.slice(1) : piece;
+  // Written in parts with nothing re-printed is the same command; either reading has to be exact. A line
+  // readline redrew whole after moving the cursor up ends with the command in full, and what it drew
+  // before that was the same command.
+  const redrawn = pieces.at(-1);
+  const whole = pieces.slice(0, -1).every((p) => want.includes(p.trim())) ? redrawn : "";
+  return [overlapped, pieces.join(""), whole].some((shown) => (prompted ? shown.trim().endsWith(want) : shown.trim() === want));
 }
 
 /**
@@ -227,6 +256,11 @@ export function openSession({
   }
 
   function forAgent(from, to) {
+    return clean(rawFor(from, to));
+  }
+
+  /** What `forAgent` cleans: the stretch with the skipped ranges left out, escapes and returns still in it. */
+  function rawFor(from, to) {
     let p = Math.max(from, ringStart);
     const parts = [];
     for (const r of skips.filter((s) => s.to > p && s.from < to).sort((a, b) => a.from - b.from)) {
@@ -234,7 +268,7 @@ export function openSession({
       p = Math.max(p, r.to);
     }
     if (p < to) parts.push(slice(p, to));
-    return clean(parts.join(""));
+    return parts.join("");
   }
 
   // ---- cursors: one per consumer, nothing consumes ----
@@ -272,6 +306,10 @@ export function openSession({
 
   let atPrompt = false; // a command-start mark has been seen and nothing has been submitted since
   let promptOwed = false; // the running command went in before the prompt it follows had been drawn
+  let submittedAt = null; // where the stream stood when the running command's line was written
+  let promptRedraw = false; // the prompt being drawn is readline redrawing the line still being echoed
+  let echoFrom = null; // where the echo of the agent's running command starts, until its command-executed mark
+  let echoCut = null; // the command whose echo that mark cut out
   let internalBusy = false; // a command this package sent (a fallback resize); never reported as anyone's command
   let internalFrom = 0;
   let pendingResize = null; // a fallback resize waiting for the next idle; the device path never defers
@@ -400,6 +438,12 @@ export function openSession({
     switch (mark.kind) {
       case "prompt-start":
         promptFrom = mark.at;
+        // Readline redraws the prompt, marks and all, when a line lands exactly on the right margin
+        // (` \r`, cursor up, prompt, line again). That happens while the line is still being echoed, so no
+        // newline has come out since it was written; a prompt after a refused line always follows the
+        // Enter's. A redraw is display: its prompt is skipped like any other, and it ends nothing.
+        promptRedraw = running && submittedAt !== null && !slice(submittedAt, mark.at).includes("\n");
+        if (promptRedraw) break;
         // A prompt while a command is out, with no finished mark before it: bash refused the line before
         // running it (a failed history expansion is the known case) and skipped PROMPT_COMMAND. The
         // command is over, and it has no status to report, because it never ran. Without this the
@@ -418,8 +462,21 @@ export function openSession({
       case "command-start":
         if (promptFrom !== null) addSkip(promptFrom, mark.end);
         promptFrom = null;
+        if (promptRedraw) {
+          promptRedraw = false;
+          break;
+        }
         atPrompt = true;
         promptOwed = false;
+        break;
+      case "command-executed":
+        // Everything between writing the agent's line and bash running it is display: the echo, every
+        // redraw of it, the Enter. Cut by position, so nothing has to recognise what readline drew.
+        if (running && !internalBusy && echoFrom !== null) {
+          addSkip(echoFrom, mark.end);
+          echoFrom = null;
+          echoCut = cmdToken;
+        }
         break;
       case "command-end":
         if (internalBusy) {
@@ -560,6 +617,8 @@ export function openSession({
     command = line;
     since = Date.now();
     lastOutputAt = Date.now();
+    submittedAt = bytes;
+    echoFrom = useMarks ? bytes : null;
     writeRaw(`${sent}\n`);
     maybeEmitState();
 
@@ -571,7 +630,11 @@ export function openSession({
     // submission actually used, so a newly observed mark cannot expose the fallback marker as output.
     const stop = !done ? bytes : useMarks ? endAt ?? bytes : hit ? hit.at : bytes;
     const resume = !done ? bytes : useMarks ? endCursor ?? bytes : hit ? hit.end : bytes;
-    const output = stripEcho(forAgent(Math.max(requested, ringStart), stop), sent, !useMarks);
+    // With a command-executed mark the echo is already cut. Without one (bash before 4.4, a line refused
+    // before it ran) it is recognised instead, with its carriage returns still in it (see `stripEcho`).
+    const from = Math.max(requested, ringStart);
+    const output = echoCut === token ? forAgent(from, stop) : clean(stripEcho(stripEscapes(rawFor(from, stop)), sent, !useMarks));
+    echoFrom = null;
     setCursor(consumer, resume);
     maybeEmitState();
     return {
@@ -751,7 +814,10 @@ export function openSession({
         cmdToken++;
         promptOwed = !atPrompt;
       }
-      if (submit) atPrompt = false;
+      if (submit) {
+        atPrompt = false;
+        submittedAt = bytes;
+      }
       writeRaw(submit ? `${text}\n` : text);
       maybeEmitState();
       await settle(settleMs);

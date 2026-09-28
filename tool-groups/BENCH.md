@@ -12,7 +12,7 @@ Suites: [`assembly-cost@1`](#suite-assembly-cost-v1), [`tool-recall@1`](#suite-t
 What a package costs the prompt before anything is retrieved: bytes by segment, how much of the prefix survives a turn, and how long assembly takes. No gold, no corpus, no adapter — any package with a step or a tool can opt in.
 
 7 tasks (2 of them controls), probe A.
-Generated 2026-09-24T13:05:34.669Z. Digest `sha256:69ba88895906…`.
+Generated 2026-09-28T12:04:04.555Z. Digest `sha256:8e586e30e12f…`.
 
 ### Compared
 
@@ -20,11 +20,11 @@ Only numbers every arm can produce appear here, and only those on which the arms
 
 | arm | bytes_system | bytes_tools | bytes_turn1 | bytes_last | prefix_stable | tools_n | steps_n | non_ascii_ratio |
 |---|---|---|---|---|---|---|---|---|
-| none | 1027 ±0 | 2 ±0 | 1166.7 ±21 | 1383.4 ±42.3 | 1.001 ±0 | 0 ±0 | 12 ±0 | 0 ±0 |
-| **thetis-tool-groups** | 1055 ±0 | 825 ±0 | 2017.7 ±20.6 | 2234.4 ±43 | 1.001 ±0 | 1 ±0 | 20 ±0 | 0 ±0 |
-| thetis-tool-groups-lexical | 1071 ±0 | 825 ±0 | 2033.7 ±21.7 | 2250.4 ±42.4 | 1.001 ±0 | 1 ±0 | 20 ±0 | 0 ±0 |
-| thetis-tool-groups-fusion | 1069 ±0 | 825 ±0 | 2031.7 ±21 | 2248.4 ±41.1 | 1.001 ±0 | 1 ±0 | 20 ±0 | 0 ±0 |
-| all | 2456.9 ±1.929 | 4428 ±3135.3 | 7022.6 ±3156.1 | 7239.3 ±3161.1 | 1 ±0 | 6.143 ±4.929 | 38 ±0 | 0.010 ±0 |
+| none | 1027 ±0 | 2 ±0 | 1166.7 ±21 | 1383.4 ±42.3 | 1.001 ±0 | 0 ±0 | 16 ±0 | 0 ±0 |
+| **thetis-tool-groups** | 1055 ±0 | 825 ±0 | 2017.7 ±20.6 | 2234.4 ±43 | 1.001 ±0 | 1 ±0 | 24 ±0 | 0 ±0 |
+| thetis-tool-groups-lexical | 1071 ±0 | 825 ±0 | 2033.7 ±21.7 | 2250.4 ±42.4 | 1.001 ±0 | 1 ±0 | 24 ±0 | 0 ±0 |
+| thetis-tool-groups-fusion | 1069 ±0 | 825 ±0 | 2031.7 ±21 | 2248.4 ±41.1 | 1.001 ±0 | 1 ±0 | 24 ±0 | 0 ±0 |
+| all | 2452.4 ±2.143 | 5276.3 ±3538.9 | 7866.4 ±3725.5 | 8083.1 ±3652.4 | 1 ±0 | 7.143 ±4.929 | 42 ±0 | 0.010 ±0 |
 
 ![assembly-cost@1 comparison](bench/assembly-cost-v1/chart.svg)
 
@@ -37,7 +37,7 @@ Paired per task, so the constant cost of the harness cancels. `w/t/l` counts the
 | thetis-tool-groups | 28 [28, 28] 7/0/0 | 823 [823, 823] 7/0/0 | 851 [851, 851] 7/0/0 | 851 [851, 851] 7/0/0 | 0 [0, 0] 0/7/0 | 1 [1, 1] 7/0/0 | 8 [8, 8] 7/0/0 | 0 [0, 0] 0/7/0 |
 | thetis-tool-groups-lexical | 44 [44, 44] 7/0/0 | 823 [823, 823] 7/0/0 | 867 [867, 867] 7/0/0 | 867 [867, 867] 7/0/0 | 0 [0, 0] 0/7/0 | 1 [1, 1] 7/0/0 | 8 [8, 8] 7/0/0 | 0 [0, 0] 0/7/0 |
 | thetis-tool-groups-fusion | 42 [42, 42] 7/0/0 | 823 [823, 823] 7/0/0 | 865 [865, 865] 7/0/0 | 865 [865, 865] 7/0/0 | 0 [0, 0] 0/7/0 | 1 [1, 1] 7/0/0 | 8 [8, 8] 7/0/0 | 0 [0, 0] 0/7/0 |
-| all | 1429.9 [1427.7, 1431.6] 7/0/0 | 4426 [1629.1, 7859.9] 7/0/0 | 5855.9 [3060.7, 9158.3] 7/0/0 | 5855.9 [3060.7, 9327.4] 7/0/0 | -0.001 [-0.001, -0.001] 0/0/7 | 6.143 [1.857, 11.7] 7/0/0 | 26 [26, 26] 7/0/0 | 0.010 [0.010, 0.010] 7/0/0 |
+| all | 1425.4 [1422.9, 1427.1] 7/0/0 | 5274.3 [2132.3, 9379.3] 7/0/0 | 6699.7 [3559.4, 10355.4] 7/0/0 | 6699.7 [3559.4, 10625] 7/0/0 | -0.001 [-0.001, -0.001] 0/0/7 | 7.143 [2.571, 12.4] 7/0/0 | 26 [26, 26] 7/0/0 | 0.010 [0.010, 0.010] 7/0/0 |
 
 ### Assembly latency
 
@@ -45,11 +45,11 @@ Absolute milliseconds are not committed: the fence opens lazily, the sandbox mod
 
 | arm | steps | assembly vs floor |
 |---|---|---|
-| none | 12 | floor |
-| thetis-tool-groups | 20 | not measured at 7 tasks |
-| thetis-tool-groups-lexical | 20 | not measured at 7 tasks |
-| thetis-tool-groups-fusion | 20 | not measured at 7 tasks |
-| all | 38 | not measured at 7 tasks |
+| none | 16 | floor |
+| thetis-tool-groups | 24 | not measured at 7 tasks |
+| thetis-tool-groups-lexical | 24 | not measured at 7 tasks |
+| thetis-tool-groups-fusion | 24 | not measured at 7 tasks |
+| all | 42 | not measured at 7 tasks |
 
 ### Conformance
 
@@ -69,7 +69,7 @@ Two reports are comparable only when these match.
 |---|---|
 | suite | assembly-cost@1 (sha256:9efc984d505f…) |
 | corpus | none |
-| arms | none; thetis-tool-groups (@thetis/tool-groups@0.2.1); thetis-tool-groups-lexical (@thetis/tool-groups@0.2.1); thetis-tool-groups-fusion (@thetis/tool-groups@0.2.1); all (@thetis/exa@0.1.0, @thetis/skills-all@0.1.0, @thetis/skills-hybrid@0.2.3, @thetis/skills-l1@0.1.0, @thetis/terminal@0.1.3, @thetis/tool-exec@0.3.2, @thetis/tool-groups@0.2.1, @thetis/tools-files@0.2.1, @thetis/tools-plan@0.3.1) |
+| arms | none; thetis-tool-groups (@thetis/tool-groups@0.2.1); thetis-tool-groups-lexical (@thetis/tool-groups@0.2.1); thetis-tool-groups-fusion (@thetis/tool-groups@0.2.1); all (@thetis/exa@0.1.1, @thetis/skills-all@0.1.1, @thetis/skills-hybrid@0.2.4, @thetis/skills-l1@0.1.1, @thetis/terminal@0.2.2, @thetis/tool-exec@0.4.2, @thetis/tool-groups@0.2.1, @thetis/tools-files@0.2.1, @thetis/tools-plan@0.3.1) |
 | model | none — this probe needs no model |
 | sandbox | auto |
 | scorer | @thetis/bench@0.4.1 |

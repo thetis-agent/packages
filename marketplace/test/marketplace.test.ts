@@ -63,8 +63,8 @@ test("refresh mirrors a registry and indexes its packages", async () => {
     const env = envAt(home);
     const index = await refresh(env, [{ name: "local", url: `file://${registry}` }]);
     assert.equal(index.registries.length, 1);
+    assert.equal(index.registries[0].error, undefined, "a refresh that failed says why before anything else is checked");
     assert.match(index.registries[0].commit ?? "", /^[0-9a-f]{40}$/);
-    assert.equal(index.registries[0].error, undefined);
     assert.deepEqual(index.packages.map((p) => p.name).sort(), ["@thetis/greet", "@thetis/memo"], "the plain directory is not a package, and a storage driver is never offered");
     const greet = index.packages.find((p) => p.name === "@thetis/greet")!;
     const commit = index.registries[0].commit!;

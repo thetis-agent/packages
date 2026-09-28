@@ -47,8 +47,9 @@ async function mirror(env: MirrorEnv, registry: Registry): Promise<string> {
   const dir = `${REPOS_DIR}/${slugOf(registry.url)}`;
   await run(env, `mkdir -p ${q(REPOS_DIR)} && ${mirrorCommand(registry.url, dir)}`);
   // The mirror checks out manifests alone. Widening the sparse set afterwards brings the READMEs down too, and
-  // only those: a partial clone fetches the blobs it now needs and nothing else.
-  await run(env, `git -C ${q(dir)} sparse-checkout add --no-cone '/*/README.md' '/*/*/README.md'`);
+  // only those: a partial clone fetches the blobs it now needs and nothing else. `add` keeps the non-cone mode
+  // `set` chose; git 2.54 refuses `--no-cone` on `add`, which failed every refresh on a current git.
+  await run(env, `git -C ${q(dir)} sparse-checkout add '/*/README.md' '/*/*/README.md'`);
   return (await run(env, `git -C ${q(dir)} rev-parse HEAD`)).trim();
 }
 
@@ -140,7 +141,7 @@ async function copyAssets(env: MirrorEnv, dir: string, wanted: { entry: IndexedP
   if (!wanted.length) return;
   const files = wanted.flatMap(({ entry, paths }) => paths.map((path) => `${entry.dir}/${path}`));
   try {
-    await run(env, `git -C ${q(dir)} sparse-checkout add --no-cone ${files.map((f) => q(`/${f}`)).join(" ")}`);
+    await run(env, `git -C ${q(dir)} sparse-checkout add ${files.map((f) => q(`/${f}`)).join(" ")}`);
   } catch {
     return;
   }

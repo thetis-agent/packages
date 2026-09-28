@@ -3,7 +3,7 @@
 // them runs for longer than a few seconds.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { openSession } from "../lib/session.js";
@@ -389,4 +389,36 @@ test("a subscriber sees the output as it arrives, with the offset it arrived at"
   assert.ok(seen.some((e) => e.text.includes("streamed")));
   assert.equal(seen[0].from, 0);
   for (const e of seen) assert.equal(typeof e.bytes, "number");
+});
+
+// Where readline wraps the input line depends on the prompt's width, which is the host's name and the
+// directory: CI's runner prompt wrapped where no developer's did, and each wrap drew the echo differently
+// (a re-printed character after `\r`, a cursor-up redraw with the prompt's marks, a `\r\n` when the prompt
+// alone fills the row). The echo is cut at the command-executed mark, so none of that reaches the agent,
+// and the redrawn prompt is not taken for a refused line. The prompt here is set in the rc, after
+// /etc/bash.bashrc, at every width that puts the line's end or the prompt's end on the margin.
+test("the echo never reaches the agent, wherever the prompt makes the line wrap", async (t) => {
+  const commands = [
+    "f() { printf 'before\\n'; return 7; printf 'after\\n'; }\nf",
+    'printf "%s\\n" "Failed!" | grep -E "Failed!|Passed!"',
+    'printf "first\\n"\nprintf "last\\n"; false',
+  ];
+  const want = [["before\n", 7], ["Failed!\n", 0], ["first\nlast\n", 1]];
+  const echoed = (c) => (c.includes("\n") ? `eval -- $'${c.replace(/[\\'\n]/g, (ch) => ({ "\\": "\\\\", "'": "\\'", "\n": "\\n" })[ch])}'` : c);
+  for (const [i, command] of commands.entries()) {
+    const width = echoed(command).length;
+    for (const prompt of new Set([80 - width - 1, 80 - width, 80 - width + 1, 79, 80].filter((n) => n >= 2))) {
+      const dir = await mkdtemp(resolve(tmpdir(), "thetis-term-"));
+      const rc = resolve(dir, "rc");
+      await writeFile(rc, `PS1='${"p".repeat(prompt - 2)}$ '\n`);
+      const session = openSession({ id: `w${i}_${prompt}`, cwd: dir, runDir: dir, rc, cols: 80, env: { TERM: "xterm-256color" } });
+      try {
+        const result = await session.run(command, { consumer: "conv" });
+        assert.deepEqual([result.output, result.exit, result.rejected], [...want[i], false], `prompt ${prompt} wide, command ${i}`);
+      } finally {
+        await session.close();
+        await rm(dir, { recursive: true, force: true });
+      }
+    }
+  }
 });
