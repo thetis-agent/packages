@@ -1,5 +1,5 @@
 // Optional Chromium check of the Extensions place, an extension's page and the "Updates ready" card over the real gateway
-// page, the way packages/effort/test/browser.mjs does it: every asset comes from disk through Playwright's
+// page, the way packages/harness-core/test/effort-browser.mjs does it: every asset comes from disk through Playwright's
 // router, every API answer is this file's, and no daemon or provider is touched. It is not part of `npm test`.
 // Run it with THETIS_PLAYWRIGHT_MODULE and THETIS_CHROMIUM_EXECUTABLE set, as gateway-web's BROWSER.md
 // describes; THETIS_BROWSER_ARTIFACTS names a directory for screenshots.

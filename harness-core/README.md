@@ -6,7 +6,7 @@ The kernel runs no step of its own: without a package that declares a step in th
 
 ## What it provides
 
-Six pipeline steps, declared in `thetis.steps`:
+Seven pipeline steps, declared in `thetis.steps`:
 
 | Step id | Phase | Export | What it does |
 |---|---|---|---|
@@ -14,10 +14,11 @@ Six pipeline steps, declared in `thetis.steps`:
 | `turn-context` | `history` | `turnContext` | Ends the turn's input message with `[Turn context: Monday 2026-09-21 20:40 Europe/Berlin]`, once. The line is saved with the conversation, so a later turn re-sends the message byte for byte and the prefix stays cached; the system prompt carries no clock. The web transcript hides the line; `skill_search` and the loader's ranking strip it from the query. |
 | `system-prompt` | `prompt` | `systemPrompt` | Appends the guide to `call.system`: the user and the home, what is reachable, file tools against shell, the working style; one extra line when the session has a parent. The skills loader announces the skills, since it knows whether there are any. Nothing of the person's: no `THETIS.md`, no `harness.notes`, no package list, no session id. |
 | `attach-tools` | `tools` | `attachTools` | Adds every tool declared by every installed package to `call.tools`. The first package with a given tool name wins. A tool with no `parameters` gets `{ type: "object", properties: {} }`. |
+| `apply-effort` | `call` | `applyEffort` | Writes the conversation's reasoning effort to `call.params.reasoning`: `{ effort }` for a level, `{ enabled: false }` for Off. Nothing when there is no choice, or when the model list says the model does not think. See "Reasoning effort". |
 | `call` | `execute` | `callModel` | The loop. Sends `call` through `kernel.providers.call`, streams `text`, `reasoning`, `tool.call` and `usage` as they come, appends the assistant message (`message`, with the usage), runs each tool call in this fence, appends the `tool` message to both the conversation and `call.messages`, and calls again until the model answers without tool calls; before each call after the first, asks whether a drain is pending (see "Drain") and offers the round to the package `call.hints.beforeRound` names (see "Between rounds"). Sends a failed round again when asking again could help (see "The round retry"). Watches a tool's silence and asks about it (`stall`, `nudge`); reports a model's silence. Returns `{ conversation, call }`. |
 | `record-call` | `after` | `recordCall` | Preserves the latest call summary from `callModel` in `harness["@thetis/harness-core"].lastCall`; provides a legacy summary if another execute step made the call. |
 
-One service, `resumer` (`thetis.service`), which continues cut turns when the space starts; see "Resume". One UI command, `retry-now` (`thetis.ui.commands`, export `uiRetryNow`), which the web page's "Retry now" button calls while a round waits to be sent again. No tools, no UI files, no bench suites.
+One service, `resumer` (`thetis.service`), which continues cut turns when the space starts; see "Resume". Four UI commands (`thetis.ui.commands`): `retry-now` (export `uiRetryNow`), which the web page's "Retry now" button calls while a round waits to be sent again, and the three the Effort pill sends (see "Reasoning effort"). One page file, `ui/index.js` with `ui/index.css`: the Effort pill, in the composer slot `effort`. No tools, no bench suites.
 
 ### The loop
 
@@ -143,6 +144,28 @@ The question is a separate, tiny provider call. It carries **one** message and o
 
 By default the question goes to the turn's own model, which is the one that knows what the work is for. Set `nudgeModel` to a small fast model when the turn runs on a slow or expensive one.
 
+## Reasoning effort
+
+How hard the model thinks, chosen per conversation. This was `@thetis/effort` until 0.6.0; it is a parameter of the call this package makes, so it lives here now. Its files did not move, so a choice made before the merge still holds.
+
+| Piece | Where | What |
+|---|---|---|
+| `applyEffort` | step `apply-effort`, phase `call` | Reads the conversation's choice and writes `call.params.reasoning`. Nothing when there is no choice, or when the fence's model list says the model does not think. |
+| `effort-state` | UI command, export `uiEffortState` | The conversation's own choice, the remembered one, and what the step would send. |
+| `effort-set` | UI command, export `uiEffortSet` | Records a choice. `effort: ""` means the default again. `remember: false` leaves the remembered choice alone. |
+| `effort-models` | UI command, export `uiEffortModels` | The default model and, for every model that thinks, its reasoning descriptor from `kernel.models()`. |
+| the pill | `ui/index.js`, `composer` slot `effort` | Beside the model picker. Hidden for a model that does not think. The list is cut to the efforts the model accepts, and **Off** is left out when its thinking is mandatory. |
+
+The efforts are OpenRouter's: `max`, `xhigh`, `high`, `medium`, `low`, `minimal`, and `none` (Off). A level the model does not take is mapped by OpenRouter to the nearest one it does; `none` on a model whose thinking is mandatory is refused by OpenRouter with its own sentence, which the turn reports as its error. The step does not second-guess the provider: the page hides what the model rejects, and the request carries what was asked.
+
+`call.params` is spread over the request body after the provider's `defaults`, so a choice made here wins over a deployment-wide `"reasoning": { "effort": "medium" }`. No choice means the deployment's default, or the model's own.
+
+The pill needs each model's `reasoning` descriptor on `kernel.models()`: `{ mandatory, defaultEnabled?, defaultEffort?, supportedEfforts?, supportsMaxTokens? }`. `@thetis/provider-openrouter` carries it from OpenRouter's model listing. A provider that lists no descriptor hides the pill for its models, and the step sends nothing for them.
+
+Two files under `effort/` in the person's home, written only by these commands: `sessions.json` (session id to effort) and `prefs.json` (`{ "default": "<effort>" }`, the choice made last, which a conversation without a choice of its own inherits). Choosing **Default** clears both, as the model picker's **Default** does.
+
+**Moving from `@thetis/effort`.** Its files are gone from the checkout, so a workspace that had it installed keeps a record of nothing: the package is skipped, and the daemon logs `@thetis/effort is recorded for <id> but its files are missing` until the record goes. `thetis uninstall @thetis/effort --user <id>` removes it, for each person who has it (`thetis packages list --user <id>` says who); uninstall works without the files. A promoted copy or a fork of it still runs its own step beside this one, and both write the same `reasoning` from the same files.
+
 ## The turn context line
 
 This package owns the line and its stripper. `TURN_CONTEXT` is the regex that matches it as a suffix (`/\n\n\[Turn context: [^\n\]]*\]$/`) and `withoutTurnContext(text)` takes it off. Anything that shows the person their own words, or matches on them, imports them from here: the web gateway strips it from the sidebar titles and previews, the skills packages from the ranking query. Code that must not depend on this package (a provider fixture, a browser file) copies the regex and says so.
@@ -191,18 +214,22 @@ thetis sessions show --user alice --session <id>
 
 | File | Content |
 |---|---|
-| `package.json` | The manifest: six steps, the `resumer` service, the `retry-now` UI command, and the configuration keys. |
+| `package.json` | The manifest: seven steps, the `resumer` service, the four UI commands, the `effort` composer slot, and the configuration keys. |
 | `src/index.ts` | `turnContext`, `systemPrompt`, `attachTools`, `callModel` with the round retry and the drain, `recordCall`, the nudge (`NUDGE_DEFAULTS`, `nudgeConfig`, `readDecision`, `cancelledToolResult`, `fmtMs`), the guide text, the `LastCall` type, `TURN_CONTEXT` and `withoutTurnContext`; re-exports the three below. |
 | `src/retry.ts` | The retry policy: `RETRY_DEFAULTS`, `retryConfig`, `classify`, `kindFromMessage`, `backoffMs`, the retry-now file and `backoffWait`, `withLongerLimit` and the output-limit note, and the `uiRetryNow` command. |
 | `src/resume.ts` | The marks (`marksOf`, `mark`), the `resumeTurn` step, and `unrun`, which finds the tool calls a resume runs. |
 | `src/resumer.ts` | The `resumer` service: `RESUME_DEFAULTS`, `resumerConfig`, `resumable`, `pick`, `resumeOnce`. |
+| `src/effort.ts` | The reasoning effort: `EFFORTS`, the two files (`effortOf`, `setEffort`, `readEffortSessions`, `readRememberedEffort`), `reasoningFor`, the `applyEffort` step and the three commands. |
+| `ui/index.js`, `ui/index.css` | The Effort pill. Built with `ext.dom.el`; the `.ef-` rules draw it from the shell's tokens. No inline style: the page's CSP forbids it. |
 | `src/round.ts` | The round hook's shapes: `RoundHookRefSchema` (the hint), `RoundHookArgs`, `RoundHookResult` and the lenient `RoundHookResultSchema` the answer is read with. |
 | `test/harness.test.ts` | The five steps over a fake context; the loop over a scripted provider, a recording `invokeTool` and a fake package list: withheld tool honoured, unknown tool refused, cancel mid-stream and between tool calls, provider failure, a tool that throws; the round hook called from round 2 with the live state, a throwing hook logged and the turn completing, no hint meaning no call. |
 | `test/nudge.test.ts` | The nudge, on the shipped numbers scaled down by about a thousand: a quiet tool asked about and continued, a tool the model cancels, the three unanswerable cases, a quiet stream reported and never asked about, the person's stop winning over a question in flight, a watcher whose events nobody will accept, and the guarantee table. |
+| `test/effort.test.ts` | The effort step and commands over a temporary home: no choice changes nothing, a level and Off, a model that does not think, a model the list does not know or a failing list, the remembered choice and Default, a word that is not an effort, a hand-edited file with junk in it. |
+| `test/effort-browser.mjs` | The pill in Chromium over the real gateway page with a routed fake API. Not part of `npm test`; run it with `THETIS_PLAYWRIGHT_MODULE` and `THETIS_CHROMIUM_EXECUTABLE` set, as `packages/gateway-web/test/BROWSER.md` describes. |
 | `test/retry.test.ts` | The round retry over a scripted provider: a cut round resent byte for byte, no tool run twice, retries running out with the marks and a labelled error, what is never resent, the once-only cases, the output-limit retry, Retry-After and the budget, a stop during a wait, retry-now; the resume step and the `notRun` tools; the drain; the resumer's choice, its two lanes and its skips. |
 
 ## Tests
 
-`npm test` from the runtime root builds every package and runs `test/harness.test.ts`, `test/nudge.test.ts` and `test/retry.test.ts` with `node --test`.
+`npm test` from the runtime root builds every package and runs `test/harness.test.ts`, `test/nudge.test.ts`, `test/retry.test.ts` and `test/effort.test.ts` with `node --test`.
 
 `test/nudge.test.ts` ends in a table with one fixture per wait a turn can make, each arranged so that the wait never ends by itself: a model call only its provider's stall bound ends, every time; the stream after it has said something; a tool; a tool that ignores its signal; the read of a tool package's configuration; the question itself; and all of them at once. Every fixture asserts the same things. The turn ended. It kept what it had already done. It said out loud what was cancelled or abandoned and why, and a model's silence was sent again until the retries ran out. Every tool `stall` it emitted has a matching `nudge`, so no wait was left open, and no model `stall` was ever asked about. Every tool call in the returned conversation has an answer, so the next turn is not refused. Adding a new wait to this step means adding a row to that table.

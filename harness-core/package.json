@@ -1,8 +1,8 @@
 {
   "name": "@thetis/harness-core",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "license": "MIT",
-  "description": "The default harness: the system prompt, the turn context line, every installed tool attached to the call, the loop that sends it and runs the tools, the round retry, and the resume of turns a restart or an apply cut short.",
+  "description": "The default harness: the system prompt, the turn context line, every installed tool attached to the call, the reasoning effort chosen per conversation, the loop that sends it and runs the tools, the round retry, and the resume of turns a restart or an apply cut short.",
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": {
@@ -52,6 +52,11 @@
         "export": "attachTools"
       },
       {
+        "id": "apply-effort",
+        "phase": "call",
+        "export": "applyEffort"
+      },
+      {
         "id": "call",
         "phase": "execute",
         "export": "callModel"
@@ -66,11 +71,37 @@
       "export": "resumer"
     },
     "ui": {
+      "dir": "ui",
+      "entry": "index.js",
+      "style": "index.css",
+      "composer": [
+        {
+          "id": "effort",
+          "label": "Effort",
+          "hint": "How hard the model thinks in this conversation",
+          "order": 110
+        }
+      ],
       "commands": [
         {
           "verb": "retry-now",
           "export": "uiRetryNow",
           "label": "Send a failed model request again now, without waiting for the rest of the pause"
+        },
+        {
+          "verb": "effort-state",
+          "export": "uiEffortState",
+          "label": "Read the effort chosen for a conversation"
+        },
+        {
+          "verb": "effort-set",
+          "export": "uiEffortSet",
+          "label": "Choose the effort for a conversation"
+        },
+        {
+          "verb": "effort-models",
+          "export": "uiEffortModels",
+          "label": "List which efforts each model accepts"
         }
       ]
     }

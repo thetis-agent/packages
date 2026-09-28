@@ -1,11 +1,12 @@
-/* The browser side of @thetis/effort: a pill in the composer's tools row, beside the model picker, that
- * says how hard the model thinks in the open conversation and opens a list to change it. The list is
- * cut to what the conversation's model accepts: `effort-models` answers each thinking model's reasoning
- * descriptor once per page, the conversation's model comes from `ext.sessions` (the shell keeps it on
- * each session) or the default the same answer names, and a model with no descriptor does not think, so
- * the pill hides rather than offer a choice that changes nothing. "Off" is left out for a model whose
- * thinking is mandatory. Everything is built with `ext.dom.el`; the `.ef-` rules in index.css draw it
- * from the shell's tokens. No inline style: the page's CSP forbids it. */
+/* The browser side of the reasoning effort (once @thetis/effort, part of the harness since 0.6.0): a pill
+ * in the composer's tools row, beside the model picker, that says how hard the model thinks in the open
+ * conversation and opens a list to change it. The list is cut to what the conversation's model accepts:
+ * `effort-models` answers each thinking model's reasoning descriptor once per page, the conversation's
+ * model comes from `ext.sessions` (the shell keeps it on each session) or the default the same answer
+ * names, and a model with no descriptor does not think, so the pill hides rather than offer a choice that
+ * changes nothing. "Off" is left out for a model whose thinking is mandatory. Everything is built with
+ * `ext.dom.el`; the `.ef-` rules in index.css draw it from the shell's tokens. No inline style: the page's
+ * CSP forbids it. */
 
 const STATE = "effort-state";
 const SET = "effort-set";

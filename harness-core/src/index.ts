@@ -21,6 +21,8 @@ export type { Failure, FailureKind, FailureLabel, RetryConfig, Verdict } from ".
 export { marksOf, resumeTurn } from "./resume.js";
 export type { Marks } from "./resume.js";
 export { AUTO_RESUME_WHY, RESUME_DEFAULTS, pick, resumable, resumeOnce, resumer, resumerConfig } from "./resumer.js";
+export { EFFORTS, applyEffort, effortOf, effortPrefsPath, effortSessionsPath, isEffort, readEffortSessions, readRememberedEffort, reasoningFor, setEffort, uiEffortModels, uiEffortSet, uiEffortState } from "./effort.js";
+export type { Effort } from "./effort.js";
 
 /** The key this package keeps its per-session state under; other packages read it by name. */
 const NAME = "@thetis/harness-core";

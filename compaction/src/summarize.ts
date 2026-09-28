@@ -37,7 +37,7 @@ export function instructionsWith(focus?: string): string {
  * one new summary. `hints.context` is false so the harness's context recorder does not take this side
  * call for the conversation's own; `tool_choice: "none"` because the tools are re-sent only for the cache.
  * Its output budget is its own (`summaryMaxTokens`), not the conversation's. With `summaryReasoning` off it
- * asks the model not to think, `reasoning: { enabled: false }` (the form `@thetis/effort` sends): all the
+ * asks the model not to think, `reasoning: { enabled: false }` (the form the Effort pill's Off sends): all the
  * budget goes to the summary, at the price the manifest's help states.
  */
 export function summaryRequest(conversation: Message[], state: CompactionState, cut: number, call: ProviderCall, config: Config, focus?: string): ProviderCall {

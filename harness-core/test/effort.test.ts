@@ -1,13 +1,13 @@
-// The step and the commands over a fake fence environment: a temporary home with readFile and
-// writeFile relative to it, as the userspace agent gives them, and a kernel whose model list is what
-// the test says.
+// The reasoning effort (once @thetis/effort): the step and the commands over a fake fence environment,
+// a temporary home with readFile and writeFile relative to it, as the userspace agent gives them, and a
+// kernel whose model list is what the test says.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
-import { applyEffort, reasoningFor, uiModels, uiSet, uiState } from "../index.js";
-import { effortOf, setEffort } from "../lib/store.js";
+import type { PackageStepContext, StepResult, UiCommandEnv } from "@thetis/runtime/contracts";
+import { applyEffort as applyStep, effortOf, reasoningFor, setEffort, uiEffortModels, uiEffortSet, uiEffortState } from "../src/index.js";
 
 const MODELS = {
   model: "vendor/thinker",
@@ -18,25 +18,34 @@ const MODELS = {
   ],
 };
 
-async function makeEnv({ session, models = MODELS } = {}) {
+// The fakes carry only what these exports read; the casts say so once instead of at every call.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type Env = UiCommandEnv & { readFile(p: string): Promise<string>; writeFile(p: string, c: string): Promise<void> };
+
+async function makeEnv({ session, models = MODELS as unknown }: { session?: string; models?: unknown } = {}): Promise<{ env: Env; done: () => Promise<void> }> {
   const home = await mkdtemp(resolve(tmpdir(), "effort-home-"));
   const env = {
     cwd: home,
     user: "alice",
     role: "user",
     session,
-    readFile: (p) => readFile(resolve(home, p), "utf8"),
-    writeFile: async (p, content) => {
+    readFile: (p: string) => readFile(resolve(home, p), "utf8"),
+    writeFile: async (p: string, content: string) => {
       const file = resolve(home, p);
       await mkdir(dirname(file), { recursive: true });
       await writeFile(file, content);
     },
     kernel: { models: async () => { if (models instanceof Error) throw models; return models; } },
-  };
+  } as unknown as Env;
   return { env, done: () => rm(home, { recursive: true, force: true }) };
 }
 
-const ctxFor = (env, session, model = "vendor/thinker", params = {}) => ({ session: { id: session, user: "alice" }, call: { model, system: "", tools: [], messages: [], params }, harness: {}, env });
+const ctxFor = (env: Env, session: string, model = "vendor/thinker", params: Record<string, unknown> = {}) =>
+  ({ session: { id: session, user: "alice" }, call: { model, system: "", tools: [], messages: [], params }, harness: {}, env }) as unknown as PackageStepContext;
+const applyEffort = (ctx: PackageStepContext) => applyStep(ctx) as Promise<(StepResult & { call: any }) | undefined>;
+const uiState = async (args: Record<string, unknown>, env: Env) => (await uiEffortState(args, env)) as { data: any };
+const uiSet = async (args: Record<string, unknown>, env: Env) => (await uiEffortSet(args, env)) as { data: any };
+const uiModels = async (args: Record<string, unknown>, env: Env) => (await uiEffortModels(args, env)) as { data: any };
 
 test("reasoningFor: a level is an effort, none is enabled false, nothing is nothing", () => {
   assert.deepEqual(reasoningFor("high"), { effort: "high" });
@@ -55,7 +64,7 @@ test("a choice becomes call.params.reasoning, keeping the other params", async (
   const { env, done } = await makeEnv();
   await setEffort(env, "s_1", "low");
   const out = await applyEffort(ctxFor(env, "s_1", "vendor/thinker", { temperature: 0.2 }));
-  assert.deepEqual(out.call.params, { temperature: 0.2, reasoning: { effort: "low" } });
+  assert.deepEqual(out!.call.params, { temperature: 0.2, reasoning: { effort: "low" } });
   await done();
 });
 
@@ -63,7 +72,7 @@ test("Off is enabled: false", async () => {
   const { env, done } = await makeEnv();
   await setEffort(env, "s_1", "none");
   const out = await applyEffort(ctxFor(env, "s_1"));
-  assert.deepEqual(out.call.params.reasoning, { enabled: false });
+  assert.deepEqual(out!.call.params.reasoning, { enabled: false });
   await done();
 });
 
@@ -77,11 +86,11 @@ test("a model the list says does not think gets nothing, whatever was chosen", a
 test("a model the list does not know, or a failing list, does not block the choice", async () => {
   const known = await makeEnv();
   await setEffort(known.env, "s_1", "high");
-  assert.deepEqual((await applyEffort(ctxFor(known.env, "s_1", "vendor/unlisted"))).call.params.reasoning, { effort: "high" });
+  assert.deepEqual((await applyEffort(ctxFor(known.env, "s_1", "vendor/unlisted")))!.call.params.reasoning, { effort: "high" });
   await known.done();
   const failing = await makeEnv({ models: new Error("no provider") });
   await setEffort(failing.env, "s_1", "high");
-  assert.deepEqual((await applyEffort(ctxFor(failing.env, "s_1"))).call.params.reasoning, { effort: "high" });
+  assert.deepEqual((await applyEffort(ctxFor(failing.env, "s_1")))!.call.params.reasoning, { effort: "high" });
   await failing.done();
 });
 

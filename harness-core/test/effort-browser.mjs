@@ -52,12 +52,12 @@ test("the pill shows for a thinking model, lists what it accepts, records a choi
     try {
       const url = new URL(route.request().url());
       const pathname = url.pathname;
-      if (pathname.includes("/ext/@thetis/effort/") && !pathname.includes("/api/")) {
-        const file = pathname.split("/ext/@thetis/effort/")[1];
+      if (pathname.includes("/ext/@thetis/harness-core/") && !pathname.includes("/api/")) {
+        const file = pathname.split("/ext/@thetis/harness-core/")[1];
         return route.fulfill({ body: await readFile(join(UI, file)), contentType: TYPES[extname(file)] });
       }
-      if (pathname.includes("/api/ext/@thetis/effort/")) {
-        const verb = pathname.split("/api/ext/@thetis/effort/")[1];
+      if (pathname.includes("/api/ext/@thetis/harness-core/")) {
+        const verb = pathname.split("/api/ext/@thetis/harness-core/")[1];
         const body = route.request().postDataJSON() ?? {};
         if (verb === "effort-models") return route.fulfill({ json: { data: { model: MODELS.model, reasoning: REASONING } } });
         if (verb === "effort-state") return route.fulfill({ json: { data: { session: body.session, effort: state[body.session] ?? null, remembered: null, effective: state[body.session] ?? null } } });
@@ -72,7 +72,7 @@ test("the pill shows for a thinking model, lists what it accepts, records a choi
         if (api === "me") return route.fulfill({ json: { user: "review", role: "admin" } });
         if (api === "restart") return route.fulfill({ json: { pending: null, readable: true } });
         if (api === "models") return route.fulfill({ json: MODELS });
-        if (api === "ui") return route.fulfill({ json: { extensions: [{ package: "@thetis/effort", entry: "index.js", style: "index.css", composer: [{ id: "effort", label: "Effort", order: 110 }], commands: ["effort-state", "effort-set", "effort-models"] }], refused: [] } });
+        if (api === "ui") return route.fulfill({ json: { extensions: [{ package: "@thetis/harness-core", entry: "index.js", style: "index.css", composer: [{ id: "effort", label: "Effort", order: 110 }], commands: ["retry-now", "effort-state", "effort-set", "effort-models"] }], refused: [] } });
         if (api === "sessions") return route.fulfill({ json: sessions });
         const one = sessions.find((s) => api === `sessions/${s.id}`);
         if (one) return route.fulfill({ json: { ...one, conversation: [{ role: "user", content: "q" }, { role: "assistant", content: "a" }], children: [], usage: {}, turn: null } });

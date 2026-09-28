@@ -166,8 +166,7 @@ The shell draws the header and the close button. `open` returns an unmount funct
 | `@thetis/compaction` | The `ctx` chip, the Compaction dock and the transcript card of a compaction. |
 | `@thetis/projects` | The sidebar head switcher and the Project place. |
 | `@thetis/canvases` | The **Canvases** section above the conversations and the canvas tab: boards of HTML artboards the model makes with the `canvas_*` tools, shown in sandboxed frames. |
-| `@thetis/effort` | The Effort pill beside the model picker (`composer` slot). Commands `effort-state`, `effort-set`, `effort-models`. |
-| `@thetis/harness-core` | No page files. The command `retry-now`, which the transcript's **Retry now** sends while a round waits to be sent again. |
+| `@thetis/harness-core` | The Effort pill beside the model picker (`composer` slot `effort`) and its commands `effort-state`, `effort-set`, `effort-models`; the command `retry-now`, which the transcript's **Retry now** sends while a round waits to be sent again. |
 
 The gateway itself draws the failure row with **Retry** or **Continue** (`POST /api/sessions/<id>/resume`), the retry row, the "Resumed after…" divider, the reconnect loop, and the restart countdown every person sees.
 
