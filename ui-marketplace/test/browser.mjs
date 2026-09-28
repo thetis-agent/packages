@@ -289,7 +289,11 @@ test("the card, the store and an extension's page, and Update all through a drop
 test("an admin: one card per family, the other versions, and For everyone", async () => {
   const { FIXTURES } = await import("./state-fixtures.js");
   const { familyOf } = await import("../lib/state.js");
-  const { rows: all, user } = FIXTURES.bitmuse;
+  const { rows: fixture, user } = FIXTURES.bitmuse;
+  // Three parts of Thetis bitmuse does not have: two skill loaders nobody runs, and the model provider the whole
+  // installation runs. Each part's card says whether it runs.
+  const part = (name, type, extra = {}) => ({ ...installedRow(sys(name, type, { everyone: false, everyoneBy: undefined }), false), component: true, ...extra });
+  const all = [...fixture, part("@thetis/skills-l1", "loader"), part("@thetis/skills-all", "loader"), part("@thetis/provider-openrouter", "provider", { hostInstalled: true })];
   const context = await browser.newContext({ viewport: { width: 1300, height: 900 } });
   const page = await context.newPage();
   page.setDefaultTimeout(5000);
@@ -365,7 +369,7 @@ test("an admin: one card per family, the other versions, and For everyone", asyn
     await page.locator("#place .mk-store #mk-installed").waitFor();
     await page.locator('#place [data-chip="needsSetup"]').first().waitFor();
     const titles = await page.locator("#place .mk-section-title").allInnerTexts();
-    assert.deepEqual(titles, ["Needs your attention (5)", "Installed (4)", "Discover (2)", "Part of Thetis (1)"], "no Drafts: the folder copies of Notion are in its card");
+    assert.deepEqual(titles, ["Needs your attention (5)", "Installed (4)", "Discover (2)", "Part of Thetis (4)"], "no Drafts: the folder copies of Notion are in its card");
     assert.deepEqual(await page.locator("#place .mk-todo").evaluateAll((n) => n.map((r) => [r.dataset.kind, r.querySelector(".btn").textContent])), [["update", "Update"], ["setup", "Set up"], ["setup", "Set up"], ["optional", "Set up"], ["review", "Review"]], "the same order on every load");
     assert.equal(await page.locator("#place #mk-attention .mk-section-head .btn").innerText(), "Update 1", "the copy behind Thetis's version is never counted");
     assert.equal(await page.locator("#place .mk-update-note").innerText(), "Your own copies are not touched.");
@@ -373,7 +377,18 @@ test("an admin: one card per family, the other versions, and For everyone", asyn
     const copy = page.locator('#place #mk-installed .mk-card[data-name="@bitmuse/tool-exec"]');
     assert.equal(await copy.locator(".mk-card-label").innerText(), "Extensions and Helper Chats");
     assert.deepEqual(await copy.locator(".badge").allInnerTexts(), ["Customized"]);
+    await page.locator("#place #mk-thetis > summary").click();
+    const parts = await page.locator("#place #mk-thetis .mk-card").evaluateAll((n) => n.map((c) => [c.dataset.name, [...c.querySelectorAll(".badge")].map((b) => b.textContent)]));
+    assert.deepEqual(
+      Object.fromEntries(parts),
+      { "@thetis/gateway-web": ["Enabled", "Update available"], "@thetis/skills-l1": ["Disabled"], "@thetis/skills-all": ["Disabled"], "@thetis/provider-openrouter": ["Enabled"] },
+      "every part says whether it runs: for bitmuse, for the whole installation, or not at all"
+    );
     if (shots) await page.screenshot({ path: join(shots, "market-admin-store.png"), fullPage: true });
+    if (shots) {
+      await page.locator("#place #mk-thetis").scrollIntoViewIfNeeded();
+      await page.locator("#place #mk-thetis").screenshot({ path: join(shots, "market-admin-parts.png") });
+    }
 
     // The shared Notion: by you, the neutral setup, its other versions, and how it came to be everyone's.
     await page.locator('#place #mk-installed .mk-card[data-name="@thetis/notion"]').click();

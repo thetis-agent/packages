@@ -25,14 +25,20 @@
 // `FILTERS`, `PILLS`, `SYNONYMS`, `WORDS`, `PART_SUMMARIES`), so a second surface can read the same rules
 // rather than restate them.
 
-/** The four chips, in the order they are shown. `tone` is the shell's badge tone: err is red, warn amber, dim neutral, accent blue. */
+/**
+ * The chips, in the order they are shown. `tone` is the shell's badge tone: ok is green, err red, warn amber,
+ * dim neutral, accent blue. Enabled and Disabled are only on Thetis's own parts, which a person cannot tell
+ * apart otherwise; an extension of their own is in Installed or Discover, and that says it.
+ */
 export const CHIPS = Object.freeze({
+  enabled: Object.freeze({ id: "enabled", label: "Enabled", tone: "ok", tooltip: "It runs, for you or for the whole installation." }),
+  disabled: Object.freeze({ id: "disabled", label: "Disabled", tone: "dim", tooltip: "It does not run, for you or for the whole installation." }),
   needsSetup: Object.freeze({ id: "needsSetup", label: "Needs setup", tone: "err", tooltip: "Something must be set before it works. Open it to set it up." }),
   updateAvailable: Object.freeze({ id: "updateAvailable", label: "Update available", tone: "warn", tooltip: "A newer version is ready. Updating keeps your settings." }),
   customized: Object.freeze({ id: "customized", label: "Customized", tone: "dim", tooltip: "You are using your own changed copy instead of the official one." }),
   forEveryone: Object.freeze({ id: "forEveryone", label: "For everyone", tone: "accent", tooltip: "An admin gives this to every person." }),
 });
-export const CHIP_ORDER = Object.freeze(["needsSetup", "updateAvailable", "customized", "forEveryone"]);
+export const CHIP_ORDER = Object.freeze(["enabled", "disabled", "needsSetup", "updateAvailable", "customized", "forEveryone"]);
 export const MAX_CHIPS = 2;
 
 /**
@@ -245,6 +251,16 @@ export function runsInsideThetis(row) {
   if (!row) return false;
   if (INSIDE.types.includes(row.type)) return true;
   return !row.installed && INSIDE.whenNotInstalled.includes(row.type);
+}
+
+/**
+ * Whether one of Thetis's parts runs: the host loads its own packages and the storage driver itself, and any
+ * other part runs where it is installed -- for this person (`installed`), or for the whole installation
+ * (`hostInstalled`, which only an admin's rows carry).
+ */
+export function isEnabled(row) {
+  if (!row) return false;
+  return INSIDE.types.includes(row.type) || !!row.installed || !!row.hostInstalled;
 }
 
 /** The kinds an extension brings, in `KINDS` order: ["Tools", "Page"]. */
@@ -555,7 +571,7 @@ export const isGiven = (row, user = "") => !!row && ((!!row.everyone && !row.own
  * "You", "Your admin").
  *
  * Answers `{ chips, attention, reason, tone, waiting, update, behind, setup, todo }`: `chips` at most two in
- * `CHIP_ORDER`; `attention` Needs setup or Update available on something installed; `reason` one sentence for
+ * `CHIP_ORDER`, and on one of Thetis's parts the first is always Enabled or Disabled; `attention` Needs setup or Update available on something installed; `reason` one sentence for
  * the banner, or "", in `tone` (err, warn or dim); `waiting` the grey line a non-admin reads instead of an
  * admin's problem; `todo` the "Needs your attention" row -- `{ kind, tone, action, reason }` with kind
  * `update` [Update], `setup` [Set up], `optional` (something given to them that needs their own setting, in
@@ -568,6 +584,8 @@ export function stateOf(row, ctx = {}) {
   const update = updateOf(row);
   const behind = behindOf(row, ctx);
   const on = {
+    enabled: !!row?.component && isEnabled(row),
+    disabled: !!row?.component && !isEnabled(row),
     needsSetup: setup.chip,
     updateAvailable: !!update,
     customized: !!row?.installed && isCustomized(row) && !isVariant(row, ctx.origin),

@@ -37,11 +37,11 @@ test("state: the chips every reader sees on every fixture row, at most two and i
       assert.deepEqual(s.chips.map((c) => c.label), chips, `${who} on ${name}`);
       assert.ok(s.chips.length <= state.MAX_CHIPS);
       const order = s.chips.map((c) => CHIP_ORDER.indexOf(c.id));
-      assert.deepEqual(order, [...order].sort((a, b) => a - b), "Needs setup, Update available, Customized, For everyone");
+      assert.deepEqual(order, [...order].sort((a, b) => a - b), "Enabled or Disabled, Needs setup, Update available, Customized, For everyone");
     }
   }
   // Each chip carries its tooltip and tone, and nothing else is ever a chip.
-  assert.deepEqual(Object.values(CHIPS).map((c) => [c.label, c.tone]), [["Needs setup", "err"], ["Update available", "warn"], ["Customized", "dim"], ["For everyone", "accent"]]);
+  assert.deepEqual(Object.values(CHIPS).map((c) => [c.label, c.tone]), [["Enabled", "ok"], ["Disabled", "dim"], ["Needs setup", "err"], ["Update available", "warn"], ["Customized", "dim"], ["For everyone", "accent"]]);
   assert.equal(CHIPS.needsSetup.tooltip, "Something must be set before it works. Open it to set it up.");
   assert.equal(CHIPS.updateAvailable.tooltip, "A newer version is ready. Updating keeps your settings.");
   assert.equal(CHIPS.customized.tooltip, "You are using your own changed copy instead of the official one.");

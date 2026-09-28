@@ -36,14 +36,16 @@ export const MARKETPLACE_ID = "marketplace";
 
 // ---- the fallback: what this list says without the Extensions place ----
 
-/** The four chips, in the order they are shown, each with its tone and tooltip: the place's words. */
+/** The chips, in the order they are shown, each with its tone and tooltip: the place's words. */
 export const CHIPS = Object.freeze({
+  enabled: Object.freeze({ id: "enabled", label: "Enabled", tone: "ok", tooltip: "It runs, for you or for the whole installation." }),
+  disabled: Object.freeze({ id: "disabled", label: "Disabled", tone: "dim", tooltip: "It does not run, for you or for the whole installation." }),
   needsSetup: Object.freeze({ id: "needsSetup", label: "Needs setup", tone: "err", tooltip: "Something must be set before it works. Open it to set it up." }),
   updateAvailable: Object.freeze({ id: "updateAvailable", label: "Update available", tone: "warn", tooltip: "A newer version is ready. Updating keeps your settings." }),
   customized: Object.freeze({ id: "customized", label: "Customized", tone: "dim", tooltip: "You are using your own changed copy instead of the official one." }),
   forEveryone: Object.freeze({ id: "forEveryone", label: "For everyone", tone: "accent", tooltip: "An admin gives this to every person." }),
 });
-const CHIP_ORDER = ["needsSetup", "updateAvailable", "customized", "forEveryone"];
+const CHIP_ORDER = ["enabled", "disabled", "needsSetup", "updateAvailable", "customized", "forEveryone"];
 /** Everyone's by an admin's act (a mark, a promotion) carries the chip; the installation's own list does not. */
 const FOR_EVERYONE_BY = ["marked", "promoted", undefined, null];
 export const WAITING = "Waiting for your admin to finish setting this up";
@@ -105,7 +107,9 @@ export function stateOf(r, { admin = false } = {}) {
   const setup = report && mine ? { chip: true, waiting: false } : report && admins ? (admin ? { chip: true, waiting: false } : { chip: false, waiting: true }) : { chip: false, waiting: false };
   const newer = r?.update?.apply === "install" && r.update.version !== r.version ? r.update.version : null;
   const update = newer ? `Version ${newer} is ready; you have ${r.version}.` : r?.loaded && r.loaded !== r.version ? `Version ${r.version} is ready; you have ${r.loaded}.` : null;
-  const on = { needsSetup: setup.chip, updateAvailable: !!update, customized: isCopy(r) && !r.fork?.identical, forEveryone: !!r?.everyone && FOR_EVERYONE_BY.includes(r.everyoneBy) };
+  // Only one of Thetis's parts says whether it runs: the host runs its own packages, any other part runs where it is installed.
+  const runs = ["host", "storage"].includes(r?.type) || !!r?.installed || !!r?.hostInstalled;
+  const on = { enabled: !!r?.component && runs, disabled: !!r?.component && !runs, needsSetup: setup.chip, updateAvailable: !!update, customized: isCopy(r) && !r.fork?.identical, forEveryone: !!r?.everyone && FOR_EVERYONE_BY.includes(r.everyoneBy) };
   const chips = CHIP_ORDER.filter((id) => on[id]).slice(0, 2).map((id) => CHIPS[id]);
   const reason = setup.chip ? `${labelOf(r)} needs setting up before it works. Open it to set it up.` : update ?? (setup.waiting ? `${WAITING}.` : "");
   return { chips, attention: setup.chip || !!update, reason, waiting: setup.waiting };

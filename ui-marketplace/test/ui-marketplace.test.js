@@ -142,7 +142,14 @@ test("rows: a system package nobody here has is a row of its own, installable by
   assert.equal(publisherLine(orleans, { user: "alice" }), "by Thetis · Skills");
   assert.equal(publisherLine(rows[1], { user: "alice" }), "by you", "a tool type with no tools brings nothing to name");
   assert.equal(publisherLine(rows[5], { user: "alice" }), "by Thetis · Tools");
-  assert.deepEqual(stateOf(rows[0]).chips, [], "Thetis's own, everyone's by configuration: no chip");
+  assert.deepEqual(stateOf(rows[0]).chips.map((c) => c.label), ["Enabled"], "Thetis's own, everyone's by configuration: no For everyone, only whether it runs");
+  // A part of Thetis says whether it runs: the host runs its own packages whoever has them; any other part
+  // runs where it is installed, for this person or for the whole installation (what an admin's rows learn).
+  assert.deepEqual(stateOf(rows.find((r) => r.name === "@thetis/host-grants")).chips.map((c) => c.label), ["Enabled"]);
+  const provider = { ...shipped("@thetis/provider-openrouter"), type: "provider", thetis: { type: "provider" }, installed: false, component: true };
+  assert.deepEqual(stateOf(provider).chips.map((c) => c.label), ["Disabled"]);
+  assert.deepEqual(stateOf({ ...provider, hostInstalled: true }).chips.map((c) => c.label), ["Enabled"]);
+  assert.deepEqual(stateOf(rows.find((r) => r.name === "@thetis/skills-orleans")).chips, [], "an extension that is not a part says nothing about it: its section does");
   assert.deepEqual(stateOf(rows.find((r) => r.name === "@thetis/hello"), { admin: true }).chips.map((c) => c.label), ["For everyone"]);
   assert.deepEqual(stateOf(rows.find((r) => r.name === "@thetis/hello")).chips, [], "on something a person does not have, For everyone is said to an admin only");
   assert.equal(whatItBrings("skill"), "Its skills are offered to your assistant from your next message.");

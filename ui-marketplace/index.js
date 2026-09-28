@@ -84,13 +84,24 @@ async function journalOf(env) {
 }
 
 /**
+ * What the whole installation runs (`_system`'s packages: the model provider, the sign-in page, the index
+ * service), so a part of Thetis an admin does not have for themselves still reads Enabled. Only an admin may
+ * ask; anyone else, or a kernel that refuses, reads none.
+ */
+async function hostInstalledOf(env) {
+  if (env.role !== "admin" || typeof env.kernel.operator?.call !== "function") return new Set();
+  const list = await env.kernel.operator.call("packages.list", { user: "_system" }).catch(() => []);
+  return new Set((Array.isArray(list) ? list : []).map((p) => p?.name).filter((n) => typeof n === "string"));
+}
+
+/**
  * The rows, and -- with `folder` -- the person's own folder laid over them: the packages under their home's
  * `packages/` that are not installed, which the Extensions place lists under "Drafts in your folder". The
  * journal adds who gave the person what, and when a shared copy was shared.
  */
 async function rowsOf(env, { folder = false } = {}) {
-  const [installed, catalog, index, journal] = await Promise.all([env.kernel.packages.list(), catalogOf(env), readIndex(env), journalOf(env)]);
-  const rows = withJournal(mergeRows(installed, index?.packages ?? [], index, { catalog, user: env.user }), journal, env.user);
+  const [installed, catalog, index, journal, host] = await Promise.all([env.kernel.packages.list(), catalogOf(env), readIndex(env), journalOf(env), hostInstalledOf(env)]);
+  const rows = withJournal(mergeRows(installed, index?.packages ?? [], index, { catalog, user: env.user }), journal, env.user).map((r) => (host.has(r.name) ? { ...r, hostInstalled: true } : r));
   return { installed, catalog, index, changes: changesFor(journal, env.user), rows: folder ? withFolder(rows, folderRows(homeOf(env), installed.map((p) => p.name))) : rows };
 }
 
