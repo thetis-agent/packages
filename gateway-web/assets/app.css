@@ -180,9 +180,10 @@ body { display: flex; flex-direction: column; }
 
 /* Sections a package adds above the conversations (canvases, say): a heading that folds, a count, its own
  * actions, and a body the package draws. They share the height with the conversation list, never take more
- * than two fifths of the sidebar, and scroll inside that. */
+ * than two fifths of the sidebar, and scroll inside that. They never shrink below their content (up to that
+ * cap): a long conversation list scrolls instead of squeezing the sections down to a sliver. */
 .sidebar-sections:empty { display: none; }
-.sidebar-sections { flex: 0 1 auto; max-height: 40vh; min-height: 0; overflow-y: auto; padding: 0 var(--gap-2); }
+.sidebar-sections { flex: 0 0 auto; max-height: 40vh; min-height: 0; overflow-y: auto; padding: 0 var(--gap-2); }
 .sidebar-section-bar { display: flex; align-items: center; gap: var(--gap-1); }
 .sidebar-section-head {
   flex: 1 1 auto;
