@@ -3,7 +3,7 @@
 // a path whose presence to check -- so they live here, a host package the daemon loads per call as
 // `host.grants.<export>`. The kernel admits a call from an admin or the operator to any export, and a
 // person's call about themselves to the exports the manifest lists in `thetis.host.self` (`mountsList`,
-// `sshList`, `sshSet`, `sshKeygen`, `sshImport`); it journals the call, and what each export does is
+// `mountsSet`, `mountsBrowse`, `sshList`, `sshSet`, `sshKeygen`, `sshImport`); it journals the call, and what each export does is
 // checked and journalled again here, with the grant itself, never a key's material.
 //
 // Every export is `(args, env)`. `args.user` names the target person (`_system` when absent, which no
@@ -21,6 +21,7 @@
 import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { assert, fail } from "./lib/error.js";
+import { blockedReason } from "./lib/blocked.js";
 import { browseDirectories, parseMountList, withPresence } from "./lib/mounts.js";
 import { describeRepoKeys, directUrl, grantFor, keyscan, mergeHosts, routeOf, testKey } from "./lib/repo-keys.js";
 import { describeKeys, generateKey, importKey, isWithin, parseSshGrants } from "./lib/ssh.js";
@@ -125,16 +126,40 @@ export async function mountsList(args, env) {
   return listing(args, env.records.mounts, withPresence);
 }
 
-/** The directories under `path` (default `/`), hidden ones too with `all`. The host filesystem is the admin's to see: a person's fence shows only what is bound into it. */
-export async function mountsBrowse(args) {
-  adminOnly(args, "mountsBrowse");
-  return browseDirectories(String(args.path ?? "/"), { all: args.all === true || args.all === "true" });
+/**
+ * The directories under `path` (default `/`), hidden ones too with `all`. A person may browse too, to pick a
+ * directory to mount: each entry then carries `blocked`, the reason it may not be mounted, when there is one.
+ * Browsing shows names only, never contents, so the blocklist limits what is bound, not what is listed.
+ */
+export async function mountsBrowse(args, env) {
+  const listing = browseDirectories(String(args.path ?? "/"), { all: args.all === true || args.all === "true" });
+  if (!isSelf(args)) return listing;
+  const mark = (path) => blockedReason(env, path);
+  return { ...listing, ...(mark(listing.path) ? { blocked: mark(listing.path) } : {}), entries: listing.entries.map((e) => (mark(e.path) ? { ...e, blocked: mark(e.path) } : e)) };
 }
 
-/** Replaces one person's mounts with `mounts`. The answer carries presence: a caller learns at once that a path it named is not there to bind. */
+/**
+ * Replaces one person's mounts with `mounts`. The answer carries presence: a caller learns at once that a
+ * path it named is not there to bind. A person setting their own list may mount any host directory except
+ * the blocked ones (lib/blocked.js); a mount they already hold they may keep, or narrow to read-only,
+ * whatever it covers, since an admin gave it. An admin's list is not checked this way.
+ */
 export async function mountsSet(args, env) {
-  adminOnly(args, "mountsSet");
-  return withPresence(await grant(args, env, "mounts", parseMountList(args.mounts), env.records.mounts, (v) => v));
+  const mounts = parseMountList(args.mounts);
+  selfMountable(args, env, mounts);
+  return withPresence(await grant(args, env, "mounts", mounts, env.records.mounts, (v) => v));
+}
+
+/** A self call's mount list: every entry already held at least as widely, or outside every blocked path. */
+function selfMountable(args, env, mounts) {
+  if (!isSelf(args)) return;
+  const held = new Map(env.records.mounts.get(userOf(args)).map((m) => [m.path, m.mode]));
+  for (const m of mounts) {
+    const had = held.get(m.path);
+    if (had === "rw" || had === m.mode) continue;
+    const why = blockedReason(env, m.path);
+    assert(!why, `a person may not mount ${m.path}: ${why}. Ask an admin to grant it`, "unauthorized");
+  }
 }
 
 /**

@@ -121,11 +121,20 @@ test("mounts reports the fence's variable, and the state of the paths it is aske
   await done();
 });
 
-test("browse and mount are an admin's, act on the person's own fence, and report what the host has", async () => {
-  const { env, done } = await makeEnv({ role: "user" });
-  await assert.rejects(uiBrowse({ path: "/srv" }, env), /only an admin/);
-  await assert.rejects(uiMount({ path: "/srv", mode: "rw" }, env), /only an admin/);
-  await done();
+test("browse and mount are anyone's, act on the person's own fence, pass a refusal through, and report what the host has", async () => {
+  const person = await makeEnv({
+    role: "user",
+    operator: (method) => {
+      if (method === "host.grants.mountsList") return { alice: [] };
+      if (method === "host.grants.mountsSet") throw Object.assign(new Error("a person may not mount /etc: /etc is the operating system's own tree. Ask an admin to grant it"), { code: "unauthorized" });
+      if (method === "host.grants.mountsBrowse") return { path: "/", parent: null, kind: "dir", readable: true, truncated: false, entries: [{ name: "etc", path: "/etc", blocked: "the operating system's own tree" }] };
+      throw new Error(`unexpected ${method}`);
+    },
+  });
+  assert.equal((await uiBrowse({}, person.env)).data.entries[0].blocked, "the operating system's own tree");
+  await assert.rejects(uiMount({ path: "/etc", mode: "rw" }, person.env), /may not mount \/etc/);
+  assert.equal(person.calls.at(-1).args.user, "alice");
+  await person.done();
 
   const listing = { path: "/srv", parent: "/", kind: "dir", readable: true, truncated: false, entries: [{ name: "repos", path: "/srv/repos" }] };
   let written = [{ path: "/srv/old", mode: "ro" }];

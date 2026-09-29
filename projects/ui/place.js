@@ -251,8 +251,14 @@ export function openPlace(ext, state, root, params) {
       else if (m && m.present === false) ext.toast(`${path} is written down, but the host has nothing there, so your space opened without it.`, { tone: "error" });
       else ext.toast(`${path} is bound ${mode === "ro" ? "read-only" : "read-write"}.`, { tone: "ok" });
       said = true;
-    } catch {
-      // The fence closed before it could answer. That is the normal case for your own mounts.
+    } catch (err) {
+      // A refusal (a blocked path, a bad mode) answers 400 with the reason: say it and stop. Anything else is
+      // the fence closing before it could answer, which is the normal case for your own mounts.
+      if (err?.status === 400) {
+        if (alive) anchor.disabled = false;
+        ext.toast(err.message || "The mount was refused.", { tone: "error" });
+        return;
+      }
     } finally {
       if (alive) anchor.disabled = false;
     }
@@ -260,7 +266,7 @@ export function openPlace(ext, state, root, params) {
     if (!said && alive) ext.toast(mode === null ? `${path} is no longer bound.` : "Your space reopened with the change.", { tone: "ok" });
   }
 
-  /** The directory picker, over the host directories an admin may bind. `accept` puts the path in the draft. */
+  /** The directory picker, over the host directories. Ones this person may not bind come marked `blocked`. `accept` puts the path in the draft. */
   async function pick(anchor, accept) {
     const mode = el("select", { class: "input", "aria-label": "Mode" }, el("option", { value: "rw" }, "read-write"), el("option", { value: "ro" }, "read-only"));
     const chosen = await ext.ui.pickDirectory(anchor, {

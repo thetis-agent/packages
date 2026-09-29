@@ -2,7 +2,8 @@
  * caller owns where the directories come from, through one async `browse(path)` that answers
  * `{ path, parent, kind, readable, truncated, entries: [{ name, path }] }` — the shape of the kernel's
  * `mounts.browse`. So a package with no reach of its own can still offer a picker, and the picker can
- * never read a path the package could not read itself.
+ * never read a path the package could not read itself. A listing or an entry may carry `blocked`, the
+ * reason it may not be mounted: such an entry is dimmed and can be entered but not chosen.
  *
  * The point of it is that a path you pick is a path that exists: the chosen line says what the host holds
  * there, and the confirm button stays off until that is a directory. You may still type a path, because
@@ -24,6 +25,7 @@ function stateOf(listing) {
   if (listing.kind === "file") return { ok: false, text: "A file, not a directory.", tone: "warn" };
   if (!listing.readable) return { ok: false, text: "A directory, but it cannot be read from here.", tone: "warn" };
   const n = listing.entries.length;
+  if (listing.blocked) return { ok: false, text: `Cannot be mounted: ${listing.blocked}. A directory inside may be.`, tone: "warn" };
   if (listing.path === "/") return { ok: false, text: `The root of the host: ${n} directories inside. Go into one; the root itself cannot be chosen.`, tone: "dim" };
   const inside = n === 0 ? "no directories inside" : `${n}${listing.truncated ? "+" : ""} ${n === 1 ? "directory" : "directories"} inside`;
   return { ok: true, text: `A directory: ${inside}.`, tone: "ok" };
@@ -84,8 +86,8 @@ export function pickDirectory(anchor, { title = "Choose a directory", start = "/
       paint();
     }
 
-    function row(label, target, { up = false } = {}) {
-      const b = el("button", { type: "button", class: `dp-row${up ? " is-up" : ""}`, onClick: () => void go(target) }, icon(up ? UP : FOLDER, { size: 13, width: 1.7 }), el("span", { class: "dp-row-name" }, label));
+    function row(label, target, { up = false, blocked = null } = {}) {
+      const b = el("button", { type: "button", class: `dp-row${up ? " is-up" : ""}${blocked ? " is-blocked" : ""}`, ...(blocked ? { title: `Cannot be mounted: ${blocked}` } : {}), onClick: () => void go(target) }, icon(up ? UP : FOLDER, { size: 13, width: 1.7 }), el("span", { class: "dp-row-name" }, label));
       return b;
     }
 
@@ -103,7 +105,7 @@ export function pickDirectory(anchor, { title = "Choose a directory", start = "/
       list.replaceChildren();
       if (!listing) return;
       if (listing.parent) list.append(row(listing.parent === "/" ? "/" : listing.parent, listing.parent, { up: true }));
-      for (const e of listing.entries) list.append(row(e.name, e.path));
+      for (const e of listing.entries) list.append(row(e.name, e.path, { blocked: e.blocked ?? null }));
       if (listing.truncated) list.append(el("p", { class: "dp-more" }, "More directories than the picker shows. Type a path to go straight there."));
       if (listing.readable && !listing.entries.length) list.append(el("p", { class: "dp-more" }, "Nothing inside. This directory can still be chosen."));
       place();

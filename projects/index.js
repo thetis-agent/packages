@@ -6,10 +6,11 @@
 // THETIS_MOUNTS, and the list written down for them (`host.grants.mountsList`, a call anyone may make
 // about themselves) says which of those the fence did not take.
 //
-// Two commands are an admin's, because binding a host directory is the operator's authority and the
-// kernel refuses `operator.*` to anyone else: `browse` lists host directories so a path can be picked
-// instead of typed, and `mount` binds or unbinds one. They act on the person's own fence alone: the user
-// id comes from `env.user`, never from the page.
+// Two commands reach the host through `host.grants`: `browse` lists host directories so a path can be
+// picked instead of typed, and `mount` binds or unbinds one. Anyone may send them. For a person who is not
+// an admin the kernel pins the call to them and host-grants refuses the blocked paths (the Thetis data and
+// runtime directories, the host user's dot-files, the system trees); an admin may bind anything. They act
+// on the person's own fence alone: the user id comes from `env.user`, never from the page.
 import { currentMounts, mountModeOf, stateOf } from "./lib/mounts.js";
 import { assignSession, isProjectId, listProjects, projectOfSession, readAssignments, readInstructions, readProject, removeProject, saveProject, validateProject } from "./lib/store.js";
 
@@ -156,8 +157,8 @@ function pathArg(value) {
 }
 
 /**
- * browse (admin): the directories under one host path, for the picker. A person's fence shows only what is
- * bound into it, so this reads through the operator, which the kernel allows an admin alone.
+ * browse: the directories under one host path, for the picker. A person's fence shows only what is bound
+ * into it, so this reads through host-grants; for a person each entry they may not mount carries `blocked`.
  */
 export async function uiBrowse(args, env) {
   const path = args.path === undefined || args.path === "" ? "/" : args.path === "/" ? "/" : pathArg(args.path);
@@ -165,7 +166,7 @@ export async function uiBrowse(args, env) {
 }
 
 /**
- * mount (admin): binds one host directory into this person's own fence, or unbinds it with `mode: null`.
+ * mount: binds one host directory into this person's own fence, or unbinds it with `mode: null`.
  * The whole list is sent, the way the command line sends it. The kernel closes the fence so it reopens
  * with the new binds, which also restarts the gateway serving this page: the answer may never arrive, and
  * the page treats a lost request as "ask again in a moment". The list that comes back says, per mount,

@@ -20,11 +20,23 @@ Every export is `(args, env) => Promise<unknown>`, with `env` the `HostEnv` of `
 
 ## A person's own calls
 
-The manifest's `thetis.host.self` lists the exports a person with the `user` role may call about themselves: `mountsList`, `sshList`, `sshSet`, `sshKeygen` and `sshImport`. For such a call the kernel pins the target -- `args.user` and `args.actor` are the caller's id whatever the call said -- and sets `args.self = true`. So a person reads only their own mounts and keys, and makes or takes in keys only under their own `fence-keys/<user>/`.
+The manifest's `thetis.host.self` lists the exports a person with the `user` role may call about themselves: `mountsList`, `mountsSet`, `mountsBrowse`, `sshList`, `sshSet`, `sshKeygen` and `sshImport`. For such a call the kernel pins the target -- `args.user` and `args.actor` are the caller's id whatever the call said -- and sets `args.self = true`. So a person reads only their own mounts and keys, and makes or takes in keys only under their own `fence-keys/<user>/`.
 
 `sshSet` is the one that needs a rule of its own, since its list names paths. In a self call every key in the new list must be either already granted to that person -- they may keep it, drop it, or give it other hosts -- or a file under `fence-keys/<user>/`, checked by resolved path with a trailing separator and again by real path, so neither `..`, a sibling sharing the prefix, nor a symlink pointing out counts. Anything else is `unauthorized`: "a person may grant only keys the host made or took in for them; ask an admin to grant <path>". A key an admin lent them can therefore be revoked by them but not granted back. An admin's `sshSet` is not checked this way.
 
-`mountsSet`, `mountsBrowse` and every `repo*` export are admin-only. The kernel never lets a self call reach them; they refuse one anyway (`unauthorized`), and a self call that arrives without a `user` is refused rather than answered for everyone.
+`mountsSet` in a self call binds any host directory the daemon's user can reach, except the blocked paths of `lib/blocked.js`. A path is refused (`unauthorized`, "a person may not mount <path>: <why>. Ask an admin to grant it") when it is a blocked path, lies inside one, or contains one, checked on the path as given and again with symlinks followed, since bubblewrap binds what a link points at:
+
+- the runtime checkout (`env.root`): the `.env` with the provider key, and the code the daemon imports;
+- `$THETIS_HOME` (`env.home`): every person's space, the users, the configuration, the keys. Containing it is allowed, because the fence masks it with a tmpfs inside any mount;
+- the Node install the daemon runs;
+- the daemon user's home itself and each dot-entry in it (`~/.ssh`, `~/.config`, ...); a plain subdirectory such as `~/projects` is fine;
+- `/proc`, `/sys`, `/dev`, `/run`, `/var/run`, `/boot`, `/etc`, `/var/lib/docker`, `/root`;
+- any path through a directory named `secrets`, `.secrets`, `.ssh`, `.gnupg`, `.aws`, `.kube`, `.docker`, `.password-store` or `.vault-token`, wherever it is;
+- any absolute path an admin lists in `$THETIS_HOME/host-grants/blocked.json` (a JSON array), read on every call.
+
+A mount already on the person's list is kept as it is, or narrowed to `ro`, whatever it covers, since an admin gave it; widening one to `rw` is checked like a new path. It is a blocklist, and a blocklist allows what it forgets: anything else the daemon's user can read, a person can now mount. `mountsBrowse` in a self call answers the same listing with `blocked` (the reason) on the listing and on each entry a person may not mount.
+
+Every `repo*` export is admin-only. The kernel never lets a self call reach them; they refuse one anyway (`unauthorized`), and a self call that arrives without a `user` is refused rather than answered for everyone.
 
 ## Repository keys
 

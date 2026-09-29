@@ -2,8 +2,10 @@
 // that the fence is reopened. The mechanism underneath (parsing, presence, keys) has tests of its own.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { tmpdir, userInfo } from "node:os";
+const homedir = () => userInfo().homedir;
 import * as grants from "../index.js";
 import { code, fakeEnv } from "./helpers.js";
 
@@ -203,8 +205,6 @@ test("the admin-only exports refuse a self call, though the kernel should never 
   const { env, home, reloaded } = fakeEnv();
   try {
     const calls = {
-      mountsSet: { mounts: [{ path: "/srv/x", mode: "rw" }] },
-      mountsBrowse: { path: "/" },
       repoList: {},
       repoKeygen: { repo: "git@github.com:o/r.git", scan: false },
       repoImport: { repo: "git@github.com:o/r.git", privateKey: "x", scan: false },
@@ -218,6 +218,74 @@ test("the admin-only exports refuse a self call, though the kernel should never 
     assert.deepEqual(env.records.ssh.get("_system"), []);
     assert.deepEqual(reloaded, []);
     assert.equal(existsSync(join(home, "fence-keys")), false);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("self mountsSet: a person mounts any host directory outside the blocked paths, keeps what an admin gave, and nothing blocked", async () => {
+  const { env, home, journal, reloaded } = fakeEnv();
+  env.root = join(home, "runtime");
+  mkdirSync(env.root);
+  writeFileSync(join(env.root, ".env"), "KEY=x");
+  env.home = join(home, "data");
+  mkdirSync(env.home);
+  mkdirSync(join(home, "repos", "a"), { recursive: true });
+  symlinkSync(env.root, join(home, "repos", "sneaky"));
+  const mine = (mounts) => grants.mountsSet(self("alice", { mounts }), env);
+  try {
+    const repo = join(home, "repos", "a");
+    assert.deepEqual(await mine([{ path: repo, mode: "rw" }]), [{ path: repo, mode: "rw", present: true, kind: "dir" }]);
+    assert.deepEqual(env.records.mounts.get("alice"), [{ path: repo, mode: "rw" }]);
+    assert.deepEqual(reloaded, ["alice"]);
+    assert.equal(journal.at(-1).actor, "alice", "the row names the person");
+    const refused = (path, re) => assert.rejects(mine([{ path, mode: "rw" }]), (e) => e.code === "unauthorized" && re.test(e.message), path);
+    await refused(env.root, /is the Thetis runtime checkout/);
+    await refused(join(env.root, "packages"), /is inside .* runtime checkout/);
+    await refused(home, /contains .*runtime/);
+    await refused(env.home, /Thetis data directory/);
+    await refused(join(env.home, "userspaces", "bob"), /Thetis data directory/);
+    await refused(join(home, "repos", "sneaky"), /runtime checkout/);
+    await refused("/etc", /operating system/);
+    await refused("/proc/1", /operating system/);
+    await refused("/var/run", /operating system/);
+    await refused(homedir(), /home of the user|Node install/);
+    await refused(join(homedir(), ".ssh"), /named \.ssh/);
+    await refused(join(homedir(), ".config"), /inside .*\.config/);
+    await refused(dirname(process.execPath), /Node install/);
+    mkdirSync(join(home, "repos", "secrets"));
+    await refused(join(home, "repos", "secrets"), /directory named secrets/);
+    // A parent of the data directory alone is fine: the fence masks the data directory inside any mount.
+    const other = mkdtempSync(join(tmpdir(), "hg-parent-"));
+    const saved = env.home;
+    try {
+      env.home = join(other, "data");
+      mkdirSync(env.home);
+      assert.equal((await mine([{ path: other, mode: "rw" }]))[0].path, other);
+    } finally {
+      env.home = saved;
+      rmSync(other, { recursive: true, force: true });
+    }
+    // An admin's addition.
+    mkdirSync(join(env.home, "host-grants"));
+    writeFileSync(join(env.home, "host-grants", "blocked.json"), JSON.stringify([repo]));
+    await mine([]);
+    await refused(join(repo, "sub"), /blocked\.json/);
+    // A mount already held is kept, and may be narrowed, not widened past what was given.
+    await grants.mountsSet({ user: "alice", mounts: [{ path: repo, mode: "rw" }] }, env);
+    assert.equal((await mine([{ path: repo, mode: "ro" }]))[0].mode, "ro");
+    await refused(repo, /blocked\.json/);
+    // An admin is not checked this way, and a person may keep what an admin gave.
+    await grants.mountsSet({ user: "alice", mounts: [{ path: env.root, mode: "ro" }], actor: "root" }, env);
+    assert.deepEqual(await mine([{ path: env.root, mode: "ro" }]), [{ path: env.root, mode: "ro", present: true, kind: "dir" }]);
+    // Browse marks what a person could not mount.
+    rmSync(join(env.home, "host-grants"), { recursive: true });
+    const listing = await grants.mountsBrowse(self("alice", { path: home }), env);
+    const byName = Object.fromEntries(listing.entries.map((e) => [e.name, e]));
+    assert.match(byName.runtime.blocked, /runtime checkout/);
+    assert.match(byName.data.blocked, /data directory/);
+    assert.equal(byName.repos.blocked, undefined);
+    assert.equal((await grants.mountsBrowse({ path: home }, env)).entries.every((e) => !e.blocked), true, "an admin's listing is plain");
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

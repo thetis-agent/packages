@@ -1,8 +1,8 @@
 /* The three list sections of the project page. `directoriesSection` draws the project directories: one
  * row per path, and under the path one sentence that says what an agent in this project can do with it
  * right now, because a directory a project names is not a directory the agent can reach. A mount is what
- * makes it reachable, and a mount is the operator's to give: an admin binds one from the row itself, and
- * anyone else is given the line to hand to an admin. The states come from the server (`get` and `mounts`),
+ * makes it reachable, and the row binds one itself: anyone may bind a host directory into their own space
+ * except the blocked ones, which the server refuses with the reason. The states come from the server (`get` and `mounts`),
  * never from a guess in the browser, so a row cannot claim more than the fence really has.
  * `toolsSection` draws every installed package's tools with a switch per tool, on unless the project
  * switched it off. `skillsSection` draws every skill the loaders see, grouped by the package it comes
@@ -12,7 +12,7 @@
 
 const X = ["M5 5l10 10", "M15 5l-10 10"];
 
-/** How each state looks and reads. `act` is what the row offers an admin: bind it, or nothing to do. */
+/** How each state looks and reads. `act` is what the row offers: bind it, or nothing to do. */
 const STATES = {
   ready: { badge: ["mounted · read-write", "ok"], line: () => "The file tools can read and write here.", act: "unbind" },
   "ready-ro": { badge: ["mounted · read-only", "accent"], line: () => "The file tools can read here. Writing is refused.", act: "unbind" },
@@ -45,13 +45,13 @@ function dirRow(ext, path, state, draft, redraw, mount, user) {
   const { badge, button } = ext.ui;
   const key = keyOf(state);
   const spec = STATES[key];
-  const admin = ext.can("mount");
+  const can = ext.can("mount");
   const actions = [];
-  if (admin && spec.act === "bind") {
+  if (can && spec.act === "bind") {
     const bind = button("Bind it", { tone: "primary", onClick: () => mount(bind, path, "rw") });
     actions.push(bind);
   }
-  if (admin && spec.act === "unbind" && state?.mode && !state.home) {
+  if (can && spec.act === "unbind" && state?.mode && !state.home) {
     const other = state.mode === "rw" ? "ro" : "rw";
     const swap = button(other === "ro" ? "Make read-only" : "Allow writing", { onClick: () => mount(swap, path, other) });
     const off = button("Unbind", { tone: "warn", onClick: () => mount(off, path, null) });
@@ -77,13 +77,13 @@ function dirRow(ext, path, state, draft, redraw, mount, user) {
     ),
     el("p", { class: "pj-dir-state" }, spec.line(state ?? {})),
     actions.length ? el("div", { class: "pj-dir-actions" }, ...actions) : null,
-    !admin && spec.act === "bind" ? el("p", { class: "pj-dir-ask" }, "Ask an admin for: ", el("code", {}, `thetis mounts add ${user} ${path}`)) : null
+    !can && spec.act === "bind" ? el("p", { class: "pj-dir-ask" }, "Ask an admin for: ", el("code", {}, `thetis mounts add ${user} ${path}`)) : null
   );
 }
 
 /**
  * The directories section. `states` maps a path to what the server says about it; `mount` binds, changes
- * or unbinds one (only an admin has it); `pick` opens the directory picker, so a path that goes in is a
+ * or unbinds one; `pick` opens the directory picker, so a path that goes in is a
  * path the host really has.
  */
 export function directoriesSection(ext, draft, states, redraw, { mount, pick, user = "you" } = {}) {
@@ -123,7 +123,7 @@ export function directoriesSection(ext, draft, states, redraw, { mount, pick, us
     el("div", { class: "pj-dir-add" }, choose, input, button("Add a directory", { onClick: add })),
     el("p", { class: "pj-note" }, choose
       ? "A directory is reachable once it is bound into your space. Binding closes and reopens your space, so this page reconnects; conversations are not lost."
-      : "None by default. A directory outside your space reaches the file tools once an admin binds it; until then it is listed here and marked not mounted.")
+      : "None by default. A directory outside your space reaches the file tools once it is bound; until then it is listed here and marked not mounted.")
   );
 }
 

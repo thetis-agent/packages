@@ -1825,6 +1825,7 @@ select.input { padding-right: 24px; }
 .dp-row { display: flex; align-items: center; gap: var(--gap-2); width: 100%; padding: 5px 8px; border: 0; border-radius: 0; background: none; color: var(--text); font: inherit; font-size: var(--text-xs); text-align: left; cursor: pointer; }
 .dp-row + .dp-row { border-top: 1px solid var(--hairline); }
 .dp-row:hover, .dp-row:focus-visible { background: var(--surface-3); }
+.dp-row.is-blocked { color: var(--text-faint); }
 .dp-row svg { flex: none; color: var(--text-faint); }
 .dp-row.is-up { color: var(--text-dim); font-family: var(--mono); }
 .dp-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

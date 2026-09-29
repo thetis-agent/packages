@@ -1,6 +1,6 @@
 // A fake fence environment over a temporary home: readFile and writeFile relative to it, as the
 // userspace agent gives them, plus a kernel whose package list is what the test says. `role` and
-// `operator` stand in for an admin's fence: the operator table is what `browse` and `mount` reach, and
+// `operator` stand in for what the fence may reach: `host.grants` is what `browse` and `mount` call, and
 // `calls` records what they sent, so a test can check that a command never names another person.
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

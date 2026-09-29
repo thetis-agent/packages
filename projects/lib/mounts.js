@@ -94,6 +94,6 @@ export function describeDirectory(directory, mounts, user, bound = null, home = 
     case "skipped":
       return `${directory} (NOT USABLE: ${s.mount} is written down as a mount, and the host has no directory there, so the fence opened without it; the path is wrong or the directory is gone)`;
     default:
-      return `${directory} (NOT USABLE: no mount covers it, so the file tools cannot read or write there; an admin binds it with "thetis mounts add ${user} ${directory}", or from the project page)`;
+      return `${directory} (NOT USABLE: no mount covers it, so the file tools cannot read or write there; bind it from the project page, or an admin runs "thetis mounts add ${user} ${directory}")`;
   }
 }
