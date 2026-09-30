@@ -379,7 +379,7 @@ export async function ghStatus(input, env) {
   if (str(cfg.host)) lines.push(`host: ${str(cfg.host)}`);
   const a = await runGh(env, ["auth", "status"], { timeoutMs: 60_000 });
   const authText = `${a.stdout ?? ""}\n${a.stderr ?? ""}`.replace(/\x1b\[[0-9;]*m/g, "");
-  const auth = authText.trim().split("\n").map((l) => l.trim()).filter(Boolean).filter((l) => !/^Token:/i.test(l));
+  const auth = authText.trim().split("\n").map((l) => l.trim()).filter(Boolean).filter((l) => !/^(-\s*)?Token:/i.test(l));
   lines.push(`auth status (exit ${a.code}):`, ...auth.map((l) => `  ${l}`));
   if (a.code !== 0) lines.push(mode === "token" ? "note: the configured token does not work. See Setup in the README." : "note: gh has no working login here. Log the bot in from the terminal (see Setup in the README), or set `token`.");
   const want = str(cfg.login);

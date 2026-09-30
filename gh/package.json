@@ -1,6 +1,6 @@
 {
   "name": "@thetis/gh",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "The GitHub CLI as tools, run as a bot user with a PAT (as a setting, or as gh's own stored login) and no ssh key: one gh command at a time, resolved by gh itself and checked against a fixed denylist and your own allow, deny and read-only settings, the REST and GraphQL API, git over https as the bot, gh's help, and what gh is signed in as.",
   "keywords": [
     "gh",
