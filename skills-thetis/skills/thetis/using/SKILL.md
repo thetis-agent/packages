@@ -1,9 +1,9 @@
 ---
 name: using
-description: Working inside Thetis day to day: chats, helper chats, the shell, file and plan tools, ask_user, tool groups, stopped replies, restarts, the home layout. Use when you ask how to read, edit or run something, hand work to a subagent, keep a plan, ask the person, find your files, or why a tool is missing.
+description: Working inside Thetis day to day: chats, helper chats, the shell, file and plan tools, ask_user, tool groups, stopped replies, restarts, the home layout. Use when you ask how to read, edit or run something, hand work to a subagent, keep a plan, ask the person, find your files, look back at another chat, or why a tool is missing.
 metadata:
   title: Using Thetis
-  tags: [sessions, turns, chats, subagents, resume, retry, continue, shell, terminal, files, read, edit, write, search, plan, todo, ask, home, notes, tools, groups, scoped, restart, drain]
+  tags: [sessions, turns, chats, conversations, history, archived, summarize, subagents, resume, retry, continue, shell, terminal, files, read, edit, write, search, plan, todo, ask, home, notes, tools, groups, scoped, restart, drain]
   related: [thetis/packages, thetis/fence, thetis/troubleshooting]
   version: 1
 ---
@@ -58,6 +58,17 @@ A helper's dropped connection is retried inside its own reply, as above. When a 
 The helper's reply runs inside your tool call. Your reply waits. The default request timeout is 600000 milliseconds. Give a helper a task that ends inside that time.
 
 Package code can do the same with `env.kernel.sessions.create(parentId)` and `env.kernel.sessions.askText(childId, text)`, and resume with `env.kernel.sessions.send(childId, [], onEvent)`.
+
+## Other conversations
+
+Four tools read the person's other conversations and change nothing: `list_conversations`, `read_conversation`, `search_conversations` and `summarize_conversation`. Use them when the person points at earlier work ("what did we decide about the schema", "pick up where the other chat left off"), or to check on a helper chat while it runs.
+
+- `list_conversations` lists them newest first, with names and states. `show` picks `active` (the default: not archived), `archived`, `running`, `interrupted` or `all`. Pass `subagents: true` to include helper chats, or `parent` to list one conversation's helpers.
+- `search_conversations` takes a regex and returns hits by conversation and message number. It searches the person's and the assistant's words, not tool output, unless `roles` includes `tool`, and it skips the conversation you are in.
+- `read_conversation` shows a window of numbered messages, the newest by default. Page with `offset`. Take the number from a search hit.
+- `summarize_conversation` makes one model request. It costs money. Read or search first when the exact words matter.
+
+A name and the archived mark are the web gateway's. Without it, conversations have no names and none are archived.
 
 ## The shell tools
 

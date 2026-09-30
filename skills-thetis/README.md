@@ -13,7 +13,7 @@ Thirteen skills under `skills/thetis/`. None is universal: the loader puts one b
 | Id | Content |
 |---|---|
 | `thetis` | The index: the words to use with a person, how a change takes effect (live on the next message; applied by itself when no reply runs; Restart Thetis for the core only), the one rule, which child skill to fetch, and how Thetis works inside. |
-| `thetis/using` | Chats and replies, what happens when a reply stops (automatic retry, Retry and Continue, the automatic resume), helper chats and `resume_subagent`, the shell, the file tools, the plan tools, `ask_user`, the home layout, standing notes, how a restart of Thetis goes. |
+| `thetis/using` | Chats and replies, what happens when a reply stops (automatic retry, Retry and Continue, the automatic resume), helper chats and `resume_subagent`, reading other conversations, the shell, the file tools, the plan tools, `ask_user`, the home layout, standing notes, how a restart of Thetis goes. |
 | `thetis/packages` | The manifest (with `thetis.label` and a tool's `reads`), steps, tools, providers, services, install sources, the store, forks (your copy, Switch back), delete, promote, publish. An install takes effect when this reply ends. |
 | `thetis/pipeline` | Phases, enumeration, the step contract, the three variables, validation, the turn, `interrupted` and the resume, the round retry, the drain (`turns.yielding()`, the `yield` event), the events, the prompt cache rules. |
 | `thetis/skills` | The skill format, the sources, the loaders and their tools, how to write a description, the lint rules. |

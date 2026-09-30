@@ -1,8 +1,8 @@
 {
   "name": "@thetis/tool-exec",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "license": "MIT",
-  "description": "Tools for the model: install, fork, remove, delete and configure packages, and spawn subagents in your own space. Running commands is @thetis/terminal.",
+  "description": "Tools for the model: install, fork, remove, delete and configure packages, spawn subagents in your own space, and read your other conversations. Running commands is @thetis/terminal.",
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": {
@@ -11,8 +11,8 @@
   },
   "thetis": {
     "type": "tool",
-    "label": "extensions and helper chats",
-    "summary": "Lets your assistant install and set up extensions for you, and hand work to helper chats.",
+    "label": "extensions, helper chats and past conversations",
+    "summary": "Lets your assistant install and set up extensions for you, hand work to helper chats, and look back through your other conversations.",
     "tools": [
       {
         "name": "list_packages",
@@ -229,6 +229,194 @@
         },
         "export": "resumeSubagent",
         "reads": false
+      },
+      {
+        "name": "list_conversations",
+        "concurrent": true,
+        "description": "List the person's conversations, newest first: id, last update, name, turns, running/interrupted/archived, subagents, first and last message. Subagents only when asked for.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "show": {
+              "type": "string",
+              "enum": [
+                "active",
+                "archived",
+                "running",
+                "interrupted",
+                "all"
+              ],
+              "description": "active = not archived. Default active."
+            },
+            "query": {
+              "type": "string",
+              "description": "Text in the name, first or last message."
+            },
+            "subagents": {
+              "type": "boolean"
+            },
+            "parent": {
+              "type": "string",
+              "description": "Only this conversation's subagents."
+            },
+            "since": {
+              "type": "string",
+              "description": "ISO date or time, UTC."
+            },
+            "until": {
+              "type": "string",
+              "description": "ISO date (inclusive) or time."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Default 20."
+            },
+            "offset": {
+              "type": "integer"
+            }
+          }
+        },
+        "export": "listConversations",
+        "reads": true
+      },
+      {
+        "name": "read_conversation",
+        "concurrent": true,
+        "description": "Read another of the person's conversations as numbered messages, the newest by default, with brief tool calls. A running one shows its reply so far.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "s_\u2026 id"
+            },
+            "offset": {
+              "type": "integer",
+              "description": "1-based first message; negative counts from the end."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Default 30."
+            },
+            "tools": {
+              "type": "string",
+              "enum": [
+                "brief",
+                "full",
+                "none"
+              ]
+            },
+            "max_chars": {
+              "type": "integer",
+              "description": "Per message. Default 2000."
+            }
+          },
+          "required": [
+            "id"
+          ]
+        },
+        "export": "readConversation",
+        "reads": true
+      },
+      {
+        "name": "search_conversations",
+        "concurrent": true,
+        "description": "Regex search over the person's other conversations, newest first; hits grouped by conversation with message number and context. Searches user and assistant text unless roles adds tool. Says when it stopped early.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "JavaScript regex, case-insensitive unless ignore_case is false."
+            },
+            "ignore_case": {
+              "type": "boolean"
+            },
+            "roles": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "assistant",
+                  "tool"
+                ]
+              }
+            },
+            "id": {
+              "type": "string",
+              "description": "Only this conversation."
+            },
+            "show": {
+              "type": "string",
+              "enum": [
+                "active",
+                "archived",
+                "running",
+                "interrupted",
+                "all"
+              ],
+              "description": "active = not archived. Default all."
+            },
+            "subagents": {
+              "type": "boolean",
+              "description": "Default true."
+            },
+            "since": {
+              "type": "string"
+            },
+            "until": {
+              "type": "string"
+            },
+            "max_results": {
+              "type": "integer",
+              "description": "Default 20."
+            },
+            "per_conversation": {
+              "type": "integer",
+              "description": "Default 3."
+            },
+            "max_conversations": {
+              "type": "integer",
+              "description": "Default 500."
+            },
+            "context": {
+              "type": "integer",
+              "description": "Characters around a hit. Default 100."
+            }
+          },
+          "required": [
+            "pattern"
+          ]
+        },
+        "export": "searchConversations",
+        "reads": true
+      },
+      {
+        "name": "summarize_conversation",
+        "concurrent": true,
+        "description": "Summarize another of the person's conversations: the ask, what was done, where it ended. One model request with no tools, on this conversation's model unless model is given; it costs that request and changes nothing.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "s_\u2026 id"
+            },
+            "focus": {
+              "type": "string",
+              "description": "What the summary is for."
+            },
+            "model": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        },
+        "export": "summarizeConversation",
+        "reads": true
       }
     ],
     "bench": {

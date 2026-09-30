@@ -1,6 +1,6 @@
 {
   "name": "@thetis/skills-thetis",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "license": "MIT",
   "description": "The skills that teach an agent inside Thetis what Thetis is, the words to use with a person, how to use it, and how to change it from the inside. One index and twelve fetched skills, in Simplified Technical English.",
   "type": "module",

@@ -12,7 +12,7 @@ Suites: [`assembly-cost@1`](#suite-assembly-cost-v1), [`tool-recall@1`](#suite-t
 What a package costs the prompt before anything is retrieved: bytes by segment, how much of the prefix survives a turn, and how long assembly takes. No gold, no corpus, no adapter — any package with a step or a tool can opt in.
 
 7 tasks (2 of them controls), probe A.
-Generated 2026-09-28T12:36:06.718Z. Digest `sha256:f9045dc748ed…`.
+Generated 2026-09-30T15:01:20.160Z. Digest `sha256:2ec06d6d4218…`.
 
 ### Compared
 
@@ -24,7 +24,7 @@ Only numbers every arm can produce appear here, and only those on which the arms
 | **thetis-tool-groups** | 1055 ±0 | 825 ±0 | 2017.7 ±20.6 | 2234.4 ±43 | 1.001 ±0 | 1 ±0 | 24 ±0 | 0 ±0 |
 | thetis-tool-groups-lexical | 1071 ±0 | 825 ±0 | 2033.7 ±21.7 | 2250.4 ±42.4 | 1.001 ±0 | 1 ±0 | 24 ±0 | 0 ±0 |
 | thetis-tool-groups-fusion | 1069 ±0 | 825 ±0 | 2031.7 ±21 | 2248.4 ±41.1 | 1.001 ±0 | 1 ±0 | 24 ±0 | 0 ±0 |
-| all | 2455 ±0 | 825 ±0 | 3417.7 ±21.6 | 3634.4 ±41.7 | 1 ±0 | 1 ±0 | 42 ±0 | 0.010 ±0 |
+| all | 2486 ±0 | 825 ±0 | 3448.7 ±21.6 | 3665.4 ±41.7 | 1 ±0 | 1 ±0 | 42 ±0 | 0.010 ±0 |
 
 ![assembly-cost@1 comparison](bench/assembly-cost-v1/chart.svg)
 
@@ -37,7 +37,7 @@ Paired per task, so the constant cost of the harness cancels. `w/t/l` counts the
 | thetis-tool-groups | 28 [28, 28] 7/0/0 | 823 [823, 823] 7/0/0 | 851 [851, 851] 7/0/0 | 851 [851, 851] 7/0/0 | 0 [0, 0] 0/7/0 | 1 [1, 1] 7/0/0 | 8 [8, 8] 7/0/0 | 0 [0, 0] 0/7/0 |
 | thetis-tool-groups-lexical | 44 [44, 44] 7/0/0 | 823 [823, 823] 7/0/0 | 867 [867, 867] 7/0/0 | 867 [867, 867] 7/0/0 | 0 [0, 0] 0/7/0 | 1 [1, 1] 7/0/0 | 8 [8, 8] 7/0/0 | 0 [0, 0] 0/7/0 |
 | thetis-tool-groups-fusion | 42 [42, 42] 7/0/0 | 823 [823, 823] 7/0/0 | 865 [865, 865] 7/0/0 | 865 [865, 865] 7/0/0 | 0 [0, 0] 0/7/0 | 1 [1, 1] 7/0/0 | 8 [8, 8] 7/0/0 | 0 [0, 0] 0/7/0 |
-| all | 1428 [1428, 1428] 7/0/0 | 823 [823, 823] 7/0/0 | 2251 [2251, 2251] 7/0/0 | 2251 [2251, 2251] 7/0/0 | -0.001 [-0.001, -0.001] 0/0/7 | 1 [1, 1] 7/0/0 | 26 [26, 26] 7/0/0 | 0.010 [0.010, 0.010] 7/0/0 |
+| all | 1459 [1459, 1459] 7/0/0 | 823 [823, 823] 7/0/0 | 2282 [2282, 2282] 7/0/0 | 2282 [2282, 2282] 7/0/0 | -0.001 [-0.001, -0.001] 0/0/7 | 1 [1, 1] 7/0/0 | 26 [26, 26] 7/0/0 | 0.010 [0.010, 0.010] 7/0/0 |
 
 ### Assembly latency
 
@@ -69,7 +69,7 @@ Two reports are comparable only when these match.
 |---|---|
 | suite | assembly-cost@1 (sha256:9efc984d505f…) |
 | corpus | none |
-| arms | none; thetis-tool-groups (@thetis/tool-groups@0.2.1); thetis-tool-groups-lexical (@thetis/tool-groups@0.2.1); thetis-tool-groups-fusion (@thetis/tool-groups@0.2.1); all (@thetis/exa@0.1.1, @thetis/skills-all@0.1.1, @thetis/skills-hybrid@0.2.4, @thetis/skills-l1@0.1.1, @thetis/terminal@0.2.2, @thetis/tool-exec@0.4.2, @thetis/tool-groups@0.2.1, @thetis/tools-files@0.2.1, @thetis/tools-plan@0.3.1) |
+| arms | none; thetis-tool-groups (@thetis/tool-groups@0.2.1); thetis-tool-groups-lexical (@thetis/tool-groups@0.2.1); thetis-tool-groups-fusion (@thetis/tool-groups@0.2.1); all (@thetis/exa@0.1.1, @thetis/skills-all@0.1.1, @thetis/skills-hybrid@0.2.4, @thetis/skills-l1@0.1.1, @thetis/terminal@0.2.2, @thetis/tool-exec@0.5.0, @thetis/tool-groups@0.2.1, @thetis/tools-files@0.2.1, @thetis/tools-plan@0.3.1) |
 | model | none — this probe needs no model |
 | sandbox | auto |
 | scorer | @thetis/bench@0.4.2 |

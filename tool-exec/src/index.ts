@@ -7,6 +7,8 @@ import { resolve } from "node:path";
 import type { ConfigKeyState, ConfigReport, Message, PackageInfo, Tool, ToolEnv } from "@thetis/runtime/contracts";
 import { forkPackage as copyFork, forkVersion } from "@thetis/runtime/lib/pkg-fs";
 
+export { listConversations, readConversation, searchConversations, summarizeConversation } from "./conversations.js";
+
 /** One path segment, as the kernel accepts in a package name. Keeps `as` from leaving packages/. */
 const DIR_NAME = /^[a-z0-9._-]+$/;
 
