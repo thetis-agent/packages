@@ -21,7 +21,8 @@ export const ModelsResponseSchema = z.looseObject({
 
 export const ProviderErrorSchema = z.looseObject({
   message: z.string().optional(),
-  metadata: z.looseObject({ reason: z.string().optional() }).optional(),
+  // `raw` is the upstream's own error body when OpenRouter only says "Provider returned error".
+  metadata: z.looseObject({ reason: z.string().optional(), raw: z.unknown().optional(), provider_name: z.string().nullish() }).optional(),
 });
 
 const ToolDeltaSchema = z.looseObject({

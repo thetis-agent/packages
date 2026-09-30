@@ -1,6 +1,6 @@
 {
   "name": "@thetis/provider-openrouter",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "license": "MIT",
   "description": "Sends model calls to OpenRouter with streaming, tool calls, and prompt caching.",
   "type": "module",
@@ -55,6 +55,11 @@
         "type": "number",
         "default": 120000,
         "help": "How long an open stream may send no bytes at all before it is abandoned. Any byte resets it, so this is not a limit on how long a reply may take."
+      },
+      "maxImages": {
+        "type": "number",
+        "default": 20,
+        "help": "The most images one request carries. Anthropic refuses a request with more than 20 images unless each is at most 2000 px on a side, which a full-page screenshot is not; past this the oldest are left out, ten at a time, each leaving a line where it was."
       }
     },
     "export": "createProvider"

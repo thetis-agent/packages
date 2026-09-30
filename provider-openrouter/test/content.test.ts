@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { assetPart, textPart } from "@thetis/runtime/lib/content";
 import type { AssetRef, ProviderContext } from "@thetis/runtime/contracts";
 import { wireContent, wireToolResult } from "../src/content.js";
-import { accepts, createProvider } from "../src/index.js";
+import { accepts, createProvider, mediaGate } from "../src/index.js";
 import { createServer } from "node:http";
 
 const asset: AssetRef = { id: "a", size: 3, mediaType: "image/png", name: "picture.png" };
@@ -82,9 +82,9 @@ test("a tool result's image goes in a user message after the run of tool message
 
 test("a tool result whose media cannot be read says so in its text instead of failing the call", async () => {
   const broken: ProviderContext = { assets: { ...context.assets, read: async () => { throw new Error("asset is gone"); } } };
-  const out = await wireToolResult({ role: "tool", toolCallId: "c", content: [textPart("t"), assetPart("a", "image/png", "p.png")] }, broken, () => true);
+  const out = await wireToolResult({ role: "tool", toolCallId: "c", content: [textPart("t"), assetPart("a", "image/png", "p.png")] }, broken);
   assert.deepEqual(out, { text: "t\n[p.png: could not be sent: asset is gone]", media: [] });
-  assert.deepEqual(await wireToolResult({ role: "tool", toolCallId: "c", content: [textPart("only text")] }, context, () => true), { text: "only text", media: [] });
+  assert.deepEqual(await wireToolResult({ role: "tool", toolCallId: "c", content: [textPart("only text")] }, context), { text: "only text", media: [] });
 });
 
 test("modalities: unknown takes everything, pdf is a file, audio and image by kind", () => {
@@ -93,4 +93,54 @@ test("modalities: unknown takes everything, pdf is a file, audio and image by ki
   assert.equal(accepts(["text"], "image/jpeg"), false);
   assert.equal(accepts(["text", "file"], "application/pdf"), true);
   assert.equal(accepts(["text", "image"], "audio/mpeg"), false);
+});
+
+test("past maxImages the oldest images are left out in steps of half the limit, each leaving a line, so the ones sent stay put", () => {
+  const shots = (n: number) => ({ model: "m", tools: [], params: {}, messages: Array.from({ length: n }, (_, i) => ({ role: "tool" as const, toolCallId: `c${i}`, content: [textPart("shot"), assetPart(`a${i}`, "image/jpeg", `s${i}.jpg`)] })) });
+  const leftOut = (n: number, max = 20, takes = (_: string) => true) => {
+    const gate = mediaGate(shots(n), max, takes);
+    return Array.from({ length: n }, () => gate("image/jpeg")).filter((note) => note !== undefined).length;
+  };
+  assert.equal(leftOut(20), 0);
+  assert.equal(leftOut(21), 10);
+  assert.equal(leftOut(30), 10);
+  assert.equal(leftOut(31), 20);
+  assert.equal(leftOut(5, 1), 4);
+  // a model that takes no images is not sent them anyway, so they do not count against the budget
+  const blind = mediaGate(shots(25), 20, () => false);
+  assert.match(blind("image/jpeg") ?? "", /does not take image input/);
+  const gate = mediaGate(shots(21), 20, () => true);
+  assert.match(gate("image/jpeg") ?? "", /an earlier image, no longer attached: a request carries at most 20 images/);
+  // audio and PDFs are not images and pass
+  assert.equal(mediaGate(shots(40), 20, () => true)("application/pdf"), undefined);
+});
+
+test("a chat with 21 screenshots sends the latest 11 and a line for each earlier one, from users and tools alike", async () => {
+  let posted: { messages: { role: string; content: unknown }[] } | undefined;
+  const server = createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    if (req.url?.endsWith("/models")) { res.writeHead(200, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ data: [] })); }
+    posted = JSON.parse(Buffer.concat(chunks).toString());
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    res.end('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n');
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const provider = createProvider({ apiKey: "k", baseUrl: `http://127.0.0.1:${(server.address() as { port: number }).port}` });
+    const messages = [{ role: "user" as const, content: [textPart("look"), assetPart("a", "image/png", "upload.png")] }];
+    for (let i = 1; i < 21; i++) {
+      messages.push({ role: "assistant" as const, content: [], toolCalls: [{ id: `c${i}`, name: "browser_screenshot", args: {} }] } as never);
+      messages.push({ role: "tool" as const, toolCallId: `c${i}`, name: "browser_screenshot", content: [textPart(`shot ${i}`), assetPart("a", "image/png", `s${i}.png`)] } as never);
+    }
+    for await (const _ of provider.call({ model: "m", messages, tools: [], params: {} }, undefined, context)) void _;
+    const images = posted!.messages.flatMap((m) => (Array.isArray(m.content) ? m.content : [])).filter((p: { type: string }) => p.type === "image_url");
+    assert.equal(images.length, 11);
+    assert.deepEqual(posted!.messages[0].content, [{ type: "text", text: "look" }, { type: "text", text: "[upload.png: an earlier image, no longer attached: a request carries at most 20 images, the latest ones]" }]);
+    const tools = posted!.messages.filter((m) => m.role === "tool").map((m) => m.content as string);
+    assert.equal(tools[8], "shot 9\n[s9.png: an earlier image, no longer attached: a request carries at most 20 images, the latest ones]");
+    assert.equal(tools[9], "shot 10\n[s10.png: attached in the next message]");
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });

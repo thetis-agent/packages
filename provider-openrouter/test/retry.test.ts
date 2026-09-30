@@ -14,6 +14,13 @@ test("a final refusal is not retried; a transient one waits for Retry-After, the
 test("a refusal is reported as one sentence, with the reason when the body names one", () => {
   assert.equal(refusal(402, '{"error":{"message":"This request\'s maximum cost exceeds your available credits.","code":402,"metadata":{"reason":"weight_exceeds_budget"}}}'), "openrouter 402: This request's maximum cost exceeds your available credits. (weight_exceeds_budget)");
   assert.equal(refusal(502, "<html>bad gateway</html>"), "openrouter 502: <html>bad gateway</html>");
+  // an upstream's refusal: OpenRouter says only "Provider returned error"; the reason is in metadata.raw
+  const raw = JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "messages.0.content.21.image.source.base64.data: At least one of the image dimensions exceed max allowed size for many-image requests: 2000 pixels" } });
+  assert.equal(
+    refusal(400, JSON.stringify({ error: { message: "Provider returned error", code: 400, metadata: { raw, provider_name: "Anthropic" } } })),
+    "openrouter 400: Provider returned error (Anthropic: messages.0.content.21.image.source.base64.data: At least one of the image dimensions exceed max allowed size for many-image requests: 2000 pixels)",
+  );
+  assert.equal(refusal(400, JSON.stringify({ error: { message: "Provider returned error", metadata: { raw: "upstream said no" } } })), "openrouter 400: Provider returned error (upstream said no)");
 });
 
 test("a reply cut at the output limit is reported; a normal stop is not", () => {

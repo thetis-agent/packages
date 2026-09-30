@@ -1,4 +1,5 @@
-import { wireContent, wireToolResult } from "./content.js";
+import { IMAGES, wireContent, wireToolResult, type MediaGate } from "./content.js";
+import { isAssetPart } from "@thetis/runtime/lib/content";
 import { parseSchema } from "@thetis/runtime/lib/validation";
 import { ToolCallSchema } from "@thetis/runtime/schemas";
 import { ModelReasoningSchema, ModelsResponseSchema, ProviderErrorSchema, StreamChunkSchema, ToolArgumentsSchema } from "./schemas.js";
@@ -30,11 +31,18 @@ export interface OpenRouterConfig {
    * model that is thinking still sends SSE traffic, and each byte resets this. Default 120000.
    */
   streamStallMs?: number;
+  /**
+   * The most images one request carries. Anthropic refuses a request with more than 20 images unless every
+   * one is at most 2000 px on each side, and a full-page screenshot is taller than that, so past this the
+   * oldest images are left out, each leaving a line in their place. Default 20.
+   */
+  maxImages?: number;
 }
 
 /** The defaults, exported so the manifest, the README and the tests cannot drift from the code. */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 180_000;
 export const DEFAULT_STREAM_STALL_MS = 120_000;
+export const DEFAULT_MAX_IMAGES = 20;
 
 /** Statuses worth a second try: the request was sound, the moment was wrong. */
 const TRANSIENT = new Set([408, 409, 425, 429, 500, 502, 503, 504, 529]);
@@ -74,6 +82,7 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
   const cacheConfig: CacheConfig = config.cache ?? {};
   const requestTimeoutMs = positive(config.requestTimeoutMs) ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const streamStallMs = positive(config.streamStallMs) ?? DEFAULT_STREAM_STALL_MS;
+  const maxImages = positive(config.maxImages) ?? DEFAULT_MAX_IMAGES;
   const headers = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${apiKey}`,
@@ -110,7 +119,7 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
       // The model list is read once when media is about to go out and nobody has asked for it on this
       // provider yet; a failure there only means the model's modalities stay unknown.
       if (!modalities.size && carriesMedia(call)) await this.models().catch(() => {});
-      try { messages = await toWire(call, context, (mediaType) => accepts(modalities.get(call.model), mediaType)); }
+      try { messages = await toWire(call, context, mediaGate(call, maxImages, (mediaType) => accepts(modalities.get(call.model), mediaType))); }
       catch (error) { return yield failed(reason(error), { retryable: false, kind: "other" }); }
       const body = {
         model: call.model,
@@ -186,7 +195,7 @@ export function createProvider(config: OpenRouterConfig = {}): Provider {
           } catch (error) {
             return yield failed(`OpenRouter stream: ${reason(error)}`, { retryable: false, kind: "other" });
           }
-          if (chunk.error) return yield failed(chunk.error.message ?? JSON.stringify(chunk.error), classifyStreamError(chunk.error));
+          if (chunk.error) return yield failed(chunk.error.message ? withUpstream(chunk.error.message, chunk.error) : JSON.stringify(chunk.error), classifyStreamError(chunk.error));
           if (typeof chunk.choices?.[0]?.finish_reason === "string") finish = chunk.choices[0].finish_reason;
           const delta = chunk.choices?.[0]?.delta;
           if (typeof delta?.content === "string") {
@@ -363,17 +372,66 @@ export interface ModelReasoning {
   supportsMaxTokens?: true;
 }
 
-/** One sentence for a refused request: OpenRouter's own message and reason when the body is its JSON, else the raw text. */
+/**
+ * One sentence for a refused request: OpenRouter's own message and reason when the body is its JSON, else the
+ * raw text. When the refusal is the upstream's ("Provider returned error"), the upstream's own words ride in
+ * `metadata.raw`, and they are the only part that says what was wrong, so they go in too.
+ */
 export function refusal(status: number, body: string): string {
   try {
     const parsed = ProviderErrorSchema.safeParse(JSON.parse(body)?.error);
     if (!parsed.success) return `openrouter ${status}: ${body.slice(0, 500)}`;
     const message = parsed.data.message;
-    if (message) return `openrouter ${status}: ${message}${parsed.data.metadata?.reason ? ` (${parsed.data.metadata.reason})` : ""}`;
+    if (message) return `openrouter ${status}: ${withUpstream(message, parsed.data)}`;
   } catch {
     // not JSON: fall through to the raw text
   }
   return `openrouter ${status}: ${body.slice(0, 500)}`;
+}
+
+/** OpenRouter's message with its reason and, when an upstream refused, the upstream's name and message. */
+function withUpstream(message: string, error: z.infer<typeof ProviderErrorSchema>): string {
+  const meta = error.metadata;
+  const said = upstreamMessage(meta?.raw);
+  const who = typeof meta?.provider_name === "string" ? `${meta.provider_name}: ` : "";
+  return `${message}${meta?.reason ? ` (${meta.reason})` : ""}${said && said !== message ? ` (${who}${said.slice(0, 500)})` : ""}`;
+}
+
+/** The message inside an upstream's error body, which OpenRouter passes on as a JSON string, an object, or plain text. */
+function upstreamMessage(raw: unknown): string | undefined {
+  let value = raw;
+  if (typeof raw === "string") {
+    try { value = JSON.parse(raw); } catch { return raw.trim() || undefined; }
+  }
+  if (!value || typeof value !== "object") return typeof value === "string" ? value : undefined;
+  const v = value as { message?: unknown; error?: { message?: unknown } | string };
+  if (typeof v.error === "object" && typeof v.error?.message === "string") return v.error.message;
+  if (typeof v.error === "string") return v.error;
+  if (typeof v.message === "string") return v.message;
+  return undefined;
+}
+
+/**
+ * What one request does with each attached medium, walked in the order `toWire` walks them. A model known
+ * not to take a kind of input gets a line instead. Past `max` images, the oldest are left out, in steps of
+ * half of `max`, so the images that do go out stay the same for the next several: every change to an early
+ * message costs the prompt cache everything after it, and a window that slid by one image per screenshot
+ * would pay that on every call.
+ */
+export function mediaGate(call: ProviderCall, max: number, takes: (mediaType: string) => boolean): MediaGate {
+  let images = 0;
+  for (const m of call.messages) {
+    if (!Array.isArray(m.content)) continue;
+    for (const p of m.content) if (isAssetPart(p) && IMAGES.has(p.data.mediaType) && takes(p.data.mediaType)) images++;
+  }
+  const step = Math.max(1, Math.ceil(max / 2));
+  const leftOut = images > max ? Math.min(images, Math.ceil((images - max) / step) * step) : 0;
+  let seen = 0;
+  return (mediaType) => {
+    if (!takes(mediaType)) return `not shown, this model does not take ${mediaType.split("/")[0]} input`;
+    if (IMAGES.has(mediaType) && seen++ < leftOut) return `an earlier image, no longer attached: a request carries at most ${max} images, the latest ones`;
+    return undefined;
+  };
 }
 
 /**
@@ -487,7 +545,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-async function toWire(call: ProviderCall, context?: ProviderContext, accepts: (mediaType: string) => boolean = () => true): Promise<WireMessage[]> {
+async function toWire(call: ProviderCall, context: ProviderContext | undefined, gate: MediaGate): Promise<WireMessage[]> {
   const out: WireMessage[] = [];
   if (call.system) out.push({ role: "system", content: call.system });
   // Media from tool results waits until the run of tool messages ends: an assistant's tool calls must be
@@ -499,20 +557,20 @@ async function toWire(call: ProviderCall, context?: ProviderContext, accepts: (m
   };
   for (const m of call.messages) {
     if (m.role === "tool") {
-      const { text, media } = await wireToolResult(m, context, accepts);
+      const { text, media } = await wireToolResult(m, context, gate);
       out.push({ role: "tool", content: text, tool_call_id: m.toolCallId, name: m.name });
       pending.push(...media);
       continue;
     }
     flush();
-    out.push(await messageToWire(m, context));
+    out.push(await messageToWire(m, context, gate));
   }
   flush();
   return out;
 }
 
-async function messageToWire(m: Message, context?: ProviderContext): Promise<WireMessage> {
-  const content = await wireContent(m, context);
+async function messageToWire(m: Message, context: ProviderContext | undefined, gate: MediaGate): Promise<WireMessage> {
+  const content = await wireContent(m, context, gate);
   if (m.role === "assistant" && m.toolCalls?.length) {
     return {
       role: "assistant",
