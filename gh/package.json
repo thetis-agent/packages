@@ -1,0 +1,296 @@
+{
+  "name": "@thetis/gh",
+  "version": "0.1.0",
+  "description": "The GitHub CLI as tools, run as a bot user with a token and no ssh key: one gh command at a time, resolved by gh itself and checked against a fixed denylist and your own allow, deny and read-only settings, the REST and GraphQL API, git over https as the bot, gh's help, and what gh is signed in as.",
+  "keywords": [
+    "gh",
+    "github",
+    "cli",
+    "pull requests",
+    "issues",
+    "actions",
+    "releases",
+    "api",
+    "graphql",
+    "git"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test.smoke.mjs"
+  },
+  "thetis": {
+    "type": "tool",
+    "label": "GitHub",
+    "toolGroup": {
+      "id": "gh",
+      "brief": "Work with GitHub through the gh CLI as a bot user: repositories, pull requests, issues, reviews, Actions runs and workflows, releases, gists, the REST and GraphQL API, and git clone/fetch/push over https.",
+      "tags": [
+        "github",
+        "gh",
+        "pull request",
+        "pull requests",
+        "pr",
+        "issue",
+        "issues",
+        "code review",
+        "review",
+        "github actions",
+        "workflow run",
+        "ci run",
+        "release",
+        "releases",
+        "gist",
+        "repository",
+        "repo",
+        "fork",
+        "branch",
+        "clone",
+        "push",
+        "merge",
+        "github api",
+        "graphql",
+        "labels",
+        "milestones",
+        "github projects",
+        "secrets",
+        "deploy key"
+      ]
+    },
+    "tools": [
+      {
+        "name": "gh_run",
+        "reads": false,
+        "description": "Run one gh (GitHub CLI) command as the bot user and return its exit code, stdout and stderr. Give the words after `gh` as `args` (preferred) or one `command` line; they are passed as arguments, never to a shell, so pipes and `&&` do not work: run one command per call and shape output with gh's own --json, --jq, --template and --limit. gh resolves the command first; an unknown command or flag is refused without running. Always refused: auth login/logout/token, codespace, extension, alias set, browse, completion, run watch, and --show-token. Your allow/deny/read-only settings apply on top. Text a command reads from stdin (a PR body with --body-file -, a JSON body with --input -) goes in `input`. This can create, change and delete things on GitHub: say what a mutating command will do before running it. Tips: pass --repo owner/repo when not in a checkout; use --json fields --jq expr to keep output small; give `cwd` for commands that act on a local checkout (pr create, pr checkout, repo clone).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The command as a list of words after `gh`, e.g. [\"pr\", \"list\", \"--repo\", \"owner/repo\", \"--state\", \"open\", \"--json\", \"number,title,author\"]. A value with spaces is one element."
+            },
+            "command": {
+              "type": "string",
+              "description": "The same as one line, split like a shell would split words (quotes honoured, nothing expanded). Use when args is awkward."
+            },
+            "input": {
+              "type": "string",
+              "description": "Text fed to the command's stdin, for `--body-file -`, `--input -`, `--notes-file -` and the like."
+            },
+            "cwd": {
+              "type": "string",
+              "description": "Directory to run in, relative to home: for commands that read a local git checkout (pr create, pr checkout, repo clone, run download)."
+            },
+            "dry_run": {
+              "type": "boolean",
+              "description": "Only resolve the command and check it against the policy; run nothing."
+            },
+            "timeout_s": {
+              "type": "integer",
+              "description": "Seconds to wait, 5-600. Defaults to the package's timeoutMs (120s)."
+            }
+          },
+          "additionalProperties": false
+        },
+        "export": "ghRun"
+      },
+      {
+        "name": "gh_api",
+        "reads": false,
+        "description": "Call the GitHub REST or GraphQL API as the bot user through `gh api`. REST: `endpoint` like repos/{owner}/{repo}/issues (gh fills {owner} and {repo} from the checkout in cwd only; give them literally otherwise), `method` (default GET, or POST when params/body are given), `params` (flat fields, sent as JSON body or as query for GET) or `body` (a whole JSON body). GraphQL: `graphql` (the query or mutation) and `variables`. `paginate` fetches every page (REST pages are slurped into one array); `jq` filters the result; `headers` adds request headers such as Accept for previews. GET is read-only; anything else changes GitHub, so say what it will do first. Prefer gh_run when a gh subcommand exists for the job.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "endpoint": {
+              "type": "string",
+              "description": "REST path, e.g. repos/owner/repo/pulls/12/reviews or user/repos. A full https://api.github.com/ URL also works."
+            },
+            "method": {
+              "type": "string",
+              "description": "GET, POST, PATCH, PUT or DELETE. Default GET, or POST when params or body are given."
+            },
+            "params": {
+              "type": "object",
+              "description": "Flat fields: strings are sent as strings, numbers/booleans/null typed (gh api -f/-F). Query parameters for GET, JSON body otherwise.",
+              "additionalProperties": true
+            },
+            "body": {
+              "description": "A whole JSON body (an object, or a JSON string), for nested payloads. Not with params."
+            },
+            "graphql": {
+              "type": "string",
+              "description": "A GraphQL query or mutation. Sets endpoint to graphql."
+            },
+            "variables": {
+              "type": "object",
+              "description": "GraphQL variables (flat values).",
+              "additionalProperties": true
+            },
+            "headers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Extra request headers, e.g. [\"Accept: application/vnd.github.raw+json\"]."
+            },
+            "previews": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "API preview names to opt into (gh api -p)."
+            },
+            "jq": {
+              "type": "string",
+              "description": "A jq expression applied to the response, e.g. .[].name or .data.repository.issues.nodes."
+            },
+            "paginate": {
+              "type": "boolean",
+              "description": "Fetch every page of a paginated list."
+            },
+            "include": {
+              "type": "boolean",
+              "description": "Include the response status line and headers in the output."
+            },
+            "dry_run": {
+              "type": "boolean",
+              "description": "Show the gh api command it would run, and run nothing."
+            },
+            "timeout_s": {
+              "type": "integer",
+              "description": "Seconds to wait, 5-600."
+            }
+          },
+          "additionalProperties": false
+        },
+        "export": "ghApi"
+      },
+      {
+        "name": "gh_git",
+        "reads": false,
+        "description": "Run one git command with the bot's GitHub credentials (https only; this space has no ssh key), for clone, fetch, pull, push, checkout, branch, commit, status, log and diff on a checkout under home. Give the words after `git` as `args` or one `command` line, and `cwd` (the checkout, relative to home) for anything but clone. Remotes must be https://github.com/owner/repo.git; the token is supplied through gh's credential helper and never appears in the command or the remote URL. Commits are authored as the configured bot identity. `push` and `remote` are refused in read-only mode.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Words after `git`, e.g. [\"clone\", \"https://github.com/owner/repo.git\", \"work/repo\"] or [\"push\", \"-u\", \"origin\", \"my-branch\"]."
+            },
+            "command": {
+              "type": "string",
+              "description": "The same as one line."
+            },
+            "cwd": {
+              "type": "string",
+              "description": "The checkout to run in, relative to home."
+            },
+            "input": {
+              "type": "string",
+              "description": "Text fed to git's stdin (e.g. a commit message with `commit -F -`, or a patch for `apply -`)."
+            },
+            "timeout_s": {
+              "type": "integer",
+              "description": "Seconds to wait, 5-600."
+            }
+          },
+          "additionalProperties": false
+        },
+        "export": "ghGit"
+      },
+      {
+        "name": "gh_help",
+        "reads": true,
+        "description": "Read gh's help for a command (usage, flags, examples), e.g. `pr create` or `api`. Use it before gh_run when unsure of a flag, instead of guessing.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The command path without flags, e.g. [\"pr\", \"create\"]."
+            },
+            "command": {
+              "type": "string",
+              "description": "The command path as one line, e.g. \"issue list\"."
+            },
+            "full": {
+              "type": "boolean",
+              "description": "Return up to 18000 characters instead of 9000."
+            }
+          },
+          "additionalProperties": false
+        },
+        "export": "ghHelp"
+      },
+      {
+        "name": "gh_status",
+        "reads": true,
+        "description": "Show what gh_run runs as: the gh version, whether a bot token is configured and which account and scopes GitHub reports for it, the git identity commits will carry, and the allow/deny/read-only policy in force. Call it first, and whenever a command fails on auth.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "export": "ghStatus"
+      }
+    ],
+    "config": {
+      "token": {
+        "type": "string",
+        "secret": true,
+        "help": "The bot user's GitHub token (a fine-grained or classic personal access token, or a GitHub App installation token). Passed to gh and git as GH_TOKEN for each call; never written to disk or shown. Give the bot only the repositories and permissions the work needs."
+      },
+      "host": {
+        "type": "string",
+        "help": "GitHub host when not github.com (GH_HOST), e.g. github.example.com for GitHub Enterprise Server."
+      },
+      "gitUserName": {
+        "type": "string",
+        "help": "The name commits made through gh_git carry (GIT_AUTHOR_NAME / GIT_COMMITTER_NAME), e.g. the bot's display name."
+      },
+      "gitUserEmail": {
+        "type": "string",
+        "help": "The email commits made through gh_git carry, e.g. the bot's noreply address: <id>+<login>@users.noreply.github.com."
+      },
+      "mode": {
+        "type": "string",
+        "default": "full",
+        "help": "`full` (default) or `read-only`. read-only admits only commands that read (list, view, status, diff, checks, search, GET API calls, …) and refuses git push; full admits anything the lists allow."
+      },
+      "allow": {
+        "type": "string",
+        "help": "If set, only these gh commands or groups run: a comma-separated list or a JSON array, e.g. `pr, issue, repo view, api`."
+      },
+      "deny": {
+        "type": "string",
+        "help": "gh commands or groups refused on top of the fixed denylist: a comma-separated list or a JSON array, e.g. `repo delete, secret, ssh-key, gpg-key`."
+      },
+      "configDir": {
+        "type": "string",
+        "help": "gh's config directory (GH_CONFIG_DIR). Defaults to ~/.config/gh in this space; the token does not live there."
+      },
+      "ghPath": {
+        "type": "string",
+        "help": "Full path to the gh executable when it is not on the PATH."
+      },
+      "gitPath": {
+        "type": "string",
+        "help": "Full path to the git executable when it is not on the PATH."
+      },
+      "timeoutMs": {
+        "type": "number",
+        "default": 120000,
+        "help": "Default per-command timeout in milliseconds, clamped to 5000-600000."
+      }
+    }
+  }
+}
