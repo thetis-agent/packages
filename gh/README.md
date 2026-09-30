@@ -48,23 +48,37 @@ loads it.
 
 `gh` (and `git`) must be on the space's `PATH`, or set `ghPath` / `gitPath`.
 
-1. Make a bot user on GitHub (a machine account), or use a GitHub App.
+1. Make a bot user on GitHub: an ordinary user account used as a machine
+   account (GitHub allows one per person or organisation for automation).
+   Usernames are global, so a short one is likely taken; `zero-thetis` style
+   names usually are not.
 2. Give it access to the repositories the work needs: add it as a collaborator
    or to a team, with the least role that does the job.
-3. Create a token for it. A **fine-grained personal access token** scoped to
-   those repositories with only the permissions needed (Contents, Pull
-   requests, Issues, Actions, Metadata …) is the safest; a classic token with
-   `repo` (and `read:org`, `workflow` as needed) also works, as does a GitHub
-   App installation token.
-4. Paste it into the `token` setting of this extension (it is a secret: the
-   panel never shows it, and the tools never print it). Set `gitUserName` and
+3. Signed in as the bot, create a **personal access token**. A fine-grained
+   token scoped to those repositories with only the permissions needed
+   (Contents, Pull requests, Issues, Actions, Metadata …) is the safest; a
+   classic token with `repo` (and `read:org`, `workflow` as needed) also
+   works.
+4. Give gh the token, in one of two ways (the `auth` setting picks; `auto`
+   uses the setting when it is set, else the login):
+
+   | Way | How |
+   |---|---|
+   | The `token` setting | Paste the PAT into the `token` setting of this extension (a secret: the panel never shows it, the tools never print it). It reaches gh and git as `GH_TOKEN` per call and is written nowhere. |
+   | gh's own login | In the terminal of this space: `echo <PAT> \| gh auth login --with-token` (or `gh auth login` interactively, pasting the PAT). gh keeps it in `~/.config/gh/hosts.yml`, and the tools run with no `GH_TOKEN`, so gh uses it. Set `auth` to `login` to insist on this even when `token` is set. |
+
+   Set `login` to the bot's username so `gh_status` warns when the
+   credentials it finds belong to someone else, and `gitUserName` /
    `gitUserEmail` so commits made through `gh_git` are the bot's; GitHub's
    noreply form is `<id>+<login>@users.noreply.github.com`.
-5. `gh_status` shows what gh sees: the account, its scopes, and the policy.
+5. `gh_status` shows what gh sees: the mode, the account, its scopes, and the
+   policy.
 
 | Key | Meaning |
 |---|---|
-| `token` | Secret. The bot's token, passed as `GH_TOKEN` per call. |
+| `auth` | `auto` (default), `token` or `login`: where gh's credentials come from. |
+| `token` | Secret. The bot's PAT, passed as `GH_TOKEN` per call. |
+| `login` | The bot's username, checked by `gh_status` against the signed-in account. |
 | `host` | GitHub Enterprise host (`GH_HOST`). |
 | `gitUserName`, `gitUserEmail` | The identity commits carry. |
 | `mode` | `full` (default) or `read-only`. |

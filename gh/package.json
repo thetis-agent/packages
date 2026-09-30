@@ -1,7 +1,7 @@
 {
   "name": "@thetis/gh",
-  "version": "0.1.0",
-  "description": "The GitHub CLI as tools, run as a bot user with a token and no ssh key: one gh command at a time, resolved by gh itself and checked against a fixed denylist and your own allow, deny and read-only settings, the REST and GraphQL API, git over https as the bot, gh's help, and what gh is signed in as.",
+  "version": "0.2.0",
+  "description": "The GitHub CLI as tools, run as a bot user with a PAT (as a setting, or as gh's own stored login) and no ssh key: one gh command at a time, resolved by gh itself and checked against a fixed denylist and your own allow, deny and read-only settings, the REST and GraphQL API, git over https as the bot, gh's help, and what gh is signed in as.",
   "keywords": [
     "gh",
     "github",
@@ -234,7 +234,7 @@
       {
         "name": "gh_status",
         "reads": true,
-        "description": "Show what gh_run runs as: the gh version, whether a bot token is configured and which account and scopes GitHub reports for it, the git identity commits will carry, and the allow/deny/read-only policy in force. Call it first, and whenever a command fails on auth.",
+        "description": "Show what gh_run runs as: the gh version, the auth mode (the `token` setting or gh's own stored login), which account and scopes GitHub reports and whether that is the expected bot `login`, the git identity commits will carry, and the allow/deny/read-only policy in force. Call it first, and whenever a command fails on auth.",
         "parameters": {
           "type": "object",
           "properties": {},
@@ -244,10 +244,19 @@
       }
     ],
     "config": {
+      "auth": {
+        "type": "string",
+        "default": "auto",
+        "help": "`auto` (default): use `token` when it is set, else gh's own stored login. `token`: always the `token` setting. `login`: always gh's stored login in its config dir, made with `gh auth login --with-token` in the terminal, and ignore `token`."
+      },
       "token": {
         "type": "string",
         "secret": true,
-        "help": "The bot user's GitHub token (a fine-grained or classic personal access token, or a GitHub App installation token). Passed to gh and git as GH_TOKEN for each call; never written to disk or shown. Give the bot only the repositories and permissions the work needs."
+        "help": "The bot user's GitHub personal access token (fine-grained or classic). Passed to gh and git as GH_TOKEN for each call; never written to disk or shown. Give the bot only the repositories and permissions the work needs. Leave unset to use gh's stored login instead."
+      },
+      "login": {
+        "type": "string",
+        "help": "The bot user's GitHub login, e.g. zero-thetis. Not used to authenticate: gh_status compares it with the account GitHub reports and warns when the credentials belong to someone else."
       },
       "host": {
         "type": "string",

@@ -110,6 +110,16 @@ await t("envOf carries the token, disables prompts and wires git credentials", (
   assert.equal(m.envOf({}).GH_TOKEN, undefined);
 });
 
+await t("auth mode: auto picks token when set, login otherwise; explicit wins", () => {
+  assert.equal(m.authMode({}), "login");
+  assert.equal(m.authMode({ token: "ghp_x" }), "token");
+  assert.equal(m.authMode({ token: "ghp_x", auth: "login" }), "login");
+  assert.equal(m.authMode({ auth: "token" }), "token");
+  assert.equal(m.authMode({ auth: "nonsense", token: "ghp_x" }), "token");
+  assert.equal(m.envOf({ token: "ghp_x", auth: "login" }).GH_TOKEN, undefined, "login mode never exports the token");
+  assert.equal(m.envOf({ token: "ghp_x", auth: "token" }).GH_TOKEN, "ghp_x");
+});
+
 const env = makeEnv();
 
 await t("resolve reads the command path from a real gh, aliases and all", async () => {
@@ -142,9 +152,25 @@ await t("gh_run runs a harmless command, quotes shell characters, notes a missin
   assert.doesNotMatch(r.replace(/^\$.*$/m, ""), /^PWNED$/m);
   const api = await m.ghRun({ args: ["repo", "view", "cli/cli"] }, env);
   assert.match(api, /exit [1-9]/);
-  assert.match(api, /note: no `token` is set/);
+  assert.match(api, /note: gh is using its own stored login/);
   const withTok = await m.ghRun({ args: ["repo", "view", "cli/cli"] }, makeEnv({ token: "ghp_definitely_invalid" }));
   assert.match(withTok, /note: GitHub rejected the configured `token`/);
+});
+
+await t("login mode runs gh against an isolated config dir without the token", async () => {
+  const dir = await mkdtemp(`${tmpdir()}/gh-cfg-`);
+  try {
+    const e = makeEnv({ token: "ghp_would_be_used", auth: "login", configDir: dir, login: "zero-thetis" });
+    const r = await m.ghRun({ args: ["repo", "view", "cli/cli"] }, e);
+    assert.match(r, /exit [1-9]/);
+    assert.match(r, /stored login/);
+    const s = await m.ghStatus({}, e);
+    assert.match(s, /^auth: login \(gh's own stored login in /m);
+    assert.match(s, /`token` setting is ignored/);
+    assert.match(s, /not logged into any GitHub hosts/);
+    assert.match(s, /expected login: zero-thetis \(could not tell/);
+    assert.doesNotMatch(s, /ghp_would_be_used/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
 await t("gh_run feeds `input` to stdin and removes the file", async () => {
@@ -170,7 +196,7 @@ await t("gh_api refuses a write in read-only mode and shows a dry run", async ()
 await t("gh_api without a token fails with the auth note", async () => {
   const r = await m.ghApi({ endpoint: "user" }, env);
   assert.match(r, /^\$ gh api user/);
-  assert.match(r, /note: no `token` is set/);
+  assert.match(r, /note: gh is using its own stored login/);
 });
 
 await t("gh_git runs in cwd with the bot identity and gh as credential helper", async () => {
@@ -199,11 +225,12 @@ await t("gh_help returns usage; gh_status reports version, token and policy", as
   await assert.rejects(m.ghHelp({ command: "pr create --fill" }, env));
   const s = await m.ghStatus({}, makeEnv({ deny: ["repo delete"], mode: "read-only" }));
   assert.match(s, /^gh version \d/);
-  assert.match(s, /token: NOT SET/);
+  assert.match(s, /^auth: login/m);
   assert.match(s, /mode: read-only/);
   assert.match(s, /deny: repo delete/);
-  const s2 = await m.ghStatus({}, makeEnv({ token: "ghp_fake" }));
-  assert.match(s2, /token: set/);
+  const s2 = await m.ghStatus({}, makeEnv({ token: "ghp_fake", login: "zero-thetis" }));
+  assert.match(s2, /^auth: token/m);
+  assert.match(s2, /note: the configured token does not work/);
   assert.doesNotMatch(s2, /ghp_fake/);
 });
 

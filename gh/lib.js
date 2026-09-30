@@ -152,6 +152,18 @@ export function timeoutOf(cfg, perCall) {
 
 const str = (v) => (typeof v === "string" && v.trim() ? v.trim() : null);
 
+/**
+ * How gh gets its credentials. `token`: the `token` setting as GH_TOKEN (the
+ * default when a token is set). `login`: gh's own stored login in its config
+ * dir, made with `gh auth login` in the terminal; a `token` setting is then
+ * ignored. `auto` (default): token when one is set, else login.
+ */
+export function authMode(cfg = {}) {
+  const m = str(cfg.auth)?.toLowerCase() ?? "auto";
+  if (m === "token" || m === "login") return m;
+  return str(cfg.token) ? "token" : "login";
+}
+
 function ghBin(cfg) { return str(cfg.ghPath) ?? "gh"; }
 function gitBin(cfg) { return str(cfg.gitPath) ?? "git"; }
 
@@ -178,7 +190,7 @@ export function envOf(cfg = {}) {
   };
   const token = str(cfg.token);
   const host = str(cfg.host);
-  if (token) {
+  if (authMode(cfg) === "token" && token) {
     vars.GH_TOKEN = token;
     vars.GH_ENTERPRISE_TOKEN = token;
   }
@@ -251,9 +263,9 @@ const SSH_REMOTE = /Permission denied \(publickey\)|Could not read from remote r
 
 function authNote(cfg, stderr) {
   if (!NO_AUTH.test(String(stderr ?? ""))) return null;
-  return str(cfg.token)
-    ? "note: GitHub rejected the configured `token`. Check that the bot user's token is valid, not expired, and has access to this repository (gh_status shows what gh sees)."
-    : "note: no `token` is set in this package's settings, so gh has no credentials. See Setup in the package README.";
+  if (authMode(cfg) === "token")
+    return "note: GitHub rejected the configured `token`. Check that the bot user's token is valid, not expired, and has access to this repository (gh_status shows what gh sees).";
+  return "note: gh is using its own stored login (no `token` set, or `auth` is `login`) and it is missing or rejected. Log the bot in from the terminal: `gh auth login --with-token` with its PAT on stdin, or set the `token` setting. See Setup in the package README.";
 }
 
 // ------------------------------------------------------------------- tools --
@@ -361,12 +373,22 @@ export async function ghStatus(input, env) {
   const v = await runGh(env, ["--version"], { timeoutMs: 30_000 });
   if (v.code !== 0) return `gh did not run: ${String(v.stderr ?? "").trim() || `exit ${v.code}`}\nInstall the GitHub CLI where this space can reach it, or set \`ghPath\`.`;
   lines.push(String(v.stdout).trim().split("\n")[0]);
-  lines.push(`token: ${str(cfg.token) ? "set (this package's `token` setting, passed as GH_TOKEN)" : "NOT SET: every command that reaches GitHub will fail. See Setup in the README."}`);
+  const mode = authMode(cfg);
+  if (mode === "token") lines.push(`auth: token (this package's \`token\` setting, passed as GH_TOKEN${str(cfg.auth) ? "" : "; set `auth` to `login` to use gh's stored login instead"})`);
+  else lines.push(`auth: login (gh's own stored login in ${str(cfg.configDir) ?? "~/.config/gh"}, made with \`gh auth login --with-token\` in the terminal${str(cfg.token) ? "; the `token` setting is ignored because `auth` is `login`" : "; no `token` setting"})`);
   if (str(cfg.host)) lines.push(`host: ${str(cfg.host)}`);
   const a = await runGh(env, ["auth", "status"], { timeoutMs: 60_000 });
-  const auth = `${a.stdout ?? ""}\n${a.stderr ?? ""}`.replace(/\x1b\[[0-9;]*m/g, "").trim().split("\n").map((l) => l.trim()).filter(Boolean)
-    .filter((l) => !/^Token:/i.test(l));
+  const authText = `${a.stdout ?? ""}\n${a.stderr ?? ""}`.replace(/\x1b\[[0-9;]*m/g, "");
+  const auth = authText.trim().split("\n").map((l) => l.trim()).filter(Boolean).filter((l) => !/^Token:/i.test(l));
   lines.push(`auth status (exit ${a.code}):`, ...auth.map((l) => `  ${l}`));
+  if (a.code !== 0) lines.push(mode === "token" ? "note: the configured token does not work. See Setup in the README." : "note: gh has no working login here. Log the bot in from the terminal (see Setup in the README), or set `token`.");
+  const want = str(cfg.login);
+  if (want) {
+    const got = [...authText.matchAll(/Logged in to \S+ account (\S+)/g)].map((x) => x[1]);
+    if (!got.length) lines.push(`expected login: ${want} (could not tell who gh is signed in as)`);
+    else if (got.some((g) => g.toLowerCase() === want.toLowerCase())) lines.push(`expected login: ${want} (matches)`);
+    else lines.push(`WARNING: expected login ${want}, but gh is signed in as ${got.join(", ")}. These are not the bot's credentials.`);
+  }
   const g = await runGit(env, ["--version"], { timeoutMs: 30_000 });
   lines.push(g.code === 0 ? `${String(g.stdout).trim()}, credentials for https://github.com from \`gh auth git-credential\`` : "git: not found on the PATH (gh_git and clone/checkout will not work)");
   if (str(cfg.gitUserName) || str(cfg.gitUserEmail)) lines.push(`git identity: ${str(cfg.gitUserName) ?? "(name not set)"} <${str(cfg.gitUserEmail) ?? "email not set"}>`);
