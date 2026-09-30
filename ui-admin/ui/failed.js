@@ -5,6 +5,8 @@
  * the same card. The raw text is kept, folded under Details, because it is what someone at the host needs.
  * A toast never carries a module error raw either: `toastError` says the plain sentence. */
 
+import { agentName } from "./state.js";
+
 /** The raw text of an error, whatever threw it. */
 const rawOf = (err) => String(err?.message ?? err ?? "").trim();
 
@@ -25,10 +27,11 @@ const LOAD_ERROR = /does not provide an export named|does not export a method na
 export function plainFailure(err, { admin = false } = {}) {
   const raw = rawOf(err);
   if (LOAD_ERROR.test(raw)) {
-    return { reason: "part of Thetis needs a restart to load this page", fix: admin ? "Restart Thetis to load it; running replies pause at a safe point and continue after." : "Ask an admin to restart Thetis.", restart: true, raw };
+    const name = agentName();
+    return { reason: `part of ${name} needs a restart to load this page`, fix: admin ? `Restart ${name} to load it; running replies pause at a safe point and continue after.` : `Ask an admin to restart ${name}.`, restart: true, raw };
   }
   const status = Number(err?.status);
-  if (isLost(err)) return { reason: "Thetis did not answer", fix: "It may be restarting. Try again in a moment.", restart: false, raw };
+  if (isLost(err)) return { reason: `${agentName()} did not answer`, fix: "It may be restarting. Try again in a moment.", restart: false, raw };
   if (status === 401 || status === 403 || /unauthori[sz]ed|only an admin/i.test(raw)) return { reason: "you are not allowed to read it", fix: admin ? "Sign in again." : "An admin can read it for you.", restart: false, raw };
   if (/timed? ?out|timeout/i.test(raw)) return { reason: "it took too long to answer", fix: "Try again.", restart: false, raw };
   // A sentence without code in it is the kernel's or a package's own refusal: short, and said as it is.
@@ -55,8 +58,9 @@ export function toastError(ext, err, lead = null) {
  * it is shown to everyone waiting and written to the journal. The latch's own sentence is the answer.
  */
 export async function askRestart(ext, anchor, what) {
-  const reason = `${what} could not load: part of Thetis needs a restart`;
-  const ok = await ext.ui.confirm(anchor, { title: "Restart Thetis?", lines: [["reason", reason]], note: "Running replies pause at a safe point and continue after the restart. Open terminal sessions end. This page reconnects by itself.", confirmLabel: "Restart Thetis", tone: "warn" });
+  const name = agentName();
+  const reason = `${what} could not load: part of ${name} needs a restart`;
+  const ok = await ext.ui.confirm(anchor, { title: `Restart ${name}?`, lines: [["reason", reason]], note: "Running replies pause at a safe point and continue after the restart. Open terminal sessions end. This page reconnects by itself.", confirmLabel: `Restart ${name}`, tone: "warn" });
   if (!ok) return null;
   try {
     const out = await ext.request("restart-request", { args: { reason } });
@@ -79,7 +83,7 @@ export function failedCard(ext, what, err, { admin = false, retry = null } = {})
   const f = plainFailure(err, { admin });
   const actions = [];
   if (f.restart && admin && ext.can?.("restart-request") !== false) {
-    const b = button("Restart Thetis", { tone: "warn", onClick: () => void askRestart(ext, b, what) });
+    const b = button(`Restart ${agentName()}`, { tone: "warn", onClick: () => void askRestart(ext, b, what) });
     actions.push(b);
   }
   if (retry) actions.push(button("Try again", { onClick: () => retry() }));

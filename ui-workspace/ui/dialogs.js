@@ -323,7 +323,7 @@ export async function confirmDelete(anchor, ...args) {
   try {
     await model.remove(entry.path);
   } catch (err) {
-    ext.toast(`${name} was not deleted: ${err?.message || "Thetis did not answer"}`, { tone: "error" });
+    ext.toast(`${name} was not deleted: ${err?.message || `${ext.agent?.name || "Thetis"} did not answer`}`, { tone: "error" });
     return false;
   }
   try {

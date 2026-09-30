@@ -8,14 +8,16 @@ import { mountFleet } from "./fleet.js";
 import { mountPackagePage } from "./package-page.js";
 import { mountWorkspaces } from "./workspaces.js";
 import { failedCard } from "./failed.js";
+import { agentName } from "./state.js";
 
-export const PAGES = Object.freeze([
+/** The pages under Advanced, made when drawn: a note names the agent. */
+export const pages = () => [
   { id: "workspaces", label: "Workspaces", kind: "page", note: "Each workspace's code, and restarting one" },
-  { id: "server", label: "Server settings", kind: "page", note: "The configuration as Thetis reads it, secrets hidden" },
-]);
+  { id: "server", label: "Server settings", kind: "page", note: `The configuration as ${agentName()} reads it, secrets hidden` },
+];
 
 /** The pages under Advanced, for the tree. */
-export const advancedChildren = () => PAGES.map((p) => ({ ...p }));
+export const advancedChildren = () => pages();
 
 /** The Advanced section: an index of its pages, each opening through the tree's `open`. */
 export function mountAdvanced(ext, root, who = {}) {
@@ -27,7 +29,7 @@ export function mountAdvanced(ext, root, who = {}) {
   put(
     wrap,
     heading("Advanced", "for troubleshooting"),
-    ...PAGES.map((p) => card(p.label, el("p", { class: "text-dim" }, p.note), el("div", { class: "card-actions" }, button("Open", { onClick: () => who.open?.(p.id) })))),
+    ...pages().map((p) => card(p.label, el("p", { class: "text-dim" }, p.note), el("div", { class: "card-actions" }, button("Open", { onClick: () => who.open?.(p.id) })))),
     el("p", { class: "panel-hint" }, "Everyday updating is on the Overview and under Extensions, where Who has what lists every extension and which people have it. These pages are for when one workspace needs a hand.")
   );
 }
@@ -67,7 +69,7 @@ export function mountServerSettings(ext, root) {
     const { packages, systemPackages, fence, ...kernel } = config;
     put(
       wrap,
-      heading("Server settings", "as Thetis read them; secrets are hidden"),
+      heading("Server settings", `as ${agentName()} read them; secrets are hidden`),
       card("Server", kv(Object.entries(kernel).map(([k, v]) => [k, code(typeof v === "object" ? JSON.stringify(v) : String(v))]))),
       card("Extensions everyone gets", kv(Object.entries(systemPackages ?? {}).map(([k, v]) => [k === "*" ? "everyone" : k, code((v ?? []).join(", ") || "none")]))),
       card("Workspace sandbox", kv(Object.entries(fence ?? {}).map(([k, v]) => [k, code(Array.isArray(v) ? v.join("\n") : String(v))]))),

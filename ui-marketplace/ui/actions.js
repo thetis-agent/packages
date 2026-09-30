@@ -32,7 +32,7 @@
  * someone else, and reads instead "This is your own copy. To give sam this extension, use Thetis's version:"
  * with **Open** of the official one. A copy's page offers **Show changes** beside what it changed. */
 
-import { ADMIN_ONLY, WORDS, baseOf, everyoneActions, isAdminOnly, isCopy, isPromoted, isRequired, kindsOf, listOf, needText, needsOf, originNameOf, ownerWord, publisherShort, runsInsideThetis, scopeOf, sharedCopyOf, switchTitle, titleCase, useOriginLabel } from "./state.js";
+import { ADMIN_ONLY, WORDS, agentName, baseOf, everyoneActions, isAdminOnly, isCopy, isPromoted, isRequired, kindsOf, listOf, needText, needsOf, originNameOf, ownerWord, publisherShort, runsInsideThetis, scopeOf, sharedCopyOf, switchTitle, titleCase, useOriginLabel } from "./state.js";
 import { isBusy, lostGateway, updater } from "./updates-notice.js";
 import { expectChange, unexpectChange } from "./watch.js";
 
@@ -467,7 +467,7 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
       anchor,
       row.system
         ? { title: `Turn on ${label} for everyone?`, lines: [["extension", `${label} ${row.version}`], ["for", "everyone, now and later"]], note: `Every person has it from their next message, and every new person starts with it. Anyone can still remove it for themselves.${key}`, confirmLabel: "Turn on for everyone" }
-        : { title: `Turn on ${label} for everyone?`, lines: [["extension", `${label} ${row.version}`], ["from", row.registry || "a source"], ["for", "everyone, now and later"]], note: `It is downloaded, becomes part of Thetis, and every person has it now and later.${key}`, confirmLabel: "Turn on for everyone" },
+        : { title: `Turn on ${label} for everyone?`, lines: [["extension", `${label} ${row.version}`], ["from", row.registry || "a source"], ["for", "everyone, now and later"]], note: `It is downloaded, becomes part of ${agentName()}, and every person has it now and later.${key}`, confirmLabel: "Turn on for everyone" },
       row.system ? "Turning it on for everyone…" : "Turning it on for everyone… this can take a minute.",
       () => ext.request("install-everyone", { args: { source: sourceOf(row) } }),
       (r) => {
@@ -561,7 +561,7 @@ export function actionsFor(ext, view, host, { onPublish = null, onSettings = nul
   if (!row.installed) {
     if (inside) hints.push(`${WORDS.inside}.`);
     else if (!admin && isAdminOnly(row)) hints.push(ADMIN_ONLY.line);
-    else if (!admin && row.component) hints.push("Part of Thetis. Your admin decides who has it.");
+    else if (!admin && row.component) hints.push(`Part of ${agentName()}. Your admin decides who has it.`);
     else if (!admin && sharedCopy && scopeOf(row.name) !== user) {
       hints.push(`This is ${scopeOf(row.name)}'s original. Everyone gets the shared copy, ${titleCase(sharedCopy.label ?? baseOf(sharedCopy.name))}.`);
       primary.push(make("Open the shared copy", "quiet", () => go(sharedCopy.name)));

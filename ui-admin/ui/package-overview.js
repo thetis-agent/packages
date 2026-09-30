@@ -11,7 +11,7 @@
 import { packageFacts } from "./package-card.js";
 import { failureSentence } from "./failed.js";
 import { whereCard } from "./package-where.js";
-import { baseOf, dateWords, scopeOf, titleCase } from "./state.js";
+import { agentName, baseOf, dateWords, scopeOf, titleCase } from "./state.js";
 
 const short = (h) => (typeof h === "string" ? h.slice(0, 7) : "");
 const ago = (iso) => {
@@ -43,8 +43,8 @@ const text = (x, y, label, { anchor = "middle", cls = "" } = {}) => svg("text", 
 export function everyonesCopy(info, label) {
   if (info.everyoneBy === "promoted" || info.everyone) return "this one";
   const official = titleCase(info.origin?.label ?? label);
-  if (info.origin?.everyone) return `${official}${info.origin.version ? ` ${info.origin.version}` : ""} (Thetis's)`;
-  if (info.fork?.everyone) return `${official}${info.fork.shipped ? ` ${info.fork.shipped}` : ""} (Thetis's)`;
+  if (info.origin?.everyone) return `${official}${info.origin.version ? ` ${info.origin.version}` : ""} (${agentName()}'s)`;
+  if (info.fork?.everyone) return `${official}${info.fork.shipped ? ` ${info.fork.shipped}` : ""} (${agentName()}'s)`;
   if (info.sharedAs) return `${label} (shared)`;
   return null;
 }
@@ -119,7 +119,7 @@ export function sourceWords(info, { user = "", label = "" } = {}) {
     return `shared from ${label || titleCase(baseOf(from.name))} (${whose})${on ? ` on ${on}` : ""}`;
   }
   if (!src) return "not known";
-  if (src.kind === "system") return scopeOf(info.name) === "thetis" || !scopeOf(info.name) ? "by Thetis" : `by ${scopeOf(info.name) === user ? "you" : scopeOf(info.name)}, kept on the server`;
+  if (src.kind === "system") return scopeOf(info.name) === "thetis" || !scopeOf(info.name) ? `by ${agentName()}` : `by ${scopeOf(info.name) === user ? "you" : scopeOf(info.name)}, kept on the server`;
   if (src.kind === "local") {
     const who = scopeOf(info.name);
     const dir = String(src.ref ?? "").replace(/^.*?(packages\/[^/]+)\/?$/, "$1");
@@ -144,7 +144,7 @@ function provenanceCard(ext, ctx) {
   const everyone = everyonesCopy(info, label);
   const copyWord = (f) => `${f.label ? titleCase(f.label) : titleCase(baseOf(f.name))} (${f.user === user ? "yours" : `${f.user}'s`}${f.folder && !f.installed ? ", in the folder" : ""})`;
   const copies = forks.map(copyWord);
-  const official = info.forkedFrom ? `${titleCase(info.origin?.label ?? label)} ${info.forkedFrom.version ?? ""} (${info.forkedFrom.name.startsWith("@thetis/") ? "Thetis's" : scopeOf(info.forkedFrom.name) === user ? "your original" : `${scopeOf(info.forkedFrom.name)}'s`})`.replace(/\s+\(/, " (") : null;
+  const official = info.forkedFrom ? `${titleCase(info.origin?.label ?? label)} ${info.forkedFrom.version ?? ""} (${info.forkedFrom.name.startsWith("@thetis/") ? `${agentName()}'s` : scopeOf(info.forkedFrom.name) === user ? "your original" : `${scopeOf(info.forkedFrom.name)}'s`})`.replace(/\s+\(/, " (") : null;
   const pinned = info.source?.kind === "git";
   const rows = [
     ...row("Source", sourceWords(info, { user, label })),
@@ -158,7 +158,7 @@ function provenanceCard(ext, ctx) {
     ...row("Depends on", info.dependencies?.length ? el("code", {}, info.dependencies.join(", ")) : "nothing"),
     ...row("Used by", info.dependents?.length ? el("code", {}, info.dependents.join(", ")) : "nothing installed here"),
   ];
-  const headBadge = info.everyoneBy === "promoted" ? badge("Shared copy", "accent") : info.forkedFrom ? badge("Customized copy", "dim") : info.source?.kind === "system" ? badge(scopeOf(info.name) === "thetis" ? "by Thetis" : `by ${scopeOf(info.name) === user ? "you" : scopeOf(info.name)}`, "dim") : info.source?.kind === "git" ? badge(`from ${reg?.registry ?? "a registry"}`, "accent") : badge("in a folder", "dim");
+  const headBadge = info.everyoneBy === "promoted" ? badge("Shared copy", "accent") : info.forkedFrom ? badge("Customized copy", "dim") : info.source?.kind === "system" ? badge(scopeOf(info.name) === "thetis" ? `by ${agentName()}` : `by ${scopeOf(info.name) === user ? "you" : scopeOf(info.name)}`, "dim") : info.source?.kind === "git" ? badge(`from ${reg?.registry ?? "a registry"}`, "accent") : badge("in a folder", "dim");
   const node = card(el("span", { class: "ua-card-title" }, "Provenance", headBadge), lineage(info, forks, label, user), el("dl", { class: "kv ua-pkg-facts" }, ...rows));
   node.classList.add("ua-provenance");
   return node;

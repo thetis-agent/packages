@@ -258,13 +258,13 @@ test("All extensions: what is installed for you, in the columns every list uses,
 });
 
 test("Who has what: every extension and which people have it; the system workspace's column is Thetis itself, and the table scrolls in its own box", async () => {
-  const { mountFleet, SYSTEM_COLUMN } = await import("../ui/fleet.js");
+  const { mountFleet, systemColumn } = await import("../ui/fleet.js");
   const fleet = { people: [{ user: "root" }], packages: [{ name: "@thetis/gateway-login", type: "gateway", version: "0.1.0", source: { kind: "system" }, state: "current", waiting: [], registry: null, config: null, scope: "system", byUser: { _system: { version: "0.1.0", state: "current" } } }], stats: {} };
   const ext = fakeExt({ fleet, "update-check": { updating: false } });
   const root = el("div");
   mountFleet(ext, root, { user: "root", mode: "full" });
   await settled();
-  assert.equal(SYSTEM_COLUMN, "Thetis itself");
+  assert.equal(systemColumn(), "Thetis itself");
   const heads = all(root, (n) => n.tag === "th").map(text);
   assert.ok(heads.includes("Thetis itself") && !heads.includes("_system"), heads.join("|"));
   assert.ok(all(root, (n) => String(n.props.class ?? "").includes("ua-fl-scroll")).length === 1, "the table's own scroll box");

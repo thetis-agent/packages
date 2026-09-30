@@ -13,7 +13,7 @@
  * the answer does not know is not shown. */
 
 import { stateBadge } from "./words.js";
-import { labelOf, scopeOf, titleCase, WORDS } from "./state.js";
+import { agentName, labelOf, scopeOf, titleCase, WORDS } from "./state.js";
 
 /** The Remove-for-one-person confirm, the same words in the Extensions place (`WORDS.removeForNote`): `{ title, note }`. */
 export function removeForWords(label, who, me) {
@@ -104,8 +104,8 @@ export function whereCard(ext, ctx, { alive, full = false } = {}) {
     put(
       body,
       el("ul", { class: "ua-person-list" }, ...rows),
-      ctx.inside ? el("p", { class: "text-faint" }, "Runs inside Thetis itself: nobody installs or removes it.") : nobodyElse ? el("p", { class: "text-faint" }, "Only admins can have this.") : null,
-      privateCopy && others.length ? el("p", { class: "text-faint ua-where-private" }, `${privateLine(others.length === 1 ? others[0].user : "someone else", official.startsWith("@thetis/") ? "Thetis's" : "the original")} `, openOfficial) : null,
+      ctx.inside ? el("p", { class: "text-faint" }, `Runs inside ${agentName()} itself: nobody installs or removes it.`) : nobodyElse ? el("p", { class: "text-faint" }, "Only admins can have this.") : null,
+      privateCopy && others.length ? el("p", { class: "text-faint ua-where-private" }, `${privateLine(others.length === 1 ? others[0].user : "someone else", official.startsWith("@thetis/") ? `${agentName()}'s` : "the original")} `, openOfficial) : null,
       el(
         "div",
         { class: "ua-where-foot" },

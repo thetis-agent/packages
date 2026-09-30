@@ -7,6 +7,7 @@
  * sends you to the sign-in page rather than leaving you on a page whose next request would be refused. */
 
 import { failureSentence } from "./failed.js";
+import { agentName } from "./state.js";
 
 export function mountAccount(ext, root, who = {}) {
   const { el, clear } = ext.dom;
@@ -79,7 +80,7 @@ export function mountAccount(ext, root, who = {}) {
       card(
         el("code", {}, me.user || "—"),
         kv([["id", el("code", {}, me.user || "—")], ["role", badge(me.role || "unknown", me.role === "admin" ? "accent" : "dim")]]),
-        el("p", { class: "text-faint" }, me.role === "admin" ? "An admin: you manage people, access and extensions for everyone, and update Thetis. Another admin, or the host, changes your role." : "A user: you manage your own space, keys and extensions. An admin changes your role or binds host directories for you."),
+        el("p", { class: "text-faint" }, me.role === "admin" ? `An admin: you manage people, access and extensions for everyone, and update ${agentName()}. Another admin, or the host, changes your role.` : "A user: you manage your own space, keys and extensions. An admin changes your role or binds host directories for you."),
         el("p", { class: "text-faint" }, "Your picture is the round button at the bottom of the sidebar: click it to change it.")
       ),
       card("Password", passwordForm())

@@ -1,8 +1,8 @@
 {
   "name": "@thetis/harness-core",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "license": "MIT",
-  "description": "The default harness: the system prompt, the turn context line, every installed tool attached to the call, the reasoning effort chosen per conversation, the loop that sends it and runs the tools, the round retry, and the resume of turns a restart or an apply cut short.",
+  "description": "The default harness: the agent's name and picture, the system prompt, the turn context line, every installed tool attached to the call, the reasoning effort chosen per conversation, the loop that sends it and runs the tools, the round retry, and the resume of turns a restart or an apply cut short.",
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": {
@@ -14,6 +14,8 @@
     "label": "chat engine",
     "summary": "Runs each conversation: sends it to the model and runs the tools it asks for.",
     "config": {
+      "agentName": { "type": "string", "default": "Thetis", "scope": "system", "help": "What the agent is called: in its system prompt, the web page's title, the sidebar, the composer, the conversation and the sign-in page. At most 40 characters. An admin sets it for everyone in Control panel > Agent." },
+      "agentAvatar": { "type": "string", "scope": "system", "help": "The agent's picture, as a data: URL of a PNG, JPEG, WebP or GIF image of at most 96 KB. It is drawn beside each reply, in the tab's icon and on the sign-in page. Unset draws the name's first letter. An admin sets it for everyone in Control panel > Agent." },
       "turnContext": { "type": "boolean", "default": true, "help": "Append a [Turn context: <weekday> <date> <time> <zone>] line to each message from the person, so the model knows when it is." },
       "timeZone": { "type": "string", "help": "The IANA zone of the turn context line, for example Europe/Berlin. Unset means the zone of the daemon." },
       "modelStallMs": { "type": "number", "default": 60000, "help": "How long the model may send nothing at all before the page is told it is quiet. Nothing is asked and nothing is cancelled: the provider's own stall bound ends a dead stream, and the round is then sent again. A value of 0 or less is ignored." },

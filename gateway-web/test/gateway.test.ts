@@ -5,7 +5,7 @@ import { contentText } from "@thetis/runtime/lib/content";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { exec as cpExec } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -194,10 +194,11 @@ before(async () => {
   const rpcFor = (us: Userspace) => createRpcHandler(us, kernel, createControlHandler(kernel), async (u) => ({ model: kernel.config.model, models: await kernel.providers.listModels(u) }));
   const assets = join(home, "assets");
   mkdirSync(assets);
-  writeFileSync(join(assets, "index.html"), "<title>app</title><base href=\"{{base}}/\"><meta name=\"csp-nonce\" content=\"{{nonce}}\">");
+  // The real page's placeholders, as `assets/index.html` has them (a test below holds the two together).
+  writeFileSync(join(assets, "index.html"), "<meta name=\"agent-name\" content=\"{{agentName}}\"><title>{{agentName}}</title><base href=\"{{base}}/\"><meta name=\"csp-nonce\" content=\"{{nonce}}\"><link rel=\"icon\" href=\"{{favicon}}\"><span id=\"brand-name\" class=\"brand-name\">{{agentName}}</span><textarea placeholder=\"Message {{agentName}}…\"></textarea>");
   const loginAssets = join(home, "login-assets");
   mkdirSync(loginAssets);
-  writeFileSync(join(loginAssets, "login.html"), "<title>login</title>");
+  writeFileSync(join(loginAssets, "login.html"), "<title>{{agentName}} — sign in</title><link rel=\"icon\" href=\"{{favicon}}\">{{face}}<svg class=\"mark\"{{markHidden}}></svg><h1>{{agentName}}</h1>");
   sysenv = join(home, "sysenv");
   mkdirSync(sysenv);
   const socketsDir = join(home, "s");
@@ -253,7 +254,7 @@ test("login: a wrong password is refused; success sets the cookie and lands on t
   const me = await api(cookie, "/alice/api/me");
   assert.equal(me.status, 200);
   const { build, ...who } = (await me.json()) as { build: { id: string } };
-  assert.deepEqual(who, { user: "alice", role: "user", avatar: null, prefs: { developer: false } }, "nobody has uploaded a picture yet");
+  assert.deepEqual(who, { user: "alice", role: "user", avatar: null, agent: { name: "Thetis", avatar: null }, prefs: { developer: false } }, "nobody has uploaded a picture yet, and the agent is Thetis");
   assert.equal(typeof build.id, "string");
   const home = await fetch(`${base}/`, { headers: { cookie }, redirect: "manual" });
   assert.equal(home.headers.get("location"), "/alice/", "the root sends a signed-in person home");
@@ -719,8 +720,8 @@ test("panel: the built-in sections are the same for everyone; a package's sectio
   assert.deepEqual((await (await api(root, "/root/api/panel")).json()).sections, ["packages"], "the admin sections come from @thetis/ui-admin, not from api/panel");
   const uiOf = async (cookie: string, user: string) => ((await (await api(cookie, `/${user}/api/ui`)).json()) as { extensions: { package: string; panel: { id: string; order: number }[]; commands: string[] }[] }).extensions.find((e) => e.package === "@thetis/ui-admin");
   const forRoot = await uiOf(root, "root");
-  assert.deepEqual(forRoot?.panel.map((e) => [e.id, e.order]), [["overview", 1], ["people", 5], ["models", 30], ["configuration", 32], ["access", 35], ["activity", 40], ["account", 42], ["advanced", 50], ["advanced-pages", 51]]);
-  assert.deepEqual(forRoot?.commands, ["users", "user-create", "user-role", "user-status", "user-password", "user-remove", "account", "password-change", "models", "model-set", "config", "config-list", "package-info", "package-changes", "package-log", "package-commit", "package-diff", "package-push", "package-readme", "package-where", "package-activity", "package-update", "package-fork", "package-promote", "package-remove", "package-everyone", "package-unfork", "package-install-for", "fleet", "config-show", "config-set", "config-unset", "config-reveal", "config-reload", "journal", "mounts-list", "mounts-set", "mounts-browse", "ssh-list", "ssh-set", "ssh-keygen", "ssh-import", "ssh-scan", "ssh-test", "fence-reload", "status", "restart-request", "restart-cancel", "update-check", "update-apply", "update-progress", "update-restart"]);
+  assert.deepEqual(forRoot?.panel.map((e) => [e.id, e.order]), [["overview", 1], ["agent", 3], ["people", 5], ["models", 30], ["configuration", 32], ["access", 35], ["activity", 40], ["account", 42], ["advanced", 50], ["advanced-pages", 51]]);
+  assert.deepEqual(forRoot?.commands, ["users", "user-create", "user-role", "user-status", "user-password", "user-remove", "account", "password-change", "models", "model-set", "agent", "agent-set", "config", "config-list", "package-info", "package-changes", "package-log", "package-commit", "package-diff", "package-push", "package-readme", "package-where", "package-activity", "package-update", "package-fork", "package-promote", "package-remove", "package-everyone", "package-unfork", "package-install-for", "fleet", "config-show", "config-set", "config-unset", "config-reveal", "config-reload", "journal", "mounts-list", "mounts-set", "mounts-browse", "ssh-list", "ssh-set", "ssh-keygen", "ssh-import", "ssh-scan", "ssh-test", "fence-reload", "status", "restart-request", "restart-cancel", "update-check", "update-apply", "update-progress", "update-restart"]);
   const forAlice = await uiOf(alice, "alice");
   assert.deepEqual(forAlice?.panel.map((e) => [e.id, e.order]), [["models", 30], ["access", 35], ["activity", 40], ["account", 42]], "installed for everyone; a user sees the sections about themselves and no admin section");
   assert.deepEqual(forAlice?.commands, ["account", "password-change", "models", "journal", "mounts-list", "ssh-list", "ssh-set", "ssh-keygen", "ssh-import", "ssh-scan", "ssh-test"], "and only the verbs the kernel answers about themselves");
@@ -763,6 +764,44 @@ test("people: an admin adds a person, changes the role and status, and removes t
   assert.ok(rows.some((r) => r.kind === "user.password" && r.target === "carol"));
   assert.ok(rows.some((r) => r.kind === "user.remove" && r.target === "carol"));
   assert.deepEqual(((await admin(root, "root", "journal", { limit: 50, kind: "user.remove" })).data as { kind: string }[]).map((r) => r.kind), ["user.remove"], "narrowed to one kind");
+});
+
+test("agent: an admin renames the agent and gives it a picture; everyone's page, API and the sign-in page say so, and clearing goes back to Thetis", async () => {
+  const root = await cookieFor("root", "rootpass1");
+  const alice = await cookieFor("alice", "wonderland");
+  const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  assert.deepEqual((await admin(root, "root", "agent")).data, { name: "Thetis", nameSource: "default", avatar: null, avatarSource: null, max: { name: 40, avatar: 98304 } });
+  assert.equal((await admin(alice, "alice", "agent-set", { name: "Mallory" })).status, 403, "renaming the agent is an admin's");
+  assert.equal((await admin(root, "root", "agent-set", { name: "x".repeat(41) })).status, 400);
+  assert.equal((await admin(root, "root", "agent-set", { avatar: "data:image/svg+xml;base64,PHN2Zz4=" })).status, 400, "an SVG can carry script");
+  const set = await admin(root, "root", "agent-set", { name: "  Ada  ", avatar: png });
+  assert.equal(set.status, 200, set.error);
+  assert.deepEqual(set.data, { name: "Ada", nameSource: "system", avatar: png, avatarSource: "system", max: { name: 40, avatar: 98304 } });
+  assert.deepEqual(await (await api(alice, "/alice/api/agent")).json(), { name: "Ada", avatar: png }, "another person's page learns it without a restart");
+  const page = await (await api(alice, "/alice/")).text();
+  assert.match(page, /<title>Ada<\/title>/);
+  assert.match(page, /<meta name="agent-name" content="Ada">/);
+  assert.match(page, /class="brand-name">Ada<\/span>/);
+  assert.match(page, /placeholder="Message Ada…"/);
+  assert.ok(page.includes(`<link rel="icon" href="${png}">`), "the tab's icon is the picture");
+  assert.doesNotMatch(page, /\{\{agentName\}\}|\{\{favicon\}\}/, "every placeholder is filled");
+  const real = readFileSync(resolve(PROJECT, "packages/gateway-web/assets/index.html"), "utf8");
+  for (const part of ['<meta name="agent-name" content="{{agentName}}">', "<title>{{agentName}}</title>", '<link rel="icon" href="{{favicon}}">', 'class="brand-name">{{agentName}}</span>', 'placeholder="Message {{agentName}}…"']) assert.ok(real.includes(part), `the real page carries ${part}`);
+  const realSignIn = readFileSync(resolve(PROJECT, "packages/gateway-login/assets/login.html"), "utf8");
+  for (const part of ["<title>{{agentName}} — sign in</title>", '<link rel="icon" href="{{favicon}}">', "{{face}}<svg", "{{markHidden}}>", "<h1>{{agentName}}</h1>"]) assert.ok(realSignIn.includes(part), `the real sign-in page carries ${part}`);
+  const signIn = await (await fetch(`${base}/login`)).text();
+  assert.match(signIn, /<title>Ada — sign in<\/title>/);
+  assert.match(signIn, /<h1>Ada<\/h1>/);
+  assert.ok(signIn.includes(`<img class="mark face" src="${png}" alt="">`), "the sign-in page shows the picture");
+  assert.match(signIn, /<svg class="mark" hidden>/, "in the drawn mark's place");
+  // A name is text, never markup, wherever it is put.
+  assert.equal((await admin(root, "root", "agent-set", { name: `<b>"Bo"</b>` })).status, 200);
+  assert.match(await (await api(alice, "/alice/")).text(), /<title>&#60;b&#62;&#34;Bo&#34;&#60;\/b&#62;<\/title>/);
+  assert.match(await (await fetch(`${base}/login`)).text(), /<h1>&#60;b&#62;&#34;Bo&#34;&#60;\/b&#62;<\/h1>/);
+  const cleared = await admin(root, "root", "agent-set", { name: "", avatar: "" });
+  assert.equal(cleared.status, 200, cleared.error);
+  assert.deepEqual(await (await api(alice, "/alice/api/agent")).json(), { name: "Thetis", avatar: null });
+  assert.match(await (await api(alice, "/alice/")).text(), /<title>Thetis<\/title>[\s\S]*<link rel="icon" href="assets\/favicon.svg">/);
 });
 
 test("mounts: an admin binds a directory into bob's fence, sees it listed, and unbinds it", async () => {

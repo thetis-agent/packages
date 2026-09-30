@@ -9,6 +9,7 @@
  * `bindShell` is called once by app.js with the shell functions; `broadcastTurn` feeds every `events.watch`
  * listener. */
 
+import { agentAvatar, agentName, refreshAgent, watchAgent } from "./agent.js";
 import { api, ApiError } from "./api.js";
 import { clear, el, icon, setHidden } from "./dom.js";
 import { frameSeam } from "./frame.js";
@@ -231,7 +232,7 @@ export function createExt(extension) {
      * id, replaced in place; the id is this package's own, so two packages cannot replace each other's.
      */
     notice: Object.freeze(Object.assign((id, spec) => notice(`${pkg}:${id}`, spec), { close: (id) => notice.close(`${pkg}:${id}`) })),
-    /** Waits for Thetis to go away and come back: `awaitReturn({ timeoutMs?, onState?, since? })` answers "back" or "timeout". */
+    /** Waits for the server to go away and come back: `awaitReturn({ timeoutMs?, onState?, since? })` answers "back" or "timeout". */
     awaitReturn,
     /** Whether the person asked to see developer details (raw dumps, problem lists, internal rows). */
     developer: () => store.get("developer") === true,
@@ -239,7 +240,24 @@ export function createExt(extension) {
     onDeveloper: (fn) => store.watch("developer", (on) => fn(on === true)),
     /** Whether any of the person's turns runs (subagents included), and `onIdle(fn)` for when none does any more. */
     turns: Object.freeze({ running: turnsRunning, onIdle: onTurnsIdle }),
-    /** The build the page was loaded with. The page refreshes itself when Thetis's build changes. */
+    /**
+     * Who the agent is: `ext.agent.name` (what an admin called it in the Control panel, "Thetis" by default)
+     * and `ext.agent.avatar` (its picture as a data: URL, or null), read when asked; `watch(fn)` calls
+     * `fn({ name, avatar })` on each change and answers the function that stops it; `refresh()` asks the
+     * server again and resolves to the new pair. Every sentence that names the agent or the server should
+     * read `ext.agent.name` when it is drawn. A module must guard `ext.agent?.name` on an older gateway.
+     */
+    agent: Object.freeze({
+      get name() {
+        return agentName();
+      },
+      get avatar() {
+        return agentAvatar();
+      },
+      watch: (fn) => watchAgent(fn),
+      refresh: () => refreshAgent(),
+    }),
+    /** The build the page was loaded with. The page refreshes itself when the server's build changes. */
     get build() {
       return Object.freeze({ id: store.get("build")?.id ?? "" });
     },

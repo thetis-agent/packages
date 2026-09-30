@@ -16,6 +16,7 @@
 import { openGallery } from "./gallery.js";
 import { openPage } from "./page.js";
 import { openRegistries } from "./registries.js";
+import { useAgentName } from "./state.js";
 import { createUpdater, extDeps, setUpdater } from "./updates-notice.js";
 
 const OPEN = "thetis.extensions.open";
@@ -77,6 +78,8 @@ function reopen(ext, params) {
 }
 
 export default function install(ext) {
+  // Every sentence that names the agent reads its name when it is said: the admin may have renamed it.
+  useAgentName(() => ext.agent?.name || "Thetis");
   ext.place("marketplace", {
     open: (root, params) => {
       remember(params);

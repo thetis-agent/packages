@@ -9,6 +9,7 @@
  * `onSend` receives is the `TurnInput` to send: a plain string when there is nothing attached, a message
  * with content parts otherwise. */
 
+import { agentName } from "../lib/agent.js";
 import { api } from "../lib/api.js";
 import { Attachments, buildInput, describeSize, IMAGE_TYPES, pickFiles } from "../lib/attachments.js";
 import { $, el, icon, setHidden } from "../lib/dom.js";
@@ -221,7 +222,7 @@ export function mountComposer({ onSend, onStop, onModel }) {
     setHidden(sendBtn, false);
     setHidden(attachBtn, false);
     input.disabled = Boolean(busy);
-    input.placeholder = store.get("creating") ? "Creating the conversation…" : busy ? "Sending…" : running ? "Thetis is working — the box opens when the turn ends" : attachments.length ? "Say something about the attachment, or just send it…" : "Message Thetis…";
+    input.placeholder = store.get("creating") ? "Creating the conversation…" : busy ? "Sending…" : running ? `${agentName()} is working — the box opens when the turn ends` : attachments.length ? "Say something about the attachment, or just send it…" : `Message ${agentName()}…`;
     form.classList.toggle("is-locked", Boolean(busy));
     form.classList.toggle("is-running", Boolean(running));
     attachBtn.disabled = Boolean(busy) || Boolean(running);
@@ -270,7 +271,7 @@ export function mountComposer({ onSend, onStop, onModel }) {
     draw();
   });
 
-  for (const key of ["current", "activeTab", "running", "pending", "creating", "sessions", "choices", "agents", "draftModel"]) store.watch(key, draw);
+  for (const key of ["current", "activeTab", "running", "pending", "creating", "sessions", "choices", "agents", "draftModel", "agentIdentity"]) store.watch(key, draw);
   store.watch("current", () => {
     input.value = "";
     attachments.clear();

@@ -23,6 +23,7 @@
  * What the gateway itself can know comes from `src/panel.ts`, which serves `kernel.packages.list()` with this
  * person's own configuration state and imports no domain package. */
 
+import { agentName } from "../lib/agent.js";
 import { api } from "../lib/api.js";
 import { clear, el } from "../lib/dom.js";
 import { busy, button, confirm, heading, put, table } from "../lib/panel-ui.js";
@@ -49,7 +50,13 @@ const CHIP_ORDER = ["enabled", "disabled", "needsSetup", "updateAvailable", "cus
 /** Everyone's by an admin's act (a mark, a promotion) carries the chip; the installation's own list does not. */
 const FOR_EVERYONE_BY = ["marked", "promoted", undefined, null];
 export const WAITING = "Waiting for your admin to finish setting this up";
-export const REQUIRED = Object.freeze({ types: ["gateway", "provider", "storage", "host"], names: ["@thetis/harness-core", "@thetis/marketplace", "@thetis/ui-marketplace", "@thetis/ui-admin", "@thetis/gateway-login", "@thetis/gateway-web"], label: "Required by Thetis" });
+export const REQUIRED = Object.freeze({
+  types: ["gateway", "provider", "storage", "host"],
+  names: ["@thetis/harness-core", "@thetis/marketplace", "@thetis/ui-marketplace", "@thetis/ui-admin", "@thetis/gateway-login", "@thetis/gateway-web"],
+  get label() {
+    return `Required by ${agentName()}`;
+  },
+});
 
 const scopeOf = (name) => /^@([^/]+)\//.exec(String(name ?? ""))?.[1] ?? "";
 const baseOf = (name) => String(name ?? "").replace(/^@[^/]+\//, "");
@@ -83,9 +90,9 @@ export function publisherOf(r, { user = "", rows = [] } = {}) {
   if (isPromoted(r)) {
     const original = rows.find((m) => m !== r && scopeOf(m.name) && scopeOf(m.name) !== "thetis" && baseOf(m.name) === baseOf(r.name) && !isCopy(m));
     const who = original ? scopeOf(original.name) : "";
-    return !who ? "by Thetis" : who === user ? "by you" : `by ${who}`;
+    return !who ? `by ${agentName()}` : who === user ? "by you" : `by ${who}`;
   }
-  if (scope === "thetis") return "by Thetis";
+  if (scope === "thetis") return `by ${agentName()}`;
   if ((user && scope === user) || r?.source === "local") return "by you";
   return scope ? `by ${scope}` : "by you";
 }
@@ -147,7 +154,7 @@ export function countLine(rows, { rules = FALLBACK, user = "", admin = false } =
   const have = rows.filter((r) => r.installed !== false);
   if (!rules.place) return `${have.length} installed`;
   const { counts } = rules.place.placeSections(rows, { user, admin });
-  return `${counts.installed} installed${counts.thetis ? ` · ${counts.thetis} part of Thetis` : ""}`;
+  return `${counts.installed} installed${counts.thetis ? ` · ${counts.thetis} part of ${agentName()}` : ""}`;
 }
 
 /**
@@ -275,7 +282,7 @@ export function mountPackages(root, { user, role }, shell) {
         heading("Extensions", count),
         el("div", { class: "row" }, el("p", { class: "panel-hint" }, "Every extension installed for you. Open one to see it, set it up, update or remove it."), button("Manage extensions", { tone: "primary", onClick: () => open() })),
         table(columns(), rows, { empty: "Nothing is installed here.", onRow: (r) => open(r.name) }),
-        parts.length ? el("details", { class: "ext-parts" }, el("summary", {}, `Part of Thetis (${parts.length})`), table(columns(), [...parts].sort(byName), { onRow: (r) => open(r.name) })) : null
+        parts.length ? el("details", { class: "ext-parts" }, el("summary", {}, `Part of ${agentName()} (${parts.length})`), table(columns(), [...parts].sort(byName), { onRow: (r) => open(r.name) })) : null
       );
       return;
     }

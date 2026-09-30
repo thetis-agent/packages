@@ -14,7 +14,7 @@ import { dirname, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import type { KernelClient, Message, ModelChoices, SessionRecord, SessionSummaryRef, StepEnv, UserRole } from "@thetis/runtime/contracts";
-import { withoutTurnContext } from "@thetis/harness-core";
+import { agentOf, withoutTurnContext } from "@thetis/harness-core";
 import { HttpError, json, readBytes, readJson } from "./http.js";
 import { buildIdentity } from "./build.js";
 import { FrameTokens, TOKEN } from "./frames.js";
@@ -116,6 +116,11 @@ const SUBAGENT_LINE = /^\[subagent (s_[a-f0-9]+)(?: ([^\]]*))?\]/;
 
 /** The package whose marks on a message say it was cut off (`partial`) or is a tool result for a call that never ran (`notRun`). */
 const HARNESS = "@thetis/harness-core";
+
+/** Text made safe to put between tags or inside a double-quoted attribute of the page. */
+export function escapeHtml(text: string): string {
+  return text.replace(/[&<>"'{}]/g, (c) => `&#${c.charCodeAt(0)};`);
+}
 
 /** The harness's mark on a message, read loosely: a record written before the marks existed has none. */
 export function markOf(message: Message | undefined, key: "partial" | "notRun"): boolean {
@@ -261,7 +266,10 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     if (path === "/") {
       if (!user) return redirect(res, `/login?next=${encodeURIComponent(`${base}/`)}`);
       // A fresh nonce per page: the policy allows the stylesheets this response's own code writes, and nothing else.
-      return serveFile(res, assets, "index.html", { "Cache-Control": "no-store" }, { "{{base}}": base, "{{nonce}}": randomBytes(16).toString("base64") });
+      // The agent's name is in the page as it is served, so the tab, the brand and the composer never show
+      // "Thetis" for a moment before the page learns what the agent is called.
+      const { name, avatar } = await agentIdentity();
+      return serveFile(res, assets, "index.html", { "Cache-Control": "no-store" }, { "{{base}}": base, "{{nonce}}": randomBytes(16).toString("base64"), "{{agentName}}": escapeHtml(name), "{{favicon}}": escapeHtml(avatar ?? "assets/favicon.svg") });
     }
     if (!path.startsWith("/api/") && !path.startsWith("/ext/")) throw new HttpError(404, "not found");
     if (!user) throw new HttpError(401, "sign in first");
@@ -322,7 +330,8 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       res.end(Buffer.from(data, "base64"));
       return;
     }
-    if (seg[1] === "me" && seg.length === 2 && method === "GET") return json(res, 200, { user, role: who!.role, avatar: avatarUrl(user), build: await currentBuild(), prefs: { developer: store.developer(user) } });
+    if (seg[1] === "me" && seg.length === 2 && method === "GET") return json(res, 200, { user, role: who!.role, avatar: avatarUrl(user), agent: await agentIdentity(), build: await currentBuild(), prefs: { developer: store.developer(user) } });
+    if (seg[1] === "agent" && seg.length === 2 && method === "GET") return json(res, 200, await agentIdentity());
     if (seg[1] === "me" && seg[2] === "prefs" && seg.length === 3 && method === "POST") {
       const { developer } = await readJson(req, PrefsRequestSchema);
       if (developer !== undefined) store.setDeveloper(user, developer);
@@ -435,6 +444,15 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       }
     }
     throw new HttpError(404, "not found");
+  }
+
+  /**
+   * What the agent is called and its picture, as an admin set them in the Control panel: harness-core's
+   * `agentName` and `agentAvatar`, read fresh on every ask so a change shows on the next page load without
+   * restarting anything. A configuration that cannot be read is the default, never a broken page.
+   */
+  async function agentIdentity(): Promise<{ name: string; avatar: string | null }> {
+    return agentOf(await kernel.config.effective(HARNESS).catch(() => ({})));
   }
 
   /** The kernel answers a fence only about its own user; the gateway still checks the name it serves. */

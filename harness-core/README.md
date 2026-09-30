@@ -178,6 +178,8 @@ Context snapshots and saved request summaries use Zod schemas. An unreadable or 
 
 | Key | Default | Effect |
 |---|---|---|
+| `agentName` | `Thetis` | What the agent is called. `scope: system`: an admin sets it for everyone, in Control panel → Agent (`@thetis/ui-admin`'s `agent-set`). The guide opens "You are <name>, an agent working for <person> in their own workspace on this <name> server."; the web page and the sign-in page read the same key. Whitespace collapses, control characters go, at most 40 characters; empty is `Thetis` (`agentNameOf`). |
+| `agentAvatar` | none | The agent's picture: a base64 `data:` URL of a PNG, JPEG, WebP or GIF of at most 96 KB (`agentAvatarOf`; an SVG is refused, it can carry script). `scope: system`, set in the same place. The web page draws it beside each reply, at the top left and as the tab's icon; the sign-in page in place of its mark. `agentOf(config)` answers `{ name, avatar }` for any reader. |
 | `turnContext` | `true` | Append the turn context line. `false` appends nothing. |
 | `timeZone` | the daemon's zone | The IANA zone the line is written in, for example `Europe/Berlin`. An unknown zone falls back to `UTC`. |
 | `modelStallMs` | `60000` | How long the model may send nothing at all before the page is told it is quiet (`stall`). Nothing is asked and nothing is cancelled. |

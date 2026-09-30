@@ -36,7 +36,7 @@ import { mountWhere } from "./package-where.js";
 import { mountSettings } from "./configuration.js";
 import { failureSentence, toastError } from "./failed.js";
 import { described, rowFromInfo } from "./rows.js";
-import { compareVersions, everyoneActions, isAdminOnly, isRequired, labelOf, listOf, nounOf, scopeOf, titleCase, titleOf, useOriginLabel, WORDS } from "./state.js";
+import { agentName, compareVersions, everyoneActions, isAdminOnly, isRequired, labelOf, listOf, nounOf, scopeOf, titleCase, titleOf, useOriginLabel, WORDS } from "./state.js";
 import { linkParts } from "./config-form.js";
 import { chipBadges, waitingSentence } from "./words.js";
 
@@ -58,7 +58,9 @@ const ADVANCED = [
 export const RUNS_INSIDE = Object.freeze({
   types: Object.freeze(["gateway", "storage", "host"]),
   names: Object.freeze(["@thetis/gateway-login", "@thetis/marketplace"]),
-  line: "Runs inside Thetis itself",
+  get line() {
+    return `Runs inside ${agentName()} itself`;
+  },
 });
 
 /** Whether an extension runs inside Thetis itself: by its type or name, or held by the system workspace alone. */
@@ -281,7 +283,7 @@ export function mountPackagePage(ext, root, { name, refresh, user = me(), open =
     const t = table();
     const inside = runsInside(info);
     for (const text of t.lines) {
-      if (text === WORDS.adminOnly || /^Runs inside Thetis/.test(text)) continue; // said once, below
+      if (text === WORDS.adminOnly || /^Runs inside /.test(text)) continue; // said once, below
       if (t.open && /^Already shared/.test(text)) {
         const go = button("Open it", { onClick: () => open?.(t.open) });
         go.classList.add("is-sm");
@@ -404,7 +406,7 @@ export function mountPackagePage(ext, root, { name, refresh, user = me(), open =
           details ? el("details", { class: "ua-pkg-details" }, el("summary", {}, "Details"), el("p", { class: "ua-pkg-desc is-technical" }, info.description)) : null,
           facts(),
           // An original that was shared lives on as its shared copy, which is what people are given.
-          gone && !info?.sharedAs ? el("p", { class: "ua-pkg-desc" }, runsInside(info) || info?.component ? "Nobody runs this now. It is part of Thetis, so nobody installs it here." : "Nobody has this now. Install it for someone under Who has it.") : null,
+          gone && !info?.sharedAs ? el("p", { class: "ua-pkg-desc" }, runsInside(info) || info?.component ? `Nobody runs this now. It is part of ${agentName()}, so nobody installs it here.` : "Nobody has this now. Install it for someone under Who has it.") : null,
           // The banner sits with the title, so on a phone it comes before the actions under it; its addresses are links.
           state.reason && (state.attention || state.todo) ? el("div", { class: `ua-pkg-banner is-${tone}`, role: "status" }, ...linked(state.reason)) : state.waiting ? el("div", { class: "ua-pkg-banner is-dim" }, WORDS.waiting) : null,
           changesLine()
@@ -463,7 +465,7 @@ export function mountPackagePage(ext, root, { name, refresh, user = me(), open =
   function mountAdvancedTab(host) {
     let unmountInner = null;
     const fork = button("Make your own copy");
-    fork.addEventListener("click", () => void act(fork, { verb: "package-fork", args: {}, title: "Make your own copy?", lines: [["as", `@${user ?? "you"}/${name.slice(name.indexOf("/") + 1)}`]], note: "A copy of the files lands in packages/ under your home, ready to edit, and is used instead of this extension for you. Use Thetis's version to go back to the official one.", confirmLabel: "Make a copy" }));
+    fork.addEventListener("click", () => void act(fork, { verb: "package-fork", args: {}, title: "Make your own copy?", lines: [["as", `@${user ?? "you"}/${name.slice(name.indexOf("/") + 1)}`]], note: `A copy of the files lands in packages/ under your home, ready to edit, and is used instead of this extension for you. Use ${agentName()}'s version to go back to the official one.`, confirmLabel: "Make a copy" }));
     const strip = el("div", { class: "ua-pkg-tabs ua-pkg-subtabs", role: "tablist" });
     const inside = el("div", { class: "ua-pkg-advanced-body" });
     function drawInner() {

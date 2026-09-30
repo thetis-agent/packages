@@ -12,6 +12,7 @@
  * never drawn as "0 mounts". */
 
 import { failedCard, isLost, toastError } from "./failed.js";
+import { agentName } from "./state.js";
 
 /**
  * One mount of your own, said in one sentence from what the server found at the path (`present`, `kind`
@@ -188,7 +189,7 @@ export function mountMounts(ext, root, who = {}) {
       "div",
       { class: "card add-block ua-add" },
       el("div", { class: "card-head" }, "Bind a host directory"),
-      el("div", { class: "card-body" }, el("div", { class: "row wrap" }, field("Person", who), field("Host path", path), browse, field("Mode", mode), go), el("p", { class: "text-faint" }, "The directory appears inside the person's workspace at the same path. A mount is a hole in the sandbox: Thetis does not check what the directory holds. A path already bound gets the new mode. A path the host does not have is written down and skipped when the workspace opens, so bind one that is there."))
+      el("div", { class: "card-body" }, el("div", { class: "row wrap" }, field("Person", who), field("Host path", path), browse, field("Mode", mode), go), el("p", { class: "text-faint" }, `The directory appears inside the person's workspace at the same path. A mount is a hole in the sandbox: ${agentName()} does not check what the directory holds. A path already bound gets the new mode. A path the host does not have is written down and skipped when the workspace opens, so bind one that is there.`))
     );
   }
 

@@ -35,6 +35,7 @@ import { contentText, hasMedia, renderContent } from "../lib/content.js";
 
 import { applyActivityPhase, fmtCost, fmtDuration, fmtTokens } from "../lib/activity.js";
 import { api } from "../lib/api.js";
+import { agentAvatar, agentName } from "../lib/agent.js";
 import { avatarFor } from "../lib/avatar.js";
 import { clear, el, icon } from "../lib/dom.js";
 import { failureSentence, failureShort, fmtChars, isPause, reasonOf, resumedSentence, retryLead } from "../lib/failure.js";
@@ -112,7 +113,7 @@ export function emptyState(kind, onNew, onExample) {
       "div",
       { class: "transcript-empty is-new" },
       el("span", { class: "empty-mark", "aria-hidden": "true" }, mark()),
-      el("span", { class: "empty-lead" }, "Thetis works in your own space: it reads and changes your files, runs commands, and plans and carries out longer tasks."),
+      el("span", { class: "empty-lead" }, `${agentName()} works in your own space: it reads and changes your files, runs commands, and plans and carries out longer tasks.`),
       el("div", { class: "empty-examples", role: "group", "aria-label": "Examples to start with" },
         ...EXAMPLE_PROMPTS.map((text) => el("button", { type: "button", class: "empty-example", title: "Put this in the message box", onClick: () => onExample?.(text) }, text)))
     );
@@ -296,7 +297,7 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   }
 
   function face(kind) {
-    if (kind === "assistant") return avatarFor("agent", "Thetis");
+    if (kind === "assistant") return avatarFor("agent", agentName(), agentAvatar());
     const me = store.get("user");
     return kind === "user" && !brief ? avatarFor("person", me?.user || "You", me?.avatar) : null;
   }

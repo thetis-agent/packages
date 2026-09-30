@@ -4,15 +4,16 @@
  * -- so Who and To stay (an admin's act on you names the admin) and the heading says whose rows these are.
  *
  * The ids the journal uses for Thetis itself and for the host's command line (`daemon`, `operator`) are said
- * as "Thetis" and "the host", and the raw kind rides in the tooltip only with developer details on.
+ * as the agent's name ("Thetis" unless an admin renamed it) and "the host", and the raw kind rides in the tooltip only with developer details on.
  *
  * The rows Thetis writes for its own plumbing (`host.call`: one per call a page makes to a host package, many
  * a minute) are hidden unless the person turned on "Show developer details" (`ext.developer()`); the filter
  * offers them only then. A journal that could not be read says so; it is never drawn as "nothing recorded". */
 
 import { failedCard } from "./failed.js";
+import { agentName } from "./state.js";
 
-/** Plain words for the kinds the journal writes. A kind not listed is shown as it is. */
+/** Plain words for the kinds the journal writes; a function where the words name the agent. A kind not listed is shown as it is. */
 export const KIND_LABELS = Object.freeze({
   "user.create": "Person added",
   "user.remove": "Person removed",
@@ -27,10 +28,10 @@ export const KIND_LABELS = Object.freeze({
   "package.everyone": "For everyone turned on or off",
   "package.fork": "Own copy made",
   "package.unfork": "Switched back to the official version",
-  "update.start": "Thetis update started",
-  "update.done": "Thetis updated",
-  "update.fail": "Thetis update failed",
-  "update.rolledback": "Thetis update rolled back",
+  "update.start": () => `${agentName()} update started`,
+  "update.done": () => `${agentName()} updated`,
+  "update.fail": () => `${agentName()} update failed`,
+  "update.rolledback": () => `${agentName()} update rolled back`,
   "turn.start": "Reply started",
   "turn.end": "Reply ended",
   "service.start": "Service started",
@@ -39,13 +40,13 @@ export const KIND_LABELS = Object.freeze({
   "fence.reload": "Workspace restarted",
   "fence.open": "Workspace opened",
   "fence.close": "Workspace closed",
-  "daemon.start": "Thetis started",
-  "daemon.stop": "Thetis stopped",
+  "daemon.start": () => `${agentName()} started`,
+  "daemon.stop": () => `${agentName()} stopped`,
   "restart.armed": "Restart asked for",
   "restart.again": "Restart asked for again",
   "restart.refused": "Restart refused",
   "restart.cancel": "Restart called off",
-  "restart.fire": "Thetis restarted",
+  "restart.fire": () => `${agentName()} restarted`,
   "config.set": "Setting changed",
   "config.unset": "Setting cleared",
   "config.reload": "Settings file read again",
@@ -53,16 +54,19 @@ export const KIND_LABELS = Object.freeze({
 });
 
 /** Who the journal names by an internal id, in words: the server itself, and whoever typed at the host's command line. */
-export const ACTOR_WORDS = Object.freeze({ daemon: "Thetis", operator: "the host" });
+export const actorWords = () => ({ daemon: agentName(), operator: "the host" });
 
 /** A journal's actor or target as a person reads it. */
-export const nameOf = (id) => (id ? ACTOR_WORDS[id] ?? id : "");
+export const nameOf = (id) => (id ? actorWords()[id] ?? id : "");
 
 /** The kinds only a developer wants: Thetis's own plumbing, not something a person did. */
 export const DEVELOPER_KINDS = new Set(["host.call"]);
 
 /** The plain label for a kind. */
-export const kindLabel = (kind) => KIND_LABELS[kind] ?? kind;
+export const kindLabel = (kind) => {
+  const words = KIND_LABELS[kind];
+  return typeof words === "function" ? words() : words ?? kind;
+};
 
 /** The rows a person sees: everything, less the plumbing unless they asked for developer details. */
 export function visibleRows(rows, developer) {
@@ -144,7 +148,7 @@ export function mountActivity(ext, root, who = {}) {
           { key: "at", label: "When", render: (r) => el("span", { class: "text-dim", title: r.at }, when(r.at)) },
           // The raw kind ("fence.reload") is a developer's word: it rides in the tooltip only when they asked for details.
           { key: "kind", label: "What", render: (r) => el("span", { title: developer() ? r.kind : null }, badge(kindLabel(r.kind), tone(r.kind))) },
-          { key: "actor", label: "Who", render: (r) => el("code", {}, nameOf(r.actor) || "Thetis") },
+          { key: "actor", label: "Who", render: (r) => el("code", {}, nameOf(r.actor) || agentName()) },
           { key: "target", label: "To", render: (r) => el("code", {}, nameOf(r.target)) },
           { key: "data", label: "Details", render: (r) => el("span", { class: "text-dim small" }, detail(r)) },
         ],

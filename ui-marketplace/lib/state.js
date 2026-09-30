@@ -20,10 +20,35 @@
 // - `isRequired(row)`, `isAdminOnly(row)` and `runsInsideThetis(row)`: what nobody removes, what a person is
 //   never offered, and what is nobody's to install.
 // - `matches(row, q)` and `matchRank(row, q)`: the search, with a small list of synonyms, and a name match first.
+// - `useAgentName(fn)` and `agentName()`: what the agent is called. Every sentence here that names it reads
+//   `agentName()` when it is said, so a renamed agent is renamed on every screen; the default is "Thetis".
 //
 // The rules are data (`CHIPS`, `CHIP_ORDER`, `REQUIRED`, `ADMIN_ONLY`, `INSIDE`, `FOR_EVERYONE_BY`, `KINDS`,
 // `FILTERS`, `PILLS`, `SYNONYMS`, `WORDS`, `PART_SUMMARIES`), so a second surface can read the same rules
 // rather than restate them.
+
+/** The agent's name when nobody has said otherwise. */
+const DEFAULT_AGENT_NAME = "Thetis";
+let agentNameSource = null;
+
+/** Who says the agent's name: set once by a page's entry (`useAgentName(() => ext.agent?.name || "Thetis")`); the server never sets it and says "Thetis". */
+export function useAgentName(fn) {
+  agentNameSource = typeof fn === "function" ? fn : null;
+}
+
+/** The agent's name as it is now: what `useAgentName` was given, else "Thetis". Never empty. */
+export function agentName() {
+  let name = "";
+  try {
+    name = agentNameSource ? agentNameSource() : "";
+  } catch {
+    name = "";
+  }
+  return typeof name === "string" && name.trim() ? name.trim() : DEFAULT_AGENT_NAME;
+}
+
+/** "Thetis's", said of the agent: whose a version, a part or its data is. */
+const agentsWord = () => `${agentName()}'s`;
 
 /**
  * The chips, in the order they are shown. `tone` is the shell's badge tone: ok is green, err red, warn amber,
@@ -53,7 +78,9 @@ export const FOR_EVERYONE_BY = Object.freeze(["marked", "promoted", null]);
 export const REQUIRED = Object.freeze({
   types: Object.freeze(["gateway", "provider", "storage", "host"]),
   names: Object.freeze(["@thetis/harness-core", "@thetis/marketplace", "@thetis/ui-marketplace", "@thetis/ui-admin", "@thetis/gateway-login", "@thetis/gateway-web"]),
-  label: "Required by Thetis",
+  get label() {
+    return `Required by ${agentName()}`;
+  },
 });
 
 /** What only an admin may have: never in a person's Discover, never an Install for them, never turned on for everyone. */
@@ -72,7 +99,9 @@ export const ADMIN_ONLY = Object.freeze({
 export const INSIDE = Object.freeze({
   types: Object.freeze(["host", "storage"]),
   whenNotInstalled: Object.freeze(["gateway", "service", "provider"]),
-  line: "Runs inside Thetis itself",
+  get line() {
+    return `Runs inside ${agentName()} itself`;
+  },
 });
 
 /** What an extension brings, in the order the publisher line names them. `test` reads a row. */
@@ -117,9 +146,13 @@ export const SYNONYMS = Object.freeze([Object.freeze(["web", "internet", "google
 export const WORDS = Object.freeze({
   legend: "Tools let your assistant do things. Skills teach it how. Pages add a screen. Models add a model provider. Background parts work without a screen or tools.",
   waiting: "Waiting for your admin to finish setting this up",
-  required: REQUIRED.label,
+  get required() {
+    return REQUIRED.label;
+  },
   adminOnly: ADMIN_ONLY.line,
-  inside: INSIDE.line,
+  get inside() {
+    return INSIDE.line;
+  },
   onlyYou: "Only you have this. Use Remove for me.",
   removeForNote: "Their settings are kept. It stops for them from their next message. Everyone else keeps it.",
   cantStopSharing: "Sharing can't be stopped yet; Remove for everyone takes it from the people who have it now.",
@@ -131,7 +164,15 @@ export const WORDS = Object.freeze({
   fromConfig: "Everyone gets it (set in Server settings).",
   updateAllNote: "Your own copies are not touched.",
   turnOffHint: "New people stop getting it; people who have it keep it.",
-  sections: Object.freeze({ attention: "Needs your attention", installed: "Installed", discover: "Discover", drafts: "Drafts in your folder", thetis: "Part of Thetis" }),
+  sections: Object.freeze({
+    attention: "Needs your attention",
+    installed: "Installed",
+    discover: "Discover",
+    drafts: "Drafts in your folder",
+    get thetis() {
+      return `Part of ${agentName()}`;
+    },
+  }),
   settingsPath: (label) => `Control panel → Extensions → ${label} → Settings`,
 });
 
@@ -153,7 +194,9 @@ export const PART_SUMMARIES = Object.freeze({
   "@thetis/ui-tools": "The Tools panel beside the chat.",
   "@thetis/ui-skills": "The Skills panel beside the chat.",
   "@thetis/host-grants": "The folders and SSH keys people may use.",
-  "@thetis/host-update": "Updates Thetis itself from the Control panel.",
+  get "@thetis/host-update"() {
+    return `Updates ${agentName()} itself from the Control panel.`;
+  },
   "@thetis/marketplace": "Keeps the list of extensions from the registries up to date.",
   "@thetis/provider-openrouter": "Models through OpenRouter.",
   "@thetis/provider-echo": "A test model that repeats what you say.",
@@ -161,7 +204,9 @@ export const PART_SUMMARIES = Object.freeze({
   "@thetis/skills-all": "Another way to give your assistant its skills: all of them, always.",
   "@thetis/skills-l1": "Another way to give your assistant its skills: a list, loaded on request.",
   "@thetis/skills-hybrid": "Gives your assistant the skills a conversation needs.",
-  "@thetis/store-toml": "Saves Thetis's data as files on the server.",
+  get "@thetis/store-toml"() {
+    return `Saves ${agentsWord()} data as files on the server.`;
+  },
 });
 
 // ---- small pure helpers ----------------------------------------------------------------------------------
@@ -341,10 +386,10 @@ export function publisherOf(row, { user = "", family = [] } = {}) {
   const scope = scopeOf(row?.name);
   if (isPromoted(row)) {
     const who = sharerOf(row, family);
-    if (!who) return { text: "by Thetis", who: "thetis" };
+    if (!who) return { text: `by ${agentName()}`, who: "thetis" };
     return who === user ? { text: "by you", who: "you" } : { text: `by ${who}`, who: "person", person: who };
   }
-  if (scope === "thetis") return { text: "by Thetis", who: "thetis" };
+  if (scope === "thetis") return { text: `by ${agentName()}`, who: "thetis" };
   if ((user && scope === user) || row?.local || row?.folder || row?.own) return { text: "by you", who: "you" };
   if (row?.registry && !row?.system) return { text: `from ${row.registry}`, who: "registry", registry: row.registry };
   return scope ? { text: `by ${scope}`, who: "person", person: scope } : { text: "by you", who: "you" };
@@ -375,7 +420,7 @@ export const givenLine = (row, user = "") => (row?.installed && row.givenBy && r
 /** Whose version a copy goes back to, in the possessive: "Thetis's", "your", "bitmuse's". */
 export function ownerWord(name, user = "") {
   const scope = scopeOf(name);
-  if (!scope || scope === "thetis") return "Thetis's";
+  if (!scope || scope === "thetis") return agentsWord();
   return scope === user ? "your" : `${scope}'s`;
 }
 
@@ -685,8 +730,8 @@ export function everyoneActions(row, { family = [], user = "", holders = null, o
     if (mine && row.installed) {
       const behind = behindOf(row, { origin, user });
       const fromThetis = scopeOf(originNameOf(row)) === "thetis";
-      if (fromThetis && behind) out.lines.push(WORDS.shareLater("Thetis's", behind.to));
-      else if (fromThetis) out.lines.push(`Thetis already has ${name}, so this copy is not shared under that name.`);
+      if (fromThetis && behind) out.lines.push(WORDS.shareLater(agentsWord(), behind.to));
+      else if (fromThetis) out.lines.push(`${agentName()} already has ${name}, so this copy is not shared under that name.`);
       else out.acts.push("share");
     }
     removable();
@@ -842,7 +887,7 @@ export function relationOf(m, { user = "", promoted = null, origin = null } = {}
   }
   if ((promoted || publishedAsOf(m)) && !isCopy(m) && scope !== "thetis") return mine ? (m.folder ? "your original, in your folder" : "your original") : `${scope}'s original`;
   if (mine) return "yours";
-  if (scope === "thetis") return "Thetis's version";
+  if (scope === "thetis") return `${agentsWord()} version`;
   if (m.registry && !m.system) return `from ${m.registry}`;
   return `by ${scope}`;
 }
@@ -886,7 +931,7 @@ export function otherVersions(family, shown, { user = "", admin = false } = {}) 
 export function switchTitle(label, relation = "") {
   const r = String(relation).split(" · ")[0].replace(/,.*$/, "");
   if (r === "your original") return `Switch to your original ${label}?`;
-  if (r === "Thetis's version") return `Switch to Thetis's ${label}?`;
+  if (r === `${agentsWord()} version`) return `Switch to ${agentsWord()} ${label}?`;
   return `Switch to ${label}?`;
 }
 
@@ -909,7 +954,7 @@ export function giverOf(row, { user = "", family = [] } = {}) {
     const who = sharerOf(row, family);
     return who ? (who === user ? "You" : who) : "Your admin";
   }
-  if (row?.everyone && row.everyoneBy === "config") return "Thetis";
+  if (row?.everyone && row.everyoneBy === "config") return agentName();
   if (row?.markedBy) return row.markedBy === user ? "You" : row.markedBy;
   return "Your admin";
 }

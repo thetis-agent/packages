@@ -5,11 +5,12 @@
  * same conversation with what was typed kept, and a restart of Thetis is announced to everyone. */
 
 import { applyActivity, countWorking } from "./lib/activity.js";
+import { agentAvatar, agentName, refreshAgent, setAgent, watchAgent } from "./lib/agent.js";
 import { api, apiBytes, connect } from "./lib/api.js";
 import { localContent } from "./lib/attachments.js";
-import { avatarFor, repaintPersonAvatars } from "./lib/avatar.js";
+import { avatarFor, repaintAgentAvatars, repaintPersonAvatars } from "./lib/avatar.js";
 import { contentText } from "./lib/content.js";
-import { $, clear, setHidden } from "./lib/dom.js";
+import { $, clear, el, setHidden } from "./lib/dom.js";
 import { bindShell, broadcastTurn, createExt, notifySessionCreated } from "./lib/ext.js";
 import { layers, listenForEscape } from "./lib/layers.js";
 import { bindConnection } from "./lib/lifecycle.js";
@@ -59,7 +60,7 @@ function setStatus(state) {
   store.set({ connection: state });
   statusEl.className = `status is-${state === "online" ? "online" : "busy"}`;
   statusEl.textContent = state === "online" ? "connected" : state === "reconnecting" ? "Reconnecting…" : "connecting";
-  statusEl.title = state === "reconnecting" ? "The connection to Thetis dropped. This page reconnects by itself; nothing you did is lost." : "";
+  statusEl.title = state === "reconnecting" ? `The connection to ${agentName()} dropped. This page reconnects by itself; nothing you did is lost.` : "";
 }
 
 async function refreshList() {
@@ -279,7 +280,7 @@ async function chooseModel(id, model) {
     await api(`/api/sessions/${id}/model`, { method: "POST", body: { model } });
     // The server also made it the person's default for new chats, and the newest of their recent models.
     store.set({ sessions: store.get("sessions").map((s) => (s.id === id ? { ...s, model: model || undefined } : s)), choices: rememberChoice(store.get("choices"), model) });
-    toast(model ? `This chat now answers with ${shortModel(model)}. New chats start with it too.` : "This chat now answers with the Thetis default model.", { tone: "good" });
+    toast(model ? `This chat now answers with ${shortModel(model)}. New chats start with it too.` : `This chat now answers with the ${agentName()} default model.`, { tone: "good" });
   } catch (err) {
     toast(`The model was not changed: ${err.message}`, { tone: "error" });
   }
@@ -430,17 +431,41 @@ installPanel(builtin, { openPlace: (key, params) => places.open(key, params) });
 
 let faviconState = null;
 function drawFavicon(working) {
-  const state = working ? "working" : "idle";
+  const avatar = agentAvatar();
+  const state = `${working ? "working" : "idle"} ${avatar ?? ""}`;
   if (state === faviconState) return;
   faviconState = state;
   const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#7c9cff";
   const warn = getComputedStyle(document.documentElement).getPropertyValue("--warn").trim() || "#e8b673";
   const dot = working ? `<circle cx="25" cy="7" r="6" fill="${warn}" stroke="#0b0b0f" stroke-width="2"/>` : "";
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="9" fill="none" stroke="${accent}" stroke-width="3"/><circle cx="16" cy="16" r="3.5" fill="${accent}"/>${dot}</svg>`;
+  // The agent's picture, when an admin gave it one, cut round; the ring and dot otherwise. The picture is a
+  // data: URL, so the icon stays one self-contained image and the working dot still goes on top of it.
+  const face = avatar
+    ? `<defs><clipPath id="c"><circle cx="16" cy="16" r="15"/></clipPath></defs><image href="${avatar.replace(/"/g, "%22")}" x="1" y="1" width="30" height="30" clip-path="url(#c)" preserveAspectRatio="xMidYMid slice"/>`
+    : `<circle cx="16" cy="16" r="9" fill="none" stroke="${accent}" stroke-width="3"/><circle cx="16" cy="16" r="3.5" fill="${accent}"/>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 32 32">${face}${dot}</svg>`;
   const link = document.querySelector("link[rel='icon']");
   if (link) link.href = `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 store.watch("activity", () => drawFavicon(countWorking()));
+
+// --- the agent: its name at the top left and in the tab, its picture beside the name and in the icon ---
+
+watchAgent(({ name, avatar }) => {
+  $("brand-name").textContent = name;
+  const face = clear($("brand-face"));
+  if (avatar) face.append(el("img", { src: avatar, alt: "" }));
+  setHidden(face, !avatar);
+  repaintAgentAvatars(name, avatar);
+  drawFavicon(countWorking());
+});
+// A page left open learns of a rename when the person comes back to it, at most twice a minute.
+let agentAsked = 0;
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || Date.now() - agentAsked < 30_000) return;
+  agentAsked = Date.now();
+  void refreshAgent();
+});
 
 // --- identity, and the picture the person chose for themselves ---
 
@@ -639,7 +664,7 @@ function updated() {
   const busy = composer.draftText().trim() || places.current() || store.get("creating");
   if (!busy) return refreshPage();
   notice("thetis-updated", {
-    title: "Thetis was updated",
+    title: `${agentName()} was updated`,
     body: "Refresh to use the new version. What you typed is kept.",
     tone: "info",
     actions: [{ label: "Refresh", primary: true, run: refreshPage }],
@@ -730,6 +755,7 @@ devToggle.addEventListener("click", async () => {
 });
 
 api("/api/me").then((me) => {
+  setAgent(me?.agent);
   store.set({ user: me, developer: me?.prefs?.developer === true });
   sawBuild(me?.build);
 }).catch(() => {});

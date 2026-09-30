@@ -34,7 +34,7 @@
  * toolbar, the page in registries.js. */
 
 import { chipNodes } from "./badges.js";
-import { FILTERS, PILLS, WORDS, bringsOf, isCopy, placeSections } from "./state.js";
+import { FILTERS, PILLS, WORDS, agentName, bringsOf, isCopy, placeSections } from "./state.js";
 import { updater } from "./updates-notice.js";
 import { every, observe } from "./watch.js";
 
@@ -301,7 +301,7 @@ export function openGallery(ext, root, params) {
         });
     const discover = narrowed && !s.discover.length ? null : section("mk-discover", WORDS.sections.discover, s.discover.length, cards(s.discover), { empty: "Nothing else to add right now." });
     const drafts = s.drafts.length ? fold("drafts", "mk-drafts", WORDS.sections.drafts, s.drafts, "Extensions in your home's packages folder that are not installed.") : null;
-    const thetis = s.thetis.length ? fold("thetis", "mk-thetis", WORDS.sections.thetis, s.thetis, who.admin ? "The parts that make Thetis run." : "The parts that make Thetis run, as you have them.") : null;
+    const thetis = s.thetis.length ? fold("thetis", "mk-thetis", WORDS.sections.thetis, s.thetis, who.admin ? `The parts that make ${agentName()} run.` : `The parts that make ${agentName()} run, as you have them.`) : null;
     const nothing = narrowed && !s.attention.length && !s.installed.length && !s.hidden.length && !s.discover.length && !s.drafts.length && !s.thetis.length ? el("p", { class: "mk-none" }, "Nothing matches.") : null;
     put(
       body,

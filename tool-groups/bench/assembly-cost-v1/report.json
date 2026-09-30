@@ -3,8 +3,8 @@
   "package": "@thetis/tool-groups",
   "peerGroup": "tool-groups",
   "suite": "assembly-cost@1",
-  "suiteDigest": "sha256:2ec06d6d42187697b89d3c2c35ee563a605f3bef4d935fafc1b567ffd3c262df",
-  "generatedAt": "2026-09-30T15:01:20.160Z",
+  "suiteDigest": "sha256:4cf4d7b92c021ea0dfd95f43960e7b60755870b858a3bb2683dfe642d145f846",
+  "generatedAt": "2026-09-30T18:13:31.820Z",
   "arms": [
     "none",
     "thetis-tool-groups",
@@ -14,8 +14,8 @@
   ],
   "report": {
     "version": 1,
-    "generatedAt": "2026-09-30T15:01:20.160Z",
-    "digest": "sha256:2ec06d6d42187697b89d3c2c35ee563a605f3bef4d935fafc1b567ffd3c262df",
+    "generatedAt": "2026-09-30T18:13:31.820Z",
+    "digest": "sha256:4cf4d7b92c021ea0dfd95f43960e7b60755870b858a3bb2683dfe642d145f846",
     "inputs": {
       "probe": "A",
       "suite": {
@@ -94,7 +94,7 @@
         {
           "id": "thetis-tools-plan",
           "packages": [
-            "@thetis/tools-plan@0.3.1"
+            "@thetis/tools-plan@0.3.2"
           ]
         },
         {
@@ -108,7 +108,7 @@
             "@thetis/tool-exec@0.5.0",
             "@thetis/tool-groups@0.2.1",
             "@thetis/tools-files@0.2.1",
-            "@thetis/tools-plan@0.3.1"
+            "@thetis/tools-plan@0.3.2"
           ]
         }
       ],
@@ -184,10 +184,10 @@
           "n": 7
         },
         "assemble_ms": {
-          "mean": 37.857142857142854,
-          "lower": 34.857142857142854,
-          "upper": 40.857142857142854,
-          "mde": 3,
+          "mean": 51.285714285714285,
+          "lower": 47.57142857142857,
+          "upper": 53.857142857142854,
+          "mde": 3.1428571428571423,
           "n": 7
         },
         "non_ascii_ratio": {
@@ -270,10 +270,10 @@
           "n": 7
         },
         "assemble_ms": {
-          "mean": 61.142857142857146,
-          "lower": 59.714285714285715,
-          "upper": 62.285714285714285,
-          "mde": 1.2857142857142847,
+          "mean": 69.28571428571429,
+          "lower": 65.42857142857143,
+          "upper": 73.28571428571429,
+          "mde": 3.9285714285714306,
           "n": 7
         },
         "non_ascii_ratio": {
@@ -356,10 +356,10 @@
           "n": 7
         },
         "assemble_ms": {
-          "mean": 60.57142857142857,
-          "lower": 57.285714285714285,
-          "upper": 64.42857142857143,
-          "mde": 3.571428571428573,
+          "mean": 67.28571428571429,
+          "lower": 64.85714285714286,
+          "upper": 70,
+          "mde": 2.5714285714285694,
           "n": 7
         },
         "non_ascii_ratio": {
@@ -442,10 +442,10 @@
           "n": 7
         },
         "assemble_ms": {
-          "mean": 58.714285714285715,
-          "lower": 56.285714285714285,
-          "upper": 61.42857142857143,
-          "mde": 2.571428571428573,
+          "mean": 61.857142857142854,
+          "lower": 58.57142857142857,
+          "upper": 65.57142857142857,
+          "mde": 3.5,
           "n": 7
         },
         "non_ascii_ratio": {
@@ -528,10 +528,10 @@
           "n": 7
         },
         "assemble_ms": {
-          "mean": 160.14285714285714,
-          "lower": 156.28571428571428,
-          "upper": 164.14285714285714,
-          "mde": 3.9285714285714306,
+          "mean": 167.71428571428572,
+          "lower": 161.14285714285714,
+          "upper": 175.42857142857142,
+          "mde": 7.142857142857139,
           "n": 7
         },
         "non_ascii_ratio": {
@@ -672,10 +672,10 @@
         },
         "assemble_ms": {
           "interval": {
-            "mean": 23.285714285714285,
-            "lower": 20.571428571428573,
-            "upper": 26.142857142857142,
-            "mde": 2.7857142857142847,
+            "mean": 18,
+            "lower": 14.428571428571429,
+            "upper": 21,
+            "mde": 3.2857142857142856,
             "n": 7
           },
           "wins": 7,
@@ -830,10 +830,10 @@
         },
         "assemble_ms": {
           "interval": {
-            "mean": 22.714285714285715,
-            "lower": 17.714285714285715,
-            "upper": 27.571428571428573,
-            "mde": 4.928571428571429,
+            "mean": 16,
+            "lower": 12.285714285714286,
+            "upper": 20.142857142857142,
+            "mde": 3.928571428571428,
             "n": 7
           },
           "wins": 7,
@@ -988,10 +988,10 @@
         },
         "assemble_ms": {
           "interval": {
-            "mean": 20.857142857142858,
-            "lower": 15.857142857142858,
-            "upper": 25.285714285714285,
-            "mde": 4.7142857142857135,
+            "mean": 10.571428571428571,
+            "lower": 6.142857142857143,
+            "upper": 14.857142857142858,
+            "mde": 4.357142857142858,
             "n": 7
           },
           "wins": 7,
@@ -1146,10 +1146,10 @@
         },
         "assemble_ms": {
           "interval": {
-            "mean": 122.28571428571429,
-            "lower": 116.28571428571429,
-            "upper": 128.57142857142858,
-            "mde": 6.142857142857146,
+            "mean": 116.42857142857143,
+            "lower": 110.14285714285714,
+            "upper": 123,
+            "mde": 6.428571428571431,
             "n": 7
           },
           "wins": 7,
@@ -1194,10 +1194,10 @@
     },
     "latency": {
       "none": 1,
-      "thetis-tool-groups": 1.62,
-      "thetis-tool-groups-lexical": 1.6,
-      "thetis-tool-groups-fusion": 1.55,
-      "all": 4.23
+      "thetis-tool-groups": 1.35,
+      "thetis-tool-groups-lexical": 1.31,
+      "thetis-tool-groups-fusion": 1.21,
+      "all": 3.27
     },
     "conformance": {
       "none": {

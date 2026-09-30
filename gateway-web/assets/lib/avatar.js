@@ -1,5 +1,5 @@
-/* A face per turn: the picture the person uploaded, or, when there is none, letters on a colour worked out
- * from the name, so the same person is the same colour everywhere. */
+/* A face per turn: the picture the person uploaded (or, for the agent, the one an admin chose), or, when there
+ * is none, letters on a colour worked out from the name, so the same person is the same colour everywhere. */
 
 import { el } from "./dom.js";
 
@@ -35,14 +35,29 @@ function paint(tile, label, image) {
 /**
  * @param {"agent"|"person"} side
  * @param {string} name
- * @param {string|null} [image] the URL of the person's own picture, when they have one
+ * @param {string|null} [image] the URL of the picture: the person's own, or the agent's an admin chose
  */
 export function avatarFor(side, name, image) {
   const label = String(name || "").trim();
   const tile = el("span", { class: `turn-avatar is-${side}`, role: "img", "aria-label": label || undefined, title: label || undefined });
   if (side !== "agent") tile.style.setProperty("--avatar-tint", tintOf(label));
-  paint(tile, label, side === "agent" ? null : image);
+  paint(tile, label, image);
   return tile;
+}
+
+/**
+ * Puts the agent's name and picture on every agent tile already on the page, after an admin renamed it or
+ * gave it a picture: a transcript builds each row once, so without this the replies already on screen would
+ * go on showing the old face until something redrew them.
+ * @param {string} name
+ * @param {string|null} image
+ */
+export function repaintAgentAvatars(name, image) {
+  for (const tile of document.querySelectorAll(".turn-avatar.is-agent")) {
+    tile.setAttribute("aria-label", name);
+    tile.title = name;
+    paint(tile, name, image);
+  }
 }
 
 /**

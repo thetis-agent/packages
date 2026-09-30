@@ -863,7 +863,41 @@ function ownState(harness: HarnessState): Record<string, unknown> {
   return HarnessRecordSchema.safeParse(harness[NAME]).data ?? {};
 }
 
-const GUIDE = (ctx: PackageStepContext) => `You are Thetis, an agent working for ${ctx.session.user} in their own workspace on this Thetis server.
+/** The name the agent goes by when nobody chose one. */
+export const DEFAULT_AGENT_NAME = "Thetis";
+/** The longest name the agent may be given: it sits in a tab title, the sidebar's brand and a tile's tooltip. */
+export const AGENT_NAME_MAX = 40;
+
+/**
+ * The name the agent goes by, from this package's `agentName`: whitespace collapsed to single spaces and
+ * at most `AGENT_NAME_MAX` characters, or "Thetis" when it is unset, empty or not a string. The prompt, the
+ * web page and the sign-in page all read this key, so they can never call the agent two different things.
+ */
+export function agentNameOf(config: Record<string, unknown>): string {
+  const raw = typeof config.agentName === "string" ? config.agentName.replace(/\s+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "").trim() : "";
+  return raw ? [...raw].slice(0, AGENT_NAME_MAX).join("").trim() : DEFAULT_AGENT_NAME;
+}
+
+/** The largest picture `agentAvatar` may hold, as the data: URL's length: a 256-pixel WebP is a tenth of it. */
+export const AGENT_AVATAR_MAX = 96 * 1024;
+const AVATAR_URL = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+/**
+ * The agent's picture from `agentAvatar`: a base64 data: URL of a PNG, JPEG, WebP or GIF of at most
+ * `AGENT_AVATAR_MAX` characters, or null. SVG is not among the types on purpose: a picture is drawn in
+ * the page and on the sign-in page, and an SVG is a document that can carry script.
+ */
+export function agentAvatarOf(config: Record<string, unknown>): string | null {
+  const raw = config.agentAvatar;
+  return typeof raw === "string" && raw.length <= AGENT_AVATAR_MAX && AVATAR_URL.test(raw) ? raw : null;
+}
+
+/** Who the agent is, as every page draws it: `{ name, avatar }` from this package's configuration. */
+export function agentOf(config: Record<string, unknown>): { name: string; avatar: string | null } {
+  return { name: agentNameOf(config), avatar: agentAvatarOf(config) };
+}
+
+const GUIDE = (ctx: PackageStepContext, name = agentNameOf(ctx.config ?? {})) => `You are ${name}, an agent working for ${ctx.session.user} in their own workspace on this ${name} server.
 
 ## Where you are
 - Home: ${ctx.env.cwd}. Relative paths resolve against it. New files go under it unless the task names a mounted directory.

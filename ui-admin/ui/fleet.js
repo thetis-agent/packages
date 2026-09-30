@@ -19,9 +19,9 @@
  * safe point and continue by themselves. Nobody is skipped silently: the page keeps one line per person saying
  * what became of theirs. A row opens that extension's page through `onOpen`. */
 
-import { reloadWorkspace, outcomeSentence, UPDATING } from "./workspaces.js";
+import { reloadWorkspace, outcomeSentence, updatingSentence } from "./workspaces.js";
 import { failedCard, toastError } from "./failed.js";
-import { FILTERS, kindsOf, labelOf } from "./state.js";
+import { agentName, FILTERS, kindsOf, labelOf } from "./state.js";
 import { chipBadges } from "./words.js";
 import { described, placeOf, rowFromFleet, rowsFromFleet } from "./rows.js";
 
@@ -30,11 +30,11 @@ const labelOfRow = (p) => labelOf(rowFromFleet(p));
 
 const SHOW = [["mine", "installed for you"], ["everything", "everywhere"], ["drift", "needs attention"]];
 /** The system workspace's column: the one that is nobody's, where the model providers and the sign-in page live. */
-export const SYSTEM_COLUMN = "Thetis itself";
+export const systemColumn = () => `${agentName()} itself`;
 const GROUP = [["scope", "who gets it"], ["kind", "kind"], ["none", "none"]];
 // `everyone` is an extension everyone gets by default; `system` one only the system workspace holds (a
 // provider, the sign-in page); `some` is everything else.
-const SCOPE_LABEL = { everyone: "For everyone", system: "Thetis itself only", some: "Some people" };
+const scopeLabel = (key) => ({ everyone: "For everyone", system: `${agentName()} itself only`, some: "Some people" })[key];
 
 /**
  * The counters over Who has what, each a filter of the table: `[id, label, tone, test(p)]`. "update available"
@@ -59,10 +59,10 @@ export function cellState(entry) {
 }
 
 /** Whose, said to the reader: "your", "sam's", "Thetis's". */
-export const whose = (who, me) => (who === me ? "your" : who === "_system" ? "Thetis's" : `${who}'s`);
+export const whose = (who, me) => (who === me ? "your" : who === "_system" ? `${agentName()}'s` : `${who}'s`);
 
 /** "Reload sam's workspace", "Reload your workspace", "Reload Thetis itself". */
-export const reloadLabel = (who, me) => (who === "_system" ? "Reload Thetis itself" : `Reload ${whose(who, me)} workspace`);
+export const reloadLabel = (who, me) => (who === "_system" ? `Reload ${agentName()} itself` : `Reload ${whose(who, me)} workspace`);
 
 /**
  * A cell's words: `{ text, title }`. A workspace that has not reloaded onto the disk's version is waiting for a
@@ -74,7 +74,7 @@ export function cellWords(entry, { who, me, label }) {
   if (state === "none") return { text: "—", title: "Doesn't have it" };
   const version = entry.version ?? "?";
   if (state === "waiting") return { text: "Waiting for a reload", title: `${whose(who, me) === "your" ? "Your" : whose(who, me)} ${label} (${version} is ready once the workspace restarts)` };
-  if (state === "broken") return { text: version, title: `${who === me ? "You" : who === "_system" ? "Thetis itself" : who}: needs setup — a setting is missing` };
+  if (state === "broken") return { text: version, title: `${who === me ? "You" : who === "_system" ? systemColumn() : who}: needs setup — a setting is missing` };
   if (state === "fork") return { text: version, note: "customized copy", title: `${who === me ? "Your" : whose(who, me)} customized copy${entry.forkOf ? ` (${entry.forkOf})` : ""}` };
   return { text: version, title: "Up to date" };
 }
@@ -131,7 +131,7 @@ export function filterRows(packages, { query = "", kind = "", show = "everything
 export function groupRows(rows, group) {
   if (group === "none") return [[null, rows]];
   const keyOf = (p) => (group === "kind" ? kindsOf(rowFromFleet(p))[0] || "Other" : p.scope || "some");
-  const labelOf = (key) => (group === "scope" ? SCOPE_LABEL[key] ?? key : FILTERS.find((f) => f.id === key)?.label ?? key);
+  const labelOf = (key) => (group === "scope" ? scopeLabel(key) ?? key : FILTERS.find((f) => f.id === key)?.label ?? key);
   const order = group === "scope" ? ["everyone", "system", "some"] : [...FILTERS.map((f) => f.id).filter(Boolean), "Other"];
   const groups = new Map();
   for (const p of rows) {
@@ -147,7 +147,7 @@ export function mountFleet(ext, root, { refresh, onOpen, user, mode = "full" } =
   const { badge, busy, button, confirm, heading, put } = ext.ui;
   const full = mode === "full";
   const parts = mode === "parts";
-  const title = full ? "Who has what" : parts ? "Part of Thetis" : "All extensions";
+  const title = () => (full ? "Who has what" : parts ? `Part of ${agentName()}` : "All extensions");
   let alive = true;
   let people = [];
   let packages = [];
@@ -226,7 +226,7 @@ export function mountFleet(ext, root, { refresh, onOpen, user, mode = "full" } =
     const one = list.length === 1;
     const ok = await confirm(anchor, {
       title: one ? `${reloadLabel(list[0].user, user)}?` : `Reload ${list.length} people's workspaces?`,
-      lines: list.map((w) => [w.user === user ? `${w.user} (you)` : w.user === "_system" ? SYSTEM_COLUMN : w.user, w.changed.map((c) => `${labelOfRow(packages.find((p) => p.name === c.name) ?? { name: c.name })} ${c.onDisk}`).join(", ")]),
+      lines: list.map((w) => [w.user === user ? `${w.user} (you)` : w.user === "_system" ? systemColumn() : w.user, w.changed.map((c) => `${labelOfRow(packages.find((p) => p.name === c.name) ?? { name: c.name })} ${c.onDisk}`).join(", ")]),
       note: `${one ? "The workspace restarts" : "Each workspace restarts"} on the code on disk. Running replies stop at a safe point and continue by themselves; open terminal sessions end. Conversations and files are kept.${list.some((w) => w.user === user) ? " Yours goes last, and this page waits for it." : ""}`,
       confirmLabel: one ? "Reload" : "Reload them",
     });
@@ -252,7 +252,7 @@ export function mountFleet(ext, root, { refresh, onOpen, user, mode = "full" } =
   function drawReport() {
     clear(reportEl);
     if (!report?.length) return;
-    put(reportEl, el("div", { class: "card ua-apply-report" }, el("div", { class: "card-head" }, "Reloads"), el("div", { class: "card-body" }, el("ul", { class: "ua-steps" }, ...report.map((r) => el("li", { class: r.bad ? "ua-refused" : null }, el("b", {}, r.user === "_system" ? SYSTEM_COLUMN : r.user), " ", r.text))))));
+    put(reportEl, el("div", { class: "card ua-apply-report" }, el("div", { class: "card-head" }, "Reloads"), el("div", { class: "card-body" }, el("ul", { class: "ua-steps" }, ...report.map((r) => el("li", { class: r.bad ? "ua-refused" : null }, el("b", {}, r.user === "_system" ? systemColumn() : r.user), " ", r.text))))));
   }
 
   function chip(label, on, onClick) {
@@ -363,7 +363,7 @@ export function mountFleet(ext, root, { refresh, onOpen, user, mode = "full" } =
     const list = listed(place).sort((a, b) => labelOfRow(a).localeCompare(labelOfRow(b)));
     if (!list.length) return void put(matrix, el("p", { class: "panel-hint" }, packages.length ? "Nothing matches these filters." : "No extension is installed anywhere."));
     const groups = full ? groupRows(list, filters.group) : [[null, list]];
-    const head = el("tr", {}, el("th", { class: "ua-fl-th-name" }, "Extension"), el("th", {}, "Status"), el("th", {}, "Version"), ...(full ? cols.map((u) => el("th", { class: "ua-fl-user", title: u === "_system" ? "The system workspace: the model providers and the sign-in page run here" : null }, u === "_system" ? SYSTEM_COLUMN : u === user ? `${u} (you)` : u)) : [el("th", {}, "What it does")]));
+    const head = el("tr", {}, el("th", { class: "ua-fl-th-name" }, "Extension"), el("th", {}, "Status"), el("th", {}, "Version"), ...(full ? cols.map((u) => el("th", { class: "ua-fl-user", title: u === "_system" ? "The system workspace: the model providers and the sign-in page run here" : null }, u === "_system" ? systemColumn() : u === user ? `${u} (you)` : u)) : [el("th", {}, "What it does")]));
     const body = el("tbody", {});
     for (const [label, group] of groups) {
       if (label) body.append(el("tr", { class: "ua-fl-group" }, el("td", { colspan: String(3 + (full ? cols.length : 1)) }, `${label} · ${group.length}`)));
@@ -380,28 +380,28 @@ export function mountFleet(ext, root, { refresh, onOpen, user, mode = "full" } =
 
   function draw() {
     clear(wrap);
-    if (failed) return void put(wrap, heading(title), failedCard(ext, "The extensions", failed, { admin: true, retry: () => void load() }));
+    if (failed) return void put(wrap, heading(title()), failedCard(ext, "The extensions", failed, { admin: true, retry: () => void load() }));
     const installs = toInstall().length;
     const behind = workspacesBehind(packages, user);
     const place = placeOf(packages, user);
     // The Extensions place's numbers, from the place's own function: what the reader has, and Thetis's parts.
     const held = packages.filter((p) => !p.nobody).length;
     const cols = columns().filter((u) => u !== "_system").length;
-    const count = full ? `${held} ${held === 1 ? "extension" : "extensions"} · ${cols} ${cols === 1 ? "person" : "people"}` : parts ? `${place.counts.thetis} ${place.counts.thetis === 1 ? "part" : "parts"}` : `${place.counts.installed} installed${place.counts.thetis ? ` · ${place.counts.thetis} part of Thetis` : ""}`;
+    const count = full ? `${held} ${held === 1 ? "extension" : "extensions"} · ${cols} ${cols === 1 ? "person" : "people"}` : parts ? `${place.counts.thetis} ${place.counts.thetis === 1 ? "part" : "parts"}` : `${place.counts.installed} installed${place.counts.thetis ? ` · ${place.counts.thetis} part of ${agentName()}` : ""}`;
     const installBtn = installs && !parts ? button(`Update ${installs} ${installs === 1 ? "extension" : "extensions"}`, { tone: "primary", onClick: () => void installAll(installBtn) }) : null;
     // Only on Who has what, and only when somebody's workspace has not reloaded: there would be nothing to do.
-    const reloadBtn = full && behind.length ? button(behind.length === 1 ? reloadLabel(behind[0].user, user) : `Reload ${behind.length} people's workspaces`, { disabled: updating ? true : null, title: updating ? UPDATING : "Restart the workspaces that have not reloaded onto the code on disk; running replies pause at a safe point", onClick: () => void reloadAll(reloadBtn) }) : null;
+    const reloadBtn = full && behind.length ? button(behind.length === 1 ? reloadLabel(behind[0].user, user) : `Reload ${behind.length} people's workspaces`, { disabled: updating ? true : null, title: updating ? updatingSentence() : "Restart the workspaces that have not reloaded onto the code on disk; running replies pause at a safe point", onClick: () => void reloadAll(reloadBtn) }) : null;
     drawTiles();
     drawFilters();
     drawMatrix();
     drawReport();
-    const sub = full ? "Every extension and which people have it." : parts ? "The parts that make Thetis run. Nobody installs or removes them; open one to see what it does and who has it." : "What is installed for you, as the Extensions place lists it. Everywhere adds what only other people have.";
+    const sub = full ? "Every extension and which people have it." : parts ? `The parts that make ${agentName()} run. Nobody installs or removes them; open one to see what it does and who has it.` : "What is installed for you, as the Extensions place lists it. Everywhere adds what only other people have.";
     put(
       wrap,
-      el("div", { class: "toolbar" }, heading(title, count), el("div", { class: "toolbar-gap" }), reloadBtn, installBtn),
+      el("div", { class: "toolbar" }, heading(title(), count), el("div", { class: "toolbar-gap" }), reloadBtn, installBtn),
       el("p", { class: "text-dim ua-fl-sub" }, sub),
       full && !installs && !behind.length && packages.length ? el("p", { class: "text-dim" }, badge("Up to date", "ok"), " Every workspace runs the code on disk.") : null,
-      updating && behind.length && full ? el("p", { class: "text-dim" }, `${UPDATING} Reloading waits until then.`) : null,
+      updating && behind.length && full ? el("p", { class: "text-dim" }, `${updatingSentence()} Reloading waits until then.`) : null,
       reportEl,
       tilesEl,
       filtersEl,

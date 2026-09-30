@@ -11,6 +11,9 @@
   "references": [
     {
       "path": "../../tsconfig.runtime.json"
+    },
+    {
+      "path": "../harness-core"
     }
   ]
 }

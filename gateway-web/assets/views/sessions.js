@@ -17,6 +17,7 @@
  * glyph at the end opens it in a tab. Any other working row counts its agents among its facts. */
 
 import { applyActivityPhase, fmtAgo, fmtCost, fmtDuration, shortModel, countWorking } from "../lib/activity.js";
+import { agentName, watchAgent } from "../lib/agent.js";
 import { $, clear, el, icon, onClickOutside } from "../lib/dom.js";
 import { store } from "../lib/store.js";
 
@@ -51,7 +52,6 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
   let busy = null; // { id, mode: "menu" | "rename", stop }
   let archiveOpen = false;
   let activeRoot = null; // the conversation whose row is highlighted and carries the agent rows
-  const baseTitle = "Thetis";
 
   function release() {
     busy?.stop?.();
@@ -337,7 +337,7 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
 
   function setTitle(working) {
     const name = activeRoot ? titleOf(store.session(activeRoot)) : "";
-    const base = name ? `${name} — ${baseTitle}` : baseTitle;
+    const base = name ? `${name} — ${agentName()}` : agentName();
     const wanted = working ? `(${working}) ${base}` : base;
     if (document.title !== wanted) document.title = wanted;
   }
@@ -358,6 +358,8 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
   $("new-chat").addEventListener("click", () => onNew());
 
   store.watch("sessions", redraw);
+  // The tab says the agent's name: a rename shows without a reload.
+  watchAgent(() => setTitle(countWorking()));
   store.watch("sessionFilter", redraw);
   store.watch("current", moveActive);
   store.watchSession(refresh);

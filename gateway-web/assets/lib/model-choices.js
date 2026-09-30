@@ -12,6 +12,8 @@
  *
  * A filter looks through every row at once and answers one "Matches" section, each model once. */
 
+import { agentName } from "./agent.js";
+
 /** How many recent models the picker shows. The server keeps as many. */
 export const RECENT_SHOWN = 5;
 
@@ -97,7 +99,7 @@ export function modelSections(choices, chat = {}) {
 
   const defaults = [];
   if (newChat) defaults.push({ ...row(newChat, catalogue, yours ? "new chats start with this: the model you chose last" : "new chats start with this: set by the configuration"), selected: false });
-  if (yours && configured && configured !== yours) defaults.push({ ...row(configured, catalogue, "set by the configuration · forgets your choice"), id: "", label: `Thetis default · ${catalogue.get(configured)?.name || shortModel(configured)}`, selected: false });
+  if (yours && configured && configured !== yours) defaults.push({ ...row(configured, catalogue, "set by the configuration · forgets your choice"), id: "", label: `${agentName()} default · ${catalogue.get(configured)?.name || shortModel(configured)}`, selected: false });
   if (defaults.length) sections.push({ id: "default", title: "Your default", options: defaults });
 
   const above = new Set([effective, newChat]);

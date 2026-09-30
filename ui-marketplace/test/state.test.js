@@ -377,6 +377,43 @@ test("versions compare as numbers, a pre-release before its release", () => {
   assert.equal(compareVersions("0.4.1", "0.4.1"), 0);
 });
 
+test("the agent's name: every sentence that names it reads useAgentName's answer when it is said, and Thetis by default", () => {
+  const { useAgentName, agentName, INSIDE } = state;
+  const sam = FIXTURES.sam;
+  const copy = find("bitmuse", "@bitmuse/tool-exec");
+  assert.equal(agentName(), "Thetis");
+  try {
+    useAgentName(() => "Ada");
+    assert.equal(agentName(), "Ada");
+    assert.equal(WORDS.sections.thetis, "Part of Ada");
+    assert.equal(REQUIRED.label, "Required by Ada");
+    assert.equal(WORDS.required, "Required by Ada");
+    assert.equal(INSIDE.line, "Runs inside Ada itself");
+    assert.equal(WORDS.inside, "Runs inside Ada itself");
+    assert.equal(publisherLine(find("sam", "@thetis/exa"), { user: sam.user }), "by Ada · Tools");
+    assert.deepEqual(publisherOf({ name: "@thetis/lonely", everyoneBy: "promoted" }), { text: "by Ada", who: "thetis" }, "the identifier stays thetis");
+    assert.equal(useOriginLabel(copy, "bitmuse"), "Use Ada's version");
+    assert.equal(switchTitle("GitHub", "Ada's version"), "Switch to Ada's GitHub?");
+    assert.equal(giverOf({ everyone: true, everyoneBy: "config" }), "Ada");
+    assert.equal(summaryOf({ name: "@thetis/store-toml", component: true }), "Saves Ada's data as files on the server.");
+    assert.deepEqual(everyoneActions({ name: "@thetis/gateway-login", type: "gateway", system: true }, { user: "x" }).lines, ["Runs inside Ada itself."]);
+    // A blank name, a throwing source or a non-function all fall back to the default: the name is never empty.
+    useAgentName(() => "  ");
+    assert.equal(agentName(), "Thetis");
+    useAgentName(() => {
+      throw new Error("no gateway");
+    });
+    assert.equal(agentName(), "Thetis");
+    useAgentName("Ada");
+    assert.equal(agentName(), "Thetis");
+  } finally {
+    useAgentName(null);
+  }
+  assert.equal(WORDS.sections.thetis, "Part of Thetis");
+  assert.equal(REQUIRED.label, "Required by Thetis");
+  assert.equal(publisherLine(find("sam", "@thetis/exa"), { user: sam.user }), "by Thetis · Tools");
+});
+
 test("the browser's state.js is the same file as lib/state.js, because a page may import only its own", () => {
   assert.equal(readFileSync(join(ROOT, "ui", "state.js"), "utf8"), readFileSync(join(ROOT, "lib", "state.js"), "utf8"), "packages/ui-marketplace/ui/state.js has drifted from lib/state.js: copy lib/state.js over it");
 });

@@ -12,6 +12,7 @@
  * nothing. Once the connection drops while a restart is armed, the card waits for Thetis to come back
  * through `awaitReturn`, the same wait every other surface uses, and says so when it has. */
 
+import { agentName } from "./agent.js";
 import { api } from "./api.js";
 import { awaitReturn, turnsRunning } from "./lifecycle.js";
 import { notice } from "./notice.js";
@@ -78,8 +79,8 @@ export function watchRestart({ armedMs = ARMED_MS, idleMs = IDLE_MS } = {}) {
   }
 
   function title() {
-    if (pending?.firesAt !== undefined) return `Thetis restarts in ${secondsTo(pending.firesAt)} s${tail()}`;
-    return `Thetis restarts soon${tail()}`;
+    if (pending?.firesAt !== undefined) return `${agentName()} restarts in ${secondsTo(pending.firesAt)} s${tail()}`;
+    return `${agentName()} restarts soon${tail()}`;
   }
 
   function body() {
@@ -121,7 +122,7 @@ export function watchRestart({ armedMs = ARMED_MS, idleMs = IDLE_MS } = {}) {
         clearInterval(tick);
         tick = null;
         clearTimeout(timer);
-        notice(RESTART_NOTICE, { title: `Thetis is restarting${tail()}`, body: "This page waits for it and carries on by itself.", tone: "warn", dismissible: false });
+        notice(RESTART_NOTICE, { title: `${agentName()} is restarting${tail()}`, body: "This page waits for it and carries on by itself.", tone: "warn", dismissible: false });
       },
     });
     if (mine !== generation) return;
@@ -132,14 +133,14 @@ export function watchRestart({ armedMs = ARMED_MS, idleMs = IDLE_MS } = {}) {
     tick = null;
     if (how === "back") {
       if (wasAway) {
-        const card = notice(RESTART_NOTICE, { title: "Thetis is back.", tone: "ok" });
+        const card = notice(RESTART_NOTICE, { title: `${agentName()} is back.`, tone: "ok" });
         setTimeout(() => { if (!pending && !away) card.close(); }, BACK_SHOWN_MS); // unless a new restart took the card
       } else notice.close(RESTART_NOTICE);
     } else if (wasAway || store.get("connection") !== "online") {
       // Not a dead end: the page keeps reconnecting on its own, and this card changes the moment it does.
       notice(RESTART_NOTICE, {
-        title: "Thetis has not come back yet.",
-        body: "It may have failed to start. This page keeps trying, and this card changes when Thetis is back. An admin can check the server's log.",
+        title: `${agentName()} has not come back yet.`,
+        body: `It may have failed to start. This page keeps trying, and this card changes when ${agentName()} is back. An admin can check the server's log.`,
         tone: "error",
         dismissible: true,
       });
@@ -147,7 +148,7 @@ export function watchRestart({ armedMs = ARMED_MS, idleMs = IDLE_MS } = {}) {
         if (state !== "online") return;
         stop();
         if (!notice.has(RESTART_NOTICE)) return;
-        const card = notice(RESTART_NOTICE, { title: "Thetis is back.", tone: "ok" });
+        const card = notice(RESTART_NOTICE, { title: `${agentName()} is back.`, tone: "ok" });
         setTimeout(() => { if (!pending && !away) card.close(); }, BACK_SHOWN_MS); // unless a new restart took the card
       });
     } else notice.close(RESTART_NOTICE);

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import assert from "node:assert/strict";
 import type { Message, PackageInfo, PackageStepContext, ProviderCall, ProviderEvent, ToolSpec, TurnEvent } from "@thetis/runtime/contracts";
 import { ContextRecorder } from "../src/context.js";
-import { attachTools, callModel, recordCall, systemPrompt, toolBatches, turnContext, turnContextLine, TURN_CONTEXT, withoutTurnContext, type LastCall } from "../src/index.js";
+import { agentAvatarOf, agentNameOf, agentOf, AGENT_AVATAR_MAX, attachTools, callModel, recordCall, systemPrompt, toolBatches, turnContext, turnContextLine, TURN_CONTEXT, withoutTurnContext, type LastCall } from "../src/index.js";
 
 const greet = {
   name: "@thetis/greet",
@@ -112,6 +112,31 @@ test("systemPrompt appends the guide and nothing of the person's: no package lis
   assert.doesNotMatch(result.call!.system!, /subagent\. Your final reply/, "a top-level session gets no subagent line");
   // As a word: the prompt names the home, a mkdtemp directory whose random suffix now and then holds "s1".
   assert.doesNotMatch(result.call!.system!, /\bs1\b/, "the session id is not in the prompt, so a child's prompt can match its parent's");
+});
+
+test("the agent's name is the configured one, tidied, and Thetis when there is none", () => {
+  assert.equal(agentNameOf({}), "Thetis");
+  assert.equal(agentNameOf({ agentName: "   " }), "Thetis", "an empty name is no name");
+  assert.equal(agentNameOf({ agentName: 42 }), "Thetis");
+  assert.equal(agentNameOf({ agentName: "  Ada\n  Lovelace\u0007 " }), "Ada Lovelace", "whitespace collapses and control characters go");
+  assert.equal(agentNameOf({ agentName: "x".repeat(60) }), "x".repeat(40), "at most forty characters");
+});
+
+test("the agent's picture is a data: URL of a raster image within the cap, or null", () => {
+  const png = "data:image/png;base64,iVBORw0KGgo=";
+  assert.equal(agentAvatarOf({ agentAvatar: png }), png);
+  assert.equal(agentAvatarOf({ agentAvatar: "data:image/svg+xml;base64,PHN2Zz4=" }), null, "an SVG can carry script");
+  assert.equal(agentAvatarOf({ agentAvatar: "https://example.com/a.png" }), null, "a picture is held, never fetched");
+  assert.equal(agentAvatarOf({ agentAvatar: `data:image/png;base64,${"A".repeat(AGENT_AVATAR_MAX)}` }), null);
+  assert.deepEqual(agentOf({ agentName: "Ada", agentAvatar: png }), { name: "Ada", avatar: png });
+});
+
+test("systemPrompt names the agent by its configured name, and says Thetis by default", async () => {
+  const plain = await systemPrompt(ctxWith({ harness: {} }));
+  assert.match(plain.call!.system!, /You are Thetis, an agent working for \w+ in their own workspace on this Thetis server\./);
+  const named = await systemPrompt(ctxWith({ harness: {}, config: { agentName: "Ada" } }));
+  assert.match(named.call!.system!, /You are Ada, an agent working for \w+ in their own workspace on this Ada server\./);
+  assert.doesNotMatch(named.call!.system!.replace("You are Thetis.", ""), /Thetis/, "no other Thetis is left in the guide");
 });
 
 test("systemPrompt adds one line for a subagent and nothing else changes", async () => {

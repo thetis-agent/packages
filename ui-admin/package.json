@@ -1,6 +1,6 @@
 {
   "name": "@thetis/ui-admin",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "license": "MIT",
   "description": "The control panel's sections beyond Extensions, and the admin's Thetis update notice: Overview, People, Models, Access (mounts and SSH keys), Activity, Account and Advanced. Everyone sees Models, Access, Activity and Account about themselves; an admin sees all of them, about everyone.",
   "type": "module",
@@ -17,9 +17,16 @@
         {
           "id": "overview",
           "label": "Overview",
-          "note": "This Thetis server: whether it is up to date, and updating it.",
+          "note": "This server: whether it is up to date, and updating it.",
           "role": "admin",
           "order": 1
+        },
+        {
+          "id": "agent",
+          "label": "Agent",
+          "note": "What the agent is called, and its picture.",
+          "role": "admin",
+          "order": 3
         },
         {
           "id": "people",
@@ -78,8 +85,8 @@
       "notices": [
         {
           "id": "thetis-update",
-          "label": "Thetis update",
-          "note": "An update of Thetis itself is ready, running, or needs a hand.",
+          "label": "Update",
+          "note": "An update of the server itself is ready, running, or needs a hand.",
           "role": "admin"
         }
       ],
@@ -139,6 +146,18 @@
           "verb": "model-set",
           "export": "modelSet",
           "label": "Set the default model",
+          "role": "admin"
+        },
+        {
+          "verb": "agent",
+          "export": "agent",
+          "label": "What the agent is called, and its picture",
+          "role": "admin"
+        },
+        {
+          "verb": "agent-set",
+          "export": "agentSet",
+          "label": "Rename the agent or change its picture",
           "role": "admin"
         },
         {

@@ -21,6 +21,7 @@
  * that before they find out. */
 
 import { failedCard, isLost, toastError } from "./failed.js";
+import { agentName } from "./state.js";
 
 /** The first token of a known_hosts line: the host name it vouches for. */
 export function hostOfLine(line) {
@@ -244,7 +245,7 @@ export function mountSsh(ext, root, who = {}) {
       el(
         "div",
         { class: "card-body ua-key-body" },
-        el("div", { class: "ua-key-row" }, el("span", { class: "ua-key-label" }, "Public key"), el("div", { class: "ua-key-value" }, publicKeyLine(grant), el("p", { class: "text-faint" }, "Register this line wherever it should be let in: a code host's account, or a server's authorized_keys. The private half stays with Thetis."))),
+        el("div", { class: "ua-key-row" }, el("span", { class: "ua-key-label" }, "Public key"), el("div", { class: "ua-key-value" }, publicKeyLine(grant), el("p", { class: "text-faint" }, `Register this line wherever it should be let in: a code host's account, or a server's authorized_keys. The private half stays with ${agentName()}.`))),
         el("div", { class: "ua-key-row" }, el("span", { class: "ua-key-label" }, "Known hosts"), el("div", { class: "ua-key-value" }, el("div", { class: "ua-chips" }, ...(hosts.length ? hosts.map((name) => el("span", { class: "ua-chip" }, el("code", {}, name), forget(name))) : [el("span", { class: "text-faint" }, "none vouched: a host met for the first time is accepted and remembered; one whose key changes is refused")]), addBtn), addBox)),
         el("div", { class: "ua-key-row" }, el("span", { class: "ua-key-label" }, "File"), el("div", { class: "ua-key-value" }, el("code", { class: "ua-wrap text-faint" }, grant.key), self && !isOwnKey(grant.key, me) ? el("p", { class: "text-faint" }, "Granted by an admin; you can revoke it but not re-grant it.") : null))
       )
@@ -259,7 +260,7 @@ export function mountSsh(ext, root, who = {}) {
       const go = button("Make the key", { tone: "primary", onClick: () => void generate() });
       async function generate() {
         const hosts = editor.lines();
-        const ok = await confirm(go, { title: self ? "Make yourself a key?" : `Make a key for ${person}?`, lines: [...whoLine(), ["hosts", [...new Set(hosts.map(hostOfLine))].join(", ") || "none yet"]], note: `${self ? "Thetis makes you an ed25519 key of your own and grants it to your space." : `Thetis makes ${person} an ed25519 key of their own and grants it.`} A key already made is kept, not replaced. ${reopens(person)}`, confirmLabel: "Make it" });
+        const ok = await confirm(go, { title: self ? "Make yourself a key?" : `Make a key for ${person}?`, lines: [...whoLine(), ["hosts", [...new Set(hosts.map(hostOfLine))].join(", ") || "none yet"]], note: `${self ? `${agentName()} makes you an ed25519 key of your own and grants it to your space.` : `${agentName()} makes ${person} an ed25519 key of their own and grants it.`} A key already made is kept, not replaced. ${reopens(person)}`, confirmLabel: "Make it" });
         if (!ok) return;
         go.disabled = true;
         try {
@@ -268,7 +269,7 @@ export function mountSsh(ext, root, who = {}) {
           go.disabled = false;
         }
       }
-      return el("div", { class: "card ua-form" }, el("div", { class: "card-head" }, self ? "New key" : `New key for ${person}`), el("div", { class: "card-body" }, el("p", { class: "text-faint" }, self ? "A key of your own, made by Thetis. Its public half is shown afterwards to register at the far end; the private half stays with Thetis, where your space uses it and cannot read it." : "No credential is lent: the person gets a key of their own. Its public half is shown afterwards to register at the far end; the private half stays with Thetis."), field("Hosts it may reach", editor.node, "Scan each host now or add them to the key later."), el("div", { class: "row" }, go, cancel)));
+      return el("div", { class: "card ua-form" }, el("div", { class: "card-head" }, self ? "New key" : `New key for ${person}`), el("div", { class: "card-body" }, el("p", { class: "text-faint" }, self ? `A key of your own, made by ${agentName()}. Its public half is shown afterwards to register at the far end; the private half stays with ${agentName()}, where your space uses it and cannot read it.` : `No credential is lent: the person gets a key of their own. Its public half is shown afterwards to register at the far end; the private half stays with ${agentName()}.`), field("Hosts it may reach", editor.node, "Scan each host now or add them to the key later."), el("div", { class: "row" }, go, cancel)));
     }
     const name = el("input", { class: "input", type: "text", placeholder: "deploy", "aria-label": "Key name", autocomplete: "off", spellcheck: "false", maxlength: "64" });
     const material = el("textarea", { class: "input ua-material", rows: "7", placeholder: "-----BEGIN OPENSSH PRIVATE KEY-----", "aria-label": "Private key", spellcheck: "false", autocomplete: "off" });
@@ -279,7 +280,7 @@ export function mountSsh(ext, root, who = {}) {
       if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(key)) return ext.toast("A key name is lowercase letters, digits, dots, dashes and underscores.", { tone: "error" }), name.focus();
       if (!text.trim() || !text.includes("PRIVATE KEY")) return ext.toast("Paste the whole private key, BEGIN and END lines included.", { tone: "error" }), material.focus();
       const hosts = editor.lines();
-      const ok = await confirm(go, { title: self ? "Import this key?" : `Import a key for ${person}?`, lines: [...whoLine(), ["name", key], ["hosts", [...new Set(hosts.map(hostOfLine))].join(", ") || "none yet"]], note: `The key is sent once, over this page's connection, and kept by Thetis where ${self ? "your space" : `${person}'s workspace`} cannot read it. ${reopens(person)}`, confirmLabel: "Import" });
+      const ok = await confirm(go, { title: self ? "Import this key?" : `Import a key for ${person}?`, lines: [...whoLine(), ["name", key], ["hosts", [...new Set(hosts.map(hostOfLine))].join(", ") || "none yet"]], note: `The key is sent once, over this page's connection, and kept by ${agentName()} where ${self ? "your space" : `${person}'s workspace`} cannot read it. ${reopens(person)}`, confirmLabel: "Import" });
       if (!ok) return;
       go.disabled = true;
       try {

@@ -1,8 +1,8 @@
 {
   "name": "@thetis/gateway-login",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
-  "description": "The sign-in page: turns a password into the cookie every gateway checks.",
+  "description": "The sign-in page: turns a password into the cookie every gateway checks, under the agent's own name and picture.",
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": {
@@ -25,9 +25,11 @@
     }
   },
   "peerDependencies": {
+    "@thetis/harness-core": "^0.7.0",
     "@thetis/runtime": "^0.2.0"
   },
   "devDependencies": {
+    "@thetis/harness-core": "^0.7.0",
     "@thetis/runtime": "file:../.."
   }
 }

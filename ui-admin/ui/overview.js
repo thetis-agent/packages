@@ -12,6 +12,7 @@ import { describe, dirtyOf, incomingOf, recordOf, staleOf } from "./update-flow.
 import { actionRunner } from "./update-notice.js";
 import { failedCard, failureSentence, toastError } from "./failed.js";
 import { stateBadge } from "./words.js";
+import { agentName } from "./state.js";
 
 /** The job's state in words: the record says `rolledback`, a person reads "rolled back". */
 export const RECORD_WORDS = Object.freeze({ running: "running", done: "done", failed: "failed", rolledback: "rolled back", interrupted: "stopped part-way" });
@@ -71,7 +72,7 @@ export function mountOverview(ext, root, { flow } = {}) {
     checking = false;
     if (!alive) return;
     const n = incomingOf(flow.state.check).length;
-    if (!flow.state.checkError) ext.toast(n ? `${n} ${n === 1 ? "change" : "changes"} to take.` : staleOf(flow.state.check) ? "Nothing new upstream; the code on disk is waiting for a restart." : "Thetis is up to date.", { tone: "good" });
+    if (!flow.state.checkError) ext.toast(n ? `${n} ${n === 1 ? "change" : "changes"} to take.` : staleOf(flow.state.check) ? "Nothing new upstream; the code on disk is waiting for a restart." : `${agentName()} is up to date.`, { tone: "good" });
     await loadStatus();
   }
 
@@ -89,7 +90,7 @@ export function mountOverview(ext, root, { flow } = {}) {
   /** The card `describe` makes, drawn inline: the sentence, the progress steps, and the buttons. */
   function statusBlock(state) {
     const c = describe(state);
-    if (!c) return el("div", { class: "ua-update-state" }, el("p", {}, badge("Up to date", "ok"), " ", el("span", { class: "text-dim" }, "Thetis runs the newest code it knows of.")));
+    if (!c) return el("div", { class: "ua-update-state" }, el("p", {}, badge("Up to date", "ok"), " ", el("span", { class: "text-dim" }, `${agentName()} runs the newest code it knows of.`)));
     const steps = c.progress ? el("ol", { class: "ua-progress" }, ...c.progress.steps.map((label, i) => el("li", { class: i < c.progress.at ? "is-done" : i === c.progress.at ? (c.progress.failed ? "is-failed" : "is-now") : "is-next" }, label))) : null;
     const actions = (c.actions ?? []).filter((a) => a.id !== "log").map((a) => button(a.label, { tone: a.primary ? "primary" : "quiet", onClick: () => void run(a) }));
     return el(
@@ -132,7 +133,7 @@ export function mountOverview(ext, root, { flow } = {}) {
     const state = flow.state;
     const facts = state.check;
     if (state.checkError && !facts) {
-      put(install, heading("Installation", "this Thetis server"), failedCard(ext, "The installation", state.checkError, { admin: true, retry: () => void flow.refresh({ fetch: false }) }));
+      put(install, heading("Installation", `this ${agentName()} server`), failedCard(ext, "The installation", state.checkError, { admin: true, retry: () => void flow.refresh({ fetch: false }) }));
       return;
     }
     const rec = state.record ?? recordOf({ last: facts?.last });
@@ -145,16 +146,16 @@ export function mountOverview(ext, root, { flow } = {}) {
     put(
       install,
       card(
-        heading("Installation", "this Thetis server, and its updates"),
+        heading("Installation", `this ${agentName()} server, and its updates`),
         statusBlock(state),
-        pending ? el("div", { class: "ua-line ua-pending" }, badge("Restart pending", "warn"), el("span", { class: "text-dim" }, `Thetis restarts when running replies reach a safe point: ${pending.reason || "no reason given"}${pending.by ? ` (asked by ${pending.by})` : ""}.`), cancelBtn) : null,
+        pending ? el("div", { class: "ua-line ua-pending" }, badge("Restart pending", "warn"), el("span", { class: "text-dim" }, `${agentName()} restarts when running replies reach a safe point: ${pending.reason || "no reason given"}${pending.by ? ` (asked by ${pending.by})` : ""}.`), cancelBtn) : null,
         kv(
           [
             facts?.root && ["checkout", code(facts.root)],
             ["runtime", line("runtime", facts?.runtime)],
             ["packages", line("packages", facts?.packages)],
             facts?.node && ["node", code(facts.node)],
-            ["Thetis server", el("span", {}, stateBadge(ext, serverState), status?.daemon?.startedAt ? el("span", { class: "text-faint" }, ` started ${when(status.daemon.startedAt)}`) : null)],
+            [`${agentName()} server`, el("span", {}, stateBadge(ext, serverState), status?.daemon?.startedAt ? el("span", { class: "text-faint" }, ` started ${when(status.daemon.startedAt)}`) : null)],
             facts?.fetchedAt && ["last checked", el("span", { class: "text-dim" }, when(facts.fetchedAt), facts.fetchError ? el("span", {}, " · ", `couldn't reach the update source: ${String(facts.fetchError).split("\n")[0]}`) : null)],
           ].filter(Boolean)
         ),

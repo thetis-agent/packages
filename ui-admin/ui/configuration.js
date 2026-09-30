@@ -32,7 +32,7 @@ import { mountFleet } from "./fleet.js";
 import { mountPackagePage } from "./package-page.js";
 import { failedCard, toastError } from "./failed.js";
 import { described, placeOf, rowsFromFleet } from "./rows.js";
-import { familiesOf, isCustomized, isPromoted, isVariant, officialOf, originNameOf, publishedCopyOf, scopeOf, titleOf } from "./state.js";
+import { agentName, familiesOf, isCustomized, isPromoted, isVariant, officialOf, originNameOf, publishedCopyOf, scopeOf, titleOf } from "./state.js";
 
 /** The id of the first child under Extensions: not an extension but all of them. */
 export const FLEET = "*";
@@ -110,7 +110,7 @@ export async function configurationChildren(ext, { user = me() } = {}) {
     { id: FLEET, label: "All extensions", kind: "page", note: "Every extension installed here" },
     { id: WHO, label: "Who has what", kind: "page", note: "Every extension and which people have it" },
     ...top,
-    ...(parts.length ? [{ id: PARTS, label: "Part of Thetis", closed: true, note: `Part of Thetis — the ${parts.length} parts that make Thetis run`, children: parts }] : []),
+    ...(parts.length ? [{ id: PARTS, label: `Part of ${agentName()}`, closed: true, note: `Part of ${agentName()} — the ${parts.length} parts that make ${agentName()} run`, children: parts }] : []),
   ];
 }
 

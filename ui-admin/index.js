@@ -130,6 +130,68 @@ export async function modelSet(args, env) {
   return { data: { model: config.model, was: set?.was ?? null, reload } };
 }
 
+/** The package whose configuration says what the agent is called and what it looks like; every page reads it there. */
+const HARNESS = "@thetis/harness-core";
+const AGENT_NAME_MAX = 40;
+/** As `@thetis/harness-core` caps `agentAvatar`: a longer or other value is refused here, not ignored there. */
+const AGENT_AVATAR_MAX = 96 * 1024;
+const AGENT_AVATAR = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+/**
+ * agent: what the agent is called and its picture, as everyone's pages and its prompt have them, with where
+ * each comes from (`default`, `file` for thetis.config.json, `system` for what this page saved). A value in
+ * the file is the host's: saving here still wins over it, and clearing here goes back to it, not to Thetis.
+ */
+export async function agent(_args, env) {
+  const report = await call(env, "config.show", { name: HARNESS });
+  const key = (k) => (Array.isArray(report?.keys) ? report.keys.find((x) => x.key === k) : undefined);
+  const name = key("agentName");
+  const avatar = key("agentAvatar");
+  return {
+    data: {
+      name: typeof name?.value === "string" && name.value.trim() ? name.value.trim() : "Thetis",
+      nameSource: name?.state === "set" ? (name.source ?? "default") : "default",
+      avatar: typeof avatar?.value === "string" && AGENT_AVATAR.test(avatar.value) ? avatar.value : null,
+      avatarSource: avatar?.state === "set" ? (avatar.source ?? "default") : null,
+      max: { name: AGENT_NAME_MAX, avatar: AGENT_AVATAR_MAX },
+    },
+  };
+}
+
+/**
+ * agent-set: renames the agent and changes its picture, for everyone, at the system layer of
+ * `@thetis/harness-core` (`agentName`, `agentAvatar`). `name`: up to 40 characters, "" for the default
+ * (Thetis); `avatar`: a base64 data: URL of a PNG, JPEG, WebP or GIF of at most 96 KB, or "" / null to
+ * remove it. A key left out is left alone. The prompt reads it on the next turn and each page on its next
+ * load; nothing restarts. Answers what `agent` answers afterwards.
+ */
+export async function agentSet(args, env) {
+  if (args.name !== undefined) {
+    if (typeof args.name !== "string") fail("name must be text");
+    const name = args.name.replace(/\s+/g, " ").trim();
+    if ([...name].length > AGENT_NAME_MAX) fail(`a name is at most ${AGENT_NAME_MAX} characters`);
+    if (/[\u0000-\u001f\u007f]/.test(name)) fail("a name has no control characters");
+    if (name) await call(env, "config.set", { name: HARNESS, key: "agentName", value: name });
+    else await unsetQuietly(env, "agentName");
+  }
+  if (args.avatar !== undefined) {
+    if (args.avatar === null || args.avatar === "") await unsetQuietly(env, "agentAvatar");
+    else {
+      if (typeof args.avatar !== "string" || !AGENT_AVATAR.test(args.avatar)) fail("a picture must be a PNG, JPEG, WebP or GIF image");
+      if (args.avatar.length > AGENT_AVATAR_MAX) fail(`that picture is larger than ${Math.round(AGENT_AVATAR_MAX / 1024)} KB even after shrinking; pick a smaller one`);
+      await call(env, "config.set", { name: HARNESS, key: "agentAvatar", value: args.avatar });
+    }
+  }
+  return agent({}, env);
+}
+
+/** Clears one key at the system layer; a key that was never set there is already clear. */
+async function unsetQuietly(env, key) {
+  const report = await call(env, "config.show", { name: HARNESS });
+  const state = Array.isArray(report?.keys) ? report.keys.find((x) => x.key === key) : undefined;
+  if (state?.state === "set" && state.source === "system") await call(env, "config.unset", { name: HARNESS, key });
+}
+
 /** The provider packages installed in this fence's own workspace. A list that cannot be read marks nothing. */
 async function ownProviders(env) {
   try {

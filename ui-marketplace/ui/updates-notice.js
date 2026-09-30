@@ -24,6 +24,8 @@
  * things kept are per-viewer conveniences: what the person hid (localStorage), and, across the one page
  * refresh an update causes, the sentence to show afterwards (sessionStorage). */
 
+import { agentName } from "./state.js";
+
 const TEN_MINUTES = 10 * 60_000;
 const DISMISSED = "thetis.ui-marketplace.dismissed";
 const AFTER = "thetis.ui-marketplace.after";
@@ -55,7 +57,7 @@ export const lostGateway = (err) => {
 export const isBusy = (err) => err?.code === "busy" || /turn running|\bbusy\b/i.test(String(err?.message ?? ""));
 
 /** "Use Thetis's version", or, when a copy was made from somebody else's extension, "Use the original". */
-export const useLabel = (forks) => (forks.every((f) => !f.origin || String(f.origin).startsWith("@thetis/")) ? "Use Thetis's version" : "Use the original");
+export const useLabel = (forks) => (forks.every((f) => !f.origin || String(f.origin).startsWith("@thetis/")) ? `Use ${agentName()}'s version` : "Use the original");
 
 /** What the card says, for each of its states. Kept together so the words can be read and tested in one place. */
 export const words = {

@@ -6,6 +6,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { KernelClient } from "@thetis/runtime/contracts";
+import { agentOf } from "@thetis/harness-core";
 
 export interface LoginOptions {
   /** Directory of the static assets. Defaults to the package's `assets/`. */
@@ -52,7 +53,7 @@ export function createLogin(kernel: KernelClient, opts: LoginOptions = {}): Serv
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "same-origin");
     if (path.startsWith("/login/assets/")) return serveAsset(res, assets, path.slice("/login/assets/".length));
-    if (path === "/login" && method === "GET") return serveAsset(res, assets, "login.html", { "Cache-Control": "no-store" });
+    if (path === "/login" && method === "GET") return serveLogin(res);
     if (path === "/login" && method === "POST") return login(req, res, url);
     if (path === "/logout" && method === "POST") return logout(req, res);
     if (path === "/" && method === "GET") {
@@ -60,6 +61,27 @@ export function createLogin(kernel: KernelClient, opts: LoginOptions = {}): Serv
       return redirect(res, who ? `/${who.id}/` : "/login");
     }
     throw new HttpError(404, "not found");
+  }
+
+  /**
+   * harness-core's keys at the system layer, as `config.show` reports them. The harness is not installed in
+   * the system userspace, so its `config.effective` would refuse; the system userspace is an admin, and the
+   * operator's report carries every key that is not a secret, which neither of these is.
+   */
+  async function agentConfig(): Promise<Record<string, unknown>> {
+    const report = (await kernel.operator.call("config.show", { name: "@thetis/harness-core" })) as { keys?: { key: string; value?: unknown }[] } | null;
+    return Object.fromEntries((report?.keys ?? []).filter((k) => k.value !== undefined).map((k) => [k.key, k.value]));
+  }
+
+  /**
+   * The sign-in page, named for the agent: harness-core's `agentName` and `agentAvatar`, which an admin sets
+   * in the Control panel, read on every visit so a rename needs no restart. Without a picture the page keeps
+   * its drawn mark; a configuration that cannot be read is the default, never a page that does not load.
+   */
+  async function serveLogin(res: ServerResponse): Promise<void> {
+    const { name, avatar } = agentOf(await agentConfig().catch(() => ({})));
+    const mark = avatar ? `<img class="mark face" src="${escapeHtml(avatar)}" alt="">` : "";
+    serveAsset(res, assets, "login.html", { "Cache-Control": "no-store" }, { "{{agentName}}": escapeHtml(name), "{{favicon}}": escapeHtml(avatar ?? "/login/assets/favicon.svg"), "{{face}}": mark, "{{markHidden}}": avatar ? " hidden" : "" });
   }
 
   async function authenticate(req: IncomingMessage): Promise<{ id: string } | undefined> {
@@ -150,12 +172,23 @@ function wantsJson(req: IncomingMessage): boolean {
   return (req.headers["content-type"] ?? "").startsWith("application/json") || (req.headers.accept ?? "").includes("application/json");
 }
 
-function serveAsset(res: ServerResponse, root: string, name: string, extra: Record<string, string> = {}): void {
+/** Text made safe to put between tags or inside a double-quoted attribute of the page. */
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"'{}]/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+/** Sends one asset; `fill` replaces placeholders in a text file, which is how the sign-in page learns the agent's name. */
+function serveAsset(res: ServerResponse, root: string, name: string, extra: Record<string, string> = {}, fill: Record<string, string> = {}): void {
   const file = resolve(root, name);
   if (!file.startsWith(root + sep) || !existsSync(file) || !statSync(file).isFile()) throw new HttpError(404, "not found");
   const type = TYPES[extname(file)];
   if (!type) throw new HttpError(404, "not found");
   if (type.startsWith("text/html")) res.setHeader("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; form-action 'self'; frame-ancestors 'none'");
   res.writeHead(200, { "Content-Type": type, "Cache-Control": "no-cache", ...extra });
-  res.end(readFileSync(file));
+  let body: Buffer | string = readFileSync(file);
+  if (Object.keys(fill).length) {
+    body = body.toString("utf8");
+    for (const [k, v] of Object.entries(fill)) body = body.split(k).join(v);
+  }
+  res.end(body);
 }

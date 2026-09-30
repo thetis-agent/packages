@@ -60,10 +60,37 @@ test("model-set writes through the host, reads the file again, and answers the d
   assert.equal(calls.length, 3, "a refusal asks the kernel nothing");
 });
 
+test("agent and agent-set read and write harness-core's agentName and agentAvatar at the system layer, and refuse what no page could draw", async () => {
+  const png = "data:image/png;base64,iVBORw0KGgo=";
+  let keys = [{ key: "agentName", state: "set", value: "Thetis", source: "default" }, { key: "agentAvatar", state: "unset" }];
+  const { env, calls } = fakeEnv({
+    "config.show": () => ({ package: "@thetis/harness-core", keys }),
+    "config.set": ({ key, value }) => void (keys = keys.map((k) => (k.key === key ? { key, state: "set", value, source: "system" } : k))),
+    "config.unset": ({ key }) => void (keys = keys.map((k) => (k.key === key ? { key, state: "unset" } : k))),
+  });
+  const max = { name: 40, avatar: 98304 };
+  assert.deepEqual(await commands.agent({}, env), { data: { name: "Thetis", nameSource: "default", avatar: null, avatarSource: null, max } });
+  assert.deepEqual(await commands.agentSet({ name: "  Ada \n Lovelace ", avatar: png }, env), { data: { name: "Ada Lovelace", nameSource: "system", avatar: png, avatarSource: "system", max } });
+  assert.deepEqual(calls.filter((c) => c.method === "config.set").map((c) => c.args), [
+    { name: "@thetis/harness-core", key: "agentName", value: "Ada Lovelace" },
+    { name: "@thetis/harness-core", key: "agentAvatar", value: png },
+  ], "the system layer: no user");
+  await assert.rejects(commands.agentSet({ name: "x".repeat(41) }, env), /at most 40/);
+  await assert.rejects(commands.agentSet({ avatar: "data:image/svg+xml;base64,PHN2Zz4=" }, env), /PNG, JPEG, WebP or GIF/);
+  await assert.rejects(commands.agentSet({ avatar: `data:image/png;base64,${"A".repeat(98304)}` }, env), /larger than 96 KB/);
+  const before = calls.length;
+  assert.deepEqual((await commands.agentSet({ avatar: "" }, env)).data.avatar, null, "an empty picture removes it");
+  assert.deepEqual((await commands.agentSet({ name: "" }, env)).data.name, "Thetis", "an empty name goes back to Thetis");
+  assert.deepEqual(calls.slice(before).filter((c) => c.method === "config.unset").map((c) => c.args.key), ["agentAvatar", "agentName"]);
+  const again = calls.length;
+  await commands.agentSet({ name: "" }, env);
+  assert.equal(calls.slice(again).filter((c) => c.method === "config.unset").length, 0, "a key not set here is already clear");
+});
+
 test("the manifest's role table: a user sees their own account, models, access and activity; the rest is an admin's", async () => {
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   const panel = Object.fromEntries(manifest.thetis.ui.panel.map((e) => [e.id, e.role ?? null]));
-  assert.deepEqual(panel, { overview: "admin", people: "admin", configuration: "admin", models: null, access: null, activity: null, account: null, advanced: "admin", "advanced-pages": "admin" });
+  assert.deepEqual(panel, { overview: "admin", agent: "admin", people: "admin", configuration: "admin", models: null, access: null, activity: null, account: null, advanced: "admin", "advanced-pages": "admin" });
   assert.deepEqual(manifest.thetis.ui.panel.find((e) => e.id === "account"), { id: "account", label: "Account", note: "Who you are here, and your password.", order: 42 });
   const open = ["account", "password-change", "models", "journal", "mounts-list", "ssh-list", "ssh-set", "ssh-keygen", "ssh-import", "ssh-scan", "ssh-test"];
   for (const c of manifest.thetis.ui.commands) {
@@ -550,7 +577,7 @@ test("install registers exactly the declared panel entries, each mounting throug
   const { default: install } = await import("../ui/index.js");
   const panels = {};
   install({ panel: (id, impl) => (panels[id] = impl) });
-  assert.deepEqual(Object.keys(panels), ["overview", "people", "configuration", "models", "access", "activity", "account", "advanced", "advanced-pages"]);
+  assert.deepEqual(Object.keys(panels), ["overview", "agent", "people", "configuration", "models", "access", "activity", "account", "advanced", "advanced-pages"]);
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   assert.deepEqual(Object.keys(panels).sort(), manifest.thetis.ui.panel.map((e) => e.id).sort(), "every declared entry is registered, and nothing else");
   for (const impl of Object.values(panels)) assert.equal(typeof impl.mount, "function");
@@ -559,18 +586,18 @@ test("install registers exactly the declared panel entries, each mounting throug
   for (const [id, impl] of Object.entries(panels)) assert.equal(typeof impl.children, hung.includes(id) ? "function" : "undefined", id);
 });
 
-test("the tree an admin reads: Overview, People, Extensions, Models, Access, Activity, Account, Advanced; a user's: Extensions, Models, Access, Activity, Account", async () => {
+test("the tree an admin reads: Overview, Agent, People, Extensions, Models, Access, Activity, Account, Advanced; a user's: Extensions, Models, Access, Activity, Account", async () => {
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   // The shell's own Extensions section sorts at order 10 (gateway-web's PANEL_SECTIONS); every other entry is ours.
   const EXTENSIONS = { id: "packages", label: "Extensions", order: 10 };
   const sections = manifest.thetis.ui.panel.filter((e) => !e.under);
   const tree = (role) => [EXTENSIONS, ...sections.filter((e) => !e.role || e.role === role)].sort((a, b) => a.order - b.order).map((e) => e.id);
-  assert.deepEqual(tree("admin"), ["overview", "people", "packages", "models", "access", "activity", "account", "advanced"]);
+  assert.deepEqual(tree("admin"), ["overview", "agent", "people", "packages", "models", "access", "activity", "account", "advanced"]);
   assert.deepEqual(tree("user"), ["packages", "models", "access", "activity", "account"]);
   const by = Object.fromEntries(manifest.thetis.ui.panel.map((e) => [e.id, e]));
   assert.equal(by.configuration.under, "packages", "extension pages hang under the shell's Extensions");
   assert.equal(by["advanced-pages"].under, "advanced");
-  for (const id of ["overview", "people", "advanced", "advanced-pages", "configuration"]) assert.equal(by[id].role, "admin", id);
+  for (const id of ["overview", "agent", "people", "advanced", "advanced-pages", "configuration"]) assert.equal(by[id].role, "admin", id);
   // The notice is declared for admins only.
   assert.deepEqual(manifest.thetis.ui.notices.map((n) => [n.id, n.role]), [["thetis-update", "admin"]]);
   // No label or note an admin or a person reads says the machinery's words.

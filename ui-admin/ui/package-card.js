@@ -9,6 +9,7 @@
  * extensions pages. The pure `packageFacts` is exported so a test can check the words without a DOM. */
 
 import { stateBadge, stateWord } from "./words.js";
+import { agentName } from "./state.js";
 
 const short = (commit) => (typeof commit === "string" ? commit.slice(0, 7) : "");
 
@@ -44,7 +45,7 @@ export function packageFacts(info) {
   if (!src) facts.push(["source", "unknown"]);
   // A shared copy lives beside the extensions Thetis ships, but it was not shipped: it is a person's extension.
   else if (info.everyoneBy === "promoted") facts.push(["source", sharedSentence(info.promotedFrom)]);
-  else if (src.kind === "system") facts.push(["source", "by Thetis"]);
+  else if (src.kind === "system") facts.push(["source", `by ${agentName()}`]);
   else if (src.kind === "local") facts.push(["source", `a directory: ${src.ref}`]);
   else {
     const { url, dir, pin } = splitSource(src.ref);

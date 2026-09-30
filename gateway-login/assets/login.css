@@ -41,6 +41,9 @@ main {
   border: 1px solid var(--hairline);
   padding: 6px;
 }
+/* The agent's picture, when an admin gave it one, in the mark's place. */
+.mark.face { padding: 0; border-radius: 50%; object-fit: cover; box-sizing: border-box; }
+.mark[hidden] { display: none; }
 
 h1 { font-size: 1.2rem; font-weight: 600; margin: 0; letter-spacing: -.01em; }
 .lead { margin: 0; color: var(--text-dim); font-size: .88rem; }

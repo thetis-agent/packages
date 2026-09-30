@@ -5,6 +5,7 @@
 
 import { kindLabel } from "./activity.js";
 import { failureSentence } from "./failed.js";
+import { agentName } from "./state.js";
 
 const RANGES = [
   ["14", "14 d", 14],
@@ -54,13 +55,13 @@ export function sentence(entry, name) {
     case "package.everyone":
       return d.on === false ? `turned ${t} off for everyone` : `turned ${t} on for everyone${kept(d)}`;
     case "update.start":
-      return `Thetis update started${d.from ? ` from runtime ${d.from.runtime}, packages ${d.from.packages}` : ""}`;
+      return `${agentName()} update started${d.from ? ` from runtime ${d.from.runtime}, packages ${d.from.packages}` : ""}`;
     case "update.done":
-      return `Thetis updated${d.to ? ` to runtime ${d.to.runtime}, packages ${d.to.packages}` : ""}`;
+      return `${agentName()} updated${d.to ? ` to runtime ${d.to.runtime}, packages ${d.to.packages}` : ""}`;
     case "update.rolledback":
-      return `Thetis update rolled back${d.from ? ` to runtime ${d.from.runtime}` : ""}${d.error ? `: ${d.error}` : ""}`;
+      return `${agentName()} update rolled back${d.from ? ` to runtime ${d.from.runtime}` : ""}${d.error ? `: ${d.error}` : ""}`;
     case "update.fail":
-      return `Thetis update failed${d.error ? `: ${d.error}` : ""}`;
+      return `${agentName()} update failed${d.error ? `: ${d.error}` : ""}`;
     case "service.start":
       return `service started for ${t}`;
     case "service.stop":
@@ -147,7 +148,7 @@ export function mountActivity(ext, host, ctx) {
         [
           { key: "at", label: "When", render: (e) => el("code", { class: "text-faint" }, when(e.at)) },
           { key: "kind", label: "Kind", render: (e) => el("span", { title: e.kind }, badge(kindLabel(e.kind), toneOf(e.kind))) },
-          { key: "actor", label: "Who", render: (e) => e.actor ?? el("span", { class: "text-faint" }, "Thetis") },
+          { key: "actor", label: "Who", render: (e) => e.actor ?? el("span", { class: "text-faint" }, agentName()) },
           { key: "what", label: "What", render: (e) => sentence(e, ctx.name) },
           { key: "detail", label: "Detail", render: (e) => el("span", { class: "text-faint ua-detail" }, detail(e)) },
         ],

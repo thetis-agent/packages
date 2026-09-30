@@ -512,7 +512,7 @@ async function contextMenu(ext, model, link, at) {
     const results = data && typeof data === "object" && data.results && typeof data.results === "object" ? data.results : data;
     answer = results?.[path] ?? null;
   } catch (err) {
-    ext.toast(`${path} could not be checked: ${err?.message || "Thetis did not answer"}`, { tone: "error" });
+    ext.toast(`${path} could not be checked: ${err?.message || `${ext.agent?.name || "Thetis"} did not answer`}`, { tone: "error" });
     return;
   }
   if (!answer) {

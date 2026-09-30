@@ -8,7 +8,7 @@ The manifest declares `type: gateway` and a `service` whose export is `startServ
 
 | Route | Effect |
 |---|---|
-| `GET /login` | The sign-in page. |
+| `GET /login` | The sign-in page, under the agent's name and picture: `@thetis/harness-core`'s `agentName` and `agentAvatar` at the system layer, read through the operator's `config.show` on every visit (the harness is not installed in the system userspace, so its own `config.effective` refuses). The name fills the title and the heading, HTML-escaped; the picture, when there is one, takes the drawn mark's place and is the tab's icon. |
 | `POST /login` | Form fields `id`, `password`, `next`. Calls `auth.login`. On success sets the cookie and redirects to `next` when it is inside `/<id>/`, else to `/<id>/`. On failure redirects to `/login?error=refused`. |
 | `POST /logout` | Calls `auth.logout`, clears the cookie, redirects to `/login`. |
 | `GET /` | Redirects to `/<person>/` with a valid cookie, else to `/login`. |

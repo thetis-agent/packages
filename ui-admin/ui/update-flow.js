@@ -15,6 +15,8 @@
  * Nothing here touches the DOM: `describe` is pure and the flow takes its timers and storage from options,
  * so the whole state machine runs under `node --test` against a fake host. */
 
+import { agentName } from "./state.js";
+
 export const CHECK_EVERY_MS = 30 * 60_000;
 export const POLL_MS = 2_000;
 export const BACK_TIMEOUT_MS = 90_000;
@@ -78,24 +80,24 @@ export function failureOf(rec, check) {
   const root = check?.root ?? check?.runtime?.root ?? "<checkout>";
   if (rec?.rollback && rec.rollback.ok === false) {
     const command = rec.rollback.command || `cd ${root} && git reset --hard ${from || "<previous commit>"} && npm ci && npm run build`;
-    return { key: "rollback-failed", title: "The update failed, and so did the rollback", body: `Thetis is still running, but a workspace that restarts may break. On the host: ${command}`, tone: "error", actions: [{ id: "copy", label: "Copy command", text: command }, { id: "log", label: "Show log" }] };
+    return { key: "rollback-failed", title: "The update failed, and so did the rollback", body: `${agentName()} is still running, but a workspace that restarts may break. On the host: ${command}`, tone: "error", actions: [{ id: "copy", label: "Copy command", text: command }, { id: "log", label: "Show log" }] };
   }
   if (/uncommitted|local changes|dirty/i.test(error)) return dirtyFailure(check);
   if (/fast.?forward|diverge|not upstream|ahead of/i.test(error)) {
-    return { key: "not-ff", title: "Thetis can't update automatically", body: "The server has commits that aren't upstream, so it can't update by itself. Update by hand on the host with deploy/install.sh.", tone: "warn", actions: [{ id: "log", label: "Show log" }] };
+    return { key: "not-ff", title: `${agentName()} can't update automatically`, body: "The server has commits that aren't upstream, so it can't update by itself. Update by hand on the host with deploy/install.sh.", tone: "warn", actions: [{ id: "log", label: "Show log" }] };
   }
   if (phase === "fetching" || failed?.name === "fetch" || /could not (read|resolve)|unable to access|fetch/i.test(failed?.name ?? "")) {
     return { key: "fetch", title: "Couldn't reach the update source", body: `${error || "git could not fetch"}. Nothing changed.`, tone: "warn", actions: [{ id: "retry", label: "Try again", primary: true }] };
   }
   if (phase === "restarting" || rec?.restart?.state === "refused") {
     // Installed and built, but the latch said no: its own sentence says why, and a restart later finishes it.
-    return { key: "restart-refused", title: "Thetis is updated but did not restart", body: rec?.restart?.message || error || "The restart was refused.", tone: "warn", actions: [{ id: "restart", label: "Restart", primary: true }, { id: "log", label: "Show log" }] };
+    return { key: "restart-refused", title: `${agentName()} is updated but did not restart`, body: rec?.restart?.message || error || "The restart was refused.", tone: "warn", actions: [{ id: "restart", label: "Restart", primary: true }, { id: "log", label: "Show log" }] };
   }
   if (rec?.state === "interrupted") {
-    return { key: "interrupted", title: "The update stopped part-way", body: "Thetis stopped while the update ran. The checkout on the host needs a look.", tone: "warn", actions: [{ id: "log", label: "Show log" }] };
+    return { key: "interrupted", title: "The update stopped part-way", body: `${agentName()} stopped while the update ran. The checkout on the host needs a look.`, tone: "warn", actions: [{ id: "log", label: "Show log" }] };
   }
   if (rec?.state === "rolledback" || rec?.rollback?.ok) {
-    const back = `Thetis was rolled back${from ? ` to ${from}` : ""} and is running as before.`;
+    const back = `${agentName()} was rolled back${from ? ` to ${from}` : ""} and is running as before.`;
     // It built, and the check that the new version loads caught it: a different failure from a build that broke.
     if (failedTheCheck(rec)) {
       const who = /does not load: (@[a-z0-9-]+\/[a-z0-9._-]+)/i.exec(error)?.[1];
@@ -117,13 +119,13 @@ function failedTheCheck(rec) {
 function appliedCard(rec) {
   const failedUsers = (Array.isArray(rec.reloaded) ? rec.reloaded : []).filter((r) => r && r.ok === false).map((r) => r.user);
   const tail = failedUsers.length ? ` ${failedUsers.join(", ")} could not apply it yet; Advanced → Workspaces restarts one by hand.` : "";
-  return { key: "applied", title: "Thetis is updated", body: `Updated to ${short(rec.to?.runtime ?? rec.to) || "the new version"}. No restart was needed: the workspaces applied it.${tail}`, tone: failedUsers.length ? "warn" : "ok", actions: [], progress: { steps: stepsFor("apply"), at: 5 }, dismissible: true };
+  return { key: "applied", title: `${agentName()} is updated`, body: `Updated to ${short(rec.to?.runtime ?? rec.to) || "the new version"}. No restart was needed: the workspaces applied it.${tail}`, tone: failedUsers.length ? "warn" : "ok", actions: [], progress: { steps: stepsFor("apply"), at: 5 }, dismissible: true };
 }
 
 /** The calm "update by hand" card: a checkout with local changes cannot be pulled, and that is not a fault. */
 function dirtyFailure(check) {
   const files = Array.isArray(check?.dirtyFiles) ? check.dirtyFiles : [];
-  return { key: "dirty", title: "Thetis can't update by itself here", body: `The server's copy has local changes${files.length ? ` (${plural(files.length, "file", "files")})` : ""}. Commit or discard them on the host, then try again.`, tone: "info", actions: [{ id: "log", label: "Show the files" }] };
+  return { key: "dirty", title: `${agentName()} can't update by itself here`, body: `The server's copy has local changes${files.length ? ` (${plural(files.length, "file", "files")})` : ""}. Commit or discard them on the host, then try again.`, tone: "info", actions: [{ id: "log", label: "Show the files" }] };
 }
 
 /**
@@ -136,7 +138,7 @@ export function describe(s) {
   const kind = s.kind ?? "update";
   const rec = s.record;
   if (s.phase === "timeout") {
-    return { key: "timeout", title: "Thetis hasn't come back", body: `It has not answered for ${BACK_TIMEOUT_MS / 1000} s. On the host: journalctl -u thetis-runtime -n 50`, tone: "error", actions: [{ id: "wait", label: "Keep waiting", primary: true }], dismissible: true };
+    return { key: "timeout", title: `${agentName()} hasn't come back`, body: `It has not answered for ${BACK_TIMEOUT_MS / 1000} s. On the host: journalctl -u thetis-runtime -n 50`, tone: "error", actions: [{ id: "wait", label: "Keep waiting", primary: true }], dismissible: true };
   }
   if (s.phase === "back") {
     const to = short(rec?.to?.runtime ?? rec?.to);
@@ -144,13 +146,13 @@ export function describe(s) {
     if (failed) return { ...failureOf(rec, s.check), dismissible: true };
     // The page reloaded itself because the workspaces applied the update; nothing restarted, so "Back online" would be wrong.
     if (kind === "update" && rec?.state === "done" && !needsRestart(rec.needs) && !rec.restart?.fired) return appliedCard(rec);
-    return { key: "back", title: "Back online", body: `${kind === "update" && to ? `Thetis is updated to ${to}. ` : "Thetis restarted. "}Replies that were running continue by themselves.`, tone: "ok", actions: s.reloadPage ? [{ id: "reload", label: "Reload page", primary: true }] : [], progress: { steps: stepsFor(kind), at: stepsFor(kind).length - 1 }, dismissible: true };
+    return { key: "back", title: "Back online", body: `${kind === "update" && to ? `${agentName()} is updated to ${to}. ` : `${agentName()} restarted. `}Replies that were running continue by themselves.`, tone: "ok", actions: s.reloadPage ? [{ id: "reload", label: "Reload page", primary: true }] : [], progress: { steps: stepsFor(kind), at: stepsFor(kind).length - 1 }, dismissible: true };
   }
   if (s.phase === "starting" || s.phase === "following" || s.phase === "away") {
     if (s.phase === "following" && rec && ["failed", "rolledback", "interrupted"].includes(rec.state)) return { ...failureOf(rec, s.check), dismissible: true };
     if (s.phase === "following" && kind === "update" && rec?.state === "done" && !needsRestart(rec.needs)) return appliedCard(rec);
     if (rec?.rollingBack) {
-      return { key: "rolling-back", title: failedTheCheck(rec) ? "The update didn't start · rolling back" : "The update didn't build · rolling back", body: "Thetis keeps running the version before while it goes back to it.", tone: "warn", actions: [], progress: { steps: stepsFor("update"), at: PHASE_AT[rec.phase] ?? 2, failed: true }, dismissible: false };
+      return { key: "rolling-back", title: failedTheCheck(rec) ? "The update didn't start · rolling back" : "The update didn't build · rolling back", body: `${agentName()} keeps running the version before while it goes back to it.`, tone: "warn", actions: [], progress: { steps: stepsFor("update"), at: PHASE_AT[rec.phase] ?? 2, failed: true }, dismissible: false };
     }
     const seq = kind === "restart" ? "restart" : rec && !needsRestart(rec.needs ?? s.check?.needs) ? "apply" : "update";
     const steps = stepsFor(seq, pausingOf(rec));
@@ -159,7 +161,7 @@ export function describe(s) {
     else if (s.phase === "away") at = seq === "apply" ? 4 : 5;
     else at = s.phase === "starting" ? 0 : rec?.state === "done" ? 4 : (PHASE_AT[rec?.phase] ?? 0);
     const pausing = (seq === "restart" && at === 0) || (seq === "update" && at === 4);
-    return { key: `progress-${seq}`, title: seq === "restart" ? "Restarting Thetis" : "Updating Thetis", body: pausing ? "Running replies stop at a safe point and continue after the restart." : s.phase === "away" ? "Waiting for Thetis to come back…" : seq === "update" ? "Nothing that is running changes until the new version is built and checked." : "", tone: "info", actions: pausing ? [{ id: "cancel", label: "Cancel the restart" }] : [], progress: { steps, at }, dismissible: false };
+    return { key: `progress-${seq}`, title: seq === "restart" ? `Restarting ${agentName()}` : `Updating ${agentName()}`, body: pausing ? "Running replies stop at a safe point and continue after the restart." : s.phase === "away" ? `Waiting for ${agentName()} to come back…` : seq === "update" ? "Nothing that is running changes until the new version is built and checked." : "", tone: "info", actions: pausing ? [{ id: "cancel", label: "Cancel the restart" }] : [], progress: { steps, at }, dismissible: false };
   }
   if (s.applyError) {
     const text = String(s.applyError?.message ?? s.applyError);
@@ -171,12 +173,12 @@ export function describe(s) {
   if (!check) return null;
   if (check.updating) {
     const steps = stepsFor(needsRestart(check.needs ?? rec?.needs) ? "update" : "apply", pausingOf(rec));
-    return { key: "updating", title: "Thetis is updating", body: "An update is installing on the server. It restarts by itself when done.", tone: "info", actions: [], progress: { steps, at: PHASE_AT[rec?.phase] ?? 0 }, dismissible: true };
+    return { key: "updating", title: `${agentName()} is updating`, body: "An update is installing on the server. It restarts by itself when done.", tone: "info", actions: [], progress: { steps, at: PHASE_AT[rec?.phase] ?? 0 }, dismissible: true };
   }
   const incoming = incomingOf(check);
   if (incoming.length) {
     const n = incoming.length;
-    const title = `Thetis update available · ${plural(n, "change", "changes")}`;
+    const title = `${agentName()} update available · ${plural(n, "change", "changes")}`;
     const need = needsRestart(check.needs) ? "Needs a restart: running replies pause at a safe point and continue after." : "No restart: only extensions changed; the workspaces apply it.";
     const list = s.showChanges ? incoming.slice(0, 20).map((c) => `· ${c.subject}`).join("\n") + (n > 20 ? `\n· and ${n - 20} more` : "") : null;
     if (dirtyOf(check)) {
@@ -186,7 +188,7 @@ export function describe(s) {
   }
   if (staleOf(check)) {
     const why = Array.isArray(check.stale?.why) && check.stale.why.length ? ` (${check.stale.why.slice(0, 3).join(", ")})` : "";
-    return { key: "restart-to-finish", title: "Thetis's code changed · Restart to finish", body: `The code on disk is newer than the running server${why}. Running replies pause at a safe point and continue after the restart.`, tone: "info", actions: [{ id: "restart", label: "Restart", primary: true }], dismissible: true };
+    return { key: "restart-to-finish", title: `${agentName()}'s code changed · Restart to finish`, body: `The code on disk is newer than the running server${why}. Running replies pause at a safe point and continue after the restart.`, tone: "info", actions: [{ id: "restart", label: "Restart", primary: true }], dismissible: true };
   }
   return null;
 }
@@ -389,7 +391,7 @@ export function createUpdateFlow(ext, { wait = (ms) => new Promise((done) => set
   async function restart() {
     set({ phase: "starting", kind: "restart", applyError: null });
     try {
-      const out = await ext.request("update-restart", { args: { reason: "the code on disk is newer than the running Thetis server" } });
+      const out = await ext.request("update-restart", { args: { reason: `the code on disk is newer than the running ${agentName()} server` } });
       if (out?.data?.state === "refused") return void set({ phase: "idle", applyError: new Error(out.data.message || "The restart was refused.") });
       remember("restart");
       set({ phase: "following" });

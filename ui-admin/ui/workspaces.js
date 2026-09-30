@@ -17,6 +17,7 @@
 
 import { failedCard, isLost, toastError } from "./failed.js";
 import { stateBadge } from "./words.js";
+import { agentName } from "./state.js";
 
 export { isLost };
 
@@ -41,7 +42,7 @@ export async function settle(ext, deadline = Date.now() + SETTLE_MS) {
 }
 
 /** The sentence every restart control says while an update of Thetis installs. */
-export const UPDATING = "An update is installing; Thetis restarts by itself when it is done.";
+export const updatingSentence = () => `An update is installing; ${agentName()} restarts by itself when it is done.`;
 
 /** The kernel's refusal for a workspace with a turn running in it, from a kernel that cannot drain yet. */
 export function isBusy(err) {
@@ -143,10 +144,10 @@ export function mountWorkspaces(ext, root, { user } = {}) {
 
   /** Why a restart of Thetis could not succeed on this host, or null when it could. */
   function blocker() {
-    if (!daemon.supervised) return "Thetis was not started by systemd here, so exiting would stop it rather than restart it. An operator starts it under systemd on the host; the control is off until then.";
+    if (!daemon.supervised) return `${agentName()} was not started by systemd here, so exiting would stop it rather than restart it. An operator starts it under systemd on the host; the control is off until then.`;
     const policy = daemon.restartPolicy ?? null;
-    if (policy === null) return "The restart policy of the systemd unit could not be read, so there is no way to know whether Thetis would come back. The control is off until an operator puts that right on the host.";
-    if (policy !== "always") return `The systemd unit says Restart=${policy}, not Restart=always, so Thetis would exit and stay down. The control is off until an operator puts that right on the host.`;
+    if (policy === null) return `The restart policy of the systemd unit could not be read, so there is no way to know whether ${agentName()} would come back. The control is off until an operator puts that right on the host.`;
+    if (policy !== "always") return `The systemd unit says Restart=${policy}, not Restart=always, so ${agentName()} would exit and stay down. The control is off until an operator puts that right on the host.`;
     return null;
   }
 
@@ -169,10 +170,10 @@ export function mountWorkspaces(ext, root, { user } = {}) {
     const reason = el("input", { class: "input ua-reason", type: "text", placeholder: "what changed, and why a workspace restart cannot pick it up", "aria-label": "Reason", autocomplete: "off" });
     setTimeout(() => reason.focus(), 0);
     const ok = await confirm(anchor, {
-      title: "Restart Thetis?",
+      title: `Restart ${agentName()}?`,
       lines: [["restarts", "the server and every workspace"], ["reason", reason]],
-      note: "Nothing happens the moment you confirm: running replies stop at a safe point, Thetis counts down where everyone can see it, restarts, and the replies continue by themselves. Open terminal sessions end. It can be called off until it fires. The reason is shown to everyone waiting and recorded.",
-      confirmLabel: "Restart Thetis",
+      note: `Nothing happens the moment you confirm: running replies stop at a safe point, ${agentName()} counts down where everyone can see it, restarts, and the replies continue by themselves. Open terminal sessions end. It can be called off until it fires. The reason is shown to everyone waiting and recorded.`,
+      confirmLabel: `Restart ${agentName()}`,
       tone: "warn",
     });
     if (!ok) return;
@@ -182,7 +183,7 @@ export function mountWorkspaces(ext, root, { user } = {}) {
       const out = await ext.request("restart-request", { args: { reason: text } });
       const state = out?.data?.state ?? null;
       const message = typeof out?.data?.message === "string" && out.data.message.trim() ? out.data.message : null;
-      said = message ? { state, message } : { state: "unknown", message: "Thetis answered without a sentence of its own, so this page cannot tell what it did. thetis restart status on the host says whether anything is armed." };
+      said = message ? { state, message } : { state: "unknown", message: `${agentName()} answered without a sentence of its own, so this page cannot tell what it did. thetis restart status on the host says whether anything is armed.` };
       ext.toast(said.message, { tone: said.state === "armed" || said.state === "again" ? "warn" : "error" });
     } catch (err) {
       said = { state: "failed", message: err.message };
@@ -194,10 +195,10 @@ export function mountWorkspaces(ext, root, { user } = {}) {
   function serverCard() {
     if (!daemon) return null;
     const why = blocker();
-    const go = pending ? null : button("Restart Thetis…", { tone: "quiet", disabled: why || updating ? true : null, title: updating ? UPDATING : why ? "A restart could not succeed on this host" : "Ask Thetis to restart itself", onClick: () => void arm(go) });
+    const go = pending ? null : button(`Restart ${agentName()}…`, { tone: "quiet", disabled: why || updating ? true : null, title: updating ? updatingSentence() : why ? "A restart could not succeed on this host" : `Ask ${agentName()} to restart itself`, onClick: () => void arm(go) });
     const cancel = pending ? button("Cancel", { onClick: () => void cancelRestart(cancel) }) : null;
     return card(
-      "Thetis server",
+      `${agentName()} server`,
       kv([
         ["state", el("span", { class: "ua-line" }, stateBadge(ext, daemon.stale ? "restart" : "current"), el("span", { class: "text-dim" }, daemon.stale ? `the code on disk is newer, since ${clock(daemon.codeAt)}` : "runs the code on disk"))],
         ["started", el("span", { class: "text-dim" }, daemon.startedAt ? `${clock(daemon.startedAt)} · up ${upFor(daemon.uptimeSecs)}` : "not known")],
@@ -205,7 +206,7 @@ export function mountWorkspaces(ext, root, { user } = {}) {
       ]),
       pending ? el("div", { class: "ua-line ua-pending" }, badge("Restart pending", "warn"), el("span", { class: "text-dim" }, `${pending.reason || "no reason given"}${pending.by ? ` (asked by ${pending.by})` : ""}`), cancel) : null,
       why ? el("p", { class: "text-faint" }, why) : null,
-      updating ? el("p", { class: "text-dim" }, UPDATING) : null,
+      updating ? el("p", { class: "text-dim" }, updatingSentence()) : null,
       el("div", { class: "card-actions" }, go),
       said ? el("p", { class: said.state === "armed" || said.state === "again" ? "text-dim" : "ua-refused" }, said.message) : null
     );
@@ -243,8 +244,8 @@ export function mountWorkspaces(ext, root, { user } = {}) {
     // A workspace that is not open has nothing to restart: a button there would only look like one.
     if (!r.openedAt) return el("span", { class: "text-faint" }, "—");
     const off = updating ? true : null;
-    const go = button("Restart", { tone: "warn", disabled: off, title: updating ? UPDATING : "Restart this workspace; running replies pause at a safe point", onClick: () => void run(go, "drain") });
-    const force = button("Force…", { tone: "quiet", disabled: off, title: updating ? UPDATING : "Restart now, stopping running replies at once", onClick: () => void run(force, "force") });
+    const go = button("Restart", { tone: "warn", disabled: off, title: updating ? updatingSentence() : "Restart this workspace; running replies pause at a safe point", onClick: () => void run(go, "drain") });
+    const force = button("Force…", { tone: "quiet", disabled: off, title: updating ? updatingSentence() : "Restart now, stopping running replies at once", onClick: () => void run(force, "force") });
     async function run(anchor, mode) {
       if (!(await (mode === "force" ? askForce(anchor, r) : ask(anchor, r)))) return;
       go.disabled = force.disabled = true;
@@ -263,7 +264,7 @@ export function mountWorkspaces(ext, root, { user } = {}) {
     put(
       wrap,
       el("div", { class: "toolbar" }, heading("Workspaces", `${rows.length} ${rows.length === 1 ? "workspace" : "workspaces"}`)),
-      updating ? el("p", { class: "ua-broken" }, `${UPDATING} Restarting a workspace waits until then.`) : null,
+      updating ? el("p", { class: "ua-broken" }, `${updatingSentence()} Restarting a workspace waits until then.`) : null,
       serverCard(),
       table(
         [
@@ -275,7 +276,7 @@ export function mountWorkspaces(ext, root, { user } = {}) {
         rows,
         { rowKey: (r) => r.user, empty: "No workspace has been opened yet." }
       ),
-      el("p", { class: "panel-hint" }, "A tool's code is read again on every call, and a page's files on every request: new code in those is live already. A service, a provider and the agent itself are read when the workspace opens, so restarting the workspace is how new code in those goes live. Restart waits for running replies to reach a safe point; Force stops them at once. Either way they continue by themselves. Updating Thetis itself is the Overview's.")
+      el("p", { class: "panel-hint" }, `A tool's code is read again on every call, and a page's files on every request: new code in those is live already. A service, a provider and the agent itself are read when the workspace opens, so restarting the workspace is how new code in those goes live. Restart waits for running replies to reach a safe point; Force stops them at once. Either way they continue by themselves. Updating ${agentName()} itself is the Overview's.`)
     );
   }
 

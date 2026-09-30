@@ -145,7 +145,7 @@ export default function install(ext) {
       if (call.name !== ASK_TOOL) return null;
       const ask = parseAsk(call.args);
       if (!ask) return null; // a malformed call keeps its tool card rather than vanishing
-      const card = askCard(ext.dom, ask, { onAnswer: (text) => void ext.conversation.send(text) });
+      const card = askCard(ext.dom, ask, { onAnswer: (text) => void ext.conversation.send(text), agentName: ext.agent?.name || "Thetis" });
       forms.add(`${ctx.session}:${call.id}`);
       ctx.whenAnswered(() => lockCard(ext.dom, card));
       return card;

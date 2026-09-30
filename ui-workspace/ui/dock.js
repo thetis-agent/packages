@@ -132,7 +132,7 @@ export function drawDock(ext, model) {
         rootsBySession.set(key, unwrap(r) ?? null);
       } catch (err) {
         rootsBySession.set(key, { error: err?.message || "no answer" });
-        ext.toast(`The directories could not be refreshed: ${err?.message || "Thetis did not answer"}`, { tone: "error" });
+        ext.toast(`The directories could not be refreshed: ${err?.message || `${ext.agent?.name || "Thetis"} did not answer`}`, { tone: "error" });
       }
       try { cached?.explorer?.update?.(); } catch { /* the redraw below rebuilds what it can */ }
       ext.redraw("files");

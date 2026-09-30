@@ -25,6 +25,21 @@
 /* Account: the password form stacks its fields, at a width a password needs. */
 .ua-password { display: flex; flex-direction: column; gap: 12px; max-width: 360px; }
 .ua-password .input { width: 100%; box-sizing: border-box; }
+/* Agent: the name field, and the picture drawn the ways the page draws it: large, and as a reply's tile beside
+ * the name at the top left of the sidebar. The tile's look follows the shell's `.turn-avatar.is-agent`. */
+.ua-agent .input { width: 100%; max-width: 360px; box-sizing: border-box; }
+.ua-agent-faces { display: flex; align-items: center; gap: var(--gap-4, 16px); flex-wrap: wrap; }
+.ua-agent-face { display: inline-grid; place-items: center; flex: none; overflow: hidden; border-radius: 50%; background: var(--accent-wash); box-shadow: inset 0 0 0 1px var(--accent-edge); }
+.ua-agent-face.is-large { width: 72px; height: 72px; }
+.ua-agent-face.is-small { width: 26px; height: 26px; }
+.ua-agent-face img { width: 100%; height: 100%; object-fit: cover; }
+.ua-agent-initial { color: var(--accent); font-weight: 650; letter-spacing: .01em; }
+.ua-agent-face.is-large .ua-agent-initial { font-size: 26px; }
+.ua-agent-face.is-small .ua-agent-initial { font-size: 11px; }
+.ua-agent-samples { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ua-agent-sample { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ua-agent-brand { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ua-agent-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* --- the configuration form: kept identical to @thetis/ui-marketplace's copy ------------------------- */
 

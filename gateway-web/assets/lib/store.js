@@ -23,6 +23,7 @@ const state = {
   connection: "connecting", // connecting | online | reconnecting
   build: null,         // { id } the page was loaded with, from /api/me or the first snapshot
   developer: false,    // the person's "Show developer details" preference, from /api/me
+  agentIdentity: null, // { name, avatar } of the agent (not a subagent): lib/agent.js keeps it
 };
 
 const watchers = new Map();

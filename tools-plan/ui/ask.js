@@ -135,11 +135,11 @@ export function lockCard({ el, clear }, card) {
 }
 
 /**
- * Builds the card. `onAnswer(text)` sends the composed message the way the composer does; the card locks
+ * Builds the card, titled "<agentName> is asking". `onAnswer(text)` sends the composed message the way the composer does; the card locks
  * the moment Submit is pressed, whether or not the send is still in flight, because a slow socket should
  * not invite a second click.
  */
-export function askCard(dom, ask, { onAnswer } = {}) {
+export function askCard(dom, ask, { onAnswer, agentName = "Thetis" } = {}) {
   const { el } = dom;
   const answers = ask.questions.map(blankAnswer);
   const submit = el("button", { type: "button", class: "ghost-btn is-primary", onClick: () => { onAnswer?.(composeAnswers(ask, answers)); lockCard(dom, card); } }, "Submit");
@@ -147,7 +147,7 @@ export function askCard(dom, ask, { onAnswer } = {}) {
   const card = el("div", { class: "tp-ask" },
     el("div", { class: "tp-ask-head" },
       el("span", { class: "tp-ask-mark" }, "?"),
-      el("div", {}, el("div", { class: "tp-ask-title" }, "Thetis is asking"), ask.intro ? el("div", { class: "tp-ask-intro" }, ask.intro) : null)),
+      el("div", {}, el("div", { class: "tp-ask-title" }, `${agentName} is asking`), ask.intro ? el("div", { class: "tp-ask-intro" }, ask.intro) : null)),
     el("div", { class: "tp-ask-body" }, ...ask.questions.map((q, i) => questionBlock(dom, q, i, answers[i]))),
     foot);
   return card;

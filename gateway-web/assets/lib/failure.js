@@ -7,6 +7,8 @@
  * an update of the person's space, a crash, a pause for an update). A record or an event written before
  * those fields existed has neither, so the kind is also read, as a last resort, off the raw message. */
 
+import { agentName } from "./agent.js";
+
 /** What failed, in the words the row leads with. */
 const KIND_LEAD = {
   connection: "The connection to the model kept dropping",
@@ -17,7 +19,9 @@ const KIND_LEAD = {
   context: "The conversation is too long for this model",
   "output-limit": "The reply reached the model's output limit",
   filter: "The provider's content filter stopped the reply",
-  auth: "The provider refused the key Thetis uses",
+  get auth() {
+    return `The provider refused the key ${agentName()} uses`;
+  },
 };
 
 /** What to do about it, when there is something the person can do before retrying. */
@@ -42,16 +46,24 @@ const KIND_SHORT = {
 
 /** How the turn stopped, when it was not the model's call that failed. */
 const WHY_LEAD = {
-  restart: "Thetis restarted during this reply",
+  get restart() {
+    return `${agentName()} restarted during this reply`;
+  },
   reload: "Your space was updated during this reply",
-  crash: "Thetis stopped unexpectedly during this reply",
+  get crash() {
+    return `${agentName()} stopped unexpectedly during this reply`;
+  },
   yield: "This reply paused for an update",
 };
 
 const WHY_SHORT = {
-  restart: "Thetis restarted",
+  get restart() {
+    return `${agentName()} restarted`;
+  },
   reload: "its space was updated",
-  crash: "Thetis stopped unexpectedly",
+  get crash() {
+    return `${agentName()} stopped unexpectedly`;
+  },
   yield: "paused for an update",
 };
 
@@ -93,7 +105,7 @@ export function isPause(source) {
 /** The row's sentence. `tries` is how many times the call was made, when retries ran out. */
 export function failureSentence(source, { tries } = {}) {
   // A clean pause is planned: nothing is lost and the reply continues by itself, so it is not a failure.
-  if (isPause(source)) return `This reply paused for ${source.for === "reload" ? "an update of your space" : "a restart of Thetis"}. It continues by itself when Thetis is back.`;
+  if (isPause(source)) return `This reply paused for ${source.for === "reload" ? "an update of your space" : `a restart of ${agentName()}`}. It continues by itself when ${agentName()} is back.`;
   const { kind, why } = reasonOf(source);
   if (why) return `${WHY_LEAD[why]}. Everything before it is kept.`;
   const lead = KIND_LEAD[kind];
@@ -116,12 +128,12 @@ export function failureShort(source) {
 export function resumedSentence(why) {
   switch (why) {
     case "restart":
-      return "Resumed after Thetis restarted";
+      return `Resumed after ${agentName()} restarted`;
     case "reload":
     case "yield":
       return "Resumed after an update";
     case "crash":
-      return "Resumed after Thetis stopped unexpectedly";
+      return `Resumed after ${agentName()} stopped unexpectedly`;
     case "provider":
     case "failed":
       return "Retried";
@@ -134,7 +146,7 @@ export function resumedSentence(why) {
 export function retryLead(kind) {
   switch (kind) {
     case "rate-limit":
-      return "The model's provider asked Thetis to slow down.";
+      return `The model's provider asked ${agentName()} to slow down.`;
     case "overloaded":
       return "The model is overloaded.";
     case "timeout":
