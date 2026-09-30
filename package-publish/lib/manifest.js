@@ -77,7 +77,7 @@ export function withVersion(text, manifest, version) {
 /**
  * The manifest the registry gets when a fork is published as its origin: the origin's name, the version
  * being published, and no `forkedFrom`, because what lands in the registry is the origin and not somebody's
- * copy of it. A registry entry that named a fork's origin would make every installation that took it
+ * copy of it (nor `publishedAs`, which is only the person's copy's own note of where it went). A registry entry that named a fork's origin would make every installation that took it
  * replace the very package it is, which is what `forkedFrom` means to the kernel.
  *
  * It is written out rather than patched in place. `withVersion` keeps a person's own file byte for byte
@@ -85,6 +85,28 @@ export function withVersion(text, manifest, version) {
  * clone from the fork's, so there is no file here whose shape anybody is attached to.
  */
 export function withOrigin(manifest, name, version) {
-  const { forkedFrom, ...thetis } = manifest.thetis ?? {};
+  const { forkedFrom, publishedAs, ...thetis } = manifest.thetis ?? {};
   return `${JSON.stringify({ ...manifest, name, version, thetis }, null, 2)}\n`;
+}
+
+/**
+ * A person's own manifest after the registry's scope renamed their publish: `thetis.publishedAs` names what it
+ * went out as (`@bitmuse/gh` out as `@thetis/gh`). It is the one lasting word that the two names are one
+ * extension; without it `@bitmuse/gh` and `@thetis/gh` share an unscoped name and nothing else, and every
+ * surface lists them as two. Patched in beside the `thetis` key so the file keeps its shape, and checked by
+ * parsing, as `withVersion` is; written out again when the patch moved anything else.
+ */
+export function withPublishedAs(text, manifest, name) {
+  const wanted = { ...manifest, thetis: { ...manifest.thetis, publishedAs: name } };
+  if (manifest.thetis?.publishedAs === name) return text;
+  const had = typeof manifest.thetis?.publishedAs === "string";
+  const patched = had
+    ? text.replace(/("publishedAs"\s*:\s*")[^"]*(")/, `$1${name}$2`)
+    : text.replace(/("thetis"\s*:\s*\{)(\s*)/, `$1$2"publishedAs": ${JSON.stringify(name)},$2`);
+  try {
+    if (JSON.stringify(JSON.parse(patched)) === JSON.stringify(had ? wanted : { ...manifest, thetis: { publishedAs: name, ...manifest.thetis } })) return patched;
+  } catch {
+    // fall through to the rewrite
+  }
+  return `${JSON.stringify(wanted, null, 2)}\n`;
 }

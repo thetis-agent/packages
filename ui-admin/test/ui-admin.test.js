@@ -361,7 +361,7 @@ test("package-info: the record, the registry's word and the checkout, each said 
     },
   };
   const out = await commands.packageInfo({ name: "@alice/hello" }, env);
-  assert.deepEqual(out.data, { name: "@alice/hello", version: "0.1.0-fork.1", type: "loader", description: "Says hello.", label: null, audience: null, root: "/home/alice/packages/hello", everyone: false, everyoneBy: null, forkedFrom: { name: "@thetis/hello", version: "0.1.0" }, fork: null, replaced: "@thetis/hello", source: { kind: "local", ref: "packages/hello" }, promotedFrom: null, sharedAs: null, origin: null, systemOnly: false, summary: null, component: false, nobody: false, tools: [], hasSkills: false, pages: 0, service: false, steps: 0, loaded: null, registry: null, git: { branch: "main", upstream: "origin/main", ahead: 2, behind: 1, changed: 2, commit: "abc1234" }, dependencies: [], dependents: [] });
+  assert.deepEqual(out.data, { name: "@alice/hello", version: "0.1.0-fork.1", type: "loader", description: "Says hello.", label: null, audience: null, root: "/home/alice/packages/hello", everyone: false, everyoneBy: null, forkedFrom: { name: "@thetis/hello", version: "0.1.0" }, publishedAs: null, fork: null, replaced: "@thetis/hello", source: { kind: "local", ref: "packages/hello" }, promotedFrom: null, sharedAs: null, origin: null, systemOnly: false, summary: null, component: false, nobody: false, tools: [], hasSkills: false, pages: 0, service: false, steps: 0, loaded: null, registry: null, git: { branch: "main", upstream: "origin/main", ahead: 2, behind: 1, changed: 2, commit: "abc1234" }, dependencies: [], dependents: [] });
   assert.ok(execs[0].includes("'/home/alice/packages/hello'") && execs[0].endsWith("-- ."), "git is asked about this package's files only");
   const bare = await commands.packageInfo({ name: "@alice/hello" }, { ...env, exec: async () => ({ code: 128, stdout: "", stderr: "not a git repository" }) });
   assert.equal(bare.data.git, null);
@@ -632,6 +632,19 @@ test("configurationChildren: All extensions and Who has what first, then every e
   ] } } : { data: [] }) }, { user: "bitmuse" });
   assert.deepEqual(variant.slice(2).map((k) => [k.id, (k.children ?? []).map((c) => c.id)]), [["@thetis/notion", ["@bitmuse/notion", "@bitmuse/notion-read"]]], "the folder variant hangs under its family");
   assert.equal(variant[2].children[1].label, "Notion (Read Only)");
+  // A person's package the registry's scope renamed on publish (@bitmuse/gh out as @thetis/gh) is one node, not two
+  // "GitHub"s: its manifest's publishedAs is the link, whether or not anybody has the published one yet.
+  const published = await configurationChildren({ request: async (verb) => (verb === "fleet" ? { data: { packages: [
+    { name: "@bitmuse/gh", type: "tool", label: "GitHub", version: "0.2.1", tools: ["gh"], publishedAs: "@thetis/gh", source: { kind: "local", ref: "packages/gh" }, state: "current", waiting: [], registry: null, config: null, mine: true, byUser: { bitmuse: { state: "current" } } },
+    { name: "@thetis/gh", type: "tool", label: "GitHub", version: "0.2.1", tools: ["gh"], state: "current", waiting: [], registry: null, config: null, byUser: {}, nobody: true },
+    { name: "@alice/grafana", type: "tool", label: "Grafana", version: "0.1.0", tools: ["q"], state: "current", waiting: [], registry: null, config: null, byUser: { alice: { state: "current" } } },
+    { name: "@thetis/grafana", type: "tool", label: "Grafana", version: "0.2.1", tools: ["q"], state: "current", waiting: [], registry: null, config: null, byUser: {}, nobody: true },
+  ] } } : { data: [] }) }, { user: "bitmuse" });
+  assert.deepEqual(published.slice(2).map((k) => [k.id, k.label, (k.children ?? []).map((c) => c.label)]), [
+    ["@thetis/gh", "GitHub", ["GitHub — your original"]],
+    ["@alice/grafana", "Grafana", []],
+    ["@thetis/grafana", "Grafana", []],
+  ], "publishedAs joins the two; a shared unscoped name and nothing else still does not");
   for (const k of kids) assert.equal(k.marks, undefined, "no glyphs, so the shell draws no glyph legend");
   // The fleet not answering: the tree still has its pages, and says nothing it does not know.
   const bare = await configurationChildren({ request: async () => Promise.reject(new Error("The requested module './lib/ssh.js' does not provide an export named 'isWithin'")) });

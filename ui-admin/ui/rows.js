@@ -41,6 +41,7 @@ function common(p, user) {
     local: own && p.source?.kind === "local",
     source: p.source ?? null,
     forkedFrom: p.forkedFrom ?? null,
+    publishedAs: p.publishedAs ?? null,
     fork: p.fork ?? null,
     tools: Array.isArray(p.tools) ? p.tools : [],
     skills: 0,

@@ -47,6 +47,8 @@ export function factsOf(p) {
     everyone: Boolean(p?.everyone),
     everyoneBy: p?.everyoneBy ?? null,
     forkedFrom: p?.forkedFrom ? { name: p.forkedFrom.name, version: p.forkedFrom.version } : null,
+    // What a person's own package went out as when a registry's scope renamed its publish (`thetis.publishedAs`).
+    publishedAs: typeof t.publishedAs === "string" && t.publishedAs ? t.publishedAs : null,
     fork: p?.fork ? { name: p.fork.name, version: p.fork.version, shipped: p.fork.shipped ?? null, identical: Boolean(p.fork.identical), everyone: Boolean(p.fork.everyone) } : null,
     source: p?.source ? { kind: p.source.kind, ref: p.source.ref } : null,
     tools: Array.isArray(t.tools) ? t.tools.map((x) => x?.name).filter(Boolean) : [],

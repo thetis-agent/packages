@@ -132,6 +132,8 @@ export function installedRow(info, installed = true) {
     ahead: null,
     readme: false,
     forkedFrom: info.forkedFrom ? { name: info.forkedFrom.name, version: info.forkedFrom.version } : null,
+    // What a person's own package went out as when a registry's scope renamed its publish: one extension, not two.
+    publishedAs: typeof info.thetis?.publishedAs === "string" ? info.thetis.publishedAs : null,
     // A fork against its origin as the origin stands now: what it was copied from, what that is at today,
     // and whether this copy has changed anything at all. `forkedFrom` alone only ever said the first of the
     // three, which is the half of the sentence that lets a fork sit there missing every fix.
@@ -458,7 +460,7 @@ export function folderRows(home, installed = []) {
 export function withFolder(rows, folder) {
   const byName = new Map(folder.map((f) => [f.name, f]));
   // What the files say fills what the index could not: its needs, skills, pages, origin and audience.
-  const lay = (r, f) => ({ ...r, folder: f.folder, local: true, summary: r.summary || f.summary, needs: r.needs?.length ? r.needs : f.needs, skills: r.skills || f.skills, hasSkills: r.hasSkills || f.hasSkills, pages: r.pages || f.pages, forkedFrom: r.forkedFrom ?? f.forkedFrom, audience: r.audience ?? f.audience });
+  const lay = (r, f) => ({ ...r, folder: f.folder, local: true, summary: r.summary || f.summary, needs: r.needs?.length ? r.needs : f.needs, skills: r.skills || f.skills, hasSkills: r.hasSkills || f.hasSkills, pages: r.pages || f.pages, forkedFrom: r.forkedFrom ?? f.forkedFrom, publishedAs: r.publishedAs ?? f.publishedAs, audience: r.audience ?? f.audience });
   const merged = rows.map((r) => (!r.installed && byName.has(r.name) ? lay(r, byName.get(r.name)) : r));
   const seen = new Set(rows.map((r) => r.name));
   return [...merged, ...folder.filter((f) => !seen.has(f.name))];

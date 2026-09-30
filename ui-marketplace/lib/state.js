@@ -230,6 +230,11 @@ const baseVersionOf = (row) => row?.fork?.version ?? row?.forkedFrom?.version ??
 export const isCopy = (row) => !!originNameOf(row);
 /** A copy promoted into Thetis for everyone: `@thetis/<n>` made from `@<person>/<n>`. */
 export const isPromoted = (row) => row?.everyoneBy === "promoted";
+/**
+ * What a person's own package went out as when a registry's scope renamed its publish (`@bitmuse/gh` out as
+ * `@thetis/gh`): the manifest's `thetis.publishedAs`, which package-publish writes into the person's copy.
+ */
+export const publishedAsOf = (row) => (typeof row?.publishedAs === "string" && row.publishedAs && row.publishedAs !== row.name ? row.publishedAs : null);
 
 /** Nothing removes it, for anyone. */
 export function isRequired(row) {
@@ -705,8 +710,9 @@ export function everyoneActions(row, { family = [], user = "", holders = null, o
 
 /**
  * The name of the original a row's family grows from. A copy follows `forkedFrom` (through a copy of a copy);
- * a promoted `@thetis/<n>` joins the `@<person>/<n>` it was made from when that row is here. A row nothing joins
- * is its own origin.
+ * a promoted `@thetis/<n>` joins the `@<person>/<n>` it was made from when that row is here; a person's own
+ * package joins what it was published as (`publishedAs`), when that row is here. A row nothing joins is its own
+ * origin.
  */
 export function originOf(row, byName) {
   const seen = new Set();
@@ -718,6 +724,13 @@ export function originOf(row, byName) {
     if (up) {
       name = up;
       cur = byName.get(up) ?? null;
+      continue;
+    }
+    // A promoted copy already joins the original it was made from, so it is never joined back to.
+    const published = publishedAsOf(cur) ? (byName.get(publishedAsOf(cur)) ?? null) : null;
+    if (published && !isPromoted(published)) {
+      name = published.name;
+      cur = published;
       continue;
     }
     if (isPromoted(cur)) {
@@ -798,7 +811,13 @@ const originalWord = (row, user) => (scopeOf(row.name) === user || (!scopeOf(row
  */
 export function titleOf(row, { family = [], user = "", origin = null } = {}) {
   const label = labelOf(row, origin);
-  return sharedCopyOf(row, family) ? `${label} — ${originalWord(row, user)}` : label;
+  return sharedCopyOf(row, family) || publishedCopyOf(row, family) ? `${label} — ${originalWord(row, user)}` : label;
+}
+
+/** The package `row` was published as, when it is among `family` (see `publishedAsOf`), or null. */
+export function publishedCopyOf(row, family = []) {
+  const name = publishedAsOf(row);
+  return name && !isCopy(row) ? (family.find((m) => m !== row && m.name === name) ?? null) : null;
 }
 
 /** Whether two members bring the same tools, by name: what lets a person's original say "(same tools)". */
@@ -821,7 +840,7 @@ export function relationOf(m, { user = "", promoted = null, origin = null } = {}
     if (inFolder) return isVariant(m, origin) ? "a variant in your folder" : "your copy in your folder";
     return mine ? (isVariant(m, origin) ? "your variant" : "your copy") : `${scope}'s copy`;
   }
-  if (promoted && !isCopy(m) && scope !== "thetis") return mine ? (m.folder ? "your original, in your folder" : "your original") : `${scope}'s original`;
+  if ((promoted || publishedAsOf(m)) && !isCopy(m) && scope !== "thetis") return mine ? (m.folder ? "your original, in your folder" : "your original") : `${scope}'s original`;
   if (mine) return "yours";
   if (scope === "thetis") return "Thetis's version";
   if (m.registry && !m.system) return `from ${m.registry}`;

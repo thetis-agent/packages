@@ -145,11 +145,16 @@ test("a registry that takes one scope publishes a package from another under it,
   const out = await publish({ package: "packages/gcloud" }, env);
   assert.equal(out.package, "@thetis/gcloud");
   assert.equal(JSON.parse(show(bare, "main", "gcloud/package.json")).name, "@thetis/gcloud", "what lands is the registry's name");
-  assert.equal(JSON.parse(await readFile(join(fx.home, "packages", "gcloud", "package.json"), "utf8")).name, "@bitmuse/gcloud", "your own copy keeps its name");
+  const own = JSON.parse(await readFile(join(fx.home, "packages", "gcloud", "package.json"), "utf8"));
+  assert.equal(own.name, "@bitmuse/gcloud", "your own copy keeps its name");
+  assert.equal(own.thetis.publishedAs, "@thetis/gcloud", "and says what it went out as, so the two read as one extension");
+  assert.equal(out.publishedAs, "@thetis/gcloud");
+  assert.equal(JSON.parse(show(bare, "main", "gcloud/package.json")).thetis.publishedAs, undefined, "the registry's copy carries no note of the person's");
 
   // The next publish of the same copy is the next version of the package the registry now holds.
   await expectRefusal(publish({ package: "packages/gcloud" }, env), "not-newer", /@thetis\/gcloud 0\.1\.0 does not move past 0\.1\.0/);
   assert.equal((await publish({ package: "packages/gcloud", bump: "patch" }, env)).now, "0.1.1");
+  assert.equal(JSON.parse(show(bare, "main", "gcloud/package.json")).thetis.publishedAs, undefined, "nor on the next publish, when the copy already has it");
 });
 
 test("the registry still holding the package under its old name is the same package moving scope", async (t) => {
@@ -432,4 +437,13 @@ test("a registry holding a version this package would not write still lets a pub
   assert.equal(err.code, "not-newer");
   assert.match(err.message, /@alice\/same 1\.1\.0 does not move past 1\.2, which reg already holds/);
   assert.match(err.message, /1\.2 is not a semantic version like 1\.2\.0, so there is no next one to name: pick a version above it, and put a sound one in reg's own copy of the manifest while you are there\./);
+});
+
+test("the note of what a renamed publish went out as keeps the person's file as they wrote it", async () => {
+  const { withPublishedAs } = await import("../lib/manifest.js");
+  const text = '{\n  "name": "@bitmuse/gh",\n  "version": "0.2.1",\n  "thetis": { "type": "tool", "label": "GitHub" }\n}\n';
+  const noted = withPublishedAs(text, JSON.parse(text), "@thetis/gh");
+  assert.equal(noted, '{\n  "name": "@bitmuse/gh",\n  "version": "0.2.1",\n  "thetis": { "publishedAs": "@thetis/gh", "type": "tool", "label": "GitHub" }\n}\n');
+  assert.equal(withPublishedAs(noted, JSON.parse(noted), "@thetis/gh"), noted, "already noted: nothing changes");
+  assert.equal(JSON.parse(withPublishedAs(noted, JSON.parse(noted), "@thetis/github")).thetis.publishedAs, "@thetis/github");
 });

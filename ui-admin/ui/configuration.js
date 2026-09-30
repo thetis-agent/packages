@@ -2,7 +2,8 @@
  * the shell's built-in section). `configurationChildren` answers the tree: "All extensions", the table of what
  * is installed for the reader; "Who has what", every extension and which people have it; then every extension
  * of this server by its friendly label in Title Case -- the ones nobody has too -- one node per family: a copy
- * hangs under the extension it was made from ("Your copy (Customized)"), so two entries never read the same;
+ * hangs under the extension it was made from ("Your copy (Customized)"), and a person's package under what it
+ * was published as ("GitHub — your original"), so two entries never read the same;
  * Thetis's own parts sit under one closed "Part of Thetis" node, as the Extensions place keeps them apart.
  *
  * The verdict is the place's, for the reader (`rows.js`'s `placeOf`): an extension whose family has a to-do in
@@ -31,7 +32,7 @@ import { mountFleet } from "./fleet.js";
 import { mountPackagePage } from "./package-page.js";
 import { failedCard, toastError } from "./failed.js";
 import { described, placeOf, rowsFromFleet } from "./rows.js";
-import { familiesOf, isCustomized, isPromoted, isVariant, officialOf, originNameOf, scopeOf, titleOf } from "./state.js";
+import { familiesOf, isCustomized, isPromoted, isVariant, officialOf, originNameOf, publishedCopyOf, scopeOf, titleOf } from "./state.js";
 
 /** The id of the first child under Extensions: not an extension but all of them. */
 export const FLEET = "*";
@@ -87,8 +88,8 @@ export async function configurationChildren(ext, { user = me() } = {}) {
     const parent = node(root);
     for (const m of family.members) {
       if (m === root) continue;
-      // The original a shared copy was made from: the place's own title for it, "Notion — your original".
-      const original = isPromoted(root) && !originNameOf(m) ? titleOf(m, { family: family.members, user, origin: officialOf(m, family) }) : null;
+      // The original a shared copy was made from, or a published one went out from: the place's own title for it, "Notion — your original".
+      const original = (isPromoted(root) || publishedCopyOf(m, family.members)) && !originNameOf(m) ? titleOf(m, { family: family.members, user, origin: officialOf(m, family) }) : null;
       const child = node(m, originNameOf(m) ? copyLabel(m, family, user) : original);
       child.note = `${child.label.startsWith(parent.label) ? child.label : `${parent.label}: ${child.label}`} — ${child.why}`;
       // A to-do on a member the tree folds away is the family's: the root carries the mark, so it is seen and counted once.

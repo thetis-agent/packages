@@ -204,6 +204,22 @@ test("families: a copy joins its origin, a promoted copy joins the original, and
   // Two packages that share an unscoped name and nothing else stay apart.
   const apart = familiesOf([{ name: "@alice/grafana" }, { name: "@thetis/grafana", system: true }]);
   assert.equal(apart.length, 2);
+  // A person's package the registry's scope renamed on publish says what it went out as, and that joins them.
+  const gh = [
+    { name: "@bitmuse/gh", label: "GitHub", installed: true, local: true, own: true, publishedAs: "@thetis/gh", source: { kind: "local" } },
+    { name: "@thetis/gh", label: "GitHub", system: true },
+  ];
+  const one = familiesOf(gh);
+  assert.deepEqual(one.map((f) => [f.origin, f.members.map((m) => m.name), f.headline.name]), [["@thetis/gh", ["@bitmuse/gh", "@thetis/gh"], "@bitmuse/gh"]], "one card, headed by the one in use");
+  assert.equal(titleOf(gh[0], { family: one[0].members, user: "bitmuse" }), "GitHub — your original");
+  assert.deepEqual(otherVersions(one[0], gh[0], { user: "bitmuse", admin: true }).map((l) => [l.text, l.action]), [
+    ["✓ GitHub — you use this (your original)", null],
+    ["○ GitHub — Thetis's version", "use"],
+  ]);
+  // Without the published row there is nothing to join, and a promoted copy keeps its own rule (origin: the person's).
+  assert.equal(familiesOf([gh[0]])[0].origin, "@bitmuse/gh");
+  const promoted = [{ ...gh[0] }, { name: "@thetis/gh", everyone: true, everyoneBy: "promoted" }];
+  assert.deepEqual(familiesOf(promoted).map((f) => f.origin), ["@bitmuse/gh"]);
 });
 
 test("other versions: ✓ the one you use, ○ the rest with how each stands to you, and Use instead where it can be", () => {

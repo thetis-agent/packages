@@ -181,7 +181,7 @@ export async function packageInfo(args, env) {
   const promotedAs = name.startsWith("@thetis/") ? null : [...shared.entries()].find(([, from]) => from.name === name)?.[0] ?? null;
   // Only while that copy is still on disk: a shared copy taken away since is no reason to refuse sharing again.
   const sharedAs = promotedAs && typeof env.kernel.packages.catalog === "function" ? ((await env.kernel.packages.catalog().catch(() => null)) ?? [{ name: promotedAs }]).some((p) => p.name === promotedAs) ? promotedAs : null : promotedAs;
-  const { label, audience, fork, tools, hasSkills, pages, service, steps } = factsOf(info);
+  const { label, audience, fork, tools, hasSkills, pages, service, steps, publishedAs } = factsOf(info);
   // A copy's official version, as the Provenance card names it: "Everyone's copy: Tool Exec 0.4.1 (Thetis's)".
   const origin = forkedFrom?.name ? await originOf(env, forkedFrom.name) : null;
   // Installed in no person's workspace, only in the system's: the sign-in page, the registries' service, a provider.
@@ -189,7 +189,7 @@ export async function packageInfo(args, env) {
   const { summary } = factsOf(info);
   // One of Thetis's own parts, by the Extensions place's rule, for the admin asking.
   const component = isComponent({ name, type, audience, installed: info.loadedIn === env.user });
-  return { data: { name, version, type, description, summary, component, nobody: Boolean(info.nobody), label, audience, root, everyone: Boolean(everyone), everyoneBy: everyoneBy ?? null, forkedFrom: forkedFrom ?? null, fork, replaced: replaced ?? null, source: source ?? null, promotedFrom, sharedAs, origin, systemOnly, tools, hasSkills, pages, service, steps, loaded: loadedWord(info, version), registry, git, dependencies, dependents } };
+  return { data: { name, version, type, description, summary, component, nobody: Boolean(info.nobody), label, audience, root, everyone: Boolean(everyone), everyoneBy: everyoneBy ?? null, forkedFrom: forkedFrom ?? null, publishedAs, fork, replaced: replaced ?? null, source: source ?? null, promotedFrom, sharedAs, origin, systemOnly, tools, hasSkills, pages, service, steps, loaded: loadedWord(info, version), registry, git, dependencies, dependents } };
 }
 
 /**

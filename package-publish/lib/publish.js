@@ -16,7 +16,7 @@ import { few, refuse, tail } from "./refuse.js";
 import { pickTarget, verifyOf, workDirOf } from "./config.js";
 import { chooseAs, forkedFrom, originVersion, unscoped } from "./fork.js";
 import { asIdentity, FALLBACK_IDENTITY, git, gitSays, headCommit, identityOf, lines, mustGit } from "./git.js";
-import { assertSound, mainOf, withOrigin, withVersion } from "./manifest.js";
+import { assertSound, mainOf, withOrigin, withPublishedAs, withVersion } from "./manifest.js";
 import { findPackageDir, locate, resolvePackage } from "./locate.js";
 import { cannotRide, journalRow, notNamed, rider, sortPassengers } from "./passengers.js";
 import { recordPublish } from "./record.js";
@@ -126,7 +126,8 @@ export async function publish(args = {}, env) {
   //
   // A fork going out as its origin never writes its own manifest: the person goes on running their fork,
   // under their own name and at their own version, and what the registry gets is written into the copy.
-  if (!dryRun && !asOrigin && now !== pkg.version) await env.writeFile(join(pkg.path, "package.json"), withVersion(pkg.text, pkg.manifest, now));
+  const ownText = !asOrigin && now !== pkg.version ? withVersion(pkg.text, pkg.manifest, now) : pkg.text;
+  if (!dryRun && ownText !== pkg.text) await env.writeFile(join(pkg.path, "package.json"), ownText);
   if (where.mode === "copy") await copyInto(pkg.path, join(where.repo, where.dir));
   if (renamed) await env.writeFile(join(where.repo, where.dir, "package.json"), withOrigin(pkg.manifest, name, now));
 
@@ -198,6 +199,14 @@ export async function publish(args = {}, env) {
     refuse("push", `The push to ${target.name} (${where.url}, branch ${where.branch}) was refused: ${gitSays(push)}. The commit is in ${where.repo}; nothing in the registry has changed.`);
   }
   answer.pushed = true;
+  // Renamed by the registry's scope: the person's copy says what it went out as, once it has. That is what
+  // lets every surface show the copy and the published package as one extension rather than two.
+  if (into) {
+    const own = JSON.parse(ownText);
+    const noted = withPublishedAs(ownText, own, name);
+    if (noted !== ownText) await env.writeFile(join(pkg.path, "package.json"), noted);
+    answer.publishedAs = name;
+  }
   answer.shortCommit = answer.commit.slice(0, 7);
   answer.with = riding.map((r) => rider(r, answer));
   // What the marketplace will pin once it next refreshes, and the plain fact that it has not yet. The
@@ -219,11 +228,13 @@ function summarise(answer, blockers) {
   // the one thing that did not: their own copy is untouched and still a fork, under its own name.
   const outOf = answer.fork ? ` Your copy is still ${answer.fork.name} ${answer.fork.version}, a fork.` : "";
   const from = answer.fork ? ` out of ${answer.fork.name}` : "";
+  // A rename leaves the person running their own copy, which a publish from a tool cannot change for them.
+  const still = answer.renamedFrom && !answer.dryRun ? ` Your space still runs ${answer.renamedFrom}, noted as published as ${answer.package}; to run the published one, choose it under Other versions on its card in Extensions.` : "";
   if (answer.dryRun) {
     const refused = blockers.length ? `, but the publish would be refused (${blockers.map((b) => b.code).join(", ")})` : "";
     return `dry run: ${answer.package} ${moved} would go to ${answer.target} (${answer.branch})${from}: ${answer.files.length} file(s)${refused}.${along}${outOf} Nothing was committed or pushed.`;
   }
-  return `${answer.package} ${moved} published to ${answer.target} (${answer.branch})${from} as ${answer.shortCommit}: ${answer.files.length} file(s).${along}${outOf} The marketplace index catches up on its next refresh.`;
+  return `${answer.package} ${moved} published to ${answer.target} (${answer.branch})${from} as ${answer.shortCommit}: ${answer.files.length} file(s).${along}${outOf}${still} The marketplace index catches up on its next refresh.`;
 }
 
 /**
