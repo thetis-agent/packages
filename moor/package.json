@@ -1,0 +1,11 @@
+{
+  "name": "@thetis/moor",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Ground truth for the mooR server codebase as one skill tree: the Rust MOO engine, its transactional object database, the compiler and VM, the task scheduler, and the daemon, host and worker processes. Private to bitmuse.",
+  "type": "module",
+  "thetis": {
+    "type": "skill",
+    "skills": "skills"
+  }
+}
