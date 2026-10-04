@@ -70,6 +70,14 @@ export class FakeNode {
     this.dispatchEvent(event);
     document.dispatchEvent(event);
   }
+  /** A <dialog>'s: open is all a test can see of modal. */
+  showModal() {
+    this.open = true;
+  }
+  close() {
+    this.open = false;
+    this.dispatchEvent({ type: "close" });
+  }
   focus() {
     if (this.attrs.disabled !== undefined) return;
     document.activeElement = this;
@@ -106,6 +114,13 @@ export class FakeNode {
     for (const child of this.children) child.parentElement = null;
     this.children = [];
     this.append(...nodes);
+  }
+  after(...nodes) {
+    const parent = this.parentElement;
+    const at = parent?.children.indexOf(this) ?? -1;
+    if (at < 0) return;
+    for (const node of nodes) node.parentElement = parent;
+    parent.children.splice(at + 1, 0, ...nodes);
   }
   replaceWith(node) {
     const parent = this.parentElement;

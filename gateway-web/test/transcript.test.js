@@ -127,6 +127,45 @@ test("structured image and unknown content render live and after restoring the r
   assert.equal(root.querySelectorAll("details.content-unknown").length, 2, "the final message replaces the streamed preview");
 });
 
+test("an image a tool hands back is a preview under its folded card, and a click opens it full size", () => {
+  const parent = new FakeNode("section");
+  const root = new FakeNode("div");
+  parent.append(root);
+  const transcript = mountTranscript(root, { session: "s_1" });
+  const shot = [{ type: "text", data: { text: "saved shot.png\nimage: attached" } }, { type: "asset", data: { id: "a_shot", mediaType: "image/png", name: "shot.png" } }];
+  transcript.applyEvent({ type: "turn.start" }, "look");
+  transcript.applyEvent({ type: "tool.call", call: { id: "call_1", name: "browser_screenshot", args: {} } });
+  transcript.applyEvent({ type: "tool.result", id: "call_1", name: "browser_screenshot", content: shot });
+  const card = root.querySelector("details.tool");
+  assert.equal(card.open, false);
+  assert.equal(card.querySelectorAll("img").length, 0, "the picture is not inside the card that folds");
+  const strip = root.querySelector(".tool-run-body > .tool-media");
+  assert.ok(strip, "it sits under the card");
+  const thumb = strip.querySelector("button.content-thumb");
+  assert.equal(thumb.querySelector("img.content-media").getAttribute("src"), "api/media/a_shot");
+  thumb.click();
+  const box = document.body.querySelector("dialog.lightbox");
+  assert.equal(box.open, true);
+  assert.equal(box.querySelector("img.lightbox-img").src, "api/media/a_shot");
+  assert.equal(box.querySelector(".lightbox-name").textContent, "shot.png");
+  box.close();
+});
+
+test("a restored run long enough to fold stays open when it holds a picture", () => {
+  const calls = Array.from({ length: 6 }, (_, i) => ({ id: `c${i}`, name: "read_file", args: { path: `f${i}` } }));
+  const conversation = [
+    { role: "user", content: "go" },
+    { role: "assistant", content: "", toolCalls: calls },
+    ...calls.map((c, i) => ({ role: "tool", name: c.name, toolCallId: c.id, content: i === 5 ? [{ type: "text", data: { text: "ok" } }, { type: "asset", data: { id: "a_5", mediaType: "image/webp", name: "five.webp" } }] : "ok" })),
+  ];
+  const parent = new FakeNode("section");
+  const root = new FakeNode("div");
+  parent.append(root);
+  mountTranscript(root, { session: "s_1" }).restore({ id: "s_1", conversation, children: [], usage: {}, turn: null });
+  assert.equal(root.querySelector("details.tool-run").open, true);
+  assert.equal(root.querySelectorAll(".tool-media > button.content-thumb").length, 1);
+});
+
 test("two media-only inputs are distinguished by their parts when restoring a running turn", () => {
   const previous = { role: "user", content: [{ type: "asset", data: { id: "a_first", mediaType: "image/png", name: "first.png" } }] };
   const current = { role: "user", content: [{ type: "asset", data: { id: "a_second", mediaType: "image/png", name: "second.png" } }] };

@@ -1,4 +1,5 @@
 import { el } from "./dom.js";
+import { openLightbox } from "./lightbox.js";
 import { renderMarkdown } from "./markdown.js";
 
 /** Browser projection of the runtime content envelope, including legacy saved text. */
@@ -9,6 +10,15 @@ export function contentText(content) {
 
 export function hasMedia(content) {
   return Array.isArray(content) && content.some((p) => p?.type !== "text" || typeof p.data?.text !== "string");
+}
+
+/** An image is a preview; a click shows it full size. */
+function thumb(url, label) {
+  return el(
+    "button",
+    { type: "button", class: "content-thumb", title: `${label} · click to enlarge`, "aria-label": `Enlarge ${label}`, onClick: () => openLightbox(url, label) },
+    el("img", { class: "content-media", src: url, alt: label, loading: "lazy" })
+  );
 }
 
 /** Keeps part order; unknown kinds remain visible and inspectable. */
@@ -28,7 +38,7 @@ export function renderContent(content, { markdown = true, strip } = {}) {
     if (part.type === "asset" && typeof data?.id === "string") {
       const url = `api/media/${encodeURIComponent(data.id)}`;
       const label = data.name || data.mediaType || "Attachment";
-      if (/^image\/(png|jpeg|webp|gif)$/.test(data.mediaType)) nodes.push(el("img", { class: "content-media", src: url, alt: label, loading: "lazy" }));
+      if (/^image\/(png|jpeg|webp|gif)$/.test(data.mediaType)) nodes.push(thumb(url, label));
       else if (/^(audio|video)\//.test(data.mediaType)) nodes.push(el(data.mediaType.split("/")[0], { class: "content-media", src: url, controls: "", preload: "none" }));
       nodes.push(el("a", { class: "content-attachment", href: url, download: data.name || "attachment" }, label));
     } else {

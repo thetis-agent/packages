@@ -1915,5 +1915,43 @@ select.input { padding-right: 24px; }
 }
 
 .content-media { display: block; max-width: 100%; max-height: 28rem; margin-block: .75rem; }
+/* An image is a preview: small enough to read past, a click away from full size (lib/lightbox.js). */
+.content-thumb {
+  display: block; width: fit-content; max-width: 100%;
+  margin-block: .75rem; padding: 0;
+  background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md);
+  overflow: hidden; cursor: zoom-in;
+}
+.content-thumb:hover { border-color: var(--accent-edge); }
+.content-thumb:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.content-thumb .content-media { max-width: min(100%, 26rem); max-height: 16rem; margin: 0; object-fit: contain; }
+/* Under a tool card: what it handed back besides text, kept in view when the card folds. */
+.tool-media { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 4px var(--gap-3); padding-left: var(--gap-3); }
+.tool-media .content-thumb { margin-block: 2px; }
+.tool-media .content-thumb .content-media { max-height: 11rem; max-width: min(100%, 18rem); }
+.tool-media .content-attachment { font-size: var(--text-xs); margin-block: 0; }
+
+.lightbox {
+  max-width: none; max-height: none; width: 100vw; height: 100vh; height: 100dvh;
+  margin: 0; padding: var(--gap-5) var(--gap-4) var(--gap-4); border: 0;
+  background: transparent; color: var(--text);
+  display: none; flex-direction: column; align-items: center; justify-content: center; gap: var(--gap-3);
+  cursor: zoom-out;
+}
+.lightbox[open] { display: flex; }
+.lightbox::backdrop { background: rgba(0, 0, 0, .82); }
+.lightbox-img {
+  min-height: 0; max-width: 100%; max-height: 100%; object-fit: contain;
+  border-radius: var(--r-sm); box-shadow: var(--shadow-lg); background: var(--surface-1);
+}
+.lightbox-bar {
+  display: flex; align-items: center; gap: var(--gap-3); max-width: 100%;
+  padding: 4px 4px 4px var(--gap-3); border-radius: var(--r-pill);
+  background: var(--surface-2); border: 1px solid var(--hairline); font-size: var(--text-sm);
+  cursor: default;
+}
+.lightbox-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
+.lightbox-link { white-space: nowrap; color: var(--accent); text-decoration: none; }
+.lightbox-link:hover { text-decoration: underline; }
 .content-attachment { display: block; margin-block: .4rem; }
 .content-unknown pre { white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -22,12 +22,12 @@ binary is installed. The suite stays separate from `npm test`, so normal tests n
 dependency. Failed cases save a screenshot and Playwright trace under a temporary directory; set
 `THETIS_BROWSER_ARTIFACTS` to choose another output directory.
 
-The nineteen checks cover delayed extension declarations and installation, awaited creation hooks,
+The twenty checks cover delayed extension declarations and installation, awaited creation hooks,
 draft restoration after a hook fails, send acknowledgements arriving after turn completion or a
 reconnect snapshot, live events arriving before a saved conversation response, and attachments: a
 pasted and a dropped PNG travel through `POST /api/media`, show as a chip in `#attachments`, and go
 out as an `asset` part beside the text in `{ input }`; a removed one leaves the send as `{ text }`; a
-text paste keeps its default handling. Request gates control event order without sleeps.
+text paste keeps its default handling. A tool result carrying an image draws `.tool-media > button.content-thumb` under the folded `details.tool`; a click opens `dialog.lightbox` with the name, and Escape closes it while the `#dock` under it stays open. Request gates control event order without sleeps.
 
 Five more cover "nothing lost" and restarts: a failed turn's row (`.msg.is-end`, a plain sentence, the raw words
 under Details) whose **Retry** posts `sessions/<id>/resume`, and the same row drawn again after a

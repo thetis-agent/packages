@@ -378,6 +378,36 @@ test("the rail: every button names itself, and widened it shows the labels in wo
   });
 });
 
+test("a screenshot a tool hands back stays in view under its folded card, and a click shows it full size until Escape", { timeout: 15000 }, async () => {
+  await withPage(browser, "tool-image", { existing: true, extras: true }, async (f) => {
+    await f.page.getByText("Earlier reply", { exact: true }).last().waitFor();
+    await f.emit([
+      { type: "turn.start", turn: "t_browser" },
+      { type: "tool.call", call: { id: "call_1", name: "browser_screenshot", args: { url: "https://example.test" } } },
+      { type: "tool.result", id: "call_1", name: "browser_screenshot", content: [{ type: "text", data: { text: "saved shot.png\nimage: attached" } }, { type: "asset", data: { id: "a_shot", mediaType: "image/png", name: "shot.png" } }] },
+    ]);
+    const thumb = f.page.locator(".pane.is-active .tool-run-body > .tool-media > button.content-thumb");
+    await thumb.waitFor();
+    assert.equal(await f.page.locator(".pane.is-active details.tool").evaluate((card) => card.open), false, "the card folded");
+    assert.equal(await thumb.isVisible(), true, "the picture did not fold with it");
+    await f.page.locator('.rail-btn[data-dock="@review/extras#todo"]').click(); // a dock under it: Escape must take the picture, not the dock
+    await f.page.locator("#dock:not([hidden])").waitFor();
+    await thumb.click();
+    const box = f.page.locator("dialog.lightbox");
+    await box.waitFor();
+    assert.match(await box.locator("img.lightbox-img").getAttribute("src"), /api\/media\/a_shot$/);
+    assert.equal(await box.locator(".lightbox-name").innerText(), "shot.png");
+    await f.page.keyboard.press("Escape");
+    await box.waitFor({ state: "hidden" });
+    assert.equal(await f.page.locator("#dock").isHidden(), false, "Escape closed the picture and nothing under it");
+    await thumb.click();
+    await box.waitFor();
+    await box.locator("img.lightbox-img").click();
+    await box.waitFor({ state: "hidden" });
+    await f.emit([{ type: "turn.end", turn: "t_browser" }]);
+  });
+});
+
 test("a phone: the rail is a Panels menu, a place closes the drawer, Escape takes the top layer, the panel tree is a select, nothing scrolls sideways", { timeout: 20000 }, async () => {
   await withPage(browser, "phone", { existing: true, extras: true, viewport: { width: 390, height: 844 } }, async (f) => {
     await f.page.evaluate(() => localStorage.setItem("thetis.shelf.height", "800"));

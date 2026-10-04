@@ -813,7 +813,7 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
       const cancelled = NUDGE_CANCELLED.test(result || "");
       const node = toolCard({ id, name, args: {} }, false, !live && !pendingRow);
       node.append(...resultSection(result || "", failed && !cancelled));
-      if (hasMedia(content)) node.append(...renderContent(content.filter((p) => p.type !== "text")));
+      mediaAfter(node, content);
       node.classList.toggle("is-bad", failed && !cancelled);
       node.classList.toggle("is-cancelled", cancelled);
       node.classList.toggle("is-not-run", notRun);
@@ -830,9 +830,21 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     const since = Number(card.dataset.since);
     if (since) card.querySelector(".tool-took").textContent = fmtDuration(Date.now() - since);
     card.append(...resultSection(result || "", failed && !cancelled, cancelled ? "why it was cancelled" : undefined));
-    if (hasMedia(content)) card.append(...renderContent(content.filter((p) => p.type !== "text")));
+    mediaAfter(card, content);
     card.open = false;
     catchUp();
+  }
+
+  /**
+   * What a tool handed back besides text -- a screenshot, most often -- is drawn under its card rather than
+   * inside it: the card folds when it settles, and a picture the model just looked at should stay in view.
+   * Its run stays open for the same reason, even a restored one long enough to have started folded.
+   */
+  function mediaAfter(card, content) {
+    if (!hasMedia(content)) return;
+    card.after(el("div", { class: "tool-media" }, ...renderContent(content.filter((p) => p.type !== "text"))));
+    const runNode = card.parentElement?.parentElement;
+    if (runNode?.classList.contains("tool-run")) runNode.open = true;
   }
 
   function resultSection(text, failed, label) {

@@ -50,8 +50,8 @@ export function createLayers({ kept = KEPT } = {}) {
 /** The page's one stack. */
 export const layers = createLayers();
 
-/** Something that takes Escape for itself is open: a floating menu, a picker's list, a popover or dialog. */
-const OWN_ESCAPE = ".popover, .menu, .picker-menu";
+/** Something that takes Escape for itself is open: a floating menu, a picker's list, a popover or dialog, the image view. */
+const OWN_ESCAPE = ".popover, .menu, .picker-menu, .lightbox[open]";
 
 /**
  * The page's one Escape listener. Registered once by app.js before anything else listens, so a popover's
