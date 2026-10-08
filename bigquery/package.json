@@ -1,0 +1,410 @@
+{
+  "name": "@thetis/bigquery",
+  "version": "0.1.0",
+  "description": "Google BigQuery as tools: list datasets and tables (date-sharded exports grouped), read schemas and preview rows for free, run SELECTs with a dry-run cost check and a per-query scan cap, run DML/DDL and scripts unless read-only, and follow jobs. Authenticates with a service account key or the space's gcloud login.",
+  "keywords": [
+    "bigquery",
+    "google cloud",
+    "gcp",
+    "sql",
+    "data warehouse",
+    "analytics",
+    "ga4",
+    "firebase"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test.smoke.mjs"
+  },
+  "thetis": {
+    "type": "tool",
+    "label": "BigQuery",
+    "toolGroup": {
+      "id": "bigquery",
+      "brief": "Query Google BigQuery with SQL: datasets, table schemas, SELECT with cost checks, DML/DDL, jobs.",
+      "tags": [
+        "bigquery",
+        "big query",
+        "bq",
+        "sql",
+        "googlesql",
+        "data warehouse",
+        "dataset",
+        "datasets",
+        "table schema",
+        "analytics",
+        "google analytics",
+        "ga4",
+        "firebase analytics",
+        "events table",
+        "query cost"
+      ]
+    },
+    "tools": [
+      {
+        "name": "bigquery_status",
+        "description": "Show what the bigquery_* tools run as: the account (service account or gcloud login), the project that runs and pays for queries, the default dataset, the per-query scan cap, read-only mode, and the datasets the account can see (which also proves the credential works). Call it first, and whenever a call fails on auth or permission.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "export": "bigqueryStatus",
+        "reads": true
+      },
+      {
+        "name": "bigquery_datasets",
+        "description": "List the datasets in the project (id and location), or with `dataset` describe one: location, description, expirations, labels, its access list (who may read and write it) and how many tables it holds. Free; no query is run.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "dataset": {
+              "type": "string",
+              "description": "Describe this dataset (id or project.dataset) instead of listing."
+            },
+            "search": {
+              "type": "string",
+              "description": "Only datasets whose id contains this text."
+            },
+            "project": {
+              "type": "string",
+              "description": "Another project to look in, e.g. bigquery-public-data. Defaults to the package's project."
+            }
+          },
+          "additionalProperties": false
+        },
+        "export": "bigqueryDatasets",
+        "reads": true,
+        "concurrent": true
+      },
+      {
+        "name": "bigquery_tables",
+        "description": "List the tables, views and materialized views in a dataset with their partitioning and clustering. Date-sharded tables (events_20260101, events_20260102, …, as the Google Analytics and Firebase exports write them) are grouped into one line `events_*` with the shard count and date range; query them as dataset.events_* filtered on _TABLE_SUFFIX. `sizes=true` adds row counts and sizes (one tiny metadata query). Otherwise free.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "dataset": {
+              "type": "string",
+              "description": "The dataset id (or project.dataset). Defaults to the package's `dataset` setting."
+            },
+            "search": {
+              "type": "string",
+              "description": "Only tables whose name contains this text."
+            },
+            "sizes": {
+              "type": "boolean",
+              "description": "Add row counts and storage size per table (and summed per shard group)."
+            },
+            "expand_shards": {
+              "type": "boolean",
+              "description": "List every date shard on its own line instead of grouping them."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most lines to answer, 1-5000. Defaults to 300."
+            },
+            "project": {
+              "type": "string",
+              "description": "Another project to look in, e.g. bigquery-public-data. Defaults to the package's project."
+            }
+          },
+          "additionalProperties": false
+        },
+        "export": "bigqueryTables",
+        "reads": true,
+        "concurrent": true
+      },
+      {
+        "name": "bigquery_table",
+        "description": "Describe one table, view or sharded table: its schema with nested RECORD fields indented and column descriptions, rows and size, partitioning and clustering (and whether queries must filter on the partition), and a view's SQL. `preview_rows` reads stored rows for free (tables only, no query, no ordering), optionally only `columns`. Read the schema here before writing SQL against a table; a name ending in * (events_*) shows the latest shard.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "table": {
+              "type": "string",
+              "description": "The table: dataset.table, project.dataset.table, or a bare name with `dataset` / the default dataset. A sharded table as events_* (the latest shard is shown)."
+            },
+            "dataset": {
+              "type": "string",
+              "description": "The dataset id (or project.dataset). Defaults to the package's `dataset` setting."
+            },
+            "project": {
+              "type": "string",
+              "description": "Another project to look in, e.g. bigquery-public-data. Defaults to the package's project."
+            },
+            "preview_rows": {
+              "type": "integer",
+              "description": "Also show this many stored rows, 0-100, read for free. Wide tables: name `columns`."
+            },
+            "columns": {
+              "type": [
+                "string",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              },
+              "description": "With preview_rows: only these top-level columns (a list, or comma-separated)."
+            },
+            "format": {
+              "type": "string",
+              "description": "How rows are written: `table` (default; one line per row, cells joined by |, nested values as JSON), `csv`, or `json` (an array of objects).",
+              "enum": [
+                "table",
+                "csv",
+                "json"
+              ]
+            }
+          },
+          "required": [
+            "table"
+          ],
+          "additionalProperties": false
+        },
+        "export": "bigqueryTable",
+        "reads": true,
+        "concurrent": true
+      },
+      {
+        "name": "bigquery_query",
+        "description": "Run one read-only GoogleSQL SELECT (standard SQL, not legacy) and answer the rows, the row count, the bytes scanned and billed with the on-demand cost, and the job id. It is dry-run first, free: anything that is not a SELECT is refused (use bigquery_execute), and so is a query that would scan more than the package's cap, with the estimate. `dry_run=true` answers only the estimate and the result columns. Cost is the bytes of the columns read, not the rows returned: LIMIT does not make a query cheaper; selecting fewer columns, filtering on the partition column, or narrowing _TABLE_SUFFIX on sharded tables does. Results are cached for 24 h, so a repeated query is free. Write table names in backticks with the dataset: `dataset.table`.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "sql": {
+              "type": "string",
+              "description": "One GoogleSQL SELECT statement (WITH … SELECT allowed)."
+            },
+            "dry_run": {
+              "type": "boolean",
+              "description": "Only estimate: statement type, bytes it would scan and cost, tables it reads, result columns. Runs nothing."
+            },
+            "use_cache": {
+              "type": "boolean",
+              "description": "Use cached results when the same query ran in the last 24 hours. Defaults to true."
+            },
+            "params": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "Named query parameters, referenced in the SQL as @name: {\"day\": \"2026-01-01\", \"n\": 10, \"ids\": [1, 2]}. Types are inferred (integer → INT64, number → FLOAT64, boolean → BOOL, list → ARRAY, else STRING); give {\"type\": \"DATE\", \"value\": \"2026-01-01\"} to name one. Prefer parameters to pasting values into the SQL."
+            },
+            "dataset": {
+              "type": "string",
+              "description": "Default dataset for unqualified table names in the SQL. Defaults to the package's `dataset` setting."
+            },
+            "max_rows": {
+              "type": "integer",
+              "description": "Rows to return, 0-1000. Defaults to the package's maxRows (100). The rest stay readable with bigquery_job."
+            },
+            "max_gb": {
+              "type": "number",
+              "description": "Refuse if the dry run says it would scan more than this many GB. Can only lower the package's maxGbBilled cap, never raise it."
+            },
+            "timeout_s": {
+              "type": "integer",
+              "description": "Seconds to wait for the result, 5-600. Defaults to the package's timeoutMs (60 s). A query still running then keeps running and is read with bigquery_job."
+            },
+            "location": {
+              "type": "string",
+              "description": "Job location (US, EU, a region) when it cannot be inferred from the tables, e.g. for INFORMATION_SCHEMA."
+            },
+            "format": {
+              "type": "string",
+              "description": "How rows are written: `table` (default; one line per row, cells joined by |, nested values as JSON), `csv`, or `json` (an array of objects).",
+              "enum": [
+                "table",
+                "csv",
+                "json"
+              ]
+            }
+          },
+          "required": [
+            "sql"
+          ],
+          "additionalProperties": false
+        },
+        "export": "bigqueryQuery",
+        "reads": true,
+        "concurrent": true
+      },
+      {
+        "name": "bigquery_execute",
+        "description": "Run a statement that changes data or schema: INSERT, UPDATE, DELETE, MERGE, CREATE / ALTER / DROP (tables, views, functions), CREATE TABLE AS SELECT, TRUNCATE, or a multi-statement script. Answers the rows affected or the object created, the bytes billed and the job id, plus rows if the script ends in a SELECT. Dry-run first like bigquery_query and held to the same scan cap. Refused when the package is read-only, and by BigQuery when the account lacks write access to the dataset. Say what it will change before running it; DELETE, DROP and TRUNCATE cannot be undone (time travel can restore a table for 7 days: FOR SYSTEM_TIME AS OF).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "sql": {
+              "type": "string",
+              "description": "The statement or script."
+            },
+            "dry_run": {
+              "type": "boolean",
+              "description": "Only validate and estimate. Runs nothing."
+            },
+            "params": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "Named query parameters, referenced in the SQL as @name: {\"day\": \"2026-01-01\", \"n\": 10, \"ids\": [1, 2]}. Types are inferred (integer → INT64, number → FLOAT64, boolean → BOOL, list → ARRAY, else STRING); give {\"type\": \"DATE\", \"value\": \"2026-01-01\"} to name one. Prefer parameters to pasting values into the SQL."
+            },
+            "dataset": {
+              "type": "string",
+              "description": "Default dataset for unqualified table names in the SQL. Defaults to the package's `dataset` setting."
+            },
+            "max_rows": {
+              "type": "integer",
+              "description": "Rows to return, 0-1000. Defaults to the package's maxRows (100). The rest stay readable with bigquery_job."
+            },
+            "max_gb": {
+              "type": "number",
+              "description": "Refuse if the dry run says it would scan more than this many GB. Can only lower the package's maxGbBilled cap, never raise it."
+            },
+            "timeout_s": {
+              "type": "integer",
+              "description": "Seconds to wait for the result, 5-600. Defaults to the package's timeoutMs (60 s). A query still running then keeps running and is read with bigquery_job."
+            },
+            "location": {
+              "type": "string",
+              "description": "Job location (US, EU, a region) when it cannot be inferred from the tables, e.g. for INFORMATION_SCHEMA."
+            },
+            "format": {
+              "type": "string",
+              "description": "How rows are written: `table` (default; one line per row, cells joined by |, nested values as JSON), `csv`, or `json` (an array of objects).",
+              "enum": [
+                "table",
+                "csv",
+                "json"
+              ]
+            }
+          },
+          "required": [
+            "sql"
+          ],
+          "additionalProperties": false
+        },
+        "export": "bigqueryExecute",
+        "reads": false
+      },
+      {
+        "name": "bigquery_job",
+        "description": "Follow a query job: its state, who ran it, timings, bytes billed, SQL and error, and its result rows from `start_row` (to page past the first answer of bigquery_query, or read a query that outran its timeout). `wait_s` waits for a running job, `cancel=true` stops one. Without `job_id`, lists this account's recent jobs.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "The job as bigquery_query printed it: project:LOCATION.job_id (a bare id works with `location`)."
+            },
+            "location": {
+              "type": "string",
+              "description": "The job's location when job_id has none."
+            },
+            "start_row": {
+              "type": "integer",
+              "description": "First result row to answer, from 0."
+            },
+            "max_rows": {
+              "type": "integer",
+              "description": "Rows to answer, 0-1000. Defaults to the package's maxRows."
+            },
+            "results": {
+              "type": "boolean",
+              "description": "Answer result rows when the job is a finished query. Defaults to true."
+            },
+            "wait_s": {
+              "type": "integer",
+              "description": "Wait up to this many seconds (0-600) for a running job to finish."
+            },
+            "cancel": {
+              "type": "boolean",
+              "description": "Ask BigQuery to cancel the job. It is billed for what it scanned before stopping."
+            },
+            "state": {
+              "type": "string",
+              "description": "Without job_id: only jobs in this state.",
+              "enum": [
+                "done",
+                "pending",
+                "running"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Without job_id: how many recent jobs, 1-200. Defaults to 20."
+            },
+            "format": {
+              "type": "string",
+              "description": "How rows are written: `table` (default; one line per row, cells joined by |, nested values as JSON), `csv`, or `json` (an array of objects).",
+              "enum": [
+                "table",
+                "csv",
+                "json"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "export": "bigqueryJob",
+        "reads": true,
+        "concurrent": true
+      }
+    ],
+    "config": {
+      "project": {
+        "type": "string",
+        "help": "The Google Cloud project id that runs and pays for queries, and whose datasets are listed by default. Defaults to the project of the service account key."
+      },
+      "credentialsJson": {
+        "type": "string",
+        "secret": true,
+        "help": "A service account key: the whole JSON file from IAM → Service accounts → Keys. Signed into a short-lived token here; the key never reaches the model. Give the account roles/bigquery.jobUser on the project, plus dataViewer (read) or dataEditor (write) on the datasets it should reach."
+      },
+      "credentialFile": {
+        "type": "string",
+        "help": "Instead of credentialsJson: the path of a service account key file in this space. With neither, the space's own gcloud login is used."
+      },
+      "account": {
+        "type": "string",
+        "help": "Only for the gcloud fallback: which of gcloud's credentialed accounts to use."
+      },
+      "dataset": {
+        "type": "string",
+        "help": "Default dataset: unqualified table names in SQL resolve to it, and bigquery_tables lists it when no dataset is named."
+      },
+      "location": {
+        "type": "string",
+        "help": "Job location (US, EU, or a region such as europe-west1). Unset: BigQuery infers it from the tables a query reads."
+      },
+      "readOnly": {
+        "type": "boolean",
+        "default": false,
+        "help": "When true, bigquery_execute refuses everything, so only SELECTs run. The real boundary is the account's IAM roles; this keeps the agent from trying."
+      },
+      "maxGbBilled": {
+        "type": "number",
+        "default": 25,
+        "help": "Largest query to run, in GB scanned (10^9 bytes). Each query is dry-run first and refused above this, and the real run carries it as maximumBytesBilled so BigQuery stops it before billing. On-demand pricing is $6.25 per TiB, so 25 GB is at most about $0.14 a query."
+      },
+      "maxRows": {
+        "type": "number",
+        "default": 100,
+        "help": "Rows a query answers by default (a call can ask for up to 1000). The rest stay readable with bigquery_job."
+      },
+      "timeoutMs": {
+        "type": "number",
+        "default": 60000,
+        "help": "How long a call waits for a query, in milliseconds (5000-600000). A query still running keeps running and is followed with bigquery_job."
+      },
+      "maxChars": {
+        "type": "number",
+        "default": 20000,
+        "help": "Longest answer a tool returns, in characters (2000-200000); longer ones are cut with a note that says how to narrow them."
+      },
+      "apiUrl": {
+        "type": "string",
+        "help": "BigQuery API base URL. Leave unset for Google's (https://bigquery.googleapis.com/bigquery/v2); set it for a proxy or an emulator."
+      }
+    }
+  }
+}
