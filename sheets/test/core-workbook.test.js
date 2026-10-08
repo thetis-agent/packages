@@ -195,6 +195,17 @@ test("insertRows moves cells, styles, heights and freeze, and rewrites formulas 
   assert.equal(run(wb, { op: "insertRows", tab: "t1", at: 1000 }).workbook.tabs[0].rows, 1001, "appending at the end");
 });
 
+test("inserted rows and columns take the formatting of the one before them", () => {
+  const wb = make({ A1: "Item", B2: 5, B3: 6, B4: "=SUM(B2:B3)" }, { styles: { A1: { b: true }, B3: { fmt: "$#,##0.00" }, B4: { b: true, fmt: "$#,##0.00" } } });
+  const rows = run(wb, { op: "insertRows", tab: "t1", at: 3, count: 2 }).workbook.tabs[0].styles;
+  assert.deepEqual(rows.B4, { fmt: "$#,##0.00" }, "the row above's currency, not the total's bold");
+  assert.deepEqual(rows.B5, { fmt: "$#,##0.00" });
+  assert.deepEqual(rows.B6, { b: true, fmt: "$#,##0.00" }, "the total moved down keeps its own");
+  assert.equal(run(wb, { op: "insertRows", tab: "t1", at: 0 }).workbook.tabs[0].styles.A1, undefined, "a row inserted at the top has nothing above it");
+  const cols = run(wb, { op: "insertCols", tab: "t1", at: 2 }).workbook.tabs[0].styles;
+  assert.deepEqual(cols.C3, { fmt: "$#,##0.00" });
+});
+
 test("deleteRows drops the rows, moves the rest up, shrinks ranges and turns lost references into #REF!", () => {
   const wb = make({ A1: 1, A2: 2, A3: 3, A4: 4, A5: "=SUM(A1:A4)", B5: "=A2+A4", B1: "=A3" }, { styles: { A2: { b: true }, A4: { i: true } }, heights: { 2: 30, 4: 50 }, freeze: { rows: 3, cols: 0 } });
   const r = run(wb, { op: "deleteRows", tab: "t1", at: 1, count: 2 });

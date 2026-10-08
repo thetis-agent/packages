@@ -577,6 +577,15 @@ export function applyOps(wb, ops) {
         const axis = isRow ? "row" : "col";
         t.cells = moveKeys(t.cells, axis, at, signed);
         t.styles = moveKeys(t.styles, axis, at, signed);
+        // New rows and columns take the formatting of the one before them, as spreadsheets do: a row
+        // inserted above a total gets the currency of the rows above it, not the total's bold.
+        if (insert && at > 0) {
+          for (const [key, style] of Object.entries(t.styles)) {
+            const p = parseAddr(key);
+            if (!p || (isRow ? p.row : p.col) !== at - 1) continue;
+            for (let k = 0; k < count; k++) t.styles[isRow ? addr(at + k, p.col) : addr(p.row, at + k)] = { ...style };
+          }
+        }
         const tk = touched.get(t) ?? new Set();
         tk.add("cells").add("styles");
         if (isRow) {

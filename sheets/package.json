@@ -1,6 +1,6 @@
 {
   "name": "@thetis/sheets",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "description": "Sheets: spreadsheets the agent and the person edit together, with formulas, kept as plain files in the person's home and opened in a tab of the web gateway.",
   "type": "module",
