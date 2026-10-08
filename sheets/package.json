@@ -1,0 +1,201 @@
+{
+  "name": "@thetis/sheets",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Sheets: spreadsheets the agent and the person edit together, with formulas, kept as plain files in the person's home and opened in a tab of the web gateway.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "@thetis/tools-files": "^0.2.1"
+  },
+  "thetis": {
+    "type": "tool",
+    "label": "sheets",
+    "summary": "Lets your assistant work on spreadsheets with you: it reads, writes and formats cells while you edit the same sheet in a tab.",
+    "skills": "skills",
+    "tools": [
+      {
+        "name": "sheet_create",
+        "description": "Create a spreadsheet the person opens from Sheets in the sidebar. Precondition: a title; a project id (p_…) that exists, \"none\" for a global sheet, or nothing for this conversation's project. Optionally the tab names and a first block of data for the first tab (rows of values, written from A1, parsed the way sheet_write parses them). Returns the sheet id, which the other sheet tools take. Read the `sheets` skill before building anything non-trivial.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string", "description": "The sheet's name, as the sidebar shows it." },
+            "project": { "type": "string", "description": "A project id like p_1a2b3c4d, or \"none\" for a global sheet. Omitted: the project of this conversation, if it has one." },
+            "tabs": { "type": "array", "description": "Tab names, in order. Default: one tab, Sheet1.", "items": { "type": "string" } },
+            "rows": { "type": "array", "description": "Optional data for the first tab from A1: an array of rows, each an array of values (number, string, boolean or null; a string starting with = is a formula).", "items": { "type": "array", "items": {} } }
+          },
+          "required": ["title"]
+        },
+        "export": "sheetCreate",
+        "reads": false
+      },
+      {
+        "name": "sheet_list",
+        "description": "List the person's spreadsheets, one line each with the id, title, tabs, project and last change. Optionally only one project's (a p_… id) or only the global ones (\"none\").",
+        "parameters": {
+          "type": "object",
+          "properties": { "project": { "type": "string", "description": "A project id, or \"none\" for global sheets. Omitted: every sheet." } }
+        },
+        "export": "sheetList",
+        "reads": true
+      },
+      {
+        "name": "sheet_read",
+        "description": "Read a spreadsheet: its tabs with their used ranges, what the person changed recently, then one tab's cells as a table of computed values with row numbers and column letters, followed by every formula in the range with its result and any errors. Default: the first tab's used range, up to about 40,000 characters; the answer says which range to read next when it is cut. Read before writing to a sheet the person may have edited: they change cells themselves.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "sheet": { "type": "string", "description": "The sheet id (sh_…), or its exact title when unique." },
+            "tab": { "type": "string", "description": "A tab name. Default: the first tab." },
+            "range": { "type": "string", "description": "A range in A1 notation like A1:F40, B:B or 3:10. Default: the tab's used range." },
+            "formulas": { "type": "boolean", "description": "List the formulas under the table (default true)." },
+            "styles": { "type": "boolean", "description": "Also list the cells' formatting: number formats, bold, colours, widths (default false)." }
+          },
+          "required": ["sheet"]
+        },
+        "export": "sheetRead",
+        "reads": true
+      },
+      {
+        "name": "sheet_write",
+        "description": "Write cells of one tab: either cells by address ({\"B4\": 12, \"C4\": \"=B4*2\"}) or a block of rows starting at one cell (at: \"A2\", rows: [[…], […]]), or both. A value is a number, a boolean, null (clears the cell) or a string; a string starting with = is a formula, and a string that reads as a number, a percentage, a currency amount, a date (2026-10-08) or TRUE/FALSE is stored as that, unless literal is true. Formatting stays. Returns the range written, each formula's result and any errors, and which of the cells the person had changed in the last ten minutes.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "sheet": { "type": "string", "description": "The sheet id (sh_…), or its exact title when unique." },
+            "tab": { "type": "string", "description": "A tab name. Default: the first tab." },
+            "cells": { "type": "object", "description": "Values by A1 address." },
+            "at": { "type": "string", "description": "With rows: the top-left cell, like A1." },
+            "rows": { "type": "array", "description": "With at: rows of values written right and down from it.", "items": { "type": "array", "items": {} } },
+            "literal": { "type": "boolean", "description": "Store every string as text exactly as given: no formulas, numbers or dates read out of it." }
+          },
+          "required": ["sheet"]
+        },
+        "export": "sheetWrite",
+        "reads": false
+      },
+      {
+        "name": "sheet_format",
+        "description": "Format a range of one tab: a number format (a preset — general, number, integer, currency, percent, date, datetime, time, text — or a pattern like #,##0.00, 0.0%, $#,##0, yyyy-mm-dd), bold, italic, underline, strikethrough, text colour, fill colour (#rrggbb), alignment, wrapping, and column widths in pixels. A key set to null removes that formatting; clear: true removes all of it from the range. Returns what was applied.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "sheet": { "type": "string", "description": "The sheet id (sh_…), or its exact title when unique." },
+            "tab": { "type": "string", "description": "A tab name. Default: the first tab." },
+            "range": { "type": "string", "description": "A range like A1:D1, B:B or 2:2." },
+            "format": { "type": ["string", "null"], "description": "A preset name or a number-format pattern." },
+            "bold": { "type": ["boolean", "null"] },
+            "italic": { "type": ["boolean", "null"] },
+            "underline": { "type": ["boolean", "null"] },
+            "strike": { "type": ["boolean", "null"] },
+            "color": { "type": ["string", "null"], "description": "Text colour, #rrggbb." },
+            "fill": { "type": ["string", "null"], "description": "Background colour, #rrggbb." },
+            "align": { "type": ["string", "null"], "enum": ["left", "center", "right", null] },
+            "wrap": { "type": ["boolean", "null"] },
+            "width": { "type": ["integer", "null"], "description": "Width in px of every column in the range (20..1000); null resets it." },
+            "clear": { "type": "boolean", "description": "Remove all formatting from the range first." }
+          },
+          "required": ["sheet", "range"]
+        },
+        "export": "sheetFormat",
+        "reads": false
+      },
+      {
+        "name": "sheet_structure",
+        "description": "Change a sheet's structure with one action: insert_rows / delete_rows (at: a row number, count), insert_columns / delete_columns (at: a column letter, count), sort (range, by: a column letter, descending?, header?), fill (from: a source range, to: the range to fill, copying values and moving formulas' relative references the way a fill handle does, continuing a numeric series), freeze (rows, columns), resize (rows, columns: the grid's size), add_tab (name, position?), rename_tab (name), delete_tab, move_tab (position, 1-based), rename_sheet (title). Formulas everywhere follow inserted, deleted and renamed rows, columns and tabs. Returns what changed.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "sheet": { "type": "string", "description": "The sheet id (sh_…), or its exact title when unique." },
+            "action": { "type": "string", "enum": ["insert_rows", "delete_rows", "insert_columns", "delete_columns", "sort", "fill", "freeze", "resize", "add_tab", "rename_tab", "delete_tab", "move_tab", "rename_sheet"] },
+            "tab": { "type": "string", "description": "The tab acted on. Default: the first tab." },
+            "at": { "type": "string", "description": "insert_*/delete_*: a row number (\"5\") or a column letter (\"C\"); insertion goes before it." },
+            "count": { "type": "integer", "description": "How many rows or columns. Default 1." },
+            "range": { "type": "string", "description": "sort: the range to sort. Default: the used range." },
+            "by": { "type": "string", "description": "sort: the column letter to sort by." },
+            "descending": { "type": "boolean" },
+            "header": { "type": "boolean", "description": "sort: the range's first row is a header and stays put." },
+            "from": { "type": "string", "description": "fill: the source range, like D2 or A2:B3." },
+            "to": { "type": "string", "description": "fill: the range to fill, which contains the source, like D2:D50." },
+            "rows": { "type": "integer", "description": "freeze: rows frozen at the top; resize: the row count." },
+            "columns": { "type": "integer", "description": "freeze: columns frozen at the left; resize: the column count." },
+            "name": { "type": "string", "description": "add_tab, rename_tab: the tab's new name." },
+            "position": { "type": "integer", "description": "add_tab, move_tab: 1-based place among the tabs." },
+            "title": { "type": "string", "description": "rename_sheet: the new title." }
+          },
+          "required": ["sheet", "action"]
+        },
+        "export": "sheetStructure",
+        "reads": false
+      },
+      {
+        "name": "sheet_import",
+        "description": "Import a CSV or TSV file from your space: as a new sheet (title), or as a new tab of an existing sheet (sheet, name). Values are parsed the way sheet_write parses them. Precondition: a .csv, .tsv or .txt file of at most 16 MB. Returns the sheet id, the tab and the range filled.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string", "description": "The file in your space." },
+            "sheet": { "type": "string", "description": "Add a tab to this sheet (id or exact title). Omitted: a new sheet." },
+            "name": { "type": "string", "description": "The tab's name. Default: the file's name." },
+            "title": { "type": "string", "description": "A new sheet's title. Default: the file's name." },
+            "project": { "type": "string", "description": "For a new sheet: a project id, or \"none\"." }
+          },
+          "required": ["path"]
+        },
+        "export": "sheetImport",
+        "reads": false
+      },
+      {
+        "name": "sheet_export",
+        "description": "Write one tab to a CSV or TSV file in your space (by the path's extension), as the values the person sees, or with values: \"raw\" the formulas and unformatted numbers. Returns the path and the size.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "sheet": { "type": "string", "description": "The sheet id (sh_…), or its exact title when unique." },
+            "tab": { "type": "string", "description": "A tab name. Default: the first tab." },
+            "path": { "type": "string", "description": "Where in your space, ending in .csv or .tsv." },
+            "values": { "type": "string", "enum": ["display", "raw"] }
+          },
+          "required": ["sheet", "path"]
+        },
+        "export": "sheetExport",
+        "reads": false
+      },
+      {
+        "name": "sheet_delete",
+        "description": "Delete a whole spreadsheet for good, every tab and cell. To delete one tab, use sheet_structure with delete_tab. Returns what was deleted.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "sheet": { "type": "string", "description": "The sheet id (sh_…), or its exact title when unique." }
+          },
+          "required": ["sheet"]
+        },
+        "export": "sheetDelete",
+        "reads": false
+      }
+    ],
+    "ui": {
+      "dir": "ui",
+      "entry": "index.js",
+      "style": "index.css",
+      "sidebar": [{ "id": "sheets", "slot": "section", "label": "Sheets", "order": 21 }],
+      "tabs": [{ "id": "sheet", "label": "Sheet", "icon": "M3.5 4.5h13v11h-13zM3.5 8h13M3.5 11.5h13M8 4.5v11M12.5 4.5v11" }],
+      "commands": [
+        { "verb": "list", "export": "uiList", "label": "List the sheets" },
+        { "verb": "get", "export": "uiGet", "label": "Read one sheet whole" },
+        { "verb": "save", "export": "uiSave", "label": "Apply the person's edits to a sheet" },
+        { "verb": "create", "export": "uiCreate", "label": "Create an empty sheet" },
+        { "verb": "remove", "export": "uiRemove", "label": "Delete a sheet" },
+        { "verb": "assign", "export": "uiAssign", "label": "Put a sheet in a project, or make it global" },
+        { "verb": "export", "export": "uiExport", "label": "Download a tab as CSV or TSV", "kind": "raw" },
+        { "verb": "import", "export": "uiImport", "label": "Upload a CSV or TSV as a new sheet or tab", "kind": "raw", "maxBytes": 16777216 },
+        { "verb": "watch", "export": "uiWatch", "label": "Follow the sheets as they change", "stream": true }
+      ]
+    }
+  }
+}

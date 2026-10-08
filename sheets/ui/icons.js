@@ -1,0 +1,22 @@
+/* 20×20 stroked path strings for `ext.dom.icon`. */
+export const PLUS = "M10 4v12M4 10h12";
+export const MORE = "M5 10h.01M10 10h.01M15 10h.01";
+export const CARET = "M7 8.5l3 3 3-3";
+export const UNDO = ["M7.5 5 4 8.5 7.5 12", "M4 8.5h7.5a4.5 4.5 0 0 1 0 9H9"];
+export const REDO = ["M12.5 5 16 8.5 12.5 12", "M16 8.5H8.5a4.5 4.5 0 0 0 0 9H11"];
+export const BOLD = ["M6 4h5a3 3 0 0 1 0 6H6z", "M6 10h6a3 3 0 0 1 0 6H6z"];
+export const ITALIC = ["M9 4h6", "M5 16h6", "M12 4 8 16"];
+export const UNDERLINE = ["M6 4v5a4 4 0 0 0 8 0V4", "M5 17h10"];
+export const STRIKE = ["M4 10h12", "M13.5 6.5C13 5 11.7 4 10 4 8 4 6.5 5.2 6.5 7c0 1.2.7 2.2 2.4 2.7", "M7 13.5C7.5 15 8.8 16 10.5 16c2 0 3.3-1.2 3.3-2.8"];
+export const TEXT_COLOR = ["M6 14 10 4l4 10", "M7.5 10.5h5"];
+export const FILL = ["M4.5 9.5 10 4l5.5 5.5L10 15z", "M15.5 12.5c0 1.2.6 2 1.2 2s1.2-.8 1.2-2-1.2-2.5-1.2-2.5-1.2 1.3-1.2 2.5z"];
+export const ALIGN_LEFT = ["M4 5h12", "M4 9h8", "M4 13h12", "M4 17h8"];
+export const ALIGN_CENTER = ["M4 5h12", "M6 9h8", "M4 13h12", "M6 17h8"];
+export const ALIGN_RIGHT = ["M4 5h12", "M8 9h8", "M4 13h12", "M8 17h8"];
+export const WRAP = ["M4 5h12", "M4 10h10a2.5 2.5 0 0 1 0 5h-4", "M11.5 13 10 15l1.5 2", "M4 15h3"];
+export const FREEZE = ["M3.5 3.5h13v13h-13z", "M3.5 8h13", "M8 3.5v13"];
+export const TRASH = ["M4 6h12", "M8 6V4h4v2", "M6 6l1 10h6l1-10", "M8.5 9v4M11.5 9v4"];
+export const DOWNLOAD = ["M10 4v8", "M6.5 8.5 10 12l3.5-3.5", "M4 15.5h12"];
+export const UPLOAD = ["M10 13V5", "M6.5 8.5 10 5l3.5 3.5", "M4 15.5h12"];
+export const FX = ["M9 5.5c-.5-1-1.3-1.5-2.2-1.2-.9.3-1.2 1.2-1.3 2.2L4.8 15c-.1 1-.6 1.8-1.5 1.8", "M3.5 8.5h5", "M11 9l5 6", "M16 9l-5 6"];
+export const SHEET = "M3.5 4.5h13v11h-13zM3.5 8h13M3.5 11.5h13M8 4.5v11M12.5 4.5v11";
