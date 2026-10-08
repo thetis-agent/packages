@@ -4,7 +4,12 @@
 // `{ ev: "changed", canvas, rev, title, project, updatedAt, files, assets }` with every artboard file's
 // time and size (the page diffs those itself; which file inotify names for a rename is not worth
 // trusting), or `{ ev: "removed", canvas }`. First a `snapshot` of the list, then `ping` every twenty
-// quiet seconds so a dead connection is noticed. Temporary files (a dot in front) are not a change.
+// quiet seconds so a dead connection is noticed.
+//
+// A temporary file (a dot in front) is never an event of its own, but it is a signal: Node's recursive
+// watch on Linux follows inodes, and after a couple of renames into place it reports only the temporary
+// name of the move, never `canvas.json` or the artboard. So any name under a canvas makes it look again,
+// and it speaks only when what it reads differs from what it last said.
 import { watch as fsWatch } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -21,6 +26,7 @@ export async function* uiWatch(args, env) {
 
   const pending = new Set();
   const queue = [];
+  const said = new Map(); // id -> the facts of the last event, so a look that finds nothing new says nothing
   let timer = null;
   let wake = null;
   let stopped = false;
@@ -40,7 +46,11 @@ export async function* uiWatch(args, env) {
       pending.delete(id);
       try {
         const index = await readIndex(env, id);
-        queue.push(index ? { ev: "changed", canvas: id, rev: index.rev, title: index.title, project: index.project, updatedAt: index.updatedAt, files: await boardFiles(env, index), assets: await assetList(env, id) } : { ev: "removed", canvas: id });
+        const event = index ? { ev: "changed", canvas: id, rev: index.rev, title: index.title, project: index.project, updatedAt: index.updatedAt, files: await boardFiles(env, index), assets: await assetList(env, id) } : { ev: "removed", canvas: id };
+        const facts = JSON.stringify(event);
+        if (said.get(id) === facts) continue;
+        said.set(id, facts);
+        queue.push(event);
       } catch {
         /* a canvas half-written or gone: the next change says */
       }
@@ -56,7 +66,7 @@ export async function* uiWatch(args, env) {
       if (stopped || !name) return;
       const parts = String(name).split(/[\\/]/);
       const id = parts[0];
-      if (!isCanvasId(id) || (only && id !== only) || parts.some((p) => p.startsWith("."))) return;
+      if (!isCanvasId(id) || (only && id !== only)) return;
       pending.add(id);
       clearTimeout(timer);
       timer = setTimeout(() => void flush(), DEBOUNCE_MS);

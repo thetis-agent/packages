@@ -1,12 +1,12 @@
 # @thetis/canvases
 
-Canvases for one person: boards of HTML artboards and notes on a pan-and-zoom surface, the way a design tool lays out screens. The agent makes and revises a canvas with seven tools from any conversation; the person opens it from **Canvases** in the web gateway's sidebar — above the conversations, under the project switcher — as a tab beside their chats, and there pans, zooms, focuses one artboard, moves and resizes artboards, adds notes and pages, tweaks the props an artboard declares, renames the canvas and moves it between projects. A canvas belongs to a project or is global. The package is a `tool` with a `ui` and a `skills` directory; it has no build step and one dependency, `@thetis/tools-files`, for reading a file out of the person's space into a canvas.
+Canvases for one person: boards of HTML artboards and notes on a pan-and-zoom surface, the way a design tool lays out screens. The agent makes and revises a canvas with eight tools from any conversation; the person opens it from **Canvases** in the web gateway's sidebar — above the conversations, under the project switcher — as a tab beside their chats, and there pans, zooms, focuses one artboard, moves and resizes artboards, adds notes and pages, tweaks the props an artboard declares, renames the canvas and moves it between projects. A canvas belongs to a project or is global. The package is a `tool` with a `ui` and a `skills` directory; it has no build step and one dependency, `@thetis/tools-files`, for reading a file out of the person's space into a canvas.
 
 Each artboard is one self-contained HTML document, shown live in a sandboxed iframe at the size of its frame. The document runs its own styles and scripts and nothing of the page's: it has an opaque origin, no cookie, no way to fetch or submit, and reaches only its own files under the canvas's frame token and Google Fonts. That is the whole reason the gateway grew a `kind: "frame"` command (see `@thetis/gateway-web`): a document with an opaque origin sends no `SameSite=Strict` cookie for its pictures and fonts, so the page mints a token for the canvas and the frame fetches under it.
 
 ## What it provides
 
-The manifest declares `type: "tool"`, `skills: "skills"`, seven `tools`, and a `ui` block with `dir: "ui"`, `entry: "index.js"`, `style: "index.css"`, a sidebar section, a tab kind and nine commands.
+The manifest declares `type: "tool"`, `skills: "skills"`, eight `tools`, and a `ui` block with `dir: "ui"`, `entry: "index.js"`, `style: "index.css"`, a sidebar section, a tab kind and nine commands.
 
 | Tool | Arguments | Effect |
 |---|---|---|
@@ -14,6 +14,7 @@ The manifest declares `type: "tool"`, `skills: "skills"`, seven `tools`, and a `
 | `canvas_list` | `project?` | One line per canvas: id, title, artboard count, project, last change, revision. |
 | `canvas_read` | `canvas`, `sources?`, `boards?` | The index as JSON, a line per artboard (frame, size, declared props, problems), and with `sources` the HTML (all, or the `boards` named) up to 200 KB. |
 | `canvas_write_board` | `canvas`, `file`, `html`, `x? y? w? h? title? page? expand? radius? props?` | Creates or replaces one artboard. New: 1440×900 unless given, placed right of the others on its page. Existing: keeps its frame and overrides unless given. Warns on a missing doctype, hosts the frame will not load, and a bad props block. At most 512 KB. |
+| `canvas_edit_board` | `canvas`, `file`, `edits: [{ old_text, new_text, replace_all? }]` | Exact-text edits to an existing artboard, applied in order and written once, all or none; each `old_text` must be found, and once unless `replace_all`. Keeps the frame and props. The cheap way to change part of an artboard: the model sends the changed lines, not the document. Warns as `canvas_write_board` does. |
 | `canvas_layout` | `canvas` + a patch | The title, `launch`, `pages` (whole), `boards` by file (frames, title, page, expand, radius, props; null drops), `order` (the named go to the front), `notes` by id (null deletes, a new id with x, y, text creates). Never touches HTML. |
 | `canvas_asset` | `canvas`, `name`, `path?` \| `base64?` | Stores a file under `assets/` from the person's space (through `@thetis/tools-files`' containment) or from bytes; at most 16 MB, 128 MB per canvas. Answers the relative reference, `assets/<name>`. |
 | `canvas_delete` | `canvas`, `board?` | One artboard (file and frame; notes stay), or the whole canvas. |
@@ -65,4 +66,4 @@ The page holds one `watch` subscription. The watcher in the gateway watches `can
 
 ## Tests
 
-`node --test test/*.test.js`: the store and the name rules, the completed index and its checks, the patch, the props block and the runtime's injection, the geometry, the seven tools over a temporary home (with and without project files), the commands and the frame's path matrix, the watcher (it leans on inotify), and the sidebar section over the shell's fake DOM. `test/commands.test.js` also checks that every browser module parses.
+`node --test test/*.test.js`: the store and the name rules, the completed index and its checks, the patch, the props block and the runtime's injection, the geometry, the eight tools over a temporary home (with and without project files), the commands and the frame's path matrix, the watcher (it leans on inotify), and the sidebar section over the shell's fake DOM. `test/commands.test.js` also checks that every browser module parses.

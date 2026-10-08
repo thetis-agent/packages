@@ -1,4 +1,4 @@
-// The seven tools, run in the person's fence. Each names its canvas by id or unique title (lib/resolve.js),
+// The eight tools, run in the person's fence. Each names its canvas by id or unique title (lib/resolve.js),
 // answers one plain sentence with the revision it left, and refuses with a sentence. The layout rules live
 // in lib/patch.js and lib/schema.js, shared with the page's commands; the authoring rules for an artboard's
 // HTML are in the `canvases` skill, which the descriptions point the model to.
@@ -147,6 +147,53 @@ export async function canvasWriteBoard(args, env) {
   const written = await writeIndex(env, next);
   const b = written.boards[file];
   const head = `${existing ? "Replaced" : "Wrote"} ${file} (${kb(bytes)}) at (${b.x},${b.y}) ${b.w}×${b.h}${b.page ? ` on page ${b.page}` : ""} on canvas ${written.id}; props: ${propsLine(decl)}. rev ${written.rev}.`;
+  return warnings.length ? `${head}\nWarnings:\n- ${warnings.join("\n- ")}` : head;
+}
+
+const lineAt = (text, offset) => text.slice(0, offset).split("\n").length;
+
+/**
+ * Exact-text edits to one artboard, applied in order to its HTML and written once: the cheap way to change a
+ * colour, a heading or a section without sending the whole document again. All or nothing — an edit whose
+ * old text is missing, or found more than once without replace_all, refuses the whole call.
+ */
+export async function canvasEditBoard(args, env) {
+  const index = await resolveCanvas(env, args.canvas);
+  const file = args.file;
+  if (!isBoardName(file) || !index.boards[file]) fail(`No artboard ${JSON.stringify(file)} on canvas ${index.id}; canvas_read lists them, and canvas_write_board makes a new one.`);
+  if (!Array.isArray(args.edits) || !args.edits.length) fail("edits is required: a list of { old_text, new_text, replace_all? }.");
+  let html;
+  try {
+    html = await readFile(boardPath(env, index.id, file), "utf8");
+  } catch {
+    fail(`${file} is missing on disk; write it whole with canvas_write_board.`);
+  }
+  const lines = [];
+  args.edits.forEach((edit, i) => {
+    const n = `Edit ${i + 1}`;
+    const oldText = typeof edit?.old_text === "string" ? edit.old_text : "";
+    const newText = typeof edit?.new_text === "string" ? edit.new_text : null;
+    if (!oldText) fail(`${n}: old_text must not be empty.`);
+    if (newText === null) fail(`${n}: new_text is required (an empty string deletes).`);
+    if (oldText === newText) fail(`${n}: old_text and new_text are the same.`);
+    const first = html.indexOf(oldText);
+    if (first < 0) fail(`${n}: old_text was not found in ${file}${i ? " after the edits before it" : ""}. canvas_read with sources: true shows the current HTML; whitespace must match exactly.`);
+    const count = html.split(oldText).length - 1;
+    if (count > 1 && !edit.replace_all) fail(`${n}: old_text appears ${count} times in ${file}. Include more of the surrounding text to make it unique, or set replace_all.`);
+    const line = lineAt(html, first);
+    html = edit.replace_all ? html.split(oldText).join(newText) : html.slice(0, first) + newText + html.slice(first + oldText.length);
+    lines.push(`${n}: ${edit.replace_all && count > 1 ? `${count} places from line ${line}` : `line ${line}`}`);
+  });
+  const bytes = Buffer.byteLength(html);
+  if (bytes > LIMITS.html) fail(`The edits would make the HTML ${kb(bytes)}; at most ${kb(LIMITS.html)}. Move pictures and fonts to canvas_asset.`);
+  const warnings = [];
+  const hosts = externalRefs(html);
+  if (hosts.length) warnings.push(`It reaches ${hosts.join(", ")}, which the frame will not load: only Google Fonts is allowed; store pictures with canvas_asset and reference them as assets/<name>.`);
+  const { problems } = declaredProps(html);
+  warnings.push(...problems);
+  await atomicWrite(boardPath(env, index.id, file), html);
+  const written = await writeIndex(env, index);
+  const head = `Edited ${file} on canvas ${written.id} (${kb(bytes)}), its frame and props kept. rev ${written.rev}.\n${lines.join("\n")}`;
   return warnings.length ? `${head}\nWarnings:\n- ${warnings.join("\n- ")}` : head;
 }
 

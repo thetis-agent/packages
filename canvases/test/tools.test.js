@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { canvasAsset, canvasCreate, canvasDelete, canvasLayout, canvasList, canvasRead, canvasWriteBoard } from "../index.js";
+import { canvasAsset, canvasCreate, canvasDelete, canvasEditBoard, canvasLayout, canvasList, canvasRead, canvasWriteBoard } from "../index.js";
 import { readIndex } from "../lib/store.js";
 import { idIn, makeEnv, page } from "./helpers.js";
 
@@ -143,4 +143,31 @@ test("delete: one artboard leaves the notes and fixes the launch; the whole canv
   assert.match(all, /^Deleted canvas c_[0-9a-f]{8} "Flow" \(1 artboard, its assets and notes\)\.$/);
   assert.ok(!existsSync(resolve(env.cwd, "canvases", id)));
   await done();
+});
+
+test("canvas_edit_board: exact edits in order, all or none, the frame and props kept", async (t) => {
+  const { home, env, done } = await makeEnv();
+  t.after(done);
+  const id = idIn(await canvasCreate({ title: "Edits" }, env));
+  await canvasWriteBoard({ canvas: id, file: "Main.html", html: page(390, 844, "<h1>Hello</h1><p>a</p><p>a</p>"), w: 390, h: 844, props: { accent: "#ff0000" } }, env);
+  const file = resolve(home, "canvases", id, "Main.html");
+  const before = readFileSync(file, "utf8");
+
+  const out = await canvasEditBoard({ canvas: id, file: "Main.html", edits: [{ old_text: "<h1>Hello</h1>", new_text: "<h1>Welcome</h1>" }, { old_text: "<p>a</p>", new_text: "<p>b</p>", replace_all: true }] }, env);
+  assert.match(out, /^Edited Main\.html on canvas c_[0-9a-f]{8} .*rev 3\.\nEdit 1: line 1\nEdit 2: 2 places from line 1$/);
+  const after = readFileSync(file, "utf8");
+  assert.equal(after, before.replace("<h1>Hello</h1>", "<h1>Welcome</h1>").replaceAll("<p>a</p>", "<p>b</p>"));
+  const index = await readIndex(env, id);
+  assert.deepEqual({ w: index.boards["Main.html"].w, h: index.boards["Main.html"].h, props: index.boards["Main.html"].props }, { w: 390, h: 844, props: { accent: "#ff0000" } });
+
+  // A failing edit refuses the whole call: the first edit does not land either.
+  await assert.rejects(canvasEditBoard({ canvas: id, file: "Main.html", edits: [{ old_text: "Welcome", new_text: "Hi" }, { old_text: "nowhere", new_text: "x" }] }, env), /Edit 2: old_text was not found in Main\.html after the edits before it/);
+  await assert.rejects(canvasEditBoard({ canvas: id, file: "Main.html", edits: [{ old_text: "<p>b</p>", new_text: "<p>c</p>" }] }, env), /appears 2 times/);
+  await assert.rejects(canvasEditBoard({ canvas: id, file: "Other.html", edits: [{ old_text: "a", new_text: "b" }] }, env), /No artboard "Other\.html"/);
+  await assert.rejects(canvasEditBoard({ canvas: id, file: "Main.html", edits: [] }, env), /edits is required/);
+  assert.equal(readFileSync(file, "utf8"), after, "nothing landed");
+  assert.equal((await readIndex(env, id)).rev, 3);
+
+  const warned = await canvasEditBoard({ canvas: id, file: "Main.html", edits: [{ old_text: "<h1>Welcome</h1>", new_text: '<img src="https://example.com/x.png">' }] }, env);
+  assert.match(warned, /Warnings:\n- It reaches example\.com/);
 });

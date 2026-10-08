@@ -20,7 +20,7 @@ This skill is the format. Its children carry the craft: `canvases/questions` (wh
 On the canvas the person can move, resize and rename artboards, reorder them, add and edit notes, add pages, tweak the props an artboard declares, rename the canvas and move it between projects. All of that is in the index, not in your HTML. So:
 
 - Before changing a canvas that has existed for a while, `canvas_read` it and keep what you find. Do not rewrite frames you were not asked to move.
-- Prefer replacing one artboard (`canvas_write_board` with the same `file`) over rebuilding the canvas. A replaced artboard keeps its frame and its prop overrides.
+- Change only what was asked. For a change smaller than a rewrite — a colour, a heading, one section — use `canvas_edit_board` with exact `old_text`/`new_text` pairs: it sends a few lines instead of the whole document. Replace a whole artboard (`canvas_write_board` with the same `file`) only when most of it changes; never rebuild the canvas. Either way the artboard keeps its frame and its prop overrides.
 - Let `x`/`y` be placed for you unless you are arranging deliberately: a new artboard goes to the right of the last one on its page.
 
 ## An artboard's rules
@@ -67,7 +67,7 @@ Write the default into the markup too, so the artboard reads right on its own. P
 4. `canvas_layout` for titles over rows, notes, the launch view (`{ view: "focused", file }` opens on one artboard).
 5. Tell the person where it is: "It's in Canvases in the sidebar", and what you assumed.
 
-To change one artboard later, `canvas_read` (with `sources: true, boards: [file]`) and `canvas_write_board` that file again.
+To change one artboard later, `canvas_read` (with `sources: true, boards: [file]`) and `canvas_edit_board` the parts that change; `canvas_write_board` that file again only for a redesign.
 
 ## Example
 

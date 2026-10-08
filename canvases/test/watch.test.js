@@ -3,7 +3,7 @@
 // the waits are generous.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canvasCreate, canvasDelete, canvasWriteBoard, uiWatch } from "../index.js";
+import { canvasCreate, canvasDelete, canvasLayout, canvasWriteBoard, uiWatch } from "../index.js";
 import { idIn, makeEnv, page } from "./helpers.js";
 
 async function next(iterator, ms = 3000) {
@@ -45,4 +45,28 @@ test("snapshot, changed after a write, removed after a delete, and the end on ab
   const ended = it.next();
   control.abort();
   assert.deepEqual(await Promise.race([ended, new Promise((_, reject) => setTimeout(() => reject(new Error("did not end")), 2000))]), { value: undefined, done: true });
+});
+
+test("every write of a run is heard, though the watcher reports only the temporary names after a few renames", async (t) => {
+  const { env, done } = await makeEnv();
+  const control = new AbortController();
+  const it = uiWatch({}, { ...env, signal: control.signal })[Symbol.asyncIterator]();
+  t.after(async () => {
+    control.abort();
+    await it.return?.().catch(() => {});
+    await done();
+  });
+  await next(it);
+  const id = idIn(await canvasCreate({ title: "Run" }, env));
+  await next(it);
+  let rev = 1;
+  for (let i = 0; i < 6; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    await canvasLayout({ canvas: id, title: `Run ${i}` }, env);
+    rev++;
+    let event = await next(it);
+    while (event.rev < rev) event = await next(it);
+    assert.equal(event.rev, rev, `write ${i + 1} was heard`);
+    assert.equal(event.title, `Run ${i}`);
+  }
 });

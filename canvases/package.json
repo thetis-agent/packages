@@ -1,6 +1,6 @@
 {
   "name": "@thetis/canvases",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "Canvases: boards of HTML artboards and notes on a pan-and-zoom surface, made and revised by the agent with tools and by the person in a tab of the web gateway.",
   "type": "module",
@@ -60,7 +60,7 @@
       },
       {
         "name": "canvas_write_board",
-        "description": "Create or replace one artboard: a self-contained HTML page (its own <style>, no network but Google Fonts, pictures by relative path assets/<name> after canvas_asset) whose root element is sized to the frame. A new artboard gets w/h 1440×900 unless given and is placed to the right of the others unless x/y are given; an existing one keeps its frame and props unless you give them. Precondition: at most 512 KB of HTML; a file name of letters, digits, _ . - ending in .html. Returns what was written and any warnings. Artboard rules are in the `canvases` skill; read it before writing HTML.",
+        "description": "Create or replace one artboard (to change part of an existing one, canvas_edit_board is cheaper): a self-contained HTML page (its own <style>, no network but Google Fonts, pictures by relative path assets/<name> after canvas_asset) whose root element is sized to the frame. A new artboard gets w/h 1440×900 unless given and is placed to the right of the others unless x/y are given; an existing one keeps its frame and props unless you give them. Precondition: at most 512 KB of HTML; a file name of letters, digits, _ . - ending in .html. Returns what was written and any warnings. Artboard rules are in the `canvases` skill; read it before writing HTML.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -80,6 +80,33 @@
           "required": ["canvas", "file", "html"]
         },
         "export": "canvasWriteBoard",
+        "reads": false
+      },
+      {
+        "name": "canvas_edit_board",
+        "description": "Change part of an existing artboard by exact text replacement, without sending the whole HTML again: each edit's old_text must appear in the artboard exactly as given (canvas_read with sources: true shows it) and only once unless replace_all is set; the edits apply in order and all or none land. The frame, props and notes stay. Use it for any change smaller than a rewrite — a colour, a heading, a section; use canvas_write_board to create an artboard or replace most of one. Returns the line of each edit and any warnings.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "canvas": { "type": "string", "description": "The canvas id (c_…), or its exact title when unique." },
+            "file": { "type": "string", "description": "The artboard's file name, like Main.html." },
+            "edits": {
+              "type": "array",
+              "description": "Replacements applied in order.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "old_text": { "type": "string", "description": "The exact text to replace, with enough around it to be unique." },
+                  "new_text": { "type": "string", "description": "What replaces it; an empty string deletes it." },
+                  "replace_all": { "type": "boolean", "description": "Replace every occurrence." }
+                },
+                "required": ["old_text", "new_text"]
+              }
+            }
+          },
+          "required": ["canvas", "file", "edits"]
+        },
+        "export": "canvasEditBoard",
         "reads": false
       },
       {
