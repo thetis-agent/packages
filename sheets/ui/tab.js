@@ -748,11 +748,13 @@ export function openSheetTab(ext, model, root, handle) {
 
   function moreMenu() {
     const t = tab();
+    const xlsx = model.exportUrl(id, null, "xlsx");
     const csv = model.exportUrl(id, t.name, "csv");
     const tsv = model.exportUrl(id, t.name, "tsv");
     const raw = Boolean(ext.raw?.put);
     menu(moreBtn, [
       { label: "Import CSV as a new tab", icon: UPLOAD, hint: raw ? null : "This gateway cannot take files", disabled: !raw, run: () => pickImport() },
+      { label: "Download every tab as .xlsx", icon: DOWNLOAD, hint: "For Google Sheets or Excel, formulas and formatting kept", disabled: !xlsx, run: () => download(ext, xlsx) },
       { label: "Download this tab as CSV", icon: DOWNLOAD, disabled: !csv, run: () => download(ext, csv) },
       { label: "Download this tab as TSV", icon: DOWNLOAD, disabled: !tsv, run: () => download(ext, tsv) },
       "-",

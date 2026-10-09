@@ -19,6 +19,7 @@ import { resolveSheet, resolveTab } from "./resolve.js";
 import { atomicWrite, cellsOf, createSheet, fail, listSheets, MAX_SHEETS, mutate, newId, removeSheet } from "./store.js";
 import { addTableTab, blockCells, checkValue, delimiterOf, displayOf, MAX_FILE, parseTable, tabNameFrom, tabText } from "./transfer.js";
 import { fromValue } from "../ui/core/input.js";
+import { workbookXlsx } from "./xlsx.js";
 
 const PERSON_WINDOW_MS = 10 * 60 * 1000;
 const FORMULAS_SHOWN = 30;
@@ -493,8 +494,9 @@ export async function sheetExport(args, env) {
   const workbook = await resolveSheet(env, args.sheet);
   const tab = resolveTab(workbook, args.tab);
   const resolved = await resolveContained(env, args.path, { write: true });
+  if (/\.xlsx$/i.test(resolved.absolute)) return exportXlsx(workbook, resolved);
   const delimiter = /\.tsv$/i.test(resolved.absolute) ? "\t" : /\.csv$/i.test(resolved.absolute) ? "," : null;
-  if (!delimiter) fail(`${args.path} must end in .csv or .tsv.`);
+  if (!delimiter) fail(`${args.path} must end in .xlsx, .csv or .tsv.`);
   if (args.values !== undefined && args.values !== "display" && args.values !== "raw") fail("values is \"display\" (what the person sees) or \"raw\" (formulas and unformatted numbers).");
   const values = args.values === "raw" ? "raw" : "display";
   const { text, range } = tabText(workbook, tab, { delimiter, values });
@@ -506,6 +508,22 @@ export async function sheetExport(args, env) {
   }
   const bytes = Buffer.byteLength(text);
   return `Exported ${tab.name} of ${workbook.id} ${JSON.stringify(workbook.title)}${range ? ` (${range}, ${values === "raw" ? "raw values and formulas" : "the values the person sees"})` : " (empty)"} to ${resolved.display}, ${bytes < 1024 ? `${bytes} bytes` : kb(bytes)}. The sheet is unchanged at rev ${workbook.rev}.`;
+}
+
+/** The whole workbook to an .xlsx file: every tab, formulas with their values, formatting, widths, frozen panes. */
+async function exportXlsx(workbook, resolved) {
+  const out = workbookXlsx(workbook);
+  try {
+    await mkdir(dirname(resolved.absolute), { recursive: true });
+    await atomicWrite(resolved.absolute, out.body);
+  } catch (e) {
+    throw writeRefusal(e, resolved) ?? e;
+  }
+  const lines = [
+    `Exported every tab of ${workbook.id} ${JSON.stringify(workbook.title)} (${plural(out.tabs, "tab")}, ${plural(out.cells, "cell")}, ${plural(out.formulas, "formula")}) to ${resolved.display}, ${kb(out.body.length)}: formulas with their values, number formats, styles, column widths and frozen rows kept. Google Sheets opens it (File > Import, or upload it to Drive and open it with Google Sheets), as do Excel and LibreOffice. The sheet is unchanged at rev ${workbook.rev}.`,
+    ...out.notes,
+  ];
+  return lines.join("\n");
 }
 
 export async function sheetDelete(args, env) {

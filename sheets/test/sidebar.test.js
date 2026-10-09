@@ -102,7 +102,7 @@ test("＋ makes an Untitled sheet in the chosen project and opens its tab in ren
   kept.clear();
 });
 
-test("the row menu moves between projects, offers the CSV download through the raw seam, and Delete asks first", async () => {
+test("the row menu moves between projects, offers the xlsx and CSV downloads through the raw seam, and Delete asks first", async () => {
   const { ext, requests, closed, answer } = fakeExt();
   const model = createModel(ext);
   await model.refresh();
@@ -110,7 +110,10 @@ test("the row menu moves between projects, offers the CSV download through the r
   mountSidebar(ext, model, body, tools());
   body.querySelector('[data-sheet="sh_00000002"] > .sht-row-more').click();
   const labels = ext.lastMenu.filter((i) => i !== "-").map((i) => i.label);
-  assert.deepEqual(labels, ["Rename", "Move to Nova", "Move to Orion", "Download CSV", "Delete"], "a global sheet can go to either project");
+  assert.deepEqual(labels, ["Rename", "Move to Nova", "Move to Orion", "Download .xlsx", "Download CSV", "Delete"], "a global sheet can go to either project");
+  const xlsx = ext.lastMenu.find((i) => i?.label === "Download .xlsx");
+  assert.equal(xlsx.disabled, false);
+  assert.match(xlsx.hint, /Google Sheets/);
   const dl = ext.lastMenu.find((i) => i?.label === "Download CSV");
   assert.equal(dl.disabled, false);
   assert.equal(model.exportUrl("sh_00000002", null, "csv"), `api/ext/@thetis/sheets/export/raw?args=${encodeURIComponent(JSON.stringify({ id: "sh_00000002", format: "csv" }))}`);
@@ -142,6 +145,7 @@ test("without the raw seam the download is offered disabled, with the reason", a
   body.querySelector('[data-sheet="sh_00000001"] > .sht-row-more').click();
   const dl = ext.lastMenu.find((i) => i?.label === "Download CSV");
   assert.equal(dl.disabled, true);
+  assert.equal(ext.lastMenu.find((i) => i?.label === "Download .xlsx").disabled, true);
   assert.match(dl.hint, /cannot send files/);
   assert.ok(ext.lastMenu.some((i) => i?.label === "Make global"), "a project's sheet can be made global");
   model.stop();

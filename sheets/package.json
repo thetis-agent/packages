@@ -1,6 +1,6 @@
 {
   "name": "@thetis/sheets",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "Sheets: spreadsheets the agent and the person edit together, with formulas, kept as plain files in the person's home and opened in a tab of the web gateway.",
   "type": "module",
@@ -151,13 +151,13 @@
       },
       {
         "name": "sheet_export",
-        "description": "Write one tab to a CSV or TSV file in your space (by the path's extension), as the values the person sees, or with values: \"raw\" the formulas and unformatted numbers. Returns the path and the size.",
+        "description": "Write a sheet to a file in your space, the kind chosen by the path's extension. .xlsx: the whole workbook, every tab with its formulas, values, number formats, styles, column widths and frozen rows, the file to open in Google Sheets, Excel or LibreOffice (tab and values do not apply). .csv or .tsv: one tab, as the values the person sees, or with values: \"raw\" the formulas and unformatted numbers. Returns the path, the size and anything that had to change for Excel.",
         "parameters": {
           "type": "object",
           "properties": {
             "sheet": { "type": "string", "description": "The sheet id (sh_…), or its exact title when unique." },
-            "tab": { "type": "string", "description": "A tab name. Default: the first tab." },
-            "path": { "type": "string", "description": "Where in your space, ending in .csv or .tsv." },
+            "tab": { "type": "string", "description": "For .csv and .tsv: a tab name. Default: the first tab." },
+            "path": { "type": "string", "description": "Where in your space, ending in .xlsx, .csv or .tsv." },
             "values": { "type": "string", "enum": ["display", "raw"] }
           },
           "required": ["sheet", "path"]
@@ -192,7 +192,7 @@
         { "verb": "create", "export": "uiCreate", "label": "Create an empty sheet" },
         { "verb": "remove", "export": "uiRemove", "label": "Delete a sheet" },
         { "verb": "assign", "export": "uiAssign", "label": "Put a sheet in a project, or make it global" },
-        { "verb": "export", "export": "uiExport", "label": "Download a tab as CSV or TSV", "kind": "raw" },
+        { "verb": "export", "export": "uiExport", "label": "Download the sheet as xlsx, or a tab as CSV or TSV", "kind": "raw" },
         { "verb": "import", "export": "uiImport", "label": "Upload a CSV or TSV as a new sheet or tab", "kind": "raw", "maxBytes": 16777216 },
         { "verb": "watch", "export": "uiWatch", "label": "Follow the sheets as they change", "stream": true }
       ]

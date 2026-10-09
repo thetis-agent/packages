@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { sheetCreate, sheetRead, sheetWrite, uiAssign, uiCreate, uiExport, uiGet, uiImport, uiList, uiRemove, uiSave } from "../index.js";
 import { readSheet } from "../lib/store.js";
-import { idIn, makeEnv } from "./helpers.js";
+import { idIn, makeEnv, unzipText } from "./helpers.js";
 
 const PROJECTS = [{ id: "p_00000001", name: "Nova" }];
 
@@ -75,7 +75,7 @@ test("create, assign and remove", async () => {
   await done();
 });
 
-test("export: a tab as CSV with a byte-order mark and a safe file name, as TSV, the whole workbook as JSON", async () => {
+test("export: a tab as CSV with a byte-order mark and a safe file name, as TSV, the whole workbook as JSON and as xlsx", async () => {
   const { env, done } = await makeEnv();
   const id = idIn(await sheetCreate({ title: "Café / Q3", tabs: ["Costs", "Other"], rows: [["Item", "Cost"], ["Rent, flat", "$1,200"], ["Sum", "=B2*2"]] }, env));
   const csv = await uiExport({ id }, env, { method: "GET" });
@@ -91,7 +91,14 @@ test("export: a tab as CSV with a byte-order mark and a safe file name, as TSV, 
   assert.equal(json.headers["content-type"], "application/json; charset=utf-8");
   assert.equal(JSON.parse(text(json.body)).id, id);
   await assert.rejects(uiExport({ id, tab: "Nope" }, env, { method: "GET" }), /No tab "Nope"/);
-  await assert.rejects(uiExport({ id, format: "xlsx" }, env, { method: "GET" }), /format is csv or tsv/);
+  const xlsx = await uiExport({ id, format: "xlsx" }, env, { method: "GET" });
+  assert.equal(xlsx.headers["content-type"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  assert.match(xlsx.headers["content-disposition"], /filename="Caf_ _ Q3\.xlsx"/);
+  assert.equal(xlsx.headers["content-length"], String(xlsx.body.length));
+  const parts = unzipText(xlsx.body);
+  assert.match(parts.get("xl/workbook.xml"), /<sheet name="Costs"[^>]*\/><sheet name="Other"/);
+  assert.match(parts.get("xl/worksheets/sheet1.xml"), /<f>B2\*2<\/f><v>2400<\/v>/);
+  await assert.rejects(uiExport({ id, format: "xls" }, env, { method: "GET" }), /format is xlsx, csv or tsv/);
   await done();
 });
 

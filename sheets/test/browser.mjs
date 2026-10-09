@@ -444,14 +444,14 @@ t("11. adding a tab, renaming it by double-click, switching, and a formula acros
 
 // ---- 12. download ----
 
-t("12. Download this tab as CSV is a link to the export route, which answers an attachment of the values", async () => {
+t("12. Download this tab as CSV is a link to the export route, which answers an attachment of the values; every tab as .xlsx is a zip", async () => {
   let id;
   await withPage(browser, "download", { seed: async (f) => { id = await f.seed("Q4 budget", BUDGET); } }, async (f) => {
     const { page } = f;
     await f.open(id);
     await page.locator(".sht-tool[aria-label='More']").click();
     const labels = await f.menuLabels();
-    assert.deepEqual(labels, ["Import CSV as a new tab", "Download this tab as CSV", "Download this tab as TSV", "Delete sheet"]);
+    assert.deepEqual(labels, ["Import CSV as a new tab", "Download every tab as .xlsx", "Download this tab as CSV", "Download this tab as TSV", "Delete sheet"]);
     // A download a link starts is not routed through the harness, so the link is caught as it is clicked
     // and its route fetched by the page, as the browser would.
     await page.evaluate(() => {
@@ -471,6 +471,19 @@ t("12. Download this tab as CSV is a link to the export route, which answers an 
     assert.match(got.disposition, /^attachment; filename="Q4 budget - Sheet1\.csv"/);
     assert.match(got.text, /Widgets,12,3.5,42/);
     assert.ok(f.raw.some((r) => r.verb === "export" && r.args.format === "json"), "the tab loaded the workbook through the raw export");
+    await page.locator(".sht-tool[aria-label='More']").click();
+    await f.menuItem("Download every tab as .xlsx").click();
+    const xlsx = (await page.evaluate(() => window.__links))[1];
+    assert.equal(xlsx.href, `api/ext/@thetis/sheets/export/raw?args=${encodeURIComponent(JSON.stringify({ id, format: "xlsx" }))}`);
+    const book = await page.evaluate(async (href) => {
+      const res = await fetch(href);
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      return { status: res.status, type: res.headers.get("content-type"), disposition: res.headers.get("content-disposition"), magic: String.fromCharCode(bytes[0], bytes[1]) };
+    }, xlsx.href);
+    assert.equal(book.status, 200);
+    assert.equal(book.type, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    assert.match(book.disposition, /^attachment; filename="Q4 budget\.xlsx"/);
+    assert.equal(book.magic, "PK", "a zip");
   });
 });
 

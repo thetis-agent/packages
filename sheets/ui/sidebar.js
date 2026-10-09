@@ -1,7 +1,7 @@
 /* The Sheets section of the sidebar: one row per sheet the chosen project shows — its own and the global
  * ones, or every sheet under "All" — with the project's name as a badge when it has one, the open one
  * marked, a ＋ in the section's actions that makes "Untitled sheet" in the chosen project and opens it with
- * its title in rename, and a row menu: Rename (in place), Move to a project or Make global, Download CSV,
+ * its title in rename, and a row menu: Rename (in place), Move to a project or Make global, Download .xlsx, Download CSV,
  * Delete (confirmed). Everything is built with `ext.dom.el`; the shell's tokens and the `.sht-` rules in
  * index.css do the drawing. */
 
@@ -58,6 +58,8 @@ export function mountSidebar(ext, model, body, tools) {
     const items = [{ label: "Rename", run: () => { renaming = row.id; draw(); } }];
     for (const p of model.projects.filter((p) => p.id !== row.project)) items.push({ label: `Move to ${p.name}`, run: () => void move(row, p.id) });
     if (row.project) items.push({ label: "Make global", run: () => void move(row, null) });
+    const xlsx = model.exportUrl(row.id, null, "xlsx");
+    items.push({ label: "Download .xlsx", hint: xlsx ? "Every tab with formulas, for Google Sheets or Excel" : "This gateway cannot send files", disabled: !xlsx, run: () => download(ext, xlsx) });
     const url = model.exportUrl(row.id, null, "csv");
     items.push({ label: "Download CSV", hint: url ? "The first tab, as the values show" : "This gateway cannot send files", disabled: !url, run: () => download(ext, url) });
     items.push("-", { label: "Delete", danger: true, run: () => void remove(anchor, row) });

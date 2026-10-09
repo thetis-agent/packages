@@ -9,6 +9,7 @@ import { isProjectId, projectExists, projectNames } from "./projects.js";
 import { cellsOf, createSheet, fail, isSheetId, listSheets, MAX_SHEETS, mutate, newId, readSheet, removeSheet } from "./store.js";
 import { importRows } from "./tools.js";
 import { delimiterOf, MAX_FILE, parseTable, tabText } from "./transfer.js";
+import { workbookXlsx, XLSX_TYPE } from "./xlsx.js";
 
 const MAX_OPS = 1000;
 
@@ -125,6 +126,8 @@ const fileName = (text) => text.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").trim() ||
  * export (raw GET): one tab as the values the person sees, CSV by default or TSV, with a byte-order mark so
  * a spreadsheet program reads it as UTF-8, named "<title> - <tab>.csv". `format: "json"` serves the whole
  * workbook instead, for a sheet larger than `get` can answer (the gateway caps a JSON answer at 256 KiB).
+ * `format: "xlsx"` serves every tab as an Excel workbook with its formulas and formatting, named
+ * "<title>.xlsx", the file to open in Google Sheets or Excel.
  */
 export async function uiExport(args, env, req) {
   if (req?.method && req.method !== "GET") fail("export is a download: fetch it with GET.");
@@ -134,7 +137,11 @@ export async function uiExport(args, env, req) {
     const body = JSON.stringify(workbook);
     return { headers: { "content-type": "application/json; charset=utf-8", "content-length": String(Buffer.byteLength(body)), "content-disposition": dispositionOf(`${fileName(workbook.title)}.json`) }, body };
   }
-  if (format !== "csv" && format !== "tsv") fail("format is csv or tsv.");
+  if (format === "xlsx") {
+    const { body } = workbookXlsx(workbook);
+    return { headers: { "content-type": XLSX_TYPE, "content-length": String(body.length), "content-disposition": dispositionOf(`${fileName(workbook.title)}.xlsx`) }, body };
+  }
+  if (format !== "csv" && format !== "tsv") fail("format is xlsx, csv or tsv.");
   const tab = args.tab === undefined || args.tab === null || args.tab === "" ? workbook.tabs[0] : findTab(workbook, String(args.tab));
   if (!tab) fail(`No tab ${JSON.stringify(args.tab)} in this sheet.`);
   const { text } = tabText(workbook, tab, { delimiter: format === "tsv" ? "\t" : ",", values: "display" });

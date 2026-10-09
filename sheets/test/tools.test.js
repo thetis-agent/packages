@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { sheetCreate, sheetDelete, sheetExport, sheetFormat, sheetImport, sheetList, sheetRead, sheetStructure, sheetWrite } from "../index.js";
 import { readSheet } from "../lib/store.js";
-import { idIn, makeEnv, personEdit } from "./helpers.js";
+import { idIn, makeEnv, personEdit, unzipText } from "./helpers.js";
 
 const PROJECTS = [{ id: "p_00000001", name: "Nova" }, { id: "p_00000002", name: "Orion" }];
 const cellsOf = async (env, id, tab = 0) => (await readSheet(env, id)).tabs[tab].cells;
@@ -267,7 +267,7 @@ test("structure: rows and columns in and out with formulas following, sort, fill
   await done();
 });
 
-test("import: a CSV as a new sheet, a TSV as a new tab, values parsed; export: display or raw, CSV or TSV", async () => {
+test("import: a CSV as a new sheet, a TSV as a new tab, values parsed; export: display or raw, CSV or TSV, or the whole workbook as xlsx", async () => {
   const { env, done } = await makeEnv({ projects: PROJECTS, assignments: { s_1: "p_00000001" } });
   await env.writeFile("data/costs.csv", "Item,Cost,Share\r\nRent,\"$1,200.00\",50%\r\nFood,350,25%\r\n\"Odd, item\",=B2+B3,\n");
   const made = await sheetImport({ path: "data/costs.csv" }, env);
@@ -301,7 +301,11 @@ test("import: a CSV as a new sheet, a TSV as a new tab, values parsed; export: d
   const tsv = readFileSync(resolve(env.cwd, "out/raw.tsv"), "utf8");
   assert.equal(tsv.split("\r\n")[1], "Rent\t1200\t0.5");
   assert.equal(tsv.split("\r\n")[3], "Odd, item\t=B2+B3\t");
-  await assert.rejects(sheetExport({ sheet: id, path: "out/x.xlsx" }, env), /must end in \.csv or \.tsv/);
+  const book = await sheetExport({ sheet: id, path: "out/costs.xlsx" }, env);
+  assert.match(book, /^Exported every tab of sh_[0-9a-f]{8} "costs" \(3 tabs, \d+ cells, 1 formula\) to out\/costs\.xlsx, \d+ KB: formulas with their values, .*Google Sheets opens it .* The sheet is unchanged at rev 3\.$/);
+  const parts = unzipText(readFileSync(resolve(env.cwd, "out/costs.xlsx")));
+  assert.match(parts.get("xl/worksheets/sheet1.xml"), /<f>B2\+B3<\/f><v>1550<\/v>/);
+  await assert.rejects(sheetExport({ sheet: id, path: "out/x.xls" }, env), /must end in \.xlsx, \.csv or \.tsv/);
   await assert.rejects(sheetExport({ sheet: id, path: "out/x.csv", values: "pretty" }, env), /values is "display"/);
   await done();
 });
