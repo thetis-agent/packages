@@ -1,7 +1,7 @@
 // A bounded directory walker shared by search_files, find_files and get_directory, so the
 // skip list and the file-count cap live in exactly one place.
 import { readdir, stat } from "node:fs/promises";
-import { resolve, join } from "node:path";
+import { basename, resolve, join } from "node:path";
 
 export const SKIP_DIRS = new Set([".git", "node_modules", "dist", "target", ".cache", "tool-output"]);
 export const SCAN_BOUND = 20000;
@@ -22,6 +22,18 @@ export async function looksBinary(buf) {
 export async function* walkFiles(root, state) {
   state.visited = state.visited ?? 0;
   state.hitBound = false;
+  // A file named on its own is the whole walk: readdir on it fails, and skipping it would answer
+  // "0 matches" for a file that plainly has them.
+  try {
+    const st = await stat(root);
+    if (st.isFile()) {
+      state.visited++;
+      yield { path: root, name: basename(root), stat: st };
+      return;
+    }
+  } catch {
+    return; // missing or unreadable: nothing to walk
+  }
   const stack = [root];
   while (stack.length) {
     const dir = stack.pop();

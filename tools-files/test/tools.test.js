@@ -117,3 +117,12 @@ test("search_files count mode returns just a tally", async () => {
   assert.match(out, /2 match\(es\)/);
   await rm(home, { recursive: true, force: true });
 });
+
+test("search_files searches a file named on its own, even inside a skipped directory", async () => {
+  const { home, env } = await makeHome();
+  await mkdir(resolve(home, "site", "dist"), { recursive: true });
+  await writeFile(resolve(home, "site", "dist", "app.js"), "// header\nconst header = 'red';\n");
+  const out = await searchFiles({ pattern: "header", path: "site/dist/app.js", mode: "count" }, env);
+  assert.match(out, /2 match\(es\)/);
+  await rm(home, { recursive: true, force: true });
+});
