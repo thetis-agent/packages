@@ -24,6 +24,7 @@ import { toast } from "./lib/toast.js";
 import { sendTurn } from "./lib/turn-send.js";
 import { mountComposer } from "./views/composer.js";
 import { mountDock } from "./views/dock.js";
+import { openForget } from "./views/forget.js";
 import { mountMenu } from "./views/menu.js";
 import { installPanel, PANEL_PLACE, PANEL_SECTIONS } from "./views/panel.js";
 import { mountPlaces } from "./views/places.js";
@@ -194,6 +195,20 @@ async function archive(id, archived, { reopen = false } = {}) {
   }
 }
 
+/**
+ * Forgets a conversation through the dialog. Once the server has answered, every tab of it closes — its
+ * own and its subagents' — and the list is read again; the receipt card then says what went and what
+ * stayed. There is no Undo: the dialog said so, and the card is the record of what happened.
+ */
+function forget(id) {
+  void openForget(id, {
+    onForgotten: async () => {
+      for (const key of tabs.list()) if (key === id || store.rootOf(key) === id) tabs.close(key);
+      await refreshList();
+    },
+  });
+}
+
 async function rename(id, title) {
   try {
     await api(`/api/sessions/${id}/title`, { method: "POST", body: { title } });
@@ -289,11 +304,12 @@ async function chooseModel(id, model) {
 // --- the views ---
 
 const composer = mountComposer({ onSend: (input, draft) => { void send(input, draft); }, onStop: stop, onModel: chooseModel });
-const sessions = mountSessions({ onOpen: openConversation, onNew: startNew, onArchive: archive, onRename: rename, onAgent: showAgent, onOpenAgent: openAgent });
+const sessions = mountSessions({ onOpen: openConversation, onNew: startNew, onArchive: archive, onRename: rename, onAgent: showAgent, onOpenAgent: openAgent, onForget: forget });
 const tabs = mountTabs({
   onNew: startNew,
   onClosed: (id) => { void discardClosed(id); },
   onArchive: (id) => { const s = store.session(id); if (s) void archive(id, !s.archived); },
+  onForget: forget,
   onRename: (id) => sessions.rename(id),
   onModel: () => composer.openModelPicker(),
   onExample: (text) => composer.fill(text),

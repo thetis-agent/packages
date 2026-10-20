@@ -460,3 +460,44 @@ test("a phone: the rail is a Panels menu, a place closes the drawer, Escape take
     assert.ok(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   });
 });
+
+test("forget: the row menu's last item opens the dialog, Forget waits for the title, and a receipt card replaces the tab", { timeout: 15000 }, async () => {
+  const always = ["Copies quoted into other conversations stay.", "The server's audit journal keeps that a conversation existed, never its words.", "Text already sent to the model provider is outside Thetis."];
+  const forgetPreview = {
+    id: "s_aaaa", title: "Browser regression", turns: 4, subtree: ["s_aaaa", "s_bbbb"], running: false, attachments: 1,
+    hooks: [{ package: "@thetis/reflections", items: [{ id: "lessons", label: "1 lesson came from this conversation", optional: true, default: true }, { id: "reflection", label: "its reflection" }] }],
+    kept: always,
+  };
+  const forgetReceipt = { id: "s_aaaa", removed: ["the conversation and 1 subagent conversation", "1 attachment", "titles, model choice and usage the page kept", "its reflection"], kept: ["1 lesson stays", ...always] };
+  await withPage(browser, "forget", { existing: true, forgetPreview, forgetReceipt }, async (f) => {
+    const row = f.page.locator('.session[data-session="s_aaaa"]');
+    await row.hover();
+    await row.locator(".session-more").click();
+    const items = row.locator(".session-menu > *");
+    assert.equal(await items.last().innerText(), "Forget…");
+    assert.equal(await row.locator(".session-menu-sep").count(), 1);
+    assert.match(await items.last().evaluate((n) => getComputedStyle(n).color), /^rgb/, "drawn in a colour of its own");
+    await items.last().click();
+    const dialog = f.page.locator("dialog.forget");
+    await dialog.waitFor();
+    assert.equal(await dialog.locator(".forget-title").innerText(), "Forget “Browser regression”?");
+    assert.equal(await dialog.locator(".forget-warn").innerText(), "This cannot be undone.");
+    assert.ok(await dialog.locator(".forget-check").isChecked(), "at the package's default");
+    const go = dialog.locator(".forget-go");
+    assert.equal(await go.isDisabled(), true);
+    await dialog.locator(".forget-check").uncheck();
+    assert.match(await dialog.locator(".forget-list.is-kept").innerText(), /1 lesson came from this conversation/);
+    await dialog.locator(".forget-confirm").fill("Browser regression");
+    assert.equal(await go.isDisabled(), false);
+    await go.click();
+    const card = f.page.locator('.notice[data-notice="forget-s_aaaa"]');
+    await card.waitFor();
+    assert.equal(await card.locator(".notice-title").innerText(), "Forgotten: Browser regression");
+    assert.match(await card.innerText(), /Removed[\s\S]*its reflection[\s\S]*Kept[\s\S]*1 lesson stays/i);
+    assert.equal(await f.page.locator("dialog.forget").count(), 0);
+    assert.deepEqual(f.posts().find(([path]) => path === "sessions/s_aaaa/forget")?.[1], { confirm: "Browser regression", stop: false, options: { "@thetis/reflections": { lessons: false } } });
+    await f.page.waitForFunction(() => !document.querySelector('.tab[data-session="s_aaaa"]'), null, { timeout: 3000 });
+    await f.page.waitForFunction(() => !document.querySelector('.session[data-session="s_aaaa"]'), null, { timeout: 3000 });
+    assert.equal(await f.page.locator(".toast", { hasText: "Undo" }).count(), 0, "no undo toast");
+  });
+});

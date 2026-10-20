@@ -1,5 +1,6 @@
 /* Conversation tabs: one pane per open conversation, one tab per pane, a `+` that starts a new one.
- * A pane is a chat bar (title, state, chips, the model and spend facts, archive) over its own transcript
+ * A pane is a chat bar (title, state, chips, the model and spend facts, archive and its ⋯ menu, where
+ * Forget lives) over its own transcript
  * instance, so switching tabs only shows and hides panes: a background conversation keeps receiving
  * its events and is never rebuilt. The composer sits below the panes and follows the active tab through
  * `store.current`. Closing the active tab activates its neighbour; closing the last shows the empty
@@ -27,10 +28,11 @@
 import { fmtCost, shortModel } from "../lib/activity.js";
 import { api } from "../lib/api.js";
 import { $, clear, el, icon, setHidden } from "../lib/dom.js";
+import { openMenu } from "../lib/menu.js";
 import * as registry from "../lib/registry.js";
 import { store } from "../lib/store.js";
 import { toast } from "../lib/toast.js";
-import { titleOf } from "./sessions.js";
+import { MORE, titleOf } from "./sessions.js";
 import { emptyState, mountTranscript } from "./transcript.js";
 
 const X = ["M5 5l10 10", "M15 5l-10 10"];
@@ -41,7 +43,7 @@ const KEEP = 5; // panes with their rows built: the shown one and the ones shown
 /** The pane key of a tab: a conversation's is its session id; a package's is `<kind>:<id>`. */
 export const keyOf = (kind, id) => (kind === "session" ? id : `${kind}:${id}`);
 
-export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExample }) {
+export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExample, onForget }) {
   const strip = $("tabs");
   const host = $("panes");
   const newTab = $("new-tab");
@@ -80,13 +82,27 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExa
           model: el("button", { type: "button", class: "chip-quiet mono chip-model", onClick: () => onModel(id) }),
           spend: el("span", { class: "chip-quiet mono chip-spend" }),
           archive: el("button", { type: "button", class: "icon-btn sm archive-chat", onClick: () => onArchive(id) }, icon(ARCHIVE, { size: 16, width: 1.6 })),
+          more: el("button", { type: "button", class: "icon-btn sm chat-more", title: "More for this chat", "aria-label": "More for this chat", "aria-haspopup": "menu" }, icon(MORE, { size: 15, width: 0 })),
         };
+    if (!agent) {
+      bar.more.querySelectorAll("path").forEach((p) => p.setAttribute("fill", "currentColor"));
+      // The archive button's menu: Archive or Restore as the button does, then Forget, apart and in the
+      // danger tone, because it is the one with no Undo.
+      bar.more.addEventListener("click", () => {
+        const archived = Boolean(store.session(id)?.archived);
+        openMenu(bar.more, [
+          { label: archived ? "Restore" : "Archive", hint: archived ? "Put it back in the list" : "It leaves the list; nothing is deleted", run: () => onArchive(id) },
+          "-",
+          { label: "Forget…", danger: true, hint: "Remove it for good", disabled: !onForget, run: () => onForget?.(id) },
+        ]);
+      });
+    }
     if (agent) bar.stop.querySelector("path").setAttribute("fill", "currentColor");
     const chips = agent ? null : el("div", { class: "chips", id: `chips-${id}` });
     const root = el("div", { class: "transcript", tabindex: "0" });
     const node = agent
       ? el("section", { class: "pane is-agent", "data-session": id, role: "tabpanel" }, el("div", { class: "chat-bar is-agent" }, bar.dot, bar.title, bar.word, bar.state, el("span", { class: "chat-bar-gap" }), bar.spend, bar.parent, bar.stop), root)
-      : el("section", { class: "pane", "data-session": id, role: "tabpanel" }, el("div", { class: "chat-bar" }, bar.title, bar.state, el("span", { class: "chat-bar-gap" }), chips, bar.model, bar.spend, bar.archive), root);
+      : el("section", { class: "pane", "data-session": id, role: "tabpanel" }, el("div", { class: "chat-bar" }, bar.title, bar.state, el("span", { class: "chat-bar-gap" }), chips, bar.model, bar.spend, bar.archive, bar.more), root);
     const dot = el("span", { class: "tab-dot", "aria-hidden": "true" });
     const label = el("span", { class: "tab-title" });
     const note = agent ? el("span", { class: "tab-note" }) : null;

@@ -22,7 +22,7 @@ binary is installed. The suite stays separate from `npm test`, so normal tests n
 dependency. Failed cases save a screenshot and Playwright trace under a temporary directory; set
 `THETIS_BROWSER_ARTIFACTS` to choose another output directory.
 
-The twenty checks cover delayed extension declarations and installation, awaited creation hooks,
+The twenty-one checks (twenty, then Forget below) cover delayed extension declarations and installation, awaited creation hooks,
 draft restoration after a hook fails, send acknowledgements arriving after turn completion or a
 reconnect snapshot, live events arriving before a saved conversation response, and attachments: a
 pasted and a dropped PNG travel through `POST /api/media`, show as a chip in `#attachments`, and go
@@ -57,6 +57,14 @@ even with a larger remembered height; choosing a place from the menu in the draw
 control panel shows `.panel-select` instead of the tree, and the Extensions section links to the
 Extensions place with **Manage extensions**; with the drawer opened over the place, Escape closes the
 drawer and never the place (its `.place-close` does); the page never scrolls sideways.
+
+One more covers Forget (2026-10-19): the sidebar row's menu ends in `.session-menu-sep` and a
+`.session-menu-item.is-danger` "Forget…", which opens `dialog.forget` from `forget/preview`: the title in
+`.forget-title`, "This cannot be undone.", the conversation with its subagents and attachments and the hook's
+fixed item under Removed, its optional item as a `.forget-check` ticked at its default, and the Kept list
+(`.forget-list.is-kept`). `.forget-go` stays disabled until `.forget-confirm` holds the title; unticking moves
+the item into Kept; Forget posts `{ confirm, stop: false, options }`, the dialog goes, the tab and the row go,
+and a `.notice[data-notice="forget-<id>"]` "Forgotten: <title>" lists Removed and Kept with no Undo toast.
 
 ## Setup
 
@@ -1643,3 +1651,46 @@ another tab signs the first tab out, so the member step comes last. Screenshots 
 
 Stop the daemon by the pid on `.devhomeW/thetis.sock` (`ss -lxp | grep devhomeW`), release
 `/tmp/thetis-browser.lock`, and delete `.devhomeW`.
+
+## Forget, and what archive tells the packages (2026-10-19)
+
+A throwaway home with a SHORT path (`/tmp/tf`), the echo provider fixture as the model and an empty
+`/tmp/tf/.env` as `envFile` — check the `environment:` line `serve` prints: the default is the checkout's
+`.env`, which bills the real key. A conversation **T** with three turns and one pasted image, and a
+subagent under it, made the way **Subagents on the page** makes one. A package of dev's own,
+`@dev/hooks`, whose manifest says `"sessions": { "archive": "onArchive", "forget": "forgetSession" }`:
+`onArchive` appends `{ session, archived, archivedAt }` to `~/hooks.log`; `forgetSession` answers the
+preview with `{ items: [{ id: "notes", label: "1 note came from this conversation", optional: true,
+default: true }] }`, and `{ block: "a test block" }` while `~/block` exists; the forget phase answers
+`{ removed: ["1 note"] }` when `options.notes`, else `{ kept: ["1 note stays"] }`.
+
+141. **Archive tells the package**: archive T from its row menu. Expect `POST api/sessions/<T>/archive`
+     answered at once with `archivedAt` (an ISO time), and a line in `~/hooks.log` with the same time.
+     Restore it: a second line with `archived: false, archivedAt: null`. Make `onArchive` throw and archive
+     again: the archive still works, and the gateway's log says `@dev/hooks archive hook failed`.
+142. **The two ways in**: T's row menu ends in a rule and **Forget…** in red. A subagent row (under T in the
+     sidebar) has no menu at all. In T's chat bar, `.chat-more` (⋯) beside the archive button opens a menu:
+     **Archive** (or **Restore**), a rule, **Forget…** in red.
+143. **The dialog**: choose Forget…. Expect `dialog.forget` modal over the page: "Forget “<T's title>”?",
+     "This cannot be undone.", under Removed "This conversation and its 1 subagent conversation, with 1
+     attachment.", a ticked box "1 note came from this conversation", and Kept with the three sentences
+     that are always true. `.forget-go` "Forget" is disabled; type the title one letter short: still
+     disabled; type it exactly: enabled. Untick the box: the note moves into Kept. Escape closes the dialog,
+     and only the dialog (an open dock stays open); nothing was posted but the preview.
+144. **A block**: `touch ~/block`, open the dialog again: `.forget-block` "a test block" and the button
+     disabled whatever is typed. Remove `~/block`.
+145. **A running turn**: send `slow: a0 a1 … a99` in T and open the dialog while it streams: "A turn is
+     running in this conversation. It will be stopped first." and the button reads **Stop and forget**.
+146. **Forget**: type the title, tick the box, press **Stop and forget**. Expect `POST …/forget` with
+     `{ confirm, stop: true, options: { "@dev/hooks": { notes: true } } }`, the turn stopped, T's tab and
+     every tab of its subagent closed, T gone from the sidebar, and a notice card "Forgotten: <title>"
+     listing under Removed "the conversation and 1 subagent conversation", "1 attachment", "titles, model
+     choice and usage the page kept", "1 note", and under Kept the three sentences. No toast with Undo.
+     `GET api/media/<the image's id>` now answers 404 — or, against a server not restarted since
+     `assets.remove`, Kept says "1 attachment stays until the server restarts with attachment removal."
+     `~/gateway-web/sessions/dev/<T>.json` and the subagent's are gone.
+147. **A conversation under three turns** asks for no title: the dialog has no `.forget-confirm` and
+     Forget is enabled at once. **A subagent's** forget is refused: `fetch('api/sessions/<child>/forget/
+     preview', {method:'POST'})` answers 409 "forget its parent conversation; a subagent goes with it".
+
+Stop the daemon by the pid on `/tmp/tf/thetis.sock`, release `/tmp/thetis-browser.lock`, and delete `/tmp/tf`.

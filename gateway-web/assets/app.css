@@ -504,6 +504,10 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
   cursor: pointer;
 }
 .session-menu-item:hover, .session-menu-item:focus-visible { color: var(--text); background: var(--surface-3); outline: none; }
+/* Forget sits last, after a rule, in the danger tone: the one row of the menu with no way back. */
+.session-menu-sep { height: 1px; margin: var(--gap-1) 6px; background: var(--hairline); }
+.session-menu-item.is-danger { color: var(--err); }
+.session-menu-item.is-danger:hover, .session-menu-item.is-danger:focus-visible { color: var(--err); background: var(--err-wash); }
 
 /* Recency headings and the archive: a native <details> at the foot of the list. */
 .session-group {
@@ -1955,3 +1959,29 @@ select.input { padding-right: 24px; }
 .lightbox-link:hover { text-decoration: underline; }
 .content-attachment { display: block; margin-block: .4rem; }
 .content-unknown pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* The Forget dialog: a modal <dialog> in the middle of the window. It reads top to bottom as the decision
+ * does — what goes, what may stay, what stays regardless, then the title to type — and the button is in
+ * the danger tone. The receipt reuses the same lists inside a notice card. */
+.forget {
+  width: min(480px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto;
+  margin: auto; padding: 18px 20px; border: 1px solid var(--hairline-strong); border-radius: var(--r-lg);
+  background: var(--surface-2); color: var(--text); box-shadow: var(--shadow-lg); font-size: var(--text-sm);
+}
+.forget[open] { display: flex; flex-direction: column; gap: var(--gap-3); }
+.forget::backdrop { background: rgba(0, 0, 0, .55); }
+.forget-title { margin: 0; font-size: var(--text-md); font-weight: 600; overflow-wrap: anywhere; }
+.forget-warn { margin: 0; color: var(--err); font-weight: 600; }
+.forget-section { display: flex; flex-direction: column; gap: 4px; }
+.forget-label { font-size: var(--text-xs); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-faint); }
+.forget-list { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 2px; color: var(--text); }
+.forget-list.is-kept { color: var(--text-dim); }
+.forget-options { display: flex; flex-direction: column; gap: 6px; }
+.forget-option { display: flex; align-items: flex-start; gap: var(--gap-2); cursor: pointer; }
+.forget-option input { margin-top: 2px; accent-color: var(--err); }
+.forget-running { margin: 0; color: var(--warn); }
+.forget-block { margin: 0; padding: 8px 10px; border-radius: var(--r-md); color: var(--err); background: var(--err-wash); }
+.forget-error { margin: 0; color: var(--err); }
+.forget-actions { display: flex; justify-content: flex-end; gap: var(--gap-2); }
+.forget-receipt { display: flex; flex-direction: column; gap: 6px; }
+.forget-receipt .forget-list { font-size: var(--text-xs); }

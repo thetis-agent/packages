@@ -60,7 +60,7 @@ export async function withPage(browser, name, options, run) {
   const id = "s_aaaa";
   const session = { id, title: "Browser regression", named: true, turns: options.existing ? 1 : 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   const conversation = options.existing ? [{ role: "user", content: "Earlier question" }, { role: "assistant", content: "Earlier reply" }] : [];
-  let created = false, sends = 0, uploads = 0;
+  let created = false, sends = 0, uploads = 0, forgotten = false;
   const createBodies = []; // what each POST /api/sessions carried: a draft's model rides there
   const sent = [];   // the JSON bodies of every send, so a test can check the wire shape
   const media = [];  // { name, mediaType, size } of every upload
@@ -102,6 +102,13 @@ export async function withPage(browser, name, options, run) {
           posts.push([api, route.request().postDataJSON()]);
           return route.fulfill({ status: api.endsWith("/resume") ? 202 : 200, json: {} });
         }
+        // Forget: the preview and the receipt are the test's to give; after a forget the conversation is gone from the list.
+        if (route.request().method() === "POST" && api === `sessions/${id}/forget/preview`) return route.fulfill({ json: options.forgetPreview });
+        if (route.request().method() === "POST" && api === `sessions/${id}/forget`) {
+          posts.push([api, route.request().postDataJSON()]);
+          forgotten = true;
+          return route.fulfill({ json: options.forgetReceipt });
+        }
         if (api === "models") return route.fulfill({ json: options.models ?? { model: "echo", models: [{ id: "echo", name: "Echo" }] } });
         if (api === "panel") return route.fulfill({ json: { user: "review", role: "admin", sections: ["packages"] } });
         if (api === "packages") return route.fulfill({ json: [{ name: "@review/extras", version: "0.1.0", type: "ui", description: "Chrome checks", scope: "me", steps: [], tools: [], service: false }] });
@@ -116,7 +123,7 @@ export async function withPage(browser, name, options, run) {
           createBodies.push(route.request().postDataJSON());
           return route.fulfill({ status: 201, json: { id } });
         }
-        if (api === "sessions") return route.fulfill({ json: [...(options.existing || created ? [session] : []), ...others.filter((o) => !o.parent).map((o) => ({ id: o.id, title: o.title, named: true, turns: 1, createdAt: session.createdAt, updatedAt: session.updatedAt }))] });
+        if (api === "sessions") return route.fulfill({ json: [...((options.existing || created) && !forgotten ? [session] : []), ...others.filter((o) => !o.parent).map((o) => ({ id: o.id, title: o.title, named: true, turns: 1, createdAt: session.createdAt, updatedAt: session.updatedAt }))] });
         if (api === `sessions/${id}`) {
           recordRequested.resolve();
           if (options.holdRecord) await recordGate.promise;

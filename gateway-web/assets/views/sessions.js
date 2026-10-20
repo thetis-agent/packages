@@ -1,7 +1,7 @@
 /* The conversation sidebar. Rows are grouped by recency, most recent first, with the archive folded into a
  * section at the foot. A working row carries a pulsing dot, the live step under a sheen, and a clock that
  * counts up; the clocks tick in place so a hover or a sheen is never dropped by a redraw. Search filters
- * as you type. The row menu renames, archives and restores. A package may narrow the list further
+ * as you type. The row menu renames, archives and restores, and, last and apart, forgets. A package may narrow the list further
  * with a filter (`store.sessionFilter`, set through `ext.sessions.filter`).
  *
  * The list is built whole only when the list itself changes: the sessions, the filter, the search, the
@@ -22,7 +22,7 @@ import { $, clear, el, icon, onClickOutside } from "../lib/dom.js";
 import { store } from "../lib/store.js";
 
 const dot = (y) => `M10 ${y}a1.35 1.35 0 1 1 0-2.7 1.35 1.35 0 0 1 0 2.7z`;
-const MORE = [dot(6.7), dot(11.35), dot(16)];
+export const MORE = [dot(6.7), dot(11.35), dot(16)];
 const OPEN_TAB = ["M4 4h6M4 4v6M4 4l7 7", "M9 16h7v-7"];
 const TICK_MS = { working: 1000, idle: 30_000 };
 
@@ -45,7 +45,7 @@ function bucket(iso) {
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onOpenAgent }) {
+export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onOpenAgent, onForget }) {
   const list = $("session-list");
   const search = $("session-search");
   let query = "";
@@ -142,7 +142,11 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
         draw();
       }),
       item(session.archived ? "Restore" : "Archive", () => onArchive(session.id, !session.archived)),
-      session.named ? item("Use the first message as the name", () => onRename(session.id, "")) : null
+      session.named ? item("Use the first message as the name", () => onRename(session.id, "")) : null,
+      // Forget is last and set apart, in the danger tone: it is the one item here with no way back. A
+      // subagent has none — it goes with its conversation — and only conversations have rows here anyway.
+      onForget && !session.parent ? el("div", { class: "session-menu-sep", role: "separator" }) : null,
+      onForget && !session.parent ? el("button", { type: "button", class: "session-menu-item is-danger", role: "menuitem", onClick: () => { release(); onForget(session.id); } }, "Forget…") : null
     );
     more.setAttribute("aria-expanded", "true");
     const stop = onClickOutside(node, () => {

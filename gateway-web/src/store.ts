@@ -17,6 +17,8 @@ const EntrySchema = z.looseObject({
   model: z.string().optional(),
   usage: SessionUsageSchema.optional(),
   archived: z.boolean().optional(),
+  /** When the conversation was archived, ISO. A mark written before this was kept has none. */
+  archivedAt: z.string().optional(),
   resumed: z.array(ResumedSchema).optional(),
   stopped: z.string().optional(),
 });
@@ -227,8 +229,20 @@ export class GatewayStore {
     return out;
   }
 
-  setArchived(user: string, session: string, archived: boolean): void {
-    this.put(user, session, { archived: archived || undefined });
+  /**
+   * Archives or restores, and answers when the conversation was archived (undefined once restored). A
+   * second archive keeps the first time: the conversation was put away then, and a package that keys
+   * work on the moment (a reflection queued for it) must not see it move under a repeated click.
+   */
+  setArchived(user: string, session: string, archived: boolean): string | undefined {
+    const at = archived ? (this.entry(user, session).archived ? this.archivedAt(user, session) : undefined) ?? new Date().toISOString() : undefined;
+    this.put(user, session, { archived: archived || undefined, archivedAt: at });
+    return at;
+  }
+
+  /** When the conversation was archived, or undefined: not archived, or archived before the time was kept. */
+  archivedAt(user: string, session: string): string | undefined {
+    return this.entry(user, session).archivedAt;
   }
 
   usage(user: string, session: string): SessionUsage {
@@ -283,13 +297,13 @@ export class GatewayStore {
 
   /**
    * Drops everything kept about a conversation, the archive mark included; with nothing left, its file
-   * goes too. The one caller is the discard of an empty conversation, where the record itself is being
+   * goes too. The callers are the discard of an empty conversation and a forget, where the record itself is being
    * removed: what is left behind afterwards is not state about anything, it is litter read at every start.
    * There is no second meaning here that keeps the mark — archiving a conversation that no longer exists
    * is not a thing anyone can want — so this stays one method rather than one with a flag.
    */
   forget(user: string, session: string): void {
-    this.put(user, session, { usage: undefined, model: undefined, title: undefined, archived: undefined, resumed: undefined, stopped: undefined });
+    this.put(user, session, { usage: undefined, model: undefined, title: undefined, archived: undefined, archivedAt: undefined, resumed: undefined, stopped: undefined });
   }
 
   private entry(user: string, session: string): Entry {

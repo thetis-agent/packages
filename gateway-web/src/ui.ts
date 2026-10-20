@@ -28,7 +28,7 @@ const SHARED: Slot[] = ["dock", "places", "sidebar", "chips", "composer", "shelf
 /** Where a sidebar entry mounts: under the brand, or as a collapsible section above the conversations. */
 const SIDEBAR_SLOTS = ["head", "section"] as const;
 const ID = /^[a-z][a-z0-9_-]{0,31}$/;
-const EXPORT = /^[A-Za-z_$][\w$]*$/;
+export const EXPORT = /^[A-Za-z_$][\w$]*$/;
 const PACKAGE_NAME = /^@[a-z0-9-]+\/[a-z0-9._-]+$/;
 const SESSION_ID = /^s_[a-f0-9]+$/;
 const RANK: Record<UserRole, number> = { user: 0, admin: 1, system: 2 };
@@ -314,7 +314,7 @@ async function loadExport(store: string, pkg: string, name: string): Promise<(..
   return fn as (...a: unknown[]) => unknown;
 }
 
-function withTimeout<T>(run: () => Promise<T>, ms: number, message: string): Promise<T> {
+export function withTimeout<T>(run: () => Promise<T>, ms: number, message: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const clock = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new HttpError(504, message)), ms);
@@ -367,25 +367,46 @@ async function resolveCommand(ctx: CommandContext, who: { id: string; role: User
   }
   const parsedArgs = CommandArgsSchema.safeParse(args);
   if (!parsedArgs.success) throw new HttpError(400, "args must be an object");
-  // The package's configuration as its own steps and tools receive it. Once per request, never cached:
-  // a key set in the panel must reach the next command.
-  let config: Record<string, unknown>;
-  try {
-    config = await ctx.kernel.config.effective(pkg.name);
-  } catch (err) {
-    throw new HttpError(500, `${pkg.name} configuration could not be read: ${err instanceof Error ? err.message : String(err)}`);
-  }
-  const env: UiCommandEnv = { ...ctx.env, user: who.id, role: who.role, config, ...(typeof session === "string" ? { session } : {}) };
+  const env = await packageEnv(ctx, who, pkg.name, typeof session === "string" ? session : undefined);
   return { pkg, cmd, args: parsedArgs.data ?? {}, env };
+}
+
+/**
+ * What a package's export runs with when the gateway calls it for a person: the fence environment, who
+ * asked, the conversation it is about, and the package's own configuration as its steps and tools receive
+ * it. Read once per call, never cached: a key set in the panel must reach the next one. A command, a frame
+ * and a session hook all build it here, so none of them can hand a package more, or other, than the rest.
+ */
+export async function packageEnv(ctx: Pick<CommandContext, "kernel" | "env">, who: { id: string; role: UserRole }, pkg: string, session?: string): Promise<UiCommandEnv> {
+  const config = await packageConfig(ctx, pkg);
+  return { ...ctx.env, user: who.id, role: who.role, config, ...(session !== undefined ? { session } : {}) };
+}
+
+/** A package's effective configuration, read fresh; a 500 naming the package when the kernel cannot answer. */
+export async function packageConfig(ctx: Pick<CommandContext, "kernel">, pkg: string): Promise<Record<string, unknown>> {
+  try {
+    return await ctx.kernel.config.effective(pkg);
+  } catch (err) {
+    throw new HttpError(500, `${pkg} configuration could not be read: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * Loads one export of an installed package and calls it with `args`, bounded by the command timeout: a
+ * 504 naming `what` when it does not answer in time. A load that fails is a 500 naming the package; what
+ * the export itself throws comes back as it was thrown, for the caller to word.
+ */
+export async function callExport(ctx: Pick<CommandContext, "store" | "timeoutMs">, pkg: string, exportName: string, args: unknown[], what: string): Promise<unknown> {
+  const fn = await loadExport(ctx.store, pkg, exportName);
+  return withTimeout(async () => fn(...args), ctx.timeoutMs ?? COMMAND_TIMEOUT_MS, `${pkg} did not answer ${what} in time`);
 }
 
 /** `POST api/ext/<scope>/<name>/<verb>`: the shared checks, then the export, then a bounded answer. */
 export async function runCommand(ctx: CommandContext, who: { id: string; role: UserRole }, scope: string, name: string, verb: string, body: Record<string, unknown>): Promise<{ text?: string; data?: unknown }> {
   const { pkg, cmd, args, env } = await resolveCommand(ctx, who, scope, name, verb, "command", body.session, body.args);
-  const fn = await loadExport(ctx.store, pkg.name, cmd.export);
   let raw: unknown;
   try {
-    raw = await withTimeout(async () => fn(args, env), ctx.timeoutMs ?? COMMAND_TIMEOUT_MS, `${pkg.name} did not answer "${verb}" in time`);
+    raw = await callExport(ctx, pkg.name, cmd.export, [args, env], `"${verb}"`);
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw new HttpError(400, err instanceof Error ? err.message : String(err));
@@ -510,13 +531,7 @@ export async function serveFrameFile(ctx: CommandContext, record: { user: string
   const { pkg, ui } = extensionOf(await ctx.kernel.packages.list(), ctx.store, scope, name);
   const cmd = ui.commands.find((c) => c.verb === record.verb);
   if (!cmd || seamOf(cmd) !== "frame") throw new HttpError(404, "not found");
-  let config: Record<string, unknown>;
-  try {
-    config = await ctx.kernel.config.effective(pkg.name);
-  } catch (err) {
-    throw new HttpError(500, `${pkg.name} configuration could not be read: ${err instanceof Error ? err.message : String(err)}`);
-  }
-  const env: UiCommandEnv & { signal?: AbortSignal } = { ...ctx.env, user: record.user, role: record.role, config, ...(signal ? { signal } : {}) };
+  const env: UiCommandEnv & { signal?: AbortSignal } = { ...(await packageEnv(ctx, { id: record.user, role: record.role }, pkg.name)), ...(signal ? { signal } : {}) };
   const fn = await loadExport(ctx.store, pkg.name, cmd.export);
   let raw: unknown;
   try {

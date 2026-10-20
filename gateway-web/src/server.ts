@@ -22,7 +22,8 @@ import { handlePanel } from "./panel.js";
 import { serveFile } from "./static.js";
 import { sniffImage, type GatewayStore, type ResumedMark, type SessionUsage } from "./store.js";
 import { TurnHub, type RunningTurn } from "./turns.js";
-import { argsFromQuery, composeUi, framePath, mintFrame, openStream, runCommand, runRaw, serveExt, serveFrameFile } from "./ui.js";
+import { argsFromQuery, composeUi, framePath, mintFrame, openStream, runCommand, runRaw, serveExt, serveFrameFile, type CommandContext } from "./ui.js";
+import { ForgetRequestSchema, forgetPreview, forgetSession, runArchiveHooks, type ForgetContext } from "./sessions.js";
 
 export interface GatewayOptions {
   /** Directory of the static assets. Defaults to the package's `assets/`. */
@@ -79,6 +80,8 @@ export interface SessionSummary {
   named: boolean;
   preview: string;
   archived: boolean;
+  /** When it was archived, ISO. Absent when it is not archived, or was archived before the time was kept. */
+  archivedAt?: string;
   status: "idle" | "running";
   /** The model the person chose for this conversation. Absent means the default. */
   model?: string;
@@ -438,12 +441,40 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       if (seg[3] === "archive" && seg.length === 4 && method === "POST") {
         await kernel.sessions.inspect(id);
         const { archived } = await readJson(req, ArchiveRequestSchema);
-        store.setArchived(user, id, archived);
+        const archivedAt = store.setArchived(user, id, archived) ?? null;
         listChanged(user);
-        return json(res, 200, { id, archived });
+        // The packages that keep work about archived conversations hear of it once the mark is written; the
+        // answer does not wait for them, and what one of them gets wrong is in the log, not on the page.
+        const ctx = hookContext();
+        if (ctx) void runArchiveHooks(ctx, who!, { session: id, archived, archivedAt }, log).catch((err: Error) => log(`[gateway-web] the archive hooks for ${id} did not run: ${err.message}`));
+        return json(res, 200, { id, archived, archivedAt });
+      }
+      if (seg[3] === "forget" && seg[4] === "preview" && seg.length === 5 && method === "POST") return json(res, 200, await forgetPreview(forgetContext(who!), id));
+      if (seg[3] === "forget" && seg.length === 4 && method === "POST") {
+        const body = await readJson(req, ForgetRequestSchema);
+        return json(res, 200, await forgetSession(forgetContext(who!), id, body));
       }
     }
     throw new HttpError(404, "not found");
+  }
+
+  /** What a package's code runs with here, or undefined when this gateway was started without a fence env to run it in. */
+  function hookContext(): CommandContext | undefined {
+    return storeDir && opts.env ? { kernel, env: opts.env, store: storeDir, timeoutMs: opts.commandTimeoutMs } : undefined;
+  }
+
+  /** Everything a forget needs from this gateway, for one person. */
+  function forgetContext(who: { id: string; role: UserRole }): ForgetContext {
+    return {
+      kernel,
+      store,
+      ctx: hookContext(),
+      who,
+      title: (ref) => summarize(who.id, ref, new Set(), []).title,
+      hubRunning: (id) => Boolean(hub.runningOf(who.id, id)),
+      listChanged: () => listChanged(who.id),
+      log,
+    };
   }
 
   /**
@@ -540,6 +571,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       named: named !== undefined,
       preview: clip(withoutTurnContextTail(s.last) || running?.input || "", 120),
       archived: archived.has(s.id),
+      ...(archived.has(s.id) && store.archivedAt(user, s.id) ? { archivedAt: store.archivedAt(user, s.id) } : {}),
       status: running || s.running ? "running" : "idle",
       ...(model ? { model } : {}),
       ...(cost !== undefined ? { cost } : {}),
@@ -555,7 +587,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     for (const child of children) child.label = labels.get(child.id) ?? null;
     // `turn` is the hub's, never the record's marker: a marker left by an interrupted turn would put the
     // page in a turn nothing will end, while its message is in the conversation already.
-    return { ...rec, archived: store.archived(user).has(id), turn, usage: store.usage(user, id), model: store.model(user, id) ?? null, title: store.title(user, id) ?? null, resumed: store.resumed(user, id), stopped: store.stopped(user, id) ?? null, children };
+    return { ...rec, archived: store.archived(user).has(id), archivedAt: store.archivedAt(user, id) ?? null, turn, usage: store.usage(user, id), model: store.model(user, id) ?? null, title: store.title(user, id) ?? null, resumed: store.resumed(user, id), stopped: store.stopped(user, id) ?? null, children };
   }
 
   /** Retry when a turn starts or ends during the RPC, so saved history and its live overlay agree. */
