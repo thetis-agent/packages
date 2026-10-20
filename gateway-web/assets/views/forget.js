@@ -61,12 +61,14 @@ export function keptLines(preview, options) {
 
 /**
  * The button: what it says and whether it may be pressed. A block keeps it off whatever was typed; with
- * three turns or more the typed title must match exactly once trimmed, as the server checks it.
+ * three turns or more the typed title must match once trimmed, "..." standing for "…", as the server checks it.
  */
+const titleKey = (title) => title.trim().replace(/\u2026/g, "...").replace(/\s+/g, " ");
+
 export function forgetState(preview, typed = "") {
   const blocked = (preview.hooks ?? []).find((hook) => hook.block)?.block ?? null;
   const needsTitle = preview.turns >= TITLE_FREE_TURNS;
-  const matches = !needsTitle || typed.trim() === String(preview.title ?? "").trim();
+  const matches = !needsTitle || titleKey(typed) === titleKey(String(preview.title ?? ""));
   return { blocked, needsTitle, label: preview.running ? "Stop and forget" : "Forget", enabled: !blocked && matches };
 }
 

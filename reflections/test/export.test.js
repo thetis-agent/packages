@@ -3,7 +3,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ACTION_CHARS, clip, descendantsOf, eventsOf, exportConversation, marker } from "../lib/export.js";
-import { assistant, call, record, result, sampleSession, text, user } from "./helpers.js";
+import { harnessFiles, installedPackages, NONE_TEXT, readStamps, stampedVersions } from "../lib/harness.js";
+import { indexMarkdown } from "../lib/library.js";
+import { assistant, call, fakeKernel, put, record, result, sampleSession, tempHome, text, user } from "./helpers.js";
 
 const opts = { observationChars: 10000, inputChars: 600000 };
 
@@ -94,4 +96,106 @@ test("over the budget the middle is left out, said to be, and the export is part
   assert.ok(t.length <= 40000, "the transcript fits the budget");
   assert.ok(out.visible.has(1) && out.visible.has(202));
   assert.ok(!out.visible.has(100), "a dropped event is not visible, so citing it is refused later");
+});
+
+test("the exporter keeps room for the other evidence", () => {
+  const conversation = [user("the ask")];
+  for (let i = 0; i < 100; i++) conversation.push(assistant(`step ${i} ${"y".repeat(900)}`));
+  const rec = record("s_r", conversation);
+  assert.equal(exportConversation(rec, [], { observationChars: 10000, inputChars: 200000 }).partial, null);
+  assert.ok(exportConversation(rec, [], { observationChars: 10000, inputChars: 200000, reserve: 150000 }).partial, "a reserve takes from the transcript's budget");
+});
+
+const stamp = (turn, extra = {}) => ({ turn, at: `2026-10-20T10:0${turn}:00.000Z`, model: "anthropic/claude-sonnet-5.5", versions: { "@thetis/harness-core": "0.8.0", "@thetis/tools-files": "0.4.0" }, system: "aaaa1111aaaa1111", tools: "bbbb2222bbbb2222", skills: { loader: "@thetis/skills-hybrid", pinned: [{ id: "packages", contentHash: "x" }], universal: ["thetis"] }, groups: ["files"], project: null, ...extra });
+const TOOLS = [{ name: "read_file", package: "@thetis/tools-files", description: "Reads a file.", parameters: { type: "object" } }];
+
+test("harness/: turns.md, one system and one tools file per distinct snapshot, versions as changes", async () => {
+  const { home, done } = await tempHome();
+  try {
+    const S = "s_aaaa1111";
+    const lines = [stamp(1), stamp(2), stamp(3, { system: "cccc3333cccc3333", versions: { "@thetis/harness-core": "0.9.0", "@thetis/tools-files": "0.4.0", "@thetis/exa": "0.1.0" } })];
+    await put(home, `harness-core/turns/${S}.jsonl`, `${lines.map((l) => JSON.stringify(l)).join("\n")}\n{torn`);
+    await put(home, `harness-core/snapshots/${S}/aaaa1111aaaa1111.md`, "You are Thetis. First guide.");
+    await put(home, `harness-core/snapshots/${S}/cccc3333cccc3333.md`, "You are Thetis. Second guide.");
+    await put(home, `harness-core/snapshots/${S}/bbbb2222bbbb2222.json`, TOOLS);
+    const C = "s_cccc0000";
+    await put(home, `harness-core/turns/${C}.jsonl`, `${JSON.stringify(stamp(1, { tools: "dddd4444dddd4444" }))}\n`);
+    const stamps = await readStamps(home, S);
+    assert.equal(stamps.length, 3, "a torn line is skipped");
+    const out = await harnessFiles(home, [{ id: S, stamps, dir: `harness-core/snapshots/${S}` }, { id: C, label: "digger", stamps: await readStamps(home, C), dir: `harness-core/snapshots/${C}` }], {});
+    assert.equal(out.stamped, true);
+    assert.deepEqual(Object.keys(out.files).sort(), ["system-1.md", "system-2.md", "tools-1.md", "tools-2.md", "turns.md"]);
+    assert.match(out.files["system-1.md"], /You are Thetis\. First guide\./);
+    assert.match(out.files["system-2.md"], /Second guide/);
+    assert.match(out.files["tools-1.md"], /## read_file · @thetis\/tools-files\n\nReads a file\./);
+    assert.doesNotMatch(out.files["tools-1.md"], /"type"/, "parameters are left out");
+    assert.match(out.files["tools-2.md"], /the snapshot dddd4444dddd4444 is missing/);
+    const t = out.files["turns.md"];
+    assert.match(t, /### Turn 1[^\n]*\n\nmodel: anthropic\/claude-sonnet-5\.5\nsystem: system-1\.md · tools: tools-1\.md\nversions:\n- @thetis\/harness-core 0\.8\.0\n- @thetis\/tools-files 0\.4\.0/);
+    assert.match(t, /### Turn 2[\s\S]*?versions: unchanged/);
+    assert.match(t, /### Turn 3[\s\S]*?system: system-2\.md · tools: tools-1\.md\nversions changed:\n- added @thetis\/exa 0\.1\.0\n- @thetis\/harness-core 0\.8\.0 → 0\.9\.0/);
+    assert.match(t, /skills: loader @thetis\/skills-hybrid; pinned: packages; universal: thetis/);
+    assert.match(t, /groups: files\nproject: none/);
+    assert.match(t, /## Subagent s_cccc0000 \(digger\)/);
+    assert.deepEqual(out.versions, { "@thetis/harness-core": "0.9.0", "@thetis/tools-files": "0.4.0", "@thetis/exa": "0.1.0" });
+    assert.deepEqual(stampedVersions([]), {});
+  } finally {
+    await done();
+  }
+});
+
+test("harness/NONE.md when the conversation was never stamped: today's versions, no system text", async () => {
+  const { home, done } = await tempHome();
+  try {
+    const today = { "@thetis/tools-files": "0.4.0", "@thetis/harness-core": "0.8.0" };
+    const out = await harnessFiles(home, [{ id: "s_a", stamps: [], dir: "x" }], today);
+    assert.equal(out.stamped, false);
+    assert.deepEqual(Object.keys(out.files), ["NONE.md"]);
+    assert.ok(out.files["NONE.md"].includes(NONE_TEXT));
+    assert.match(out.files["NONE.md"], /- @thetis\/harness-core 0\.8\.0\n- @thetis\/tools-files 0\.4\.0/);
+    assert.deepEqual(out.versions, today);
+  } finally {
+    await done();
+  }
+});
+
+test("today's packages come from the kernel, else from the store beside the home", async () => {
+  const { home, done } = await tempHome();
+  try {
+    assert.equal((await installedPackages({ home, kernel: fakeKernel() })).find((p) => p.name === "@thetis/tools-files").version, "0.4.0");
+    await put(home, "store/node_modules/@thetis/sheets/package.json", { name: "@thetis/sheets", version: "0.2.0" });
+    await put(home, "store/node_modules/plain/package.json", { name: "plain", version: "1.0.0" });
+    const inner = `${home}/home`;
+    const list = await installedPackages({ home: inner, kernel: {} });
+    assert.deepEqual(list.map((p) => `${p.name}@${p.version}`).sort(), ["@thetis/sheets@0.2.0", "plain@1.0.0"]);
+  } finally {
+    await done();
+  }
+});
+
+test("library/INDEX.md lists live entries, open findings, and what was tried and rejected", () => {
+  const lib = {
+    entries: [
+      { id: "L-aaaaaa", state: "adopted", kind: "skill", target: "generated-files", cue: "a generated file", lesson: "Find the generator." },
+      { id: "L-bbbbbb", state: "proposed", kind: "guide-note", target: "-", cue: "always", lesson: "Ask first." },
+      { id: "L-cccccc", state: "rejected", kind: "config", target: "@thetis/harness-core maxRounds", cue: "c", lesson: "More rounds.", verdict: { result: "hurt", why: "change runs graded 2, base runs 4" } },
+      { id: "L-dddddd", state: "rejected", kind: "skill", target: "x", cue: "c", lesson: "Never tried.", verdict: null },
+    ],
+  };
+  const store = { findings: [
+    { id: "F-111111", package: "@thetis/tools-files", component: "read_file", what: "Cut the file.", state: "open", seen: [] },
+    { id: "F-222222", package: "@thetis/exa", component: "search", what: "Empty.", state: "possibly-fixed", since: "0.2.0", seen: [] },
+    { id: "F-333333", package: "@thetis/exa", component: "x", what: "Closed one.", state: "closed", seen: [] },
+  ] };
+  const md = indexMarkdown(lib, store);
+  assert.match(md, /- L-aaaaaa · adopted · skill generated-files · a generated file · Find the generator\./);
+  assert.match(md, /- L-bbbbbb · proposed · guide-note · always · Ask first\./);
+  assert.match(md, /- F-111111 · @thetis\/tools-files read_file · Cut the file\./);
+  assert.match(md, /- F-222222 · @thetis\/exa search · Empty\. \(possibly fixed in 0\.2\.0\)/);
+  assert.doesNotMatch(md, /F-333333/);
+  const [live, rejected] = md.split("## Tried and rejected");
+  assert.doesNotMatch(live, /L-cccccc/);
+  assert.match(rejected, /- L-cccccc · config @thetis\/harness-core maxRounds · More rounds\. — the trial: hurt: change runs graded 2, base runs 4/);
+  assert.match(rejected, /- L-dddddd · skill x · Never tried\. — rejected without a trial/);
+  assert.match(indexMarkdown({ entries: [] }, { findings: [] }), /## Changes\n\n\(none\)/);
 });

@@ -21,7 +21,6 @@
   color: var(--text);
 }
 .rfl-head { display: flex; align-items: baseline; gap: var(--gap-5); flex-wrap: wrap; }
-.rfl-h1 { margin: 0; font-size: var(--text-lg); font-weight: 600; }
 .rfl-h2 { margin: 0; font-size: var(--text-md); font-weight: 600; overflow-wrap: anywhere; }
 .rfl-h3 { margin: 0 0 var(--gap-2); font-size: var(--text-sm); font-weight: 600; color: var(--text-dim); }
 .rfl-tabs { display: flex; gap: var(--gap-1); }
@@ -82,7 +81,10 @@
 .rfl-state.is-ok { --tone: var(--ok); }
 .rfl-state.is-err { --tone: var(--err); }
 .rfl-state.is-accent { --tone: var(--accent); }
-.rfl-state.is-busy { animation: pulse 1.4s var(--ease) infinite; }
+.rfl-state.is-warn { --tone: var(--warn); }
+/* Busy: the pill stays readable at full strength; only a dot before the words pulses. */
+.rfl-state.is-accent { color: var(--accent-hot); background: var(--accent-wash); border-color: var(--accent-edge); }
+.rfl-state.is-busy::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; vertical-align: 1px; border-radius: 50%; background: currentColor; animation: pulse 1.4s var(--ease) infinite; }
 
 /* the detail */
 .rfl-back, .rfl-link { align-self: flex-start; padding: 0; font: inherit; font-size: var(--text-sm); color: var(--accent); background: none; border: 0; cursor: pointer; }
@@ -91,9 +93,37 @@
 .rfl-actions { display: flex; gap: var(--gap-2); flex-wrap: wrap; }
 .rfl-section { display: flex; flex-direction: column; gap: var(--gap-3); }
 .rfl-reflection { padding-top: var(--gap-3); border-top: 1px solid var(--hairline); font-size: var(--text-sm); }
-.rfl-lesson { display: flex; flex-direction: column; gap: var(--gap-2); padding: var(--gap-3); background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); }
 .rfl-lesson-text { margin: 0; font-weight: 500; }
-.rfl-lesson-facts { margin: 0; font-size: var(--text-xs); color: var(--text-faint); overflow-wrap: anywhere; }
+
+/* a proposal or a finding, as a card */
+.rfl-card { display: flex; flex-direction: column; gap: var(--gap-2); padding: var(--gap-3); background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); }
+.rfl-card-head { display: flex; align-items: center; gap: var(--gap-2); flex-wrap: wrap; }
+.rfl-card-kind, .rfl-row-kind { font-size: var(--text-xs); color: var(--text-dim); overflow-wrap: anywhere; }
+.rfl-code { font-family: var(--mono); font-size: .92em; padding: 0 4px; background: var(--surface-3); border-radius: var(--r-sm); overflow-wrap: anywhere; }
+.rfl-card-text { margin: 0; font-size: var(--text-sm); }
+.rfl-row-main.is-static { cursor: default; }
+
+/* the change */
+.rfl-pre {
+  margin: 0;
+  max-height: 28rem;
+  overflow: auto;
+  padding: var(--gap-3);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+}
+.rfl-diff-line { display: block; }
+.rfl-diff-line.is-add { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.rfl-diff-line.is-del { color: var(--err); background: color-mix(in srgb, var(--err) 10%, transparent); }
+.rfl-diff-line.is-fold { color: var(--text-faint); }
+
+/* the trial */
+.rfl-request { width: 100%; min-height: 6rem; resize: vertical; font: inherit; font-size: var(--text-sm); }
 
 /* settings */
 .rfl-num { max-width: 9rem; }

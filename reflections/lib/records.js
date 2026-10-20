@@ -12,7 +12,7 @@ export const DIR = "reflections";
 export const STATES = Object.freeze(["queued", "running", "done", "skipped", "failed", "cancelled"]);
 export const ACTIVE = Object.freeze(["queued", "running"]);
 
-export const DEFAULTS = Object.freeze({ maxTokens: 8000, minTurns: 3, observationChars: 20000, inputChars: 600000, dailyCostUsd: 5, enabled: true });
+export const DEFAULTS = Object.freeze({ maxTokens: 16000, minTurns: 3, observationChars: 20000, inputChars: 600000, dailyCostUsd: 5, enabled: true, trialRuns: 2, trialCostUsd: 5, trialMinutes: 20, trialScratchMb: 8192 });
 /** Below this an observation loses the error at the end of a build log, so the setting is never allowed under it. */
 export const OBSERVATION_FLOOR = 10000;
 /** A transcript budget under this cannot hold the mission and a conversation worth reading. */
@@ -26,7 +26,12 @@ export const isProjectId = (id) => typeof id === "string" && PROJECT.test(id);
 export const recordPath = (s) => `${DIR}/${s}.json`;
 export const reflectionPath = (s) => `${DIR}/${s}.md`;
 export const contextDir = (s) => `${DIR}/${s}/context`;
-export const LESSONS = `${DIR}/lessons.json`;
+export const LIBRARY = `${DIR}/library.json`;
+export const FINDINGS = `${DIR}/findings.json`;
+/** Where the service writes what it made of one trial: each run's trajectory and the judgement. */
+export const trialDir = (t) => `${DIR}/trials/${t}`;
+/** Where @thetis/host-trials writes one trial, in the person's home. */
+export const hostTrialDir = (t) => `trials/${t}`;
 export const SWITCHES = `${DIR}/projects.json`;
 export const SPEND = `${DIR}/spend.json`;
 export const INSTALLED = `${DIR}/installed.json`;
@@ -45,6 +50,11 @@ export function settingsOf(config = {}) {
     inputChars: Math.max(INPUT_FLOOR, Math.floor(number(c.inputChars, DEFAULTS.inputChars))),
     dailyCostUsd: Math.max(0, number(c.dailyCostUsd, DEFAULTS.dailyCostUsd)),
     enabled: c.enabled === undefined || c.enabled === null ? DEFAULTS.enabled : c.enabled !== false && c.enabled !== "false",
+    trialRuns: Math.min(5, Math.max(1, Math.floor(number(c.trialRuns, DEFAULTS.trialRuns)))),
+    trialCostUsd: Math.max(0, number(c.trialCostUsd, DEFAULTS.trialCostUsd)),
+    trialMinutes: Math.max(1, number(c.trialMinutes, DEFAULTS.trialMinutes)),
+    trialScratchMb: Math.max(256, Math.floor(number(c.trialScratchMb, DEFAULTS.trialScratchMb))),
+    trialModel: typeof c.trialModel === "string" && c.trialModel.trim() ? c.trialModel.trim() : "",
   };
 }
 
@@ -75,21 +85,6 @@ export function freshRecord(base, state, extra = {}) {
   const kept = { session: base.session, title: base.title ?? null, project: base.project ?? null };
   return { ...kept, state, ...(state === "queued" ? { queuedAt: now } : {}), updatedAt: now, ...extra };
 }
-
-// ---- lessons provenance ----
-
-/** `{ "<skill id>": { from, createdAt, scope } }`; a malformed file reads as empty. */
-export async function readLessonsIndex(home) {
-  const map = await readJson(home, LESSONS, {});
-  return map && typeof map === "object" && !Array.isArray(map) ? map : {};
-}
-
-export const writeLessonsIndex = (home, map) => writeJson(home, LESSONS, map);
-
-export const lessonsFrom = (index, sessions) => {
-  const set = new Set([].concat(sessions));
-  return Object.entries(index).filter(([, v]) => set.has(v?.from)).map(([id]) => id);
-};
 
 // ---- projects ----
 

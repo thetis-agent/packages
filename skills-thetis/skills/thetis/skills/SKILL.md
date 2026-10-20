@@ -56,7 +56,7 @@ Skills come from two places. A later source wins on an equal id.
 
 A project can switch a skill off. `projects/<id>.json` has `skills.disable`, a list of ids. See `thetis/projects`.
 
-A skill with `metadata.project` belongs to that project. A conversation of another project, or of no project, does not see it or its nested skills: they are not in the prompt, `skill_fetch` and `load_skill` refuse the id as unknown, and `skill_search` does not find them. The notes give one count, "N skills belong to other projects", and no ids. Lessons under `skills/lessons/p-<hex>/` use this.
+A skill with `metadata.project` belongs to that project. A conversation of another project, or of no project, does not see it or its nested skills: they are not in the prompt, `skill_fetch` and `load_skill` refuse the id as unknown, and `skill_search` does not find them. The notes give one count, "N skills belong to other projects", and no ids. A skill that Reflections proposes in a project uses this.
 
 ## Write your own skill
 
@@ -115,6 +115,8 @@ When you learn something that must last, put it in the first place on this list 
 3. **A skill whose brief is its trigger.** The rule applies in a situation that you can recognise. Write the description as a situation, not a topic: "Use when a test fails and no code changed", not "Testing".
 4. **A workflow check.** The rule is a step that a fixed sequence must not skip. Add a check to the workflow. See `@thetis/workflows`.
 5. **A universal skill or the project instructions.** The rule applies to every conversation, or to every conversation of one project. Every turn pays for this text, so use it last.
+
+Reflections does not write to these places by itself. When the person archives a conversation, `@thetis/reflections` reads it and can propose one change: a skill, the project instructions, a guide note, or a config value. Nothing reaches a conversation until the person runs a trial of the proposal and adopts it in the Reflections place. A trial runs one request two ways, with the change and without it. Reflections also records findings: problems with a package. Findings are for the maintainer of that package. The assistant never sees them.
 
 Rules for the text:
 

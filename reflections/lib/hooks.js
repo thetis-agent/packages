@@ -5,11 +5,13 @@
 // and on a restore turns a reflection that has not finished into `cancelled`. A done reflection stays.
 //
 // `forget` answers the dialog's preview with what this package holds about the conversations, and on the
-// forget removes it: the records, the reflections, the exported evidence, and the lessons when the person
-// left that box ticked. Both are idempotent: a missing file is fine, and only what was there is reported.
+// forget removes it: the records, the reflections, the exported evidence, this conversation's sightings in
+// the findings, and the proposals that came only from it when the person left that box ticked (with their
+// trials). An adopted change stays, and the dialog says so. Both are idempotent: a missing file is fine,
+// and only what was there is reported.
 import { exists, remove } from "./files.js";
-import { listLessons, removeLessons } from "./lessons.js";
-import { contextDir, freshRecord, isSessionId, markOf, lessonsFrom, projectOf, readLessonsIndex, readRecord, readSwitches, recordPath, reflectionPath, settingsOf, titleOf, writeRecord } from "./records.js";
+import { forgetInLibrary, forgetPlan } from "./library.js";
+import { contextDir, freshRecord, isSessionId, markOf, projectOf, readRecord, readSwitches, recordPath, reflectionPath, settingsOf, titleOf, writeRecord } from "./records.js";
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const idOf = (s) => (typeof s === "string" ? s : s && typeof s === "object" && typeof s.id === "string" ? s.id : "");
@@ -59,16 +61,15 @@ export async function onArchive(args, env) {
 export async function forgetSession(args, env) {
   const home = env.cwd;
   const sessions = (Array.isArray(args?.sessions) && args.sessions.length ? args.sessions : [args?.session]).map(idOf).filter(isSessionId);
-  const index = await readLessonsIndex(home);
-  const lessons = lessonsFrom(index, sessions);
-  const present = (await listLessons(home)).filter((l) => lessons.includes(l.id) && l.present).map((l) => l.id);
+  const plan = await forgetPlan(home, sessions);
   const held = [];
   for (const s of sessions) if ((await exists(home, recordPath(s))) || (await exists(home, reflectionPath(s))) || (await exists(home, contextDir(s)))) held.push(s);
 
   if (args?.phase === "preview") {
     const items = [];
     if (held.length) items.push({ id: "reflection", label: "Its reflection and the evidence exported for it", optional: false });
-    if (present.length) items.push({ id: "lessons", label: `${plural(present.length, "lesson")} came from this conversation`, optional: true, default: true });
+    if (plan.removable.length) items.push({ id: "proposals", label: `${plural(plan.removable.length, "proposal")} came only from this conversation`, optional: true, default: true });
+    if (plan.findings.length) items.push({ id: "findings", label: `Its sightings in ${plural(plan.findings.length, "finding")}`, optional: false });
     return { items };
   }
 
@@ -81,13 +82,11 @@ export async function forgetSession(args, env) {
     await remove(home, `reflections/${s}`);
   }
   if (held.length) removed.push(held.length === 1 ? "its reflection" : `the reflections of ${held.length} conversations`);
-  if (lessons.length) {
-    if (args?.options?.lessons === true) {
-      const gone = await removeLessons(home, lessons);
-      if (gone.length) removed.push(plural(gone.length, "lesson") + " it taught");
-    } else if (present.length) {
-      kept.push(`${plural(present.length, "lesson")} it taught ${present.length === 1 ? "stays" : "stay"} in your skills`);
-    }
-  }
+  const wantProposals = args?.options?.proposals !== false;
+  const done = await forgetInLibrary(home, sessions, { proposals: wantProposals, kernel: env.kernel, user: env.user ?? env.session?.user, log: env.log ?? ((l) => console.error(l)) });
+  if (done.removed) removed.push(`${plural(done.removed, "proposal")} it led to`);
+  else if (!wantProposals && plan.removable.length) kept.push(`${plural(plan.removable.length, "proposal")} it led to ${plan.removable.length === 1 ? "stays" : "stay"} in Reflections`);
+  if (done.findingsTouched) removed.push(`its sightings in ${plural(done.findingsTouched, "finding")}`);
+  if (plan.adopted.length) kept.push(`${plural(plan.adopted.length, "adopted change")} it led to ${plan.adopted.length === 1 ? "stays" : "stay"}; retire ${plan.adopted.length === 1 ? "it" : "them"} in Reflections`);
   return { removed, kept };
 }

@@ -7,12 +7,20 @@
 // Before each reflection the daily cap is checked against `reflections/spend.json`; a reflection a person
 // asked for with Reflect is theirs and runs past it. A record that turns `cancelled`, or disappears, while
 // its reflection runs stops it, and nothing it would have written is written.
+//
+// The same sweep follows the library: a `trialling` entry's trial is asked for its status through
+// @thetis/host-trials and judged when it is done (`trials.js`); an open finding whose package was updated
+// past every sighting becomes `possibly-fixed`; an adopted entry whose owner changed version gets a
+// re-check. Nothing is undone automatically.
 import { watch } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { readJson, remove, writeJson } from "./files.js";
+import { installedPackages, versionMap } from "./harness.js";
+import { recheckAdopted, sweepFindings } from "./library.js";
 import { reflect } from "./reflect.js";
 import { DIR, INSTALLED, NAME, addSpend, readRecord, readRecords, readSpend, settingsOf, writeRecord } from "./records.js";
+import { followTrials } from "./trials.js";
 
 export const SWEEP_MS = 30_000;
 const DEBOUNCE_MS = 200;
@@ -23,7 +31,7 @@ const money = (n) => `$${n.toFixed(2)}`;
 
 /**
  * `env` is the `ServiceEnv`: `cwd` (the home), `kernel`, `config`, `log`. `opts.reflect` replaces the
- * reflection for a test; `opts.sweepMs` the safety sweep.
+ * reflection for a test; `opts.sweepMs` the safety sweep; `opts.follow` the trial follower.
  */
 export function createService(env, opts = {}) {
   const home = env.cwd;
@@ -37,6 +45,9 @@ export function createService(env, opts = {}) {
   let interval = null;
   let debounce = null;
   let pumping = null;
+  let following = null;
+  const follow = opts.follow ?? followTrials;
+  const library = new AbortController();
 
   /** The configuration as it is now: a change in the place reaches the next reflection without a restart. */
   async function settings() {
@@ -93,7 +104,7 @@ export function createService(env, opts = {}) {
       const { discarded, ...fields } = out;
       void discarded;
       await writeRecord(home, { ...running, ...fields, state: "done", finishedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-      log(`reflections: ${s} done${fields.lesson ? `, lesson ${fields.lesson}` : ""}`);
+      log(`reflections: ${s} done${fields.proposal ? `, proposal ${fields.proposal}` : ""}${fields.findings?.length ? `, ${fields.findings.length} finding${fields.findings.length === 1 ? "" : "s"}` : ""}`);
     } catch (e) {
       if (e?.spent) await addSpend(home, e.spent.costUsd);
       // A stop leaves the record running, and the next start queues it again; a cancel already wrote its state.
@@ -131,10 +142,33 @@ export function createService(env, opts = {}) {
     return pumping;
   }
 
+  /**
+   * The library's turn: trials followed and judged, findings and adopted entries checked against what is
+   * installed now. One at a time; a sweep that finds one running leaves it be.
+   */
+  function tend() {
+    if (following || stopping) return following ?? Promise.resolve();
+    following = (async () => {
+      try {
+        const config = await settings();
+        await follow({ home, kernel }, config, { signal: library.signal, log });
+        const installed = versionMap(await installedPackages({ home, kernel }));
+        await sweepFindings(home, installed);
+        await recheckAdopted(home, installed);
+      } catch (e) {
+        log(`reflections: following the library failed: ${e?.message ?? e}`);
+      } finally {
+        following = null;
+      }
+    })();
+    return following;
+  }
+
   /** Looks at the files again: a cancelled or forgotten running record stops its reflection, and queued ones start. */
   async function sweep() {
     if (stopping) return;
     if (current && !(await wanted(current.session, current.startedAt))) current.controller.abort();
+    void tend();
     await pump();
   }
 
@@ -161,14 +195,16 @@ export function createService(env, opts = {}) {
       }
       interval = setInterval(nudge, sweepMs);
       interval.unref?.();
+      void tend();
       void pump();
     },
 
     sweep,
     pump,
-    /** Resolves once nothing is being reflected and nothing queued is waiting to start. */
+    tend,
+    /** Resolves once nothing is being reflected, nothing queued is waiting to start, and the library is tended. */
     async idle() {
-      while (pumping) await pumping;
+      while (pumping || following) await (pumping ?? following);
     },
 
     async stop() {
@@ -177,7 +213,9 @@ export function createService(env, opts = {}) {
       clearInterval(interval);
       watcher?.close();
       current?.controller.abort();
-      if (pumping) await Promise.race([pumping, new Promise((r) => setTimeout(r, STOP_WAIT_MS).unref?.())]);
+      library.abort();
+      const busy = [pumping, following].filter(Boolean);
+      if (busy.length) await Promise.race([Promise.all(busy), new Promise((r) => setTimeout(r, STOP_WAIT_MS).unref?.())]);
     },
   };
 }

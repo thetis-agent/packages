@@ -122,11 +122,12 @@ const render = (events) => events.map((e) => (e.gap ? e.text : line(e))).join("\
  *
  * @param root      the conversation's record (`kernel.sessions.inspect`), with `id`.
  * @param children  its subagents, every depth, parents before children: `[{ id, label?, parent, record }]`.
- * @param opts      `{ title, observationChars, inputChars }`.
+ * @param opts      `{ title, observationChars, inputChars, reserve? }`; `reserve` is what other evidence (the
+ *                  harness, the library) takes of `inputChars`.
  * @returns `{ files: { "task.md", "trajectory.md", "compaction.md"?, "subagents/<id>.md"... }, events, visible:
  *          Set<number>, partial: string|null }`. `events` is the total; `visible` the numbers the reader sees.
  */
-export function exportConversation(root, children = [], { title = "", observationChars, inputChars }) {
+export function exportConversation(root, children = [], { title = "", observationChars, inputChars, reserve = 0 }) {
   let n = 0;
   const number = (events) => events.map((e) => ({ ...e, n: ++n }));
   const rootEvents = number(eventsOf(root, { observationChars }));
@@ -154,7 +155,7 @@ export function exportConversation(root, children = [], { title = "", observatio
     compaction = `# Compaction\n\nThis conversation outgrew its context window. From then on the assistant saw the summary below in place of ${upTo ? `events [1]–[${upTo}]` : "its older messages"}; those events are in trajectory.md as they happened.\n\n${clip(state.summary.trim(), Math.floor(inputChars / 4))}\n`;
   }
 
-  const budget = Math.max(0, inputChars - task.length - (compaction?.length ?? 0));
+  const budget = Math.max(0, inputChars - reserve - task.length - (compaction?.length ?? 0));
   const subTotal = subs.reduce((sum, s) => sum + size(s.events), 0);
   const rootTotal = size(rootEvents);
   let rootCut = { events: rootEvents, dropped: null };

@@ -1,12 +1,14 @@
 // One reflection, start to end: read the conversation and its subagents from the kernel, export the
-// evidence under `reflections/<s>/context/`, send the one request, parse, guard, and write the lesson and
-// the reflection. The service calls it for one record at a time; it throws a sentence when something
-// failed, and it never writes a lesson once `stillWanted()` says the record was cancelled or forgotten.
+// evidence under `reflections/<s>/context/` (the trajectory, what the harness was, what the library already
+// holds), send the one request, parse, guard, and write the findings, the proposal and the reflection. The
+// service calls it for one record at a time; it throws a sentence when something failed, and it writes
+// nothing to the library once `stillWanted()` says the record was cancelled or forgotten.
 import { descendantsOf, exportConversation, labelsOf } from "./export.js";
 import { remove, writeText } from "./files.js";
-import { writeLesson } from "./lessons.js";
-import { guard, missionText, evidenceText, parseAnswer, reflectionRequest, shortenRequest } from "./prompt.js";
-import { contextDir, projectName, projectOf, readRecord, reflectionPath } from "./records.js";
+import { harnessFiles, installedPackages, readStamps, versionMap } from "./harness.js";
+import { indexMarkdown, readFindings, readLibrary, recordFindings, recordProposal, skillMap, skillsOf, updateLibrary } from "./library.js";
+import { evidenceText, guard, missionText, parseAnswer, reflectionRequest } from "./prompt.js";
+import { contextDir, listProjects, projectOf, readRecord, reflectionPath } from "./records.js";
 
 /** How long the one request may take. A strong model reading 150k tokens and thinking is minutes, not seconds. */
 export const CALL_TIMEOUT_MS = 15 * 60_000;
@@ -46,35 +48,80 @@ export async function callModel(kernel, request, signal, timeoutMs = CALL_TIMEOU
   return { text, failure, cost, tokens };
 }
 
+/** A line diff of two texts, `-`/`+`/` ` prefixed, by longest common subsequence. */
+export function lineDiff(before, after) {
+  const a = String(before ?? "").replace(/\n$/, "").split("\n");
+  const b = String(after ?? "").replace(/\n$/, "").split("\n");
+  if (a.length * b.length > 4_000_000) return [...a.map((l) => `- ${l}`), ...b.map((l) => `+ ${l}`)].join("\n");
+  const n = a.length;
+  const m = b.length;
+  const lcs = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+  const out = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      out.push(`  ${a[i]}`);
+      i++;
+      j++;
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) out.push(`- ${a[i++]}`);
+    else out.push(`+ ${b[j++]}`);
+  }
+  while (i < n) out.push(`- ${a[i++]}`);
+  while (j < m) out.push(`+ ${b[j++]}`);
+  return out.join("\n");
+}
+
+const kindTarget = (p) => (p.kind === "guide-note" || !p.target || p.target === "-" ? p.kind : `${p.kind} ${p.target}`);
+
 /** The reflection as the place shows it and `<s>.md` keeps it. */
-export function reflectionMarkdown({ record, rows, outcome, answer, events, partial, refusedLesson }) {
+export function reflectionMarkdown({ record, rows, outcome = {}, answer, events, partial, stamped }) {
   const head = [`# Reflection on ${JSON.stringify(record.title || record.session)}`, ""];
   const facts = [record.session, record.model && `by ${record.model}`, typeof record.costUsd === "number" && `$${record.costUsd.toFixed(2)}`, `${events} events`].filter(Boolean).join(" · ");
   head.push(facts, "");
   if (partial) head.push(`Partial: ${partial}.`, "");
+  if (stamped === false) head.push("This conversation ran before turns were recorded, so what the harness was is today's guess.", "");
   const body = ["## What was tried", ""];
-  if (rows.length) for (const r of rows) body.push(`${r.n}. **${r.verdict}** · ${r.approach}`, `   Observed: ${r.observed}`);
+  if (rows.length) for (const r of rows) body.push(`${r.n}. **${r.verdict}** · ${r.approach} (${r.component})`, `   Observed: ${r.observed}`);
   else body.push("No rows.");
-  body.push("", "## Lesson", "");
-  if (outcome.lesson) {
-    const l = outcome.lesson;
-    body.push(`**${l.lesson}.** Use when ${l.cue}.`, "", `Evidence: ${l.evidence}`, "", `Confidence: ${l.confidence}`);
-    if (outcome.shortened) body.push("", "The model's first sentence was too long; a second, short request said it in fewer words.");
-    if (l.facts.length) body.push("", "Workspace facts (re-verify before relying on them):", "", ...l.facts.map((f) => `- ${f}`));
+
+  const kept = outcome.findings ?? [];
+  const refusedFindings = outcome.refusedFindings ?? [];
+  if (kept.length || refusedFindings.length) {
+    body.push("", "## Findings", "");
+    for (const f of kept) body.push(`- ${f.id ? `${f.id} · ` : ""}**${f.package} ${f.component}**${f.version ? ` (${f.version})` : ""}: ${f.what} Evidence: ${f.evidence}.${f.sameAs ? ` Same as ${f.sameAs}.` : ""}`);
+    for (const { finding, why } of refusedFindings) body.push(`- Refused (${why}): ${finding.package || "?"} ${finding.component || ""}: ${finding.what || "—"}`);
+  }
+
+  body.push("", "## Proposal", "");
+  const p = outcome.proposal;
+  if (p && p.reinforces) {
+    body.push(`Reinforces ${p.reinforces}: this conversation is counted as more evidence for it.${outcome.rejected ? " It reinforces a rejected proposal, which stays rejected." : ""}`, "", `Evidence: ${p.evidence}`);
+  } else if (p) {
+    body.push(`${outcome.proposalId ? `${outcome.proposalId} · ` : ""}${kindTarget(p)}`, "", `**${p.lesson}** Use when ${p.cue}.`, "", `Evidence: ${p.evidence}`, "", `Confidence: ${p.confidence}`, "", `Trial request: ${p.trial}`, "");
+    if (typeof outcome.before === "string" && (p.kind === "skill" || p.kind === "project-instructions")) body.push("The change, against what is there now:", "", "```diff", lineDiff(outcome.before, p.change), "```");
+    else body.push("The change:", "", "```", String(p.change ?? "").trimEnd(), "```");
   } else {
-    body.push(`No lesson: ${outcome.refused}.`);
-    // A lesson the guard refused is still shown as it came: the person paid for it, and may write it by hand.
-    const l = refusedLesson;
-    if (l?.lesson) body.push("", "The refused lesson, as the model wrote it:", "", `> ${l.lesson}`, `> Use when: ${l.cue || "—"}`, `> Evidence: ${l.evidence || "—"}`);
+    body.push(`No proposal: ${outcome.refused ?? "none was made"}.`);
+    // A proposal the guard refused is still shown as it came: the person paid for it, and may write it by hand.
+    if (outcome.block) body.push("", "The refused proposal, as the model wrote it:", "", "```", outcome.block, "```");
   }
   if (answer !== undefined) body.push("", "## The model's answer, as it came", "", "```", answer.trim(), "```");
   return `${[...head, ...body].join("\n")}\n`;
 }
 
+/** Drops the entries an earlier reflection of `s` proposed and nothing happened to since: a reflection run again replaces them. */
+function dropUntouchedFrom(home, s, keepId) {
+  return updateLibrary(home, (lib) => {
+    lib.entries = lib.entries.filter((e) => e.id === keepId || !(e.state === "proposed" && !e.trials?.length && (e.from ?? []).length && e.from.every((f) => f.session === s)));
+  });
+}
+
 /**
  * Reflects on one conversation. Answers the fields the service writes on the record: `{ model, costUsd?,
- * tokens, events, rows, lesson?, reason?, partial? }`, or `{ discarded: true }` when the record stopped
- * being wanted while the model was writing.
+ * tokens, events, rows, proposal, findings, reason?, partial? }`, or `{ discarded: true }` when the record
+ * stopped being wanted while the model was writing.
  *
  * @param env       `{ home, kernel }`.
  * @param settings  what `settingsOf` answers.
@@ -105,18 +152,31 @@ export async function reflect({ home, kernel }, settings, record, { signal, stil
     return { discarded: true, ...spent };
   };
 
-  const exported = exportConversation(root, children, { title: record.title, observationChars: settings.observationChars, inputChars: settings.inputChars });
+  // What the harness was, from the stamps, and what the library already holds.
+  const packages = await installedPackages({ home, kernel });
+  const today = versionMap(packages);
+  const conversations = [{ id: s, stamps: await readStamps(home, s), dir: `harness-core/snapshots/${s}` }];
+  for (const c of children) conversations.push({ id: c.id, label: c.label, stamps: await readStamps(home, c.id), dir: `harness-core/snapshots/${c.id}` });
+  const harness = await harnessFiles(home, conversations, today);
+  const library = await readLibrary(home);
+  const findingsStore = await readFindings(home);
+  const extra = { "library/INDEX.md": indexMarkdown(library, findingsStore) };
+  for (const [path, text] of Object.entries(harness.files)) extra[`harness/${path}`] = text;
+  const reserve = Math.min(Math.floor(settings.inputChars / 2), Object.values(extra).reduce((n, t) => n + t.length + 40, 0));
+
+  const exported = exportConversation(root, children, { title: record.title, observationChars: settings.observationChars, inputChars: settings.inputChars, reserve });
+  const files = { ...exported.files, ...extra };
   const mission = missionText(exported.partial);
   await remove(home, `reflections/${s}`);
   const dir = contextDir(s);
   await writeText(home, `${dir}/MISSION.md`, mission);
-  for (const [path, text] of Object.entries(exported.files)) await writeText(home, `${dir}/${path}`, text);
+  for (const [path, text] of Object.entries(files)) await writeText(home, `${dir}/${path}`, text);
   if (!(await stillWanted())) return discard();
 
   const model = settings.model || (await kernel.models())?.model;
   if (!model) throw new Error("no model to reflect with: the server has no default model and none is set");
   await onModel(model);
-  const request = reflectionRequest({ model, maxTokens: settings.maxTokens, mission, evidence: evidenceText(exported.files) });
+  const request = reflectionRequest({ model, maxTokens: settings.maxTokens, mission, evidence: evidenceText(files) });
   const call = await callModel(kernel, request, signal);
   const spent = { model, ...(call.cost !== undefined ? { costUsd: call.cost } : {}), tokens: call.tokens, events: exported.events, ...(exported.partial ? { partial: exported.partial } : {}) };
   if (call.failure) throw Object.assign(new Error(call.failure), { spent });
@@ -127,32 +187,44 @@ export async function reflect({ home, kernel }, settings, record, { signal, stil
   if (!parsed.found) {
     // Kept as it came, so a person can see what the model did instead of what was asked.
     if (!(await stillWanted())) return discard(spent);
-    await writeText(home, reflectionPath(s), reflectionMarkdown({ record: shown, rows: [], outcome: { refused: "the answer had none of the blocks asked for" }, answer: call.text, events: exported.events, partial: exported.partial }));
+    await writeText(home, reflectionPath(s), reflectionMarkdown({ record: shown, rows: [], outcome: { refused: "the answer had none of the blocks asked for" }, answer: call.text, events: exported.events, partial: exported.partial, stamped: harness.stamped }));
     throw Object.assign(new Error("the model's answer had none of the blocks asked for; it is kept in the reflection"), { spent });
   }
-  let outcome = guard(parsed, exported.visible);
-  if (outcome.tooLong) {
-    // One cheap request to say it shorter; on any failure the first refusal stands and is shown with its text.
-    const short = await callModel(kernel, shortenRequest({ model, lesson: outcome.tooLong, cue: parsed.lesson.cue }), signal);
-    if (short.cost !== undefined) spent.costUsd = (spent.costUsd ?? 0) + short.cost;
-    const sentence = short.text.trim().replace(/^["“']|["”']$/g, "");
-    if (!short.failure && sentence) {
-      const again = guard({ ...parsed, lesson: { ...parsed.lesson, lesson: sentence } }, exported.visible);
-      if (again.lesson) outcome = { ...again, shortened: true };
-    }
-  }
+
+  // Read the library again: another reflection or the place may have changed it while the model wrote.
+  const libNow = await readLibrary(home);
+  const findingsNow = await readFindings(home);
+  const outcome = guard(parsed, {
+    visible: exported.visible,
+    versions: harness.versions,
+    packages: new Map(packages.map((p) => [p.name, { version: p.version, config: p.thetis?.config ?? {} }])),
+    projects: new Set((await listProjects(home)).map((p) => p.id)),
+    entries: new Set(libNow.entries.map((e) => e.id)),
+    findings: new Set(findingsNow.findings.map((f) => f.id)),
+    skills: skillMap(skillsOf(home, packages)),
+  });
   if (!(await stillWanted())) return discard(spent);
 
-  let lesson;
-  if (outcome.lesson) {
-    const project = await projectOf(home, s);
-    lesson = await writeLesson(home, {
-      lesson: outcome.lesson,
-      rows: parsed.rows,
-      conversation: { id: s, title: record.title, project, projectName: project ? await projectName(home, project) : null, model },
-    });
-  }
-  const shownNow = { ...record, ...spent };
-  await writeText(home, reflectionPath(s), reflectionMarkdown({ record: shownNow, rows: parsed.rows, outcome, events: exported.events, partial: exported.partial, refusedLesson: outcome.lesson ? undefined : parsed.lesson }));
-  return { ...spent, rows: parsed.rows.length, ...(lesson ? { lesson } : { reason: `no lesson: ${outcome.refused}` }) };
+  const conversation = { session: s, title: record.title ?? null, project: record.project ?? (await projectOf(home, s)) };
+  const findingIds = await recordFindings(home, outcome.findings, conversation);
+  outcome.findings.forEach((f, i) => (f.id = findingIds[i]));
+  await dropUntouchedFrom(home, s, outcome.proposal?.reinforces);
+  let proposal = null;
+  if (outcome.proposal) {
+    const res = await recordProposal({ home, kernel }, { proposal: outcome.proposal, conversation, rows: parsed.rows, packages });
+    proposal = res.id;
+    outcome.proposalId = res.id;
+    if (res.rejected) outcome.rejected = true;
+    if (!res.reinforced) outcome.before = (await readLibrary(home)).entries.find((e) => e.id === res.id)?.before ?? null;
+  } else outcome.block = parsed.proposalBlock;
+  await writeText(home, reflectionPath(s), reflectionMarkdown({ record: { ...record, ...spent }, rows: parsed.rows, outcome, events: exported.events, partial: exported.partial, stamped: harness.stamped }));
+  return {
+    ...spent,
+    rows: parsed.rows.length,
+    proposal,
+    findings: findingIds,
+    ...(outcome.proposal?.reinforces ? { reinforced: true } : {}),
+    ...(outcome.rejected ? { note: "reinforces a rejected proposal" } : {}),
+    ...(proposal ? {} : { reason: `no proposal: ${outcome.refused}` }),
+  };
 }

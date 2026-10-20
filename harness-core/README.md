@@ -12,10 +12,10 @@ Seven pipeline steps, declared in `thetis.steps`:
 |---|---|---|---|
 | `resume` | `history` | `resumeTurn` | On a turn with no input (a resume), drops a trailing assistant message marked `partial`, so the request does not end in a prefill. See "Resume". Does nothing on any other turn. |
 | `turn-context` | `history` | `turnContext` | Ends the turn's input message with `[Turn context: Monday 2026-09-21 20:40 Europe/Berlin]`, once. The line is saved with the conversation, so a later turn re-sends the message byte for byte and the prefix stays cached; the system prompt carries no clock. The web transcript hides the line; `skill_search` and the loader's ranking strip it from the query. |
-| `system-prompt` | `prompt` | `systemPrompt` | Appends the guide to `call.system`: the user and the home, what is reachable, file tools against shell, the working style; one extra line when the session has a parent. The skills loader announces the skills, since it knows whether there are any. Nothing of the person's: no `THETIS.md`, no `harness.notes`, no package list, no session id. |
+| `system-prompt` | `prompt` | `systemPrompt` | Appends the guide to `call.system`: the user and the home, what is reachable, file tools against shell, the working style; one extra line when the session has a parent; then the `guideNotes`, when there are any (see "Configuration"). The skills loader announces the skills, since it knows whether there are any. Nothing of the person's: no `THETIS.md`, no `harness.notes`, no package list, no session id. |
 | `attach-tools` | `tools` | `attachTools` | Adds every tool declared by every installed package to `call.tools`. The first package with a given tool name wins. A tool with no `parameters` gets `{ type: "object", properties: {} }`. |
 | `apply-effort` | `call` | `applyEffort` | Writes the conversation's reasoning effort to `call.params.reasoning`: `{ effort }` for a level, `{ enabled: false }` for Off. Nothing when there is no choice, or when the model list says the model does not think. See "Reasoning effort". |
-| `call` | `execute` | `callModel` | The loop. Sends `call` through `kernel.providers.call`, streams `text`, `reasoning`, `tool.call` and `usage` as they come, appends the assistant message (`message`, with the usage), runs each tool call in this fence, appends the `tool` message to both the conversation and `call.messages`, and calls again until the model answers without tool calls; before each call after the first, asks whether a drain is pending (see "Drain") and offers the round to the package `call.hints.beforeRound` names (see "Between rounds"). Sends a failed round again when asking again could help (see "The round retry"). Watches a tool's silence and asks about it (`stall`, `nudge`); reports a model's silence. Returns `{ conversation, call }`. |
+| `call` | `execute` | `callModel` | The loop. Sends `call` through `kernel.providers.call`, streams `text`, `reasoning`, `tool.call` and `usage` as they come, appends the assistant message (`message`, with the usage), runs each tool call in this fence, appends the `tool` message to both the conversation and `call.messages`, and calls again until the model answers without tool calls; before each call after the first, asks whether a drain is pending (see "Drain") and offers the round to the package `call.hints.beforeRound` names (see "Between rounds"). Sends a failed round again when asking again could help (see "The round retry"). Before the first request, stamps what the turn ran with (see "What each turn ran with"). Watches a tool's silence and asks about it (`stall`, `nudge`); reports a model's silence. Returns `{ conversation, call }`. |
 | `record-call` | `after` | `recordCall` | Preserves the latest call summary from `callModel` in `harness["@thetis/harness-core"].lastCall`; provides a legacy summary if another execute step made the call. |
 
 One service, `resumer` (`thetis.service`), which continues cut turns when the space starts; see "Resume". Four UI commands (`thetis.ui.commands`): `retry-now` (export `uiRetryNow`), which the web page's "Retry now" button calls while a round waits to be sent again, and the three the Effort pill sends (see "Reasoning effort"). One page file, `ui/index.js` with `ui/index.css`: the Effort pill, in the composer slot `effort`. No tools, no bench suites.
@@ -86,7 +86,7 @@ What the page sees is one `extension` event, `harness-core.retry`, per step:
 
 **Retry now.** The UI command `retry-now { session }` writes `harness-core/retry/<session>.json` in the person's home. A waiting loop looks for that file every 500 ms, removes it and sends at once, so one click is one retry. A file rather than storage, for the reason `@thetis/compaction` gives for its requests: the command runs under the gateway's environment and the step under this package's, and the home is the one place both reach at the same path. A request left from before a wait began is removed when the wait begins.
 
-**Forget.** `thetis.sessions.forget` names `forgetSession`. When a person forgets a conversation it removes, for the conversation and each subagent conversation under it, `harness-core/context/<session>.json`, `harness-core/retry/<session>.json` and the session's key in `effort/sessions.json` (rewritten whole and renamed into place). The remembered effort in `effort/prefs.json` belongs to no conversation and stays. The preview never blocks, and a second forget reports nothing removed.
+**Forget.** `thetis.sessions.forget` names `forgetSession`. When a person forgets a conversation it removes, for the conversation and each subagent conversation under it, `harness-core/context/<session>.json`, `harness-core/retry/<session>.json`, the session's key in `effort/sessions.json` (rewritten whole and renamed into place), and what each turn ran with: `harness-core/turns/<session>.jsonl` and `harness-core/snapshots/<session>/`. The remembered effort in `effort/prefs.json` belongs to no conversation and stays. The preview lists one item, not optional, when any of the conversations has stamps: "What each turn ran with (versions, prompt and tools)". It never blocks, and a second forget reports nothing removed.
 
 ## Resume
 
@@ -174,6 +174,27 @@ This package owns the line and its stripper. `TURN_CONTEXT` is the regex that ma
 
 Context snapshots and saved request summaries use Zod schemas. An unreadable or malformed diagnostic snapshot is logged and replaced with a fresh ledger, so diagnostics cannot interrupt a turn. Wire summaries validate only the fields they display; the complete provider request is preserved separately, including unfamiliar content.
 
+## What each turn ran with
+
+`callModel` stamps every turn once, after every call-phase step has shaped the request (tool-group scoping, compaction, the prompt cache) and before the first provider request. One line per turn goes to `harness-core/turns/<session>.jsonl` in the person's home:
+
+```json
+{"turn": 3, "turnId": "t_…", "at": "2026-10-20T09:00:00.000Z", "model": "anthropic/claude-sonnet-5.5",
+ "versions": {"@thetis/harness-core": "0.8.0", "…": "…"},
+ "system": "<sha256 hex, first 16>", "tools": "<sha256 hex, first 16>",
+ "skills": {"loader": "@thetis/skills-hybrid", "pinned": [{"id": "…", "contentHash": "…"}], "universal": ["…"]},
+ "groups": ["…"], "project": "p_1234abcd"}
+```
+
+- `turn` is the count of the person's messages so far, so it matches the conversation as they see it; a resume repeats its turn's number, and `turnId` (the kernel's id) tells the two apart.
+- `versions` is every entry of `ctx.packages.list()`, name to version. It is the **on-disk** version: a step never sees `loadedVersion`, so a fence that has not reloaded since an update ran older code than it says.
+- `skills` is the loader's `harness["@thetis/skills"]`, only `loader`, `pinned` (`id`, `contentHash`) and `universal`, or `null` without a loader. `groups` is `harness["@thetis/tool-groups"].active` or `null`. `project` is the session's entry in `projects/sessions.json`, or `null`. Those packages are read by key and never imported.
+- The system text and the tool set are kept once per conversation under `harness-core/snapshots/<session>/`: `<system>.md` holds `call.system` exactly, and `<tools>.json` holds the tools as compact JSON, `[{name, package, description, parameters}]` sorted by name. A file is named by the first 16 hex of the sha256 of its own bytes, is written only when missing, and goes through a temporary file renamed into place, so forty turns of the same prompt are one file.
+- A subagent is stamped the same way under its own session id.
+- The write is fired, not awaited: a slow or broken disk never holds up or fails the turn, and a failure is one line in the log, once. `harnessStamps(home, session)` reads the lines back as an array, skipping a torn one.
+
+Reflections and trials read these files; this package never does.
+
 ## Configuration
 
 `config.packages["@thetis/harness-core"]`:
@@ -182,6 +203,7 @@ Context snapshots and saved request summaries use Zod schemas. An unreadable or 
 |---|---|---|
 | `agentName` | `Thetis` | What the agent is called. `scope: system`: an admin sets it for everyone, in Control panel → Agent (`@thetis/ui-admin`'s `agent-set`). The guide opens "You are <name>, an agent working for <person> in their own workspace on this <name> server."; the web page and the sign-in page read the same key. Whitespace collapses, control characters go, at most 40 characters; empty is `Thetis` (`agentNameOf`). |
 | `agentAvatar` | none | The agent's picture: a base64 `data:` URL of a PNG, JPEG, WebP or GIF of at most 96 KB (`agentAvatarOf`; an SVG is refused, it can carry script). `scope: system`, set in the same place. The web page draws it beside each reply, at the top left and as the tab's icon; the sign-in page in place of its mark. `agentOf(config)` answers `{ name, avatar }` for any reader. |
+| `guideNotes` | `[]` | Lines added after the guide as `Working notes:` and one `- <note>` each, one per adopted reflection proposal of kind guide-note. Whitespace collapses; a note over 300 characters, anything not a string and anything past the twentieth is left out, and that is logged once. Reflections writes them at the person's own layer; they may edit them. With none, the guide is byte-identical, so the prompt cache is unaffected. |
 | `turnContext` | `true` | Append the turn context line. `false` appends nothing. |
 | `timeZone` | the daemon's zone | The IANA zone the line is written in, for example `Europe/Berlin`. An unknown zone falls back to `UTC`. |
 | `modelStallMs` | `60000` | How long the model may send nothing at all before the page is told it is quiet (`stall`). Nothing is asked and nothing is cancelled. |
@@ -200,7 +222,7 @@ Context snapshots and saved request summaries use Zod schemas. An unreadable or 
 
 The numbers are chosen for a person watching a chat window, not for a batch job: the first check-in on a tool comes two minutes in, and a decision is reached within three. None of the nudge numbers can be set to `0` to switch the asking off. A value of `0` or less is ignored and the default stands, because a wait nobody is watching is the thing all of this exists to make impossible. The same holds for the three retry times; `retryAttempts` alone may be `0`, because sending nothing again is a choice with a visible result (the error and its Retry button), not an unwatched wait.
 
-The package reads no environment variables and no file in the home. Text a person wants in every prompt is a universal skill under `home/skills/` (linted, at most eight, shown in the skills dock); text for one project is that project's instructions. Both are shown and capped where they live, which a file read into the prompt was not.
+The package reads no environment variables, and of the home only `projects/sessions.json`, for the stamp. Text a person wants in every prompt is a universal skill under `home/skills/` (linted, at most eight, shown in the skills dock); text for one project is that project's instructions. Both are shown and capped where they live, which a file read into the prompt was not.
 
 ## Use
 
@@ -224,17 +246,20 @@ thetis sessions show --user alice --session <id>
 | `src/resume.ts` | The marks (`marksOf`, `mark`), the `resumeTurn` step, and `unrun`, which finds the tool calls a resume runs. |
 | `src/resumer.ts` | The `resumer` service: `RESUME_DEFAULTS`, `resumerConfig`, `resumable`, `pick`, `resumeOnce`. |
 | `src/effort.ts` | The reasoning effort: `EFFORTS`, the two files (`effortOf`, `setEffort`, `readEffortSessions`, `readRememberedEffort`), `reasoningFor`, the `applyEffort` step and the three commands. |
-| `src/forget.ts` | `forgetSession`, the forget hook: the context snapshot, the retry request and the effort key of a forgotten conversation and its subagents. |
+| `src/forget.ts` | `forgetSession`, the forget hook: the context snapshot, the retry request, the effort key and the stamps and snapshots of a forgotten conversation and its subagents. |
+| `src/stamp.ts` | What each turn ran with: `stampTurn`, fired by `callModel`; `harnessStamps`; the paths (`TURNS_DIR`, `SNAPSHOTS_DIR`, `turnsPath`, `snapshotsPath`); and the `guideNotes` caps (`guideNotesOf`, `GUIDE_NOTE_MAX`, `GUIDE_NOTES_MAX`). |
 | `ui/index.js`, `ui/index.css` | The Effort pill. Built with `ext.dom.el`; the `.ef-` rules draw it from the shell's tokens. No inline style: the page's CSP forbids it. |
 | `src/round.ts` | The round hook's shapes: `RoundHookRefSchema` (the hint), `RoundHookArgs`, `RoundHookResult` and the lenient `RoundHookResultSchema` the answer is read with. |
 | `test/harness.test.ts` | The five steps over a fake context; the loop over a scripted provider, a recording `invokeTool` and a fake package list: withheld tool honoured, unknown tool refused, cancel mid-stream and between tool calls, provider failure, a tool that throws; the round hook called from round 2 with the live state, a throwing hook logged and the turn completing, no hint meaning no call. |
 | `test/nudge.test.ts` | The nudge, on the shipped numbers scaled down by about a thousand: a quiet tool asked about and continued, a tool the model cancels, the three unanswerable cases, a quiet stream reported and never asked about, the person's stop winning over a question in flight, a watcher whose events nobody will accept, and the guarantee table. |
 | `test/effort.test.ts` | The effort step and commands over a temporary home: no choice changes nothing, a level and Off, a model that does not think, a model the list does not know or a failing list, the remembered choice and Default, a word that is not an effort, a hand-edited file with junk in it. |
 | `test/effort-browser.mjs` | The pill in Chromium over the real gateway page with a routed fake API. Not part of `npm test`; run it with `THETIS_PLAYWRIGHT_MODULE` and `THETIS_CHROMIUM_EXECUTABLE` set, as `packages/gateway-web/test/BROWSER.md` describes. |
+| `test/stamp.test.ts` | The stamp over temporary homes: its fields and the sorted tools snapshot, snapshots written once across turns, a write that fails (logged once, turn unharmed), a write stuck on a FIFO that does not hold up the turn, a subagent's own file, torn lines; `guideNotes` empty and byte-identical, its format and caps; the forget preview item and removal. |
+| `test/forget.test.ts` | The forget hook over a temporary home, and the guide's 1,400-character budget. |
 | `test/retry.test.ts` | The round retry over a scripted provider: a cut round resent byte for byte, no tool run twice, retries running out with the marks and a labelled error, what is never resent, the once-only cases, the output-limit retry, Retry-After and the budget, a stop during a wait, retry-now; the resume step and the `notRun` tools; the drain; the resumer's choice, its two lanes and its skips. |
 
 ## Tests
 
-`npm test` from the runtime root builds every package and runs `test/harness.test.ts`, `test/nudge.test.ts`, `test/retry.test.ts` and `test/effort.test.ts` with `node --test`.
+`npm test` from the runtime root builds every package and runs `test/harness.test.ts`, `test/nudge.test.ts`, `test/retry.test.ts`, `test/effort.test.ts`, `test/forget.test.ts` and `test/stamp.test.ts` with `node --test`.
 
 `test/nudge.test.ts` ends in a table with one fixture per wait a turn can make, each arranged so that the wait never ends by itself: a model call only its provider's stall bound ends, every time; the stream after it has said something; a tool; a tool that ignores its signal; the read of a tool package's configuration; the question itself; and all of them at once. Every fixture asserts the same things. The turn ended. It kept what it had already done. It said out loud what was cancelled or abandoned and why, and a model's silence was sent again until the retries ran out. Every tool `stall` it emitted has a matching `nudge`, so no wait was left open, and no model `stall` was ever asked about. Every tool call in the returned conversation has an answer, so the next turn is not refused. Adding a new wait to this step means adding a row to that table.

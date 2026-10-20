@@ -1,26 +1,29 @@
 {
   "name": "@thetis/reflections",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
-  "description": "Reflections: when you archive a conversation, a model reads all of it once, writes down what was tried and what it did, and keeps at most one lesson that transfers, as a skill.",
+  "description": "Reflections: when you archive a conversation, a model reads all of it once, with what the harness was on each turn, writes down what was tried, what the packages did wrong, and at most one change to the harness. A change is tried with and without it before you adopt it.",
   "type": "module",
   "main": "index.js",
   "scripts": {
     "test": "node --test \"test/*.test.js\""
   },
+  "dependencies": {
+    "@thetis/skills": "^0.2.0"
+  },
   "thetis": {
     "type": "tool",
     "label": "reflections",
-    "summary": "Learns from your archived conversations: what worked, what did not, and one lesson for next time.",
+    "summary": "Learns from your archived conversations: what worked, what the packages got wrong, and changes to try before you adopt them.",
     "config": {
       "model": {
         "type": "string",
-        "help": "The model that reflects. Unset means the server's default model. Reflection reads the whole conversation once, so a stronger model writes better lessons."
+        "help": "The model that reflects and judges trials. Unset means the server's default model. Reflection reads the whole conversation once, so a stronger model writes better proposals."
       },
       "maxTokens": {
         "type": "number",
-        "default": 8000,
-        "help": "The longest answer one reflection may write, in tokens: the rows of what was tried and the lesson. Reasoning counts against it on models that think."
+        "default": 16000,
+        "help": "The longest answer one reflection may write, in tokens: the rows, the findings and the proposal. Reasoning counts against it on models that think."
       },
       "minTurns": {
         "type": "number",
@@ -40,12 +43,36 @@
       "dailyCostUsd": {
         "type": "number",
         "default": 5,
-        "help": "The most automatic reflections may spend in one day (UTC), in US dollars. Past it an archive is marked \"Skipped: daily cost cap reached\"; Reflect still runs when you press it."
+        "help": "The most automatic reflections may spend in one day (UTC), in US dollars. Past it an archive is marked \"Skipped: daily cost cap reached\"; Reflect still runs when you press it. The judge of a trial counts toward the day but is never stopped by it."
       },
       "enabled": {
         "type": "boolean",
         "default": true,
         "help": "Reflect automatically when you archive a conversation. Off, nothing is reflected unless you press Reflect. A single project can be switched off in the Reflections place."
+      },
+      "trialRuns": {
+        "type": "number",
+        "default": 2,
+        "help": "How many times a trial runs the request with the change, and as many without it. From 1 to 5. One run each is cheap and weak."
+      },
+      "trialCostUsd": {
+        "type": "number",
+        "default": 5,
+        "help": "The most one trial may spend, all its runs together, in US dollars. A run past it is stopped and the trial says so."
+      },
+      "trialMinutes": {
+        "type": "number",
+        "default": 20,
+        "help": "The longest one run of a trial may take, in minutes. A run past it is stopped."
+      },
+      "trialScratchMb": {
+        "type": "number",
+        "default": 8192,
+        "help": "How much memory a trial run may write into, in megabytes. A trial writes nothing to your real files; everything it writes is held in memory and dropped."
+      },
+      "trialModel": {
+        "type": "string",
+        "help": "The model trials run on. Unset means the model the conversation ran with."
       }
     },
     "service": {
@@ -69,7 +96,7 @@
         {
           "id": "reflections",
           "label": "Reflections",
-          "hint": "What your archived conversations taught, and the lessons kept from them",
+          "hint": "What your archived conversations taught: changes to try, and problems with packages",
           "icon": "M10 2.5a5 5 0 0 0-3 9v2h6v-2a5 5 0 0 0-3-9Z M8 16.5h4 M10 7v3"
         }
       ],
@@ -77,7 +104,7 @@
         {
           "verb": "call",
           "export": "uiCall",
-          "label": "Read and change reflections and lessons"
+          "label": "Read and change reflections, proposals and findings"
         }
       ]
     }

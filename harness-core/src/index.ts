@@ -14,6 +14,7 @@ import { LastCallSchema, type LastCall } from "./schemas.js";
 import { RoundHookRefSchema, RoundHookResultSchema, type RoundHookArgs, type RoundHookResult } from "./round.js";
 import { backoffMs, backoffWait, classify, labelOf, retryConfig, takeRetryRequest, withLongerLimit, type Failure, type FailureKind, type Verdict } from "./retry.js";
 import { mark, unrun } from "./resume.js";
+import { fireStamp, guideNotesText } from "./stamp.js";
 export type { LastCall } from "./schemas.js";
 export type { RoundHookArgs, RoundHookRef, RoundHookResult } from "./round.js";
 export { RETRY_DEFAULTS, RETRY_POLL_MS, OUTPUT_LIMIT_CAP, OUTPUT_LIMIT_NOTE, backoffMs, classify, kindFromMessage, retryConfig, retryRequestPath, uiRetryNow, withLongerLimit } from "./retry.js";
@@ -25,6 +26,8 @@ export { EFFORTS, applyEffort, effortOf, effortPrefsPath, effortSessionsPath, is
 export type { Effort } from "./effort.js";
 export { forgetSession } from "./forget.js";
 export type { ForgetAnswer, ForgetArgs } from "./forget.js";
+export { GUIDE_NOTE_MAX, GUIDE_NOTES_MAX, SNAPSHOTS_DIR, TURNS_DIR, guideNotesOf, harnessStamps, snapshotsPath, turnsPath } from "./stamp.js";
+export type { HarnessStamp, StampedTool } from "./stamp.js";
 
 /** The key this package keeps its per-session state under; other packages read it by name. */
 const NAME = "@thetis/harness-core";
@@ -77,10 +80,12 @@ export async function turnContext(ctx: PackageStepContext): Promise<StepResult |
 
 /**
  * prompt: the guide, and nothing of the person's: standing text in every prompt is a universal skill, per-project text is
- * the project's instructions, and both are shown, linted and capped where they live.
+ * the project's instructions, and both are shown, linted and capped where they live. The one exception is
+ * `guideNotes`, the working notes adopted from reflection proposals, appended after the guide; with none the
+ * guide is byte-identical to what it was without the key.
  */
 export async function systemPrompt(ctx: PackageStepContext): Promise<StepResult> {
-  return { call: { ...ctx.call, system: [ctx.call.system, GUIDE(ctx)].filter(Boolean).join("\n\n") } };
+  return { call: { ...ctx.call, system: [ctx.call.system, GUIDE(ctx) + guideNotesText(ctx.config ?? {})].filter(Boolean).join("\n\n") } };
 }
 
 /** tools: attach every tool declared by installed tool packages. */
@@ -787,6 +792,9 @@ export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
     const tries = new Map<string, number>();
     let recovering: { attempt: number; of: number; kind: FailureKind; reason: string } | undefined;
     let round: Round;
+    // What this turn ran with, once, now that every call-phase step has shaped the request: fired and not
+    // awaited, so a slow or broken disk never holds up or fails the request (see stamp.ts).
+    if (nth === 1) void fireStamp(ctx, call);
     for (;;) {
       await context.start(sent);
       const said = recovering;

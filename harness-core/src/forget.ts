@@ -2,12 +2,15 @@
 // `thetis.sessions.forget` to remove what it kept about it. This package keeps three things per
 // conversation, all under the person's home: the context snapshot and usage ledger the Context dock reads
 // (`harness-core/context/<s>.json`), a "retry now" request that was never taken (`harness-core/retry/<s>.json`),
-// and the effort chosen for it (its key in `effort/sessions.json`). Nothing here blocks a forget, and every
-// part is idempotent: a file already gone is not an error and is not reported as removed.
-import { readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
+// the effort chosen for it (its key in `effort/sessions.json`), and what each turn ran with (the stamps in
+// `harness-core/turns/<s>.jsonl` and the prompt and tool snapshots under `harness-core/snapshots/<s>/`). The
+// preview lists the last, which is the one a person would not guess is kept. Nothing here blocks a forget,
+// and every part is idempotent: a file already gone is not an error and is not reported as removed.
+import { access, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { effortSessionsPath } from "./effort.js";
 import { retryRequestPath } from "./retry.js";
+import { snapshotsPath, turnsPath } from "./stamp.js";
 
 /** What the gateway passes: the phase, the conversation forgotten, its whole subtree (root first) and this package's dialog choices. */
 export interface ForgetArgs {
@@ -59,20 +62,43 @@ async function dropEfforts(home: string, ids: Set<string>): Promise<number> {
   return gone.length;
 }
 
-/** `thetis.sessions.forget`: nothing to preview; on forget, the snapshot, the retry request and the effort choice of every id. */
+const exists = (path: string): Promise<boolean> => access(path).then(() => true, () => false);
+
+/** Removes one conversation's stamps and snapshots; true when either was there. */
+async function removeTurns(home: string, s: string): Promise<boolean> {
+  const dir = resolve(home, snapshotsPath(s));
+  const had = await exists(dir);
+  if (had) await rm(dir, { recursive: true, force: true });
+  return (await removeFile(resolve(home, turnsPath(s)))) || had;
+}
+
+/** The one preview item: what each turn ran with, never optional. */
+export const TURNS_ITEM = { id: "turns", label: "What each turn ran with (versions, prompt and tools)" } as const;
+
+/**
+ * `thetis.sessions.forget`: the preview names what each turn ran with when any of the conversations has it;
+ * on forget, the snapshot, the retry request, the effort choice and the stamps of every id.
+ */
 export async function forgetSession(args: ForgetArgs, env: { cwd: string }): Promise<ForgetAnswer> {
+  const ids = (Array.isArray(args?.sessions) ? args.sessions : []).filter((s): s is string => typeof s === "string" && SESSION_ID.test(s));
+  if (args?.phase === "preview") {
+    for (const s of ids) if ((await exists(resolve(env.cwd, turnsPath(s)))) || (await exists(resolve(env.cwd, snapshotsPath(s))))) return { items: [{ ...TURNS_ITEM }] };
+    return {};
+  }
   if (args?.phase !== "forget") return {};
-  const ids = (Array.isArray(args.sessions) ? args.sessions : []).filter((s): s is string => typeof s === "string" && SESSION_ID.test(s));
   let snapshots = 0;
   let retries = 0;
+  let turns = 0;
   for (const s of ids) {
     if (await removeFile(resolve(env.cwd, "harness-core/context", `${s}.json`))) snapshots++;
     if (await removeFile(resolve(env.cwd, retryRequestPath(s)))) retries++;
+    if (await removeTurns(env.cwd, s)) turns++;
   }
   const efforts = await dropEfforts(env.cwd, new Set(ids));
   const removed: string[] = [];
   if (snapshots) removed.push(`The context snapshot and usage of ${plural(snapshots, "conversation")}.`);
   if (retries) removed.push(`${plural(retries, "retry request")} that had not been taken.`);
   if (efforts) removed.push(`The effort chosen for ${plural(efforts, "conversation")}.`);
+  if (turns) removed.push(`What each turn ran with (versions, prompt and tools) in ${plural(turns, "conversation")}.`);
   return { removed };
 }

@@ -1,0 +1,26 @@
+{
+  "name": "@thetis/host-trials",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Runs one request twice, with and without one harness change, on the real Thetis with every write going to RAM: the person's space, their read-write folders and the code are overlaid onto a tmpfs, the docker socket and every host socket are masked, and their workspace gets no network. A host package: loaded by the daemon per call as host.trials.<export>, never installed into a fence.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "devDependencies": {
+    "@thetis/runtime": "file:../.."
+  },
+  "thetis": {
+    "type": "host",
+    "label": "trials",
+    "summary": "Tries a proposed change on a copy of your space before you adopt it.",
+    "host": {
+      "name": "trials",
+      "self": ["start", "status", "cancel", "list", "forget"]
+    }
+  },
+  "peerDependencies": {
+    "@thetis/runtime": "^0.2.0"
+  }
+}

@@ -214,6 +214,8 @@ async function previews(fc: ForgetContext, id: string, sessions: string[]): Prom
 
 /** The title as the page shows it, which is what a person types. An empty one shows as "New conversation". */
 const shownTitle = (title: string) => title.trim() || "New conversation";
+/** A typed title as the check compares it: "..." stands for the "…" a long title is cut with, and runs of spaces are one. */
+export const titleKey = (title: string) => title.trim().replace(/\u2026/g, "...").replace(/\s+/g, " ");
 
 /** `POST /api/sessions/<id>/forget/preview`: everything the dialog shows, and nothing is changed. */
 export async function forgetPreview(fc: ForgetContext, id: string): Promise<ForgetPreview> {
@@ -292,7 +294,7 @@ export async function forgetSession(fc: ForgetContext, id: string, body: ForgetR
   const { root, refs } = await subtreeOf(fc, id);
   const subtree = refs.map((r) => r.id);
   const typed = body.confirm.trim();
-  if (!(root.turns < TITLE_FREE_TURNS && !typed) && typed !== shownTitle(fc.title(root))) throw new HttpError(400, "type the conversation's title exactly as it is shown to forget it");
+  if (!(root.turns < TITLE_FREE_TURNS && !typed) && titleKey(typed) !== titleKey(shownTitle(fc.title(root)))) throw new HttpError(400, "type the conversation's title exactly as it is shown to forget it");
 
   const { hooks } = await previews(fc, id, subtree);
   const blocked = hooks.find((h) => h.block);

@@ -70,13 +70,13 @@ export default function install(ext) {
         setHidden(button, true);
         return;
       }
-      const d = describe(view.record, { lessons: view.lessons?.filter((l) => l.present).length ?? 0 });
+      const d = describe(view.record);
       setHidden(button, false);
       button.classList.add("rfl-chip");
       for (const tone of ["ok", "err", "accent", "dim"]) button.classList.toggle(`is-${tone}`, d.tone === tone);
       button.classList.toggle("is-busy", Boolean(d.busy));
       button.textContent = d.label;
-      button.title = "What this conversation taught, when it was archived. Open Reflections.";
+      button.title = "What reflecting on this conversation found. Open Reflections.";
     },
     open({ session } = {}) {
       ext.open.place("reflections", { session: session ?? ext.conversation.current });

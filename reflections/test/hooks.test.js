@@ -1,17 +1,17 @@
 // The session hooks: what an archive writes and why, what a restore cancels, and the two phases of a
-// forget, with and without the lessons.
+// forget: the reflection, the proposals that came only from it (with their trials), adopted changes kept,
+// shared entries and findings losing only this conversation.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { decideArchive, forgetSession, onArchive } from "../lib/hooks.js";
-import { writeLesson } from "../lib/lessons.js";
-import { guard, parseAnswer } from "../lib/prompt.js";
-import { GOOD_ANSWER, fakeKernel, get, put, sampleSession, tempHome } from "./helpers.js";
+import { readFindings, readLibrary, writeLibrary } from "../lib/library.js";
+import { fakeKernel, get, put, sampleSession, tempHome } from "./helpers.js";
 
 const S = "s_aaaa1111";
 
 async function fence({ turns = 3, config = {}, parent } = {}) {
   const { home, done } = await tempHome();
-  const kernel = fakeKernel({ sessions: [sampleSession(S, { turns, ...(parent ? { parent } : {}) })] });
+  const kernel = fakeKernel({ sessions: [sampleSession(S, { turns, ...(parent ? { parent } : {}) })], home, admin: true });
   // The shape the gateway gives a hook: a tool env, whose session is `{ id, user }`.
   const env = { cwd: home, kernel, config, session: { id: S, user: "u1" } };
   return { home, done, env };
@@ -87,7 +87,7 @@ test("restore cancels a queued or running reflection and keeps a done one", asyn
       assert.equal(r.state, "cancelled");
       assert.equal(r.reason, "restored before it ran");
     }
-    await put(home, `reflections/${S}.json`, { session: S, state: "done", lesson: "lessons/general/x" });
+    await put(home, `reflections/${S}.json`, { session: S, state: "done", proposal: "L-aaaaaa", findings: [] });
     await onArchive({ session: S, archived: false }, env);
     assert.equal((await get(home, `reflections/${S}.json`)).state, "done");
     // Archived again, a cancelled one is queued again, from scratch.
@@ -102,38 +102,82 @@ test("restore cancels a queued or running reflection and keeps a done one", asyn
   }
 });
 
-test("forget: the preview lists the reflection and the lessons, the forget removes them", async () => {
+const entry = (id, sessions, extra = {}) => ({ id, kind: "guide-note", target: "-", cue: "c", lesson: "l", change: "n", from: sessions.map((session) => ({ session, title: "t", at: "x", rows: [1] })), state: "proposed", trials: [], applied: null, ...extra });
+const finding = (id, sessions) => ({ id, package: "@thetis/tools-files", component: "read_file", what: "w", state: "open", seen: sessions.map((session) => ({ session, at: "x", version: "0.4.0", events: [], rows: [] })) });
+
+test("forget: the preview lists the reflection, the proposals only from it, and its sightings", async () => {
   const { home, done, env } = await fence();
   try {
     assert.deepEqual(await forgetSession({ phase: "preview", session: S, sessions: [S], options: {} }, env), { items: [] }, "nothing held, nothing listed");
     await put(home, `reflections/${S}.json`, { session: S, state: "done" });
     await put(home, `reflections/${S}.md`, "# Reflection");
     await put(home, `reflections/${S}/context/trajectory.md`, "[1] [USER] hi");
-    const parsed = parseAnswer(GOOD_ANSWER);
-    const { lesson } = guard(parsed, new Set([4, 5, 8, 9]));
-    const id = await writeLesson(home, { lesson, rows: parsed.rows, conversation: { id: S, title: "t", project: null } });
-    const other = await writeLesson(home, { lesson, rows: parsed.rows, conversation: { id: "s_bbbb2222", title: "u", project: null } });
+    const O = "s_bbbb2222";
+    await writeLibrary(home, { entries: [
+      entry("L-000001", [S], { trials: ["t_00000001"], state: "trialled" }),
+      entry("L-000002", [S, "s_cccc3333"]),
+      entry("L-000003", [S, O]),
+      entry("L-000004", [S], { state: "adopted", applied: { before: "[]", after: '["n"]', at: "x" } }),
+      entry("L-000005", [O]),
+    ] });
+    await put(home, "reflections/trials/t_00000001/judge.md", "# Judgement");
+    await put(home, "trials/t_00000001/trial.json", { id: "t_00000001" });
+    await put(home, "reflections/findings.json", { findings: [finding("F-000001", [S]), finding("F-000002", [S, O]), finding("F-000003", [O])] });
 
     const preview = await forgetSession({ phase: "preview", session: S, sessions: [S, "s_cccc3333"], options: {} }, env);
     assert.deepEqual(preview.items, [
       { id: "reflection", label: "Its reflection and the evidence exported for it", optional: false },
-      { id: "lessons", label: "1 lesson came from this conversation", optional: true, default: true },
+      { id: "proposals", label: "2 proposals came only from this conversation", optional: true, default: true },
+      { id: "findings", label: "Its sightings in 2 findings", optional: false },
     ]);
 
-    const kept = await forgetSession({ phase: "forget", session: S, sessions: [S], options: { lessons: false } }, env);
-    assert.deepEqual(kept, { removed: ["its reflection"], kept: ["1 lesson it taught stays in your skills"] });
+    const out = await forgetSession({ phase: "forget", session: S, sessions: [S], options: { proposals: true } }, env);
+    assert.deepEqual(out, { removed: ["its reflection", "1 proposal it led to", "its sightings in 2 findings"], kept: ["1 adopted change it led to stays; retire it in Reflections"] });
     assert.equal(await get(home, `reflections/${S}.json`), null);
     assert.equal(await get(home, `reflections/${S}.md`), null);
     assert.equal(await get(home, `reflections/${S}/context/trajectory.md`), null);
-    assert.ok(await get(home, `skills/${id}/SKILL.md`), "the lesson stays when the box was unticked");
+    const lib = await readLibrary(home);
+    assert.deepEqual(lib.entries.map((e) => e.id), ["L-000002", "L-000003", "L-000004", "L-000005"]);
+    assert.deepEqual(lib.entries.find((e) => e.id === "L-000003").from.map((f) => f.session), [O], "a shared entry loses only this conversation");
+    assert.deepEqual(lib.entries.find((e) => e.id === "L-000002").from.map((f) => f.session), ["s_cccc3333"]);
+    assert.equal(await get(home, "reflections/trials/t_00000001/judge.md"), null, "the trial files go with the entry");
+    assert.equal(await get(home, "trials/t_00000001/trial.json"), null);
+    assert.deepEqual(env.kernel.operator.calls.filter((c) => c.method === "host.trials.forget").map((c) => c.args), [{ user: "u1", trial: "t_00000001" }], "the host is asked to drop its copy, for the person");
+    const f = (await readFindings(home)).findings;
+    assert.deepEqual(f.map((x) => [x.id, x.seen.map((s) => s.session)]), [["F-000002", [O]], ["F-000003", [O]]], "a finding left with no sightings goes");
 
-    const gone = await forgetSession({ phase: "forget", session: S, sessions: [S], options: { lessons: true } }, env);
-    assert.deepEqual(gone, { removed: ["1 lesson it taught"], kept: [] });
-    assert.equal(await get(home, `skills/${id}/SKILL.md`), null);
-    assert.ok(await get(home, `skills/${other}/SKILL.md`), "another conversation's lesson stays");
-    assert.deepEqual(Object.keys(await get(home, "reflections/lessons.json")), [other]);
+    assert.deepEqual(await forgetSession({ phase: "forget", session: S, sessions: [S], options: { proposals: true } }, env), { removed: [], kept: ["1 adopted change it led to stays; retire it in Reflections"] }, "idempotent but for the adopted change, which stays");
+  } finally {
+    await done();
+  }
+});
 
-    assert.deepEqual(await forgetSession({ phase: "forget", session: S, sessions: [S], options: { lessons: true } }, env), { removed: [], kept: [] }, "idempotent");
+test("forget goes on, and logs, when the trials host cannot forget", async () => {
+  const { home, done, env } = await fence();
+  try {
+    const logs = [];
+    env.log = (l) => logs.push(l);
+    env.kernel.operator.call = async (method) => {
+      throw new Error(`unknown method ${method}`);
+    };
+    await writeLibrary(home, { entries: [entry("L-000001", [S], { trials: ["t_00000001"] })] });
+    await put(home, "trials/t_00000001/trial.json", { id: "t_00000001" });
+    const out = await forgetSession({ phase: "forget", session: S, sessions: [S], options: { proposals: true } }, env);
+    assert.deepEqual(out.removed, ["1 proposal it led to"]);
+    assert.equal(await get(home, "trials/t_00000001/trial.json"), null);
+    assert.deepEqual(logs, ["reflections: the trials host could not forget t_00000001: unknown method host.trials.forget"]);
+  } finally {
+    await done();
+  }
+});
+
+test("forget with the proposals box unticked keeps them, and says so", async () => {
+  const { home, done, env } = await fence();
+  try {
+    await writeLibrary(home, { entries: [entry("L-000001", [S])] });
+    const out = await forgetSession({ phase: "forget", session: S, sessions: [S], options: { proposals: false } }, env);
+    assert.deepEqual(out, { removed: [], kept: ["1 proposal it led to stays in Reflections"] });
+    assert.equal((await readLibrary(home)).entries.length, 1);
   } finally {
     await done();
   }

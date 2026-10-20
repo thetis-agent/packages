@@ -55,6 +55,7 @@ test("the pieces: defaults per package, the scope sentence, what goes and what s
   assert.deepEqual(forgetState(p, ""), { blocked: null, needsTitle: true, label: "Forget", enabled: false });
   assert.equal(forgetState(p, "Trip").enabled, false);
   assert.equal(forgetState(p, "  Trip plans ").enabled, true, "trimmed, as the server compares it");
+  assert.equal(forgetState(preview({ title: "Fix the header colour in site/dist…" }), "Fix the header colour in site/dist...").enabled, true, "three dots stand for the ellipsis a long title is cut with");
   assert.deepEqual(forgetState(preview({ turns: 2 }), ""), { blocked: null, needsTitle: false, label: "Forget", enabled: true }, "under three turns no title is asked");
   const blocked = preview({ hooks: [{ package: "@thetis/workflows", items: [], block: "a workflow run that uses it is still active" }] });
   assert.deepEqual(forgetState(blocked, "Trip plans"), { blocked: "a workflow run that uses it is still active", needsTitle: true, label: "Forget", enabled: false });
