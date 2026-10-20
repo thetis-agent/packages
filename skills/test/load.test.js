@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { loadSkills, excludedFor, selectSkills, clearCache, sourcesOf } from "../lib/load.js";
+import { loadSkills, excludedFor, selectSkills, clearCache, sourcesOf, projectOf, hiddenIn } from "../lib/load.js";
 import { fetchSkill, slice, SLICE } from "../lib/fetch.js";
 import { fakeEnv, makeHome, packInfo, skillText, writeSkill } from "./helpers.js";
 
@@ -135,6 +135,92 @@ test("fetchSkill returns the body, a file beside it, refuses the unknown with th
     await assert.rejects(fetchSkill({ id: "package" }, toolEnv), /no skill with the id package; closest: packages/);
     await assert.rejects(fetchSkill({}, toolEnv), /id is required/);
     await assert.rejects(fetchSkill({ id: "broken" }, toolEnv), /no skill with the id broken/);
+  } finally {
+    rm();
+  }
+});
+
+/** The fixture plus lessons the way @thetis/reflections writes them: a general scope and two project scopes. */
+function lessonsFixture() {
+  const f = fixture();
+  const skills = resolve(f.home, "skills");
+  writeSkill(skills, "lessons", skillText({ name: "lessons", description: "Lessons from your archived conversations." }));
+  writeSkill(skills, "lessons/general", skillText({ name: "general", description: "Lessons for any conversation." }));
+  writeSkill(skills, "lessons/general/retry", skillText({ name: "retry", description: "Retry a flaky test once. Use when a test fails without a change." }));
+  writeSkill(skills, "lessons/p-0123abcd", skillText({ name: "p-0123abcd", description: "Lessons from project A.", meta: ["project: p_0123abcd"] }));
+  writeSkill(skills, "lessons/p-0123abcd/deploy", skillText({ name: "deploy", description: "Deploy A with make. Use when A ships." }));
+  writeSkill(skills, "lessons/p-deadbeef", skillText({ name: "p-deadbeef", description: "Lessons from project B.", meta: ["project: p_deadbeef"] }));
+  writeSkill(skills, "lessons/p-deadbeef/build", skillText({ name: "build", description: "Build B with cargo. Use when B builds." }));
+  // An error inside another project's scope stays as quiet as the rest of that scope.
+  writeSkill(skills, "lessons/p-deadbeef/broken", "no frontmatter\n");
+  mkdirSync(resolve(f.home, "projects"), { recursive: true });
+  writeFileSync(resolve(f.home, "projects", "sessions.json"), JSON.stringify({ "s-a": "p_0123abcd", "s-b": "p_deadbeef", "s-c": "p_00000000" }));
+  return f;
+}
+
+test("projectOf reads the session's project, or null", async () => {
+  const { rm, env } = lessonsFixture();
+  try {
+    assert.equal(await projectOf(env, "s-a"), "p_0123abcd");
+    assert.equal(await projectOf(env, { id: "s-b" }), "p_deadbeef");
+    assert.equal(await projectOf(env, "s-none"), null);
+    assert.equal(await projectOf(env, undefined), null);
+  } finally {
+    rm();
+  }
+});
+
+test("a project-scoped skill and its children are hidden outside that project, with one quiet note", async () => {
+  const { rm, packages, env } = lessonsFixture();
+  try {
+    clearCache();
+    const a = await selectSkills(env, packages, { id: "s-a" });
+    const ids = a.skills.map((s) => s.id);
+    assert.ok(ids.includes("lessons/p-0123abcd") && ids.includes("lessons/p-0123abcd/deploy"), "the session's own project is seen");
+    assert.ok(ids.includes("lessons/general/retry"), "an unscoped lesson is seen everywhere");
+    assert.equal(ids.some((id) => id.startsWith("lessons/p-deadbeef")), false);
+    assert.deepEqual(a.hidden, ["lessons/p-deadbeef", "lessons/p-deadbeef/broken", "lessons/p-deadbeef/build"]);
+    assert.equal(a.project, "p_0123abcd");
+    assert.deepEqual(a.excluded, []);
+    assert.deepEqual(a.skills.find((s) => s.id === "lessons").children, ["lessons/general", "lessons/p-0123abcd"], "a parent's card names no hidden id");
+    assert.equal(a.notes.filter((n) => /deadbeef|switched off/.test(n)).length, 0, "the hidden skills are not named, not even for an error");
+    assert.ok(a.notes.includes("3 skills belong to other projects"));
+
+    const none = await selectSkills(env, packages, { id: "s-none" });
+    assert.equal(none.skills.some((s) => /^lessons\/p-/.test(s.id)), false, "with no project every project-scoped skill is hidden");
+    assert.equal(none.hidden.length, 5);
+    assert.ok(none.notes.includes("5 skills belong to other projects"));
+    assert.ok(none.all.some((s) => s.id === "lessons/p-0123abcd"), "all keeps everything, for a page that shows the person their own");
+
+    const other = await selectSkills(env, packages, { id: "s-c" });
+    assert.equal(other.hidden.length, 5, "a project with no lessons sees none of the others'");
+  } finally {
+    rm();
+  }
+});
+
+test("hiddenIn: a skill nested under a scope is hidden with it whatever it says itself", () => {
+  const all = [
+    { id: "a", project: "p_11111111" },
+    { id: "a/b", project: "p_22222222" },
+    { id: "a/b/c", project: "" },
+    { id: "d", project: "" },
+  ];
+  assert.deepEqual(hiddenIn(all, "p_11111111"), ["a/b", "a/b/c"]);
+  assert.deepEqual(hiddenIn(all, "p_22222222"), ["a", "a/b", "a/b/c"], "a scoped parent takes its children");
+  assert.deepEqual(hiddenIn(all, null), ["a", "a/b", "a/b/c"]);
+  assert.deepEqual(hiddenIn([{ id: "d", project: "" }], null), []);
+});
+
+test("skill_fetch answers a hidden id as unknown and never offers one as the closest", async () => {
+  const { rm, packages, env } = lessonsFixture();
+  try {
+    clearCache();
+    const toolEnv = (id) => ({ ...env, session: { id }, kernel: { packages: { list: async () => packages } } });
+    assert.match(await fetchSkill({ id: "lessons/p-deadbeef/build" }, toolEnv("s-b")), /^The body\./);
+    await assert.rejects(fetchSkill({ id: "lessons/p-deadbeef/build" }, toolEnv("s-a")), (e) => /no skill with the id lessons\/p-deadbeef\/build/.test(e.message) && !/closest: [^;]*deadbeef/.test(e.message));
+    await assert.rejects(fetchSkill({ id: "lessons/p-deadbeef" }, toolEnv("s-none")), /no skill with the id/);
+    await assert.rejects(fetchSkill({ id: "lessons/p-0123abcd/deploy" }, toolEnv("s-none")), (e) => !/p-0123abcd/.test(e.message.split("closest")[1] ?? ""));
   } finally {
     rm();
   }

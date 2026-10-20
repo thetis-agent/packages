@@ -7,10 +7,11 @@ import { benchVectorsFor } from "./vectors.js";
 import { denseRank, hybridRank, lexicalRank, lexicalEvidence, POOL, DEFAULT_WEIGHT, DEFAULT_THRESHOLD, DEFAULT_MIN_TERMS } from "./rank.js";
 
 /**
- * Vectors for every skill as a map of id to vector, embedding what the cache lacks when there is a key.
+ * Vectors for every skill as a map of id to vector, embedding what the cache lacks when there is a key. The
+ * cache is pruned on write to these skills' hashes and `keep`'s, so the skills a project does not see keep theirs.
  * Returns `{ vectors, note }`; `vectors` is null when the dense path is not available for this turn.
  */
-export async function vectorsFor(env, skills, cfg, deps = {}) {
+export async function vectorsFor(env, skills, cfg, deps = {}, keep = []) {
   const fetchImpl = deps.fetch ?? globalThis.fetch;
   const cache = await readCache(env);
   const vectors = new Map();
@@ -28,7 +29,7 @@ export async function vectorsFor(env, skills, cfg, deps = {}) {
       cache[keyOf(cfg.model, cfg.dimensions, s.contentHash)] = got[i];
       vectors.set(s.id, got[i]);
     });
-    await writeCache(env, cache, new Set(skills.map((s) => s.contentHash)));
+    await writeCache(env, cache, new Set([...skills.map((s) => s.contentHash), ...keep]));
     return { vectors, note: null };
   } catch (e) {
     return { vectors: null, note: `embeddings unavailable (${e?.message ?? e}); ranking is lexical` };
@@ -73,7 +74,7 @@ export function minTermsOf(config) {
  * explicit search passes 0 and keeps every BM25 hit). Without it, a rank is a rank: the top six of a list of stray
  * one-word overlaps got pinned for a greeting.
  */
-export async function retrieve(env, skills, query, config, { limit, universal = new Set(), deps = {}, threshold = 0, evidence = 0 } = {}) {
+export async function retrieve(env, skills, query, config, { limit, universal = new Set(), deps = {}, threshold = 0, evidence = 0, keep = [] } = {}) {
   const cfg = embeddingConfig(config);
   const weight = Number.isFinite(Number(config?.fusionWeight)) ? Number(config.fusionWeight) : DEFAULT_WEIGHT;
   const q = queryTextOf(query);
@@ -83,7 +84,7 @@ export async function retrieve(env, skills, query, config, { limit, universal = 
   let note = null;
   let mode = "lexical";
   if (skills.length && q.trim()) {
-    const got = await vectorsFor(env, skills, cfg, deps);
+    const got = await vectorsFor(env, skills, cfg, deps, keep);
     if (got.vectors) {
       const qv = await queryVectorFor(env, q, cfg, deps);
       if (qv.vector) {

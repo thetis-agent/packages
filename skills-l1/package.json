@@ -1,6 +1,6 @@
 {
   "name": "@thetis/skills-l1",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "Puts one brief per skill in the system prompt and offers load_skill, which returns a body once per conversation; universal skills are always in full.",
   "type": "module",
@@ -9,13 +9,20 @@
     "test": "node --test \"test/*.test.js\""
   },
   "dependencies": {
-    "@thetis/skills": "^0.1.0"
+    "@thetis/skills": "^0.2.0"
   },
   "thetis": {
     "type": "loader",
     "label": "skill loader (catalogue)",
     "summary": "Another way to give your assistant its skills: a list, loaded on request.",
     "conflicts": ["@thetis/skills-hybrid", "@thetis/skills-all"],
+    "config": {
+      "alwaysOnBudget": {
+        "type": "number",
+        "default": 64000,
+        "help": "What skills may put in every prompt, in characters: the catalogue of briefs and the bodies of the universal skills. Over it, universal bodies are left out first (from the last id back), then briefs from the end; the notes and the Skills panel name each one."
+      }
+    },
     "steps": [
       { "id": "bench-import", "phase": "bench", "export": "importCorpus" },
       { "id": "catalogue", "phase": "prompt", "export": "catalogue" },

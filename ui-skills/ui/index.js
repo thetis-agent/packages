@@ -235,6 +235,8 @@ export default function install(ext) {
       if (opened.length) lines.push(el("p", { class: "sk-plain" }, el("strong", {}, "Opened by the agent: "), names(opened), "."));
     }
     if (session && data.excluded.length) lines.push(el("p", { class: "sk-plain text-faint" }, `The project switched off ${plural(data.excluded.length, "skill")}.`));
+    if (data.hidden) lines.push(el("p", { class: "sk-plain text-faint sk-hidden-line" }, `${data.hidden === 1 ? "1 skill belongs" : `${data.hidden} skills belong`} to ${session ? "other projects" : "projects"}; ${data.hidden === 1 ? "it is" : "they are"} seen only in ${data.hidden === 1 ? "its project's" : "their projects'"} conversations.`));
+    if (session && data.alwaysOn) lines.push(budgetLine(data.alwaysOn));
     if (session && developer()) {
       lines.push(
         data.loader
@@ -280,8 +282,25 @@ export default function install(ext) {
     return group("off", "Switched off by the project", { count: list.length, note: list.length ? "Left out of the prompt and of skill_fetch. A switched-off parent takes its nested skills with it." : null, openByDefault: false }, list.length ? rows(list) : empty("Nothing is switched off by a project."));
   }
 
+  /** What skills put in every prompt against the budget, as a bar and a sentence; the drops are counted here and listed below. */
+  function budgetLine(b) {
+    const share = Math.min(100, Math.max(1, Math.round((b.used / (b.budget || 1)) * 100)));
+    const fill = el("span", { class: `sk-score-fill${b.dropped.length ? " is-over" : ""}` });
+    fill.style?.setProperty?.("--share", `${share}%`);
+    const unit = b.unit === "bytes" ? "bytes" : "characters";
+    const sentence = b.dropped.length
+      ? `In every prompt: ${count(b.used)} of the ${count(b.budget)} ${unit} skills may use. ${count(b.total)} were wanted, so ${plural(b.dropped.length, "part")} ${b.dropped.length === 1 ? "is" : "are"} left out (below).`
+      : `In every prompt: ${count(b.used)} of the ${count(b.budget)} ${unit} skills may use.`;
+    return el("div", { class: "sk-budget", title: "The catalogue of briefs and the bodies of the universal skills go in every prompt. The loader's alwaysOnBudget setting is the limit." }, el("span", { class: "sk-score-bar" }, fill), el("span", { class: "sk-plain text-faint" }, sentence));
+  }
+
+  const PART = { body: "universal body left out", brief: "brief left out", skill: "left out" };
+
   function droppedSection(data) {
-    return group("dropped", "Left out for the budget", { count: data.dropped.length, note: "The loader ran out of room before these.", openByDefault: false }, rows(data.dropped.map((id) => rowFor(id, data))));
+    const drops = data.alwaysOn?.dropped.length ? data.alwaysOn.dropped : data.dropped.map((id) => ({ id, part: "" }));
+    const list = drops.map((d) => rowFor(d.id, data, { extra: el("span", { class: "sk-row-score" }, PART[d.part] ?? "left out") }));
+    const note = data.alwaysOn ? `Over the budget of ${count(data.alwaysOn.budget)} ${data.alwaysOn.unit}: universal bodies go first, from the last id back, then briefs from the end. A dropped body can still be loaded by id.` : "The loader ran out of room before these.";
+    return group("dropped", "Left out for the budget", { count: list.length, note, openByDefault: false }, rows(list));
   }
 
   function notesSection(data) {
@@ -340,7 +359,7 @@ export default function install(ext) {
     if (data.pinned.length || data.loader) root.append(pinnedSection(data));
     if (data.loaded.length) root.append(loadedSection(data));
     root.append(offSection(data));
-    if (data.dropped.length) root.append(droppedSection(data));
+    if (data.dropped.length || data.alwaysOn?.dropped.length) root.append(droppedSection(data));
     if (dev && data.notes.length) root.append(notesSection(data));
     root.append(catalogueSection(data));
     const parts = [];
@@ -400,6 +419,9 @@ const keyOf = (skill) => `${skill.id}@${skill.contentHash ?? ""}`;
 /** A score with two significant figures and no trailing zeros: 0.5 stays 0.5, 0.016393 reads 0.016. */
 const shortNumber = (n) => String(Number(Number(n).toPrecision(2)));
 
+/** A whole number with thousands separators, the same in every locale so a test can read it. */
+const count = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
 function plural(n, word) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
@@ -423,6 +445,13 @@ function saveFolds(folds) {
 
 const strings = (list) => (Array.isArray(list) ? list.filter((x) => typeof x === "string") : []);
 
+/** The budget the loader reported with every field present, or null. */
+function alwaysOnOf(b) {
+  if (!b || typeof b !== "object" || !Number.isFinite(b.budget) || !Number.isFinite(b.used)) return null;
+  const dropped = (Array.isArray(b.dropped) ? b.dropped : []).filter((d) => d && typeof d.id === "string").map((d) => ({ id: d.id, part: typeof d.part === "string" ? d.part : "" }));
+  return { budget: b.budget, used: b.used, total: Number.isFinite(b.total) ? b.total : b.used, unit: b.unit === "bytes" ? "bytes" : "characters", dropped };
+}
+
 /** The `skills` answer with every field present, so drawing never tests for one. */
 function normalize(data) {
   const d = data && typeof data === "object" ? data : {};
@@ -437,8 +466,10 @@ function normalize(data) {
     loaded: strings(d.loaded),
     catalogue: strings(d.catalogue),
     dropped: strings(d.dropped),
+    alwaysOn: alwaysOnOf(d.alwaysOn),
     notes: strings(d.notes),
     excluded: strings(d.excluded),
+    hidden: Number.isInteger(d.hidden) && d.hidden > 0 ? d.hidden : 0,
     skills,
   };
 }

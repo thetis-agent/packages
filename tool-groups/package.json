@@ -1,6 +1,6 @@
 {
   "name": "@thetis/tool-groups",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "license": "MIT",
   "description": "Scopes the tool list to the groups a conversation looks like it needs: one group per package, routed once on the first message by tags, skill edges and a dense fallback, pinned for the conversation, and tool_search to load the rest.",
   "type": "module",
@@ -9,10 +9,11 @@
     "test": "node --test \"test/*.test.js\""
   },
   "dependencies": {
-    "@thetis/skills": "^0.1.0"
+    "@thetis/skills": "^0.2.0"
   },
   "thetis": {
     "type": "loader",
+    "sessions": { "forget": "forgetSession" },
     "label": "tool routing",
     "summary": "Offers each conversation only the tools it looks like it needs.",
     "config": {

@@ -378,3 +378,64 @@ test("minTerms: a stray one-word overlap pins nothing and says so; a name or tag
     h.rm();
   }
 });
+
+test("a skill of another project is not in the shorts, not retrieved, not searchable, and its vector stays cached", async () => {
+  const h = home();
+  try {
+    clearCache();
+    threeSkills(h);
+    h.skill("deploys", "Deploys project B with cargo. Use when B ships a package.", "B body.\n", ["project: p_deadbeef"]);
+    h.skill("deploys/install", "Installs B's package. Use when asked to install B.");
+    await h.env.writeFile("projects/sessions.json", JSON.stringify({ "s-1": "p_0123abcd", "s-b": "p_deadbeef" }));
+    // In B the scoped skills are embedded with the rest.
+    await withFetch(fakeFetch(), () => pin(ctxOf(h.env, { session: { id: "s-b" }, config: withKey })));
+    const all = loadSkills(h.env, []);
+    const inB = Object.keys(await readCache(h.env)).sort();
+    assert.deepEqual(inB, all.map((s) => keyOf("fake", 8, s.contentHash)).sort());
+
+    const out = await withFetch(fakeFetch(), () => pin(ctxOf(h.env, { config: withKey })));
+    const state = out.harness[STATE];
+    assert.doesNotMatch(out.call.system, /deploys/);
+    assert.equal(state.ranked.some((r) => r.id.startsWith("deploys")), false);
+    assert.equal(state.catalogue.includes("deploys"), false);
+    assert.ok(state.notes.includes("2 skills belong to other projects"));
+    assert.deepEqual(Object.keys(await readCache(h.env)).sort(), inB, "a conversation elsewhere does not prune B's vectors");
+
+    const found = await withFetch(noNetwork, () => skillSearch({ query: "deploys project B with cargo install" }, toolEnv(h.env)));
+    assert.doesNotMatch(found, /deploys/);
+    const foundInB = await withFetch(noNetwork, () => skillSearch({ query: "deploys project B with cargo" }, toolEnv(h.env, { session: { id: "s-b" } })));
+    assert.match(foundInB, /`deploys`/);
+  } finally {
+    h.rm();
+  }
+});
+
+test("alwaysOnBudget: the universal body goes first, then shorts from the end, each named; a dropped universal is retrievable", async () => {
+  const h = home();
+  try {
+    clearCache();
+    threeSkills(h);
+    const full = await withFetch(noNetwork, () => pin(ctxOf(h.env)));
+    const fullState = full.harness[STATE];
+    assert.deepEqual(fullState.alwaysOn, { budget: 64000, used: fullState.alwaysOn.used, total: fullState.alwaysOn.used, unit: "characters", dropped: [] });
+    assert.ok(fullState.alwaysOn.used > 0);
+
+    const budget = fullState.alwaysOn.used - 1;
+    const out = await withFetch(noNetwork, () => pin(ctxOf(h.env, { config: { alwaysOnBudget: budget } })));
+    const state = out.harness[STATE];
+    assert.deepEqual(state.universal, []);
+    assert.deepEqual(state.alwaysOn.dropped, [{ id: "concise", part: "body" }]);
+    assert.deepEqual(state.dropped, ["concise"]);
+    assert.doesNotMatch(out.call.system, /# Skills always in force/);
+    assert.match(state.notes.join("\n"), /over the always-on budget \(\d+ of \d+ characters\): left out the universal body of concise/);
+    const found = await withFetch(noNetwork, () => skillSearch({ query: "short answers" }, toolEnv(h.env, { config: { alwaysOnBudget: budget } })));
+    assert.match(found, /^`concise` — Short answers\./, "a universal skill without its body is a search result like any other");
+
+    const tight = await withFetch(noNetwork, () => pin(ctxOf(h.env, { session: { id: "s-2" }, config: { alwaysOnBudget: 200 } })));
+    const drops = tight.harness[STATE].alwaysOn.dropped.map((d) => `${d.id}:${d.part}`);
+    assert.deepEqual(drops.slice(0, 2), ["concise:body", "projects:brief"]);
+    assert.ok(tight.harness[STATE].alwaysOn.used <= 200);
+  } finally {
+    h.rm();
+  }
+});

@@ -12,15 +12,17 @@ The multilayer loader, and the default for everyone: one brief per top-level ski
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `skill_search` | `query` (required), `k` (default 5, at most 20) | One line per hit: the brief, then `[how, score]` where `how` is `dense`, `lexical` or `parent-of-match`. Nothing is pinned. A universal skill is not a result. A skill the project switched off is not there. |
+| `skill_search` | `query` (required), `k` (default 5, at most 20) | One line per hit: the brief, then `[how, score]` where `how` is `dense`, `lexical` or `parent-of-match`. Nothing is pinned. A universal skill is not a result, unless the always-on budget dropped its body. A skill the project switched off, or one that belongs to another project, is not there. |
 
 The state under `harness["@thetis/skills"]`:
 
 ```js
-{ loader: "@thetis/skills-hybrid", universal: ["concise"], pinned: [{ id: "packages", contentHash: "…", score: 0.011475, how: "dense" }], loaded: [], catalogue: [...top-level ids], dropped: [], excluded: [...], ranked: [{ id, score, how }, ...up to 10], mode: "dense", pinBodies: false, notes: [] }
+{ loader: "@thetis/skills-hybrid", universal: ["concise"], pinned: [{ id: "packages", contentHash: "…", score: 0.011475, how: "dense" }], loaded: [], catalogue: [...top-level ids], dropped: [], alwaysOn: { budget: 64000, used: 1558, total: 1558, unit: "characters", dropped: [] }, excluded: [...], ranked: [{ id, score, how }, ...up to 10], mode: "dense", pinBodies: false, notes: [] }
 ```
 
-`notes` names each skill left out for a lint error, what a project switched off, another skills loader when one is installed, why the ranking was lexical when it was, and a pinned skill that changed or vanished.
+`catalogue` is the ids whose brief is in the prompt and `universal` the ids whose body is. `alwaysOn` is the always-on budget: what the briefs and the universal bodies take (`used`), what they would take (`total`), and each drop as `{ id, part: "body" | "brief" }`; `dropped` is the same ids once each. The pinned cards are per conversation and are not counted.
+
+`notes` names each skill left out for a lint error, what a project switched off, the count of skills that belong to other projects (never their ids), every drop for the budget, another skills loader when one is installed, why the ranking was lexical when it was, and a pinned skill that changed or vanished.
 
 Bench suites: `skill-recall@1` and `assembly-cost@1`, peer group `skills`, corpus `caps@1`.
 
@@ -67,6 +69,7 @@ The script imports the corpus through the same `importCorpus` the bench uses, so
 | `embeddings.apiKey` | `${OPENROUTER_API_KEY}` | The key, resolved by the config service from the daemon's environment and `.env`. This package's manifest declares the default (`thetis.config.embeddings.default`); a file-layer `embeddings: { baseUrl }` keeps it, since object defaults merge one level deep. Empty means lexical. |
 | `embeddings.model` | `openai/text-embedding-3-small` | The embedding model. |
 | `embeddings.dimensions` | `1536` | The vector size. |
+| `alwaysOnBudget` | `64000` | Characters the briefs and the universal bodies may take in every prompt. Over it, universal bodies are left out first, from the last id back, then briefs from the end; each drop is in `notes`, in `alwaysOn.dropped` and in the Skills panel. A universal skill without its body is ranked, pinned and searched like any other. The default drops nothing in production (1,558 characters on 2026-10-19) or on `skill-recall@1` (about 46,500). |
 
 The package reads no environment variables itself. It writes `skills-hybrid/vectors.json` in the home.
 
@@ -90,7 +93,7 @@ The package reads no environment variables itself. It writes `skills-hybrid/vect
 | `lib/vectors.js` | The bench vector file by corpus digest, through the shared reader, bound to this package's directory. |
 | `scripts/embed-corpus.mjs` | Writes the bench vector file. Needs `OPENROUTER_API_KEY`. |
 | `bench/vectors/<sha256>.json` | The vectors of `caps@1` and the queries of `skill-recall@1`. |
-| `test/hybrid.test.js` | Fusion determinism, the pin across turns and after a pack update, the fallback, the cache, batching, the bench file, the claim, `skill_search`. |
+| `test/hybrid.test.js` | Fusion determinism, the pin across turns and after a pack update, the fallback, the cache, batching, the bench file, the claim, `skill_search`, the skills of another project (and their vectors kept in the cache), and the always-on budget. |
 
 ## Tests
 

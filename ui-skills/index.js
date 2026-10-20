@@ -6,13 +6,22 @@
 // `excludedFor`, not from the harness state, so a switch flipped in the project place shows here at once,
 // before the next turn. No package configuration is available to a UI command (packages/gateway-web/README.md
 // section 11.4); these need none.
-import { brief, excludedFor, firstSentence, lint, loadSkills, renderBody, STATE } from "@thetis/skills";
+import { brief, excludedFor, firstSentence, hiddenIn, lint, loadSkills, projectOf, renderBody, STATE, underAny } from "@thetis/skills";
 
 /** The loader packages the dock knows to name, for the hint when none is installed. */
 export const LOADERS = ["@thetis/skills-hybrid", "@thetis/skills-l1", "@thetis/skills-all"];
 
 const isRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const strings = (list) => (Array.isArray(list) ? list.filter((x) => typeof x === "string") : []);
+
+const count = (v) => (Number.isFinite(v) && v >= 0 ? v : null);
+
+/** The always-on budget the loader reported, or null from a loader that reports none. */
+function alwaysOnOf(value) {
+  if (!isRecord(value) || count(value.budget) === null || count(value.used) === null) return null;
+  const dropped = Array.isArray(value.dropped) ? value.dropped.filter((d) => isRecord(d) && typeof d.id === "string").map((d) => ({ id: d.id, part: typeof d.part === "string" ? d.part : "" })) : [];
+  return { budget: value.budget, used: value.used, total: count(value.total) ?? value.used, unit: value.unit === "bytes" ? "bytes" : "characters", dropped };
+}
 
 /** The loader's state for the turn, every field present, or the empty shape when no loader has written one. */
 export function stateOf(harness) {
@@ -26,14 +35,10 @@ export function stateOf(harness) {
     loaded: strings(s.loaded),
     catalogue: strings(s.catalogue),
     dropped: strings(s.dropped),
+    alwaysOn: alwaysOnOf(s.alwaysOn),
     notes: strings(s.notes),
   };
 }
-
-const underAny = (id, set) => {
-  for (const x of set) if (id === x || id.startsWith(`${x}/`)) return true;
-  return false;
-};
 
 function row(skill, errors, problems) {
   return {
@@ -57,13 +62,18 @@ function row(skill, errors, problems) {
 }
 
 /**
- * `skills`: `{ data: { loader, loaders, universal, pinned, loaded, catalogue, dropped, notes, excluded, skills } }`.
+ * `skills`: `{ data: { loader, loaders, universal, pinned, loaded, catalogue, dropped, alwaysOn, notes, excluded, hidden, skills } }`.
  * With `env.session`, the state is the loader's for that conversation and `excluded` is what its project
  * switched off (a switched-off parent takes its nested skills with it); without one, the catalogue alone.
+ * `hidden` counts the skills that belong to another project (or to any project, when the conversation has
+ * none, or there is no conversation): they are not rows, the way the loaders do not name them.
  */
 export async function uiSkills(_args, env) {
   const packages = await env.kernel.packages.list();
-  const all = loadSkills(env, packages);
+  const project = env.session ? await projectOf(env, env.session) : null;
+  const everything = loadSkills(env, packages);
+  const away = new Set(hiddenIn(everything, project));
+  const all = everything.filter((s) => !away.has(s.id)).map((s) => (s.children?.some((c) => away.has(c)) ? { ...s, children: s.children.filter((c) => !away.has(c)) } : s));
   const errors = new Map();
   const problems = new Map(); // every level, per skill, so the dock can show what lint said and not only that it did
   for (const p of lint(all)) {
@@ -75,20 +85,30 @@ export async function uiSkills(_args, env) {
   const off = env.session ? await excludedFor(env, env.session) : new Set();
   const excluded = all.filter((s) => underAny(s.id, off)).map((s) => s.id);
   const loaders = packages.map((p) => p?.name).filter((name) => LOADERS.includes(name));
-  return { data: { ...state, loaders, excluded, skills: all.map((s) => row(s, errors, problems)) } };
+  return { data: { ...state, loaders, excluded, hidden: away.size, skills: all.map((s) => row(s, errors, problems)) } };
 }
 
-/** `skill { id }`: the text `renderBody` makes of one skill, with the facts a header shows. */
+/**
+ * `skill { id }`: the text `renderBody` makes of one skill, with the facts a header shows. A skill of another
+ * project is still the person's own and reads here (a lesson's link opens it from anywhere); `project` names
+ * its project and `elsewhere` says the open conversation does not see it.
+ */
 export async function uiSkill(args, env) {
   const id = typeof args?.id === "string" ? args.id.trim() : "";
   if (!id) throw new Error("skill needs an id.");
   const packages = await env.kernel.packages.list();
-  const skill = loadSkills(env, packages).find((s) => s.id === id);
+  const all = loadSkills(env, packages);
+  const skill = all.find((s) => s.id === id);
   if (!skill) throw new Error(`No skill named ${id}.`);
   const off = env.session ? await excludedFor(env, env.session) : new Set();
+  const project = env.session ? await projectOf(env, env.session) : null;
+  // A skill up the id that names a project scopes this one, as it does for the loaders.
+  const scope = all.find((s) => s.project && underAny(skill.id, [s.id]));
   return {
     data: {
       id: skill.id,
+      project: scope?.project ?? null,
+      elsewhere: hiddenIn(all, project).includes(skill.id),
       title: skill.title ?? "",
       brief: brief(skill),
       package: skill.source?.package ?? null,

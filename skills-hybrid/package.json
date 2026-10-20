@@ -1,6 +1,6 @@
 {
   "name": "@thetis/skills-hybrid",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "license": "MIT",
   "description": "One brief per skill always in the prompt, a few cards retrieved for the conversation by dense and lexical ranking fused, pinned once, and skill_search for the rest.",
   "type": "module",
@@ -9,7 +9,7 @@
     "test": "node --test \"test/*.test.js\""
   },
   "dependencies": {
-    "@thetis/skills": "^0.1.0"
+    "@thetis/skills": "^0.2.0"
   },
   "thetis": {
     "type": "loader",
@@ -51,6 +51,11 @@
           "apiKey": "${OPENROUTER_API_KEY}"
         },
         "help": "The vector source, an OpenAI-compatible embeddings endpoint: baseUrl (https://openrouter.ai/api/v1), apiKey (without one the ranking is lexical), model (openai/text-embedding-3-small) and dimensions (1536)."
+      },
+      "alwaysOnBudget": {
+        "type": "number",
+        "default": 64000,
+        "help": "What skills may put in every prompt, in characters: the catalogue of briefs and the bodies of the universal skills. Over it, universal bodies are left out first (from the last id back), then briefs from the end; the notes and the Skills panel name each one."
       }
     },
     "steps": [

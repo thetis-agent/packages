@@ -121,42 +121,73 @@ async function readJson(env, path) {
   }
 }
 
+/** The session's project id from `projects/sessions.json` under the home, the file `@thetis/projects` writes, or null. */
+export async function projectOf(env, session) {
+  const id = typeof session === "string" ? session : session?.id;
+  if (!id) return null;
+  const map = await readJson(env, "projects/sessions.json");
+  const project = map && typeof map === "object" && !Array.isArray(map) ? map[id] : undefined;
+  return PROJECT_ID.test(String(project ?? "")) ? project : null;
+}
+
 /**
  * The ids a project switched off for this session, from `projects/sessions.json` and `projects/<id>.json`
  * under the home, the files `@thetis/projects` writes. An empty set when the session has no project.
  */
 export async function excludedFor(env, session) {
-  const id = typeof session === "string" ? session : session?.id;
-  if (!id) return new Set();
-  const map = await readJson(env, "projects/sessions.json");
-  const project = map && typeof map === "object" && !Array.isArray(map) ? map[id] : undefined;
-  if (!PROJECT_ID.test(String(project ?? ""))) return new Set();
+  const project = await projectOf(env, session);
+  if (!project) return new Set();
   const record = await readJson(env, `projects/${project}.json`);
   if (!record || record.id !== project) return new Set();
   const list = Array.isArray(record.skills?.disable) ? record.skills.disable : [];
   return new Set(list.filter((s) => typeof s === "string" && s));
 }
 
-const underAny = (id, set) => {
+export const underAny = (id, set) => {
   for (const x of set) if (id === x || id.startsWith(`${x}/`)) return true;
   return false;
 };
 
 /**
- * What a loader works from: the skills without an error, minus what the project switched off (a switched-off
- * parent takes its children with it), the universal set capped at `LIMITS.universal` by id, and one note per
- * skill left out.
+ * The ids `project` does not see: every skill whose `metadata.project` names another project, with the skills
+ * nested under it. With no project, every project-scoped skill. These are not switched off, they belong
+ * elsewhere, so a loader neither shows nor names them.
+ */
+export function hiddenIn(all, project) {
+  const roots = new Set(all.filter((s) => s.project && s.project !== project).map((s) => s.id));
+  return roots.size ? all.filter((s) => underAny(s.id, roots)).map((s) => s.id) : [];
+}
+
+/** The quiet note for the hidden set, or null when there is none. */
+export function hiddenNote(count) {
+  if (!count) return null;
+  return count === 1 ? "1 skill belongs to another project" : `${count} skills belong to other projects`;
+}
+
+/**
+ * What a loader works from: the skills without an error, minus what belongs to another project and what the
+ * project switched off (a parent takes its children with it in both cases), the universal set capped at
+ * `LIMITS.universal` by id, and the notes. A skill left out for an error or a switch gets a note of its own; the
+ * skills of other projects get one count between them and are otherwise not named, not even as a nested id on
+ * a parent's card, so the model has no id to fetch.
  */
 export async function selectSkills(env, packages, session) {
   const all = loadSkills(env, packages);
   const problems = lint(all);
+  const project = await projectOf(env, session);
+  const hidden = hiddenIn(all, project);
+  const away = new Set(hidden);
   const errored = new Map();
-  for (const p of problems) if (p.level === "error" && !errored.has(p.id)) errored.set(p.id, p.message);
+  for (const p of problems) if (p.level === "error" && !errored.has(p.id) && !away.has(p.id)) errored.set(p.id, p.message);
   const off = await excludedFor(env, session);
-  const excluded = all.filter((s) => underAny(s.id, off)).map((s) => s.id);
-  const skills = all.filter((s) => !errored.has(s.id) && !underAny(s.id, off));
+  const excluded = all.filter((s) => !away.has(s.id) && underAny(s.id, off)).map((s) => s.id);
+  const skills = all
+    .filter((s) => !errored.has(s.id) && !away.has(s.id) && !underAny(s.id, off))
+    .map((s) => (away.size && s.children?.some((c) => away.has(c)) ? { ...s, children: s.children.filter((c) => !away.has(c)) } : s));
   const universal = skills.filter((s) => s.universal).slice(0, LIMITS.universal);
   const notes = [...errored].map(([id, message]) => `skill ${id} left out: ${message}`);
   if (excluded.length) notes.push(`switched off by the project: ${excluded.join(", ")}`);
-  return { all, skills, universal, excluded, problems, notes };
+  const quiet = hiddenNote(hidden.length);
+  if (quiet) notes.push(quiet);
+  return { all, skills, universal, excluded, hidden, project, problems, notes };
 }

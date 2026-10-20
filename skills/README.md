@@ -8,7 +8,7 @@ One tool, declared in `thetis.tools`:
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `skill_fetch` | `id` (required), `file`, `offset` | The body of the skill, then `Skill directory:` and the files beside it; or one of those files. Slices of 24000 characters with a footer `[characters 1-24000 of 51234; read on with offset 24000]`. An unknown id is refused with the closest ids. A skill a project switched off is not there. |
+| `skill_fetch` | `id` (required), `file`, `offset` | The body of the skill, then `Skill directory:` and the files beside it; or one of those files. Slices of 24000 characters with a footer `[characters 1-24000 of 51234; read on with offset 24000]`. An unknown id is refused with the closest ids. A skill a project switched off is not there, nor one that belongs to another project: its id is unknown, and no refusal names it as the closest. |
 
 The library, from `index.js`:
 
@@ -17,8 +17,11 @@ The library, from `index.js`:
 | `parseSkill(text, { id })` | Frontmatter and body to `{ id, name, description, title, tags, universal, related, version, body, contentHash, problems }`. `contentHash` is sha256 over name, description and tags: a body edit does not move it. |
 | `loadSkills(env, packages)` | Every skill from every source (section below), deduplicated, sorted by id, each with `source: { package?, path, dir }`, `children` and `resources`. `packages` is `ctx.packages`, or the list from `env.kernel.packages.list()` in a tool. Parsing is cached per process by the mtime and size of each `SKILL.md`. |
 | `lint(skills)` | `{ id, level: "error" \| "warning", message }` for every rule: the per-skill problems, more than 8 universal skills, a related id that names nothing, a child without a parent. |
+| `projectOf(env, session)` | The session's project id from `projects/sessions.json`, or null. |
+| `hiddenIn(skills, project)` | The ids `project` does not see: each skill whose `metadata.project` names another project, with everything nested under it; with no project, every project-scoped skill. |
 | `excludedFor(env, session)` | The ids the session's project switched off (`projects/<id>.json` `skills.disable`, through `projects/sessions.json`), or an empty set. |
-| `selectSkills(env, packages, session)` | What a loader works from: `{ all, skills, universal, excluded, problems, notes }`. A skill with an error is left out and named in `notes`; a switched-off parent takes its children; `universal` is capped at 8 by id. |
+| `selectSkills(env, packages, session)` | What a loader works from: `{ all, skills, universal, excluded, hidden, project, problems, notes }`. A skill with an error is left out and named in `notes`; a switched-off parent takes its children; the skills of other projects (`hidden`) are left out with their children, are not named in `notes` or on a parent's card, and get one note between them, "N skills belong to other projects"; `universal` is capped at 8 by id. `all` is every skill, hidden ones included, for a page that shows the person their own. |
+| `fitAlwaysOn({ header, heading, catalogue, universal, budget })`, `alwaysOnBudgetOf(config)`, `budgetNote(fit, unit)`, `DEFAULT_ALWAYS_ON` | The always-on budget a loader applies to what goes in every prompt: the catalogue (a header and one brief per entry) and the universal bodies, in characters, default 64,000 from `config.alwaysOnBudget`. Over it, universal bodies go first, from the last id back, then briefs from the end. Returns the kept lists, the blocks, `used`, `total` and `dropped: [{ id, part }]`; the note names every drop. |
 | `tokens`, `bm25Index(skills)`, `bm25Search(index, query, k)` | Okapi BM25, k1 1.2, b 0.75, over name, description and tags. Ties by id. Deterministic. |
 | `fuse(dense, lexical, weight)` | Weighted reciprocal rank fusion, K 60, `weight` the dense share. |
 | `absorb(skills, ranked)`, `promote(skills, ranked, limit)` | A child whose parent is in the pool is absorbed into the parent; the parent of a lone child is promoted at 0.99 of its score. |
@@ -60,6 +63,7 @@ skills/
 | `metadata.universal` | `"true"` puts the body in every prompt. At most 8 per person. |
 | `metadata.related` | Optional ids. Kept on the parsed skill for a UI; never on the card, never ranked on. |
 | `metadata.version` | Optional integer. |
+| `metadata.project` | Optional project id, `p_` and 8 hex digits. The skill and everything nested under it are seen only in that project's conversations. A malformed value is a warning and is ignored, so the skill is seen everywhere. `@thetis/reflections` writes a project's lessons under `skills/lessons/p-<hex>/` with it. |
 
 The body is at most 64 KiB. The id is the path under `skills/` with `/` between levels, at most 3 deep. `references`, `scripts` and `assets` are not skill names. A relative link in the body that leaves the pack is a warning. An unknown key is a warning and is ignored.
 
@@ -68,7 +72,7 @@ Sources, in order, the later winning on an equal id:
 1. Every installed package that declares `thetis.skills`, a directory relative to the package root (usually `"skills"`). A package of type `skill` usually has nothing else; any type may declare the directory.
 2. The person's own `skills/` under the home. This is where the model writes a skill of its own with the file tools.
 
-A project (`@thetis/projects`) switches skills off with `skills.disable` in `projects/<id>.json`; the library reads the session's project the way that package does and leaves those ids out, in the prompt and in `skill_fetch`.
+A project (`@thetis/projects`) switches skills off with `skills.disable` in `projects/<id>.json`; the library reads the session's project the way that package does and leaves those ids out, in the prompt and in `skill_fetch`. A skill with `metadata.project` is the other way round: it is in only that project's conversations.
 
 ## Bench
 
@@ -87,6 +91,7 @@ A project (`@thetis/projects`) switches skills off with `skills.disable` in `pro
 | Tags | 32 |
 | Depth | 3 |
 | Universal skills per person | 8 |
+| Always-on text (loader `alwaysOnBudget`) | 64,000 characters |
 | Brief | 160 characters of description |
 | `skill_fetch` slice | 24000 characters |
 
@@ -98,7 +103,8 @@ A project (`@thetis/projects`) switches skills off with `skills.disable` in `pro
 | `index.js` | The exports. |
 | `lib/frontmatter.js` | The YAML-subset parser, `splitDocument`, `yamlString`. |
 | `lib/skill.js` | `parseSkill`, `lint`, `brief`, `card`, `renderBody`, the limits. |
-| `lib/load.js` | The sources, the walk, the cache, `excludedFor`, `selectSkills`. |
+| `lib/load.js` | The sources, the walk, the cache, `projectOf`, `hiddenIn`, `excludedFor`, `selectSkills`. |
+| `lib/budget.js` | The always-on budget: `fitAlwaysOn`, `budgetNote`, the default. |
 | `lib/rank.js` | BM25, fusion, absorb, promote, closest. |
 | `lib/fetch.js` | The tool and the slice rule. |
 | `lib/bench.js` | `importCorpus`, `claim`, the id map, `STATE`. |
@@ -106,7 +112,7 @@ A project (`@thetis/projects`) switches skills off with `skills.disable` in `pro
 
 ## Tests
 
-`npm test` from the runtime root runs `test/frontmatter.test.js`, `test/skill.test.js`, `test/rank.test.js`, `test/load.test.js`, `test/bench.test.js` and `test/convert-legacy.test.js`, plain `node --test` files over temporary directories.
+`npm test` from the runtime root runs `test/frontmatter.test.js`, `test/skill.test.js`, `test/rank.test.js`, `test/load.test.js`, `test/budget.test.js`, `test/bench.test.js` and `test/convert-legacy.test.js`, plain `node --test` files over temporary directories.
 ## Converting a legacy tree
 
 `scripts/convert-legacy.mjs` brings a skill tree of the legacy Rust Thetis (TOML frontmatter with `name`, `brief`, `when_to_use`, `tags`, `related`, `children`, `status`, `version`; bodies linking other skills as `[text](skill:<id>)`) into this format. `node packages/skills/scripts/convert-legacy.mjs <legacy skill dir>... --out <skills dir> [--force]` copies each tree as `<out>/<id>` with its nested skills beneath it. In every `SKILL.md` the `name` becomes the directory name (refused when it is not a skill name), the `description` is `brief` and `when_to_use` joined and, when over 1024 bytes, cut at a sentence end with a warning, `metadata.title` is the legacy name, `metadata.tags` the first 32 tags lowercased with spaces and underscores as hyphens, `metadata.related` the related ids that exist in the converted set, `metadata.universal` `"true"` only when the legacy said so, and `metadata.version` the legacy version. A `status` other than active is noted with its `superseded_by` as the first body line. The body is otherwise verbatim: a link becomes `` `<id>` `` when its text is the id or its last segment, ``text (`<id>`)`` otherwise, and a link to a skill outside the converted set becomes its text with a warning. `children` is dropped (the subdirectories are the children) and `references/`, `scripts/` and `assets/` are copied as they are. The summary counts skills, resources, links rewritten and warnings; `--force` replaces an existing `<out>/<id>`. `test/convert-legacy.test.js` runs it over a fixture tree.

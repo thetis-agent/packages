@@ -1,6 +1,6 @@
 {
   "name": "@thetis/ui-skills",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "MIT",
   "description": "The Skills dock of the web gateway: the skills the open conversation can reach, which are in force, and what the project switched off.",
   "type": "module",
@@ -9,7 +9,7 @@
     "test": "node --test \"test/*.test.js\""
   },
   "dependencies": {
-    "@thetis/skills": "^0.1.0"
+    "@thetis/skills": "^0.2.0"
   },
   "thetis": {
     "type": "ui",

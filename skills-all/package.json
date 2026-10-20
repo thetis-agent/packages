@@ -1,6 +1,6 @@
 {
   "name": "@thetis/skills-all",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "Puts every skill's whole body in the system prompt, universal ones first then by id, until a byte budget is spent; nothing is a tool call away.",
   "type": "module",
@@ -9,13 +9,20 @@
     "test": "node --test \"test/*.test.js\""
   },
   "dependencies": {
-    "@thetis/skills": "^0.1.0"
+    "@thetis/skills": "^0.2.0"
   },
   "thetis": {
     "type": "loader",
     "label": "skill loader (all)",
     "summary": "Another way to give your assistant its skills: all of them, always.",
     "conflicts": ["@thetis/skills-hybrid", "@thetis/skills-l1"],
+    "config": {
+      "budget": {
+        "type": "number",
+        "default": 98304,
+        "help": "What skills may put in every prompt, in bytes. Every body is always in the prompt with this loader, universal ones first, then by id; the first that does not fit ends the fill, and the notes and the Skills panel name each one left out."
+      }
+    },
     "steps": [
       { "id": "bench-import", "phase": "bench", "export": "importCorpus" },
       { "id": "inject", "phase": "prompt", "export": "inject" },

@@ -11,7 +11,9 @@ export const RESERVED = new Set(["references", "scripts", "assets"]);
 export const LIMITS = Object.freeze({ description: 1024, descriptionGuideline: 400, body: 64 * 1024, tags: 32, depth: 3, universal: 8, brief: 160, whenOnCard: 160, nestedOnCard: 8 });
 
 const TOP_KEYS = new Set(["name", "description", "metadata"]);
-const META_KEYS = new Set(["title", "tags", "universal", "related", "version"]);
+const META_KEYS = new Set(["title", "tags", "universal", "related", "version", "project"]);
+/** A project id as `@thetis/projects` writes it. A skill that names one is seen only in that project's conversations. */
+export const PROJECT_RE = /^p_[0-9a-f]{8}$/;
 
 /** True when `id` is a well-formed skill id: 1 to 3 name segments joined by `/`. */
 export function isSkillId(id) {
@@ -40,7 +42,7 @@ export function parseSkill(text, { id } = {}) {
   for (const part of String(id ?? "").split("/")) if (RESERVED.has(part)) error(`a skill may not be named ${part}`);
 
   const { frontmatter, body } = splitDocument(text);
-  const skill = { id, name: "", description: "", title: "", tags: [], universal: false, related: [], version: undefined, body, contentHash: "", problems };
+  const skill = { id, name: "", description: "", title: "", tags: [], universal: false, related: [], version: undefined, project: "", body, contentHash: "", problems };
   if (frontmatter === null) {
     error("no frontmatter: SKILL.md must start with a --- block");
     return skill;
@@ -108,6 +110,13 @@ export function parseSkill(text, { id } = {}) {
       if (meta.version !== undefined) {
         if (typeof meta.version === "string" && /^\d{1,9}$/.test(meta.version.trim())) skill.version = Number(meta.version.trim());
         else warning("metadata.version must be an integer; ignored");
+      }
+      if (meta.project !== undefined) {
+        // A malformed id is ignored rather than guessed at, so the skill is seen in every conversation; the
+        // warning is how the author finds out that the scope they meant did not take.
+        const v = typeof meta.project === "string" ? meta.project.trim() : "";
+        if (PROJECT_RE.test(v)) skill.project = v;
+        else warning(`metadata.project must be a project id like p_0123abcd; ignored, so the skill is in every conversation`);
       }
     }
   }

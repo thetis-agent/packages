@@ -91,3 +91,7 @@ details.sk-family[open] > .sk-summary::before { transform: rotate(45deg); }
 
 .sk-empty { font-size: var(--text-sm); color: var(--text-faint); padding: var(--gap-1) 0; }
 .sk-error { font-size: var(--text-sm); color: var(--err); padding: var(--gap-2) 0; }
+/* The always-on budget in the In force paragraph: the bar is what skills put in every prompt against the limit. */
+.sk-budget { display: flex; align-items: center; gap: var(--gap-2); margin-top: 4px; }
+.sk-budget .sk-score-bar { flex: 0 0 120px; }
+.sk-score-fill.is-over { background: var(--warn); }

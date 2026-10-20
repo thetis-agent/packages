@@ -1,6 +1,6 @@
 {
   "name": "@thetis/skills",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "The skill format and library: reads SKILL.md packs from packages and the home, lints them, ranks them, and offers skill_fetch so any loader shares one way to read a skill in full.",
   "type": "module",

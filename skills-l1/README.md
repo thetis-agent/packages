@@ -12,13 +12,15 @@ A catalogue loader: one brief per top-level skill in the system prompt, the bodi
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `load_skill` | `name` (required) | The body, then `Skill directory:` and the files beside it. A second call in the same conversation answers `already loaded`. A universal skill answers that it is already in the prompt. A name not in the catalogue is refused with the closest names. A skill the project switched off is not there. Nested skills and files are read with `skill_fetch` from `@thetis/skills`. |
+| `load_skill` | `name` (required) | The body, then `Skill directory:` and the files beside it. A second call in the same conversation answers `already loaded`. A universal skill answers that it is already in the prompt. A name not in the catalogue is refused with the closest names. A skill the project switched off is not there. A skill that belongs to another project is not there either, and a universal skill whose body the always-on budget dropped loads like any other. Nested skills and files are read with `skill_fetch` from `@thetis/skills`. |
 
 The state under `harness["@thetis/skills"]`:
 
 ```js
-{ loader: "@thetis/skills-l1", universal: ["concise"], pinned: [], loaded: ["packages"], catalogue: [...top-level ids], dropped: [], excluded: [...], notes: [] }
+{ loader: "@thetis/skills-l1", universal: ["concise"], pinned: [], loaded: ["packages"], catalogue: [...top-level ids], dropped: [], alwaysOn: { budget: 64000, used: 1558, total: 1558, unit: "characters", dropped: [] }, excluded: [...], notes: [] }
 ```
+
+`catalogue` is the ids whose brief is in the prompt and `universal` the ids whose body is. `alwaysOn` is the always-on budget: what the catalogue and the universal bodies take (`used`), what they would take (`total`), and each drop as `{ id, part: "body" | "brief" }`; `dropped` is the same ids once each. `notes` names each skill left out for a lint error, what a project switched off, the count of skills that belong to other projects (never their ids), every drop for the budget, and another skills loader when one is installed.
 
 Bench suites: `skill-recall@1` and `assembly-cost@1`, peer group `skills`, corpus `caps@1`.
 
@@ -38,7 +40,13 @@ The v2 design gave `load_skill` an `enum` of the known names, so that a hallucin
 
 ## Configuration
 
-`config.packages["@thetis/skills-l1"]` has no keys. The package reads no environment variables. It writes `skills-l1/loaded/<session id>.json` in the home.
+`config.packages["@thetis/skills-l1"]`:
+
+| Key | Default | Effect |
+|---|---|---|
+| `alwaysOnBudget` | `64000` | Characters the catalogue and the universal bodies may take in every prompt. Over it, universal bodies are left out first, from the last id back, then briefs from the end of the catalogue; each drop is in `notes`, in `alwaysOn.dropped` and in the Skills panel. A universal skill without its body is loaded like any other. The default drops nothing in production (1,558 characters on 2026-10-19) or on `skill-recall@1` (about 46,500). |
+
+The package reads no environment variables. It writes `skills-l1/loaded/<session id>.json` in the home.
 
 ## Limits
 
@@ -53,7 +61,7 @@ The v2 design gave `load_skill` an `enum` of the known names, so that a hallucin
 | `package.json` | The manifest: the three steps, the tool, the bench declaration. |
 | `index.js` | `catalogue`, `loadSkill`, `importCorpus`, `benchReport`. |
 | `lib/loaded.js` | The per-conversation record of loads. |
-| `test/catalogue.test.js` | The prompt blocks and the state, `load_skill` once per conversation and its re-injection, the refusals, the project switch, the notes, and the claim over a small corpus. |
+| `test/catalogue.test.js` | The prompt blocks and the state, `load_skill` once per conversation and its re-injection, the refusals, the project switch, the skills of another project, the always-on budget and its notes, and the claim over a small corpus. |
 
 ## Tests
 

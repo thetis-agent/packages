@@ -83,6 +83,19 @@ test("related must be ids; version must be an integer; unknown keys warn and are
   assert.deepEqual(errors(s), []);
 });
 
+test("metadata.project takes a project id; anything else warns and leaves the skill in every conversation", () => {
+  const ok = parseSkill(skillText({ name: "x", description: "d", meta: ["project: p_0123abcd"] }), { id: "x" });
+  assert.equal(ok.project, "p_0123abcd");
+  assert.deepEqual(warnings(ok), []);
+  assert.equal(parseSkill(skillText({ name: "x", description: "d" }), { id: "x" }).project, "");
+  for (const bad of ["p_0123ABCD", "p-0123abcd", "p_0123abc", "[p_0123abcd]"]) {
+    const s = parseSkill(skillText({ name: "x", description: "d", meta: [`project: ${bad}`] }), { id: "x" });
+    assert.equal(s.project, "", bad);
+    assert.ok(warnings(s).some((m) => /metadata.project must be a project id/.test(m)), bad);
+    assert.deepEqual(errors(s), [], bad);
+  }
+});
+
 test("a relative link that leaves the skills directory is a warning; one inside the pack is not", () => {
   const s = parseSkill(skillText({ name: "b", description: "d", body: "[x](../a/SKILL.md) [y](references/r.md) [z](../../../outside.md) [u](https://x.y/) [f](#frag)" }), { id: "p/b" });
   assert.equal(warnings(s).length, 1);

@@ -134,10 +134,10 @@ test("skills without a session answers the catalogue only; a session without sta
 });
 
 test("stateOf tolerates a missing, malformed or partial record", () => {
-  assert.deepEqual(stateOf(undefined), { loader: null, universal: [], pinned: [], loaded: [], catalogue: [], dropped: [], notes: [] });
+  assert.deepEqual(stateOf(undefined), { loader: null, universal: [], pinned: [], loaded: [], catalogue: [], dropped: [], alwaysOn: null, notes: [] });
   assert.deepEqual(stateOf({ "@thetis/skills": "no" }).loader, null);
   const partial = stateOf({ "@thetis/skills": { loader: "@thetis/skills-all", universal: ["a", 3], pinned: [{ id: "b" }, "c"], dropped: ["d"] } });
-  assert.deepEqual(partial, { loader: "@thetis/skills-all", universal: ["a"], pinned: [{ id: "b", contentHash: "", score: null, how: "" }], loaded: [], catalogue: [], dropped: ["d"], notes: [] });
+  assert.deepEqual(partial, { loader: "@thetis/skills-all", universal: ["a"], pinned: [{ id: "b", contentHash: "", score: null, how: "" }], loaded: [], catalogue: [], dropped: ["d"], alwaysOn: null, notes: [] });
   assert.deepEqual(LOADERS, ["@thetis/skills-hybrid", "@thetis/skills-l1", "@thetis/skills-all"]);
 });
 
@@ -158,6 +158,39 @@ test("skill answers the rendered text of one skill, and refuses a missing or unk
   } finally {
     rm();
   }
+});
+
+test("skills leaves out the skills of other projects and counts them; skill still reads one, saying it is elsewhere", async () => {
+  const { home, pack, rm } = makeHome();
+  try {
+    const skills = resolve(home, "skills");
+    writeSkill(skills, "lessons", skillText("lessons", "Lessons from your archived conversations."));
+    writeSkill(skills, "lessons/p-0000abcd", skillText("p-0000abcd", "Lessons from P.", ["project: p_0000abcd"]));
+    writeSkill(skills, "lessons/p-deadbeef", skillText("p-deadbeef", "Lessons from Q.", ["project: p_deadbeef"]));
+    writeSkill(skills, "lessons/p-deadbeef/build", skillText("build", "Build Q with cargo."));
+    const inP = (await uiSkills({}, fakeEnv(home, pack))).data;
+    assert.equal(inP.hidden, 2);
+    assert.equal(inP.skills.some((s) => s.id.startsWith("lessons/p-deadbeef")), false);
+    assert.ok(inP.skills.some((s) => s.id === "lessons/p-0000abcd"));
+    assert.deepEqual(inP.skills.find((s) => s.id === "lessons").children, ["lessons/p-0000abcd"], "a parent names no hidden id");
+    const bare = (await uiSkills({}, fakeEnv(home, pack, { session: null }))).data;
+    assert.equal(bare.hidden, 3, "with no conversation every project-scoped skill is counted, not listed");
+
+    const elsewhere = (await uiSkill({ id: "lessons/p-deadbeef/build" }, fakeEnv(home, pack))).data;
+    assert.equal(elsewhere.elsewhere, true);
+    assert.equal(elsewhere.project, "p_deadbeef", "a child carries the scope of the skill above it");
+    const here = (await uiSkill({ id: "lessons/p-0000abcd" }, fakeEnv(home, pack))).data;
+    assert.deepEqual([here.elsewhere, here.project], [false, "p_0000abcd"]);
+    assert.deepEqual([(await uiSkill({ id: "mine" }, fakeEnv(home, pack))).data.project], [null]);
+  } finally {
+    rm();
+  }
+});
+
+test("stateOf reads the always-on budget a loader reported", () => {
+  const harness = { "@thetis/skills": { loader: "@thetis/skills-l1", alwaysOn: { budget: 64000, used: 1558, total: 1558, unit: "characters", dropped: [{ id: "a", part: "brief" }, { nope: 1 }] } } };
+  assert.deepEqual(stateOf(harness).alwaysOn, { budget: 64000, used: 1558, total: 1558, unit: "characters", dropped: [{ id: "a", part: "brief" }] });
+  assert.equal(stateOf({ "@thetis/skills": { alwaysOn: { budget: "x" } } }).alwaysOn, null);
 });
 
 test("the page's BM25 answers exactly what the library's does", () => {
@@ -426,6 +459,35 @@ test("a turn.end of the open conversation asks once more; another conversation's
   await tick();
   assert.deepEqual(log.requests.map((r) => r.session).slice(-1), ["s_2"]);
   assert.equal(log.docks.skills.draw().title, "Skills", "a new conversation shows the list, not the skill that was open");
+});
+
+test("the In force paragraph shows the budget and the hidden count; the drops are listed with what was left out", async () => {
+  const { default: install } = await import("../ui/index.js");
+  const within = { ...ANSWER, hidden: 3, alwaysOn: { budget: 64000, used: 1558, total: 1558, unit: "characters", dropped: [] } };
+  const { ext, log } = fakeExt({ answer: within });
+  install(ext);
+  log.docks.skills.draw();
+  await tick();
+  let view = log.docks.skills.draw();
+  const said = text(find(view.body, "sk-inforce")[0]);
+  assert.match(said, /In every prompt: 1,558 of the 64,000 characters skills may use\./);
+  assert.match(said, /3 skills belong to other projects; they are seen only in their projects' conversations\./);
+  assert.equal(find(view.body, "sk-dropped").length, 0);
+
+  const over = { ...ANSWER, hidden: 0, dropped: ["concise", "packages"], alwaysOn: { budget: 500, used: 480, total: 900, unit: "characters", dropped: [{ id: "concise", part: "body" }, { id: "packages", part: "brief" }] } };
+  const { ext: ext2, log: log2 } = fakeExt({ answer: over });
+  install(ext2);
+  log2.docks.skills.draw();
+  await tick();
+  view = log2.docks.skills.draw();
+  const para = text(find(view.body, "sk-inforce")[0]);
+  assert.match(para, /In every prompt: 480 of the 500 characters skills may use\. 900 were wanted, so 2 parts are left out \(below\)\./);
+  assert.doesNotMatch(para, /belong to/);
+  const dropped = find(view.body, "sk-dropped")[0];
+  assert.deepEqual(ids(dropped), ["concise", "packages"]);
+  assert.deepEqual(find(dropped, "sk-row-score").map(text), ["universal body left out", "brief left out"]);
+  assert.match(text(dropped), /Over the budget of 500 characters/);
+  assert.ok(find(view.body, "sk-score-fill").some((f) => f.props.class.includes("is-over")));
 });
 
 test("a refused request shows its sentence in the body", async () => {

@@ -49,6 +49,8 @@ test("inject puts every body in the prompt, universal first then by id, and reco
     assert.deepEqual(state.dropped, []);
     assert.deepEqual(state.excluded, []);
     assert.equal(state.budget, DEFAULT_BUDGET);
+    assert.equal(state.alwaysOn.used, state.used);
+    assert.deepEqual(state.alwaysOn.dropped, []);
     assert.deepEqual(state.notes, []);
   } finally {
     h.rm();
@@ -81,6 +83,8 @@ test("the budget from config stops at the first skill that does not fit; dropped
     assert.deepEqual(state.dropped, ["b", "c"]);
     assert.ok(state.used <= 150);
     assert.ok(!out.call.system.includes("## c"), "a smaller skill after the stop is not squeezed in");
+    assert.deepEqual(state.alwaysOn, { budget: 150, used: state.used, total: state.used + 104 + 13, unit: "bytes", dropped: [{ id: "b", part: "skill" }, { id: "c", part: "skill" }] });
+    assert.equal(state.notes.at(-1), `over the always-on budget (${state.alwaysOn.total} of 150 bytes): left out b, c`);
   } finally {
     h.rm();
   }
@@ -157,6 +161,21 @@ test("benchReport without a corpus claims nothing", async () => {
     clearCache();
     const out = await benchReport(ctxOf(h.env, { harness: { [STATE]: { injected: ["a"], dropped: [] } } }));
     assert.deepEqual(out.harness[BENCH_KEY].claims[SELF].direct, []);
+  } finally {
+    h.rm();
+  }
+});
+
+test("a skill of another project is not injected and only counted in the notes", async () => {
+  const h = home();
+  try {
+    clearCache();
+    h.skill("alpha", "A.");
+    h.skill("theirs", "Belongs to B.", "B body.\n", ["project: p_deadbeef"]);
+    const out = await inject(ctxOf(h.env));
+    assert.deepEqual(out.harness[STATE].injected, ["alpha"]);
+    assert.doesNotMatch(out.call.system, /theirs|B body/);
+    assert.deepEqual(out.harness[STATE].notes, ["1 skill belongs to another project"]);
   } finally {
     h.rm();
   }

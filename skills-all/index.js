@@ -1,6 +1,6 @@
 // Every body in the prompt until the budget runs out. The simplest loader there is, and the one the others
 // have to beat: it never chooses wrongly because it never chooses, and it pays for that in bytes on every turn.
-import { selectSkills, STATE, importCorpus as importShared, claim, readMap, corpusIds } from "@thetis/skills";
+import { selectSkills, STATE, importCorpus as importShared, claim, readMap, corpusIds, budgetNote } from "@thetis/skills";
 
 export const SELF = "@thetis/skills-all";
 export const DEFAULT_BUDGET = 96 * 1024;
@@ -16,16 +16,18 @@ export function orderOf(skills, universal) {
   return [...universal, ...skills.filter((s) => !u.has(s.id)).sort((a, b) => a.id.localeCompare(b.id))];
 }
 
-/** Whole skills only, in order, until the budget is spent; the first that does not fit ends the fill. */
+/** Whole skills only, in order, until the budget is spent; the first that does not fit ends the fill. `total` is what all of them would take. */
 export function fill(order, budget) {
   const blocks = [];
   const injected = [];
   const dropped = [];
   let used = 0;
+  let total = 0;
   let stopped = false;
   for (const s of order) {
     const block = `## ${s.id}\n${s.body.trimEnd()}\n`;
     const bytes = Buffer.byteLength(block, "utf8");
+    total += bytes;
     if (stopped || used + bytes > budget) {
       stopped = true;
       dropped.push(s.id);
@@ -35,7 +37,7 @@ export function fill(order, budget) {
     blocks.push(block);
     injected.push(s.id);
   }
-  return { blocks, injected, dropped, used };
+  return { blocks, injected, dropped, used, total };
 }
 
 /** prompt: `# Skills` with one `## <id>` section per skill, and the turn's state under `harness["@thetis/skills"]`. */
@@ -44,7 +46,12 @@ export async function inject(ctx) {
   const { skills, universal, excluded, notes } = await selectSkills(ctx.env, ctx.packages, ctx.session);
   const prev = ctx.harness?.[STATE];
   if (prev && typeof prev === "object" && prev.loader && prev.loader !== SELF) notes.push(`another skills loader is installed: ${prev.loader}; both run until one is removed`);
-  const { blocks, injected, dropped, used } = fill(orderOf(skills, universal), budget);
+  const { blocks, injected, dropped, used, total } = fill(orderOf(skills, universal), budget);
+  // Every body is always on with this loader, so `budget` is its always-on budget; the drops are named the
+  // way the other loaders name theirs, so the notes and the Skills panel read the same whichever is installed.
+  const alwaysOn = { budget, used, total, unit: "bytes", dropped: dropped.map((id) => ({ id, part: "skill" })) };
+  const note = budgetNote(alwaysOn, "bytes");
+  if (note) notes.push(note);
   const state = {
     loader: SELF,
     universal: universal.map((s) => s.id),
@@ -56,6 +63,7 @@ export async function inject(ctx) {
     excluded,
     budget,
     used,
+    alwaysOn,
     notes,
   };
   const harness = { ...ctx.harness, [STATE]: state };

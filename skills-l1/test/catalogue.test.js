@@ -55,6 +55,56 @@ test("catalogue lists one brief per top-level skill, then the universal bodies; 
     assert.deepEqual(state.loaded, []);
     assert.deepEqual(state.pinned, []);
     assert.deepEqual(state.notes, []);
+    assert.deepEqual(state.dropped, []);
+    assert.deepEqual(state.alwaysOn, { budget: 64000, used: out.call.system.length - "BASE\n\n".length, total: out.call.system.length - "BASE\n\n".length, unit: "characters", dropped: [] });
+  } finally {
+    h.rm();
+  }
+});
+
+test("over alwaysOnBudget the universal body goes first, then briefs from the end; every drop is a note, and a dropped body loads", async () => {
+  const h = home();
+  try {
+    clearCache();
+    h.skill("alpha", "Does alpha.", "Alpha body.\n");
+    h.skill("concise", "Short answers.", `${"Be short. ".repeat(40)}\n`, ['universal: "true"']);
+    h.skill("zeta", "Does zeta.", "Zeta body.\n");
+    const catalogueOnly = "# Skills you can load\nOne line per skill. load_skill with the name reads one; skill_fetch reads a nested skill or a file beside one.\n\n`alpha` — Does alpha.\n`concise` — Short answers.\n`zeta` — Does zeta.";
+    const out = await catalogue(ctxOf(h.env, { config: { alwaysOnBudget: catalogueOnly.length } }));
+    assert.equal(out.call.system, `BASE\n\n${catalogueOnly}`);
+    const state = out.harness[STATE];
+    assert.deepEqual(state.universal, []);
+    assert.deepEqual(state.dropped, ["concise"]);
+    assert.deepEqual(state.alwaysOn.dropped, [{ id: "concise", part: "body" }]);
+    assert.equal(state.alwaysOn.used, catalogueOnly.length);
+    assert.ok(state.alwaysOn.total > state.alwaysOn.budget);
+    assert.match(state.notes.at(-1), /^over the always-on budget \(\d+ of \d+ characters\): left out the universal body of concise \(now loaded on request\)$/);
+    const body = await loadSkill({ name: "concise" }, { ...toolEnv(h.env), config: { alwaysOnBudget: catalogueOnly.length } });
+    assert.match(body, /^Be short\./, "a universal skill whose body the budget dropped is loaded like any other");
+
+    const tight = await catalogue(ctxOf(h.env, { session: { id: "s-2" }, config: { alwaysOnBudget: catalogueOnly.length - 10 } }));
+    assert.deepEqual(tight.harness[STATE].catalogue, ["alpha", "concise"]);
+    assert.deepEqual(tight.harness[STATE].alwaysOn.dropped.map((d) => `${d.id}:${d.part}`), ["concise:body", "zeta:brief"]);
+    assert.match(tight.harness[STATE].notes.at(-1), /left out the universal body of concise \(now loaded on request\); the brief of zeta$/);
+  } finally {
+    h.rm();
+  }
+});
+
+test("a skill of another project is neither in the catalogue nor loadable, and the note only counts it", async () => {
+  const h = home();
+  try {
+    clearCache();
+    h.skill("alpha", "Does alpha.");
+    h.skill("theirs", "Belongs to B.", "B body.\n", ["project: p_deadbeef"]);
+    h.skill("theirs/child", "Nested in B.");
+    await h.env.writeFile("projects/sessions.json", JSON.stringify({ "s-1": "p_0123abcd", "s-b": "p_deadbeef" }));
+    const out = await catalogue(ctxOf(h.env));
+    assert.doesNotMatch(out.call.system, /theirs/);
+    assert.deepEqual(out.harness[STATE].notes, ["2 skills belong to other projects"]);
+    await assert.rejects(loadSkill({ name: "theirs" }, toolEnv(h.env)), (e) => /no skill named theirs/.test(e.message) && !/closest: .*theirs/.test(e.message));
+    const inB = await catalogue(ctxOf(h.env, { session: { id: "s-b" } }));
+    assert.match(inB.call.system, /`theirs` — Belongs to B\./);
   } finally {
     h.rm();
   }

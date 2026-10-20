@@ -6,14 +6,14 @@ The simplest skill loader: every skill's whole body goes into the system prompt 
 
 | Step | Phase | Export | Effect |
 |---|---|---|---|
-| `inject` | `prompt` | `inject` | Reads the skills through `@thetis/skills` (`selectSkills`: errored skills out, the project's `skills.disable` out, universals capped at 8), orders them universal first then by id, and appends `# Skills` with one `## <id>` section per whole body until `config.budget` is spent. Writes the turn's state under `harness["@thetis/skills"]`. |
+| `inject` | `prompt` | `inject` | Reads the skills through `@thetis/skills` (`selectSkills`: errored skills out, the project's `skills.disable` out, the skills of other projects out, universals capped at 8), orders them universal first then by id, and appends `# Skills` with one `## <id>` section per whole body until `config.budget` is spent. Writes the turn's state under `harness["@thetis/skills"]`. |
 | `bench-import` | `bench` | `importCorpus` | The shared importer from `@thetis/skills`. Never scheduled on an ordinary turn. |
 | `bench-report` | `bench` | `benchReport` | The claim: `direct` the injected ids, `offered` nothing, `reach: "direct"`, `budgetBytes`, `droppedForBudget`. |
 
 The state under `harness["@thetis/skills"]`:
 
 ```js
-{ loader: "@thetis/skills-all", universal: ["concise"], pinned: [], loaded: [], catalogue: [...injected], injected: [...], dropped: [...], excluded: [...], budget: 98304, used: 41200, notes: [] }
+{ loader: "@thetis/skills-all", universal: ["concise"], pinned: [], loaded: [], catalogue: [...injected], injected: [...], dropped: [...], excluded: [...], budget: 98304, used: 41200, alwaysOn: { budget: 98304, used: 41200, total: 41200, unit: "bytes", dropped: [] }, notes: [] }
 ```
 
 `notes` names each skill left out for a lint error, what a project switched off, and another skills loader when one is installed; both loaders run until one is removed.
@@ -34,7 +34,7 @@ On `skill-recall@1` this loader puts 13 whole bodies in the prompt for 95,296 by
 
 | Key | Default | Effect |
 |---|---|---|
-| `budget` | 98304 | Bytes of skill text the prompt may carry. Whole skills only. The first skill that does not fit ends the fill; it and the rest are named in `dropped`. |
+| `budget` | 98304 | Bytes of skill text the prompt may carry. Whole skills only. The first skill that does not fit ends the fill; it and the rest are named in `dropped`, in `alwaysOn.dropped` as `{ id, part: "skill" }`, in one note, and in the Skills panel. Every body is always on with this loader, so this is its always-on budget; the other loaders call theirs `alwaysOnBudget` and count characters. |
 
 ## Limits
 
@@ -47,7 +47,7 @@ On `skill-recall@1` this loader puts 13 whole bodies in the prompt for 95,296 by
 |---|---|
 | `package.json` | The manifest: the three steps and the bench declaration. |
 | `index.js` | `inject`, `importCorpus`, `benchReport`, and the pure `orderOf` and `fill`. |
-| `test/inject.test.js` | The prompt block and the state, the budget rule, the project switch, the notes, and the claim over a small corpus. |
+| `test/inject.test.js` | The prompt block and the state, the budget rule and its note, the project switch, the skills of another project, the notes, and the claim over a small corpus. |
 
 ## Tests
 

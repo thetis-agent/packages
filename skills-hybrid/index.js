@@ -3,7 +3,7 @@ import { contentText } from "@thetis/runtime/lib/content";
 // runs once, on the first user message, and the result is pinned in the harness by id and content hash, so
 // the prompt prefix does not move on later turns; a pack update mid-conversation re-renders a pinned card
 // from the new text but keeps its place.
-import { selectSkills, brief, card, renderBody, packagesOf, loadSkills, STATE, importCorpus as importShared, claim, readMap, corpusIds } from "@thetis/skills";
+import { selectSkills, brief, card, packagesOf, loadSkills, STATE, importCorpus as importShared, claim, readMap, corpusIds, alwaysOnBudgetOf, fitAlwaysOn, budgetNote } from "@thetis/skills";
 import { embeddingConfig, keyOf, queryTextOf, readCache, writeCache } from "./lib/embed.js";
 import { benchVectorsFor, VECTORS_DIR } from "./lib/vectors.js";
 import { retrieve, thresholdOf, minTermsOf } from "./lib/retrieve.js";
@@ -13,6 +13,20 @@ export const SELF = "@thetis/skills-hybrid";
 
 const SHORTS = "# Skills\nOne line each, a pointer and not the content: skill_fetch reads one before you rely on it; skill_search finds one the list does not name.";
 const RETRIEVED = "# Skills retrieved for this conversation\nMatched the first message; the list above has the rest.";
+
+const UNIVERSAL = "# Skills always in force";
+
+/**
+ * The always-on part, fitted to `config.alwaysOnBudget`: the shorts of the top-level skills and the universal
+ * bodies. The pin and skill_search both ask, so a universal skill the budget dropped is ranked like any other.
+ */
+export function alwaysOn(skills, universal, config) {
+  const top = skills.filter((s) => !s.id.includes("/"));
+  return fitAlwaysOn({ header: SHORTS, heading: UNIVERSAL, catalogue: top, universal, budget: alwaysOnBudgetOf(config) });
+}
+
+/** The hashes the vector cache keeps: every skill the person has, so a conversation in another project does not prune and re-embed this one's. */
+const keepOf = (all) => all.map((s) => s.contentHash).filter(Boolean);
 
 const section = (heading, skills) => `${heading}\n\n${skills.map((s) => `## ${s.id}\n${s.body.trimEnd()}\n`).join("\n")}`;
 
@@ -57,10 +71,13 @@ export async function importCorpus(ctx) {
 /** prompt: the shorts, the universal bodies, and the cards (or bodies) pinned for this conversation. */
 export async function pin(ctx) {
   const config = ctx.config ?? {};
-  const { skills, universal, excluded, notes } = await selectSkills(ctx.env, ctx.packages, ctx.session);
+  const { all, skills, universal: declared, excluded, notes } = await selectSkills(ctx.env, ctx.packages, ctx.session);
   const prev = ctx.harness?.[STATE] && typeof ctx.harness[STATE] === "object" ? ctx.harness[STATE] : null;
   if (prev?.loader && prev.loader !== SELF) notes.push(`another skills loader is installed: ${prev.loader}; both run until one is removed`);
-  const top = skills.filter((s) => !s.id.includes("/"));
+  const fit = alwaysOn(skills, declared, config);
+  const budgetLine = budgetNote(fit);
+  if (budgetLine) notes.push(budgetLine);
+  const universal = fit.universal;
   const universalIds = new Set(universal.map((s) => s.id));
   const byId = new Map(skills.map((s) => [s.id, s]));
   const pinBodies = config.pinBodies === true;
@@ -85,7 +102,7 @@ export async function pin(ctx) {
     mode = prev.mode ?? "pinned";
   } else {
     const query = queryOf(ctx);
-    const result = query.trim() && skills.length ? await retrieve(ctx.env, skills, query, config, { limit: RANKED, universal: universalIds, threshold: thresholdOf(config), evidence: minTermsOf(config) }) : { hits: [], mode: "lexical", note: null };
+    const result = query.trim() && skills.length ? await retrieve(ctx.env, skills, query, config, { limit: RANKED, universal: universalIds, threshold: thresholdOf(config), evidence: minTermsOf(config), keep: keepOf(all) }) : { hits: [], mode: "lexical", note: null };
     if (result.note) notes.push(result.note);
     if (!result.hits.length && query.trim() && skills.length) notes.push("no skill matched the first message; nothing is pinned");
     ranked = result.hits.map((h) => ({ id: h.id, score: h.score, how: h.how }));
@@ -98,8 +115,9 @@ export async function pin(ctx) {
     universal: [...universalIds],
     pinned,
     loaded: [],
-    catalogue: top.map((s) => s.id),
-    dropped: [],
+    catalogue: fit.catalogue.map((s) => s.id),
+    dropped: [...new Set(fit.dropped.map((d) => d.id))],
+    alwaysOn: { budget: fit.budget, used: fit.used, total: fit.total, unit: "characters", dropped: fit.dropped },
     excluded,
     ranked,
     mode,
@@ -109,9 +127,7 @@ export async function pin(ctx) {
   const harness = { ...ctx.harness, [STATE]: state };
   if (!skills.length) return { harness };
 
-  const blocks = [];
-  if (top.length) blocks.push(`${SHORTS}\n\n${top.map(brief).join("\n")}`);
-  if (universal.length) blocks.push(section("# Skills always in force", universal));
+  const blocks = [...fit.blocks];
   const pinnedSkills = pinned.map((p) => byId.get(p.id)).filter(Boolean);
   if (pinnedSkills.length) {
     blocks.push(pinBodies ? section(RETRIEVED, pinnedSkills) : `${RETRIEVED}\n\n${pinnedSkills.map((s) => card(s)).join("\n\n")}`);
@@ -125,10 +141,10 @@ export async function skillSearch(args, env) {
   const query = queryTextOf(args?.query);
   if (!query.trim()) throw new Error("query is required: say what you are trying to do, in a sentence");
   const k = Math.min(20, Math.max(1, Math.floor(Number(args?.k)) || 5));
-  const { skills, universal } = await selectSkills(env, await packagesOf(env), env.session);
+  const { all, skills, universal: declared } = await selectSkills(env, await packagesOf(env), env.session);
   if (!skills.length) return "no skills are installed";
-  const universalIds = new Set(universal.map((s) => s.id));
-  const { hits, note } = await retrieve(env, skills, query, env.config ?? {}, { limit: k, universal: universalIds });
+  const universalIds = new Set(alwaysOn(skills, declared, env.config).universal.map((s) => s.id));
+  const { hits, note } = await retrieve(env, skills, query, env.config ?? {}, { limit: k, universal: universalIds, keep: keepOf(all) });
   const byId = new Map(skills.map((s) => [s.id, s]));
   const lines = hits.map((h) => `${brief(byId.get(h.id))} [${h.how}, ${h.score}]`);
   if (!lines.length) return `no skill matched; the universal skills in your prompt are ${[...universalIds].map((id) => `\`${id}\``).join(", ") || "none"}`;
