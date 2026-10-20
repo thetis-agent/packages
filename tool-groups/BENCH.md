@@ -12,7 +12,7 @@ Suites: [`assembly-cost@1`](#suite-assembly-cost-v1), [`tool-recall@1`](#suite-t
 What a package costs the prompt before anything is retrieved: bytes by segment, how much of the prefix survives a turn, and how long assembly takes. No gold, no corpus, no adapter — any package with a step or a tool can opt in.
 
 7 tasks (2 of them controls), probe A.
-Generated 2026-09-30T18:13:31.820Z. Digest `sha256:4cf4d7b92c02…`.
+Generated 2026-10-19T23:42:31.673Z. Digest `sha256:41c19d78f0e7…`.
 
 ### Compared
 
@@ -69,7 +69,7 @@ Two reports are comparable only when these match.
 |---|---|
 | suite | assembly-cost@1 (sha256:9efc984d505f…) |
 | corpus | none |
-| arms | none; thetis-tool-groups (@thetis/tool-groups@0.2.1); thetis-tool-groups-lexical (@thetis/tool-groups@0.2.1); thetis-tool-groups-fusion (@thetis/tool-groups@0.2.1); all (@thetis/exa@0.1.1, @thetis/skills-all@0.1.1, @thetis/skills-hybrid@0.2.4, @thetis/skills-l1@0.1.1, @thetis/terminal@0.2.2, @thetis/tool-exec@0.5.0, @thetis/tool-groups@0.2.1, @thetis/tools-files@0.2.1, @thetis/tools-plan@0.3.2) |
+| arms | none; thetis-tool-groups (@thetis/tool-groups@0.3.0); thetis-tool-groups-lexical (@thetis/tool-groups@0.3.0); thetis-tool-groups-fusion (@thetis/tool-groups@0.3.0); all (@thetis/exa@0.1.1, @thetis/skills-all@0.2.0, @thetis/skills-hybrid@0.3.0, @thetis/skills-l1@0.2.0, @thetis/terminal@0.2.2, @thetis/tool-exec@0.5.0, @thetis/tool-groups@0.3.0, @thetis/tools-files@0.2.1, @thetis/tools-plan@0.4.0) |
 | model | none — this probe needs no model |
 | sandbox | auto |
 | scorer | @thetis/bench@0.4.2 |
@@ -92,7 +92,7 @@ Regenerate with `npm run bench -- run assembly-cost@1`. This section is rewritte
 Given a request, which tool groups did the harness put in the call, and what did the rest cost? Every arm gets the same corpus of tool groups as installed packages; a routing arm decides which to attach, and is scored on the canaries in the tool segment against the groups the task names.
 
 75 tasks (6 of them controls), probe A.
-Generated 2026-09-28T12:37:14.593Z. Digest `sha256:6ebf7aa678b1…`.
+Generated 2026-10-19T23:43:41.831Z. Digest `sha256:1ed93512fc05…`.
 
 ### Compared
 
@@ -124,9 +124,9 @@ Absolute milliseconds are not committed: the fence opens lazily, the sandbox mod
 | arm | steps | assembly vs floor |
 |---|---|---|
 | none | 18 | floor |
-| thetis-tool-groups | 26 | 1.8× |
+| thetis-tool-groups | 26 | 1.7× |
 | thetis-tool-groups-lexical | 26 | 1.6× |
-| thetis-tool-groups-fusion | 26 | 1.7× |
+| thetis-tool-groups-fusion | 26 | 1.6× |
 
 ### Conformance
 
@@ -145,7 +145,7 @@ Two reports are comparable only when these match.
 |---|---|
 | suite | tool-recall@1 (sha256:18cf90fb4e4d…) |
 | corpus | tool-groups@1, 21 records |
-| arms | none; thetis-tool-groups (@thetis/tool-groups@0.2.1); thetis-tool-groups-lexical (@thetis/tool-groups@0.2.1); thetis-tool-groups-fusion (@thetis/tool-groups@0.2.1) |
+| arms | none; thetis-tool-groups (@thetis/tool-groups@0.3.0); thetis-tool-groups-lexical (@thetis/tool-groups@0.3.0); thetis-tool-groups-fusion (@thetis/tool-groups@0.3.0) |
 | model | none — this probe needs no model |
 | sandbox | auto |
 | scorer | @thetis/bench@0.4.2 |

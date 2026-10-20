@@ -101,7 +101,10 @@ engine waits for that turn to end and never cancels it. When its own send was a 
 reply. At most three such resumes per turn, with the budget counters carried over; then the step fails.
 
 The cost of a run is the sum of `usage.cost` over its turns. When it reaches the cap the running turn is
-cancelled and the run ends as needs-you with the reason `Cost cap of $X reached`.
+cancelled and the run ends as needs-you with the reason `Cost cap of $X reached`. A turn whose model answered
+but reported no positive cost adds nothing, so the cap cannot see it: the run and the step count such turns
+(`unknownCostTurns`), and the run view says "cost unknown for N turns; the cap cannot see them" under the
+total rather than show a figure that looks whole.
 
 ### Validation
 
@@ -125,8 +128,9 @@ the kernel does not list. Publishing refuses a definition with errors.
   "history": [ { "step": "plan", "type": "prompt", "status": "running"|"done"|"failed"|"skipped",
                  "startedAt": "…", "endedAt": "…", "model": "…", "conversation": "s_…",
                  "toolCalls": 33, "tokens": 112480, "cost": 3.58, "ms": 540000,
-                 "breaches": 0, "note": "…", "activity": ["shell: dotnet test …", "…"] } ],
-  "cost": 13.61, "costCapUsd": 40,
+                 "breaches": 0, "note": "…", "activity": ["shell: dotnet test …", "…"],
+                 "unknownCostTurns": 1 } ],   // only once a turn reported no cost
+  "cost": 13.61, "costCapUsd": 40, "unknownCostTurns": 1,
   "conversations": ["s_…"], "titles": { "s_…": "Bug 1083: …" }, "createdAt": "…", "updatedAt": "…"
 }
 ```
@@ -174,8 +178,19 @@ a request `{ "i": 1, "op": "…", ...args }`, an answer `{ "i": 1, "ok": true, "
 | `queue` | `paused?` | `{ paused, running: [run ids], queued: n }` |
 | `conversations` | — | `{ "<conversation id>": { title?, model? } }` for every conversation a run opened: the title it gave and the model its last prompt step ran on there |
 | `forget` | `id` | `{}`; deletes a finished run's record (a run still going is refused) and broadcasts `{ ev: "forgotten", id }` |
+| `forgetConversations` | `sessions` (conversation ids) | `{ titles, runs: [{ id, name, number, state }] }`; removes the title each run gave those conversations and answers the runs that used them. The forget hook calls it |
 | `catalog` | — | `{ models: [{ id, label? }], defaultModel, projects: [{ id, name }], tools: [{ package, export, name, description }] }` |
 | `subscribe` | — | `{ runs: [run…] }` (latest 50, without `vars`); then events `{ ev: "run", run }` (without `vars`) whenever a run changes, `{ ev: "workflow", id }` when a definition changes, `{ ev: "queue", queue }` |
+
+## Forgetting a conversation
+
+The package declares `thetis.sessions.forget` (`lib/forget.js`). While a run that uses the conversation is
+queued, running or waiting, the preview blocks the forget with a sentence naming the run. The forget removes
+the title the run gave the conversation: through `forgetConversations` when the service answers, so the
+write goes through the service's own coalescing, or by rewriting the run files when nothing listens on the
+socket. A service that is there but does not answer in five seconds is left alone, and the receipt says
+the titles stayed. The run keeps the conversation's id and its own step results, and the receipt says that
+too.
 
 ## The browser side
 

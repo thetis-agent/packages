@@ -1,7 +1,8 @@
 // What tool_search leaves for the next turn. A tool cannot return harness, so it writes the groups it loaded
 // to a document under `env.storage("sessions")` keyed by the session id, and the prompt step merges the
 // document into the pin. The prompt step writes the active set there too, so the tool can mark the catalogue
-// without seeing the harness. Nothing here is ever cleared: a loaded group stays loaded.
+// without seeing the harness. Nothing here is cleared while the conversation lives: a loaded group stays
+// loaded. Forgetting the conversation deletes its document (forget.js).
 export const NAMESPACE = "sessions";
 
 const clean = (doc) => {

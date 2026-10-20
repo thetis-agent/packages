@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { costShare, entryMs, nodeStatuses, pathTaken, retryChoices, runLabel, visitCounts } from "../ui/runstate.js";
+import { capNote, costShare, entryMs, nodeStatuses, pathTaken, retryChoices, runLabel, unknownCostNote, visitCounts } from "../ui/runstate.js";
 import { ago, duration, inputCount, inputRuns, money, positive, sortIssues } from "../ui/format.js";
 import { sample } from "./ui-fixture.js";
 
@@ -84,4 +84,14 @@ test("sortIssues puts errors first and marks each step with its worst level", ()
   assert.equal(s.warns, 2);
   assert.deepEqual(s.list.map((i) => i.message), ["e0", "e1", "w1", "w2"]);
   assert.deepEqual(s.byStep, { a: "error", b: "warn" });
+});
+
+test("turns without a reported cost are named, and with a cap the cap line says it cannot see them", () => {
+  assert.equal(unknownCostNote({}), null);
+  assert.equal(unknownCostNote({ unknownCostTurns: 1 }), "cost unknown for 1 turn");
+  assert.equal(unknownCostNote({ unknownCostTurns: 3 }), "cost unknown for 3 turns");
+  assert.equal(capNote({ cost: 1, costCapUsd: 40 }), null);
+  assert.equal(capNote({ cost: 1, costCapUsd: 40, unknownCostTurns: 1 }), "cost unknown for 1 turn; the cap cannot see it");
+  assert.equal(capNote({ cost: 1, costCapUsd: 40, unknownCostTurns: 2 }), "cost unknown for 2 turns; the cap cannot see them");
+  assert.equal(capNote({ cost: 1, unknownCostTurns: 2 }), "cost unknown for 2 turns", "without a cap there is no cap to be blind");
 });

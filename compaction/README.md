@@ -77,6 +77,7 @@ The state is in the session record under `harness["@thetis/compaction"]`; `theti
 | `src/measure.ts` | `windowFor`, `measure`, `measureRound`, `descriptorsFor`, `readLastCall`. |
 | `src/summarize.ts` | `SUMMARY_INSTRUCTIONS`, `summaryRequest`, `summarize`, `extractSummary`. |
 | `src/engine.ts` | `decide`, `run`, `compactIfDue`, `recordFailure`, `resetState`, `resumeState`: the one code path the step, the hook and a manual request share. |
+| `src/forget.ts` | `forgetSession`, the forget hook: removes `compaction/requests/<session>.json` of a forgotten conversation and its subagents. Everything else lives in the session's harness and goes with the session. |
 | `ui/index.js`, `ui/index.css` | The chip, the dock and the transcript card. |
 
 ## Tests

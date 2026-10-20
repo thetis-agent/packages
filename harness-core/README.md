@@ -86,6 +86,8 @@ What the page sees is one `extension` event, `harness-core.retry`, per step:
 
 **Retry now.** The UI command `retry-now { session }` writes `harness-core/retry/<session>.json` in the person's home. A waiting loop looks for that file every 500 ms, removes it and sends at once, so one click is one retry. A file rather than storage, for the reason `@thetis/compaction` gives for its requests: the command runs under the gateway's environment and the step under this package's, and the home is the one place both reach at the same path. A request left from before a wait began is removed when the wait begins.
 
+**Forget.** `thetis.sessions.forget` names `forgetSession`. When a person forgets a conversation it removes, for the conversation and each subagent conversation under it, `harness-core/context/<session>.json`, `harness-core/retry/<session>.json` and the session's key in `effort/sessions.json` (rewritten whole and renamed into place). The remembered effort in `effort/prefs.json` belongs to no conversation and stays. The preview never blocks, and a second forget reports nothing removed.
+
 ## Resume
 
 A resume is a turn with no input, `sessions.send(id, [])`: the pipeline runs over the saved conversation and appends nothing, so the person's message is never sent twice. The Retry and Continue buttons, the resumer below, `resume_subagent` and the workflows engine all resume this way. Two things a stopped turn leaves behind would make that conversation wrong to send, and both are marked when the turn stops:
@@ -222,6 +224,7 @@ thetis sessions show --user alice --session <id>
 | `src/resume.ts` | The marks (`marksOf`, `mark`), the `resumeTurn` step, and `unrun`, which finds the tool calls a resume runs. |
 | `src/resumer.ts` | The `resumer` service: `RESUME_DEFAULTS`, `resumerConfig`, `resumable`, `pick`, `resumeOnce`. |
 | `src/effort.ts` | The reasoning effort: `EFFORTS`, the two files (`effortOf`, `setEffort`, `readEffortSessions`, `readRememberedEffort`), `reasoningFor`, the `applyEffort` step and the three commands. |
+| `src/forget.ts` | `forgetSession`, the forget hook: the context snapshot, the retry request and the effort key of a forgotten conversation and its subagents. |
 | `ui/index.js`, `ui/index.css` | The Effort pill. Built with `ext.dom.el`; the `.ef-` rules draw it from the shell's tokens. No inline style: the page's CSP forbids it. |
 | `src/round.ts` | The round hook's shapes: `RoundHookRefSchema` (the hint), `RoundHookArgs`, `RoundHookResult` and the lenient `RoundHookResultSchema` the answer is read with. |
 | `test/harness.test.ts` | The five steps over a fake context; the loop over a scripted provider, a recording `invokeTool` and a fake package list: withheld tool honoured, unknown tool refused, cancel mid-stream and between tool calls, provider failure, a tool that throws; the round hook called from round 2 with the live state, a throwing hook logged and the turn completing, no hint meaning no call. |

@@ -77,6 +77,22 @@ export function costShare(run) {
   return Math.max(0, Math.min(1, Number(run?.cost ?? 0) / cap));
 }
 
+/** "cost unknown for 2 turns": the turns of a run or a step whose model reported no cost, or null when there are none. */
+export function unknownCostNote(of) {
+  const n = Math.max(0, Math.floor(Number(of?.unknownCostTurns) || 0));
+  return n ? `cost unknown for ${n} turn${n === 1 ? "" : "s"}` : null;
+}
+
+/**
+ * What the meter says under the total when some turns reported no cost. With a cap it says the cap cannot see
+ * them: the cap counts reported costs alone, so a run on such a model can spend past it unstopped.
+ */
+export function capNote(run) {
+  const note = unknownCostNote(run);
+  if (!note) return null;
+  return costShare(run) == null ? note : `${note}; the cap cannot see ${Number(run.unknownCostTurns) === 1 ? "it" : "them"}`;
+}
+
 /** Milliseconds a history entry took, or has taken so far when it is still going. */
 export function entryMs(entry, now = Date.now()) {
   if (Number.isFinite(entry?.ms)) return entry.ms;

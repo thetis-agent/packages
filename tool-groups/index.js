@@ -14,6 +14,7 @@ import { readDoc, writeDoc, addLoaded } from "./lib/store.js";
 import { importCorpus as importBench, benchReport as reportBench } from "./lib/bench.js";
 
 export { SELF, STATE, SEARCH_TOOL };
+export { forgetSession } from "./lib/forget.js";
 
 const pinOf = (harness) => (harness?.[STATE] && typeof harness[STATE] === "object" && Array.isArray(harness[STATE].active) ? harness[STATE] : null);
 

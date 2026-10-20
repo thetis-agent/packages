@@ -35,6 +35,7 @@ No steps, no service.
 ## Configuration
 
 `config.packages["@thetis/tools-plan"]` has no keys. The package reads no environment variables. State lives in the person's home, one file per conversation, written atomically: the plan at `plans/<session id>.json` and the questions at `questions/<session id>.json`.
+When a person forgets a conversation, `forgetSession` (declared as `thetis.sessions.forget`) removes both files of the conversation and of each subagent conversation under it; a file already gone is not reported.
 
 ## Use
 
@@ -73,6 +74,7 @@ ask_user { intro: "Two things before I start.", questions: [
 | `lib/plan.js` | Minting ids, the 64-item cap, the single-active rule, rendering. |
 | `lib/todo-tools.js`, `lib/ask-user.js`, `lib/ui-commands.js` | The tools and the commands. |
 | `lib/store.js` | Atomic JSON files under `plans/` and `questions/`. |
+| `lib/forget.js` | The forget hook. |
 | `ui/index.js`, `ui/plan-text.js`, `ui/ask.js`, `ui/index.css` | The dock, the chip, the transcript lines and the ask form. |
 | `BENCH.md`, `bench/` | The generated benchmark view and reports. |
 

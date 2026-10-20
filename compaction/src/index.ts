@@ -18,6 +18,8 @@ export { project, note, projectedIndex } from "./project.js";
 export { windowFor, measure, measureRound, descriptorsFor, forgetDescriptors, readLastCall } from "./measure.js";
 export { SUMMARY_INSTRUCTIONS, summaryRequest, summarize, extractSummary, instructionsWith } from "./summarize.js";
 export { decide, run, compactIfDue, recordFailure, resetState, resumeState, triggerOf, THRASH_ROUNDS } from "./engine.js";
+export { forgetSession } from "./forget.js";
+export type { ForgetAnswer, ForgetArgs } from "./forget.js";
 
 const REQUEST_LIMIT = 4000;
 

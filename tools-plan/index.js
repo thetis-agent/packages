@@ -4,3 +4,4 @@
 export { todoWrite, todoAdd, todoMark, todoOrder, todoRead } from "./lib/todo-tools.js";
 export { askUser } from "./lib/ask-user.js";
 export { uiPlan, uiMark } from "./lib/ui-commands.js";
+export { forgetSession } from "./lib/forget.js";

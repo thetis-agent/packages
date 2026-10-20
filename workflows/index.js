@@ -1,6 +1,7 @@
 // Entry point: the workflow service, and the two UI commands the Workflows place sends. The mechanism is
 // under `lib/`: `host.js` (the socket), `service.js` (definitions, runs, the queue), `engine.js` (one run,
-// step by step), `validate.js`, `template.js`, `definition.js`, `runs.js`.
+// step by step), `validate.js`, `template.js`, `definition.js`, `runs.js`. The forget hook the gateway calls
+// when a person forgets a conversation is `forget.js`.
 //
 // A UI command answers a program: `{ data }`, because the gateway keeps `text` and `data` and drops every
 // other field, and a thrown error is a 400 with its sentence. The stream yields values and closes its
@@ -8,10 +9,12 @@
 import { connect } from "./lib/client.js";
 import { startHost } from "./lib/host.js";
 
+export { forgetSession } from "./lib/forget.js";
+
 /** How long a watching stream may hear nothing before it asks the service whether it is still there. */
 export const HEARTBEAT_MS = 20_000;
 
-export const OPS = new Set(["list", "get", "create", "save", "publish", "remove", "validate", "enqueue", "runs", "run", "cancel", "retry", "approve", "queue", "catalog", "conversations", "forget"]);
+export const OPS = new Set(["list", "get", "create", "save", "publish", "remove", "validate", "enqueue", "runs", "run", "cancel", "retry", "approve", "queue", "catalog", "conversations", "forget", "forgetConversations"]);
 
 /**
  * The service. `env` is the `ServiceEnv`. Resolves as soon as the socket listens: the runs are loaded, and

@@ -148,6 +148,31 @@ test("reaching the cost cap cancels the turn and ends the run as needs-you", asy
   assert.equal(kernel.cancels.length, 1);
 });
 
+test("a turn whose usage reports no cost is counted on the run and on its step, because the cap cannot see it", async (t) => {
+  const definition = def({
+    first: { type: "prompt", model: "opus", prompt: "One.", budget: { toolCalls: 9 }, next: "second" },
+    second: { type: "prompt", model: "opus", conversation: "first", prompt: "Two.", budget: { toolCalls: 9 }, next: "third" },
+    third: { type: "prompt", model: "opus", conversation: "first", prompt: "Three.", budget: { toolCalls: 9 }, next: "finish" },
+    finish: { type: "done", summary: "ok" },
+  });
+  // A priced turn, a turn whose usage carries tokens but no cost, and one that says it cost nothing.
+  const usages = [{ prompt_tokens: 10, cost: 0.5 }, { prompt_tokens: 10 }, { prompt_tokens: 10, cost: 0 }];
+  const script = (call) => reply("ok", usages[call.n]);
+  const { run } = await go(t, definition, script, { cap: 40 });
+  assert.equal(run.state, "done", run.reason);
+  assert.equal(run.cost, 0.5);
+  assert.equal(run.unknownCostTurns, 2);
+  assert.deepEqual(run.history.filter((h) => h.type === "prompt").map((h) => h.unknownCostTurns ?? 0), [0, 1, 1]);
+});
+
+test("a priced turn is not counted, even when one of its calls reported no cost", async (t) => {
+  const definition = def({ work: { type: "prompt", model: "opus", prompt: "Go.", budget: { toolCalls: 9 }, next: "finish" }, finish: { type: "done", summary: "ok" } });
+  const script = () => [{ type: "usage", usage: { prompt_tokens: 10 } }, ...reply("ok", { prompt_tokens: 20, cost: 0.1 })];
+  const { run } = await go(t, definition, script);
+  assert.equal(run.state, "done", run.reason);
+  assert.equal(run.unknownCostTurns, undefined);
+});
+
 test("a parse miss sends the follow-up once to the same conversation and model, then parses again", async (t) => {
   const definition = def({
     work: { type: "prompt", model: "sonnet", prompt: "Verify.", budget: { toolCalls: 9 }, next: "check" },

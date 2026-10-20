@@ -33,6 +33,7 @@ Nine commands, all any signed-in person's. `browse` and `mount` reach `host.gran
 `save` checks: a name of 1 to 80 characters; each directory absolute and normalized, with no `..` and no NUL; at most 64 directories, 256 tool names of at most 64 characters, 256 skill ids in the library's shape (lowercase words and dashes, up to three levels joined by `/`), 32768 characters of instructions; at most 32 projects per person. Duplicates are dropped.
 
 The files are `projects/<id>.json` (the record), `projects/<id>.md` (the instructions) and `projects/sessions.json` (the assignments). An id is `p_` and 8 hexadecimal characters.
+When a person forgets a conversation, `forgetSession` (declared as `thetis.sessions.forget`) drops it and its subagent conversations from `projects/sessions.json`, rewritten whole and renamed into place. The project stays.
 
 A project directory does not open the fence, and a mount over it is not enough on its own. `lib/mounts.js` folds four questions — does the path lie under the home, is a mount over it, what does the fence find there, and is a mount written down that the fence did not take — into one state, and every surface says the same one:
 
@@ -71,6 +72,7 @@ The tool switch shows in the page after the first turn: the Tools dock of `@thet
 | `lib/steps.js` | `projectPrompt`, `projectTools`, `projectSection`. |
 | `lib/store.js` | The records, the instructions, the assignments, the validation. |
 | `lib/mounts.js` | `THETIS_MOUNTS` parsing, `stateOf` for one directory, and the line the prompt shows. |
+| `lib/forget.js` | `forgetSession`, the forget hook. |
 | `ui/index.js` | `install(ext)`: the state, the switcher in the sidebar's head slot, the place. |
 | `ui/switcher.js`, `ui/place.js`, `ui/place-parts.js`, `ui/state.js` | The switcher, the settings page and its sections, the page's project state. |
 | `ui/index.css` | The styles, under `.pj-`. |

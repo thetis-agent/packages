@@ -1,6 +1,6 @@
 {
   "name": "@thetis/workflows",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "MIT",
   "description": "Workflows: graphs of prompts, tool calls, parsing and branches that run unattended in your own conversations, with a visual editor and a run view.",
   "type": "module",
@@ -10,6 +10,7 @@
   },
   "thetis": {
     "type": "tool",
+    "sessions": { "forget": "forgetSession" },
     "label": "workflows",
     "summary": "Lets you build step-by-step automations that run by themselves, drawn in a visual editor.",
     "config": {

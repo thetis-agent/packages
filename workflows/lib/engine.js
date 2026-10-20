@@ -249,6 +249,11 @@ async function turn(ctx, { conversation, message, model, entry, budget, seg: car
   let yielded = false;
   let reply = "";
   let usageSeen = false;
+  // Whether the model answered at all in this turn, and whether any of its calls said what it cost. A turn
+  // that answered without a positive cost adds nothing to `run.cost`, so the cap cannot see it; the run
+  // counts such turns (`unknownCostTurns`) so the run view can say so rather than show a total that looks whole.
+  let answered = false;
+  let priced = false;
   let grace = null;
   let clock = null;
 
@@ -265,8 +270,10 @@ async function turn(ctx, { conversation, message, model, entry, budget, seg: car
 
   const account = (usage) => {
     if (!isObject(usage)) return;
+    answered = true;
     const cost = Number(usage.cost);
     if (Number.isFinite(cost) && cost > 0) {
+      priced = true;
       entry.cost = round((entry.cost ?? 0) + cost);
       run.cost = round((run.cost ?? 0) + cost);
     }
@@ -297,6 +304,7 @@ async function turn(ctx, { conversation, message, model, entry, budget, seg: car
         break;
       case "message":
         if (e.message?.role === "assistant") {
+          answered = true;
           const text = contentText(e.message.content);
           if (text.trim()) reply = text;
         }
@@ -332,6 +340,10 @@ async function turn(ctx, { conversation, message, model, entry, budget, seg: car
     clearTimeout(clock);
     clearTimeout(grace);
     deps.signal?.removeEventListener("abort", onOuter);
+  }
+  if (answered && !priced) {
+    entry.unknownCostTurns = (entry.unknownCostTurns ?? 0) + 1;
+    run.unknownCostTurns = (run.unknownCostTurns ?? 0) + 1;
   }
   if (deps.signal?.aborted) return { kind: "aborted", reply, seg };
   if (stop === "cap" || (Number.isFinite(cap) && cap > 0 && run.cost >= cap)) return { kind: "cap", reply, seg };

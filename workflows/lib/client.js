@@ -25,7 +25,9 @@ export async function connect(root) {
       s.removeListener("error", fail);
       done(s);
     });
-    s.once("error", (e) => fail(notRunning(path, e?.code ?? e?.message)));
+    // The code stays on the error: ENOENT or ECONNREFUSED means nothing is listening, which a caller that
+    // would otherwise touch the service's files needs to tell apart from a service that is there but slow.
+    s.once("error", (e) => fail(Object.assign(notRunning(path, e?.code ?? e?.message), { code: e?.code })));
   });
   socket.setNoDelay(true);
   socket.setEncoding("utf8");

@@ -15,6 +15,7 @@ import { currentMounts, mountModeOf, stateOf } from "./lib/mounts.js";
 import { assignSession, isProjectId, listProjects, projectOfSession, readAssignments, readInstructions, readProject, removeProject, saveProject, validateProject } from "./lib/store.js";
 
 export { projectPrompt, projectTools } from "./lib/steps.js";
+export { forgetSession } from "./lib/forget.js";
 
 const fail = (message) => {
   throw new Error(message);

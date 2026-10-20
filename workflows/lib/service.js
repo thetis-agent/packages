@@ -393,6 +393,31 @@ export function createService(env, { broadcast = () => {}, user } = {}) {
       return {};
     },
 
+    /**
+     * The workflows half of forgetting conversations: the title a run gave each of `sessions` leaves the
+     * run, written through `persist` like every other change, so it never races a write in flight. The run
+     * keeps the conversation's id and its own step results: those are the run's record, not the
+     * conversation's. Answers `{ titles, runs }`: how many titles went, and each run that used any of them.
+     */
+    async forgetConversations({ sessions } = {}) {
+      if (!Array.isArray(sessions) || sessions.some((s) => typeof s !== "string")) fail("sessions is required: the conversation ids to forget, as a list.");
+      const ids = new Set(sessions);
+      let titles = 0;
+      const used = [];
+      for (const run of runs.values()) {
+        const named = Object.keys(run.titles ?? {}).filter((s) => ids.has(s));
+        const listed = named.length > 0 || (run.conversations ?? []).some((s) => ids.has(s));
+        if (!listed) continue;
+        used.push({ id: run.id, name: run.name, number: run.number, state: run.state });
+        if (!named.length) continue;
+        for (const s of named) delete run.titles[s];
+        titles += named.length;
+        await persist(run);
+      }
+      if (titles) log(`workflows: forgot ${titles} conversation title${titles === 1 ? "" : "s"}`);
+      return { titles, runs: used };
+    },
+
     async cancel({ id } = {}) {
       const run = need(id);
       if (!ACTIVE.includes(run.state)) fail(`Run ${id} has already ended (${run.state}); there is nothing to cancel.`);

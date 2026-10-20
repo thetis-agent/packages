@@ -100,6 +100,7 @@ The script derives the groups from the same manifests the bench fixture installs
 | `embeddings.dimensions` | `1536` | The vector size. |
 
 The package reads no environment variables itself. It writes `tool-groups/vectors.json` in the home and one document per session under `env.storage("sessions")`.
+When a person forgets a conversation, `forgetSession` (declared as `thetis.sessions.forget`) deletes the documents of it and its subagent conversations from `env.storage("sessions")`. It must run under this package's own env: storage is namespaced by package.
 
 The package is in the default `systemPackages["*"]` after `@thetis/skills-hybrid`. An existing installation has its own list in `thetis.config.json`, which the kernel does not rewrite: add `@thetis/tool-groups` there, or install it for everyone with `thetis packages install @thetis/tool-groups`.
 
@@ -122,6 +123,7 @@ The package is in the default `systemPackages["*"]` after `@thetis/skills-hybrid
 | `lib/route.js` | `routeOnce`, the skill edges, the stray calls, the project switch-off, the prompt section. |
 | `lib/dense.js` | The index text and content hash of a group, the vector cache, the bench file, `denseRank`. |
 | `lib/store.js` | The session document `tool_search` and the prompt step share. |
+| `lib/forget.js` | `forgetSession`, the forget hook. |
 | `lib/bench.js` | The importer and the claim. |
 | `scripts/embed-corpus.mjs` | Writes the bench vector file. Needs `OPENROUTER_API_KEY`. |
 | `bench/vectors/<sha256>.json` | The vectors of the `tool-groups@1` corpus and the queries of `tool-recall@1`. |

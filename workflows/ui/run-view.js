@@ -12,7 +12,7 @@ import { compact, nodeSummary, TYPES } from "./steps.js";
 import { duration, money } from "./format.js";
 import { svgIcon } from "./icons.js";
 import { button, chip, crumbs, feedNote, stateChip } from "./parts.js";
-import { ACTIVE, ENDED, costShare, entryMs, nodeStatuses, pathTaken, retryChoices, runLabel, visitCounts } from "./runstate.js";
+import { ACTIVE, ENDED, capNote, costShare, entryMs, nodeStatuses, pathTaken, retryChoices, runLabel, unknownCostNote, visitCounts } from "./runstate.js";
 
 /** The meter's fill. Set through the CSSOM: the page's CSP refuses a `style` attribute. */
 function fill(node, share) {
@@ -174,11 +174,13 @@ export function openRun(host, ctx, { id }) {
   function drawHead() {
     clear(headHost);
     const share = costShare(run);
+    const unpriced = capNote(run);
     const meter = el(
       "div",
-      { class: "wf-meter", title: share == null ? "No cap" : `${Math.round(share * 100)}% of the cap` },
+      { class: "wf-meter", title: share == null ? "No cap" : `${Math.round(share * 100)}% of the cap${unpriced ? "; turns whose cost was not reported count for nothing toward it" : ""}` },
       el("span", { class: "wf-meter-text" }, el("strong", {}, money(run.cost)), run.costCapUsd ? ` of ${money(run.costCapUsd)}` : ""),
-      share == null ? null : el("span", { class: `wf-meter-bar${share >= 0.8 ? " is-hot" : ""}`, role: "meter", "aria-valuemin": "0", "aria-valuemax": String(run.costCapUsd), "aria-valuenow": String(run.cost ?? 0), "aria-label": "Cost against the cap" }, fill(el("span"), share))
+      share == null ? null : el("span", { class: `wf-meter-bar${share >= 0.8 ? " is-hot" : ""}`, role: "meter", "aria-valuemin": "0", "aria-valuemax": String(run.costCapUsd), "aria-valuenow": String(run.cost ?? 0), "aria-label": "Cost against the cap" }, fill(el("span"), share)),
+      unpriced ? el("span", { class: "wf-meter-note" }, unpriced) : null
     );
     headHost.append(
       el(
@@ -225,6 +227,7 @@ export function openRun(host, ctx, { id }) {
     const ms = entryMs(h);
     if (ms != null) parts.push(`${duration(ms)}${h.status === "running" ? " so far" : ""}`);
     if (h.cost) parts.push(money(h.cost));
+    if (unknownCostNote(h)) parts.push(unknownCostNote(h));
     if (h.toolCalls) parts.push(`${h.toolCalls} tool call${h.toolCalls === 1 ? "" : "s"}`);
     if (h.tokens) parts.push(`${compact(h.tokens)} tok`);
     return parts.join(" · ");
@@ -247,7 +250,7 @@ export function openRun(host, ctx, { id }) {
       badge,
       status: STATUS_WORDS[status],
       chip: step.type === "prompt" ? h?.model || step.model : null,
-      meta: h && step.type === "prompt" ? [entryMs(h) != null ? duration(entryMs(h)) : null, h.cost ? money(h.cost) : null, h.toolCalls ? `${h.toolCalls} calls` : null, h.breaches ? `${h.breaches} breach${h.breaches === 1 ? "" : "es"}` : null].filter(Boolean).join(" · ") : null,
+      meta: h && step.type === "prompt" ? [entryMs(h) != null ? duration(entryMs(h)) : null, h.cost ? money(h.cost) : null, unknownCostNote(h), h.toolCalls ? `${h.toolCalls} calls` : null, h.breaches ? `${h.breaches} breach${h.breaches === 1 ? "" : "es"}` : null].filter(Boolean).join(" · ") : null,
     };
   }
 
