@@ -128,7 +128,10 @@ shell's own renderer, with relative images resolved against the file's directory
 route, or, without the raw route, drawn as a placeholder box with the alt text and no request; an image
 the raw route refuses becomes the same box on its one error, "The image was not found at <path>.", and is
 never asked for again; and code fences coloured by the same grammars as the editor) and a Rendered | Source segment in
-the tab bar switches to the editor; the last choice per language is remembered. Images and SVGs show
+the tab bar switches to the editor; the last choice per language is remembered. A place opened with
+`{ path, view }` (`view` one of the file's own words, such as `"source"`) opens the file in that view the
+first time, whatever was remembered: Reflections opens its trajectories, which are logs and not
+documents, this way. Images and SVGs show
 on a checkerboard with Fit | 1:1, PDFs inline, audio with controls, each with a facts line. Anything
 binary or unknown gets a facts card with Download. A text file over 4 MB opens read-only on its first
 4 MB with a "Show last 4 MB" button. The strip under the view reads path, root and mode, language,

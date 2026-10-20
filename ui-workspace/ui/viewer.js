@@ -48,6 +48,13 @@ export function rememberedMode(file, user, storage = globalThis.localStorage) {
   }
 }
 
+/** The view a file opens in: the one asked for when the file has it, else the person's remembered one, else the first. */
+export function openingMode(file, view, user, storage = globalThis.localStorage) {
+  const choices = MODES[file?.preview] ?? [];
+  if (choices.includes(view)) return view;
+  return rememberedMode(file, user, storage) ?? choices[0] ?? null;
+}
+
 export function rememberMode(file, mode, user, storage = globalThis.localStorage) {
   const key = storageKey(user, `mode:${modeKey(file)}`);
   if (!key) return;
@@ -397,7 +404,7 @@ export function createViewer(host, opts) {
   }
 
   if (choices.length) {
-    mode = rememberedMode(file, model?.user) ?? choices[0];
+    mode = openingMode(file, opts.view, model?.user);
     syncSeg();
   }
   const ready = Promise.resolve(render()).catch((err) => {

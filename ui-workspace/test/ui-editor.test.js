@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { ago, changedLines, copyToHome, detectEol, homeCopyPath, isAuthError, isPlainTypingKey, isReadOnlyRoot, readOnlySentence, unifiedDiff, writerName } from "../ui/editor.js";
 import { canonical, GRAMMARS, grammarFor, hasGrammar, languageLabel, loadLanguage } from "../ui/lang.js";
 import { savedText } from "../ui/strip.js";
-import { formatSize, imageNotFound, modeKey, rememberedMode, rememberMode, resolveRelative } from "../ui/viewer.js";
+import { formatSize, imageNotFound, modeKey, openingMode, rememberedMode, rememberMode, resolveRelative } from "../ui/viewer.js";
 
 const ui = fileURLToPath(new URL("../ui/", import.meta.url));
 
@@ -223,4 +223,17 @@ test("the strip's saved field", () => {
   assert.equal(savedText({ dirty: true, saved: "2026-09-25T11:00:00Z" }, now), "Unsaved changes");
   assert.equal(savedText({ saved: "2026-09-25T11:57:00Z" }, now), "Saved 3 min ago");
   assert.equal(savedText({}, now), "");
+});
+
+test("a file opens in the view asked for, else the remembered one, else the first", () => {
+  const md = { language: "md", preview: "markdown" };
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  assert.equal(openingMode(md, undefined, "rae", storage), "rendered");
+  rememberMode(md, "source", "rae", storage);
+  assert.equal(openingMode(md, undefined, "rae", storage), "source");
+  rememberMode(md, "rendered", "rae", storage);
+  assert.equal(openingMode(md, "source", "rae", storage), "source", "a log opened as source, whatever was remembered");
+  assert.equal(openingMode(md, "1:1", "rae", storage), "rendered", "a view the file does not have is ignored");
+  assert.equal(openingMode({ preview: "text" }, "source", "rae", storage), null, "a plain text file has no views");
 });

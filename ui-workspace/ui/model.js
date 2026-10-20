@@ -269,10 +269,10 @@ export function createModel(ext) {
   const tabsApi = Object.freeze({
     list: () => tabs.map((t) => ({ ...t })),
     active: () => (activePath ? { ...tabOf(activePath) } : null),
-    open(path, { line, activate = true, name, kind, mode, root } = {}) {
+    open(path, { line, activate = true, name, kind, mode, root, view } = {}) {
       let tab = tabOf(path);
       if (!tab) {
-        tab = { path, name: name || nameOf(path), kind: kind === "editor" ? "editor" : "viewer", line: null, mode: mode ?? null, root: root ?? null, dirty: getBuffer(path) != null };
+        tab = { path, name: name || nameOf(path), kind: kind === "editor" ? "editor" : "viewer", line: null, mode: mode ?? null, root: root ?? null, dirty: getBuffer(path) != null, ...(view ? { view } : {}) };
         tabs = [...tabs, tab];
       } else {
         if (name) tab.name = name;

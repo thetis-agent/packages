@@ -132,6 +132,7 @@ function openPlace(ext, model, root, params) {
       pane.entry = { path: file.path, name: nameOf(file.path), kind: "file", mode, root: stat.root, display: stat.display };
       const callbacks = {
         line: tab.line ?? undefined,
+        view: tab.view ?? undefined,
         banner: banners,
         active: model.tabs.active()?.path === tab.path,
         onCursor: (cursor) => activeIs(tab.path) && strip.set({ cursor }),
@@ -244,9 +245,9 @@ function openPlace(ext, model, root, params) {
   }
 
   /** Opens a file in a tab (or brings its tab forward), at a line when one is given. */
-  function openFile(path, { line, activate = true } = {}) {
+  function openFile(path, { line, activate = true, view } = {}) {
     if (!path) return;
-    model.tabs.open(path, { line, activate, name: nameOf(path) });
+    model.tabs.open(path, { line, activate, name: nameOf(path), view });
     if (activate) showFile();
     const pane = panes.get(path);
     if (line && pane?.view?.goTo && !pane.loading) {
@@ -309,7 +310,9 @@ function openPlace(ext, model, root, params) {
       if (alive) explorer.beginRename(params.path);
     } else if (typeof params.path === "string" && params.path) {
       const line = Number.isFinite(Number(params.line)) && Number(params.line) > 0 ? Number(params.line) : undefined;
-      openFile(params.path, { line });
+      // `view` asks for one of the file's views the first time it opens ("source" for a markdown file that is
+      // a log, not a document); after that the person's own choice is remembered as usual.
+      openFile(params.path, { line, view: typeof params.view === "string" ? params.view : undefined });
       await explorer.reveal(params.path);
     } else if (typeof params.dir === "string" && params.dir) {
       await explorer.reveal(params.dir);
