@@ -161,7 +161,10 @@ test("the queue: a second trial waits for the first to finish, then runs", async
     const [ta, tb] = await Promise.all([first, second]);
     assert.equal(ta.state, "done");
     assert.equal(tb.state, "done");
-    assert.ok(tb.startedAt >= ta.finishedAt, `the second started ${tb.startedAt}, after the first finished ${ta.finishedAt}`);
+    // Two trials queued in the same millisecond go in the order of their ids, so either may be first; what
+    // the queue promises is that they never overlap.
+    const [one, two] = ta.startedAt <= tb.startedAt ? [ta, tb] : [tb, ta];
+    assert.ok(two.startedAt >= one.finishedAt, `the second started ${two.startedAt}, after the first finished ${one.finishedAt}`);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

@@ -9,7 +9,7 @@
 // order they were started; `lock` names the one running. An entry whose runner is gone is dropped by
 // whoever looks next, and a lock whose holder is gone is taken over, so a daemon restart that killed a
 // runner never wedges the queue.
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 import { TRIAL_ID } from "./spec.js";
@@ -136,10 +136,12 @@ export function tryLock(home, t, pid = process.pid, { alive = runnerAlive } = {}
   const live = liveQueue(home, { alive });
   if (live[0] !== t) return false;
   for (let attempt = 0; attempt < 2; attempt++) {
+    // Written whole beside the lock, then linked into place: link fails when the lock exists, and a lock
+    // that exists always has its holder in it, so nobody reads an empty one and takes it over as stale.
+    const tmp = `${lockPath(home)}.${pid}.${randomBytes(4).toString("hex")}`;
     try {
-      const fd = openSync(lockPath(home), "wx", 0o600);
-      writeSync(fd, JSON.stringify({ pid, trial: t }));
-      closeSync(fd);
+      writeFileSync(tmp, JSON.stringify({ pid, trial: t }), { mode: 0o600 });
+      linkSync(tmp, lockPath(home));
       return true;
     } catch (e) {
       if (e?.code !== "EEXIST") throw e;
@@ -147,6 +149,8 @@ export function tryLock(home, t, pid = process.pid, { alive = runnerAlive } = {}
       if (held?.trial === t && held?.pid === pid) return true;
       if (held && alive(held.pid, held.trial)) return false;
       rmSync(lockPath(home), { force: true });
+    } finally {
+      rmSync(tmp, { force: true });
     }
   }
   return false;

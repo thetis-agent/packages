@@ -1,6 +1,6 @@
 {
   "name": "@thetis/host-trials",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "description": "Runs one request twice, with and without one harness change, on the real Thetis with every write going to RAM: the person's space, their read-write folders and the code are overlaid onto a tmpfs, the docker socket and every host socket are masked, and their workspace gets no network. A host package: loaded by the daemon per call as host.trials.<export>, never installed into a fence.",
   "type": "module",

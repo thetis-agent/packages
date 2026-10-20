@@ -135,9 +135,6 @@ function trialsOf(env, user) {
 export async function start(args, env) {
   const user = userOf(args, env);
   const spec = parseStart(args);
-  const why = canRun();
-  assert(!why, why, "unavailable");
-  assert(sandboxOf(env.home) !== "none", "trials need the bwrap sandbox, and fence.sandbox is none", "unavailable");
   const root = userspaceRoot(env.home, user);
   const changes = spec.arms.map((a) => a.change).filter(Boolean);
   const projects = [spec.project, ...changes.filter((c) => c.kind === "project-instructions").map((c) => c.project)].filter(Boolean);
@@ -149,6 +146,10 @@ export async function start(args, env) {
   const active = trialsOf(env, null).filter((t) => !TERMINAL.has(t.state));
   assert(active.filter((t) => t.user === user).length < MAX_ACTIVE.perUser, `${user} already has ${MAX_ACTIVE.perUser} trials queued or running; wait for one or cancel it`, "busy");
   assert(active.length < MAX_ACTIVE.host && liveQueue(env.home).length < MAX_ACTIVE.host, "the host already has too many trials waiting; try again later", "busy");
+  // What the host can do comes after what the request says: a bad request is refused the same everywhere.
+  assert(sandboxOf(env.home) !== "none", "trials need the bwrap sandbox, and fence.sandbox is none", "unavailable");
+  const why = canRun();
+  assert(!why, why, "unavailable");
 
   const t = newTrialId();
   const host = hostDir(env.home, t);
