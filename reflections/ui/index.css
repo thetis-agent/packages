@@ -1,0 +1,105 @@
+/* @thetis/reflections: the chip and the Reflections place. Everything is scoped under .rfl-; colours,
+ * radii, type and motion come from the shell's tokens (theme.css), so both colour schemes follow. .btn,
+ * .input, .card, .field and .kv are the shell's own. No inline styles: the page's CSP forbids them. */
+
+/* --- the chip --- */
+.rfl-chip.is-ok { color: var(--ok); }
+.rfl-chip.is-err { color: var(--err); }
+.rfl-chip.is-accent { color: var(--accent); }
+.rfl-chip.is-busy { animation: pulse 1.4s var(--ease) infinite; }
+
+/* --- the place --- */
+.rfl-root {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-4);
+  padding: var(--gap-5) var(--gap-5) var(--gap-6);
+  overflow: auto;
+  color: var(--text);
+}
+.rfl-head { display: flex; align-items: baseline; gap: var(--gap-5); flex-wrap: wrap; }
+.rfl-h1 { margin: 0; font-size: var(--text-lg); font-weight: 600; }
+.rfl-h2 { margin: 0; font-size: var(--text-md); font-weight: 600; overflow-wrap: anywhere; }
+.rfl-h3 { margin: 0 0 var(--gap-2); font-size: var(--text-sm); font-weight: 600; color: var(--text-dim); }
+.rfl-tabs { display: flex; gap: var(--gap-1); }
+.rfl-tab {
+  padding: 4px 10px;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+}
+.rfl-tab:hover { color: var(--text); background: var(--surface-3); }
+.rfl-tab.is-active { color: var(--accent); background: var(--accent-wash); border-color: var(--accent-edge); }
+.rfl-tab:focus-visible, .rfl-row-main:focus-visible, .rfl-back:focus-visible, .rfl-link:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--glow); }
+.rfl-body { display: flex; flex-direction: column; gap: var(--gap-4); max-width: 880px; }
+.rfl-note { margin: 0; font-size: var(--text-sm); color: var(--text-dim); }
+.rfl-note.is-err { color: var(--err); }
+.rfl-note.is-warn { color: var(--warn); }
+.rfl-faint { color: var(--text-faint); }
+.rfl-mono { font-family: var(--mono); }
+
+/* the list */
+.rfl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--hairline); border-radius: var(--r-md); }
+.rfl-row { display: flex; align-items: center; gap: var(--gap-3); padding: var(--gap-2) var(--gap-3); }
+.rfl-row + .rfl-row { border-top: 1px solid var(--hairline); }
+.rfl-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 2px 0;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.rfl-row-title { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rfl-row-main:hover .rfl-row-title { color: var(--accent); }
+.rfl-row-facts { font-size: var(--text-xs); color: var(--text-faint); }
+
+/* a state pill */
+.rfl-state {
+  --tone: var(--text-dim);
+  flex: none;
+  padding: 1px 8px;
+  font-size: var(--text-xs);
+  color: var(--tone);
+  border: 1px solid color-mix(in srgb, var(--tone) 40%, transparent);
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+.rfl-state.is-ok { --tone: var(--ok); }
+.rfl-state.is-err { --tone: var(--err); }
+.rfl-state.is-accent { --tone: var(--accent); }
+.rfl-state.is-busy { animation: pulse 1.4s var(--ease) infinite; }
+
+/* the detail */
+.rfl-back, .rfl-link { align-self: flex-start; padding: 0; font: inherit; font-size: var(--text-sm); color: var(--accent); background: none; border: 0; cursor: pointer; }
+.rfl-link { text-decoration: underline; }
+.rfl-detail-head { display: flex; align-items: center; gap: var(--gap-3); flex-wrap: wrap; }
+.rfl-actions { display: flex; gap: var(--gap-2); flex-wrap: wrap; }
+.rfl-section { display: flex; flex-direction: column; gap: var(--gap-3); }
+.rfl-reflection { padding-top: var(--gap-3); border-top: 1px solid var(--hairline); font-size: var(--text-sm); }
+.rfl-lesson { display: flex; flex-direction: column; gap: var(--gap-2); padding: var(--gap-3); background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); }
+.rfl-lesson-text { margin: 0; font-weight: 500; }
+.rfl-lesson-facts { margin: 0; font-size: var(--text-xs); color: var(--text-faint); overflow-wrap: anywhere; }
+
+/* settings */
+.rfl-num { max-width: 9rem; }
+.rfl-check { display: flex; align-items: center; gap: var(--gap-2); font-size: var(--text-sm); }
+
+@media (max-width: 640px) {
+  .rfl-root { padding: var(--gap-4) var(--gap-3); }
+  .rfl-row { flex-wrap: wrap; }
+}

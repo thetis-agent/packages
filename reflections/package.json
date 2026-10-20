@@ -1,0 +1,85 @@
+{
+  "name": "@thetis/reflections",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Reflections: when you archive a conversation, a model reads all of it once, writes down what was tried and what it did, and keeps at most one lesson that transfers, as a skill.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "thetis": {
+    "type": "tool",
+    "label": "reflections",
+    "summary": "Learns from your archived conversations: what worked, what did not, and one lesson for next time.",
+    "config": {
+      "model": {
+        "type": "string",
+        "help": "The model that reflects. Unset means the server's default model. Reflection reads the whole conversation once, so a stronger model writes better lessons."
+      },
+      "maxTokens": {
+        "type": "number",
+        "default": 8000,
+        "help": "The longest answer one reflection may write, in tokens: the rows of what was tried and the lesson. Reasoning counts against it on models that think."
+      },
+      "minTurns": {
+        "type": "number",
+        "default": 3,
+        "help": "A conversation with fewer of your messages than this is not reflected on when you archive it; it is marked \"Skipped: too short\" and Reflect still works."
+      },
+      "observationChars": {
+        "type": "number",
+        "default": 20000,
+        "help": "How much of one tool result the reflection reads, in characters; the rest is cut from the middle and marked. Never below 10000: a build log's error is at its end."
+      },
+      "inputChars": {
+        "type": "number",
+        "default": 600000,
+        "help": "How much of a conversation one reflection reads, in characters (about a quarter of that in tokens). Past it the middle is left out, said to be, and the reflection is marked partial."
+      },
+      "dailyCostUsd": {
+        "type": "number",
+        "default": 5,
+        "help": "The most automatic reflections may spend in one day (UTC), in US dollars. Past it an archive is marked \"Skipped: daily cost cap reached\"; Reflect still runs when you press it."
+      },
+      "enabled": {
+        "type": "boolean",
+        "default": true,
+        "help": "Reflect automatically when you archive a conversation. Off, nothing is reflected unless you press Reflect. A single project can be switched off in the Reflections place."
+      }
+    },
+    "service": {
+      "export": "startReflections"
+    },
+    "sessions": {
+      "archive": "onArchive",
+      "forget": "forgetSession"
+    },
+    "ui": {
+      "dir": "ui",
+      "entry": "index.js",
+      "style": "index.css",
+      "chips": [
+        {
+          "id": "reflection",
+          "order": 50
+        }
+      ],
+      "places": [
+        {
+          "id": "reflections",
+          "label": "Reflections",
+          "hint": "What your archived conversations taught, and the lessons kept from them",
+          "icon": "M10 2.5a5 5 0 0 0-3 9v2h6v-2a5 5 0 0 0-3-9Z M8 16.5h4 M10 7v3"
+        }
+      ],
+      "commands": [
+        {
+          "verb": "call",
+          "export": "uiCall",
+          "label": "Read and change reflections and lessons"
+        }
+      ]
+    }
+  }
+}
