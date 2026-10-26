@@ -7,6 +7,7 @@ test("vendors come from the model id", () => {
   assert.equal(vendorOf("openai/gpt-5"), "openai");
   assert.equal(vendorOf("Anthropic/x"), "anthropic");
   assert.equal(vendorOf("echo"), "echo");
+  assert.equal(vendorOf("~anthropic/claude-fable-latest"), "anthropic", "an OpenRouter latest alias is its vendor's");
 });
 
 test("explicit vendors get breakpoints, others stay automatic", () => {
@@ -14,6 +15,9 @@ test("explicit vendors get breakpoints, others stay automatic", () => {
   assert.equal(resolvePolicy({}, "openai/gpt-5").strategy, "automatic");
   assert.equal(resolvePolicy({ explicitVendors: ["echo"] }, "echo").strategy, "breakpoints");
   assert.equal(resolvePolicy({ enabled: false }, "anthropic/claude-sonnet-5").strategy, "off");
+  assert.equal(resolvePolicy({}, "~anthropic/claude-fable-latest").strategy, "breakpoints", "an alias is cached like the model it names");
+  assert.equal(resolveHint({ explicitVendors: ["anthropic"] }, "~anthropic/claude-fable-latest").strategy, "breakpoints");
+  assert.equal(resolvePolicy({ overrides: { "anthropic/claude-fable": { ttl: "1h" } } }, "~anthropic/claude-fable-latest").ttl, "1h", "a model override matches the alias");
 });
 
 test("defaults and overrides", () => {

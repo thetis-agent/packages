@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { capNote, costShare, entryMs, nodeStatuses, pathTaken, retryChoices, runLabel, unknownCostNote, visitCounts } from "../ui/runstate.js";
+import { capNote, costShare, entryMs, nodeStatuses, pathTaken, retryCap, retryChoices, runLabel, unknownCostNote, visitCounts } from "../ui/runstate.js";
 import { ago, duration, inputCount, inputRuns, money, positive, sortIssues } from "../ui/format.js";
 import { sample } from "./ui-fixture.js";
 
@@ -94,4 +94,11 @@ test("turns without a reported cost are named, and with a cap the cap line says 
   assert.equal(capNote({ cost: 1, costCapUsd: 40, unknownCostTurns: 1 }), "cost unknown for 1 turn; the cap cannot see it");
   assert.equal(capNote({ cost: 1, costCapUsd: 40, unknownCostTurns: 2 }), "cost unknown for 2 turns; the cap cannot see them");
   assert.equal(capNote({ cost: 1, unknownCostTurns: 2 }), "cost unknown for 2 turns", "without a cap there is no cap to be blind");
+});
+
+test("a run that spent its cap retries with the spend plus its cap; any other run needs no new cap", () => {
+  assert.equal(retryCap({ state: "needs", cost: 40.48752, costCapUsd: 40 }), 81);
+  assert.equal(retryCap({ state: "needs", cost: 12, costCapUsd: 40 }), null);
+  assert.equal(retryCap({ state: "running", cost: 41, costCapUsd: 40 }), null);
+  assert.equal(retryCap({ state: "failed", cost: 41 }), null);
 });

@@ -12,7 +12,7 @@ import { compact, nodeSummary, TYPES } from "./steps.js";
 import { duration, money } from "./format.js";
 import { svgIcon } from "./icons.js";
 import { button, chip, crumbs, feedNote, stateChip } from "./parts.js";
-import { ACTIVE, ENDED, capNote, costShare, entryMs, nodeStatuses, pathTaken, retryChoices, runLabel, unknownCostNote, visitCounts } from "./runstate.js";
+import { ACTIVE, ENDED, capNote, costShare, entryMs, nodeStatuses, pathTaken, retryCap, retryChoices, runLabel, unknownCostNote, visitCounts } from "./runstate.js";
 
 /** The meter's fill. Set through the CSSOM: the page's CSP refuses a `style` attribute. */
 function fill(node, share) {
@@ -134,7 +134,12 @@ export function openRun(host, ctx, { id }) {
     if (ENDED.has(run.state)) {
       const choices = retryChoices(run, def);
       const from = el("select", { class: "input", "aria-label": "Retry from step" }, ...choices.map((sid) => el("option", { value: sid }, `from ${def.steps[sid]?.label || sid}`)));
-      actHost.append(from, button(ext, "Retry", { icon: "retry", disabled: busy || !choices.length, onClick: () => act("Retry", "retry", from.value ? { from: from.value } : {}, `Queued again from ${from.value}.`) }));
+      // A run that spent its cap needs a higher one to go anywhere: the field says so and carries it.
+      const suggested = retryCap(run);
+      const cap = suggested == null ? null : el("input", { class: "input wf-retry-cap", type: "number", min: String(Math.floor(Number(run.cost)) + 1), step: "1", value: String(suggested), "aria-label": "New cost cap in US dollars", title: "This run spent its cap. Retry it with a higher one." });
+      const retryArgs = () => ({ ...(from.value ? { from: from.value } : {}), ...(cap ? { costCapUsd: Number(cap.value) } : {}) });
+      const retryDone = () => `Queued again from ${from.value}${cap ? ` with a cap of $${Number(cap.value)}` : ""}.`;
+      actHost.append(from, ...(cap ? [el("label", { class: "wf-retry-cap-label" }, "cap $", cap)] : []), button(ext, "Retry", { icon: "retry", disabled: busy || !choices.length, onClick: () => act("Retry", "retry", retryArgs(), retryDone()) }));
       const forget = button(ext, "Remove from list", { icon: "x", disabled: busy });
       forget.addEventListener("click", async () => {
         const ok = await ext.ui.confirm(forget, { title: "Remove this run from the list?", lines: [["Run", `${run.name} #${run.number}`], ["State", run.state]], note: "Its record is deleted. The conversations it opened stay, and so does anything it committed.", confirmLabel: "Remove", tone: "warn" });

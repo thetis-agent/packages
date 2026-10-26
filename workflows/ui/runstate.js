@@ -70,6 +70,17 @@ export function retryChoices(run, def) {
   return at ? [at, ...ids.filter((id) => id !== at)] : ids;
 }
 
+/**
+ * The cap a retry needs, or null when the run did not stop at its cap. A run that spent its cap stops again
+ * at once under the same one, so Retry offers the spend plus the original cap, in whole dollars.
+ */
+export function retryCap(run) {
+  const cap = Number(run?.costCapUsd);
+  const cost = Number(run?.cost);
+  if (!ENDED.has(run?.state) || !(cap > 0) || !(cost >= cap)) return null;
+  return Math.ceil(cost + cap);
+}
+
 /** The share of the cap spent, 0..1, or null without a cap. */
 export function costShare(run) {
   const cap = Number(run?.costCapUsd);

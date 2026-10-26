@@ -271,3 +271,44 @@ test("conversations answers the title and the last model of every conversation a
   const run = await client.request("run", { id: runs[0].id });
   assert.deepEqual(await client.request("conversations", {}), { [run.conversations[0]]: { title: "Fix bug-7", model: "fable" } });
 });
+
+test("a line of links pasted together queues one run per link", async (t) => {
+  const { client } = await withHost(t, { before: (f) => (f.env.config = {}) });
+  await client.request("queue", { paused: true });
+  const draft = await client.request("create", { name: "Links" });
+  await client.request("save", { id: draft.id, definition: definition(draft.id) });
+  await client.request("publish", { id: draft.id });
+  const { runs } = await client.request("enqueue", { id: draft.id, text: "https://n.so/p/a-1https://n.so/p/b-2\nhttps://n.so/p/c-3 https://n.so/p/d-4\nfix the https://n.so/p/e-5 page" });
+  assert.deepEqual(runs.map((r) => r.input), ["https://n.so/p/a-1", "https://n.so/p/b-2", "https://n.so/p/c-3", "https://n.so/p/d-4", "fix the https://n.so/p/e-5 page"]);
+});
+
+test("two runs in a row at their cost cap pause the queue with a reason; a capped run retries only with a higher cap", async (t) => {
+  let cost = 1;
+  const { client, home, kernel } = await withHost(t, { script: () => reply("RESULT: PASS", { prompt_tokens: 1000, completion_tokens: 50, cost }), config: { costCapUsd: 0.5 } });
+  const draft = await client.request("create", { name: "Costly" });
+  await client.request("save", { id: draft.id, definition: definition(draft.id) });
+  await client.request("publish", { id: draft.id });
+  const { runs } = await client.request("enqueue", { id: draft.id, text: "one\ntwo\nthree" });
+  await until(async () => (await client.request("queue", {})).paused, 3000, "the queue to pause itself");
+  const q = await client.request("queue", {});
+  assert.match(q.reason, /2 runs in a row stopped at their cost cap \(the last was #2\)/);
+  assert.equal(q.queued, 1);
+  assert.deepEqual(JSON.parse(await readFile(resolve(home, "workflows/queue.json"), "utf8")), { paused: true, reason: q.reason });
+  const first = await client.request("run", { id: runs[0].id });
+  assert.equal(first.state, "needs");
+  assert.equal(first.reason, "Cost cap of $0.50 reached");
+
+  await assert.rejects(client.request("retry", { id: runs[0].id }), /has spent \$1 of its \$0\.50 cap, so it would stop again at once\. Retry it with a higher cap/);
+  await assert.rejects(client.request("retry", { id: runs[0].id, costCapUsd: 0.9 }), /above the \$1 this run has spent/);
+  cost = 0.01;
+  const sends = kernel.sends.length;
+  const again = await client.request("retry", { id: runs[0].id, costCapUsd: 5 });
+  assert.equal(again.costCapUsd, 5);
+  assert.equal(again.state, "queued");
+  // a paused queue still holds it; resuming clears the reason and runs it on in the same conversation
+  const resumed = await client.request("queue", { paused: false });
+  assert.equal("reason" in resumed, false);
+  await until(async () => (await client.request("run", { id: runs[0].id })).state === "done", 3000, "the retried run to finish");
+  assert.equal(kernel.sends[sends].session, first.history.find((h) => h.step === "plan").conversation);
+  await until(async () => (await client.request("run", { id: runs[2].id })).state === "done", 3000, "the third run to finish");
+});

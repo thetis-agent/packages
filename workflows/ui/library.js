@@ -78,6 +78,7 @@ export function openLibrary(host, ctx) {
     queueHost.append(
       chip(ext, q.paused ? "Queue paused" : "Queue running", q.paused ? "warn" : "ok", { pulse: !q.paused && running > 0 }),
       el("span", { class: "wf-queue-counts" }, `${running} running · ${q.queued ?? 0} queued`),
+      ...(q.paused && q.reason ? [el("span", { class: "wf-queue-reason" }, q.reason)] : []),
       button(ext, q.paused ? "Resume" : "Pause", {
         icon: q.paused ? "play" : "pause",
         onClick: async (e) => {

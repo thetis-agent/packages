@@ -124,6 +124,9 @@ button.wf-crumb:hover { color: var(--text); background: var(--surface-3); }
 .wf-lib-title .wf-section-note { margin: 0; font-size: var(--text-sm); }
 .wf-queue { display: flex; align-items: center; gap: var(--gap-2); flex-wrap: wrap; }
 .wf-queue-counts { font-size: var(--text-xs); color: var(--text-faint); font-family: var(--mono); }
+.wf-queue-reason { font-size: var(--text-xs); color: var(--warn); max-width: 52ch; }
+.wf-retry-cap-label { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-xs); color: var(--text-muted); }
+.wf-retry-cap { width: 7ch; }
 
 .wf-new { display: flex; align-items: flex-end; gap: var(--gap-2); flex-wrap: wrap; padding: var(--gap-3) var(--gap-4); background: var(--surface-1); border: 1px solid var(--accent-edge); border-radius: var(--r-lg); }
 .wf-new[hidden] { display: none; }

@@ -23,7 +23,7 @@ Everything lives under `workflows/` in the person's home, written only by the se
 | `workflows/defs/<wf>/draft.json` | The definition being edited. Always present once a workflow exists. |
 | `workflows/defs/<wf>/v<N>.json` | Published version N, immutable. A run keeps the version it was queued with. |
 | `workflows/runs/<run>.json` | One run: its state, variables and step history. |
-| `workflows/queue.json` | `{ paused: boolean }` — the queue's one setting. |
+| `workflows/queue.json` | `{ paused: boolean, reason? }` — the queue's one setting, and why it paused itself when it did. |
 
 Ids: a workflow id is `wf_` + 8 hex; a run id is `r_` + 10 hex; a step id is `[a-z][a-z0-9_]{0,31}`.
 
@@ -45,7 +45,8 @@ Ids: a workflow id is `wf_` + 8 hex; a run id is `r_` + 10 hex; a step id is `[a
 ```
 
 `input.kind` is `"lines"` (each non-empty line queues one run; the line is `{{input}}`) or `"text"` (the
-whole text is one run).
+whole text is one run). A line that is nothing but links, two pasted with no newline between them or with
+spaces, queues one run per link.
 
 ### Templates
 
@@ -105,6 +106,12 @@ cancelled and the run ends as needs-you with the reason `Cost cap of $X reached`
 but reported no positive cost adds nothing, so the cap cannot see it: the run and the step count such turns
 (`unknownCostTurns`), and the run view says "cost unknown for N turns; the cap cannot see them" under the
 total rather than show a figure that looks whole.
+
+A run that stopped at its cap would stop again at once, so **Retry** on it takes a higher cap (`costCapUsd`;
+the run view offers what it spent plus its old cap) and refuses without one. When two runs in a row end at
+their cap, the queue pauses itself with a `reason` naming them, shown beside "Queue paused": a cap every run
+reaches is a cost gone wrong (a model the prompt cache does not mark, a loop), and the next run would spend
+its whole cap the same way. Resuming the queue clears the reason.
 
 ### Validation
 
@@ -173,9 +180,9 @@ a request `{ "i": 1, "op": "…", ...args }`, an answer `{ "i": 1, "ok": true, "
 | `runs` | `workflow?`, `limit?` | `[run…]` newest first, without `vars` |
 | `run` | `id` | the full run |
 | `cancel` | `id` | the run (a running turn is cancelled) |
-| `retry` | `id`, `from?` (step id; default the step it stopped at) | the run, queued again from that step, keeping its vars; retried at the `prompt` step it failed in, the step goes on in its conversation (a turn with no input when its last turn was cut) rather than starting again |
+| `retry` | `id`, `from?` (step id; default the step it stopped at), `costCapUsd?` (a new cap, above what the run has spent; required for a run that spent its cap) | the run, queued again from that step, keeping its vars; retried at the `prompt` step it failed in, the step goes on in its conversation (a turn with no input when its last turn was cut) rather than starting again |
 | `approve` | `id`, `decision` (`approved`/`rejected`), `note?` | the run |
-| `queue` | `paused?` | `{ paused, running: [run ids], queued: n }` |
+| `queue` | `paused?` | `{ paused, reason?, running: [run ids], queued: n }`; `reason` only when the queue paused itself |
 | `conversations` | — | `{ "<conversation id>": { title?, model? } }` for every conversation a run opened: the title it gave and the model its last prompt step ran on there |
 | `forget` | `id` | `{}`; deletes a finished run's record (a run still going is refused) and broadcasts `{ ev: "forgotten", id }` |
 | `forgetConversations` | `sessions` (conversation ids) | `{ titles, runs: [{ id, name, number, state }] }`; removes the title each run gave those conversations and answers the runs that used them. The forget hook calls it |

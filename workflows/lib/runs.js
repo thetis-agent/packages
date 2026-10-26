@@ -14,6 +14,24 @@ export const queuePath = () => `${DIR}/queue.json`;
 
 export const isActive = (run) => ACTIVE.includes(run?.state);
 
+/** An ended run whose cost reached its cap: it stopped there, and a retry under the same cap stops at once. */
+export const atCap = (run) => !isActive(run) && Number(run?.costCapUsd) > 0 && Number(run?.cost) >= Number(run.costCapUsd);
+
+/**
+ * The inputs one enqueue makes runs of. `text` input is one run. `lines` input is one run per non-empty line,
+ * and a line that is nothing but links (two pasted with no newline between them, or with spaces) is a run
+ * per link: a glued pair would otherwise reach the first step as one link that names neither page.
+ */
+export function inputsOf(definition, text) {
+  if (definition?.input?.kind === "text") return text.trim() ? [text] : [];
+  return text.split(/\r?\n/).flatMap((line) => {
+    const t = line.trim();
+    if (!t) return [];
+    const parts = t.split(/\s+/).flatMap((p) => p.split(/(?=https?:\/\/)/)).filter(Boolean);
+    return parts.length > 1 && parts.every((p) => /^https?:\/\/\S+$/.test(p)) ? parts : [t];
+  });
+}
+
 /** A run as it is queued: at the definition's start, with nothing saved yet. */
 export function newRun({ definition, input, number, costCapUsd, now = new Date().toISOString(), id = newRunId() }) {
   return {
@@ -64,11 +82,14 @@ export async function readRuns(home) {
   return runs.filter((r) => r && STATES.includes(r.state));
 }
 
+/** `{ paused, reason? }`: `reason` is set only when the queue paused itself, and goes when it is resumed. */
 export async function readQueue(home) {
   const q = await readJson(home, queuePath(), null);
-  return { paused: q?.paused === true };
+  const paused = q?.paused === true;
+  return paused && typeof q.reason === "string" && q.reason ? { paused, reason: q.reason } : { paused };
 }
 
 export async function writeQueue(home, queue) {
-  await writeJson(home, queuePath(), { paused: queue.paused === true });
+  const paused = queue.paused === true;
+  await writeJson(home, queuePath(), paused && queue.reason ? { paused, reason: queue.reason } : { paused });
 }

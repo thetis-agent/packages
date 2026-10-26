@@ -20,8 +20,8 @@ import {
   writeDraft,
 } from "./definition.js";
 import { firstError, validate } from "./validate.js";
-import { ACTIVE, isActive, newRun, newestFirst, oldestFirst, readQueue, readRuns, runPath, writeQueue, writeRun, withoutVars } from "./runs.js";
-import { decide, executeRun, retry } from "./engine.js";
+import { ACTIVE, atCap, inputsOf, isActive, newRun, newestFirst, oldestFirst, readQueue, readRuns, runPath, writeQueue, writeRun, withoutVars } from "./runs.js";
+import { decide, dollars, executeRun, retry } from "./engine.js";
 import { list as listDir, readJson, remove as removeFile } from "./files.js";
 
 export const DEFAULT_CONCURRENCY = 1;
@@ -35,6 +35,8 @@ export const CANCEL_WAIT_MS = 5000;
 /** How long the kernel's model list is trusted before it is asked again. */
 const MODELS_TTL_MS = 60_000;
 const MAX_ENQUEUE = 200;
+/** Runs in a row that end at their cost cap before the queue pauses itself: something costs more than it should. */
+export const CAP_STREAK = 2;
 
 const fail = (message) => {
   throw new Error(message);
@@ -72,6 +74,7 @@ export function createService(env, { broadcast = () => {}, user } = {}) {
   const writers = new Map(); // id -> { busy, again, timer }
   const definitions = new Map(); // "wf@N" -> definition, the versions runs are executing
   let queue = { paused: false };
+  let capStreak = 0;
   let stopping = false;
   let models = null;
 
@@ -128,7 +131,7 @@ export function createService(env, { broadcast = () => {}, user } = {}) {
 
   function queueState() {
     const all = [...runs.values()];
-    return { paused: queue.paused, running: [...executing.keys()], queued: all.filter((r) => r.state === "queued").length };
+    return { paused: queue.paused, ...(queue.reason ? { reason: queue.reason } : {}), running: [...executing.keys()], queued: all.filter((r) => r.state === "queued").length };
   }
   const announceQueue = () => broadcast({ ev: "queue", queue: queueState() });
 
@@ -186,6 +189,7 @@ export function createService(env, { broadcast = () => {}, user } = {}) {
         log(`workflows: run ${run.id} stopped on an error: ${e?.stack ?? e}`);
       } finally {
         if (executing.get(run.id) === slot) executing.delete(run.id);
+        if (!stopping && !controller.signal.aborted && !isActive(run)) await afterEnd(run);
         if (!stopping) {
           announceQueue();
           pump();
@@ -194,6 +198,24 @@ export function createService(env, { broadcast = () => {}, user } = {}) {
     })();
     announceQueue();
     return slot;
+  }
+
+  /**
+   * Counts the runs that end at their cost cap in a row. At `CAP_STREAK` the queue pauses itself and says why:
+   * a cap that every run reaches is a cost that went wrong (a model that is not cached, a loop), and the next
+   * queued run would spend its whole cap the same way.
+   */
+  async function afterEnd(run) {
+    if (!atCap(run)) {
+      capStreak = 0;
+      return;
+    }
+    capStreak += 1;
+    if (capStreak < CAP_STREAK || queue.paused) return;
+    queue = { paused: true, reason: `Paused by itself: ${capStreak} runs in a row stopped at their cost cap (the last was #${run.number ?? "?"}). Look at what they cost before you resume.` };
+    capStreak = 0;
+    await writeQueue(home, queue);
+    log(`workflows: queue paused, ${CAP_STREAK} runs in a row reached their cost cap`);
   }
 
   /** Starts queued runs, oldest first, until `concurrency` are going. */
@@ -329,7 +351,7 @@ export function createService(env, { broadcast = () => {}, user } = {}) {
         if (!(await readDraft(home, id))) fail(`There is no workflow ${id}.`);
         fail("This workflow has never been published. Publish it first; a run always uses a published version.");
       }
-      const inputs = definition.input?.kind === "text" ? (text.trim() ? [text] : []) : text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      const inputs = inputsOf(definition, text);
       if (!inputs.length) fail(definition.input?.kind === "text" ? "The input is empty; write what the run should work on." : "The input has no lines; each non-empty line queues one run.");
       if (inputs.length > MAX_ENQUEUE) fail(`That is ${inputs.length} runs at once; queue at most ${MAX_ENQUEUE} in one go.`);
       definitions.set(`${id}@${definition.version}`, definition);
@@ -445,12 +467,18 @@ export function createService(env, { broadcast = () => {}, user } = {}) {
       return structuredClone(run);
     },
 
-    async retry({ id, from } = {}) {
+    async retry({ id, from, costCapUsd } = {}) {
       const run = need(id);
       if (from !== undefined && from !== null && !isStepId(from)) fail(`${JSON.stringify(from)} is not a step id.`);
+      const raise = costCapUsd !== undefined && costCapUsd !== null;
+      // A run that stopped at its cap would stop again at once: it is retried with a higher cap or not at all.
+      const spent = Number(run.cost) || 0;
+      if (raise && !(Number(costCapUsd) > spent)) fail(`costCapUsd must be a number of US dollars above the ${dollars(spent)} this run has spent.`);
+      if (!raise && atCap(run)) fail(`This run has spent ${dollars(spent)} of its ${dollars(Number(run.costCapUsd))} cap, so it would stop again at once. Retry it with a higher cap.`);
       const definition = await definitionOf(run);
       if (!definition) fail(`Version ${run.version} of this workflow is gone, so the run cannot be retried.`);
       retry(run, definition, from ?? undefined);
+      if (raise) run.costCapUsd = Number(costCapUsd);
       await persist(run);
       announceQueue();
       pump();
@@ -475,6 +503,7 @@ export function createService(env, { broadcast = () => {}, user } = {}) {
         if (typeof paused !== "boolean") fail("paused must be true or false.");
         if (paused !== queue.paused) {
           queue = { paused };
+          capStreak = 0;
           await writeQueue(home, queue);
           log(`workflows: queue ${paused ? "paused" : "resumed"}`);
           pump();

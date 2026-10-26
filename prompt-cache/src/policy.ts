@@ -61,9 +61,18 @@ export const DEFAULT_EXPLICIT_VENDORS = ["anthropic"];
 
 const TTLS = new Set<string>(["5m", "1h"]);
 
+/**
+ * A model id as policy matches it: trimmed, lower case, without the `~` OpenRouter puts before an alias that
+ * follows a family's latest model (`~anthropic/claude-fable-latest`). The alias is billed and cached as the
+ * model it points at, so it gets that vendor's strategy.
+ */
+export function modelKey(model: string): string {
+  return model.trim().toLowerCase().replace(/^~/, "");
+}
+
 /** `vendor/model` ids name their vendor; a bare id is its own vendor, which is how a direct endpoint looks. */
 export function vendorOf(model: string): string {
-  return (model.split("/")[0] ?? "").trim().toLowerCase();
+  return (modelKey(model).split("/")[0] ?? "").trim();
 }
 
 /** Builds the policy for one model from the package configuration. */
@@ -141,7 +150,7 @@ function matchOverride(overrides: Record<string, CacheOverride>, model: string, 
   let best: { key: string; value: CacheOverride } | undefined;
   for (const [key, value] of Object.entries(overrides)) {
     const k = key.toLowerCase();
-    if (!(k === vendor || model.toLowerCase().startsWith(k))) continue;
+    if (!(k === vendor || modelKey(model).startsWith(k))) continue;
     if (!best || k.length > best.key.length) best = { key: k, value };
   }
   return best?.value ?? {};

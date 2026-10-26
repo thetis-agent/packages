@@ -1,6 +1,6 @@
 {
   "name": "@thetis/provider-openrouter",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "license": "MIT",
   "description": "Sends model calls to OpenRouter with streaming, tool calls, and prompt caching.",
   "type": "module",
@@ -9,7 +9,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@thetis/prompt-cache": "^0.1.0",
+    "@thetis/prompt-cache": "^0.1.1",
     "zod": "^4.6.5"
   },
   "thetis": {

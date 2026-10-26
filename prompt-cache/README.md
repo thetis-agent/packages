@@ -14,7 +14,7 @@ The library, for a provider to import:
 
 | Export | Use |
 |---|---|
-| `resolvePolicy(config, model)` | The policy for one model: `strategy` (`breakpoints`, `automatic` or `off`), `ttl`, `systemTtl`, `anchorStride`, `maxBreakpoints`. Vendors in `explicitVendors` (default `["anthropic"]`) get `breakpoints`; every other vendor `automatic`. The vendor is the part of the model id before `/`. |
+| `resolvePolicy(config, model)` | The policy for one model: `strategy` (`breakpoints`, `automatic` or `off`), `ttl`, `systemTtl`, `anchorStride`, `maxBreakpoints`. Vendors in `explicitVendors` (default `["anthropic"]`) get `breakpoints`; every other vendor `automatic`. The vendor is the part of the model id before `/`, without the `~` of an OpenRouter alias (`~anthropic/claude-fable-latest` is `anthropic`). |
 | `readHint(raw)`, `applyHint(policy, hint, mode)` | Validate a hint that crossed the fence, dropping malformed fields, and combine it with the policy under the mode `ignore`, `tune` (default: lifetimes, stride, budget and affinity, never the strategy) or `override`. |
 | `planBreakpoints(slots, opts)` | Up to four positions: the system prefix, two anchors on multiples of `anchorStride`, and the final message. A run of `tool` messages counts as one position. |
 | `applyOpenAiCompatible(body, policy)`, `applyAnthropicMessages(body, policy)` | Write `cache_control` markers into a request body. Both return the number of markers written and leave the body unchanged for `automatic` and `off`. |
