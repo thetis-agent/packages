@@ -59,7 +59,8 @@ export function fakeWorld() {
     return o;
   };
 
-  // Elevators per plans/elevators-app.md: a carriage off the grid, a one-sided `in` in each lobby.
+  // Elevators per plans/elevators-app.md: a $elevator carriage off the grid, a one-sided `in` ($elevator_lobby_exit,
+  // its .carriage the car) in each lobby.
   const carSpec = (c) => ({ name: c.name, description: c.description, door: c.door, travel: c.travel, stops: c.stops.map((x) => [x.label, x.room]) });
   const setCar = (car, op, allowed) => {
     const c = W.cars.get(car);
@@ -68,17 +69,17 @@ export function fakeWorld() {
     c.stops = op.stops.map((y) => {
       const had = c.stops.find((x) => x.room === y.room);
       if (had) return { ...had, label: y.label };
-      const e = id(); W.exits.set(e, { loc: y.room, twin: "#-1", dir: "in", type: "open", hidden: 0, dest: car }); W.rooms.get(y.room).exits.push(e);
+      const e = id(); W.exits.set(e, { loc: y.room, twin: "#-1", dir: "in", type: "open", hidden: 0, carriage: car }); W.rooms.get(y.room).exits.push(e);
       return { label: y.label, room: y.room, exit: e };
     });
     Object.assign(c, { name: op.name, description: op.description, door: op.door, travel: op.travel });
   };
-  const needApi = () => { if (!W.elevatorApi) err("the MOO has no elevator system yet ($elevator_carriage:mapper_set)"); };
+  const needApi = () => { if (!W.elevatorApi) err("the MOO has no elevator system yet ($elevator:mapper_set)"); };
 
   W.snapshot = async (_conn, ids, carriages = []) => {
     W.calls.push({ snapshot: ids });
     const cars = new Set(W.elevatorApi ? carriages.filter((c) => W.cars.has(c)) : []);
-    for (const a of ids) for (const r of W.areas.get(a)?.rooms ?? []) for (const e of W.rooms.get(r).exits) { const x = W.exits.get(e); if (x.dest && W.elevatorApi) cars.add(x.dest); }
+    for (const a of ids) for (const r of W.areas.get(a)?.rooms ?? []) for (const e of W.rooms.get(r).exits) { const x = W.exits.get(e); if (x.carriage && W.elevatorApi) cars.add(x.carriage); }
     return {
       character: "#9", shaper: 1, elevator_api: W.elevatorApi ? 1 : 0,
       elevators: [...cars].map((c) => ({ id: c, ...carSpec(W.cars.get(c)) })),
@@ -92,7 +93,7 @@ export function fakeWorld() {
             const o = W.rooms.get(r);
             return {
               id: r, x: o.x, y: o.y, z: o.z, name: o.name, description: o.description, players: o.players,
-              exits: o.exits.filter((e) => !(W.elevatorApi && W.exits.get(e).dest)).map((e) => {
+              exits: o.exits.filter((e) => !(W.elevatorApi && W.exits.get(e).carriage)).map((e) => {
                 const x = W.exits.get(e), t = W.exits.get(x.twin), d = t ? t.loc : "#-1", dr = W.rooms.get(d);
                 return { id: e, twin: x.twin, to: d, to_name: dr?.name ?? "", to_area: dr?.area ?? "#-1", to_area_name: dr ? W.areas.get(dr.area).name : "", dir: x.dir, type: x.type, hidden: x.hidden };
               }),

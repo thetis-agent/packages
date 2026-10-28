@@ -1,6 +1,6 @@
 {
   "name": "@thetis/moo-maps",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "description": "Maps of MOO areas you and the agent build together: a cartographer tab with the maps in progress in the sidebar, map_* tools for editing them in chat, and map_publish to write a map into the MOO and keep it linked for later updates.",
   "type": "module",
@@ -947,11 +947,11 @@
             },
             "door": {
               "type": "integer",
-              "description": "Seconds the doors stay open (1-600). Default 8."
+              "description": "Seconds the doors stay open (2-120). Default 8."
             },
             "travel": {
               "type": "integer",
-              "description": "Seconds per floor travelled (1-600). Default 3."
+              "description": "Seconds per floor travelled (1-60). Default 3."
             },
             "stops": {
               "type": "array",

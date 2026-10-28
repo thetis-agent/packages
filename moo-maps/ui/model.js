@@ -8,6 +8,7 @@ const RETRY_MAX_MS = 15_000;
 export function createModel(ext) {
   let maps = [];
   let status = "connecting";
+  let lastError = null;
   let active = null;
   let stop = null;
   let timer = null;
@@ -36,6 +37,7 @@ export function createModel(ext) {
       sort();
       retries = 0;
       status = "live";
+      lastError = null;
       notify();
       for (const row of maps) tell(row.id, { kind: "snapshot", row, rev: row.rev });
     } else if (event.ev === "changed" && event.row) {
@@ -62,6 +64,7 @@ export function createModel(ext) {
           stop = null;
           if (closed) return;
           status = "lost";
+          lastError = err?.message ?? null;
           if (err) console.warn("moo-maps: the watch ended:", err.message);
           notify();
           timer = setTimeout(open, Math.min(RETRY_MAX_MS, 1000 * 2 ** retries++));
@@ -99,6 +102,10 @@ export function createModel(ext) {
     },
     get status() {
       return status;
+    },
+    /** Why the last watch ended, as the gateway said it, or null. */
+    get lastError() {
+      return lastError;
     },
     get active() {
       return active;

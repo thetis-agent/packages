@@ -17,7 +17,7 @@ Maps of MOO areas that you and the agent build together.
   exits. In the tab, hold U or D and press an arrow, or use **Slope…** on the room panel.
 - Elevators: one carriage off the grid with stops (button label + lobby room, top floor first) in any
   area. Make one in the tab from a room's **⇕ New elevator**, or with `map_elevator`. Lobbies get a teal
-  `⇕L` badge; click it to edit the elevator. Publishing elevators needs the MOO's `$elevator_carriage`
+  `⇕L` badge; click it to edit the elevator. Publishing elevators needs the MOO's `$elevator`
   with `:mapper_create/set/get/destroy`. Until then publish skips them and says so.
 
 Needs `@thetis/moo` (or the package named by the `moo_package` setting) for the MOO connection. The

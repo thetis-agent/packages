@@ -84,8 +84,8 @@ separate from exits: a room can have both an exit and an edge to the north.
 
 An elevator (`map_elevator`, id `v…`) is one carriage that lives off the grid, with an ordered stop list,
 **top floor first**: each stop is a button label (free text, e.g. `R`, `2`, `G`, `B1`, at most 16
-characters, unique in the elevator) and a lobby room anywhere on the map, in any area. A room can be a
-lobby of more than one elevator. Do not draw the shaft or the carriage as rooms.
+characters, unique in the elevator) and a lobby room anywhere on the map, in any area. A room can be the
+lobby of one elevator only: the MOO gives it a single `in`, and publish refuses a second. Do not draw the shaft or the carriage as rooms.
 
 - Make one: `map_elevator {name, stops:[{label, room}, …]}`. Change it with `elevator: "v3"`: `add`
   (one stop, or a list; it goes in by floor unless `at` is given), `drop` (a label or a room),
@@ -96,7 +96,7 @@ lobby of more than one elevator. Do not draw the shaft or the carriage as rooms.
 - Deleting a room drops its stops. An elevator needs two stops or more to be any use.
 - `map_get` lists the elevators at the end, and each lobby shows `in → elevator vN stop L`. The tab draws
   a teal `⇕L` badge on each lobby. The person edits elevators there too.
-- Publishing writes elevators last, through the MOO's elevator system (`$elevator_carriage`, with
+- Publishing writes elevators last, through the MOO's elevator system (`$elevator`, with
   `:mapper_create/mapper_set/mapper_get/mapper_destroy`). Until that exists the publish makes everything
   else and says the elevators wait: publish again once it does. The contract is in `plans/elevators-app.md`.
 

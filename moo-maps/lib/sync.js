@@ -334,7 +334,7 @@ export function planPublish(doc, proj, link, base) {
   const goneLifts = new Set(proj.gone.elevators);
   const wantLifts = doc.elevators ?? [];
   if (wantLifts.length && !proj.elevatorApi) {
-    notes.push(`${wantLifts.length === 1 ? "1 elevator is" : `${wantLifts.length} elevators are`} on the map, but the MOO has no elevator system yet ($elevator_carriage:mapper_set), so they wait: publish again once it does.`);
+    notes.push(`${wantLifts.length === 1 ? "1 elevator is" : `${wantLifts.length} elevators are`} on the map, but the MOO has no elevator system yet ($elevator:mapper_set), so they wait: publish again once it does.`);
   } else {
     for (const local of Object.keys(link.elevators ?? {})) {
       if (!wantLifts.some((v) => v.id === local) && !goneLifts.has(local)) phases.removals.push({ op: "elevator_delete", ref: { elevator: local }, local });

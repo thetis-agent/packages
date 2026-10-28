@@ -47,6 +47,8 @@ export const DEFAULT_COLOR = ROOM_COLORS[0];
 
 export const LIMITS = { rooms: 5000, exits: 20000, edges: 2000, blocks: 20000, areas: 200, name: 200, description: 20000, notes: 4000, elevators: 200, stops: 100, label: 16 };
 export const ELEVATOR_DEFAULTS = { door: 8, travel: 3 };
+/** The MOO's own bounds ($elevator:set_timings): doors 2-120 s, travel 1-60 s per floor. */
+export const ELEVATOR_RANGE = { door: [2, 120], travel: [1, 60] };
 
 // Every spelling $building_utils.cardinals accepts, ship words included, so an exit dug as `fore` reads as n.
 const SPELLINGS = {
@@ -181,7 +183,7 @@ export function completeDoc(d) {
   return doc;
 }
 
-const secs = (v, d) => { const n = int(v); return Number.isFinite(n) && n >= 1 && n <= 600 ? n : d; };
+const secs = (v, d, [lo, hi]) => { const n = int(v); return Number.isFinite(n) && n >= lo && n <= hi ? n : d; };
 /** An elevator made whole: stops on rooms the map has, each lobby once, labels trimmed and unique. */
 function completeElevator(v, id, byId) {
   const stops = [];
@@ -192,7 +194,7 @@ function completeElevator(v, id, byId) {
     rooms.add(room); labels.add(label.toLowerCase());
     stops.push({ label, room });
   }
-  return { id, name: str(v?.name || "Elevator", LIMITS.name), description: str(v?.description, LIMITS.description), door: secs(v?.door, ELEVATOR_DEFAULTS.door), travel: secs(v?.travel, ELEVATOR_DEFAULTS.travel), stops };
+  return { id, name: str(v?.name || "Elevator", LIMITS.name), description: str(v?.description, LIMITS.description), door: secs(v?.door, ELEVATOR_DEFAULTS.door, ELEVATOR_RANGE.door), travel: secs(v?.travel, ELEVATOR_DEFAULTS.travel, ELEVATOR_RANGE.travel), stops };
 }
 
 /** The elevators with a stop in this room, each with that stop. */

@@ -1501,8 +1501,8 @@ function renderElevatorPanel(side,v){
     <label class="fld" for="lvDesc">Carriage description</label>
     <textarea id="lvDesc" placeholder="Brushed steel walls… (the game adds the floor display and the doors)"></textarea>
     <div class="row tight" style="margin-top:6px">
-      <label class="fld" style="flex:1">Doors open (s)<input type="number" id="lvDoor" min="1" max="600" style="width:100%"></label>
-      <label class="fld" style="flex:1">Travel per floor (s)<input type="number" id="lvTravel" min="1" max="600" style="width:100%"></label>
+      <label class="fld" style="flex:1">Doors open (s)<input type="number" id="lvDoor" min="2" max="120" style="width:100%"></label>
+      <label class="fld" style="flex:1">Travel per floor (s)<input type="number" id="lvTravel" min="1" max="60" style="width:100%"></label>
     </div>
     <div class="row" style="margin-top:10px"><span class="spacer"></span><button id="lvDel" class="danger" title="Delete the elevator (Del): publishing recycles its carriage and lobby exits">Delete elevator</button></div>`;
   side.appendChild(sec);
@@ -1514,10 +1514,10 @@ function renderElevatorPanel(side,v){
   const ds=sec.querySelector("#lvDesc"); ds.value=v.description||"";
   ds.addEventListener("focus",()=>pushUndo());
   ds.addEventListener("input",()=>{ v.description=ds.value; scheduleSave(); });
-  for(const [idn,k] of [["#lvDoor","door"],["#lvTravel","travel"]]){
+  for(const [idn,k,lo,hi] of [["#lvDoor","door",2,120],["#lvTravel","travel",1,60]]){
     const i=sec.querySelector(idn); i.value=v[k];
     i.addEventListener("focus",()=>pushUndo());
-    i.addEventListener("change",()=>{ const n=Math.round(+i.value); if(n>=1&&n<=600){ v[k]=n; scheduleSave(); } else { i.value=v[k]; toast("1 to 600 seconds","err"); } });
+    i.addEventListener("change",()=>{ const n=Math.round(+i.value); if(n>=lo&&n<=hi){ v[k]=n; scheduleSave(); } else { i.value=v[k]; toast(`${lo} to ${hi} seconds`,"err"); } });
   }
   sec.querySelector("#lvDel").onclick=()=>{ pushUndo(); delete state.elevators[v.id]; sel=null; commit(); toast("Elevator deleted"); };
 
@@ -1876,8 +1876,8 @@ function parseImport(text){
       if(!s.rooms[room]||seen.has(room)||!label||labels.has(label.toLowerCase())) continue;
       seen.add(room); labels.add(label.toLowerCase()); stops.push({label,room});
     }
-    const secs=(n,dflt)=>Number.isInteger(n)&&n>=1&&n<=600?n:dflt;
-    s.elevators[id]={id,name:String(v.name||"Elevator"),description:String(v.description??""),door:secs(v.door,8),travel:secs(v.travel,3),stops};
+    const secs=(n,dflt,lo,hi)=>Number.isInteger(n)&&n>=lo&&n<=hi?n:dflt;
+    s.elevators[id]={id,name:String(v.name||"Elevator"),description:String(v.description??""),door:secs(v.door,8,2,120),travel:secs(v.travel,3,1,60),stops};
     const m=/^v(\d+)$/.exec(id); if(m) maxN=Math.max(maxN,+m[1]);
   }
   if(!Object.keys(s.areas).length) ensureDefault();

@@ -106,9 +106,10 @@ export function areasSource({ query = "" } = {}) {
 export function snapshotSource(areaIds, carriages = []) {
   return (
     payload({ areas: areaIds, carriages }) +
-    // Elevators (plans/elevators-app.md): a lobby's \`in\` leads to a carriage off the grid. Those exits are
-    // read as stops, not as exits leaving the map; the carriages are read whole with :mapper_get().
-    `gen = \`$elevator_carriage ! ANY => $nothing'; api = $recycler:valid(gen) && respond_to(gen, "mapper_set") ? 1 | 0; cars = {}; ` +
+    // Elevators (plans/elevators-app.md): a lobby's \`in\` is a $elevator_lobby_exit whose .carriage is a
+    // $elevator off the grid. Those exits are read as stops, not as exits leaving the map; the carriages are
+    // read whole with :mapper_get().
+    `gen = \`$elevator ! ANY => $nothing'; api = $recycler:valid(gen) && respond_to(gen, "mapper_set") ? 1 | 0; lob = \`$elevator_lobby_exit ! ANY => $nothing'; cars = {}; ` +
     `for s in (data["carriages"]) c = ${R("s")}; if ($recycler:valid(c) && api && $ou:isa(c, gen)) cars = setadd(cars, c); endif endfor ` +
     `out = {}; ` +
     `for s in (data["areas"]) ` +
@@ -120,7 +121,7 @@ export function snapshotSource(areaIds, carriages = []) {
     `ex = {}; ` +
     `for e in (\`r.exits ! ANY => {}') ` +
     `if (!$recycler:valid(e) || !$ou:isa(e, $exit) || $ou:isa(e, $room_edge)) continue; endif ` +
-    `if (api) dd = \`e.dest ! ANY => $nothing'; if ($recycler:valid(dd) && $ou:isa(dd, gen)) cars = setadd(cars, dd); continue; endif endif ` +
+    `if (api && $ou:isa(e, lob)) dd = \`e.carriage ! ANY => $nothing'; if ($recycler:valid(dd) && $ou:isa(dd, gen)) cars = setadd(cars, dd); continue; endif endif ` +
     `t = \`e.twin ! ANY => $nothing'; d = $recycler:valid(t) ? \`t.location ! ANY => $nothing' | $nothing; ` +
     `da = $recycler:valid(d) ? \`d:area() ! ANY => $nothing' | $nothing; ` +
     `ex = {@ex, ["id" -> tostr(e), "twin" -> tostr(t), "to" -> tostr(d), "to_name" -> $recycler:valid(d) ? d.name | "", ` +
@@ -162,7 +163,7 @@ const ROOM = (v, field) =>
 const DESC = `if (maphaskey(op, "description")) r = room:set_description(op["description"]); if (typeof(r) == TYPE_ERR) raise(r, "set_description refused"); endif endif `;
 
 const ELEV_GEN =
-  `gen = \`$elevator_carriage ! ANY => $nothing'; if (!$recycler:valid(gen) || !respond_to(gen, "mapper_set")) raise(E_INVARG, "the MOO has no elevator system yet ($elevator_carriage:mapper_set)"); endif `;
+  `gen = \`$elevator ! ANY => $nothing'; if (!$recycler:valid(gen) || !respond_to(gen, "mapper_set")) raise(E_INVARG, "the MOO has no elevator system yet ($elevator:mapper_set)"); endif `;
 // The spec, with each stop's lobby resolved and checked to be in one of the map's areas.
 const ELEV_SPEC =
   `["name" -> op["name"], "description" -> op["description"], "door" -> op["door"], "travel" -> op["travel"], "stops" -> {}]; ` +

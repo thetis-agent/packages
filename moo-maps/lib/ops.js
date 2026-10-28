@@ -340,8 +340,10 @@ function findElevator(b, ref) {
   if (!v) throw new Error(`the map has no elevator ${s}. Its elevators: ${b.doc.elevators.map((x) => `${x.id} "${x.name}"`).join(", ") || "none"}.`);
   return v;
 }
+const RANGE = { door: [2, 120], travel: [1, 60] };
 const seconds = (v, what) => {
-  if (!Number.isInteger(v) || v < 1 || v > 600) throw new Error(`${what} is a whole number of seconds from 1 to 600.`);
+  const [lo, hi] = RANGE[what];
+  if (!Number.isInteger(v) || v < lo || v > hi) throw new Error(`${what} is a whole number of seconds from ${lo} to ${hi}.`);
   return v;
 };
 function stopsOf(b, list) {

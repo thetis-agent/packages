@@ -117,16 +117,19 @@ export function mountSidebar(ext, model, body, tools) {
     return node;
   }
 
+  // A refusal (an extension renamed or removed since this page loaded, say) reads differently from a drop.
+  const lostText = () => (model.lastError && !/ended$/.test(model.lastError) ? `Reconnecting… (${model.lastError}; reloading the page may help)` : "Reconnecting…");
+
   function draw() {
     clear(list);
     const rows = model.maps;
     tools?.setCount?.(rows.length);
     if (!rows.length) {
-      list.append(el("div", { class: "mm-empty" }, model.status === "lost" ? "Reconnecting…" : "No maps yet. ＋ makes one, or ask in a chat to sketch an area or import one from the MOO."));
+      list.append(el("div", { class: "mm-empty" }, model.status === "lost" ? lostText() : "No maps yet. ＋ makes one, or ask in a chat to sketch an area or import one from the MOO."));
       return;
     }
     for (const row of rows) list.append(rowNode(row));
-    if (model.status === "lost") list.append(el("div", { class: "mm-empty" }, "Reconnecting…"));
+    if (model.status === "lost") list.append(el("div", { class: "mm-empty" }, lostText()));
   }
 
   const unwatch = model.watch(draw);
