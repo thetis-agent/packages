@@ -295,8 +295,18 @@ function pullInto(snap, record) {
   return { doc: merged, link, lines, proj };
 }
 
+/** Area ids as a list, however the call spelled them: a list, a JSON list in a string, or ids split by commas or spaces. */
+function areaList(v) {
+  if (typeof v === "string") {
+    const t = v.trim();
+    if (t.startsWith("[")) { try { v = JSON.parse(t); } catch { v = t.slice(1, -1).split(/[\s,"']+/); } }
+    else v = t.split(/[\s,]+/);
+  }
+  return [...new Set((Array.isArray(v) ? v : [v]).filter(given).map((x) => String(x).trim()).filter(Boolean))];
+}
+
 export async function mapImport(args, env) {
-  const ids = (Array.isArray(args.areas) ? args.areas : [args.areas]).filter(given).map(String);
+  const ids = areaList(args.areas);
   if (!ids.length) fail("areas: give the MOO ids of the areas to bring in (map_world_areas lists them).");
   const conn = await connect(env);
   const existing = given(args.map) ? await resolveMap(env, args.map) : null;
