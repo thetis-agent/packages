@@ -1,0 +1,132 @@
+/*
+ * MUD Cartographer styles, ported from the standalone mud-mapper.html at the repository
+ * root. Every rule is prefixed with .mapper-root so that the tool's bare element selectors
+ * cannot reach Vuetify, and the custom properties live on the root rather than :root.
+ * The original sized itself against html/body; here it fills the area below the app bar.
+ */
+.mapper-root{
+  --bg:#14171d; --panel:#1c212a; --panel2:#232a36; --line:#313a49;
+  --ink:#dfe6f1; --muted:#8a94a6; --faint:#5b6472;
+  --accent:#f6b73c; --accent-dim:#8a6a2a;
+  --room:#2a3140; --room-stroke:#46526625;
+  --t-open:#9aa8bd; --t-door:#d98e3f; --t-locked:#e26666;
+  --t-climb:#5fc08b; --t-swim:#58b7e8; --t-special:#b48bf2;
+  --danger:#e26666;
+  --mono:ui-monospace,"Cascadia Code","JetBrains Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  height:100%;overflow:hidden;
+  background:var(--bg);color:var(--ink);font-family:var(--mono);font-size:13px
+}
+.mapper-root *{box-sizing:border-box;margin:0;padding:0}
+.mapper-root button,.mapper-root input,.mapper-root select,.mapper-root textarea{font-family:var(--mono);font-size:13px;color:var(--ink)}
+.mapper-root button{cursor:pointer;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:5px 10px}
+.mapper-root button:hover{border-color:var(--muted)}
+.mapper-root button:focus-visible,.mapper-root input:focus-visible,.mapper-root select:focus-visible,.mapper-root textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.mapper-root button.primary{background:var(--accent);border-color:var(--accent);color:#1a1508;font-weight:700}
+.mapper-root button.danger{color:var(--danger);border-color:#5a3434}
+.mapper-root button.danger:hover{border-color:var(--danger)}
+.mapper-root button.ghosted{opacity:.45;pointer-events:none}
+.mapper-root input[type=text],.mapper-root input[type=number],.mapper-root textarea,.mapper-root select{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+.mapper-root input[type=text]:hover,.mapper-root input[type=number]:hover,.mapper-root textarea:hover,.mapper-root select:hover{border-color:var(--muted)}
+
+/* ---------- layout ---------- */
+.mapper-root #mapperApp{display:flex;flex-direction:column;height:100%}
+.mapper-root #toolbar{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.mapper-root #brand{letter-spacing:.22em;font-weight:700;font-size:12px;color:var(--accent);text-transform:uppercase;white-space:nowrap;user-select:none}
+.mapper-root #brand small{color:var(--faint);letter-spacing:.1em}
+.mapper-root #mapName{flex:0 1 200px;min-width:90px;font-weight:700}
+.mapper-root .live-toggle{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);
+  background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;user-select:none}
+.mapper-root .live-toggle:hover{border-color:var(--muted);color:var(--ink)}
+.mapper-root .live-toggle input{accent-color:var(--accent)}
+.mapper-root #areaSel{max-width:160px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 6px;color:var(--accent);font-weight:700}
+.mapper-root .dirGrid{display:grid;grid-template-columns:repeat(3,46px);gap:4px;justify-content:start;margin:4px 0}
+.mapper-root .dirGrid button,.mapper-root .vRow button{padding:6px 0;font-size:11px}
+.mapper-root .dirGrid .blank{visibility:hidden}
+.mapper-root .vRow{display:flex;gap:4px;margin-top:2px}
+.mapper-root .vRow button{width:70px}
+.mapper-root .spacer{flex:1}
+.mapper-root #main{display:flex;flex:1;min-height:0;position:relative;width:100%}
+.mapper-root #canvasWrap{position:relative;flex:1;min-width:0;min-height:0;background:var(--bg)}
+.mapper-root #board{position:absolute;top:0;left:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+.mapper-root #board.panning{cursor:grabbing}
+.mapper-root #board.linking{cursor:crosshair}
+
+/* ---------- sidebar ---------- */
+.mapper-root #side{width:300px;background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;overflow-y:auto}
+.mapper-root #side .section{padding:12px;border-bottom:1px solid var(--line)}
+.mapper-root #side h3{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;font-weight:700}
+.mapper-root #side label.fld{display:block;color:var(--muted);font-size:11px;margin:8px 0 3px}
+.mapper-root #side input[type=text],.mapper-root #side textarea,.mapper-root #side select{width:100%}
+.mapper-root #side textarea{resize:vertical;min-height:56px}
+.mapper-root .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.mapper-root .row.tight{gap:4px}
+.mapper-root .coordChip{color:var(--faint);font-size:11px}
+.mapper-root .swatches{display:flex;gap:6px;margin-top:4px}
+.mapper-root .sw{width:22px;height:22px;border-radius:5px;border:1px solid var(--line);cursor:pointer;padding:0}
+.mapper-root .sw.on{outline:2px solid var(--accent);outline-offset:1px}
+.mapper-root .exitRow{display:flex;align-items:center;gap:6px;padding:6px;border:1px solid var(--line);border-radius:6px;margin-bottom:6px;background:var(--panel2)}
+.mapper-root .exitRow .dirBadge{min-width:34px;text-align:center;font-weight:700;font-size:11px;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:3px 4px}
+.mapper-root .exitRow select{padding:3px 4px;font-size:11px;flex:1;min-width:0}
+.mapper-root .exitRow .jump{background:none;border:none;color:var(--ink);text-align:left;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px}
+.mapper-root .exitRow .jump:hover{color:var(--accent);text-decoration:underline}
+.mapper-root .iconBtn{padding:3px 7px;font-size:12px;line-height:1}
+.mapper-root .hint{color:var(--faint);font-size:11px;line-height:1.6}
+.mapper-root .kbd{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;font-size:11px;color:var(--ink)}
+.mapper-root .cheat{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:11px;color:var(--muted);align-items:center}
+.mapper-root .legend{display:grid;grid-template-columns:auto 1fr;gap:5px 8px;font-size:11px;color:var(--muted);align-items:center}
+.mapper-root .legLine{width:34px;height:0;border-top:3px solid}
+.mapper-root .legLine.dot{border-top-style:dashed}
+
+/* ---------- floating widgets ---------- */
+.mapper-root .float{position:absolute;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 20px #0008}
+.mapper-root #floorGauge{right:14px;bottom:14px;padding:8px;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:76px}
+.mapper-root #floorGauge .flabel{font-size:10px;letter-spacing:.18em;color:var(--muted);text-transform:uppercase}
+.mapper-root #floorNum{font-size:20px;font-weight:700;color:var(--accent);line-height:1}
+.mapper-root #floorGauge button{width:56px;padding:4px 0;font-size:14px}
+.mapper-root #floorRail{display:flex;flex-direction:column;gap:2px;max-height:120px;overflow-y:auto;width:100%;margin-top:2px}
+.mapper-root #floorRail button{width:100%;padding:1px 0;font-size:10px;color:var(--muted);border-radius:4px}
+.mapper-root #floorRail button.on{color:#1a1508;background:var(--accent);border-color:var(--accent);font-weight:700}
+.mapper-root #zoomCluster{right:110px;bottom:54px;display:flex;flex-direction:column}
+.mapper-root #zoomCluster button{border:none;border-bottom:1px solid var(--line);background:none;width:34px;height:30px;font-size:15px;border-radius:0}
+.mapper-root #zoomCluster button:last-child{border-bottom:none}
+.mapper-root #zoomCluster button:hover{background:var(--panel2)}
+.mapper-root #statusBar{left:14px;bottom:14px;padding:5px 10px;font-size:11px;color:var(--muted);display:flex;gap:14px;user-select:none}
+.mapper-root #statusBar b{color:var(--ink);font-weight:400}
+.mapper-root #ghostToggle{position:absolute;right:110px;bottom:14px;font-size:11px;color:var(--muted);display:flex;gap:5px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:5px 8px;cursor:pointer;user-select:none}
+.mapper-root #onboard{position:absolute;left:50%;top:18px;transform:translateX(-50%);background:var(--panel);border:1px solid var(--accent-dim);color:var(--muted);padding:8px 14px;border-radius:8px;font-size:12px;pointer-events:none;text-align:center;line-height:1.7}
+
+/* ---------- toasts / modal ---------- */
+.mapper-root #toasts{position:absolute;left:50%;bottom:56px;transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none;z-index:60}
+.mapper-root .toast{background:var(--panel2);border:1px solid var(--line);padding:6px 14px;border-radius:20px;font-size:12px;animation:mapper-tin .18s ease-out;box-shadow:0 4px 14px #0009}
+.mapper-root .toast.err{border-color:var(--danger);color:var(--danger)}
+@keyframes mapper-tin{from{opacity:0;transform:translateY(8px)}to{opacity:1}}
+.mapper-root #modalBack{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:100}
+.mapper-root #modalBack.open{display:flex}
+.mapper-root #modal{background:var(--panel);border:1px solid var(--line);border-radius:10px;width:min(620px,92vw);max-height:86vh;overflow-y:auto;padding:16px}
+.mapper-root #modal h2{font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.mapper-root #modal textarea{width:100%;height:220px;font-size:11px;white-space:pre}
+.mapper-root #modal .row{margin-top:10px}
+@media (prefers-reduced-motion:reduce){.mapper-root .toast{animation:none}}
+
+/* ---------- svg ---------- */
+.mapper-root svg text{user-select:none;pointer-events:none}
+.mapper-root .roomG{cursor:pointer}
+.mapper-root .roomG rect{transition:filter .12s}
+@media (prefers-reduced-motion:reduce){.mapper-root .roomG rect{transition:none}}
+.mapper-root .exitHit{stroke:transparent;stroke-width:16;fill:none;cursor:pointer}
+.mapper-root .exitHit:hover + .exitVis{stroke-width:4}
+.mapper-root .port{fill:var(--panel);stroke:var(--accent);stroke-width:1.5;cursor:crosshair}
+.mapper-root .port:hover{fill:var(--accent)}
+.mapper-root .sideClose{display:none;float:right;padding:2px 8px;font-size:12px;margin:-2px 0 0 8px}
+@media (max-width:700px){
+  .mapper-root #side{position:absolute;left:0;right:0;bottom:0;width:auto;max-height:46dvh;
+    border-left:none;border-top:1px solid var(--line);z-index:40;display:none;
+    box-shadow:0 -10px 30px #000c;border-radius:12px 12px 0 0}
+  .mapper-root.hasSel #side{display:flex}
+  .mapper-root .sideClose{display:inline-block}
+  .mapper-root #floorGauge{padding:6px}
+  .mapper-root #floorRail{max-height:60px}
+  .mapper-root #ghostToggle{right:104px}
+  .mapper-root #zoomCluster{right:104px}
+}
+@media (max-width:760px) and (min-width:701px){.mapper-root #side{width:240px}}

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Map</title>
+<link rel="stylesheet" href="mapper.css">
+<style>
+  html, body { height: 100%; margin: 0; background: #14171d; overflow: hidden; }
+  .mapper-root { height: 100%; }
+  .mapper-root #pubState { font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; cursor: help; user-select: none; }
+  .mapper-root #pubState.st-draft { color: var(--muted); }
+  .mapper-root #pubState.st-changed { color: var(--accent); border-color: var(--accent-dim); }
+  .mapper-root #pubState.st-published { color: var(--t-climb); border-color: #2f5a44; }
+  .mapper-root #pubState.st-linked { color: var(--t-swim); border-color: #2d5163; }
+  .mapper-root .linked-id { color: var(--faint); font-size: 11px; margin-top: 6px; user-select: all; }
+  .mapper-boot { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #8a94a6; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; background: #14171d; z-index: 100; }
+  .mapper-boot[hidden] { display: none; }
+</style>
+</head>
+<body>
+<div class="mapper-root" id="root">
+  <div id="mapperApp">
+    <div id="toolbar">
+      <input id="mapName" type="text" title="Map name" aria-label="Map name">
+      <select id="areaSel" title="Current area — switch, or create a new one" aria-label="Current area"></select>
+      <button id="btnArea" title="Rename or delete this area">✎</button>
+      <button id="btnUndo" title="Undo (Ctrl+Z)">↶ Undo</button>
+      <button id="btnRedo" title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
+      <button id="btnReload" title="Read the map file again, as the agent and other tabs left it">⟳ Reload</button>
+      <button id="btnNew" title="Start this map again from one blank room" hidden>New</button>
+      <span class="spacer"></span>
+      <span id="pubState" title="">…</span>
+      <button id="btnBlock" title="Block-out mode — paint impassable cells to sketch solid space (B)">▦ Block</button>
+      <button id="btnFit" title="Fit map in view (F)">⛶ Fit</button>
+      <button id="btnHelp" title="Shortcuts &amp; legend (?)">?</button>
+    </div>
+    <div id="main">
+      <div id="canvasWrap">
+        <svg id="board" xmlns="http://www.w3.org/2000/svg">
+          <g id="viewport">
+            <g id="ghostLayer"></g>
+            <g id="blockLayer"></g>
+            <g id="exitLayer"></g>
+            <g id="roomLayer"></g>
+            <g id="overlayLayer"></g>
+          </g>
+        </svg>
+        <div id="onboard" style="display: none">
+          <b style="color: var(--ink)">Double-click</b> an empty cell to place a room · <b style="color: var(--ink)">Arrow keys / numpad</b> dig new rooms from the selected one
+        </div>
+        <div class="float" id="zoomCluster">
+          <button id="zoomIn" title="Zoom in">+</button>
+          <button id="zoomOut" title="Zoom out">−</button>
+        </div>
+        <label id="ghostToggle" title="Show the floor below as a faint outline">
+          <input type="checkbox" id="ghostChk" checked> ghost floor below
+        </label>
+        <div class="float" id="floorGauge">
+          <span class="flabel">Floor</span>
+          <button id="floorUp" title="Go up one floor (PgUp)">▲</button>
+          <div id="floorNum">0</div>
+          <button id="floorDown" title="Go down one floor (PgDn)">▼</button>
+          <div id="floorRail" title="Floors that contain rooms"></div>
+        </div>
+        <div class="float" id="statusBar"></div>
+        <div id="toasts"></div>
+      </div>
+      <div id="side"></div>
+    </div>
+  </div>
+  <div id="modalBack"><div id="modal"></div></div>
+</div>
+<div class="mapper-boot" id="boot">Loading the map…</div>
+<script src="editor.js"></script>
+</body>
+</html>

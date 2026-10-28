@@ -1,0 +1,30 @@
+/* @bitmuse/moo-maps: the sidebar section and the map tab, on the shell's tokens. The editor inside the
+ * frame keeps its own dark cartographer look (frame/mapper.css). */
+
+.mm-list { display: flex; flex-direction: column; gap: 1px; padding: 0 0 var(--gap-2); }
+.mm-row { position: relative; display: flex; align-items: center; border-radius: var(--r-sm); color: var(--text-dim); }
+.mm-row:hover, .mm-row:focus-within { background: var(--surface-2); color: var(--text); }
+.mm-row.is-active { background: var(--accent-wash); color: var(--text); }
+.mm-row-open { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 6px 4px 6px 11px; background: transparent; border: 0; color: inherit; font-size: var(--text-sm); text-align: left; cursor: pointer; }
+.mm-row-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); }
+.mm-dot.is-published { background: var(--ok); }
+.mm-dot.is-changed { background: var(--warn); }
+.mm-dot.is-linked { background: var(--accent); }
+.mm-badge { flex: none; padding: 0 6px; border-radius: var(--r-pill); background: var(--surface-3); font-size: var(--text-xs); color: var(--text-faint); }
+.mm-badge.is-changed { color: var(--warn); }
+.mm-badge.is-published { color: var(--ok); }
+.mm-row-when { flex: none; margin-left: auto; padding-left: var(--gap-2); font-family: var(--mono); font-size: var(--text-xs); color: var(--text-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mm-row-more { flex: none; margin-right: 4px; visibility: hidden; }
+.mm-row:hover .mm-row-more, .mm-row:focus-within .mm-row-more, .mm-row.is-active .mm-row-more { visibility: visible; }
+.mm-row-rename { flex: 1 1 auto; min-width: 0; padding: 2px 6px; font: inherit; color: var(--text); background: var(--surface-1); border: 1px solid var(--accent-edge); border-radius: var(--r-sm); outline: none; }
+.mm-empty { padding: var(--gap-2) 11px var(--gap-3); font-size: var(--text-xs); color: var(--text-faint); line-height: 1.4; }
+
+.mm-tab { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; background: #14171d; }
+.mm-tab.is-gone .mm-body { opacity: .5; pointer-events: none; }
+.mm-banner { flex: none; padding: var(--gap-2) var(--gap-4); font-size: var(--text-sm); color: var(--text); background: var(--warn-wash); border-bottom: 1px solid var(--hairline); }
+.mm-banner.is-error { background: var(--err-wash, var(--warn-wash)); }
+.mm-banner[hidden] { display: none; }
+.mm-body { flex: 1 1 auto; min-height: 0; display: flex; }
+.mm-frame { flex: 1 1 auto; display: block; width: 100%; height: 100%; border: 0; background: #14171d; }
+.mm-wait { margin: auto; color: #8a94a6; font-family: var(--mono); font-size: var(--text-sm); }

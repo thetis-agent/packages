@@ -1,0 +1,139 @@
+// Writes package.json: `node tools/manifest.mjs`. The tool schemas live here so they stay consistent.
+import { writeFileSync } from "node:fs";
+
+const MAP = { type: "string", description: "The map: its id (m_…) or exact title. Omitted: the only map, when there is one." };
+const ROOMREF = { description: "A room: its map id (r12), its MOO id (#…) once published, or a cell {x, y, z?, area?}.", anyOf: [{ type: "string" }, { type: "object", properties: { x: { type: "integer" }, y: { type: "integer" }, z: { type: "integer" }, area: { type: "string" } }, required: ["x", "y"] }] };
+const AREA = { type: "string", description: "An area of the map: its id (a1), name, or MOO id. Omitted: the map's first area." };
+const Z = { type: "integer", description: "A level: 0 is ground, -1 one floor up, 1 one floor down." };
+const DRY = { type: "boolean", description: "Say what it would do and write nothing." };
+const EXIT_TYPE = { type: "string", enum: ["open", "door", "locked", "climb", "swim", "special"] };
+const DIR = { type: "string", description: "n ne e se s sw w nw up down, or a vertical diagonal nu neu eu seu su swu wu nwu / nd ned ed sed sd swd wd nwd (northup, southwestdown, \"up north\", fore, port … also read)." };
+const CELL = { type: "object", properties: { x: { type: "integer" }, y: { type: "integer" }, z: { type: "integer" }, area: { type: "string" } }, required: ["x", "y"] };
+const FIELDS = { type: "array", items: { type: "string", enum: ["name", "description", "notes", "area"] }, description: "Which text to look in. Default name, description and notes; \"area\" adds area names." };
+const SCOPE = {
+  rooms: { type: "array", items: ROOMREF, description: "Only these rooms." },
+  area: AREA,
+  z: Z,
+};
+const obj = (properties, required = []) => ({ type: "object", properties, ...(required.length ? { required } : {}), additionalProperties: false });
+
+const tools = [
+  ["map_list", "mapList", true, "List the maps in progress, one line each: id, title, rooms, exits, areas, whether it is a draft, published or changed since its last publish, and its last change. The person sees the same list under Maps in the sidebar.", obj({})],
+  ["map_create", "mapCreate", false, "Start a new map: a draft of one or more areas, kept in Thetis and opened by the person from Maps in the sidebar. Nothing is made in the MOO until map_publish. Optionally lays out rooms at once, as map_set_rooms does. Read the moo-maps skill first.", obj({
+    name: { type: "string", description: "The map's title, as the sidebar shows it." },
+    areas: { type: "array", items: { type: "string" }, description: "Area names, in order (a1, a2, …). Default: one area named like the map." },
+    rooms: { type: "array", description: "Rooms to make, as map_set_rooms takes them.", items: { type: "object" } },
+  }, ["name"])],
+  ["map_delete", "mapDelete", false, "Delete a map from Thetis for good. The world is not touched: areas it published stay in the MOO and map_import can bring them back. Needs confirm: true.", obj({ map: MAP, confirm: { type: "boolean" } }, ["map"])],
+  ["map_get", "mapGet", true, "Read a map as a grid: a header (publish state, what the person has selected in the map tab), its recent changes, then a drawing of each level with exits and a line per room with id, name, (x,y,z), exits and MOO id. x grows east, y grows south, z grows down. Read before changing.", obj({
+    map: MAP, area: AREA, z: Z, descriptions: { type: "boolean", description: "Include each room's description." }, json: { type: "boolean", description: "The raw document and link instead." },
+  })],
+  ["map_rooms", "mapRooms", true, "Get rooms in detail: one room (by id, MOO id, or cell x/y/z), or every room matching a filter (area, level, a box, a name/description query), each with its exits, MOO id, notes and (for one room, or with descriptions) its description.", obj({
+    map: MAP, room: { type: "string", description: "One room: r12 or a MOO id." }, x: { type: "integer" }, y: { type: "integer" }, z: Z, area: AREA,
+    query: { type: "string", description: "Rooms whose name or description contains this." },
+    box: { type: "object", properties: { x0: { type: "integer" }, y0: { type: "integer" }, x1: { type: "integer" }, y1: { type: "integer" } }, description: "Only rooms inside this rectangle (inclusive)." },
+    limit: { type: "integer", description: "Default 100, at most 500." }, descriptions: { type: "boolean" },
+  })],
+  ["map_search", "mapSearch", true, "Find text in a map's rooms (names, descriptions, notes, optionally area names): each match with its room, cell and some context.", obj({
+    map: MAP, pattern: { type: "string" }, regex: { type: "boolean", description: "pattern is a JavaScript regular expression." }, ignore_case: { type: "boolean" }, fields: FIELDS, ...SCOPE, limit: { type: "integer" },
+  }, ["pattern"])],
+  ["map_replace", "mapReplace", false, "Search and replace in a map's room text (names, descriptions, notes, optionally area names). With regex, the replacement may use $1 and $&. Changes the map only; map_publish writes it to the MOO.", obj({
+    map: MAP, pattern: { type: "string" }, replacement: { type: "string", description: "Empty to delete the match." }, regex: { type: "boolean" }, ignore_case: { type: "boolean" }, fields: FIELDS, ...SCOPE, dry_run: DRY,
+  }, ["pattern", "replacement"])],
+  ["map_set_rooms", "mapSetRooms", false, "Set rooms of a map by cell: an empty cell gets a new room (it needs a name), an occupied one is updated. `exits` lists the room's directions to its grid neighbours and is its whole set of them: missing pairs are added, unlisted ones removed; exits to other areas or non-neighbours are left alone. Every room in the call exists before any exit is made, so a whole area can be laid out in one call. All or nothing. Changes the map only; map_publish writes it to the MOO.", obj({
+    map: MAP,
+    rooms: { type: "array", minItems: 1, items: { type: "object", properties: {
+      x: { type: "integer" }, y: { type: "integer" }, z: Z, area: AREA, room: { type: "string", description: "An existing room by id instead of a cell." },
+      name: { type: "string", description: "Required for a new room." },
+      description: { description: "What a player sees on look: a string, or a list of paragraphs.", anyOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] },
+      notes: { type: "string", description: "Builder's notes. Kept in the map only, never published." },
+      color: { type: "string", description: "The room's colour in the editor (#2a3140 default). Map only." },
+      exits: { type: "array", items: { anyOf: [{ type: "string" }, { type: "object", properties: { dir: DIR, type: EXIT_TYPE, hidden: { type: "boolean" } }, required: ["dir"] }] } },
+    } } },
+    dry_run: DRY, z: { type: "integer", description: "Draw only this level in the map afterwards." },
+  }, ["rooms"])],
+  ["map_delete_rooms", "mapDeleteRooms", false, "Delete rooms from a map, with their exits and the edges that start or land in them. Changes the map only; map_publish then recycles them in the MOO (refusing a room with a player in it unless force).", obj({ map: MAP, rooms: { type: "array", minItems: 1, items: ROOMREF }, dry_run: DRY }, ["rooms"])],
+  ["map_move_rooms", "mapMoveRooms", false, "Move rooms of a map: several by an offset (dx, dy, dz), or one to a cell (to), optionally into another area. Exits move with them. Refused when a target cell is taken or blocked.", obj({
+    map: MAP, rooms: { type: "array", minItems: 1, items: ROOMREF }, dx: { type: "integer" }, dy: { type: "integer" }, dz: { type: "integer" },
+    to: { type: "object", properties: { x: { type: "integer" }, y: { type: "integer" }, z: { type: "integer" } }, required: ["x", "y"] }, area: AREA, dry_run: DRY,
+  }, ["rooms"])],
+  ["map_link", "mapLink", false, "Make or change one exit pair between two rooms of a map: a neighbour by dir, or any room by to — another area, or a room that is not adjacent. adir/bdir set the compass direction on each side (needed across areas; default from the grid). Updates type and hidden when the pair exists.", obj({
+    map: MAP, from: ROOMREF, to: ROOMREF, dir: DIR, type: EXIT_TYPE, hidden: { type: "boolean" }, adir: { type: "string", description: "The direction from `from`." }, bdir: { type: "string", description: "The direction back from `to`." }, dry_run: DRY,
+  }, ["from"])],
+  ["map_unlink", "mapUnlink", false, "Remove one exit pair from a map: by exit id (e7 or its MOO id), or by room and direction.", obj({ map: MAP, exit: { type: "string" }, from: ROOMREF, dir: DIR, dry_run: DRY })],
+  ["map_edge", "mapEdge", false, "Add, change or remove a jump edge: a one-way leap from a room in a planar direction that lands in `success` or, failing the roll, in `fail`. One per room per direction.", obj({
+    map: MAP, from: ROOMREF, dir: DIR, success: ROOMREF, fail: ROOMREF, hidden: { type: "boolean" }, remove: { type: "boolean" }, dry_run: DRY,
+  }, ["from", "dir"])],
+  ["map_elevator", "mapElevator", false, "Make, change or remove an elevator: one carriage room off the grid and its stops, top floor first, each a button label (10, G, B2: what players `press`) and a lobby room of this map, in any area. Publishing makes the carriage, a one-sided `in` exit (aliases e, ele, elevator, lift; a real east exit still wins `e`) in each lobby and the carriage's `out`, and keeps them linked. Without elevator it makes a new one. stops replaces the list; add/drop edit it. Changes the map only; map_publish writes it to the MOO.", obj({
+    map: MAP,
+    elevator: { type: "string", description: "An existing elevator: v3, its carriage's MOO id, or its name. Omitted: make a new one." },
+    name: { type: "string", description: "The carriage room's name, e.g. \"Tower Lift\"." },
+    description: { description: "The carriage's description; the game appends the floor display and door state.", anyOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] },
+    door: { type: "integer", description: "Seconds the doors stay open (1-600). Default 8." },
+    travel: { type: "integer", description: "Seconds per floor travelled (1-600). Default 3." },
+    stops: { type: "array", description: "The whole stop list, top floor first.", items: { type: "object", properties: { label: { type: "string" }, room: ROOMREF }, required: ["label", "room"] } },
+    add: { type: "array", description: "Stops to add; at (0-based) places one, else it goes in by its lobby's floor.", items: { type: "object", properties: { label: { type: "string" }, room: ROOMREF, at: { type: "integer" } }, required: ["label", "room"] } },
+    drop: { type: "array", description: "Stops to remove, by label or room.", items: ROOMREF },
+    remove: { type: "boolean", description: "Remove the elevator from the map; publishing then recycles its carriage and lobby exits." },
+    dry_run: DRY,
+  })],
+  ["map_blocks", "mapBlocks", false, "Block out or clear cells: impassable solid space in an area, which no room may take. Published to the area's mapper blocks.", obj({ map: MAP, add: { type: "array", items: CELL }, remove: { type: "array", items: CELL }, dry_run: DRY })],
+  ["map_areas", "mapAreas", false, "Add, rename or remove a map's areas, or rename the map (name). An area must be empty to remove. Publishing makes new areas in the MOO and renames linked ones; a removed area is only unlinked, never recycled.", obj({
+    map: MAP, add: { type: "array", items: { type: "string" } }, rename: { type: "object", additionalProperties: { type: "string" }, description: "{ \"a2\": \"New name\" }" }, remove: { type: "array", items: { type: "string" } }, name: { type: "string", description: "A new title for the map." }, dry_run: DRY,
+  })],
+  ["map_render", "mapRender", true, "Draw a map as images, one per populated level of each area (at most six), in the editor's style: rooms with their labels, exits coloured by type, up/down triangles, area portals, edges. Use it to check a layout by eye; map_get is the cheaper text view.", obj({ map: MAP, area: AREA, z: Z, ghost: { type: "boolean", description: "Outline the level below. Default true." } })],
+  ["map_world_areas", "mapWorldAreas", true, "List the areas in the MOO that have rooms, with their ids and room counts, which are the character's own builds, and which are already on a map. Says whether the character may publish (a Shaper).", obj({ query: { type: "string", description: "Only areas whose name contains this." } })],
+  ["map_import", "mapImport", false, "Make a map from areas already in the MOO, or add areas to a map: their rooms, exits, edges and blocks come in, linked, so later edits publish back to the same objects. Exits leading out to areas not on the map are remembered, not drawn. Refuses an area already on another map unless allow_shared.", obj({
+    areas: { type: "array", minItems: 1, items: { type: "string" }, description: "MOO area ids, from map_world_areas." }, map: MAP, name: { type: "string", description: "The new map's title. Default: the areas' names." }, allow_shared: { type: "boolean" },
+  }, ["areas"])],
+  ["map_pull", "mapPull", false, "Bring changes made in the MOO since the last publish or pull into a linked map: rooms, exits and edges added, changed or recycled in the world. Where the map and the world both changed the same thing, the map's version is kept and said so.", obj({ map: MAP })],
+  ["map_publish", "mapPublish", false, "Write a map to the MOO: make its areas and rooms that are not there yet, update the ones that are (name, description, cell, area), make and remove exits and edges, set blocks, and recycle linked rooms deleted from the map. Remembers every MOO id so later publishes update the same objects. Leaves alone anything in the world the map never had. Run with dry_run first and show the person the plan. A room with a player in it is not recycled unless force.", obj({ map: MAP, dry_run: DRY, force: { type: "boolean", description: "Recycle rooms even with players in them (they are sent home)." } })],
+  ["map_status", "mapStatus", true, "Compare a map with the MOO now: what publishing would change, what changed in the world since the last sync, rooms and exits in the world the map does not have, rooms with players in them, and exits leading out of the map.", obj({ map: MAP })],
+];
+
+const tool = ([name, exp, reads, description, parameters]) => ({ name, description, parameters, export: exp, reads });
+
+const pkg = {
+  name: "@bitmuse/moo-maps",
+  version: "0.1.0",
+  private: true,
+  description: "Maps of MOO areas you and the agent build together: a cartographer tab with the maps in progress in the sidebar, map_* tools for editing them in chat, and map_publish to write a map into the MOO and keep it linked for later updates.",
+  type: "module",
+  main: "index.js",
+  scripts: { test: "node --test \"test/*.test.js\"", manifest: "node tools/manifest.mjs" },
+  dependencies: { "@resvg/resvg-js": "2.6.2" },
+  // Thetis checks the peer is installed here; npm must not try to fetch it (it is not on the npm registry).
+  peerDependencies: { "@thetis/moo": "*" },
+  peerDependenciesMeta: { "@thetis/moo": { optional: true } },
+  thetis: {
+    type: "tool",
+    label: "MOO maps",
+    summary: "Lets your assistant sketch, edit and publish MOO areas with you on a map you both edit.",
+    skills: "skills",
+    config: {
+      moo_package: { type: "string", help: "Which installed package holds the connection to the MOO. map_publish, map_pull, map_import and map_status use its client and its character. Default: @thetis/moo." },
+    },
+    tools: tools.map(tool),
+    ui: {
+      dir: "ui",
+      entry: "index.js",
+      style: "index.css",
+      sidebar: [{ id: "maps", slot: "section", label: "Maps", order: 22 }],
+      tabs: [{ id: "map", label: "Map", icon: "M3 5.5l4.5-2 5 2 4.5-2v11l-4.5 2-5-2-4.5 2zM7.5 3.5v11M12.5 5.5v11" }],
+      commands: [
+        { verb: "list", export: "uiList", label: "List the maps" },
+        { verb: "doc", export: "uiDoc", label: "Read one map's document", kind: "raw" },
+        { verb: "save", export: "uiSave", label: "Apply an edit from the map tab", kind: "raw", maxBytes: 25165824 },
+        { verb: "create", export: "uiCreate", label: "Create a map" },
+        { verb: "rename", export: "uiRename", label: "Rename a map" },
+        { verb: "remove", export: "uiRemove", label: "Delete a map" },
+        { verb: "focus", export: "uiFocus", label: "Tell the agent what is selected in the map tab" },
+        { verb: "watch", export: "uiWatch", label: "Follow the maps as they change", stream: true },
+        { verb: "editor", export: "uiEditor", label: "Serve the map editor to its sandboxed frame", kind: "frame" },
+      ],
+    },
+  },
+};
+
+writeFileSync(new URL("../package.json", import.meta.url), JSON.stringify(pkg, null, 2) + "\n");
+console.log(`package.json: ${tools.length} tools`);
