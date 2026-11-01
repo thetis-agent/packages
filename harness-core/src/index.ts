@@ -27,6 +27,8 @@ export type { Effort } from "./effort.js";
 export { forgetSession } from "./forget.js";
 export type { ForgetAnswer, ForgetArgs } from "./forget.js";
 export { GUIDE_NOTE_MAX, GUIDE_NOTES_MAX, SNAPSHOTS_DIR, TURNS_DIR, guideNotesOf, harnessStamps, snapshotsPath, turnsPath } from "./stamp.js";
+export { REWIND_MAX_AGE_MS, VERSION_TEXT_MAX, editsPath, liveEdits, messageHash, rewindRequestPath, rewindTurn, textHash, uiEditVersions, uiRewindCancel, uiRewindRequest } from "./rewind.js";
+export type { EditRecord, EditVersion, VersionMessage } from "./rewind.js";
 export type { HarnessStamp, StampedTool } from "./stamp.js";
 
 /** The key this package keeps its per-session state under; other packages read it by name. */
@@ -88,12 +90,40 @@ export async function systemPrompt(ctx: PackageStepContext): Promise<StepResult>
   return { call: { ...ctx.call, system: [ctx.call.system, GUIDE(ctx) + guideNotesText(ctx.config ?? {})].filter(Boolean).join("\n\n") } };
 }
 
-/** tools: attach every tool declared by installed tool packages. */
+/**
+ * The marker a service writes for a conversation it drives and nobody reads while it runs (a workflow run):
+ * `harness-core/unattended/<s>.json` under the person's home, any content. Its presence is all that counts:
+ * tools declared `needsPerson` are not offered there. `forget` removes it.
+ */
+export function unattendedPath(session: string): string {
+  // Session ids are kernel-issued; check at the filesystem boundary as well, since the id becomes a path.
+  if (!/^[a-zA-Z0-9_-]+$/.test(session)) throw new Error("invalid session id");
+  return `harness-core/unattended/${session}.json`;
+}
+
+/** Whether nobody can answer in this conversation: a subagent's, or one marked unattended. A marker that cannot be read is no marker. */
+async function unattended(ctx: PackageStepContext): Promise<boolean> {
+  if (ctx.session.parent) return true;
+  try {
+    await ctx.env.readFile(unattendedPath(ctx.session.id));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * tools: attach every tool declared by installed tool packages. A tool declared `needsPerson: true` (a
+ * question for the person) is left out where nobody can answer: in a subagent, and in a conversation with
+ * the unattended marker.
+ */
 export async function attachTools(ctx: PackageStepContext): Promise<StepResult> {
   const tools: ToolSpec[] = [...ctx.call.tools];
+  let away: boolean | undefined;
   for (const pkg of ctx.packages.list()) {
     for (const t of pkg.thetis.tools ?? []) {
       if (tools.some((x) => x.name === t.name)) continue;
+      if ((t as { needsPerson?: unknown }).needsPerson === true && (away ??= await unattended(ctx))) continue;
       tools.push(toolSpec(pkg.name, t));
     }
   }
@@ -505,6 +535,16 @@ function toolSpec(pkg: string, t: ToolDecl): ToolSpec {
   return spec;
 }
 
+/**
+ * The tools whose successful result ends the turn (`endsTurn: true` in the manifest), as `package\0name`: a
+ * question for the person is answered in their next message, so the loop must not ask the model again.
+ */
+function endingTools(packages: readonly PackageInfo[]): Set<string> {
+  const out = new Set<string>();
+  for (const pkg of packages) for (const t of pkg.thetis.tools ?? []) if ((t as { endsTurn?: unknown }).endsTurn === true) out.add(`${pkg.name}\0${t.name}`);
+  return out;
+}
+
 /** One request to the provider: the streamed text, the tool calls it asked for, and how it ended. */
 interface Round {
   toolCalls: ToolCall[];
@@ -704,7 +744,8 @@ const YIELD_ASK_MS = 5_000;
  * On a turn with no input -- a resume -- the tool calls a stopped turn never ran (`notRun`) run first, before
  * the first model call. At the top of every round after the first, a drained restart or apply is asked about
  * (`turns.yielding()`); when one is pending the turn stops there, clean, with a `yield` event, and is resumed
- * after it.
+ * after it. A round in which a tool declared `endsTurn` returned anything but an `error:` result is the last:
+ * the turn completes after it, with no further model call, on a resume as well.
  */
 export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
   const conversation = [...ctx.conversation];
@@ -736,6 +777,13 @@ export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
   const rc = retryConfig(ctx.config ?? {});
   // What a turn has spent waiting between retries, all rounds together: `retryBudgetMs` bounds it.
   let waited = 0;
+  const ending = endingTools(ctx.packages.list());
+  /** Set when a tool declared `endsTurn` returned something other than an `error:`: the turn ends after this round. */
+  let ended = false;
+  const ends = (tc: ToolCall, result: Message): boolean => {
+    const spec = call.tools.find((t) => t.name === tc.name) ?? withheldTool(call, ctx.packages.list(), tc.name);
+    return !!spec && ending.has(`${spec.package}\0${tc.name}`) && !contentText(result.content).startsWith("error:");
+  };
   /** Runs tool calls in their batches, appending each result; false when the turn was stopped among them. */
   const runCalls = async (calls: ToolCall[]): Promise<boolean> => {
     for (const batch of toolBatches(call, calls)) {
@@ -744,11 +792,12 @@ export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
       const results = await Promise.all(batch.map((tc) => runTool(ctx, call, tc, cfg)));
       // Results are recorded in the order the model asked, whatever order they finished in; a stop
       // keeps the ones that had come back and `closeDangling` answers the rest.
-      for (const result of results) {
-        if (!result) continue;
+      results.forEach((result, i) => {
+        if (!result) return;
         conversation.push(result);
         call.messages.push(result);
-      }
+        if (ends(batch[i], result)) ended = true;
+      });
       if (results.some((r) => !r)) return false;
     }
     return true;
@@ -762,6 +811,7 @@ export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
       conversation.splice(0, conversation.length, ...pending.rest);
       call.messages = unrun(call.messages).rest;
       if (!(await runCalls(pending.calls))) return stop(STOPPED);
+      if (ended) return finish("complete");
     }
   }
   // What the previous request was: how many of `call.messages` it carried and what the provider counted
@@ -845,6 +895,9 @@ export async function callModel(ctx: PackageStepContext): Promise<StepResult> {
     ctx.emit({ type: "message", message: assistant, usage: round.usage });
     if (!assistant.toolCalls?.length) break;
     if (!(await runCalls(assistant.toolCalls))) return stop(STOPPED);
+    // A question for the person was put: their answer is the next message, so no round follows. Every
+    // call of the round has run and has its result, so the record is one the provider takes next turn.
+    if (ended) return finish("complete");
   }
   return finish("complete");
 }

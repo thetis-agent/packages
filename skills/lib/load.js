@@ -121,12 +121,16 @@ async function readJson(env, path) {
   }
 }
 
-/** The session's project id from `projects/sessions.json` under the home, the file `@thetis/projects` writes, or null. */
+/**
+ * The session's project id from `projects/sessions.json` under the home, the file `@thetis/projects` writes,
+ * else (a subagent) from its `projects/agents/<id>.json`; or null.
+ */
 export async function projectOf(env, session) {
   const id = typeof session === "string" ? session : session?.id;
   if (!id) return null;
   const map = await readJson(env, "projects/sessions.json");
-  const project = map && typeof map === "object" && !Array.isArray(map) ? map[id] : undefined;
+  let project = map && typeof map === "object" && !Array.isArray(map) ? map[id] : undefined;
+  if (project == null && /^[\w-]+$/.test(id)) project = (await readJson(env, `projects/agents/${id}.json`))?.project;
   return PROJECT_ID.test(String(project ?? "")) ? project : null;
 }
 

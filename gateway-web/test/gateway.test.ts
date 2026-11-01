@@ -12,14 +12,14 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer as createTcpServer, type AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import type { Message, TurnEvent, Userspace } from "@thetis/runtime/contracts";
+import type { KernelClient, Message, StepEnv, TurnEvent, Userspace } from "@thetis/runtime/contracts";
 import { createKernel, T, type Kernel } from "@thetis/runtime";
 import { createControlHandler, createRpcHandler, defaultConfig } from "@thetis/runtime/kernel";
 import { memoryStore } from "@thetis/runtime/lib/store";
 import { createDoor } from "@thetis/runtime/door";
 import { createLogin } from "@thetis/gateway-login";
 import { clientFromRpc } from "../src/client.js";
-import { createGateway, nothingToResume, pairUsage, restartPending } from "../src/server.js";
+import { createGateway, EDIT_MOVED, EDIT_NEEDS, EDIT_RUNNING, messageHash, nothingToResume, pairUsage, restartPending, textHash } from "../src/server.js";
 import { GatewayStore } from "../src/store.js";
 import type { TurnMessage } from "../src/turns.js";
 import type { ChildRecord } from "../src/server.js";
@@ -36,6 +36,9 @@ let door: Server;
 let servicePort: number;
 const servers: Server[] = [];
 const sockets: Record<string, string> = {};
+/** Each person's kernel client and fence-like env, as their gateway got them: a second gateway for a person is built from these. */
+const clients: Record<string, KernelClient> = {};
+const envs: Record<string, StepEnv> = {};
 
 /** A userspace-like environment rooted in a directory, for the marketplace index. */
 function envAt(root: string) {
@@ -122,10 +125,10 @@ async function collect(cookie: string, user: string, trigger: () => Promise<unkn
 }
 
 /** Polls the person's record of a session until `ready` holds, or fails after `ms`. */
-async function recordWhen<T>(cookie: string, user: string, session: string, ready: (rec: T) => boolean, ms = 5_000): Promise<T> {
+async function recordWhen<T>(cookie: string, user: string, session: string, ready: (rec: T) => boolean, ms = 5_000, origin = base): Promise<T> {
   const deadline = Date.now() + ms;
   for (;;) {
-    const rec = (await (await api(cookie, `/${user}/api/sessions/${session}`)).json()) as T;
+    const rec = (await (await api(cookie, `/${user}/api/sessions/${session}`, {}, origin)).json()) as T;
     if (ready(rec)) return rec;
     assert.ok(Date.now() < deadline, `the record of ${session} did not become ready within ${ms} ms: ${JSON.stringify(rec).slice(0, 300)}`);
     await new Promise((r) => setTimeout(r, 40));
@@ -207,6 +210,8 @@ before(async () => {
     const us = kernel.userspaces.pathFor(id);
     const client = clientFromRpc(rpcFor(us));
     const env = { ...envAt(sysenv), cwd: us.home, root: us.root, store: us.store, kernel: client };
+    clients[id] = client;
+    envs[id] = env as unknown as StepEnv;
     const server = createGateway(client, new GatewayStore(join(home, "store", id)), { assets, log, env, user: id, base: `/${id}` });
     sockets[id] = join(socketsDir, `${id}.sock`);
     await listen(server, sockets[id]);
@@ -1193,4 +1198,229 @@ test("everyone may ask whether Thetis is about to restart; an older kernel's ref
     assert.equal(typeof out.readable, "boolean");
     if (who === "root") assert.equal(out.readable, true, "an admin always could");
   }
+});
+
+// ---- editing a sent message ----
+
+/**
+ * A second gateway for alice whose harness-core is a stub in a store of its own, so the edit route is tested
+ * against the commands it asks for whatever the real harness-core in this tree declares. `declare` says
+ * whether the stub lists `rewind-request` and `rewind-cancel`; `calls` is every call they received; `hook`
+ * runs inside `rewind-request` before it answers.
+ */
+type EditCall = { verb: string; args: Record<string, unknown>; session?: string };
+const editStub = { declare: true, calls: [] as EditCall[], hook: undefined as undefined | (() => Promise<void>) };
+async function editGateway(): Promise<{ origin: string; store: GatewayStore; close: () => Promise<void> }> {
+  const store = join(home, "edit-stub");
+  const dir = join(store, "node_modules", "@thetis", "harness-core");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "@thetis/harness-core", version: "0.9.0", type: "module", main: "index.js" }));
+  writeFileSync(
+    join(dir, "index.js"),
+    [
+      "const stub = globalThis.__thetisEditStub;",
+      "export async function uiRewindRequest(args, env) { stub.calls.push({ verb: 'rewind-request', args, session: env.session }); await stub.hook?.(); return { data: { ok: true } }; }",
+      "export async function uiRewindCancel(args, env) { stub.calls.push({ verb: 'rewind-cancel', args, session: env.session }); return { data: { ok: true } }; }",
+    ].join("\n"),
+  );
+  (globalThis as { __thetisEditStub?: typeof editStub }).__thetisEditStub = editStub;
+  const real = clients.alice;
+  const commands = () => (editStub.declare ? [{ verb: "rewind-request", export: "uiRewindRequest" }, { verb: "rewind-cancel", export: "uiRewindCancel" }] : [{ verb: "retry-now", export: "uiRetryNow" }]);
+  const client: KernelClient = {
+    ...real,
+    packages: { ...real.packages, list: async () => (await real.packages.list()).map((p) => (p.name === "@thetis/harness-core" ? { ...p, thetis: { ...p.thetis, ui: { commands: commands() } } } : p)) },
+  };
+  const gwStore = new GatewayStore(join(home, "edit-store"));
+  const server = createGateway(client, gwStore, { assets: join(home, "assets"), env: envs.alice, store, user: "alice", base: "/alice", log: () => {} });
+  await listen(server, 0);
+  return { origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, store: gwStore, close: () => new Promise<void>((done) => server.close(() => done())) };
+}
+
+type Edited = { conversation: Message[]; edited: { index: number; at: string }[]; usage: Record<string, unknown>; resumed: { index: number }[]; stopped: string | null; turn: unknown; children: ChildRecord[] };
+
+test("edit: the nth message is rewound through harness-core's rewind-request and the turn carries on with the new words", async (t) => {
+  const gw = await editGateway();
+  t.after(gw.close);
+  editStub.declare = true;
+  editStub.calls.length = 0;
+  const cookie = await cookieFor("alice", "wonderland");
+  const call = (path: string, init: RequestInit = {}) => api(cookie, `/alice${path}`, init, gw.origin);
+  const { id } = (await (await call("/api/sessions", { method: "POST" })).json()) as { id: string };
+  for (const text of ["hello", "again"]) await turn(cookie, "alice", id, async () => assert.equal((await call(`/api/sessions/${id}/send`, { method: "POST", body: JSON.stringify({ text }) })).status, 202), gw.origin);
+  const before = await recordWhen<Edited>(cookie, "alice", id, (rec) => rec.turn === null && rec.conversation.length === 4, 5_000, gw.origin);
+  // What the gateway kept about the replies after the edited message goes; what is before it stays.
+  gw.store.setUsage("alice", id, { 1: { cost: 1 }, 3: { cost: 2 } });
+  gw.store.addResumed("alice", id, { index: 3, why: "update", at: new Date().toISOString(), turn: "t_x" });
+  const edit = (body: unknown) => call(`/api/sessions/${id}/edit`, { method: "POST", body: JSON.stringify(body) });
+
+  let answer!: Response;
+  const r = await turn(cookie, "alice", id, async () => {
+    answer = await edit({ nth: 2, expect: "again", text: "  better  " });
+    assert.equal(answer.status, 202, await answer.clone().text());
+  }, gw.origin);
+  const out = (await answer.json()) as { session: string; at: number; startedAt: string };
+  assert.equal(out.at, 2, "the 2nd message of the person is the conversation's index 2");
+  assert.equal(out.session, id);
+  assert.equal(r.input, "better");
+  assert.match(r.text, /^echo: better/);
+  assert.deepEqual(editStub.calls, [{ verb: "rewind-request", session: id, args: { session: id, at: 2, expect: messageHash(before.conversation[2]), input: textHash("better") } }]);
+  assert.equal(textHash("  better "), textHash("better"));
+  const after = await recordWhen<Edited>(cookie, "alice", id, (rec) => rec.turn === null, 5_000, gw.origin);
+  assert.deepEqual(after.edited.map((m) => m.index), [2]);
+  assert.deepEqual(Object.keys(gw.store.usage("alice", id)).filter((k) => Number(k) < 2), ["1"], "usage before the edit stays");
+  assert.ok(!("3" in gw.store.usage("alice", id)), "the replaced reply's usage went");
+  assert.deepEqual(gw.store.resumed("alice", id), [], "a resumed divider after the edited message went");
+
+  // The first message: nth 1 is index 0. A message that no longer begins with `expect`, or is not there, is refused.
+  editStub.calls.length = 0;
+  let refused = await edit({ nth: 1, expect: "goodbye", text: "x" });
+  assert.equal(refused.status, 409);
+  assert.equal(((await refused.json()) as { error: string }).error, EDIT_MOVED);
+  refused = await edit({ nth: 9, expect: "", text: "x" });
+  assert.equal(refused.status, 409);
+  assert.equal(((await refused.json()) as { error: string }).error, EDIT_MOVED);
+  refused = await edit({ nth: 1, expect: "hello", text: "   " });
+  assert.equal(refused.status, 400, "no words and no attachment");
+  refused = await edit({ nth: 0, expect: "hello", text: "x" });
+  assert.equal(refused.status, 400, "nth counts from 1");
+  assert.equal(editStub.calls.length, 0, "nothing refused asked harness-core for anything");
+  await turn(cookie, "alice", id, async () => assert.equal((await edit({ nth: 1, expect: "hel", text: "hi" })).status, 202), gw.origin);
+  assert.equal(editStub.calls[0].args.at, 0);
+});
+
+test("edit: refused while the conversation works, for a subagent, and with a harness-core that does not declare the verb", async (t) => {
+  const gw = await editGateway();
+  t.after(gw.close);
+  editStub.calls.length = 0;
+  const cookie = await cookieFor("alice", "wonderland");
+  const call = (path: string, init: RequestInit = {}) => api(cookie, `/alice${path}`, init, gw.origin);
+  const { id } = (await (await call("/api/sessions", { method: "POST" })).json()) as { id: string };
+  const edit = (session: string, body: unknown) => call(`/api/sessions/${session}/edit`, { method: "POST", body: JSON.stringify(body) });
+  const words = Array.from({ length: 40 }, (_, i) => `w${i}`).join(" ");
+  await turn(cookie, "alice", id, async () => {
+    assert.equal((await call(`/api/sessions/${id}/send`, { method: "POST", body: JSON.stringify({ text: `slow: ${words}` }) })).status, 202);
+    const busy = await edit(id, { nth: 1, expect: "slow", text: "x" });
+    assert.equal(busy.status, 409);
+    assert.equal(((await busy.json()) as { error: string }).error, EDIT_RUNNING);
+    setTimeout(() => void call(`/api/sessions/${id}/cancel`, { method: "POST" }), 200);
+  }, gw.origin);
+
+  await turn(cookie, "alice", id, async () => assert.equal((await call(`/api/sessions/${id}/send`, { method: "POST", body: JSON.stringify({ text: "spawn: look around" }) })).status, 202), gw.origin);
+  const shown = await recordWhen<Edited>(cookie, "alice", id, (rec) => rec.turn === null && rec.children.length > 0 && rec.children.every((c) => c.status === "idle"), 5_000, gw.origin);
+  const child = shown.children[0].id;
+  const sub = await edit(child, { nth: 1, expect: "", text: "x" });
+  assert.equal(sub.status, 400);
+  assert.equal(((await sub.json()) as { error: string }).error, "A subagent's messages cannot be edited.");
+
+  editStub.declare = false;
+  try {
+    const old = await edit(id, { nth: 1, expect: "slow", text: "x" });
+    assert.equal(old.status, 409);
+    assert.equal(((await old.json()) as { error: string }).error, EDIT_NEEDS);
+    assert.deepEqual(gw.store.edited("alice", id), [], "nothing was kept about an edit that did not happen");
+  } finally {
+    editStub.declare = true;
+  }
+  assert.equal(editStub.calls.length, 0);
+});
+
+test("edit: a turn that cannot start puts the gateway's marks back and withdraws the rewind request", async (t) => {
+  const gw = await editGateway();
+  t.after(gw.close);
+  editStub.declare = true;
+  editStub.calls.length = 0;
+  const cookie = await cookieFor("alice", "wonderland");
+  const call = (path: string, init: RequestInit = {}) => api(cookie, `/alice${path}`, init, gw.origin);
+  const { id } = (await (await call("/api/sessions", { method: "POST" })).json()) as { id: string };
+  await turn(cookie, "alice", id, async () => assert.equal((await call(`/api/sessions/${id}/send`, { method: "POST", body: JSON.stringify({ text: "hello" }) })).status, 202), gw.origin);
+  await recordWhen<Edited>(cookie, "alice", id, (rec) => rec.turn === null, 5_000, gw.origin);
+  gw.store.setUsage("alice", id, { 1: { cost: 3 } });
+  gw.store.setStopped("alice", id, "2026-11-01T00:00:00.000Z");
+  const kept = gw.store.snapshot("alice", id);
+  // Another send lands between the checks and the start: the edit's own start is refused as busy.
+  const words = Array.from({ length: 40 }, (_, i) => `w${i}`).join(" ");
+  editStub.hook = async () => {
+    editStub.hook = undefined;
+    assert.equal((await call(`/api/sessions/${id}/send`, { method: "POST", body: JSON.stringify({ text: `slow: ${words}` }) })).status, 202);
+  };
+  const refused = await call(`/api/sessions/${id}/edit`, { method: "POST", body: JSON.stringify({ nth: 1, expect: "hello", text: "hi" }) });
+  assert.equal(refused.status, 409);
+  assert.equal(((await refused.json()) as { error: string }).error, EDIT_RUNNING);
+  assert.deepEqual(gw.store.snapshot("alice", id), kept, "usage, the Stop mark and no edit mark: as they were");
+  assert.deepEqual(editStub.calls.map((c) => [c.verb, c.args]), [["rewind-request", { session: id, at: 0, expect: editStub.calls[0].args.expect, input: textHash("hi") }], ["rewind-cancel", { session: id }]]);
+  await call(`/api/sessions/${id}/cancel`, { method: "POST" });
+  await recordWhen<Edited>(cookie, "alice", id, (rec) => rec.turn === null, 5_000, gw.origin);
+});
+
+test("store truncation: usage from the index on, resumed after it and edits from it go, the Stop clears, and the marks persist", () => {
+  const dir = mkdtempSync(join(tmpdir(), "thetis-web-edit-"));
+  try {
+    const s = new GatewayStore(dir);
+    s.setUsage("alice", "s_1", { 1: { cost: 1 }, 3: { cost: 2 }, 5: { cost: 3 } });
+    for (const index of [2, 3, 4]) s.addResumed("alice", "s_1", { index, why: "update", at: "x", turn: `t_${index}` });
+    s.truncate("alice", "s_1", 4);
+    s.setStopped("alice", "s_1", "2026-11-01T00:00:00.000Z");
+    s.truncate("alice", "s_1", 3);
+    assert.deepEqual(Object.keys(s.usage("alice", "s_1")), ["1"]);
+    assert.deepEqual(s.resumed("alice", "s_1").map((m) => m.index), [2, 3]);
+    assert.deepEqual(s.edited("alice", "s_1").map((m) => m.index), [3], "the edit at 4 was inside what the edit at 3 replaced");
+    assert.equal(s.stopped("alice", "s_1"), undefined);
+    s.truncate("alice", "s_1", 0);
+    assert.deepEqual(s.edited("alice", "s_1").map((m) => m.index), [0]);
+    s.truncate("alice", "s_1", 2);
+    assert.deepEqual(new GatewayStore(dir).edited("alice", "s_1").map((m) => m.index), [0, 2], "read back at the next start");
+    const kept = s.snapshot("alice", "s_1");
+    s.truncate("alice", "s_1", 0);
+    s.setTitle("alice", "s_1", "named meanwhile");
+    s.restore("alice", "s_1", kept);
+    assert.deepEqual(s.snapshot("alice", "s_1"), kept, "restore puts the entry back whole");
+    s.forget("alice", "s_1");
+    assert.deepEqual(s.edited("alice", "s_1"), []);
+    assert.deepEqual(s.snapshot("alice", "s_1"), {});
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+const REAL_HARNESS = JSON.parse(readFileSync(resolve(PROJECT, "packages/harness-core/package.json"), "utf8")) as { thetis?: { ui?: { commands?: { verb: string }[] } } };
+const REWINDS = Boolean(REAL_HARNESS.thetis?.ui?.commands?.some((c) => c.verb === "rewind-request"));
+
+test("edit with the real harness-core: the record is rewound and what was replaced is kept as an earlier version", { skip: REWINDS ? false : "this tree's harness-core declares no rewind-request" }, async (t) => {
+  // The commands write where the rewind step reads, the person's home, as a fence's env does; the shared
+  // fixture's env writes under the system directory, so this gateway gets one rooted in alice's home.
+  const own = envAt(kernel.userspaces.pathFor("alice").home);
+  const env = { ...envs.alice, readFile: own.readFile, writeFile: own.writeFile } as StepEnv;
+  const server = createGateway(clients.alice, new GatewayStore(join(home, "edit-real-store")), { assets: join(home, "assets"), env, user: "alice", base: "/alice", log: () => {} });
+  await listen(server, 0);
+  t.after(() => new Promise<void>((done) => server.close(() => done())));
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const cookie = await cookieFor("alice", "wonderland");
+  const call = (path: string, init: RequestInit = {}) => api(cookie, `/alice${path}`, init, origin);
+  const { id } = (await (await call("/api/sessions", { method: "POST" })).json()) as { id: string };
+  for (const text of ["one", "two", "three"]) await turn(cookie, "alice", id, async () => assert.equal((await call(`/api/sessions/${id}/send`, { method: "POST", body: JSON.stringify({ text }) })).status, 202), origin);
+  await turn(cookie, "alice", id, async () => {
+    const answer = await call(`/api/sessions/${id}/edit`, { method: "POST", body: JSON.stringify({ nth: 2, expect: "two", text: "TWO" }) });
+    assert.equal(answer.status, 202, await answer.clone().text());
+  }, origin);
+  const rec = await recordWhen<Edited>(cookie, "alice", id, (r) => r.turn === null && r.conversation.length === 4, 5_000, origin);
+  assert.match(contentText(rec.conversation[2].content), /^TWO/);
+  assert.deepEqual(rec.edited.map((mark) => mark.index), [2]);
+  const versions = await call("/api/ext/@thetis/harness-core/edit-versions", { method: "POST", body: JSON.stringify({ session: id, args: { session: id, at: 2 } }) });
+  assert.equal(versions.status, 200, await versions.clone().text());
+  const list = ((await versions.json()) as { data: { versions: { messages: { role: string; text: string }[] }[] } }).data.versions;
+  assert.equal(list.length, 1);
+  assert.deepEqual(list[0].messages.map((msg) => msg.role), ["user", "assistant", "user", "assistant"]);
+  assert.equal(list[0].messages[0].text, "two");
+});
+
+test("the gateway's copies of the edit hashes are harness-core's, byte for byte, the turn context line included", async () => {
+  const harness = (await import("@thetis/harness-core")) as Record<string, unknown>;
+  const theirs = { messageHash: harness.messageHash as ((m: Message) => string) | undefined, textHash: harness.textHash as ((t: string) => string) | undefined };
+  const sample = m({ role: "user", content: [{ type: "text", data: { text: "édit me\n\n[Turn context: Sunday 2026-11-01 14:03 UTC]" } }, { type: "asset", data: { id: "a_1", mediaType: "image/png" } }, { type: "text", data: { text: " and this" } }] });
+  assert.match(messageHash(sample), /^[0-9a-f]{64}$/);
+  assert.match(textHash("  words "), /^[0-9a-f]{64}$/);
+  if (!theirs.messageHash || !theirs.textHash) return; // an older harness-core in this tree: nothing to compare against
+  assert.equal(messageHash(sample), theirs.messageHash(sample));
+  assert.equal(messageHash(m({ role: "assistant", content: "plain" })), theirs.messageHash(m({ role: "assistant", content: [{ type: "text", data: { text: "plain" } }] })));
+  for (const t of ["", "  words ", "two\nlines\n", "ünï"]) assert.equal(textHash(t), theirs.textHash(t));
 });

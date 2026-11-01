@@ -1,5 +1,5 @@
-/* @thetis/projects: the switcher in the sidebar's head slot and the project page. Everything is scoped
- * under .pj-; the tokens, .input, .btn, .badge, .field, .section-head and .icon-btn come from the shell. */
+/* @thetis/projects: the switcher in the sidebar's head slot, the pill in the composer, and the project
+ * page. Everything is scoped under .pj-; the tokens, .input, .btn, .badge, .field, .section-head and .icon-btn come from the shell. */
 
 /* --- the switcher ------------------------------------------------------------ */
 
@@ -65,7 +65,49 @@
 .pj-item.is-selected .pj-item-label { color: var(--accent); font-weight: 600; }
 .pj-item-note { font-size: var(--text-xs); color: var(--text-faint); overflow-wrap: anywhere; }
 
+/* "n working" in a project you are not in: a dot on the head, and beside the project's name in the list */
+.pj-working-dot { flex: none; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--accent); vertical-align: middle; animation: pj-pulse 1.6s ease-in-out infinite; }
+.pj-head-btn .pj-working-dot { margin-right: 0; }
+.pj-working-dot[hidden] { display: none; }
+@keyframes pj-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .pj-working-dot { animation: none; } }
+
+/* --- the composer pill, the model picker's sibling ----------------------------- */
+
+.pj-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  padding: 4px 9px 4px 8px;
+  font: inherit;
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.pj-pill:hover:not(:disabled) { background: var(--surface-3); color: var(--text); border-color: var(--hairline-strong); }
+.pj-pill[aria-expanded="true"] { background: var(--surface-3); color: var(--text); border-color: var(--accent-edge); }
+.pj-pill[aria-expanded="true"] .pj-caret { transform: rotate(180deg); }
+.pj-pill:disabled { cursor: default; }
+.pj-pill:disabled .pj-caret { display: none; }
+.pj-pill-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); }
+.pj-dot.is-c0 { background: #5b9cf5; }
+.pj-dot.is-c1 { background: #4fbf8f; }
+.pj-dot.is-c2 { background: #e0a43c; }
+.pj-dot.is-c3 { background: #d9687a; }
+.pj-dot.is-c4 { background: #9b7ce8; }
+.pj-dot.is-c5 { background: #3fb6c9; }
+.pj-dot.is-c6 { background: #c98a5a; }
+.pj-dot.is-c7 { background: #b3c24a; }
+
 /* --- the page ---------------------------------------------------------------- */
+
+.pj-start-row { display: flex; }
 
 .pj-place { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--gap-4) var(--gap-5) var(--gap-6); }
 .pj-page { display: flex; flex-direction: column; gap: var(--gap-5); max-width: var(--measure); margin: 0 auto; }

@@ -1,7 +1,9 @@
 // The files of this package, all under `projects/` in the person's home, written only by its own
 // commands: `<id>.json` is a project's record, `<id>.md` its standing instructions (the PROJECT.md of the
 // design, kept flat beside the record so a remove is two unlinks), and `sessions.json` maps a session id
-// to the project it belongs to. Reads and writes go through the fence environment (`readFile`,
+// to the project it belongs to. A subagent is not in that map: `agents/<id>.json` holds the project it took
+// from the conversation that spawned it, `{"project":"p_…","parent":"s_…"}`, written once by the
+// `inherit` history step, so parallel children never race the map and the counts stay roots only. Reads and writes go through the fence environment (`readFile`,
 // `writeFile`, relative to the home), so a step and a command use the same door; only listing the
 // directory and deleting a file need the filesystem, against `env.cwd`. A missing file is an empty
 // value, never an error, because a person without projects is the normal case.
@@ -18,6 +20,7 @@ const SKILL_ID = /^[a-z0-9][a-z0-9-]{0,63}(\/[a-z0-9][a-z0-9-]{0,63}){0,2}$/;
 export const recordPath = (id) => `${DIR}/${id}.json`;
 export const instructionsPath = (id) => `${DIR}/${id}.md`;
 export const assignmentsPath = () => `${DIR}/sessions.json`;
+export const agentPath = (session) => `${DIR}/agents/${session}.json`;
 
 const ID = /^p_[0-9a-f]{8}$/;
 export const isProjectId = (id) => typeof id === "string" && ID.test(id);
@@ -121,11 +124,31 @@ export async function assignSession(env, session, project) {
   return map;
 }
 
-/** The project a session belongs to, or null. */
-export async function projectOfSession(env, session) {
+/** A session id as the kernel makes one, and nothing that could climb out of `agents/`. */
+const SESSION = /^[A-Za-z0-9_-]{1,128}$/;
+export const isSessionId = (id) => typeof id === "string" && SESSION.test(id);
+
+/** The agents file of a subagent, `{ project, parent }`, or null when there is none or it is malformed. */
+export async function readAgent(env, session) {
+  if (!isSessionId(session)) return null;
+  const record = await readJson(env, agentPath(session), null);
+  return record && typeof record === "object" && isProjectId(record.project) ? { project: record.project, parent: typeof record.parent === "string" ? record.parent : null } : null;
+}
+
+/**
+ * The project id of a session, by the one rule every reader shares: `map[id] ?? agents/<id>.json?.project
+ * ?? null`. `map` may be passed in when the caller has already read it.
+ */
+export async function projectIdOf(env, session, map) {
   if (typeof session !== "string" || !session) return null;
-  const map = await readAssignments(env);
-  return map[session] ? await readProject(env, map[session]) : null;
+  const assigned = (map ?? (await readAssignments(env)))[session];
+  return assigned ?? (await readAgent(env, session))?.project ?? null;
+}
+
+/** The project a session belongs to, or null; a subagent's through its agents file. */
+export async function projectOfSession(env, session) {
+  const id = await projectIdOf(env, session);
+  return id ? await readProject(env, id) : null;
 }
 
 // ---- validation ----

@@ -5,7 +5,8 @@
 //
 // On start a `running` record is one a stopped service left, and it goes back to `queued` to run again.
 // Before each reflection the daily cap is checked against `reflections/spend.json`; a reflection a person
-// asked for with Reflect is theirs and runs past it. A record that turns `cancelled`, or disappears, while
+// asked for with Reflect is theirs (`manual`) and runs past it. A cap skip says `skip: "cap"`, so the place
+// counts them without reading the reason. A record that turns `cancelled`, or disappears, while
 // its reflection runs stops it, and nothing it would have written is written.
 //
 // The same sweep follows the library: a `trialling` entry's trial is asked for its status through
@@ -19,7 +20,7 @@ import { readJson, remove, writeJson } from "./files.js";
 import { installedPackages, versionMap } from "./harness.js";
 import { recheckAdopted, sweepFindings } from "./library.js";
 import { reflect } from "./reflect.js";
-import { DIR, INSTALLED, NAME, addSpend, readRecord, readRecords, readSpend, settingsOf, writeRecord } from "./records.js";
+import { CAP_REASON, DIR, INSTALLED, NAME, addSpend, readRecord, readRecords, readSpend, settingsOf, writeRecord } from "./records.js";
 import { followTrials } from "./trials.js";
 
 export const SWEEP_MS = 30_000;
@@ -72,7 +73,7 @@ export function createService(env, opts = {}) {
     if (!record.manual) {
       const spend = await readSpend(home);
       if (spend.usd >= config.dailyCostUsd) {
-        await writeRecord(home, { ...record, state: "skipped", reason: "daily cost cap reached", detail: `${money(spend.usd)} spent today of the ${money(config.dailyCostUsd)} cap; press Reflect to run it anyway`, updatedAt: new Date().toISOString() });
+        await writeRecord(home, { ...record, state: "skipped", skip: "cap", reason: CAP_REASON, detail: `${money(spend.usd)} spent today of the ${money(config.dailyCostUsd)} cap; press Reflect to run it anyway`, updatedAt: new Date().toISOString() });
         log(`reflections: ${s} skipped, the daily cap is reached`);
         return;
       }
@@ -82,6 +83,7 @@ export function createService(env, opts = {}) {
     delete running.error;
     delete running.reason;
     delete running.detail;
+    delete running.skip;
     await writeRecord(home, running);
     const controller = new AbortController();
     current = { session: s, startedAt, controller };

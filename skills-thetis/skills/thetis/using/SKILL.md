@@ -129,7 +129,7 @@ Write a plan at the start of a task with more than one step. Mark an item `activ
 
 ## Ask the person
 
-`ask_user` takes `questions` (1 to 4 of `{ id?, question, options?, allow_multiple? }`) and `intro`. A question has at most 500 characters and 12 options of 120 characters. The tool records the questions and returns fixed text. Then end your reply with one short line that says you wait for the answers, and stop. The answers arrive as the next user message, one line per question.
+`ask_user` takes `questions` (1 to 4 of `{ id?, question, options?, allow_multiple? }`) and `intro`. A question has at most 500 characters and 12 options of 120 characters. `ask_user` ends your turn; put any context before the call and nothing after. Not available in subagents or workflow runs: decide there. The answers arrive as the next user message, one line per question.
 
 Use `ask_user` when a task is ambiguous and a guess would waste work. Decide the rest yourself.
 

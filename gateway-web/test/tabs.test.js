@@ -170,7 +170,7 @@ test("a package's tab: its pane is the package's, no conversation is on screen, 
   assert.match(f.text(), /live answer/);
 
   // `+` takes the canvas off screen too.
-  f.tabs.showNew();
+  f.tabs.openDraft();
   assert.equal(store.get("activeTab"), null);
   assert.deepEqual(calls.at(-1), ["deactivate", "c1"]);
 

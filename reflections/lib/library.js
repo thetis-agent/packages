@@ -1,24 +1,33 @@
 // The library: the changes reflections proposed (`reflections/library.json`) and the findings about
 // packages (`reflections/findings.json`). Nothing here reaches a conversation until a person adopts an
-// entry, and only after a trial ran its request with and without the change.
+// entry. A trial, which runs the request with and without the change, is optional: an entry is adopted
+// after one, or directly (`untried`). The person may edit an entry first, and update one whose file moved.
 //
 //   proposed → trialling → trialled → adopted | rejected;  adopted → retired;  trialled → trialling again
+//   proposed | trialled → adopted (untried from proposed);  an edit puts trialled back to proposed
 //
 // An entry names its component (Harness² `prompts.py:1136`): a skill, a project's instructions, a guide
 // note, or a package's config key. `owner` is the package whose component it changes, `versions` what that
 // package and the packages its rows name were at when it was proposed, and `before` what was there then,
-// so an adopt refuses to overwrite something that moved since, and a retire puts it back.
+// so an adopt over a file that moved since merges the change into it (`merge.js`) or refuses, and a retire
+// puts it back. A guide note and a config key are not checked: a note is appended unless it is there, and
+// the place shows a key's value now before it is set.
 //
-// The UI's ops call `listEntries`, `getEntry`, `rejectEntry`, `startTrial`, `adoptEntry`, `retireEntry`,
-// `listFindings` and `closeFinding`; each throws a sentence on misuse. The service calls the sweeps.
+// The UI's ops call `listEntries`, `getEntry`, `rejectEntry`, `startTrial`, `adoptEntry`, `editEntry`,
+// `rebaseEntry`, `retireEntry`, `listFindings`, `closeFinding` and `findingText`; each throws a sentence on
+// misuse. The service calls the sweeps.
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { loadSkills } from "@thetis/skills";
 import { list, readJson, readText, remove, writeJson, writeText } from "./files.js";
+import { readEvent } from "./events.js";
 import { firstModel, installedPackages, readStamps, versionMap } from "./harness.js";
-import { OPENING } from "./prompt.js";
-import { FINDINGS, LIBRARY, TURN_CONTEXT, hostTrialDir, isProjectId, isSessionId, projectOf, trialDir } from "./records.js";
+import { merge3 } from "./merge.js";
+import { OPENING, changeProblem, cleanChange } from "./prompt.js";
+import { FINDINGS, LIBRARY, TURN_CONTEXT, hostTrialDir, isProjectId, isSessionId, listProjects, projectOf, trialDir } from "./records.js";
+
+export { trialable } from "./events.js";
 
 export const ENTRY_STATES = Object.freeze(["proposed", "trialling", "trialled", "adopted", "rejected", "retired"]);
 export const FINDING_STATES = Object.freeze(["open", "possibly-fixed", "closed"]);
@@ -409,10 +418,40 @@ export function indexMarkdown(lib, store) {
 
 // ---- the UI's functions ----
 
-/** Every entry, the most recently changed first. */
-export async function listEntries(home) {
+const isFile = (e) => e?.kind === "skill" || e?.kind === "project-instructions";
+
+/**
+ * Whether an entry's file moved since the proposal: "fresh" (it did not, or the entry is not a file, or it
+ * is past deciding), "mergeable" (the change merges cleanly into today's file) or "conflict".
+ */
+export function staleness(entry, current) {
+  if (!isFile(entry) || !["proposed", "trialled"].includes(entry.state)) return "fresh";
+  // No file and an empty one are the same: an exporter wrote `before: ""` for a project with no instructions.
+  if ((current ?? "") === (entry.before ?? "")) return "fresh";
+  return merge3(entry.before ?? "", entry.change ?? "", current ?? "").ok ? "mergeable" : "conflict";
+}
+
+/** `entries` with `staleness`, and `current` for a file entry, read once for all of them. */
+async function withStaleness({ home, kernel }, entries) {
+  if (!entries.some((e) => isFile(e) && ["proposed", "trialled"].includes(e.state))) return entries.map((e) => ({ ...e, staleness: "fresh" }));
+  const packages = await installedPackages({ home, kernel });
+  const out = [];
+  for (const e of entries) {
+    if (!isFile(e) || !["proposed", "trialled"].includes(e.state)) {
+      out.push({ ...e, staleness: "fresh" });
+      continue;
+    }
+    const current = await currentOf({ home, kernel }, e, packages);
+    out.push({ ...e, staleness: staleness(e, current) });
+  }
+  return out;
+}
+
+/** Every entry, the most recently changed first; with `env` (`{ kernel }`), each with its `staleness`. */
+export async function listEntries(home, env) {
   const { entries } = await readLibrary(home);
-  return entries.sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")));
+  const sorted = entries.sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")));
+  return env?.kernel ? withStaleness({ home, kernel: env.kernel }, sorted) : sorted;
 }
 
 /** The files of one trial: the judgement and each run's trajectory as the service wrote them. */
@@ -426,14 +465,19 @@ export async function trialFilesOf(home, t) {
   return { trial: t, dir, judge: names.includes("judge.md") ? `${dir}/judge.md` : null, runs, status: `${hostTrialDir(t)}/trial.json` };
 }
 
-/** One entry, with `trialFiles`: one `{ trial, dir, judge, runs: [{ name, path }], status }` per trial, oldest first. */
-export async function getEntry(home, id) {
+/**
+ * One entry, with `trialFiles`: one `{ trial, dir, judge, runs: [{ name, path }], status }` per trial, oldest
+ * first. With `env` (`{ kernel }`) also `current`, what its component holds now, and `staleness`.
+ */
+export async function getEntry(home, id, env) {
   wantEntryId(id);
   const e = (await readLibrary(home)).entries.find((x) => x.id === id);
   if (!e) fail(`There is no proposal ${id}.`);
   const trialFiles = [];
   for (const t of e.trials ?? []) if (TRIAL_ID.test(t)) trialFiles.push(await trialFilesOf(home, t));
-  return { ...e, trialFiles };
+  if (!env?.kernel) return { ...e, trialFiles };
+  const current = await currentOf({ home, kernel: env.kernel }, e);
+  return { ...e, trialFiles, current, staleness: staleness(e, current) };
 }
 
 const stateRefusal = (e) =>
@@ -602,10 +646,10 @@ async function removeIfEmpty(home, dir) {
 
 const parentDir = (path) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
-/** Applies an entry's change to the real home or config. */
-async function apply({ home, kernel }, e, current) {
-  if (e.kind === "skill") return writeText(home, e.path, e.change);
-  if (e.kind === "project-instructions") return writeText(home, `projects/${e.target}.md`, e.change);
+/** Applies an entry's change to the real home or config; `text` is a file's whole new text (the change, or it merged). */
+async function apply({ home, kernel }, e, current, text = e.change) {
+  if (e.kind === "skill") return writeText(home, e.path, text);
+  if (e.kind === "project-instructions") return writeText(home, `projects/${e.target}.md`, text);
   if (e.kind === "guide-note") {
     const notes = JSON.parse(current ?? "[]");
     if (notes.includes(e.change)) return;
@@ -618,37 +662,103 @@ async function apply({ home, kernel }, e, current) {
   fail(`A proposal of kind ${JSON.stringify(e.kind)} cannot be adopted.`);
 }
 
+/** The sentence an adopt or an update refuses with when the file moved where the change is. */
+const conflictSentence = (e) => `${whereOf(e)} changed in the same place since; edit the proposal.`;
+
 /**
- * Adopts an entry: needs `trialled`, or `adopted` with a re-check. Refuses when what is there now is not what
- * the proposal saw: "<where> changed since the proposal; run the trial again".
+ * Adopts an entry: `trialled`, `proposed` with `untried` (recorded as `applied.untried`), or `adopted` with a
+ * re-check. A skill or instructions file that moved since the proposal gets the change merged in, or the
+ * adopt refuses: "<where> changed in the same place since; edit the proposal." A guide note is appended
+ * unless it is there; a config key is set whatever it is now (the place showed it).
  */
-export async function adoptEntry({ home, kernel }, id) {
+export async function adoptEntry({ home, kernel }, id, { untried = false } = {}) {
   wantEntryId(id);
   // Checked inside the queue, applied outside it (a config write or a file is slow), recorded inside again.
   const e = await updateEntry(home, id, (cur) => {
-    if (cur.state === "proposed") fail("Run a trial first.");
+    if (cur.state === "proposed" && untried !== true) fail("It has not been tried. Adopt it without a trial, or try it first.");
     if (cur.state === "adopted" && !cur.recheck) fail("It is already adopted.");
-    if (!["trialled", "adopted"].includes(cur.state)) fail(stateRefusal(cur) ?? `A proposal that is ${cur.state} cannot be adopted.`);
+    if (!["proposed", "trialled", "adopted"].includes(cur.state)) fail(stateRefusal(cur) ?? `A proposal that is ${cur.state} cannot be adopted.`);
     return undefined;
   });
   const packages = await installedPackages({ home, kernel });
-  const expected = e.applied ? e.applied.after : e.before;
   const current = await currentOf({ home, kernel }, e, packages);
-  if (current !== expected) fail(`${whereOf(e)} changed since the proposal; run the trial again.`);
-  await apply({ home, kernel }, e, current);
+  let text = e.change;
+  if (isFile(e)) {
+    const expected = e.applied ? e.applied.after : e.before;
+    if (current !== expected) {
+      const merged = merge3(expected ?? "", e.change ?? "", current ?? "");
+      if (!merged.ok) fail(conflictSentence(e));
+      text = merged.text;
+    }
+  }
+  await apply({ home, kernel }, e, current, text);
   const after = await currentOf({ home, kernel }, e, packages);
   const at = now();
   const today = versionMap(packages);
   return updateEntry(home, id, (cur) => {
-    if (cur.state !== e.state || (cur.trials ?? []).length !== (e.trials ?? []).length) fail(`It became ${cur.state} while it was being adopted; the change was written to ${whereOf(e)} all the same. Look at it again.`);
+    if (cur.state !== e.state || (cur.trials ?? []).length !== (e.trials ?? []).length || cur.change !== e.change) fail(`It became ${cur.state === e.state ? "edited" : cur.state} while it was being adopted; the change was written to ${whereOf(e)} all the same. Look at it again.`);
     return {
       ...cur,
       state: "adopted",
-      applied: cur.applied ? { ...cur.applied, after, at } : { before: current, after, at },
+      applied: cur.applied ? { ...cur.applied, after, at } : { before: current, after, at, ...(e.state === "proposed" ? { untried: true } : {}) },
       recheck: null,
       // The owner's version as adopted: a re-check compares against it.
       versions: cur.owner && today[cur.owner] ? { ...cur.versions, [cur.owner]: today[cur.owner] } : cur.versions,
     };
+  });
+}
+
+/** An entry that can be edited or updated: not yet adopted, and not past deciding. */
+function wantEditable(e) {
+  if (e.state === "adopted") fail("It is adopted; retire it before you change it.");
+  if (!["proposed", "trialled"].includes(e.state)) fail(stateRefusal(e) ?? `A proposal that is ${e.state} cannot be changed.`);
+}
+
+/** The verdict of a trial of the earlier text: it stands, marked as being about that text. */
+const staleVerdict = (v) => (v ? { verdict: { ...v, stale: true } } : {});
+
+/**
+ * Replaces an entry's change with the person's text, checked against the guard's limits (`prompt.js`).
+ * `before` becomes what is there now, so the text is the change from today; a trialled entry goes back to
+ * `proposed` and its verdict is kept, marked `stale`.
+ */
+export async function editEntry({ home, kernel }, id, change) {
+  wantEntryId(id);
+  if (typeof change !== "string") fail("change must be text: the new note, file or JSON value.");
+  const e = (await readLibrary(home)).entries.find((x) => x.id === id);
+  if (!e) fail(`There is no proposal ${id}.`);
+  wantEditable(e);
+  const packages = await installedPackages({ home, kernel });
+  const ctx = {
+    packages: new Map(packages.map((p) => [p.name, { version: p.version, config: p.thetis?.config ?? {} }])),
+    projects: new Set((await listProjects(home)).map((p) => p.id)),
+    skills: skillMap(skillsOf(home, packages)),
+  };
+  const why = changeProblem(e.kind, e.target, change, ctx);
+  if (why) fail(`That does not hold: ${why}.`);
+  const text = cleanChange(e.kind, change);
+  const current = await currentOf({ home, kernel }, e, packages);
+  return updateEntry(home, id, (cur) => {
+    if (cur.state !== e.state || cur.change !== e.change) fail("It changed while you were editing it; look at it again.");
+    if (text === cur.change && current === cur.before) return undefined;
+    return { ...cur, change: text, before: current, edited: { at: now() }, state: cur.state === "trialled" ? "proposed" : cur.state, ...staleVerdict(cur.verdict) };
+  });
+}
+
+/** Updates an out-of-date file entry: its change merged into today's file becomes the change, and today's file `before`. */
+export async function rebaseEntry({ home, kernel }, id) {
+  wantEntryId(id);
+  const e = (await readLibrary(home)).entries.find((x) => x.id === id);
+  if (!e) fail(`There is no proposal ${id}.`);
+  wantEditable(e);
+  if (!isFile(e)) fail("Only a skill or project instructions can be out of date.");
+  const current = await currentOf({ home, kernel }, e);
+  if (current === e.before) fail(`It is up to date: ${whereOf(e)} is as the proposal saw it.`);
+  const merged = merge3(e.before ?? "", e.change ?? "", current ?? "");
+  if (!merged.ok) fail(conflictSentence(e));
+  return updateEntry(home, id, (cur) => {
+    if (cur.state !== e.state || cur.change !== e.change || cur.before !== e.before) fail("It changed while it was being updated; look at it again.");
+    return { ...cur, change: merged.text, before: current, rebasedAt: now(), ...staleVerdict(cur.verdict) };
   });
 }
 
@@ -694,6 +804,70 @@ export async function listFindings(home) {
   const { findings } = await readFindings(home);
   const last = (f) => f.seen.reduce((m, s) => (String(s.at) > m ? String(s.at) : m), "");
   return findings.sort((a, b) => a.package.localeCompare(b.package) || last(b).localeCompare(last(a)));
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "30 Oct", in UTC; with `year`, "30 Oct 2026". */
+export function shortDate(iso, { year = false } = {}) {
+  const d = new Date(iso ?? "");
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}${year ? ` ${d.getUTCFullYear()}` : ""}`;
+}
+
+/** A fence for `text` in Markdown: longer than any run of backticks in it. */
+const fence = (text) => "`".repeat(Math.max(3, ...[...String(text).matchAll(/`+/g)].map((m) => m[0].length + 1)));
+
+/** How many cited events an issue carries in all; past it the rest are counted, not copied. */
+const ISSUE_EVENTS = 40;
+
+/**
+ * What Fix this and Copy hand the person for a finding: `{ prompt, issue, project }`. `prompt` is a new
+ * conversation's first message; `issue` the same facts as a Markdown issue, with each sighting's cited
+ * events; `project` where it was seen most (the mode of the sightings' projects, ties to the latest
+ * sighting), or null.
+ */
+export async function findingText(home, id) {
+  if (typeof id !== "string" || !FINDING_ID.test(id)) fail("id is required: the finding's id, such as F-1a2b3c.");
+  const f = (await readFindings(home)).findings.find((x) => x.id === id);
+  if (!f) fail(`There is no finding ${id}.`);
+  const seen = [...f.seen].sort((a, b) => String(a.at ?? "").localeCompare(String(b.at ?? "")));
+  const last = seen.at(-1) ?? null;
+  const counts = new Map();
+  const latest = new Map();
+  for (const [i, x] of seen.entries()) {
+    const p = isSessionId(x.session) ? await projectOf(home, x.session) : null;
+    counts.set(p, (counts.get(p) ?? 0) + 1);
+    latest.set(p, i);
+  }
+  let project = null;
+  let best = -1;
+  for (const [p, n] of counts) if (n > best || (n === best && latest.get(p) > latest.get(project))) [project, best] = [p, n];
+  const where = `${f.package}${f.component ? ` (${f.component})` : ""}`;
+  const times = seen.length === 1 ? "once" : `${seen.length} times`;
+  const lastAt = shortDate(last?.at);
+  const lastLine = `Seen ${times}${lastAt ? `, last on ${lastAt}` : ""}${last?.title ? ` in "${last.title}"` : ""}.`;
+  const prompt = `Fix a problem Reflections found in ${where}:\n\n${f.what}\n\n${lastLine} Reproduce it first, then fix it, and show me the test that proves the fix.`;
+  const version = seen.reduce((h, s) => (s.version && (!h || compareVersions(s.version, h) > 0) ? s.version : h), null);
+  const first = String(f.what ?? "").split(/(?<=\.)\s/)[0];
+  const out = [`# ${f.package}: ${first.length > 100 ? `${first.slice(0, 99)}…` : first}`, "", `- Package: \`${f.package}${version ? `@${version}` : ""}\``, `- Component: \`${f.component ?? "unknown"}\``, "", f.what, "", `## Seen ${times}`];
+  let budget = ISSUE_EVENTS;
+  for (const x of [...seen].reverse()) {
+    out.push("", `### ${shortDate(x.at, { year: true }) ?? "Undated"}${x.title ? ` · "${x.title}"` : ""}${x.version ? ` · ${f.package}@${x.version}` : ""}`);
+    const events = [...new Set((x.events ?? []).filter((n) => Number.isInteger(n) && n > 0))];
+    const missing = [];
+    for (const n of events) {
+      const ev = budget > 0 ? await readEvent(home, x.session, n) : null;
+      if (!ev) {
+        missing.push(n);
+        continue;
+      }
+      budget--;
+      const fenceOf = fence(ev.text);
+      out.push("", `[${n}] ${ev.kind}`, fenceOf, ev.text, fenceOf);
+    }
+    if (missing.length) out.push("", `Cited, not copied here: ${missing.map((n) => `[${n}]`).join(", ")}.`);
+  }
+  return { prompt, issue: `${out.join("\n")}\n`, project };
 }
 
 export async function closeFinding(home, id) {

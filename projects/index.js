@@ -12,15 +12,17 @@
 // runtime directories, the host user's dot-files, the system trees); an admin may bind anything. They act
 // on the person's own fence alone: the user id comes from `env.user`, never from the page.
 import { currentMounts, mountModeOf, stateOf } from "./lib/mounts.js";
-import { assignSession, isProjectId, listProjects, projectOfSession, readAssignments, readInstructions, readProject, removeProject, saveProject, validateProject } from "./lib/store.js";
+import { assignSession, isProjectId, listProjects, projectIdOf, projectOfSession, readAssignments, readInstructions, readProject, removeProject, saveProject, validateProject } from "./lib/store.js";
 
-export { projectPrompt, projectTools } from "./lib/steps.js";
+export { inheritProject, projectPrompt, projectTools } from "./lib/steps.js";
 export { forgetSession } from "./lib/forget.js";
 
 const fail = (message) => {
   throw new Error(message);
 };
 
+// The counts read the assignments map alone, which holds root conversations only: a subagent's project is in
+// `agents/<id>.json`, so a conversation that spawns five agents still counts once.
 const summary = (project, assignments) => ({
   id: project.id,
   name: project.name,
@@ -31,7 +33,7 @@ const summary = (project, assignments) => ({
 /** list: every project with counts, the whole assignments map, and the project of the open conversation. */
 export async function uiList(_args, env) {
   const [projects, assignments] = await Promise.all([listProjects(env), readAssignments(env)]);
-  const current = env.session ? (assignments[env.session] ?? null) : null;
+  const current = env.session ? await projectIdOf(env, env.session, assignments) : null;
   return { data: { projects: projects.map((p) => summary(p, assignments)), assignments, current: current && projects.some((p) => p.id === current) ? current : null } };
 }
 
@@ -189,5 +191,5 @@ export async function uiMount(args, env) {
   return { data: { mounts: list, mount: list.find((m) => m.path === path) ?? null } };
 }
 
-/** The project of a session, for other packages that import this one. */
-export { projectOfSession };
+/** The project of a session (and its id, by the shared rule), for other packages that import this one. */
+export { projectIdOf, projectOfSession };

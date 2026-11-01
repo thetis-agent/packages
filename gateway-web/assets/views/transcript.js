@@ -31,7 +31,13 @@ import { contentText, hasMedia, renderContent } from "../lib/content.js";
  * the row settles into "Reconnected after N retries" or becomes the failure row. A turn that resumed an
  * interrupted one draws a thin divider ("Resumed after an update"), kept by the gateway so a reopened
  * transcript draws it too. A reply that was cut off is drawn dimmed with "cut off"; a tool call whose
- * arguments are still streaming shows as "writing <tool>… 31k chars" until the call itself arrives. */
+ * arguments are still streaming shows as "writing <tool>… 31k chars" until the call itself arrives.
+ *
+ * Each of the person's rows carries `data-user="<n>"`, counted the way the gateway counts their messages, so
+ * an edit can name the one it changes. Edit (views/edit.js) is offered in a conversation's own pane while
+ * nothing works there: Send takes that row and everything after it off the page, draws the new words
+ * pending and asks `POST /api/sessions/<id>/edit`; a refusal puts the rows back. An edited row says
+ * "Edited", which unfolds what the edit replaced, read from harness-core. */
 
 import { applyActivityPhase, fmtCost, fmtDuration, fmtTokens } from "../lib/activity.js";
 import { api } from "../lib/api.js";
@@ -42,6 +48,7 @@ import { failureSentence, failureShort, fmtChars, isPause, reasonOf, resumedSent
 import { gist, usageLine } from "../lib/transcript-format.js";
 import { renderMarkdown } from "../lib/markdown.js";
 import { hasRenderers, renderTranscript } from "../lib/registry.js";
+import { mountEditor, versionsBlock } from "./edit.js";
 import { store } from "../lib/store.js";
 import { toast } from "../lib/toast.js";
 
@@ -65,6 +72,8 @@ const NUDGE_CANCELLED = /^error: `[^`]+` was cancelled after running for /;
 const HARNESS = "@thetis/harness-core";
 /** The harness-core UI command that ends a retry's wait at once. */
 const RETRY_NOW = "api/ext/@thetis/harness-core/retry-now";
+/** The harness-core UI command that reads what the edits of one message replaced. */
+const EDIT_VERSIONS = "api/ext/@thetis/harness-core/edit-versions";
 
 /** The harness's mark on a saved message; a record written before the marks existed has none. */
 export function markOf(message, key) {
@@ -213,6 +222,11 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   const byAgent = new Map();    // child id -> block
   const byCall = new Map();     // spawn call id -> block
   let jump = null;
+  const editable = !nested && !brief; // a subagent's messages are its parent's to change, not the person's
+  let users = 0;                // the person's rows drawn, numbered from 1 into `data-user`
+  let edits = new Set();        // the conversation indexes the record says were edited
+  let turnLive = false;         // a turn of this conversation is drawing here
+  const sent = new WeakMap();   // a person's row -> { content, at }: what it said, and its index when known
 
   if (!nested) {
     jump = el("button", { type: "button", class: "jump-latest", title: "Jump to the latest message", onClick: () => { follow = true; settle(); } }, icon(DOWN, { size: 14, width: 2 }), "Latest");
@@ -288,6 +302,9 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     ended.length = 0;
     tries = 0;
     reconnected = null;
+    users = 0;
+    edits = new Set();
+    turnLive = false;
     draw();
   }
 
@@ -307,7 +324,8 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     return place(el("div", { class: `msg is-${kind}` }, face(kind), children));
   }
 
-  function userRow(text) {
+  /** `at` is the message's index in the conversation, when the row is drawn from the record. */
+  function userRow(text, at) {
     // Whatever was asked has now been replied to, one way or another — live or on replay.
     const hooks = answered;
     answered = [];
@@ -316,8 +334,123 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     // The harness ends each input with a [Turn context: ...] line for the model; the person did not type it.
     const node = row("user", el("div", { class: "msg-text" }, ...renderContent(text, { markdown: false, strip: TURN_CONTEXT })));
     if (brief) node.classList.add("is-brief");
+    node.setAttribute("data-user", String(++users));
+    sent.set(node, { content: text, at });
+    if (editable) node.append(el("span", { class: "msg-marks" }, el("button", { type: "button", class: "msg-edit", title: "Edit this message", onClick: () => startEdit(node) }, "Edit")));
+    if (at !== undefined && edits.has(at)) markEdited(node, at);
     decorated(node, "user");
     return node;
+  }
+
+  // ---- editing the person's own message ----
+
+  /** True while this conversation, or a subagent of it, works, or a send to it is on its way: nothing may be edited then. */
+  function busy() {
+    if (turnLive || store.isRunning(session) || store.isPending(session)) return true;
+    for (const id of store.get("running") ?? []) if (id !== session && store.rootOf(id) === session) return true;
+    return false;
+  }
+
+  function syncBusy() {
+    if (editable) root.classList.toggle("is-busy", busy());
+  }
+
+  /** The row says it was edited, and "Edited" unfolds what the edits of message `at` replaced. */
+  function markEdited(node, at) {
+    node.classList.add("msg-edited");
+    const meta = sent.get(node);
+    if (meta) meta.at = at;
+    let marks = node.querySelector(":scope > .msg-marks");
+    if (!marks) node.append((marks = el("span", { class: "msg-marks" })));
+    if (marks.querySelector(":scope > .edited-label")) return;
+    const label = el("button", { type: "button", class: "edited-label", title: "Show what this edit replaced", "aria-expanded": "false" }, "Edited");
+    label.addEventListener("click", () => void toggleVersions(node, label, at));
+    marks.append(label);
+  }
+
+  async function toggleVersions(node, label, at) {
+    const shown = node.querySelector(":scope > .edit-versions");
+    if (shown) {
+      shown.remove();
+      label.setAttribute("aria-expanded", "false");
+      return;
+    }
+    label.disabled = true;
+    try {
+      const out = await api(`/${EDIT_VERSIONS}`, { method: "POST", body: { session, args: { session, at } } });
+      const versions = out?.data?.versions ?? out?.versions ?? [];
+      if (!versions.length) return void toast("Nothing was kept of what this edit replaced.");
+      node.append(versionsBlock(versions));
+      label.setAttribute("aria-expanded", "true");
+    } catch (err) {
+      toast(err.status === 404 ? "Earlier versions need @thetis/harness-core 0.9.0 or later." : err.message, { tone: "error" });
+    } finally {
+      label.disabled = false;
+    }
+  }
+
+  /** Opens the editor on a row. `typed` is what a refused edit said, given back; the refusal has already been shown. */
+  function startEdit(node, typed) {
+    if (node.classList.contains("is-editing")) return;
+    if (typed === undefined && busy()) return void toast("Wait for the reply to finish, or stop it.", { tone: "error" });
+    const { content } = sent.get(node) ?? {};
+    const before = contentText(content).replace(TURN_CONTEXT, "");
+    const attachments = Array.isArray(content) ? content.filter((part) => part?.type !== "text" || typeof part.data?.text !== "string") : [];
+    mountEditor(node, { text: typed ?? before, attachments, onSend: (text) => void sendEdit(node, before, attachments, text) });
+  }
+
+  /**
+   * Sends an edit: the row and what follows it leave the page first, so the new words are already the
+   * pending row when the turn's first event arrives, whichever of it and the answer comes first. A refusal
+   * puts the rows back as they were, with the editor open on what was typed.
+   */
+  async function sendEdit(node, before, attachments, text) {
+    const nth = Number(node.getAttribute("data-user"));
+    const counted = users;
+    const removed = truncateFrom(nth);
+    const words = text.trim();
+    addLocal(attachments.length ? [...(words ? [{ type: "text", data: { text: words } }] : []), ...attachments] : words);
+    const local = pendingRow;
+    store.mark("pending", session, true);
+    syncBusy();
+    try {
+      const out = await api(`/api/sessions/${session}/edit`, { method: "POST", body: { nth, expect: before.slice(0, 200), text } });
+      if (local && Number.isInteger(out?.at)) markEdited(local, out.at);
+    } catch (err) {
+      if (pendingRow === local) pendingRow = null;
+      local?.remove();
+      for (const r of removed) root.append(r);
+      users = counted;
+      toast(err.message, { tone: "error" });
+      startEdit(node, text);
+    } finally {
+      store.mark("pending", session, false);
+      syncBusy();
+    }
+  }
+
+  /**
+   * Takes the person's `n`th row and everything after it off the page and answers what it took, in order.
+   * What was being drawn there is let go of; the next row the person adds is the `n`th again.
+   */
+  function truncateFrom(n) {
+    const rows = [...root.children];
+    const from = rows.findIndex((r) => r.getAttribute?.("data-user") === String(n));
+    if (from < 0) return [];
+    const removed = rows.slice(from);
+    for (const r of removed) r.remove();
+    clearRetry();
+    clearWriting();
+    live = null;
+    rich = null;
+    thinking = null;
+    thought = null;
+    settled = null;
+    run = null;
+    pendingRow = null;
+    users = n - 1;
+    draw();
+    return removed;
   }
 
   function note(text, tone) {
@@ -1208,8 +1341,8 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   }
 
   /** A saved message from the session record. `usage` is what the gateway recorded for it, if anything. */
-  function drawMessage(message, usage) {
-    if (message.role === "user") return userRow(message.content);
+  function drawMessage(message, usage, index) {
+    if (message.role === "user") return userRow(message.content, index);
     if (message.role === "assistant") {
       assistantRow(message.content || "", usage, undefined, { partial: markOf(message, "partial") });
       for (const call of message.toolCalls ?? []) {
@@ -1248,6 +1381,8 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
         else if (messages?.length) { for (const message of messages) drawMessage(message); }
         else if (input) userRow(input);
         if (event.resumed) divider(event.resumed.why === "yield" && event.resumed.for ? event.resumed.for : event.resumed.why);
+        turnLive = true;
+        syncBusy();
         break;
       }
       case "text": {
@@ -1348,6 +1483,8 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
         failLocal();
         if (retry) recovered();
         run = null;
+        turnLive = false;
+        syncBusy();
         break;
       case "extension":
         // The shell's own two: a round being retried, and a tool call whose arguments are still arriving.
@@ -1366,6 +1503,7 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
   function restore(record) {
     reset();
     restoring = true;
+    edits = new Set((record.edited ?? []).map((mark) => Number(mark.index)));
     childRecords = new Map((record.children ?? []).map((c) => [c.id, c]));
     if (childRecords.size) store.setAgents(agentsOfRecord(record));
     // A marker is offered before each saved message and once after the last, so a package can draw
@@ -1390,7 +1528,7 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     conversation.forEach((message, index) => {
       marker(index);
       if (resuming && index === conversation.length - 1 && message.role === "assistant" && markOf(message, "partial")) return;
-      drawMessage(message, record.usage?.[index]);
+      drawMessage(message, record.usage?.[index], index);
     });
     marker(conversation.length);
     settleTools("no result");
@@ -1417,6 +1555,8 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
       for (const { event } of record.turn.events ?? []) applyEvent(event);
     }
     bindRunningChildren();
+    turnLive = Boolean(record.turn);
+    syncBusy();
     if (!root.childElementCount) showEmpty();
     restoring = false;
     follow = true;
@@ -1428,8 +1568,18 @@ export function mountTranscript(root, { session, nested = false, brief = false, 
     settle();
   }
 
+  if (editable) {
+    // Whether Edit is offered follows the conversation's running and pending marks, its subagents' included.
+    // A closed pane's root has left the page: its watch goes with the next notice. A hover checks again.
+    const off = store.watchSession((id) => {
+      if (root.isConnected === false) return void off();
+      if (id === session) syncBusy();
+    });
+    root.addEventListener("pointerover", syncBusy, { passive: true });
+  }
+
   showEmpty();
-  return { reset, showEmpty, restore, applyEvent, applyChild, revealAgent, addLocal, settleLocal, failLocal, shown, get session() { return session; }, set session(id) { session = id; } };
+  return { reset, showEmpty, restore, applyEvent, applyChild, revealAgent, addLocal, settleLocal, failLocal, truncateFrom, shown, get session() { return session; }, set session(id) { session = id; } };
 }
 
 function cssEscape(value) {

@@ -273,7 +273,7 @@ test("+ creates nothing until the first message, and a hash change switches to a
   await withPage(browser, "new-and-hash", { existing: true, others }, async (f) => {
     await f.page.getByText("Earlier reply", { exact: true }).last().waitFor();
     await f.page.locator("#new-tab").click();
-    await f.page.locator(".pane.is-empty.is-active .transcript-empty.is-new").waitFor();
+    await f.page.locator(".pane.is-draft.is-active .transcript-empty.is-new").waitFor();
     assert.equal(f.creates(), false, "a + is not a conversation yet");
     assert.equal(await f.page.evaluate(() => window.reviewStore.get("current")), null);
     await f.page.evaluate(() => { location.hash = "#s_bbbb"; });
@@ -318,7 +318,7 @@ test("the model picker: a + draft starts on your default, can pick a model, and 
   await withPage(browser, "model-picker", { existing: true, models: MODELS }, async (f) => {
     await f.page.getByText("Earlier reply", { exact: true }).last().waitFor();
     await f.page.locator("#new-tab").click();
-    const empty = f.page.locator(".pane.is-empty.is-active .transcript-empty.is-new");
+    const empty = f.page.locator(".pane.is-draft.is-active .transcript-empty.is-new");
     await empty.waitFor();
     assert.match(await empty.locator(".empty-lead").innerText(), /Thetis works in your own space/);
     assert.equal(await empty.locator(".empty-example").count(), 3);

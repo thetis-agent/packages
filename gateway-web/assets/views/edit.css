@@ -1,0 +1,55 @@
+/* Editing a sent message (views/edit.js): the quiet Edit under the bubble, the editor in its place, the
+ * "Edited" label and the earlier versions it unfolds. */
+
+.msg-edit, .edited-label {
+  padding: 1px 6px;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.msg-edit { opacity: 0; transition: opacity var(--fast) var(--ease); }
+.msg.is-user:hover .msg-edit, .msg-edit:focus-visible { opacity: 1; }
+.msg-edit:hover, .edited-label:hover { color: var(--text); border-color: var(--hairline); }
+@media (hover: none) { .msg-edit { opacity: .5; } }
+/* Not offered while the conversation or one of its subagents works, or a send is on its way. */
+.transcript.is-busy .msg-edit, .msg.is-pending .msg-edit, .msg.is-failed .msg-edit { display: none; }
+
+.msg-marks { display: flex; gap: 2px; }
+.msg.is-editing > .msg-text, .msg.is-editing > .msg-marks, .msg.is-editing > .edit-versions { display: none; }
+.edit-box { width: 85%; display: flex; flex-direction: column; gap: var(--gap-2); }
+.edit-input {
+  width: 100%;
+  resize: vertical;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--accent-edge);
+  border-radius: var(--r-lg);
+  outline: none;
+  white-space: pre-wrap;
+}
+.edit-attachments { display: flex; flex-wrap: wrap; gap: var(--gap-1); }
+.edit-chip { padding: 2px 8px; font-size: var(--text-xs); color: var(--text-dim); border: 1px solid var(--hairline); border-radius: var(--r-pill); }
+.edit-note { font-size: var(--text-xs); color: var(--text-faint); }
+.edit-actions { display: flex; justify-content: flex-end; gap: var(--gap-2); }
+
+.edit-versions {
+  width: 85%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-2);
+  padding: var(--gap-2) var(--gap-3);
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--r-md);
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+.edit-versions-head, .edit-version-when { font-size: var(--text-xs); color: var(--text-faint); }
+.edit-version { display: flex; flex-direction: column; gap: var(--gap-1); }
+.edit-version + .edit-version { padding-top: var(--gap-2); border-top: 1px solid var(--hairline); }
+.edit-version-msg { white-space: pre-wrap; overflow-wrap: anywhere; }
+.edit-version-msg.is-user { color: var(--text); }
+.edit-version-work { font-size: var(--text-xs); color: var(--text-faint); }
+.edit-version-actions { display: flex; justify-content: flex-end; }

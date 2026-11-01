@@ -1,8 +1,9 @@
 // The projection: what the provider is sent instead of the record. The record's `conversation` is never
 // edited -- every consumer keys on its indices -- so compaction is a view over it: one note standing for the
 // summarized prefix, then the tail exactly as it is.
+import { createHash } from "node:crypto";
 import type { Message } from "@thetis/runtime/contracts";
-import { textContent } from "@thetis/runtime/lib/content";
+import { contentText, textContent } from "@thetis/runtime/lib/content";
 import type { CompactionState } from "./schemas.js";
 
 /**
@@ -31,3 +32,6 @@ export function projectedIndex(state: Pick<CompactionState, "cut" | "summary">, 
   if (state.cut > 0 && state.summary) return 1 + (cut - state.cut);
   return cut;
 }
+
+/** A message's identity as harness-core's rewind hashes it; a copy of its one-liner, not an import. */
+export const messageHash = (m: Message): string => createHash("sha256").update(m.role + "\n" + contentText(m.content)).digest("hex");

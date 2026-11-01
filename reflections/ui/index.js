@@ -5,7 +5,7 @@
  * opens the place at that conversation. Nothing runs at import. */
 
 import { openPlace } from "./place.js";
-import { chipVisible, describe } from "./state.js";
+import { chipVisible, describe, isCapSkip } from "./state.js";
 
 const POLL_MS = 4000;
 const CACHE_MAX = 32;
@@ -76,7 +76,8 @@ export default function install(ext) {
       for (const tone of ["ok", "err", "accent", "dim"]) button.classList.toggle(`is-${tone}`, d.tone === tone);
       button.classList.toggle("is-busy", Boolean(d.busy));
       button.textContent = d.label;
-      button.title = "What reflecting on this conversation found. Open Reflections.";
+      // A cap skip reads "Not reflected: daily limit" (state.js); its title says what to do about it.
+      button.title = isCapSkip(view.record) ? "The daily limit for automatic reflections was reached. Open Reflections to reflect it." : "What reflecting on this conversation found. Open Reflections.";
     },
     open({ session } = {}) {
       ext.open.place("reflections", { session: session ?? ext.conversation.current });

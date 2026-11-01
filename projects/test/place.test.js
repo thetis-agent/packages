@@ -1,6 +1,6 @@
-// The Project place over a fake seam: with no project chosen and none asked for, it offers the list and
-// New project, and asks the server for nothing until one is picked; with a project chosen in the sidebar,
-// or asked for, or "new", it opens the page for it.
+// The Project place over a fake seam: in no project and with none asked for, it offers the list and New
+// project, and asks the server for nothing until one is picked; in a project, or with one asked for, or
+// "new", it opens the page for it. A project's page starts with New conversation.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { openPlace } from "../ui/place.js";
@@ -28,21 +28,23 @@ const find = (n, cls, out = []) => {
   return out;
 };
 
-function fakeExt() {
+function fakeExt({ answer } = {}) {
   const requests = [];
   const ext = {
-    dom: { el, clear },
+    dom: { el, clear, icon: () => node("svg") },
+    can: () => false,
     ui: {
       button: (label, opts) => el("button", { class: `btn${opts?.tone ? ` is-${opts.tone}` : ""}` }, label),
       field: (label, input) => el("label", {}, label, input),
       section: (label) => el("div", { class: "section-head" }, label),
       confirm: async () => false,
+      badge: (label) => el("span", { class: "badge" }, label),
     },
     conversation: { current: null },
     toast: () => {},
     request: (verb, opts) => {
       requests.push({ verb, ...opts });
-      return new Promise(() => {}); // the page's own answer is not what these tests are about
+      return answer ? Promise.resolve(answer(verb, opts)) : new Promise(() => {}); // most tests are not about the answer
     },
   };
   return { ext, requests };
@@ -53,7 +55,7 @@ function fakeState({ chosen = null } = {}) {
   return {
     chosen,
     projects: [{ id: "p_1", name: "Nova", directories: ["/srv/nova"], conversations: 2 }],
-    choose(id) {
+    enter(id) {
       this.chosen = id;
     },
     refresh: async () => {},
@@ -81,7 +83,7 @@ test("with no project chosen, the place says pick or create, lists the projects,
   assert.equal(state.watchers.size, 0);
 });
 
-test("picking a project from the list chooses it and opens its page", () => {
+test("picking a project from the list enters it and opens its page", () => {
   const { ext, requests } = fakeExt();
   const state = fakeState();
   const root = node("div");
@@ -112,5 +114,35 @@ test("the project chosen in the sidebar opens directly; { new: true } opens the 
     openPlace(ext, state, root, params);
     assert.deepEqual(requests.map((r) => [r.verb, r.args]), [["get", args]], JSON.stringify(params));
     assert.doesNotMatch(text(root), /Pick a project/);
+  }
+});
+
+const GOT = (project) => ({ data: { project, directories: [], states: {}, instructions: "", conversations: 0, mounts: [], tools: [], skills: [], user: "alice" } });
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+test("a project's page starts with New conversation, which opens the draft in that project", async () => {
+  const { ext } = fakeExt({ answer: () => GOT({ id: "p_1", name: "Nova", directories: [], tools: { disable: [] }, skills: { disable: [] } }) });
+  const started = [];
+  ext.conversation.start = (opts) => started.push(opts);
+  const root = node("div");
+  openPlace(ext, fakeState(), root, { id: "p_1" });
+  await settle();
+  const [start] = find(root, "pj-start");
+  assert.equal(text(start), "New conversation");
+  assert.match(start.props.class, /is-primary/);
+  start.props.onClick();
+  assert.deepEqual(started, [{ space: "p_1" }]);
+  assert.match(text(root), /No conversations yet\./);
+});
+
+test("no New conversation on the new-project form, nor on a gateway without conversation.start", async () => {
+  for (const [params, withStart] of [[{ new: true }, true], [{ id: "p_1" }, false]]) {
+    const { ext } = fakeExt({ answer: () => GOT(params.id ? { id: "p_1", name: "Nova" } : null) });
+    if (withStart) ext.conversation.start = () => {};
+    const root = node("div");
+    openPlace(ext, fakeState(), root, params);
+    await settle();
+    assert.equal(find(root, "pj-start").length, 0, JSON.stringify(params));
+    assert.match(text(root), /No conversations yet\./);
   }
 });

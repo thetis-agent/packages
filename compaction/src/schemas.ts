@@ -7,7 +7,8 @@ import type { HarnessState, Message, ProviderCall, TurnEvent } from "@thetis/run
 /** The harness key, the extension event name and the hint export: one string for all three. */
 export const NAME = "@thetis/compaction";
 
-export const TriggerSchema = z.enum(["auto", "manual"]);
+/** `edit`: a reset because the person edited a message inside the summarized part (harness-core's rewind). */
+export const TriggerSchema = z.enum(["auto", "manual", "edit"]);
 export type Trigger = z.infer<typeof TriggerSchema>;
 
 const CompactionSchema = z.looseObject({
@@ -58,6 +59,12 @@ export const CompactionStateSchema = z.looseObject({
    * would do for compactions, but a reset has no `last` of its own and changes the projection just as much.
    */
   projectedAt: z.string().optional(),
+  /**
+   * `messageHash(conversation[cut - 1])`, written at each compaction. A rewind (an edited message) can replace
+   * the summarized part under the state; a mismatch here, or a cut past the end, says the summary no longer
+   * describes the record. A state from before 0.3.1 has none and is checked by the cut alone.
+   */
+  anchor: z.string().optional(),
   ledger: z.array(LedgerRowSchema),
 });
 export type CompactionState = z.infer<typeof CompactionStateSchema>;

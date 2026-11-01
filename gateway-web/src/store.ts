@@ -12,6 +12,8 @@ import { parseSchema } from "@thetis/runtime/lib/validation";
 const SessionUsageSchema = z.record(z.string(), z.record(z.string(), z.union([z.number(), z.string()])));
 /** A turn that resumed an interrupted one: where it began in the conversation, why the first one stopped, which turn it was. */
 const ResumedSchema = z.looseObject({ index: z.number().int().nonnegative(), why: z.string(), at: z.string(), turn: z.string().optional() });
+/** A message a person edited: its index in the conversation and when. What it replaced is harness-core's to keep. */
+const EditedSchema = z.looseObject({ index: z.number().int().nonnegative(), at: z.string() });
 const EntrySchema = z.looseObject({
   title: z.string().optional(),
   model: z.string().optional(),
@@ -21,6 +23,7 @@ const EntrySchema = z.looseObject({
   archivedAt: z.string().optional(),
   resumed: z.array(ResumedSchema).optional(),
   stopped: z.string().optional(),
+  edited: z.array(EditedSchema).optional(),
 });
 const PrefsSchema = z.looseObject({ model: z.string().optional(), recent: z.array(z.string()).optional(), developer: z.boolean().optional() });
 const FileIdSchema = z.string().regex(/^[a-zA-Z0-9_-]+$/);
@@ -36,6 +39,9 @@ const LegacyStateSchema = z.looseObject({
 export type SessionUsage = z.infer<typeof SessionUsageSchema>;
 type Entry = z.infer<typeof EntrySchema>;
 export type ResumedMark = z.infer<typeof ResumedSchema>;
+export type EditedMark = z.infer<typeof EditedSchema>;
+/** Everything kept about one conversation, as `snapshot` hands it out and `restore` puts it back. */
+export type SessionEntry = Entry;
 /** How many models the picker's Recent keeps for a person: the last ones chosen, newest first. */
 export const RECENT_KEPT = 5;
 /** How many resumed dividers one conversation keeps: the newest ones, which are the ones anybody scrolls to. */
@@ -295,6 +301,34 @@ export class GatewayStore {
     this.put(user, session, { stopped: at });
   }
 
+  /** The messages a person edited in a conversation, oldest edit first. */
+  edited(user: string, session: string): EditedMark[] {
+    return this.entry(user, session).edited ?? [];
+  }
+
+  /**
+   * The conversation was rewound to index `at` by an edit of the message there: what is kept about the
+   * messages from `at` on described replies that are gone. Their usage goes, a resumed divider after `at`
+   * goes, an earlier edit at or after `at` is replaced by this one, and a Stop no longer applies.
+   */
+  truncate(user: string, session: string, at: number): void {
+    const usage = Object.fromEntries(Object.entries(this.usage(user, session)).filter(([i]) => Number(i) < at));
+    const resumed = this.resumed(user, session).filter((m) => m.index <= at);
+    const edited = [...this.edited(user, session).filter((m) => m.index < at), { index: at, at: new Date().toISOString() }];
+    this.put(user, session, { usage: Object.keys(usage).length ? usage : undefined, resumed: resumed.length ? resumed : undefined, edited, stopped: undefined });
+  }
+
+  /** A copy of everything kept about a conversation, for `restore` to put back when what followed it failed. */
+  snapshot(user: string, session: string): SessionEntry {
+    return structuredClone(this.entry(user, session));
+  }
+
+  /** Puts back what `snapshot` took, whole: nothing written since is kept. */
+  restore(user: string, session: string, entry: SessionEntry): void {
+    const cleared = Object.fromEntries(Object.keys(this.entry(user, session)).map((key) => [key, undefined])) as Entry;
+    this.put(user, session, { ...cleared, ...structuredClone(entry) });
+  }
+
   /**
    * Drops everything kept about a conversation, the archive mark included; with nothing left, its file
    * goes too. The callers are the discard of an empty conversation and a forget, where the record itself is being
@@ -303,7 +337,7 @@ export class GatewayStore {
    * is not a thing anyone can want — so this stays one method rather than one with a flag.
    */
   forget(user: string, session: string): void {
-    this.put(user, session, { usage: undefined, model: undefined, title: undefined, archived: undefined, archivedAt: undefined, resumed: undefined, stopped: undefined });
+    this.put(user, session, { usage: undefined, model: undefined, title: undefined, archived: undefined, archivedAt: undefined, resumed: undefined, stopped: undefined, edited: undefined });
   }
 
   private entry(user: string, session: string): Entry {

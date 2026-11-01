@@ -1,8 +1,10 @@
 // The library: an entry from a proposal (owner, path, before, versions), reinforces, the states, a trial's
-// start and cancel, adopt and retire for every kind, the before-mismatch refusal, and the re-check.
+// start and cancel, adopt and retire for every kind, adopt without a trial, the merge over a moved file and
+// its refusal, edit, rebase and staleness, what a trial can test, and the re-check.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { adoptEntry, cancelTrial, getEntry, listEntries, readLibrary, recheckAdopted, recordProposal, rejectEntry, retireEntry, startTrial, writeLibrary } from "../lib/library.js";
+import { trialStamps } from "../lib/events.js";
+import { adoptEntry, cancelTrial, editEntry, getEntry, listEntries, readLibrary, rebaseEntry, recheckAdopted, recordProposal, rejectEntry, retireEntry, staleness, startTrial, trialable, writeLibrary } from "../lib/library.js";
 import { guard, parseAnswer } from "../lib/prompt.js";
 import { settingsOf } from "../lib/records.js";
 import { GOOD_ANSWER, SKILL, fakeKernel, fakePackages, finishTrial, get, guardContext, put, sampleSession, tempHome } from "./helpers.js";
@@ -224,11 +226,10 @@ test("cancelTrial: the host is asked, the entry goes back with the verdict; a fi
   }
 });
 
-test("adopt needs a trial; then writes the change and records before and after; retire restores", async () => {
+test("adopt after a trial writes the change and records before and after; retire restores", async () => {
   const t = await fence();
   try {
     const id = await record(t, "skill", "generated-files", SKILL.trimEnd());
-    await assert.rejects(adoptEntry(t.env, id), /^Error: Run a trial first\.$/);
     await trialled(t, id);
     const e = await adoptEntry(t.env, id);
     assert.equal(e.state, "adopted");
@@ -261,21 +262,150 @@ test("a shipped-skill override: adopt writes the override, retire removes it and
   }
 });
 
-test("adopt refuses when what is there changed since the proposal", async () => {
+test("adopt over a moved file refuses when it changed in the same place, and merges when it did not", async () => {
   const t = await fence();
   try {
     const id = await record(t, "skill", "thetis-packages", EDITED.trimEnd());
     await trialled(t, id);
     await put(t.pack, "skills/thetis-packages/SKILL.md", SHIPPED.replace("Old", "Shipped anew"));
-    await assert.rejects(adoptEntry(t.env, id), /^Error: skills\/thetis-packages\/SKILL\.md changed since the proposal; run the trial again\.$/);
-    const pi = await record(t, "project-instructions", "p_0a1b2c3d", "New.");
-    await trialled(t, pi);
-    await put(t.home, "projects/p_0a1b2c3d.md", "Someone wrote this.\n");
-    await assert.rejects(adoptEntry(t.env, pi), /^Error: projects\/p_0a1b2c3d\.md changed since the proposal; run the trial again\.$/);
+    await assert.rejects(adoptEntry(t.env, id), /^Error: skills\/thetis-packages\/SKILL\.md changed in the same place since; edit the proposal\.$/);
+    assert.equal(await get(t.home, "skills/thetis-packages/SKILL.md"), null, "nothing was written");
+
+    await put(t.home, "projects/p_0a1b2c3d.md", "# Nova\n\nRule one.\n\nRule two.\n");
+    const pi = await record(t, "project-instructions", "p_0a1b2c3d", "# Nova\n\nRule one.\n\nRule two.\n\nRule three.");
+    await put(t.home, "projects/p_0a1b2c3d.md", "# Nova, the island\n\nRule one.\n\nRule two.\n");
+    const e = await adoptEntry(t.env, pi, { untried: true });
+    const merged = "# Nova, the island\n\nRule one.\n\nRule two.\n\nRule three.\n";
+    assert.equal(await get(t.home, "projects/p_0a1b2c3d.md"), merged);
+    assert.deepEqual([e.applied.before, e.applied.after, e.applied.untried], ["# Nova, the island\n\nRule one.\n\nRule two.\n", merged, true]);
+    await retireEntry(t.env, pi);
+    assert.equal(await get(t.home, "projects/p_0a1b2c3d.md"), "# Nova, the island\n\nRule one.\n\nRule two.\n", "retire puts back what was there at adoption");
+  } finally {
+    await t.done();
+  }
+});
+
+test("adopt of a proposed entry needs untried, and records it; a trialled one does not", async () => {
+  const t = await fence();
+  try {
+    const id = await record(t, "skill", "generated-files", SKILL.trimEnd());
+    await assert.rejects(adoptEntry(t.env, id), /^Error: It has not been tried\. Adopt it without a trial, or try it first\.$/);
+    await assert.rejects(adoptEntry(t.env, id, { untried: "yes" }), /has not been tried/, "only true counts");
+    const e = await adoptEntry(t.env, id, { untried: true });
+    assert.equal(e.state, "adopted");
+    assert.equal(e.applied.untried, true);
+    assert.equal(await get(t.home, "skills/generated-files/SKILL.md"), SKILL);
+    const two = await record(t, "config", "@thetis/harness-core maxRounds", "60");
+    await trialled(t, two);
+    const a = await adoptEntry(t.env, two);
+    assert.equal(a.applied.untried, undefined);
+  } finally {
+    await t.done();
+  }
+});
+
+test("two guide notes proposed over the same notes both adopt; a note already there is not added twice", async () => {
+  const t = await fence();
+  try {
+    const one = await record(t, "guide-note", "-", "Ask first.");
+    const two = await record(t, "guide-note", "-", "Say what you skipped.");
+    assert.equal((await entry(t.home, one)).before, "[]");
+    assert.equal((await entry(t.home, two)).before, "[]");
+    await adoptEntry(t.env, one, { untried: true });
+    await adoptEntry(t.env, two, { untried: true });
+    assert.deepEqual(t.kernel.layers["@thetis/harness-core"].guideNotes, ["Ask first.", "Say what you skipped."]);
+    const again = await record(t, "guide-note", "-", "Ask first.");
+    await adoptEntry(t.env, again, { untried: true });
+    assert.deepEqual(t.kernel.layers["@thetis/harness-core"].guideNotes, ["Ask first.", "Say what you skipped."]);
+    // A config key is set whatever it is now: the place showed it.
+    const c = await record(t, "config", "@thetis/harness-core maxRounds", "60");
+    await t.kernel.config.set("@thetis/harness-core", "maxRounds", 45);
+    await adoptEntry(t.env, c, { untried: true });
+    assert.equal(t.kernel.layers["@thetis/harness-core"].maxRounds, 60);
+  } finally {
+    await t.done();
+  }
+});
+
+test("editEntry: checked by the guard's limits, before becomes today's, a trialled entry goes back with its verdict stale", async () => {
+  const t = await fence();
+  try {
     const n = await record(t, "guide-note", "-", "Ask first.");
     await trialled(t, n);
+    await assert.rejects(editEntry(t.env, n, "one\ntwo"), /^Error: That does not hold: a guide note is one line, and this one has more\.$/);
+    await assert.rejects(editEntry(t.env, n, "x".repeat(301)), /at most 300/);
+    await assert.rejects(editEntry(t.env, n, 7), /change must be text/);
+    await t.kernel.config.set("@thetis/harness-core", "guideNotes", ["Be brief."]);
+    const e = await editEntry(t.env, n, "  Ask before a long job.  ");
+    assert.equal(e.change, "Ask before a long job.");
+    assert.equal(e.before, JSON.stringify(["Be brief."]));
+    assert.equal(e.state, "proposed");
+    assert.equal(e.verdict.result, "helped");
+    assert.equal(e.verdict.stale, true);
+    assert.match(e.edited.at, /^\d{4}-/);
+    const c = await record(t, "config", "@thetis/harness-core maxRounds", "60");
+    await assert.rejects(editEntry(t.env, c, "sixty"), /not valid JSON/);
+    await assert.rejects(editEntry(t.env, c, "\"60\""), /is a number, and the value is a string/);
+    assert.equal((await editEntry(t.env, c, " 80 ")).change, "80");
+    const s = await record(t, "skill", "generated-files", SKILL.trimEnd());
+    await assert.rejects(editEntry(t.env, s, SKILL.replace("name: generated-files", "name: other")), /the name in its frontmatter/);
+    await adoptEntry(t.env, s, { untried: true });
+    await assert.rejects(editEntry(t.env, s, SKILL), /^Error: It is adopted; retire it before you change it\.$/);
+  } finally {
+    await t.done();
+  }
+});
+
+test("rebaseEntry and staleness: a moved file merges into the change, or is a conflict", async () => {
+  const t = await fence();
+  try {
+    await put(t.home, "projects/p_0a1b2c3d.md", "# Nova\n\nRule one.\n\nRule two.\n");
+    const pi = await record(t, "project-instructions", "p_0a1b2c3d", "# Nova\n\nRule one.\n\nRule two.\n\nRule three.");
+    assert.equal((await getEntry(t.home, pi, t.env)).staleness, "fresh");
+    await assert.rejects(rebaseEntry(t.env, pi), /It is up to date/);
+    await put(t.home, "projects/p_0a1b2c3d.md", "# Nova, the island\n\nRule one.\n\nRule two.\n");
+    const got = await getEntry(t.home, pi, t.env);
+    assert.equal(got.staleness, "mergeable");
+    assert.equal(got.current, "# Nova, the island\n\nRule one.\n\nRule two.\n");
+    assert.equal((await listEntries(t.home, t.env)).find((e) => e.id === pi).staleness, "mergeable");
+    const e = await rebaseEntry(t.env, pi);
+    assert.equal(e.change, "# Nova, the island\n\nRule one.\n\nRule two.\n\nRule three.\n");
+    assert.equal(e.before, "# Nova, the island\n\nRule one.\n\nRule two.\n");
+    assert.match(e.rebasedAt, /^\d{4}-/);
+    assert.equal((await getEntry(t.home, pi, t.env)).staleness, "fresh");
+    const firm = await record(t, "project-instructions", "p_0a1b2c3d", "# Nova, the island\n\nRule one, firmly.\n\nRule two.");
+    await put(t.home, "projects/p_0a1b2c3d.md", "# Nova, the island\n\nRule 1.\n\nRule two.\n");
+    assert.equal((await getEntry(t.home, firm, t.env)).staleness, "conflict");
+    await assert.rejects(rebaseEntry(t.env, firm), /^Error: projects\/p_0a1b2c3d\.md changed in the same place since; edit the proposal\.$/);
+    assert.equal((await getEntry(t.home, pi, t.env)).staleness, "mergeable", "the other one, which adds at the end, still merges");
+    const n = await record(t, "guide-note", "-", "Ask first.");
     await t.kernel.config.set("@thetis/harness-core", "guideNotes", ["Other."]);
-    await assert.rejects(adoptEntry(t.env, n), /^Error: The guide notes changed since the proposal; run the trial again\.$/);
+    assert.equal(staleness(await entry(t.home, n), "[\"Other.\"]"), "fresh", "a guide note is never out of date");
+    await assert.rejects(rebaseEntry(t.env, n), /Only a skill or project instructions/);
+  } finally {
+    await t.done();
+  }
+});
+
+test("trialable: a cited action from a live-only package (or a fork of one) cannot be trialled", async () => {
+  const t = await fence();
+  try {
+    const S2 = "s_bbbb2222";
+    await put(t.home, `reflections/${S}/context/trajectory.md`, `# Conversation ${S}\n\n[1] [USER] Fix the verb\n\n[2] [ACTION] moo_eval({"code":"1"})\n\n[3] [OBSERVATION] 1\n\n[4] [ACTION] edit_path({"path":"a"})\n`);
+    await put(t.home, `reflections/${S}/context/subagents/${S2}.md`, `# Subagent ${S2}\n\n[5] [ACTION] gh_issue({"n":1})\n`);
+    await put(t.home, `harness-core/turns/${S}.jsonl`, `${JSON.stringify({ turn: 1, tools: "abcdef01" })}\n`);
+    await put(t.home, `harness-core/snapshots/${S}/abcdef01.json`, [{ name: "moo_eval", package: "@thetis/moo" }, { name: "edit_path", package: "@thetis/tools-files" }]);
+    await put(t.home, `harness-core/turns/${S2}.jsonl`, `${JSON.stringify({ turn: 1, tools: "abcdef02" })}\n`);
+    await put(t.home, `harness-core/snapshots/${S2}/abcdef02.json`, [{ name: "gh_issue", package: "@bitmuse/gh" }]);
+    const e = (evidence) => ({ evidence, from: [{ session: S }] });
+    const live = settingsOf({}).liveOnly;
+    assert.equal(trialable(e("rows 1; [4]"), await trialStamps(t.home, e("rows 1; [4]")), live), true);
+    assert.equal(trialable(e("rows 1; [2], [3]"), await trialStamps(t.home, e("rows 1; [2], [3]")), live), false, "moo_eval is @thetis/moo's");
+    assert.equal(trialable(e("rows 1; [1]–[3]"), await trialStamps(t.home, e("rows 1; [1]–[3]")), live), false, "a range cites the action inside it");
+    assert.equal(trialable(e("rows 1; [5]"), await trialStamps(t.home, e("rows 1; [5]")), live), false, "a fork counts as what it forks");
+    assert.equal(trialable(e("rows 1; [2]"), await trialStamps(t.home, e("rows 1; [2]")), ["@thetis/gh"]), true, "the setting decides");
+    const other = { evidence: "rows 1; [4]\ns_cccc3333: rows 2; [2]", from: [{ session: S }] };
+    assert.deepEqual((await trialStamps(t.home, other)).actions, [{ session: S, n: 4, tool: "edit_path" }], "a reinforcing line's numbers are its own conversation's");
   } finally {
     await t.done();
   }

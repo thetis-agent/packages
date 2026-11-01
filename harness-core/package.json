@@ -1,8 +1,8 @@
 {
   "name": "@thetis/harness-core",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "license": "MIT",
-  "description": "The default harness: the agent's name and picture, the system prompt, the turn context line, every installed tool attached to the call, the reasoning effort chosen per conversation, the loop that sends it and runs the tools, the round retry, the resume of turns a restart or an apply cut short, and a record of what each turn ran with.",
+  "description": "The default harness: the agent's name and picture, the system prompt, the turn context line, every installed tool attached to the call, the reasoning effort chosen per conversation, the loop that sends it and runs the tools, the round retry, the resume of turns a restart or an apply cut short, the edit of a sent message, and a record of what each turn ran with.",
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": {
@@ -35,6 +35,11 @@
       "resumeMaxAgeMs": { "type": "number", "default": 1800000, "help": "How old a cut reply may be and still be continued automatically. Older ones wait for you." }
     },
     "steps": [
+      {
+        "id": "rewind",
+        "phase": "history",
+        "export": "rewindTurn"
+      },
       {
         "id": "resume",
         "phase": "history",
@@ -106,6 +111,21 @@
           "verb": "effort-models",
           "export": "uiEffortModels",
           "label": "List which efforts each model accepts"
+        },
+        {
+          "verb": "rewind-request",
+          "export": "uiRewindRequest",
+          "label": "Replace a sent message and everything after it on the next turn"
+        },
+        {
+          "verb": "rewind-cancel",
+          "export": "uiRewindCancel",
+          "label": "Withdraw an edit whose turn did not start"
+        },
+        {
+          "verb": "edit-versions",
+          "export": "uiEditVersions",
+          "label": "Read the earlier versions of a conversation's edited messages"
         }
       ]
     }

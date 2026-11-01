@@ -115,11 +115,22 @@ export async function routeOnce({ groups, query, skillIds = [], config = {}, den
   return { active: orderIds(groups, Object.keys(why)), why, mode, notes, ranked: ranked.map((h) => ({ id: h.id, score: h.score })) };
 }
 
-/** The tool names the session's project switched off, read the way @thetis/projects reads them. Empty without a project. */
+const readJson = async (env, path) => {
+  try {
+    return JSON.parse(await env.readFile(path));
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The tool names the session's project switched off, read the way @thetis/projects reads them: the project
+ * from `projects/sessions.json`, else (a subagent) from `projects/agents/<id>.json`. Empty without a project.
+ */
 export async function projectDisabled(env, sessionId) {
   try {
-    const sessions = JSON.parse(await env.readFile("projects/sessions.json"));
-    const id = sessions?.[sessionId];
+    let id = (await readJson(env, "projects/sessions.json"))?.[sessionId];
+    if (id == null && /^[\w-]+$/.test(String(sessionId ?? ""))) id = (await readJson(env, `projects/agents/${sessionId}.json`))?.project;
     if (typeof id !== "string") return new Set();
     const project = JSON.parse(await env.readFile(`projects/${id}.json`));
     return new Set(Array.isArray(project?.tools?.disable) ? project.tools.disable.filter((n) => typeof n === "string") : []);

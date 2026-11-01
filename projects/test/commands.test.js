@@ -95,6 +95,19 @@ test("assign works only for the page's own session; list counts and names the cu
   await done();
 });
 
+test("list counts root conversations only: a subagent's agents file is not a conversation of the project", async () => {
+  const { env, done } = await makeEnv({ session: "s_child", packages: PACKAGES });
+  const a = (await uiSave({ name: "A" }, env)).data.project;
+  await uiAssign({ session: "s_root", project: a.id }, { ...env, session: "s_root" });
+  for (const child of ["s_child", "s_child2", "s_grand"]) await env.writeFile(`projects/agents/${child}.json`, JSON.stringify({ project: a.id, parent: "s_root" }));
+  const list = (await uiList({}, env)).data;
+  assert.deepEqual(list.projects.map((p) => [p.name, p.conversations]), [["A", 1]]);
+  assert.deepEqual(list.assignments, { s_root: a.id });
+  assert.equal(list.current, a.id, "a subagent's pane names its project through the agents file");
+  assert.equal((await uiGet({ id: a.id }, env)).data.conversations, 1);
+  await done();
+});
+
 test("remove deletes the record, the instructions and the assignments", async () => {
   const { env, done } = await makeEnv({ session: "s_1", packages: PACKAGES });
   const a = (await uiSave({ name: "A", instructions: "x" }, env)).data.project;

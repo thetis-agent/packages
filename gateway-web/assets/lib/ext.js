@@ -7,7 +7,8 @@
  * failure handling apply to an ask form's answers as they do to a typed message. A package that declared
  * a raw command gets `ext.raw`: a URL the browser may fetch or navigate to, and an upload with progress.
  * `bindShell` is called once by app.js with the shell functions; `broadcastTurn` feeds every `events.watch`
- * listener. */
+ * listener. `ext.space` is the one current project (lib/space.js): a package provides the map, every
+ * package may read, enter and watch it. */
 
 import { agentAvatar, agentName, refreshAgent, watchAgent } from "./agent.js";
 import { api, ApiError } from "./api.js";
@@ -15,6 +16,7 @@ import { clear, el, icon, setHidden } from "./dom.js";
 import { frameSeam } from "./frame.js";
 import { awaitReturn, onTurnsIdle, turnsRunning } from "./lifecycle.js";
 import { renderMarkdown } from "./markdown.js";
+import { groups, space } from "./space.js";
 import { openMenu } from "./menu.js";
 import { notice } from "./notice.js";
 import * as ui from "./panel-ui.js";
@@ -22,13 +24,13 @@ import * as registry from "./registry.js";
 import { store } from "./store.js";
 import { toast } from "./toast.js";
 
-let shell = null; // { send, openConversation, openDock, openPlace, openShelf, closeShelf, shelfOpen, openPanel, openTab, closeTab }
+let shell = null; // { send, openConversation, startConversation, openDock, openPlace, openShelf, closeShelf, shelfOpen, openPanel, openTab, closeTab }
 const turnWatchers = new Set();
 const creationWatchers = new Set();
 
-/** Only this page's create action invokes these hooks, before opening or sending to the session. */
-export async function notifySessionCreated(id) {
-  for (const fn of creationWatchers) await fn(id);
+/** Only this page's create action invokes these hooks, before opening or sending to the session. `space` is the draft's. */
+export async function notifySessionCreated(id, { space: at = null } = {}) {
+  for (const fn of creationWatchers) await fn(id, { space: at });
 }
 
 /** Hands the shell's functions to the seam. Called once, before any extension loads. */
@@ -189,18 +191,41 @@ export function createExt(extension) {
       watch: (fn) => store.watch("current", fn),
       send: (text) => shell.send(text),
       open: (id) => shell.openConversation(id),
+      /** Closes the place, enters `space` when given, opens the draft and puts `text` in the box. Sends nothing. */
+      start: ({ space: at, text } = {}) => shell.startConversation({ space: at, text }),
     }),
 
     sessions: Object.freeze({
       list: () => store.get("sessions"),
       watch: (fn) => store.watch("sessions", fn),
-      /** Setup for a conversation created here. An async callback completes before its first send. */
+      /** Setup for a conversation created here: `fn(id, { space })`, the space its draft was in. An async callback completes before its first send. */
       onCreate(fn) {
         creationWatchers.add(fn);
         return () => creationWatchers.delete(fn);
       },
       /** Narrows the sidebar to the sessions `fn` keeps; null shows every session again. */
       filter: (fn) => store.set({ sessionFilter: typeof fn === "function" ? fn : null }),
+      /**
+       * `group(id, { label, test(session), order? })`: the rows of the current space `test` claims are drawn as
+       * a folded "<label> · n" between the recency buckets and Archived. The same id again replaces it.
+       * Answers the function that drops it.
+       */
+      group: (id, spec) => groups.set(pkg, id, spec),
+    }),
+
+    /**
+     * The space the person is in. `provide({ of, name })` once per page (a second is refused);
+     * `current` (a space id, or null); `enter(id)`; `watch(fn)`; `changed()` when the provider's map or
+     * names moved. A module must guard `ext.space?.current` on an older gateway.
+     */
+    space: Object.freeze({
+      provide: (spec) => space.provide(spec),
+      get current() {
+        return space.current;
+      },
+      enter: (id) => space.enter(id),
+      watch: (fn) => space.watch(fn),
+      changed: () => space.changed(),
     }),
 
     /**
@@ -213,8 +238,12 @@ export function createExt(extension) {
       place: (id, params) => shell.openPlace(entryKey("places", pkg, id), params),
       shelf: (id) => shell.openShelf(registry.keyOf(pkg, id)),
       panel: (id) => shell.openPanel(registry.keyOf(pkg, id)),
-      /** A tab of `kind` for `id`, beside the conversations: this package's own kind first, else another's by that id. The one already open for `id` is shown again. */
-      tab: (kind, id, params) => shell.openTab(entryKey("tabs", pkg, kind), id, params),
+      /**
+       * A tab of `kind` for `id`, beside the conversations: this package's own kind first, else another's by that
+       * id. The one already open for `id` is shown again. `{ space }` names the space it belongs to (else the
+       * current one); opening it enters that space.
+       */
+      tab: (kind, id, params, opts) => shell.openTab(entryKey("tabs", pkg, kind), id, params, opts),
     }),
 
     /** The shelf closes whoever is in it, and a tab of a kind closes by its id; nothing else on the page closes on a package's word. */

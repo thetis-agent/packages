@@ -2,6 +2,7 @@
 // the person's home, read directly (as `@thetis/workflows` reads them) so a canvas can name a project and
 // a person without the projects package still has their canvases — no directory, every canvas is global.
 const ID = /^p_[0-9a-f]{8}$/;
+const SESSION = /^[\w-]+$/; // a conversation id, safe as a file name
 export const isProjectId = (id) => typeof id === "string" && ID.test(id);
 
 async function readJson(env, path) {
@@ -29,11 +30,13 @@ export async function readProject(env, id) {
 
 export const projectExists = async (env, id) => Boolean(await readProject(env, id));
 
-/** The project of a conversation, from the assignments map, when its record still exists; else null. */
+/** The project of a conversation, when its record still exists; else null. The assignments map holds root
+ *  conversations; a subagent's project is in `projects/agents/<id>.json`, written when it first runs. */
 export async function projectOfSession(env, session) {
   if (typeof session !== "string" || !session) return null;
   const map = await readJson(env, "projects/sessions.json");
-  const id = map && typeof map === "object" && !Array.isArray(map) ? map[session] : null;
+  let id = map && typeof map === "object" && !Array.isArray(map) ? map[session] : null;
+  if (id == null && SESSION.test(session)) id = (await readJson(env, `projects/agents/${session}.json`))?.project ?? null;
   return (await readProject(env, id)) ? id : null;
 }
 

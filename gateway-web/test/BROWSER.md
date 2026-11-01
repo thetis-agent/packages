@@ -97,6 +97,10 @@ press does not): open a new tab on the same URL and close the old one before the
 
 ## Steps
 
+Since gateway-web 0.20.0 a page load with no hash opens the newest conversation of the current space, else
+the draft (`.tab.is-draft`, below), and `#new-chat`/`#new-tab` open that one draft instead of a
+conversation; read steps 1–3 and 12 with that in mind. **Project spaces** below has the current shapes.
+
 1. **Sign in** as `dev` / `devpass123`. Expect the page at `/dev/`: `#sidebar` with `#session-list`
    showing "No conversations yet", `#menu.menu-btn[aria-haspopup="menu"]` (the ≡ and "Thetis") in the head;
    clicking it appends `.menu[role="menu"]` to `.sidebar-head` with one `.menu-item[data-place="@thetis/gateway-web#panel"]`
@@ -419,22 +423,26 @@ init`, `door.port` 8805, `packages["@thetis/gateway-login"].secure` false, the O
 /tmp/thetis-phase5-proj/README.md`) and bind it: `THETIS_HOME=.devhome5 node bin/thetis.js mounts add dev
 /tmp/thetis-phase5-proj` (dev's fence closes and reopens with it). Run 2026-09-15: every step below passed
 after the one fix in `ui/state.js` (see the last paragraph); screenshots `.playwright-mcp/phase5-01` to `-14`.
+Steps 28–30, 33 and 60 were rewritten for project spaces (projects 0.5.0, gateway-web 0.20.0) and passed
+2026-11-01 against the echo setup of **Project spaces** below, which is enough for every step but 31.
 
 28. **The switcher**: sign in at `http://127.0.0.1:8805/login`. Expect `#sidebar-head .sidebar-slot-item
     [data-item="@thetis/projects#head"]` holding `.pj-head > button.pj-head-btn[aria-haspopup="listbox"]`
-    with `.pj-head-label` "Project", `.pj-head-name` "All conversations", and `svg.pj-caret`; `head` holding a
+    with `.pj-head-label` "Project", `.pj-head-name` "No project" (there is no "All conversations": you are
+    always in one space), a hidden `.pj-working-dot`, and `svg.pj-caret`; `head` holding a
     `link[href$="ext/@thetis/projects/index.css"]`; the menu (`#menu`) holding
-    `.menu-item[data-place="@thetis/projects#project"]` "Project" after "Control panel"; one `POST
-    api/ext/@thetis/projects/list`; no console errors. Click the button: `.pj-head.is-open`,
-    `[aria-expanded="true"]`, and `.pj-menu[role="listbox"]` with two `.pj-item[role="option"]`: "All
-    conversations" (`.is-selected`, focused) and "New project…" after a `.pj-menu-rule`. Escape closes it and
+    `.menu-item[data-place="@thetis/projects#project"]` "Project"; one `POST api/ext/@thetis/projects/list`;
+    no console errors. The composer slot `[data-slot="@thetis/projects#project"] .pj-pill` reads "No project"
+    with a grey `.pj-dot.is-none`. Click the switcher: `.pj-head.is-open`, `[aria-expanded="true"]`, and
+    `.pj-menu[role="listbox"]` holding `.pj-item[role="option"]` "No project" (`.is-selected`, focused, its
+    `.pj-item-note` "0 conversations"), a `.pj-menu-rule`, and `.pj-item` "New project…". Escape closes it and
     returns focus to the button; so does a click elsewhere.
 29. **New project**: open the menu and click "New project…". Expect `#app.is-place`, `.place-title` "Project",
     `.place-sub` "This project's directories, tools and instructions", and in `.place-body > .pj-place >
     .pj-page` the sections: `input.pj-name` (empty), "Project directories" with `.section-note` "0 of 64",
     `.pj-empty` "No project directories.", `.pj-dir-add` (`input.pj-dir-input` and the button "Add a
     directory") and the `.pj-note`; "Instructions" with `textarea.pj-instructions`; "Conversations" with
-    `.pj-facts` "None yet. …"; "Tools" with the note "24 tools, every one on" and one `.pj-tool-group` per
+    `.pj-facts` "No conversations yet."; "Tools" with the note "24 tools, every one on" and one `.pj-tool-group` per
     package with tools (`@thetis/tool-exec`, `@thetis/tools-files`, `@thetis/tools-plan`, `@thetis/terminal`,
     `@thetis/skills`, `@thetis/skills-hybrid`), each tool a
     `label.pj-tool` with `code.pj-tool-name` and `input.pj-switch[checked]`; "Skills" with its one sentence;
@@ -445,18 +453,28 @@ after the one fix in `ui/state.js` (see the last paragraph); screenshots `.playw
     name kept across the redraw. Type "Answer in one short sentence." in the textarea; uncheck the
     switches `shell on` and `install_package on`: their rows `.pj-tool.is-off`, the note "24 tools, 2 switched
     off for this project". Click **Create project**: one `POST …/save`, a `.toast` `Project "thetis-check"
-    created.`, then `list` and `get` again; the buttons now "Save" and "Delete project"; `.pj-facts` "0
-    conversations are in this project."; the switcher `.pj-head.is-chosen` with `.pj-head-name`
-    "thetis-check" (a new project is chosen after its first save); `localStorage["thetis.project"]` its
-    id; on disk `<home>/projects/p_<8 hex>.json` with the two directories and `tools.disable` `["shell",
+    created.`, then `list` and `get` again; the buttons now "Save" and "Delete project"; `.pj-facts` "No
+    conversations yet."; at the top of the page a `button.pj-start.is-primary` "New conversation" (the place
+    stays scrolled where Create was, so scroll up to see it); the switcher `.pj-head.is-chosen` with
+    `.pj-head-name` "thetis-check" (a new project is entered after its first save);
+    `localStorage["thetis.space"]` its id and no `thetis.project`; the sidebar `p.session-empty` "Nothing
+    here yet." with `button.session-start` "New conversation"; on disk `<home>/projects/p_<8 hex>.json` with the two directories and `tools.disable` `["shell",
     "install_package"]`, and `p_<id>.md` with the sentence.
-30. **Choosing and joining**: close the place. Open the menu: the option `thetis-check` with `.pj-item-note`
-    "0 conversations" `.is-selected`, then the rule, "Settings" (note "thetis-check"), "New project…". Pick
-    "All conversations": the label reads it, the storage key is gone. Pick `thetis-check` again, then click
-    `#new-chat`. Expect the new `.session` row in the list, one `POST …/assign` with `{ session, project }`,
-    and `<home>/projects/sessions.json` mapping the id to the project. Pick "All", click `#new-chat` once
-    more (no `assign`; the map keeps one entry), and the list shows both rows; pick `thetis-check`: only the
-    first row; the menu's note reads "1 conversation".
+30. **Entering and starting**: close the place (`.place-close`). The space is `thetis-check`; click `#new-chat`.
+    Expect `.tab.is-draft.is-active[data-key="draft"]` with `.tab-title` "New conversation" last in the strip,
+    `.pane.is-draft.is-active > .draft-body > .transcript-empty.is-new` with `.draft-title` "New conversation"
+    and `.draft-where` "in thetis-check", the pill `.pj-pill` "thetis-check" with a coloured
+    `.pj-dot.is-c0`…`.is-c7`, and **no** `POST api/sessions`. Click `#new-tab`: still one `.tab.is-draft`, now
+    `.is-flash` for 700 ms. Send `hi`: one `POST api/sessions`, one `POST …/projects/assign` with `{ session,
+    project }`, the draft tab replaced in place by `.tab[data-session]`, the row under "Today", and
+    `<home>/projects/sessions.json` mapping the id to the project. Pick "No project" in the switcher: the
+    thetis-check tab carries `hidden` (parked, not closed), a draft is active reading "not in a project", and
+    the list has no thetis-check row. Click `#new-chat` and send `hello there`: no `assign`. Type `hi` in
+    `#session-search`: a `section.session-bucket.is-elsewhere` "Other projects" holding the thetis-check row,
+    whose `.session-meta` starts with `span.session-where` "thetis-check". Click it: `.pj-head-name`
+    "thetis-check", its tab shown and `.is-active`, the other one parked. Clear the search and open the
+    switcher: `thetis-check` with `.pj-item-note` "1 conversation" `.is-selected`, "No project" "1
+    conversation", the rule, "Project settings" (note "thetis-check"), "New project…".
 31. **The prompt and the tools**: open the project's conversation and send "Read /tmp/thetis-phase5-proj/
     README.md and tell me its first line." Expect a `details.tool` for `read_path` with the line in its
     result (the mount is bound, so the file tools accept the path), and a `.msg.is-assistant` of one short
@@ -467,7 +485,7 @@ after the one fix in `ui/state.js` (see the last paragraph); screenshots `.playw
     dock (`.rail-btn[data-dock="@thetis/ui-tools#tools"]`) still lists both cards and its "Turned off right
     now" section still says "Nothing is withheld in this conversation.": `@thetis/ui-tools` does not yet
     read the project's list (its `withheld()` is a placeholder; the integration was left for later).
-32. **The directory list saves itself**: open the menu and pick "Settings". Type `/tmp/thetis-phase5-extra`
+32. **The directory list saves itself**: open the menu and pick "Project settings". Type `/tmp/thetis-phase5-extra`
     in `.pj-dir-input` and press Enter. Expect one `POST …/save` straight away, with no click on Save, and
     `<home>/projects/p_<id>.json` holding three directories while `p_<id>.md` and `tools.disable` are
     unchanged; `.pj-actions` shows no `.pj-unsaved`. Now type a character into `textarea.pj-instructions`
@@ -486,13 +504,16 @@ after the one fix in `ui/state.js` (see the last paragraph); screenshots `.playw
     **Delete project**: a `.popover[role="dialog"]` "Delete this project?" with the facts Project /
     Conversations and the note "The conversations stay; they leave the project. …"; its warn button
     "Delete" sends `POST …/remove`; expect the toast `Project "thetis-check-2" deleted.`, the switcher back
-    to "All conversations" without `.is-chosen`, the storage key gone, the place redrawn as the new-project
-    form ("Create project"), both `.session` rows in the list, and `sessions.json` `{}` with the record and
+    to "No project" without `.is-chosen`, `localStorage["thetis.space"]` gone, the place redrawn as the
+    picker ("New project"), and after `.place-close` the conversation that was on screen still on screen,
+    its tab and its row now under No project with the other one, and `sessions.json` `{}` with the record and
     the `.md` gone.
-60. **Reload with a project chosen**: create a project again, keep it chosen, reload. Expect `.pj-head-name`
-    with its name from `localStorage`, the list narrowed to its conversations, and no `assign` request: a
-    conversation that exists when the page loads is never adopted, however new it is (a `+` while the
-    project is chosen still is).
+60. **Reload with a project entered**: create a project again, stay in it, reload. Expect `.pj-head-name`
+    with its name, from `localStorage["thetis.space"]`, the list narrowed to its conversations, and no
+    `assign` request: only a draft's first send assigns, and to the space the draft was in. **The old key
+    migrates**: `localStorage.removeItem("thetis.space"); localStorage.setItem("thetis.project", "<id>")`
+    and reload: the space is entered, `thetis.space` holds the id and `thetis.project` is gone. A page load
+    with no hash opens the newest conversation of the current space, else the draft.
 
 Defect found and fixed in this run (`packages/projects/ui/state.js`): the page decided which conversations
 "existed at load" from `ext.sessions.list()` at `install`, but the shell's module loader and its event
@@ -655,7 +676,7 @@ the OpenRouter key in the environment of `serve` (steps 43 and 47 send one messa
     `.pj-head.is-chosen` "skills-check"; `<home>/projects/p_<8 hex>.json` with `skills.disable`
     `["thetis/packages"]` and `tools.disable` `[]`.
 47. **Switched off, before and after a turn**: close the place (`.place-close`) and click `#new-chat`
-    while the project is chosen (one `assign`). The open dock redraws for the new conversation at once,
+    while in the project (its `assign` goes with the first send). The open dock redraws for the new conversation at once,
     before any turn: `.sk-off` with `.section-note` "Left out of the prompt and of skill_fetch. A
     switched-off parent takes its nested skills with it." and one `.sk-row.is-off[data-skill="thetis/packages"]`
     with `.badge.is-warn` "switched off"; the catalogue row for the same id `.is-off` with the badge too.
@@ -1412,17 +1433,18 @@ real `location.reload()` — `browser_navigate` to the same URL is a fragment na
 the page — and read `browser_network_requests` after each step: what is checked here is as much what is
 **not** asked for as what is. Nothing in this pass should ever put a `.toast` on screen.
 
-Since gateway-web 0.14.0 `+` creates nothing until the first message is sent, so an empty conversation
-can only come from an older page or another client (`POST api/sessions`); make the five with
-`curl -X POST` against the gateway, or through an older page, before step 113.
+`#new-chat` makes nothing on the server: a draft tab only (gateway-web 0.14.0, and a `.tab.is-draft` since
+0.20.0). An empty conversation can only come from another client, so every one this pass needs is made with
+`POST api/sessions` — `curl -X POST` with the page's cookie, or `fetch("api/sessions", { method: "POST" })`
+from `browser_evaluate` — and opened from the sidebar.
 
 113. **Five empty conversations, and words in one of them**: sign in at `http://127.0.0.1:8805/login` at
-     1440px and click `#new-chat` five times, waiting for each tab to appear before the next click (the
-     `creating` guard swallows a second click made while the first is in flight). Expect five `.tab`s, five
-     `.pane[data-session]` and five `.session` rows all reading "New conversation" — the pile this pass
-     exists to be rid of. Call them **A** to **E** in the order made, and note the time. Activate A's tab
-     and send `hello`: expect `.msg.is-assistant .msg-text` "echo: hello (t1)", A's row carrying that
-     preview and `.session-meta` "1 turn". Five rows still: nothing goes while it is on screen.
+     1440px and make five conversations with `POST api/sessions`, one after another. Expect five `.session`
+     rows all reading "New conversation" — the pile this pass exists to be rid of. Call them **A** to **E**
+     in the order made, note the time, and open each from the sidebar: five `.tab[data-session]`s and five
+     `.pane[data-session]`. Activate A's tab and send `hello`: expect `.msg.is-assistant .msg-text` "echo:
+     hello (t1)", A's row carrying that preview and `.session-meta` "1 turn". Five rows still: nothing goes
+     while it is on screen.
 114. **Closing the tab of one nothing was said in discards it**: click E's `.tab-close` (E is not the
      active tab). Expect within a second one `DELETE api/sessions/<E>` answered **200**, no
      `.tab[data-session=<E>]`, **no** `.session[data-session=<E>]` row, four rows left, and no `.toast`.
@@ -1453,8 +1475,8 @@ can only come from an older page or another client (`POST api/sessions`); make t
      names A, and reload. Expect one `DELETE api/sessions/<B>` **200** and a sidebar of A and D — the two
      conversations with words in them, and nothing else. Nothing was ever swept from under anyone: B went
      on the first load that did not come back to it.
-119. **A conversation made a moment ago is left alone**: click `#new-chat` (**F**), then open A from the
-     sidebar so the address bar names A, and reload at once. Expect F still in the list and **no** `DELETE`
+119. **A conversation made a moment ago is left alone**: make **F** with `POST api/sessions` (`#new-chat`
+     would only open a draft), then open A from the sidebar so the address bar names A, and reload at once. Expect F still in the list and **no** `DELETE`
      for it, however many times the page is reloaded inside the ten minutes: the only conversation that
      young is one another window — or the command line — has just made and is being typed into, and this
      page cannot see that. Poll until `Date.now()` is more than ten minutes past F's creation, reload once
@@ -1694,3 +1716,146 @@ default: true }] }`, and `{ block: "a test block" }` while `~/block` exists; the
      preview', {method:'POST'})` answers 409 "forget its parent conversation; a subagent goes with it".
 
 Stop the daemon by the pid on `/tmp/tf/thetis.sock`, release `/tmp/thetis-browser.lock`, and delete `/tmp/tf`.
+
+## Project spaces, edit, questions, and Reflections' To review (2026-11-01)
+
+One throwaway home serves all four sections. Keep it SHORT (`/tmp/tdh7`: the terminal socket path sets the
+ceiling) and inert: after `init`, make `/tmp/tdh7/system-packages` with a symlink per directory of
+`packages/` plus `test/host/fixtures/provider-echo` as `provider-echo`, an empty `/tmp/tdh7/.env`, and
+`thetis.config.json` with `"model": "echo"`, `"envFile": ".env"`, `"door": {"host":"127.0.0.1","port":8817}`,
+`"systemPackagesDir": "/tmp/tdh7/system-packages"`, `systemPackages["*"]` the kernel's default list plus
+`@thetis/sheets`, `@thetis/workflows` and `@thetis/reflections`, `systemPackages._system`
+`["@thetis/provider-echo", "@thetis/provider-openrouter", "@thetis/gateway-login", "@thetis/marketplace"]`,
+`packages` `{"@thetis/provider-echo": {"tag": "t1"}, "@thetis/gateway-login": {"secure": false},
+"@thetis/provider-openrouter": {"apiKey": ""}}`, and `fence.readOnly` listing `<runtime>/packages`,
+`<runtime>/node_modules`, `<runtime>/dist/src`, `<runtime>/package.json`, `/tmp/tdh7/packages`,
+`/tmp/tdh7/system-packages` and `<runtime>/test/host/fixtures`. `users add dev --admin`, `devpass123`,
+`serve`, and check that it prints `environment: /tmp/tdh7/.env`. Sign in at `http://127.0.0.1:8817/login` at
+1440×900 in dark mode. dev's home is `/tmp/tdh7/userspaces/dev/home` (`<home>` below). Steps 28–30, 33 and
+60 of **Projects** run here too, and the conversations they make (`hi` in thetis-check, `hello there` in No
+project) are used below. Run 2026-11-01: every step passed after the three fixes listed at the end;
+screenshots `wph-01` to `wph-26` in `.playwright-mcp/`.
+
+### Project spaces
+
+148. **A parked tab keeps working**: in a thetis-check conversation send `slow: p0 p1 … p99` and pick "No
+     project" within a second. Expect the conversation's `.tab.is-working[hidden]`, a draft
+     (`.tab.is-draft.is-active`) since No project has no tab open, `.pj-head .pj-working-dot` shown, and in
+     the switcher `.pj-item.is-working` "thetis-check" with `.pj-item-note` "2 conversations · 1 working".
+     About five seconds later the dot is hidden. Pick thetis-check: its conversation is active again with
+     the whole reply, and the draft the shell put up is gone. A draft you typed in or picked a project from
+     the pill on stays: pick "No project" on the pill of a draft holding "typed words", and the draft comes
+     along, `#input` still "typed words", `.draft-where` "not in a project".
+149. **The pill moves a conversation**: open `hello there` (No project) and click its `.pj-pill`. Expect one
+     `body > .menu.is-floating` holding a disabled `.menu-item` "Move to", `.menu-item` "thetis-check", "No
+     project" with the check, a `.menu-sep`, "New project…". Pick thetis-check: one `POST …/projects/assign`,
+     `.pj-head-name` "thetis-check", the pill "thetis-check", and the tab still active, now among thetis-check's.
+150. **Workflow runs fold**: from `browser_evaluate`, `POST api/ext/@thetis/workflows/call` with `{ args: {
+     op: "create", name: "wf-check" } }`, then `op: "save"` with a definition whose `project` is
+     thetis-check's id, `start: "go"`, and `steps` `{ go: { type: "prompt", model: "echo", conversation:
+     "new", title: "Run {{input}}", prompt: "hello {{input}}", next: "done" }, done: { type: "done", summary:
+     "Finished." } }`, `op: "publish"`, and `op: "enqueue"` with `text: "one\ntwo"`. In thetis-check expect
+     `details.session-folder[data-group="@thetis/workflows#runs"]` after the recency buckets, folded, its
+     summary "Workflow runs" with `.session-count` "2"; opening a run's row keeps it open. On disk
+     `<home>/harness-core/unattended/<s>.json` `{ "by": "@thetis/workflows", "run": "r_…", "at": … }` for
+     each, and their `harness-core/context/<s>.json` `lastCall.tools` without `ask_user`.
+151. **Canvases and Sheets follow the space**: in thetis-check click `.cv-plus`. Expect "Untitled canvas" in
+     `[data-item="@thetis/canvases#canvases"] .cv-list` and a `.tab.is-kind.is-active`. Pick No project: the
+     canvas tab parked, `.cv-empty` "No canvases yet. ＋ makes one, or ask for a design in a chat.", and the
+     same for `[data-item="@thetis/sheets#sheets"]`. A `spawn:` subagent of a thetis-check conversation has
+     `<home>/projects/agents/<child>.json` `{"project":"p_…","parent":"s_…"}` after its first turn; the echo
+     model cannot call `canvas_create`, so check from node that `projectOfSession(env, "<child>")` of
+     `packages/canvases/lib/projects.js` and `packages/sheets/lib/projects.js` (with `env.readFile` over
+     `<home>`) both answer the project.
+
+### Edit a sent message
+
+152. **Offered on hover**: in `hi` (thetis-check) send `two`. The person's rows carry `data-user="1"` and
+     `"2"`, each with `.msg-marks > button.msg-edit` "Edit" at opacity 0, 1 while the row is hovered. A
+     subagent's pane has none.
+153. **The editor**: click row 1's `.msg-edit`. Expect `.msg.is-user.is-editing` holding `.edit-box`:
+     `textarea.edit-input`, focused, holding `hi` without the `[Turn context: …]` line; `.edit-note`
+     "Replies after this are replaced. Changes already made to files and elsewhere stay."; `.edit-actions`
+     Cancel and Send (`.is-primary`). Escape cancels.
+154. **Send rewinds**: type `hi again` and press Ctrl+Enter. Expect one `POST api/sessions/<id>/edit` with
+     `{"nth":1,"expect":"hi","text":"hi again"}` answered 202 `{ session, startedAt, model, at: 0 }`; the
+     later rows gone; `.msg.is-user.msg-edited` "hi again" then `echo: hi again (t1)`. The record's
+     `conversation.length` is `at + 2`; `<home>/harness-core/rewind/` is empty again (the request the
+     gateway wrote is the one the `rewind` history step read inside the fence, and consumed);
+     `<home>/harness-core/edits/<id>.jsonl` holds one line `{ v: 1, session, turn, at: 0, editedAt, replaced:
+     [the four old messages] }`; `<home>/gateway-web/sessions/dev/<id>.json` has `edited: [{ index: 0, at }]`.
+155. **What it replaced**: click `.edited-label` "Edited" (`aria-expanded` turns `"true"`). Expect
+     `.edit-versions` with `.edit-versions-head` "Before the edit · 1 Nov 08:24", the old rows as
+     `.edit-version-msg.is-user` / `.is-assistant`, and `.edit-copy` "Copy". Edit row 1 again: the head reads
+     "Earlier versions (2)", newest first, each with its `.edit-version-when`. Reload: the row is still
+     `.msg-edited`.
+156. **Not while working**: send `slow: w0 … w59`. While it streams the pane's `.transcript.is-busy` hides
+     every `.msg-edit` (`display: none`) and the row is `.session.is-working`; a probe
+     `fetch('api/sessions/<id>/edit', { method: 'POST', … { nth: 1, expect: 'hi again', text: 'x' } })`
+     answers 409 "Wait for the reply to finish, or stop it." After the turn the class goes.
+157. **A stale page is refused**: the probe with `expect: "nope"` answers 409 "That message changed. Reload
+     the conversation." (Both probes log one console error each, from the probe.)
+
+### Questions end the turn
+
+158. **The card is the end**: `#new-chat` in thetis-check, send `ask: colour?`. Expect `.msg.is-user` then
+     `.tp-ask` (`.tp-ask-title` "Thetis is asking", one `.tp-ask-q` "colour?" with `.tp-ask-option` yes, no
+     and Something else…, `.tp-ask-skip`, Submit in `.tp-ask-foot`) and **nothing after it**: no
+     `.msg.is-assistant`, no `tool said:`. No `.tab.is-working`, no `.session.is-working`, `#stop` hidden.
+     The record ends with the assistant's `ask_user` call and the tool result "Shown to the person as a
+     form. The turn ends here; their answers come as the next message.", with no provider call after it.
+159. **Answer**: pick yes and click Submit. Expect `.msg.is-user` "1. colour? — yes", the card
+     `.tp-ask.is-answered` with `.tp-ask-foot` "Answered.", and the reply `echo: 1. colour? — yes (t1)`.
+160. **Not offered to a subagent**: send `spawn: ask: x`. The child's reply is `echo: ask: x (t1)` (the cue
+     needs the tool offered), and `<home>/harness-core/context/<child>.json` `lastCall.tools` has no
+     `ask_user` while the root's has it. `spawn: tools?` puts the child's tool names in its reply.
+
+### Reflections: To review
+
+Seed `<home>/reflections/` by hand (shapes as in `packages/reflections/test/ops.test.js`):
+`library.json` with three `proposed` entries — a `guide-note` (`before: "[]"`), a `project-instructions`
+for thetis-check (`before` = today's `projects/<id>.md`, `change` = it plus a line), and a `skill` citing
+`[3]` of `s_aaaa1111bbbb`; `findings.json` with one open finding seen 3 times in `hi`'s conversation;
+`s_aaaa1111bbbb/context/trajectory.md` whose `[3]` is `[ACTION] moo_eval(…)`, plus
+`<home>/harness-core/turns/s_aaaa1111bbbb.jsonl` `{"turn":1,"tools":"abcdef01"}` and
+`harness-core/snapshots/s_aaaa1111bbbb/abcdef01.json` `[{"name":"moo_eval","package":"@thetis/moor"}]`;
+`<s>.json` records `{ state: "skipped", skip: "cap", reason: "daily cost cap reached" }` for the two run
+conversations of step 150 (a skip of a conversation that does not exist is not counted), and one `done`
+record with `costUsd: 1.2`.
+
+161. **The list**: open `#menu` → Reflections. Expect `.rfl-tabs` with To review first and selected, then
+     Proposals, Findings, Conversations, Settings; `.rfl-review-line` "3 proposals · 1 finding · 2 not
+     reflected"; then the `.rfl-card`s ranked: the finding (chip "Open", `@thetis/tools-files · edit_path`,
+     the sentence, "Seen 3 times, last <date>", **Fix this**, Copy, Close); "Guide note" "Not tried" "Seen in
+     2 conversations" with **Adopt**, Edit, "Try first (up to $5)", Reject; "thetis-check instructions" the
+     same; "Skill check-the-generator" with "A trial runs offline, so it cannot test this." and no Try
+     first; last "2 archived conversations were not reflected: the $5 daily limit was reached." with
+     "Reflect them (about $2.40)" and "Change the limit". A run conversation's chip
+     `[data-chip="@thetis/reflections#reflection"]` reads "Not reflected: daily limit".
+162. **Adopt untried**: Adopt on the guide note. Expect `.popover` "Adopt without trying it?" with the
+     line Change / Guide note, "It applies to new conversations from now on. You can retire it later.",
+     Cancel and Adopt. Adopt: the card goes, the line "2 proposals · …", the note in
+     `/tmp/tdh7/store/config/users/dev/@thetis/harness-core.toml`, and the entry `adopted` with
+     `applied.untried: true`.
+163. **Edit**: Edit on the skill card opens its detail with `textarea.rfl-editor` holding the whole file,
+     "Against today's file:" and the diff, Save and Cancel. Add a line and Save: the chip reads "Edited" and
+     "The change" shows the line.
+164. **A citation unfolds**: in that detail's Evidence click `button.rfl-cite` "[3]": `aria-expanded="true"`
+     and under it `.rfl-event-kind` "ACTION" with `.rfl-event-text` `moo_eval({"code":"player:tell(1)"})`.
+165. **Out of date, then Update**: write a heading above the line in `projects/<id>.md`. Back on To review the
+     instructions card reads "Out of date" and its first button **Update**. Update: the chip "Updated",
+     the button Adopt; Adopt and confirm: `projects/<id>.md` holds the heading, the line and the proposal's
+     added line.
+166. **Fix this lands in the right space**: pick No project, open Reflections, and click Fix this. Expect the
+     place closed, `.pj-head-name` "thetis-check", `.tab.is-draft.is-active` with `.draft-where` "in
+     thetis-check", the pill "thetis-check", `#input` holding "Fix a problem Reflections found in
+     @thetis/tools-files (edit_path): …", and no `POST api/sessions` or `…/send`.
+
+Fixed in this run: a draft the shell opened for an empty space held the screen when you came back to a space
+with tabs (`views/tabs.js`: such a draft is `auto` until touched, and goes); deleting the project you are in
+landed on a draft or another conversation instead of the one on screen (`projects/ui/place.js` reads the map
+fresh before leaving the space); a proposal merged by Update read "Edited" (`reflections/ui/state.js`:
+"Updated").
+
+Stop the daemon by the pid on `/tmp/tdh7/thetis.sock` (`ss -lxp | grep tdh7/thetis.sock`), release
+`/tmp/thetis-browser.lock`, and delete `/tmp/tdh7`.

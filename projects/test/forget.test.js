@@ -45,3 +45,16 @@ test("forget is idempotent: a second run, and a home without projects, report no
   assert.deepEqual(await forgetSession(args, bare.env), { removed: [] });
   await bare.done();
 });
+
+test("forget removes a subagent's agents file and says so", async () => {
+  const { env, home, done } = await makeEnv();
+  const p = await saveProject(env, null, validateProject({ name: "Thetis" }));
+  await assignSession(env, "s_a", p.id);
+  await env.writeFile("projects/agents/s_child.json", JSON.stringify({ project: p.id, parent: "s_a" }));
+  await env.writeFile("projects/agents/s_keep.json", JSON.stringify({ project: p.id, parent: "s_b" }));
+  const out = await forgetSession({ phase: "forget", session: "s_a", sessions: ["s_a", "s_child", "../sessions"] }, env);
+  assert.deepEqual(out, { removed: ["1 conversation taken out of the project Thetis.", "The project of 1 subagent conversation."] });
+  assert.deepEqual(await readdir(resolve(home, "projects", "agents")), ["s_keep.json"]);
+  assert.deepEqual(await forgetSession({ phase: "forget", session: "s_a", sessions: ["s_a", "s_child"] }, env), { removed: [] });
+  await done();
+});

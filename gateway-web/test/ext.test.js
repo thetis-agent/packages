@@ -64,7 +64,8 @@ test("ext.tab registers only a declared kind; open.tab and close.tab reach the s
   ext.open.tab("canvas", "c1", { id: "c1" });
   createExt({ package: "@t/elsewhere" }).open.tab("canvas", "c2");
   ext.close.tab("canvas", "c1");
-  assert.deepEqual(opened, [["@t/canvases#canvas", "c1", { id: "c1" }], ["@t/canvases#canvas", "c2", undefined]], "another package reaches the kind by its id");
+  ext.open.tab("canvas", "c3", null, { space: "p_1" });
+  assert.deepEqual(opened, [["@t/canvases#canvas", "c1", { id: "c1" }, undefined], ["@t/canvases#canvas", "c2", undefined, undefined], ["@t/canvases#canvas", "c3", null, { space: "p_1" }]], "another package reaches the kind by its id; the space rides along");
   assert.deepEqual(closed, [["@t/canvases#canvas", "c1"]]);
 });
 

@@ -103,6 +103,26 @@ test("excludedFor reads the session's project and its skills.disable", async () 
   }
 });
 
+test("a subagent's project comes from projects/agents/<id>.json; the assignments map wins", async () => {
+  const { home, rm, env } = fixture();
+  try {
+    mkdirSync(resolve(home, "projects", "agents"), { recursive: true });
+    writeFileSync(resolve(home, "projects", "sessions.json"), JSON.stringify({ "s-root": "p_0123abcd", "s-both": "p_deadbeef" }));
+    writeFileSync(resolve(home, "projects", "agents", "s-child.json"), JSON.stringify({ project: "p_0123abcd", parent: "s-root" }));
+    writeFileSync(resolve(home, "projects", "agents", "s-both.json"), JSON.stringify({ project: "p_0123abcd", parent: "s-root" }));
+    writeFileSync(resolve(home, "projects", "agents", "s-bad.json"), JSON.stringify({ project: "nope", parent: "s-root" }));
+    writeFileSync(resolve(home, "projects", "p_0123abcd.json"), JSON.stringify({ id: "p_0123abcd", name: "P", skills: { disable: ["mine"] } }));
+    assert.equal(await projectOf(env, "s-child"), "p_0123abcd");
+    assert.equal(await projectOf(env, { id: "s-both" }), "p_deadbeef", "the map first");
+    assert.equal(await projectOf(env, "s-bad"), null);
+    assert.equal(await projectOf(env, "s-none"), null);
+    assert.equal(await projectOf(env, "../agents/s-child"), null, "not a file name");
+    assert.deepEqual(await excludedFor(env, "s-child"), new Set(["mine"]), "the child is switched off like its root");
+  } finally {
+    rm();
+  }
+});
+
 test("selectSkills leaves out errored and switched-off skills, caps universals, and notes each", async () => {
   const { home, rm, packages, env } = fixture();
   try {

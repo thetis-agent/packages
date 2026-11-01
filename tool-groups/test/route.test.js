@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { clearCache, STATE as SKILLS_STATE } from "@thetis/skills";
 import { route, scope, STATE } from "../index.js";
 import { deriveGroups, routable } from "../lib/groups.js";
-import { routeOnce, section, strayCalls, HEADING, INTRO } from "../lib/route.js";
+import { projectDisabled, routeOnce, section, strayCalls, HEADING, INTRO } from "../lib/route.js";
 import { CACHE_PATH } from "../lib/dense.js";
 import { home, ctxOf, table, pkg, attached, fakeFetch, fakeVector, noNetwork } from "./helpers.js";
 
@@ -222,6 +222,24 @@ test("the scoping step keeps the tools of active groups in attach order, never d
     const project = await scope(ctxOf(h.env, { harness: { [STATE]: pin }, call: { model: "m", messages: [], tools, params: {} } }));
     assert.ok(!project.call.hints.withheld.includes("terminal_run"));
     assert.ok(project.call.hints.withheld.includes("terminal_open"));
+  } finally {
+    h.rm();
+  }
+});
+
+test("projectDisabled: a subagent's project comes from projects/agents/<id>.json; the assignments map wins", async () => {
+  const h = home();
+  try {
+    assert.deepEqual(await projectDisabled(h.env, "s-child"), new Set(), "no files at all");
+    await h.env.writeFile("projects/agents/s-child.json", JSON.stringify({ project: "p_00000001", parent: "s-root" }));
+    await h.env.writeFile("projects/p_00000001.json", JSON.stringify({ id: "p_00000001", tools: { disable: ["terminal_run"] } }));
+    await h.env.writeFile("projects/p_00000002.json", JSON.stringify({ id: "p_00000002", tools: { disable: ["bq_query"] } }));
+    assert.deepEqual(await projectDisabled(h.env, "s-child"), new Set(["terminal_run"]), "without sessions.json");
+    await h.env.writeFile("projects/sessions.json", JSON.stringify({ "s-root": "p_00000001", "s-child": "p_00000002" }));
+    assert.deepEqual(await projectDisabled(h.env, "s-child"), new Set(["bq_query"]), "the map first");
+    await h.env.writeFile("projects/agents/s-grand.json", JSON.stringify({ project: "p_00000001", parent: "s-child" }));
+    assert.deepEqual(await projectDisabled(h.env, "s-grand"), new Set(["terminal_run"]));
+    assert.deepEqual(await projectDisabled(h.env, "s-none"), new Set());
   } finally {
     h.rm();
   }

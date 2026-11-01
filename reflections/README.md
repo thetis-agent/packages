@@ -5,10 +5,38 @@ turn: the guide and system text, the tools, the skills, the package versions. It
 what the assistant tried and what each attempt did, what the packages did wrong (**findings**), and at most
 one change to the harness that should make the next conversation like this one go better (a **proposal**).
 
-Nothing it writes reaches a conversation on its own. A proposal is first **trialled**: its request runs in a
-throwaway copy of your Thetis with the change and without it, and a judge grades the runs blind. Only you
-adopt it, after reading that comparison, and you can retire it again. Findings are never shown to the
-assistant; they are for whoever maintains the package.
+Nothing it writes reaches a conversation on its own. You adopt a proposal, after a trial if one can test it,
+or directly. You can edit it first, and retire it later. Findings never reach the assistant on their own:
+Fix this puts one in a new conversation's message box, and only your send carries it. A **trial** runs the
+request in a throwaway copy of your Thetis with the change and without it, and a judge grades the runs
+blind.
+
+## The place
+
+Tabs: **To review** · Proposals · Findings · Conversations · Settings.
+
+- **To review** opens with a count line ("4 proposals · 6 findings · 11 not reflected"), then up to 10 cards
+  ranked by `sightings × 0.5^(days since the last / 7)`. A proposal card says where it goes, "Seen in N
+  conversations", the project, and a chip (Out of date, Not tried, Edited, Updated, Trial: …), with **Adopt** (or
+  **Update** when its file moved and the change merges, or **Edit** when it does not), **Edit**, **Try first
+  (up to $5)** when a trial can test it, and **Reject**. A finding card has **Fix this**, **Copy** and
+  **Close**. The archives the daily limit skipped get **Reflect them (about $N)**, the mean cost of the last
+  10 reflections times their count, and **Change the limit**.
+- **Adopt** without a trial asks "Adopt without trying it?" first; after a trial that said hurt or
+  inconclusive it reads "Adopt anyway". A setting whose value moved since the proposal says what it is now.
+- **Edit**: a guide note is one line; a skill or project instructions are the whole text (today's file with
+  the change merged in, when it merges), with a live diff against today's file; a setting is JSON. The
+  guard's limits apply. A trialled proposal goes back to Not tried, and its trial reads "Trial was for the
+  earlier text".
+- **Try first** is replaced by "A trial runs offline, so it cannot test this." when a cited `[ACTION]` used
+  a tool of a `liveOnly` package (the tool's package from the stamp's tools snapshot; a fork counts as what
+  it forks).
+- **Fix this** asks `finding-text` and calls `ext.conversation.start({ space, text })`: the draft opens in
+  the project the finding was seen in most, with the message filled and nothing sent. Without that seam it
+  copies the message and says "Copied. Paste it into a new conversation." **Copy** puts a Markdown issue on
+  the clipboard: title, `package@version`, component, what, and each sighting with its cited events.
+- **Citations**: a `[n]` in evidence, confidence or a finding is a button that unfolds the event (at most
+  2,000 characters) in place, read from the reflection's export.
 
 Nothing here touches the daemon. The archive and forget hooks are the web gateway's session seam
 (`thetis.sessions`); the service runs in your own fence and uses `kernel.sessions.list` and `inspect`,
@@ -26,7 +54,8 @@ judgement, with no tools. Trials go through `@thetis/host-trials` over `kernel.o
 3. **The queue.** The service watches `reflections/` and sweeps it every half minute, and on start it
    queues again any record a stopped service left `running`. It reflects one conversation at a time,
    oldest first. Before each it checks the daily cap; an automatic reflection past the cap is `skipped`
-   ("daily cost cap reached"), and Reflect pressed by you runs anyway.
+   with `skip: "cap"` ("daily cost cap reached"; the chip reads "Not reflected: daily limit"), and Reflect
+   pressed by you (`manual`) runs anyway.
 4. **The export.** The conversation, its subagents, the harness record and the library index are written
    as evidence under `reflections/<s>/context/` (below). Past `inputChars` the middle of the conversation is
    left out, the gap is said where it is, and the record is marked partial.
@@ -163,7 +192,14 @@ not instructions; and that no secret is ever copied.
 ```
 
 - **States**: `proposed` → `trialling` → `trialled` → `adopted` | `rejected`; `adopted` → `retired`. A
-  `trialled` or `adopted` entry can be trialled again.
+  `trialled` or `adopted` entry can be trialled again. A `proposed` one is adopted without a trial with
+  `untried`, recorded as `applied.untried`.
+- **`edited: {at}`**, **`rebasedAt`**: the person replaced the change (`editEntry`), or it was merged into
+  today's file (`rebaseEntry`); either sets `before` to today's file and marks the verdict `stale`, and an
+  edit puts `trialled` back to `proposed`.
+- **`staleness`** (answered, not stored): `fresh`, `mergeable` or `conflict`, for a skill or instructions
+  file that moved since `before`. The merge (`lib/merge.js`) is a three-way line merge: the change's hunks
+  apply when none overlaps one of today's file; both sides adding at the end of a file keeps both.
 - **`owner`**: the package whose component it changes. A shipped skill: that package; a home or new skill:
   `null`; a guide note: `@thetis/harness-core`; config: its package; project instructions:
   `@thetis/projects`.
@@ -210,11 +246,12 @@ not instructions; and that no secret is ever copied.
      the verdict and the answer as it came. The entry becomes `trialled` with
      `verdict: {result, why, seen, runs, costUsd, judgeCostUsd, best, runnerUp, weak?, at, trial}`. The
      judge's cost goes into the day's spend; the cap never stops it.
-- **Adopt** (`adoptEntry`): needs `trialled`, or `adopted` with a re-check. It refuses with "<where> changed
-  since the proposal; run the trial again" when what is there now is not `before` (or, once applied, not
-  what was applied). Then it writes the skill or instructions file, appends the note to
-  `@thetis/harness-core` `guideNotes`, or sets the config key, at your own layer, and records
-  `applied: {before, after, at}`.
+- **Adopt** (`adoptEntry`): needs `trialled`, `proposed` with `untried`, or `adopted` with a re-check. A
+  skill or instructions file that is no longer `before` (or, once applied, what was applied) gets the change
+  merged in, or it refuses: "<where> changed in the same place since; edit the proposal." A guide note is
+  appended unless it is there; a config key is set whatever it is now. Then it writes the file, the note in
+  `@thetis/harness-core` `guideNotes`, or the key, at your own layer, and records
+  `applied: {before, after, at, untried?}`.
 - **Retire** (`retireEntry`) puts `applied.before` back: a new or shipped-override skill's file is deleted
   (and its directory, when empty), a home skill or instructions file is rewritten, the note is removed (the
   last one unsets the key), a config key is restored or unset.
@@ -239,7 +276,7 @@ closes one.
 
 | Path | What |
 |---|---|
-| `reflections/<s>.json` | One conversation's record: `session`, `title`, `project`, `state`, and as they apply `reason`, `detail`, `error`, `model`, `costUsd`, `tokens`, `events`, `rows`, `proposal` (`L-…` or null), `findings` (`[F-…]`), `reinforced`, `note`, `partial`, `manual`, `queuedAt`, `startedAt`, `finishedAt`, `archivedAt`. `reason` reads "no proposal: <why>" when there is none. |
+| `reflections/<s>.json` | One conversation's record: `session`, `title`, `project`, `state`, and as they apply `reason`, `skip` (`"cap"` for a daily-cap skip), `detail`, `error`, `model`, `costUsd`, `tokens`, `events`, `rows`, `proposal` (`L-…` or null), `findings` (`[F-…]`), `reinforced`, `note`, `partial`, `manual`, `queuedAt`, `startedAt`, `finishedAt`, `archivedAt`. `reason` reads "no proposal: <why>" when there is none. |
 | `reflections/<s>.md` | The reflection: the rows with their component, the findings (and the refused ones, with why), and the proposal (a diff against `before` for a skill or instructions), or the refused block as it came. |
 | `reflections/<s>/context/` | The evidence. |
 | `reflections/library.json` | The proposals. |
@@ -279,6 +316,7 @@ led to stay; retire them in Reflections".
 | `trialMinutes` | `20` | The cap for one run. |
 | `trialScratchMb` | `8192` | The memory a trial run may write into. |
 | `trialModel` | not set | The model trials run on; unset means the one the conversation ran with. |
+| `liveOnly` | `@thetis/moo`, `moor`, `moo-build`, `moo-puppet`, `exa`, `browser`, `gh`, `notion`, `portainer`, `bigquery`, `gcloud`, `vikunja`, `grafana` (all `@thetis/`) | Packages whose tools reach live services; a proposal citing one of their actions offers no trial. |
 
 ## Code
 
@@ -290,10 +328,12 @@ led to stay; retire them in Reflections".
 | `lib/export.js` | The trajectory and its cuts. |
 | `lib/harness.js` | The stamps, the snapshots, `harness/`, and today's packages. |
 | `lib/prompt.js` | The mission, the request, the parse, the guard. |
-| `lib/library.js` | Proposals and findings: `listEntries`, `getEntry`, `rejectEntry`, `startTrial`, `cancelTrial`, `adoptEntry`, `retireEntry`, `listFindings`, `closeFinding`, the sweeps, the forget. |
+| `lib/library.js` | Proposals and findings: `listEntries`, `getEntry`, `staleness`, `rejectEntry`, `startTrial`, `cancelTrial`, `adoptEntry`, `editEntry`, `rebaseEntry`, `retireEntry`, `listFindings`, `closeFinding`, `findingText`, the sweeps, the forget. |
+| `lib/merge.js` | `merge3`: the three-way line merge, on `ui/diff.js`'s line diff (the browser reads only `ui/`). |
+| `lib/events.js` | Reading an event back from an export; the cited actions and `trialable`. |
 | `lib/trials.js` | Following a trial, the run export, the judge, the aggregation. |
 | `lib/hooks.js` | The archive and forget hooks. |
-| `lib/ops.js` | The ops of `call`. |
+| `lib/ops.js` | The ops of `call`, `review`, `reflect-skipped`, `event`, `edit`, `rebase` and `finding-text` among them. |
 | `lib/records.js`, `lib/files.js` | The records, the settings, the day's spend, the gateway's marks; whole-file writes. |
 | `ui/` | The chip and the place. |
 
@@ -302,7 +342,8 @@ led to stay; retire them in Reflections".
 `npm test` here. No model is called and no daemon is started: a fake kernel answers from tables and a fake
 `host.trials.*` writes trial directories. `prompt.test.js` (the mission's rules, the parse, every refusal),
 `export.test.js` (the trajectory, `harness/` with stamps and NONE, `library/INDEX.md`), `library.test.js`
-(states, reinforces, start and cancel, adopt and retire per kind, before-mismatch, re-check),
+(states, reinforces, start and cancel, adopt and retire per kind, untried, merge or refusal over a moved
+file, edit, rebase, trialable, re-check), `merge.test.js`,
 `findings.test.js` (same-as, possibly-fixed, reopen), `trials.test.js` (anonymising, the judge's request and
 parse, every verdict, seen, failed and cut-short trials), `hooks.test.js`, `service.test.js`, `ops.test.js`
 and `ui.test.js`.

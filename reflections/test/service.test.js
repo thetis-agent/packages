@@ -250,6 +250,7 @@ test("the daily cap skips an automatic reflection and lets a person's through", 
     await t.service.start();
     const a = await until(async () => { const x = await get(t.home, `reflections/${A}.json`); return x?.state === "skipped" && x; });
     assert.equal(a.reason, "daily cost cap reached");
+    assert.equal(a.skip, "cap", "the place counts cap skips by this, not by the sentence");
     assert.match(a.detail, /^\$1\.20 spent today of the \$1\.00 cap/);
     const b = await until(async () => { const x = await get(t.home, `reflections/${B}.json`); return x?.state === "done" && x; });
     assert.equal(b.costUsd, 0.04);

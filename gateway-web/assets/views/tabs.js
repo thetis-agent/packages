@@ -23,15 +23,31 @@
  * body the package draws whole through `open(root, handle)`; no chat bar, no transcript, no chips, never
  * dropped for being far back. While one is shown `current` is null — no conversation is on screen, as in a
  * `+` draft — and `activeTab` names it, which is what the composer hides on and the address bar writes. A
- * kind declared but not yet registered shows "Loading…" and is drawn when its module lands. */
+ * kind declared but not yet registered shows "Loading…" and is drawn when its module lands.
+ *
+ * Every pane belongs to a space (lib/space.js): a conversation's is its root's, as the provider says; a
+ * package's is the one it was opened for, else the one current when it opened. Panes of other spaces are
+ * parked: their tabs are hidden, never closed, and their events still arrive. Showing a parked pane enters
+ * its space first. Each space remembers the pane last shown in it, and entering a space shows that one,
+ * else its most recently shown pane, else the draft.
+ *
+ * The draft is one more tab, keyed `draft`, at the end of the strip: a new conversation that does not exist
+ * yet. Nothing is on the server until its first send, which replaces it in place with the conversation's
+ * tab (`open(id, { fromDraft: true })`). While it is shown `current` and `activeTab` are null, as for a
+ * `+` before. It is never parked: it is always in the current space, and when the space changes while it is
+ * shown it stays, with whatever was typed; except a draft the shell put up for a space with nothing open,
+ * which goes when the next space has a pane of its own to show, unless the person has touched it. */
 
 import { fmtCost, shortModel } from "../lib/activity.js";
 import { api } from "../lib/api.js";
 import { $, clear, el, icon, setHidden } from "../lib/dom.js";
 import { openMenu } from "../lib/menu.js";
 import * as registry from "../lib/registry.js";
+import { watchAgent } from "../lib/agent.js";
+import { space } from "../lib/space.js";
 import { store } from "../lib/store.js";
 import { toast } from "../lib/toast.js";
+import { draftState } from "./draft.js";
 import { MORE, titleOf } from "./sessions.js";
 import { emptyState, mountTranscript } from "./transcript.js";
 
@@ -39,24 +55,32 @@ const X = ["M5 5l10 10", "M15 5l-10 10"];
 const ARCHIVE = ["M3.5 5.5h13v2.5h-13zM4.5 8v7.5h11V8M8 11h4"];
 const STOP = ["M6.5 6.5h7v7h-7z"];
 const KEEP = 5; // panes with their rows built: the shown one and the ones shown most recently
+const DRAFT = "draft"; // the draft's pane key
+const FLASH_MS = 700;
 
 /** The pane key of a tab: a conversation's is its session id; a package's is `<kind>:<id>`. */
 export const keyOf = (kind, id) => (kind === "session" ? id : `${kind}:${id}`);
 
-export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExample, onForget }) {
+export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExample, onForget, onDraftClosed }) {
   const strip = $("tabs");
   const host = $("panes");
   const newTab = $("new-tab");
   const panes = new Map(); // pane key -> { id, kind, agent, node, tab, dot, label, note, transcript, bar, chips, drawn, built } (a package's pane: kind, entry, params, body, impl)
   const order = [];        // open pane keys, in tab order
   const recent = [];       // open session ids, most recently shown first: the first KEEP stay built
+  const lastBySpace = new Map(); // space id (null for none) -> the pane key last shown in it
+  let activeKey = null;    // the pane on screen: a pane key, DRAFT, or null for the empty state
+  let draft = null;        // { node, tab, body } while the draft tab is open
+  let shownClock = 0;      // stamps `pane.shownAt`, so the most recently shown pane of a space is known
+  let wanted = null;       // the pane a space switch is being made for, shown by `follow` in place of the remembered one
+  let following = null;    // what `follow` started, for the `activate` that asked for the switch
+  let settled = false;     // whether the page has put anything on screen yet: until then a space change only re-places
   const empty = el("section", { class: "pane is-empty is-active" }, emptyState("none", onNew));
   host.append(empty);
 
-  /** The pane shown when no conversation is: "none" offers to start one, "new" is a new one not yet said anything in. */
-  function showEmpty(kind) {
-    empty.replaceChildren(emptyState(kind === "new" ? "new" : "none", onNew, onExample));
-    empty.classList.toggle("is-new", kind === "new");
+  /** The pane shown when nothing is open, not even the draft: it offers to start a conversation. */
+  function showEmpty() {
+    empty.replaceChildren(emptyState("none", onNew));
     empty.classList.add("is-active");
   }
 
@@ -112,19 +136,20 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExa
       el("button", { type: "button", class: "tab-open", role: "tab", onClick: () => activate(id) }, dot, label, note),
       el("button", { type: "button", class: "tab-close", title: "Close this tab", "aria-label": "Close this tab", onClick: () => close(id) }, icon(X, { size: 10, width: 2 }))
     );
-    strip.insertBefore(tab, newTab);
+    strip.insertBefore(tab, anchor());
     host.append(node);
     const transcript = mountTranscript(root, { session: id, brief: agent, onOpenAgent: (child) => { void open(child); } });
-    const pane = { id, kind: "session", agent, node, tab, dot, label, note, bar, chips, transcript, drawn: { turn: null, seq: 0 }, built: false, restored: false };
+    const pane = { id, kind: "session", agent, node, tab, dot, label, note, bar, chips, transcript, drawn: { turn: null, seq: 0 }, built: false, restored: false, space: space.current, known: false, shownAt: 0 };
     panes.set(id, pane);
     drawChips(pane);
     drawBar(pane);
+    placePane(pane);
     return pane;
   }
 
   // ---- a package's pane ----
 
-  function createKindPane(entry, id, params) {
+  function createKindPane(entry, id, params, home) {
     const key = keyOf(entry.id, id);
     const body = el("div", { class: "kind-body" });
     const node = el("section", { class: "pane is-kind", "data-kind": entry.id, "data-key": key, role: "tabpanel" }, body);
@@ -137,11 +162,12 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExa
       el("button", { type: "button", class: "tab-close", title: "Close this tab", "aria-label": "Close this tab", onClick: () => close(key) }, icon(X, { size: 10, width: 2 }))
     );
     tab.title = entry.decl.label || entry.id;
-    strip.insertBefore(tab, newTab);
+    strip.insertBefore(tab, anchor());
     host.append(node);
-    const pane = { id, key, kind: entry.id, entry, params: params ?? {}, node, tab, label, note, body, impl: null, transcript: null, chips: null, built: true, drawn: { turn: null, seq: 0 } };
+    const pane = { id, key, kind: entry.id, entry, params: params ?? {}, node, tab, label, note, body, impl: null, transcript: null, chips: null, built: true, drawn: { turn: null, seq: 0 }, home, space: space.current, shownAt: 0 };
     panes.set(key, pane);
     mountKind(pane);
+    placePane(pane);
     return pane;
   }
 
@@ -357,24 +383,197 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExa
     for (const pane of panes.values()) drawChips(pane, change.kind === "redraw" ? change.package : null);
   });
 
-  // ---- open, activate, close ----
+  // ---- spaces: which pane is in which, and the tabs of the others parked ----
 
-  /** Shows a pane, building its rows first when it has none. Resolves once they are built. `key` is a session id or a package pane's key. */
-  async function activate(key) {
-    const pane = panes.get(key);
-    if (!pane) return;
+  /** Where new tabs go: before the draft, which stays at the end of the strip, else before the `+`. */
+  const anchor = () => draft?.tab ?? newTab;
+
+  /**
+   * The space a pane is in. A conversation's is its root's, once the provider knows it; until then it stays
+   * where it was, and one never known floats in the current space. A package pane's is the one it was opened
+   * for, else it floats too. With no provider every pane is in the one space, null.
+   */
+  function spaceOf(pane) {
+    if (!space.provided()) return (pane.space = null);
+    if (pane.kind === "session") {
+      const at = space.of(store.rootOf(pane.id));
+      if (at !== undefined) {
+        pane.known = true;
+        pane.space = at;
+      } else if (!pane.known) pane.space = space.current;
+      return pane.space;
+    }
+    return (pane.space = pane.home === undefined ? space.current : pane.home);
+  }
+
+  function placePane(pane) {
+    setHidden(pane.tab, spaceOf(pane) !== space.current);
+  }
+
+  function place() {
+    for (const pane of panes.values()) placePane(pane);
+  }
+
+  /** The pane of `at` shown last: the remembered one while it is still there, else the most recently shown, else the last in the strip. */
+  function pickIn(at) {
+    const last = lastBySpace.get(at);
+    if (last && panes.has(last) && spaceOf(panes.get(last)) === at) return last;
+    let best = null;
+    for (const key of order) {
+      const pane = panes.get(key);
+      if (spaceOf(pane) !== at) continue;
+      if (!best || pane.shownAt >= panes.get(best).shownAt) best = key;
+    }
+    return best;
+  }
+
+  /** The current space changed: park the others' tabs and show what this one had, unless the draft is on screen. */
+  function follow(at) {
+    place();
+    drawDraft();
+    const want = wanted;
+    wanted = null;
+    if (want && panes.has(want)) {
+      following = activate(want);
+      return;
+    }
+    // The page is still choosing what to open (the provider came while it loaded): no draft of its own.
+    if (!settled) return;
+    // The draft comes along, and what was typed in it; unless the shell put it up only because the space it
+    // left had nothing open and the person never touched it: then the new space's own pane comes back.
+    if (activeKey === DRAFT && !draft?.auto) return;
+    const shown = activeKey && activeKey !== DRAFT && panes.get(activeKey);
+    if (shown && spaceOf(shown) === at) return;
+    const key = pickIn(at);
+    if (key && activeKey === DRAFT) dropDraft();
+    following = key ? activate(key) : activeKey === DRAFT ? Promise.resolve() : (openDraft({ auto: true }), Promise.resolve());
+  }
+
+  /** The provider's map or names moved: re-place, and when the conversation on screen moved, its space follows it. */
+  function respace() {
+    place();
+    drawDraft();
+    const shown = activeKey && activeKey !== DRAFT ? panes.get(activeKey) : null;
+    if (shown?.kind !== "session") return;
+    const at = spaceOf(shown);
+    if (at === space.current) return;
+    wanted = activeKey;
+    space.enter(at);
+  }
+
+  space.watch(follow);
+  space.onChanged(respace);
+  // A draft the shell opened becomes the person's once they reach into it or the composer (the project pill too).
+  const claim = (event) => {
+    if (draft?.auto && ["[id=composer]", ".pane.is-draft", ".tab.is-draft"].some((at) => event.target?.closest?.(at))) draft.auto = false;
+  };
+  // Pointer and keys only: the page itself moves focus into the composer, which says nothing about the person.
+  for (const name of ["pointerdown", "keydown"]) document.addEventListener(name, claim, true);
+
+  // ---- the draft ----
+
+  function drawDraft() {
+    if (!draft) return;
+    const name = space.provided() ? (space.current === null ? null : space.name(space.current)) : undefined;
+    draft.body.replaceChildren(draftState(name, onExample));
+  }
+
+  /**
+   * Opens the draft, or shows the one there is and flashes its tab: there is never a second. Answers
+   * whether a new one was made. `auto`: the shell opened it for a space with nothing open; such a draft is
+   * the person's once they touch it or the composer, and until then it does not hold the screen when the
+   * space changes again.
+   */
+  function openDraft({ auto = false } = {}) {
+    settled = true;
+    const made = !draft;
+    if (!made && !auto) draft.auto = false;
+    if (made) {
+      const body = el("div", { class: "draft-body" });
+      const node = el("section", { class: "pane is-draft", "data-key": DRAFT, role: "tabpanel" }, body);
+      const tab = el(
+        "div",
+        { class: "tab is-draft", "data-key": DRAFT, title: "New conversation" },
+        el("button", { type: "button", class: "tab-open", role: "tab", onClick: () => { void activate(DRAFT); } }, el("span", { class: "tab-title" }, "New conversation")),
+        el("button", { type: "button", class: "tab-close", title: "Close this tab", "aria-label": "Close this tab", onClick: () => close(DRAFT) }, icon(X, { size: 10, width: 2 }))
+      );
+      strip.insertBefore(tab, newTab);
+      host.append(node);
+      draft = { node, tab, body, auto };
+      drawDraft();
+    } else if (!auto) {
+      draft.tab.classList.remove("is-flash");
+      draft.tab.classList.add("is-flash");
+      const tab = draft.tab;
+      setTimeout(() => tab.classList.remove("is-flash"), FLASH_MS);
+    }
+    showDraft();
+    return made;
+  }
+
+  function showDraft() {
+    if (!draft) return;
     const before = shownKind();
-    if (before && before !== pane) hook(before, "deactivate");
-    // One `set` for both, so a watcher of either sees them agree: a conversation on screen, or none and which tab instead.
-    const shown = store.get("activeTab");
-    const same = shown && shown.kind === pane.kind && shown.id === pane.id;
-    store.set({ current: pane.kind === "session" ? pane.id : null, activeTab: same ? shown : { kind: pane.kind, id: pane.id } });
+    if (before) hook(before, "deactivate");
+    activeKey = DRAFT;
+    store.set({ current: null, activeTab: null });
+    mark(null);
+    drawDraft();
+    draft.tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+
+  /** The draft goes: closed, or turned into the conversation its first send made. */
+  function dropDraft() {
+    if (!draft) return;
+    draft.node.remove();
+    draft.tab.remove();
+    draft = null;
+    if (activeKey === DRAFT) activeKey = null;
+  }
+
+  /** Marks the pane on screen (a pane, the draft when `pane` is null and the draft is shown) and no other. */
+  function mark(pane) {
     for (const p of panes.values()) {
       p.node.classList.toggle("is-active", p === pane);
       p.tab.classList.toggle("is-active", p === pane);
       p.tab.querySelector(".tab-open").setAttribute("aria-selected", p === pane ? "true" : "false");
     }
-    empty.classList.remove("is-active");
+    if (draft) {
+      const on = !pane && activeKey === DRAFT;
+      draft.node.classList.toggle("is-active", on);
+      draft.tab.classList.toggle("is-active", on);
+      draft.tab.querySelector(".tab-open").setAttribute("aria-selected", on ? "true" : "false");
+    }
+    if (pane || activeKey === DRAFT) empty.classList.remove("is-active");
+  }
+
+  // ---- open, activate, close ----
+
+  /** Shows a pane, building its rows first when it has none. Resolves once they are built. `key` is a session id or a package pane's key. */
+  async function activate(key) {
+    if (key === DRAFT) return showDraft();
+    const pane = panes.get(key);
+    if (!pane) return;
+    const at = spaceOf(pane);
+    if (at !== space.current) {
+      // A parked pane: its space is entered first, and `follow` shows this pane there.
+      wanted = key;
+      following = null;
+      space.enter(at);
+      wanted = null;
+      if (following) return following;
+    }
+    setHidden(pane.tab, false);
+    const before = shownKind();
+    if (before && before !== pane) hook(before, "deactivate");
+    activeKey = key;
+    pane.shownAt = ++shownClock;
+    lastBySpace.set(at, key);
+    // One `set` for both, so a watcher of either sees them agree: a conversation on screen, or none and which tab instead.
+    const shown = store.get("activeTab");
+    const same = shown && shown.kind === pane.kind && shown.id === pane.id;
+    store.set({ current: pane.kind === "session" ? pane.id : null, activeTab: same ? shown : { kind: pane.kind, id: pane.id } });
+    mark(pane);
     pane.tab.scrollIntoView({ block: "nearest", inline: "nearest" });
     if (pane.kind !== "session") {
       if (before !== pane) hook(pane, "activate");
@@ -385,11 +584,15 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExa
     await load(pane);
   }
 
-  async function open(id) {
-    if (panes.has(id)) return activate(id);
-    createPane(id);
-    order.push(id);
-    store.set({ tabs: [...order] });
+  /** Opens a conversation's pane, or shows the one open. `fromDraft`: the draft's first send made it, so its tab takes the draft's place. */
+  async function open(id, { fromDraft = false } = {}) {
+    settled = true;
+    if (!panes.has(id)) {
+      createPane(id);
+      order.push(id);
+      store.set({ tabs: [...order] });
+    }
+    if (fromDraft) dropDraft();
     await activate(id);
   }
 
@@ -397,14 +600,21 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExa
    * A package's tab: `entryKey` names the registry's `tabs` entry, `id` what the tab is about. The one already
    * open for `id` is shown again; else a pane is made and shown. False when no package declares that kind here.
    */
-  async function openKind(entryKey, id, params) {
+  async function openKind(entryKey, id, params, opts) {
     const entry = registry.entry("tabs", entryKey);
     if (!entry) return false;
+    settled = true;
     const key = keyOf(entry.id, id);
+    // The space it is for: the one named, else the current one; with no provider yet it floats.
+    const named = opts?.space !== undefined;
+    const home = named ? (opts.space || null) : space.provided() ? space.current : undefined;
     if (!panes.has(key)) {
-      createKindPane(entry, id, params);
+      createKindPane(entry, id, params, home);
       order.push(key);
       store.set({ tabs: [...order] });
+    } else if (named) {
+      panes.get(key).home = home;
+      placePane(panes.get(key));
     }
     await activate(key);
     return true;
@@ -422,8 +632,12 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExa
    * A package's pane is unmounted first, and `onClosed` is not for it: nothing of it was on the server.
    */
   function close(key) {
+    if (key === DRAFT) return closeDraft();
     const pane = panes.get(key);
     if (!pane) return;
+    // The neighbour that takes over is one of this space's: a parked tab is never shown by a close.
+    const visible = order.filter((k) => k === key || spaceOf(panes.get(k)) === space.current);
+    const near = visible.indexOf(key);
     const at = order.indexOf(key);
     order.splice(at, 1);
     recent.splice(recent.indexOf(key) >>> 0, 1);
@@ -433,32 +647,34 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExa
     pane.node.remove();
     pane.tab.remove();
     store.set({ tabs: [...order] });
-    if (wasShown) {
-      const next = order[at] ?? order[at - 1];
+    if (wasShown || activeKey === key) {
+      if (activeKey === key) activeKey = null;
+      const next = visible[near + 1] ?? visible[near - 1];
       if (next) void activate(next); // `current` moves synchronously, inside activate, before it awaits anything
-      else {
-        store.set({ current: null, activeTab: null });
-        showEmpty("none");
-      }
+      else if (draft) showDraft();
+      else showNone();
     }
     if (pane.kind === "session") onClosed?.(pane.id);
   }
 
-  /**
-   * A new conversation that does not exist yet: no pane is active, nothing is created on the server, and
-   * the composer's first send creates it. A click on `+` that is never followed by a message leaves
-   * nothing behind to be tidied away.
-   */
-  function showNew() {
-    const before = shownKind();
-    if (before) hook(before, "deactivate");
+  /** Nothing on screen: the empty state that offers to start a conversation. */
+  function showNone() {
+    activeKey = null;
     store.set({ current: null, activeTab: null });
-    for (const p of panes.values()) {
-      p.node.classList.remove("is-active");
-      p.tab.classList.remove("is-active");
-      p.tab.querySelector(".tab-open").setAttribute("aria-selected", "false");
-    }
-    showEmpty("new");
+    mark(null);
+    showEmpty();
+  }
+
+  /** Closing the draft leaves nothing behind: what was in it was never on the server. */
+  function closeDraft() {
+    if (!draft) return;
+    const wasShown = activeKey === DRAFT;
+    dropDraft();
+    onDraftClosed?.();
+    if (!wasShown) return;
+    const next = pickIn(space.current);
+    if (next) void activate(next);
+    else showNone();
   }
 
   /**
@@ -510,6 +726,7 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExa
   }
 
   for (const key of ["current", "sessions", "running", "activity", "choices", "agents"]) store.watch(key, drawAll);
+  watchAgent(() => drawDraft()); // the draft's lead names the agent
 
   return {
     open,
@@ -517,12 +734,13 @@ export function mountTabs({ onNew, onClosed, onArchive, onRename, onModel, onExa
     activate,
     close,
     closeKind,
-    showNew,
+    openDraft,
     reveal,
     applyTurn,
     reload,
     list: () => [...order],
     active: () => store.get("activeTab"),
+    hasDraft: () => Boolean(draft),
     transcriptOf: (id) => panes.get(id)?.transcript ?? null,
   };
 }

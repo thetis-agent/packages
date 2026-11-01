@@ -1,6 +1,6 @@
 {
   "name": "@thetis/compaction",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "license": "MIT",
   "description": "Automatic context compaction: summarizes the older part of a long conversation into one note when the next request nears the model's window, keeps the recent tail verbatim, and never edits the record.",
   "type": "module",

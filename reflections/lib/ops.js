@@ -3,18 +3,54 @@
 // while the service is down still lists, cancels and forgets, and a Reflect waits in the queue until the
 // service is back. The proposals and findings are `library.js`'s: an op here checks its arguments, calls
 // the library, and adds what the place draws beside them (titles, project names, the trial's files).
+// `review` is the To review tab: what wants the person, ranked, and the conversations the cap skipped.
 // A file path answered here is relative to the home: Files resolves that against the home, and has no `~/`.
+import { livePackages, readEvent, trialStamps } from "./events.js";
 import { list as listDir, readJson, readText } from "./files.js";
-import { REQUEST_CHARS, adoptEntry, cancelTrial, closeFinding, getEntry, listEntries, listFindings, openingRequest, rejectEntry, retireEntry, startTrial } from "./library.js";
 import {
-  ACTIVE, INSTALLED, NAME, contextDir, hostTrialDir, trialDir, freshRecord, gatewayMarks, isProjectId, isSessionId, listProjects, projectOf, readRecord, readRecords, readSpend,
+  REQUEST_CHARS, adoptEntry, cancelTrial, closeFinding, editEntry, findingText, getEntry, listEntries, listFindings, openingRequest, rebaseEntry, rejectEntry, retireEntry, startTrial,
+} from "./library.js";
+import { merge3 } from "./merge.js";
+import { CHANGE_CHARS, NOTE_CHARS } from "./prompt.js";
+import {
+  ACTIVE, INSTALLED, NAME, contextDir, hostTrialDir, trialDir, freshRecord, gatewayMarks, isCapSkip, isProjectId, isSessionId, listProjects, projectOf, readRecord, readRecords, readSpend,
   readSwitches, reflectionPath, setSwitch, settingsOf, titleOf, writeRecord,
 } from "./records.js";
 
 export const OPS = Object.freeze([
   "list", "get", "reflect", "cancel", "settings", "set-setting", "project-switch",
-  "proposals", "proposal", "trial", "trial-cancel", "adopt", "reject", "retire", "findings", "finding-close",
+  "review", "reflect-skipped", "event",
+  "proposals", "proposal", "trial", "trial-cancel", "adopt", "edit", "rebase", "reject", "retire", "findings", "finding-close", "finding-text",
 ]);
+
+/** How many cards To review shows. */
+export const REVIEW_CARDS = 10;
+/** How many recent reflections the estimate of a batch averages. */
+const ESTIMATE_OVER = 10;
+const DAY_MS = 86_400_000;
+
+/** A card's rank: its sightings, halved for every week since the last one. */
+export function reviewScore(sightings, lastAt, now = Date.now()) {
+  const t = Date.parse(lastAt ?? "");
+  const days = Number.isFinite(t) ? Math.max(0, (now - t) / DAY_MS) : 0;
+  return sightings * 0.5 ** (days / 7);
+}
+
+const latest = (items) => items.reduce((m, x) => (String(x?.at ?? "") > m ? String(x.at) : m), "");
+
+/** Whether a proposal wants the person: not decided, or adopted and re-checked. */
+const wantsReview = (e) => ["proposed", "trialling", "trialled"].includes(e?.state) || (e?.state === "adopted" && !!e.recheck);
+
+/** The mean cost of the last few reflections, times `n`; null when none reported a cost. */
+function estimate(records, n) {
+  const costs = records
+    .filter((r) => r.state === "done" && typeof r.costUsd === "number" && Number.isFinite(r.costUsd))
+    .sort((a, b) => String(b.finishedAt ?? "").localeCompare(String(a.finishedAt ?? "")))
+    .slice(0, ESTIMATE_OVER)
+    .map((r) => r.costUsd);
+  if (!costs.length || !n) return null;
+  return Math.round((costs.reduce((a, b) => a + b, 0) / costs.length) * n * 100) / 100;
+}
 
 const fail = (message) => {
   throw new Error(message);
@@ -112,11 +148,29 @@ export function createOps(env) {
   /** Project ids to names, for an entry whose target is a project. */
   const projectNames = async () => new Map((await listProjects(home)).map((p) => [p.id, p.name]));
 
-  /** An entry as the place draws it: the project's name when it targets one, and each source's state. */
+  /**
+   * An entry as the place draws it: the project's name when it targets one, the project it was seen in most
+   * (`project`, `projectName`), and each source's state.
+   */
   function annotate(entry, names, summaries) {
     const from = (Array.isArray(entry.from) ? entry.from : []).map((f) => ({ ...f, gone: summaries ? !summaries.has(f.session) : false }));
     const targetName = entry.kind === "project-instructions" ? names.get(entry.target) ?? (isProjectId(entry.target) ? "a removed project" : null) : null;
-    return { ...entry, from, targetName };
+    const counts = new Map();
+    for (const f of from) if (isProjectId(f.project)) counts.set(f.project, (counts.get(f.project) ?? 0) + 1);
+    const project = entry.kind === "project-instructions" ? entry.target : [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+    return { ...entry, from, targetName, project, projectName: project ? names.get(project) ?? null : null };
+  }
+
+  /** Whether a trial can test an entry, and the live-only packages that say it cannot. */
+  async function trialFacts(entry, settings) {
+    const live = livePackages(await trialStamps(home, entry), settings.liveOnly);
+    return { trialable: live.length === 0, livePackages: live };
+  }
+
+  /** A setting's value now, as JSON text, for a config proposal's popover; else undefined. */
+  async function configNow(entry) {
+    if (entry.kind !== "config") return undefined;
+    return (await getEntry(home, entry.id, lib)).current ?? null;
   }
 
   const ops = {
@@ -197,17 +251,77 @@ export function createOps(env) {
       return next;
     },
 
+    /**
+     * To review: the proposals that want the person and the open findings, ranked by sightings halved each
+     * week since the last, the first REVIEW_CARDS of them; the counts; and the archives the daily cap skipped,
+     * with what reflecting them would cost.
+     */
+    async review() {
+      const [entries, findings, records, names, all, settings] = await Promise.all([listEntries(home, lib), listFindings(home), readRecords(home), projectNames(), kernelList(env), currentSettings(env)]);
+      const summaries = all ? new Map(all.map((s) => [s.id, s])) : null;
+      const now = Date.now();
+      const proposals = arrayOf(entries, "entries").filter(wantsReview);
+      const open = arrayOf(findings, "findings").filter((f) => f.state === "open" || f.state === "possibly-fixed");
+      const skipped = records.filter((r) => isCapSkip(r) && (!summaries || summaries.has(r.session)));
+      const ranked = [
+        ...proposals.map((e) => ({ type: "proposal", item: e, score: reviewScore(e.from?.length ?? 0, latest(e.from ?? []), now) })),
+        ...open.map((f) => ({ type: "finding", item: f, score: reviewScore(f.seen.length, latest(f.seen), now) })),
+      ].sort((a, b) => b.score - a.score || String(latest(b.item.from ?? b.item.seen ?? [])).localeCompare(String(latest(a.item.from ?? a.item.seen ?? []))));
+      const cards = [];
+      for (const c of ranked.slice(0, REVIEW_CARDS)) {
+        if (c.type === "finding") {
+          const seen = c.item.seen.map((x) => ({ ...x, gone: summaries ? !summaries.has(x.session) : false }));
+          cards.push({ type: "finding", score: c.score, finding: { ...c.item, seen, lastAt: latest(c.item.seen) || null } });
+          continue;
+        }
+        const entry = annotate(c.item, names, summaries);
+        const now_ = await configNow(c.item);
+        cards.push({ type: "proposal", score: c.score, entry: { ...entry, ...(await trialFacts(c.item, settings)), lastAt: latest(c.item.from ?? []) || null, ...(now_ !== undefined ? { current: now_ } : {}) } });
+      }
+      return {
+        counts: { proposals: proposals.length, findings: open.length, skipped: skipped.length },
+        cards,
+        skipped: { count: skipped.length, estimateUsd: estimate(records, skipped.length), capUsd: settings.dailyCostUsd },
+        trial: trialOf(settings),
+      };
+    },
+
+    /** Queues every archive the daily cap skipped, as if Reflect were pressed on each: they run past the cap. */
+    async "reflect-skipped"() {
+      const [records, all, marks] = await Promise.all([readRecords(home), kernelList(env), gatewayMarks(home, env.user)]);
+      const summaries = all ? new Map(all.map((s) => [s.id, s])) : null;
+      const skipped = records.filter((r) => isCapSkip(r) && (!summaries || (summaries.has(r.session) && !summaries.get(r.session).parent)));
+      for (const r of skipped) {
+        const summary = summaries?.get(r.session);
+        const base = { session: r.session, title: summary ? titleOf(marks[r.session], summary) : r.title ?? r.session, project: (await projectOf(home, r.session)) ?? r.project ?? null };
+        await writeRecord(home, freshRecord(base, "queued", { manual: true, ...(r.archivedAt ? { archivedAt: r.archivedAt } : {}) }));
+      }
+      return { count: skipped.length, estimateUsd: estimate(records, skipped.length) };
+    },
+
+    /** One event of a reflected conversation, as its reflection's export has it: what a citation `[n]` unfolds to. */
+    async event({ session, n } = {}) {
+      const s = wantSession(session);
+      if (!Number.isInteger(n) || n < 1 || n > 9_999_999) fail("n must be an event number, such as 72.");
+      const hit = await readEvent(home, s, n);
+      if (!hit) fail(`There is no event [${n}] in the reflection on this conversation.`);
+      return { session: s, n, kind: hit.kind, text: hit.text, cut: hit.cut };
+    },
+
     /** Every proposal, with what the Run trial button promises. */
     async proposals() {
-      const [entries, names, all, settings] = await Promise.all([listEntries(home), projectNames(), kernelList(env), currentSettings(env)]);
+      const [entries, names, all, settings] = await Promise.all([listEntries(home, lib), projectNames(), kernelList(env), currentSettings(env)]);
       const summaries = all ? new Map(all.map((s) => [s.id, s])) : null;
       return { entries: arrayOf(entries, "entries").map((e) => annotate(e, names, summaries)), trial: trialOf(settings) };
     },
 
-    /** One proposal: the entry, its last trial (state, runs and files) and the request a trial would send. */
+    /**
+     * One proposal: the entry (with `current`, `staleness`, `merged` when it merges, and whether a trial can
+     * test it), its last trial (state, runs and files), the request a trial would send, and the edit limits.
+     */
     async proposal({ id } = {}) {
       const want = wantEntry(id);
-      const got = await getEntry(home, want);
+      const got = await getEntry(home, want, lib);
       const entry = got?.entry ?? got;
       if (!entry || entry.id !== want) fail(`There is no proposal ${want}; it may have been forgotten.`);
       const [names, all, settings] = await Promise.all([projectNames(), kernelList(env), currentSettings(env)]);
@@ -215,11 +329,13 @@ export function createOps(env) {
       const trials = Array.isArray(entry.trials) ? entry.trials : [];
       const opening = entry.trialRequest === "opening request";
       const text = opening ? await openingText(env, entry.from?.[0]?.session) : typeof entry.trialRequest === "string" ? entry.trialRequest : null;
+      const merged = entry.staleness === "mergeable" ? merge3(entry.before ?? "", entry.change ?? "", entry.current ?? "") : null;
       return {
-        entry: annotate(entry, names, summaries),
+        entry: { ...annotate(entry, names, summaries), ...(await trialFacts(entry, settings)), ...(merged?.ok ? { merged: merged.text } : {}) },
         trial: trials.length ? await trialView(home, trials.at(-1)) : null,
         request: { text, source: opening ? "opening request" : "proposal" },
         settings: trialOf(settings),
+        limits: { note: NOTE_CHARS, change: CHANGE_CHARS },
       };
     },
 
@@ -240,9 +356,22 @@ export function createOps(env) {
       return cancelTrial(lib, wantEntry(id));
     },
 
-    /** Applies a trialled proposal to your home or settings. */
-    async adopt({ id } = {}) {
-      return adoptEntry(lib, wantEntry(id));
+    /** Applies a proposal to your home or settings: after a trial, or with `untried: true` without one. */
+    async adopt({ id, untried } = {}) {
+      return adoptEntry(lib, wantEntry(id), { untried: untried === true });
+    },
+
+    /** Replaces a proposal's change with the person's text: a note, a whole file, or a JSON value. */
+    async edit({ id, change } = {}) {
+      const want = wantEntry(id);
+      if (typeof change !== "string") fail("change is required: the new note, file or JSON value.");
+      if (change.length > CHANGE_CHARS * 2) fail(`change is over ${(CHANGE_CHARS * 2).toLocaleString("en-US")} characters.`);
+      return editEntry(lib, want, change);
+    },
+
+    /** Updates an out-of-date proposal: its change merged into today's file. */
+    async rebase({ id } = {}) {
+      return rebaseEntry(lib, wantEntry(id));
     },
 
     async reject({ id } = {}) {
@@ -265,6 +394,13 @@ export function createOps(env) {
 
     async "finding-close"({ id } = {}) {
       return closeFinding(home, wantFinding(id));
+    },
+
+    /** What Fix this and Copy hand the person: the first message, the issue, and the project it belongs in. */
+    async "finding-text"({ id } = {}) {
+      const out = await findingText(home, wantFinding(id));
+      const names = await projectNames();
+      return { ...out, projectName: out.project ? names.get(out.project) ?? null : null };
     },
 
     /** The Settings card: the models to choose from, the cap and today's spend, the trial settings, the project switches. */

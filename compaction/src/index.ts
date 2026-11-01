@@ -9,15 +9,15 @@ import {
 } from "./schemas.js";
 import { project } from "./project.js";
 import { descriptorsFor, measure, measureRound, readLastCall, windowFor, type Measure } from "./measure.js";
-import { compactIfDue, resetState, resumeState, triggerOf, type Situation } from "./engine.js";
+import { compactIfDue, editedUnder, resetState, resumeState, triggerOf, type Situation } from "./engine.js";
 
 export { NAME, readState, readConfig, freshState, CompactionStateSchema, ConfigSchema, RequestSchema, CompactionEventSchema } from "./schemas.js";
 export type { CompactionState, Config, Request, CompactionEvent, RoundHookArgs, RoundHookResult, StateView, LedgerRow, Compaction } from "./schemas.js";
 export { estimate, boundaries, chooseCut, shed, dangling } from "./select.js";
-export { project, note, projectedIndex } from "./project.js";
+export { project, note, projectedIndex, messageHash } from "./project.js";
 export { windowFor, measure, measureRound, descriptorsFor, forgetDescriptors, readLastCall } from "./measure.js";
 export { SUMMARY_INSTRUCTIONS, summaryRequest, summarize, extractSummary, instructionsWith } from "./summarize.js";
-export { decide, run, compactIfDue, recordFailure, resetState, resumeState, triggerOf, THRASH_ROUNDS } from "./engine.js";
+export { decide, run, compactIfDue, recordFailure, resetState, resumeState, editedUnder, triggerOf, THRASH_ROUNDS } from "./engine.js";
 export { forgetSession } from "./forget.js";
 export type { ForgetAnswer, ForgetArgs } from "./forget.js";
 
@@ -69,6 +69,12 @@ export async function compact(ctx: PackageStepContext): Promise<StepResult> {
     const descriptors = await descriptorsFor(ctx.env);
     const window = windowFor(ctx.call.model, config, descriptors);
     if (request) await deleteRequest(ctx.env, ctx.session.id);
+    if (editedUnder(ctx.conversation, state)) {
+      const from = state.cut;
+      state = resetState(state, new Date().toISOString(), "edit");
+      const measured = measure(project(ctx.conversation, state), ctx.call.model, state, readLastCall(ctx.harness));
+      ctx.emit({ type: "extension", name: NAME, data: { phase: "reset", trigger: "edit", used: measured.used, window, threshold: config.threshold, from, cut: 0, detail: "the conversation was edited inside the summarized part" } });
+    }
     if (request?.resume) state = resumeState(state);
     if (request?.reset) {
       const from = state.cut;

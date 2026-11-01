@@ -10,7 +10,7 @@ The manifest declares `type: "tool"`, `skills: "skills"`, eight `tools`, and a `
 
 | Tool | Arguments | Effect |
 |---|---|---|
-| `canvas_create` | `title`, `project?`, `launch?`, `pages?` | An empty canvas. `project` is a project id, `"none"` for global, or omitted for the conversation's own project (from `projects/sessions.json`). Answers the id. |
+| `canvas_create` | `title`, `project?`, `launch?`, `pages?` | An empty canvas. `project` is a project id, `"none"` for global, or omitted for the conversation's own project (from `projects/sessions.json`, or `projects/agents/<id>.json` for a subagent). Answers the id. |
 | `canvas_list` | `project?` | One line per canvas: id, title, artboard count, project, last change, revision. |
 | `canvas_read` | `canvas`, `sources?`, `boards?` | The index as JSON, a line per artboard (frame, size, declared props, problems), and with `sources` the HTML (all, or the `boards` named) up to 200 KB. |
 | `canvas_write_board` | `canvas`, `file`, `html`, `x? y? w? h? title? page? expand? radius? props?` | Creates or replaces one artboard. New: 1440×900 unless given, placed right of the others on its page. Existing: keeps its frame and overrides unless given. Warns on a missing doctype, hosts the frame will not load, and a bad props block. At most 512 KB. |
@@ -25,7 +25,7 @@ The `skills/canvases` skill carries the format the tools expect (the artboard ru
 
 | Slot | Id | Notes |
 |---|---|---|
-| `sidebar` (`slot: "section"`) | `canvases` | The Canvases section, order 20. Its rows are the chosen project's canvases, the global ones and the ones whose project is gone; under "All", every canvas with its project as a badge. ＋ makes one in the chosen project. Row menu: Rename, Move to a project, Make global, Delete. |
+| `sidebar` (`slot: "section"`) | `canvases` | The Canvases section, order 20. Its rows are the current space's: a project's own canvases, or under No project the global ones and those whose project is gone. ＋ makes one in the space; a canvas's tab opens in its project's space. On a gateway without spaces it shows the chosen project's canvases with the global ones and the orphans, and under "All" every canvas with its project as a badge. Row menu: Rename, Move to a project, Make global, Delete. |
 | `tabs` | `canvas` | A canvas as a tab. Toolbar: the title (click to rename), the pages, notes, zoom, fit, focus, properties, a menu. |
 
 | Verb | Export | Arguments | Answer |
@@ -62,8 +62,8 @@ The page holds one `watch` subscription. The watcher in the gateway watches `can
 
 ## Projects
 
-`project` in the index names a project by its id. The package reads `projects/<id>.json` and `projects/sessions.json` directly, as `@thetis/workflows` does, so it works without `@thetis/projects` (everything is global then). The chosen project is `@thetis/projects`' own, read from the key it keeps in `localStorage` (`thetis.project`) in one function of `ui/model.js`; a canvas whose project was deleted shows everywhere until it is moved.
+`project` in the index names a project by its id. The package reads `projects/<id>.json`, `projects/sessions.json` and, for a subagent, `projects/agents/<id>.json` directly, as `@thetis/workflows` does, so it works without `@thetis/projects` (everything is global then). The chosen project is the shell's current space (`ext.space`); on a gateway without spaces it is the key `@thetis/projects` keeps in `localStorage` (`thetis.project`), polled. A canvas whose project was deleted shows under No project until it is moved.
 
 ## Tests
 
-`node --test test/*.test.js`: the store and the name rules, the completed index and its checks, the patch, the props block and the runtime's injection, the geometry, the eight tools over a temporary home (with and without project files), the commands and the frame's path matrix, the watcher (it leans on inotify), and the sidebar section over the shell's fake DOM. `test/commands.test.js` also checks that every browser module parses.
+`node --test test/*.test.js`: the store and the name rules, the completed index and its checks, the patch, the props block and the runtime's injection, the geometry, the eight tools over a temporary home (with and without project files), the project of a subagent, the commands and the frame's path matrix, the watcher (it leans on inotify), and the sidebar section over the shell's fake DOM. `test/commands.test.js` also checks that every browser module parses.

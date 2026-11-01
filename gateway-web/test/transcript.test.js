@@ -584,3 +584,114 @@ test("a planned pause is a quiet row with Continue, not an error with Retry", (t
   assert.ok(row.attrs.class.includes("is-quiet"), row.attrs.class);
   assert.match(row.textContent, /paused for a restart of Thetis/);
 });
+
+// ---- editing a sent message ----
+
+const userRows = (root) => root.querySelectorAll(".msg.is-user");
+const numbers = (root) => userRows(root).map((row) => row.getAttribute("data-user"));
+const CHAT = [
+  { role: "user", content: "first" },
+  { role: "assistant", content: "one" },
+  { role: "user", content: [{ type: "text", data: { text: "second" + TURN_CONTEXT_LINE } }, { type: "asset", data: { id: "a_1", mediaType: "text/plain", name: "notes.txt" } }] },
+  { role: "assistant", content: "two" },
+  { role: "user", content: "third" },
+  { role: "assistant", content: "three" },
+];
+
+test("the person's rows are numbered from 1 on replay and live, and a reset starts again", (t) => {
+  const { root, transcript } = pane(t);
+  transcript.restore({ id: "s_1", conversation: CHAT, usage: {}, children: [], turn: null });
+  assert.deepEqual(numbers(root), ["1", "2", "3"]);
+  transcript.addLocal("fourth");
+  transcript.applyEvent({ type: "turn.start" }, "fourth");
+  transcript.applyEvent({ type: "turn.end" });
+  transcript.applyEvent({ type: "turn.start" }, "from another tab");
+  assert.deepEqual(numbers(root), ["1", "2", "3", "4", "5"]);
+  transcript.restore({ id: "s_1", conversation: CHAT.slice(0, 2), usage: {}, children: [], turn: null });
+  assert.deepEqual(numbers(root), ["1"]);
+});
+
+test("a row whose index the record lists under edited is marked, and Edited unfolds the earlier versions", async (t) => {
+  const versions = [{ at: 2, editedAt: "2026-11-01T14:03:00Z", turn: "t_2", messages: [{ role: "user", text: "the old words", tools: 0, agents: 0 }, { role: "assistant", text: "the old reply", tools: 12, agents: 2 }] }];
+  const { root, transcript, requests } = pane(t, { answer: () => ({ status: 200, body: { data: { versions } } }) });
+  transcript.restore({ id: "s_1", conversation: CHAT, usage: {}, children: [], turn: null, edited: [{ index: 2, at: "2026-11-01T14:03:00Z" }] });
+  const marked = userRows(root).filter((row) => row.classList.contains("msg-edited"));
+  assert.deepEqual(marked.map((row) => row.getAttribute("data-user")), ["2"]);
+  marked[0].querySelector(".edited-label").click();
+  await settle();
+  assert.deepEqual(requests.map((r) => [r.method, r.path, r.body]), [["POST", "api/ext/@thetis/harness-core/edit-versions", { session: "s_1", args: { session: "s_1", at: 2 } }]]);
+  const block = marked[0].querySelector(".edit-versions");
+  assert.match(block.querySelector(".edit-versions-head").textContent, /^Before the edit · 1 Nov \d\d:\d\d$/);
+  assert.deepEqual(block.querySelectorAll(".edit-version-msg").map((n) => n.textContent), ["the old words", "the old reply"]);
+  assert.equal(block.querySelector(".edit-version-work").textContent, "and 12 tool calls, 2 subagents");
+  marked[0].querySelector(".edited-label").click();
+  await settle();
+  assert.equal(marked[0].querySelector(".edit-versions"), null, "a second click folds it away");
+});
+
+test("truncateFrom takes the nth row and everything after it, and the next row is the nth again", (t) => {
+  const { root, transcript } = pane(t);
+  transcript.restore({ id: "s_1", conversation: CHAT, usage: {}, children: [], turn: null });
+  const removed = transcript.truncateFrom(2);
+  assert.equal(removed.length, 4);
+  assert.deepEqual(numbers(root), ["1"]);
+  assert.equal(root.querySelectorAll(".msg.is-assistant").length, 1);
+  transcript.addLocal("again");
+  assert.deepEqual(numbers(root), ["1", "2"]);
+  assert.deepEqual(transcript.truncateFrom(9), [], "a row that is not there takes nothing");
+});
+
+test("Edit opens the text without the turn context, Send replaces the tail with the pending row and posts nth, expect and text", async (t) => {
+  const { root, transcript, requests } = pane(t, { answer: () => ({ status: 202, body: { session: "s_1", at: 2 } }) });
+  transcript.restore({ id: "s_1", conversation: CHAT, usage: {}, children: [], turn: null });
+  const second = userRows(root)[1];
+  second.querySelector(".msg-edit").click();
+  const input = second.querySelector(".edit-input");
+  assert.equal(input.value, "second");
+  assert.match(second.querySelector(".edit-note").textContent, /^Replies after this are replaced\. Changes already made to files and elsewhere stay\.$/);
+  assert.deepEqual(second.querySelectorAll(".edit-chip").map((n) => n.textContent), ["notes.txt"], "the attachment is kept");
+  input.value = "second, better";
+  input.dispatchEvent({ type: "keydown", key: "Enter", ctrlKey: true, preventDefault() {} });
+  assert.deepEqual(numbers(root), ["1", "2"]);
+  const pending = userRows(root)[1];
+  assert.ok(pending.classList.contains("is-pending"));
+  assert.equal(pending.querySelector(".msg-text").textContent.startsWith("second, better"), true);
+  assert.equal(root.querySelectorAll(".msg.is-assistant").length, 1, "the replies after it are gone");
+  await settle();
+  assert.deepEqual(requests.map((r) => [r.method, r.path, r.body]), [["POST", "api/sessions/s_1/edit", { nth: 2, expect: "second", text: "second, better" }]]);
+  assert.ok(pending.classList.contains("msg-edited"), "the new row says it was edited");
+  transcript.applyEvent({ type: "turn.start", turn: "t_9" }, "second, better");
+  assert.equal(pending.classList.contains("is-pending"), false, "the turn's start settles it, as a send does");
+  assert.deepEqual(numbers(root), ["1", "2"]);
+});
+
+test("a refused edit puts the rows back and opens the editor again on what was typed", async (t) => {
+  const { root, transcript } = pane(t, { answer: () => ({ status: 409, body: { error: "That message changed. Reload the conversation." } }) });
+  transcript.restore({ id: "s_1", conversation: CHAT, usage: {}, children: [], turn: null });
+  const third = userRows(root)[2];
+  third.querySelector(".msg-edit").click();
+  third.querySelector(".edit-input").value = "third, again";
+  third.querySelectorAll("button").find((b) => b.textContent === "Send").click();
+  assert.deepEqual(numbers(root), ["1", "2", "3"]);
+  await settle();
+  assert.deepEqual(numbers(root), ["1", "2", "3"]);
+  assert.equal(root.querySelectorAll(".msg.is-assistant").length, 3, "the replies are back");
+  assert.equal(root.querySelectorAll(".msg.is-pending").length, 0);
+  assert.equal(third.querySelector(".edit-input").value, "third, again");
+});
+
+test("Edit is not offered while a turn runs here, in a subagent's block, or in a subagent's own pane", (t) => {
+  const { root, transcript } = pane(t);
+  transcript.restore({ id: "s_1", conversation: CHAT, usage: {}, children: [], turn: null });
+  assert.equal(root.classList.contains("is-busy"), false);
+  transcript.applyEvent({ type: "turn.start" }, "go");
+  assert.equal(root.classList.contains("is-busy"), true);
+  transcript.applyEvent({ type: "turn.end" });
+  assert.equal(root.classList.contains("is-busy"), false);
+  const parent = new FakeNode("section");
+  const agentRoot = new FakeNode("div");
+  parent.append(agentRoot);
+  const agent = mountTranscript(agentRoot, { session: "s_2", brief: true });
+  agent.restore({ id: "s_2", conversation: CHAT.slice(0, 2), usage: {}, children: [], turn: null });
+  assert.equal(agentRoot.querySelectorAll(".msg-edit").length, 0);
+});

@@ -1,32 +1,44 @@
-/* The Reflections place: four tabs over the one `call` command. Conversations lists every archived
- * conversation and every record, with the state and the one button that state wants; a row opens its
- * detail (the reflection, its proposal and findings, Reflect again, Open evidence). Proposals lists every
- * proposed change by where it stands; a row opens its detail (the change as a diff, the trial and its
- * runs, Cancel trial, Adopt, Reject, Retire). Findings lists the problems noticed in packages, by package. Settings has
- * the model, the daily cap, the trial settings and the project switches. Everything is asked again every
- * few seconds while a reflection is queued or running or a trial runs, and every fifteen seconds otherwise,
- * for as long as the place is open; never while the person types in a field of it. Built with ext.dom.el
- * and text only. */
+/* The Reflections place: five tabs over the one `call` command. To review, first, ranks what wants the
+ * person: a proposal (Adopt, or Update when its file moved; Edit; Try first when a trial can test it;
+ * Reject), a finding (Fix this, Copy, Close), and the archives the daily limit skipped (Reflect them).
+ * Proposals lists every proposed change by where it stands; a row opens its detail (the change as a diff,
+ * the editor, the trial and its runs, Adopt, Reject, Retire). Findings lists the problems noticed in
+ * packages, by package. Conversations lists every archived conversation and every record; a row opens its
+ * detail. Settings has the model, the daily limit, the trial settings and the project switches. A citation
+ * `[n]` in evidence, confidence or a finding is a button that unfolds the event in place. Fix this opens a
+ * draft through `ext.conversation.start` and sends nothing. Everything is asked again every few seconds
+ * while a reflection is queued or running or a trial runs, and every fifteen seconds otherwise, for as long
+ * as the place is open; never while the person types in a field of it. Built with ext.dom.el and text only. */
 
 import { folded, lineDiff } from "./diff.js";
 import {
-  ARMS, GROUPS, adoptButton, canTrial, changeLabel, describe, explain, findingChip, groupFindings, money, plural, proposalChip, runState, seenLine, trialLabel,
+  ARMS, CONFLICT_NOTE, GROUPS, OFFLINE_NOTE, adoptButton, adoptPopover, canEdit, canTrial, changeLabel, describe, explain, findingChip, findingSeen, groupFindings, money, plural,
+  proposalChip, reflectSkippedLabel, reviewLine, runState, seenIn, seenLine, skippedLine, trialLabel, verdictTone, whereLabel,
 } from "./state.js";
 
 const FAST_MS = 3000;
 const SLOW_MS = 15000;
-const TABS = [["conversations", "Conversations"], ["proposals", "Proposals"], ["findings", "Findings"], ["settings", "Settings"]];
+const TABS = [["review", "To review"], ["proposals", "Proposals"], ["findings", "Findings"], ["conversations", "Conversations"], ["settings", "Settings"]];
+const SESSION = /^s_[a-f0-9]+$/;
 
 export function openPlace(ext, root, params, { changed = () => {} } = {}) {
   const { el, clear } = ext.dom;
   const call = async (op, args = {}) => (await ext.request("call", { args: { op, ...args } }))?.data;
 
   let alive = true;
-  let tab = TABS.some(([id]) => id === params.tab) ? params.tab : typeof params.proposal === "string" && params.proposal ? "proposals" : "conversations";
+  let tab = TABS.some(([id]) => id === params.tab)
+    ? params.tab
+    : typeof params.proposal === "string" && params.proposal
+      ? "proposals"
+      : typeof params.session === "string" && params.session
+        ? "conversations"
+        : "review";
   let selected = typeof params.session === "string" && params.session ? params.session : null;
   let picked = typeof params.proposal === "string" && params.proposal ? params.proposal : null;
   let list = null;
   let listError = null;
+  let review = null;
+  let reviewError = null;
   let detail = null;
   let detailError = null;
   let proposals = null;
@@ -41,8 +53,13 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
   let acting = false;
   let typing = false;
   let timer = null;
+  let editing = null; // the proposal whose editor is open
   const drafts = new Map(); // proposal id -> the request as the person edited it
+  const edits = new Map(); // proposal id -> the text in its editor
   const refusals = new Map(); // proposal id -> the sentence the last Adopt was refused with
+  const editRefusals = new Map(); // proposal id -> the sentence the last Save was refused with
+  const events = new Map(); // "<session>#<n>" -> { kind, text } | { error } | { loading }
+  const unfolded = new Set(); // the citations open, by the same key
 
   const host = el("div", { class: "rfl-root" });
   const tabsHost = el("div", { class: "rfl-tabs", role: "tablist" });
@@ -64,6 +81,7 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
   }
 
   const loadList = () => load("list", {}, (got, err) => (err ? (listError = err) : ((list = got), (listError = null))));
+  const loadReview = () => load("review", {}, (got, err) => (err ? (reviewError = err) : ((review = got), (reviewError = null))));
   const loadDetail = (s = selected) =>
     load("get", { session: s }, (got, err) => (err ? (detailError = err) : ((detail = got), (detailError = null))), () => s === selected);
   const loadProposals = () => load("proposals", {}, (got, err) => (err ? (proposalsError = err) : ((proposals = got), (proposalsError = null))));
@@ -77,7 +95,8 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
     if (!alive) return;
     if (tab === "settings") await loadSettings();
     else {
-      const more = tab === "conversations" ? (selected ? loadDetail() : null) : tab === "proposals" ? (picked ? loadProposal() : loadProposals()) : loadFindings();
+      const more =
+        tab === "review" ? loadReview() : tab === "conversations" ? (selected ? loadDetail() : null) : tab === "proposals" ? (picked ? loadProposal() : loadProposals()) : loadFindings();
       await Promise.all([loadList(), more]);
     }
     if (!alive) return;
@@ -122,15 +141,20 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
     clear(body);
     // A view answers its parts with nulls for what does not apply; `append` would write those as text.
     const parts =
-      tab === "proposals" ? (picked ? proposalView() : proposalsView()) : tab === "findings" ? findingsView() : tab === "settings" ? settingsView() : selected ? detailView() : listView();
+      tab === "review"
+        ? reviewView()
+        : tab === "proposals"
+          ? picked ? proposalView() : proposalsView()
+          : tab === "findings" ? findingsView() : tab === "settings" ? settingsView() : selected ? detailView() : listView();
     body.append(...parts.filter(Boolean));
   }
 
-  /** Opens a tab, and in it a conversation (`session`) or a proposal (`id`). */
-  function go(next, { session = null, id = null } = {}) {
+  /** Opens a tab, and in it a conversation (`session`) or a proposal (`id`), with its editor open on `edit`. */
+  function go(next, { session = null, id = null, edit = false } = {}) {
     tab = next;
     selected = session;
     picked = id;
+    editing = edit && id ? id : null;
     detail = null;
     detailError = null;
     proposal = null;
@@ -147,13 +171,67 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
   // A trajectory is a log, not a document: opened as source, so a "# comment" in a tool's output stays one.
   const openFile = (path, view) => ext.open.place("workspace", view ? { path, view } : { path });
   const openConversation = (s) => ext.conversation?.open?.(s);
-  /** Text with `x` spans as code. Built as nodes, so nothing in the text is ever read as markup. */
-  const inline = (text, cls = "") => {
+  /**
+   * Text with `x` spans as code and, given the conversation it cites (`session`), each `[n]` a citation
+   * button. Built as nodes, so nothing in the text is ever read as markup.
+   */
+  const inline = (text, cls = "", session = null) => {
     const parts = String(text ?? "").split("`");
     // An odd count of backticks leaves the last one unpaired; it stays as written.
     const out = parts.length % 2 === 0 ? [...parts.slice(0, -2), `${parts.at(-2)}\`${parts.at(-1)}`] : parts;
-    return el("span", cls ? { class: cls } : {}, ...out.map((p, i) => (i % 2 ? el("code", { class: "rfl-code" }, p) : p)).filter((p) => p !== ""));
+    const nodes = out.flatMap((p, i) => (i % 2 ? [el("code", { class: "rfl-code" }, p)] : citations(p, session)));
+    return el("span", cls ? { class: cls } : {}, ...nodes.filter((p) => p !== ""));
   };
+  const citations = (text, session) =>
+    SESSION.test(String(session ?? "")) ? text.split(/(\[\d{1,7}\])/).flatMap((p, i) => (i % 2 ? cite(Number(p.slice(1, -1)), session) : [p])) : [text];
+
+  /** A citation `[n]`: a button that unfolds event n of `session` in place, read once. */
+  function cite(n, session) {
+    const key = `${session}#${n}`;
+    const open = unfolded.has(key);
+    const button = el(
+      "button",
+      { type: "button", class: `rfl-cite${open ? " is-open" : ""}`, "aria-expanded": open ? "true" : "false", title: open ? "Fold the event" : "Show the event", onClick: () => toggleCite(key, session, n) },
+      `[${n}]`,
+    );
+    if (!open) return [button];
+    const got = events.get(key);
+    const text = !got || got.loading ? "Reading…" : got.error ?? got.text;
+    return [button, el("span", { class: `rfl-event${got?.error ? " is-err" : ""}` }, got?.kind ? el("span", { class: "rfl-event-kind" }, got.kind) : null, el("span", { class: "rfl-event-text" }, text))];
+  }
+
+  async function toggleCite(key, session, n) {
+    if (unfolded.has(key)) {
+      unfolded.delete(key);
+      draw();
+      return;
+    }
+    unfolded.add(key);
+    if (!events.has(key) || events.get(key).error) {
+      events.set(key, { loading: true });
+      draw();
+      try {
+        const got = await call("event", { session, n });
+        events.set(key, { kind: got?.kind ?? null, text: got?.text ?? "" });
+      } catch (err) {
+        events.set(key, { error: err?.message || "This event could not be read." });
+      }
+    }
+    draw();
+  }
+
+  /** A proposal's evidence: a reinforcing reflection's line starts `s_…:`, and its numbers are that conversation's. */
+  function evidenceNode(e) {
+    let session = e.from?.[0]?.session ?? null;
+    const nodes = [];
+    String(e.evidence ?? "").split("\n").forEach((line, i) => {
+      const m = /^\s*(s_[a-f0-9]+):/.exec(line);
+      if (m) session = m[1];
+      if (i) nodes.push(el("br"));
+      nodes.push(inline(line, "", session));
+    });
+    return el("span", {}, ...nodes);
+  }
   /** What a proposal changes: the kind in words, the target as code; a guide note is words alone. */
   const kindOf = (e, cls) => {
     const label = changeLabel(e);
@@ -165,8 +243,139 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
   };
   const when = (iso) => (iso ? ext.ui.when?.(iso) ?? new Date(iso).toLocaleString() : null);
 
+  /** The control a click came from, for a popover to sit beside. */
+  const anchorOf = (event) => event?.currentTarget ?? event?.target ?? null;
   /** Asks before a change that touches the person's harness; true when there is no anchor to ask beside. */
   const confirmed = (anchor, options) => (anchor && ext.ui.confirm ? ext.ui.confirm(anchor, options) : Promise.resolve(true));
+
+  // ---- to review ----
+
+  function reviewView() {
+    if (reviewError) return [note(reviewError, "err")];
+    if (!review) return [note("Reading…")];
+    const counts = review.counts ?? {};
+    const cards = review.cards ?? [];
+    const more = (counts.proposals ?? 0) + (counts.findings ?? 0) - cards.length;
+    const skipped = review.skipped ?? {};
+    return [
+      el("p", { class: "rfl-review-line" }, reviewLine(counts)),
+      ...cards.map((c) => (c.type === "finding" ? findingCard(c.finding, { brief: true }) : reviewCard(c.entry))),
+      more > 0 ? note(`${more} more in Proposals and Findings.`) : null,
+      skipped.count
+        ? el(
+            "div",
+            { class: "rfl-card" },
+            el("p", { class: "rfl-card-text" }, skippedLine(skipped)),
+            el(
+              "div",
+              { class: "rfl-actions" },
+              btn(reflectSkippedLabel(skipped), (event) => doReflectSkipped(skipped, anchorOf(event)), "primary", "They run one at a time, past the daily limit"),
+              btn("Change the limit", () => go("settings")),
+            ),
+          )
+        : null,
+    ];
+  }
+
+  /** A proposal's main button: Adopt, Update, or Edit when its file changed in the same place. */
+  const mainButton = (e, main, onEdit) =>
+    btn(
+      main.label,
+      (event) => (main.action === "update" ? doUpdate(e) : main.action === "edit" ? onEdit() : doAdopt(e, anchorOf(event))),
+      main.label === "Adopt anyway" ? "quiet" : "primary",
+      main.reason ?? undefined,
+      main.disabled,
+    );
+
+  /** Whether the trial button belongs on an entry: it can be trialled now, and a trial can test it. */
+  const tryable = (e) => canTrial(e).ok && e.state !== "trialling" && (e.state !== "adopted" || e.recheck);
+
+  function reviewCard(e) {
+    const main = adoptButton(e);
+    const edit = () => go("proposals", { id: e.id, edit: true });
+    const facts = [seenIn(e), e.kind !== "project-instructions" ? e.projectName : null].filter(Boolean).join(" · ");
+    const buttons = [
+      main ? mainButton(e, main, edit) : null,
+      canEdit(e) && main?.action !== "edit" ? btn("Edit", edit) : null,
+      tryable(e) && e.trialable !== false ? btn(trialLabel(e, review?.trial), () => go("proposals", { id: e.id }), "quiet", "Run it with the change and without it, offline, and compare") : null,
+      e.state === "proposed" || e.state === "trialled" ? btn("Reject", (event) => doReject(e, anchorOf(event))) : null,
+    ].filter(Boolean);
+    const refusal = refusals.get(e.id);
+    return el(
+      "div",
+      { class: "rfl-card" },
+      el(
+        "div",
+        { class: "rfl-card-head" },
+        el("span", { class: "rfl-card-kind" }, whereLabel(e)),
+        chip(proposalChip(e)),
+        e.state === "adopted" && e.recheck ? el("span", { class: "rfl-state is-warn" }, "Re-check") : null,
+      ),
+      el("button", { type: "button", class: "rfl-card-open", title: "Open the proposal", onClick: () => go("proposals", { id: e.id }) }, inline(e.lesson || e.id)),
+      el("p", { class: "rfl-row-facts" }, facts),
+      main?.action === "edit" ? note(CONFLICT_NOTE, "warn") : null,
+      tryable(e) && e.trialable === false ? note(OFFLINE_NOTE) : null,
+      buttons.length ? el("div", { class: "rfl-actions" }, ...buttons) : null,
+      refusal ? note(refusal, "err") : null,
+    );
+  }
+
+  async function doReflectSkipped(skipped, anchor) {
+    const ok = await confirmed(anchor, {
+      title: `Reflect ${plural(skipped.count, "conversation")}?`,
+      lines: typeof skipped.estimateUsd === "number" ? [["About", money(skipped.estimateUsd)]] : [],
+      note: "They run one at a time, past the daily limit.",
+      confirmLabel: reflectSkippedLabel({ count: skipped.count }),
+    });
+    if (ok) await act(() => call("reflect-skipped"));
+  }
+
+  // ---- findings: Fix this and Copy ----
+
+  /** What a finding hands the person, asked fresh: `{ prompt, issue, project }`; null after a toast when it cannot be read. */
+  async function findingText(f) {
+    try {
+      return await call("finding-text", { id: f.id });
+    } catch (err) {
+      ext.toast?.(err?.message || "This finding could not be read.", { tone: "error" });
+      return null;
+    }
+  }
+
+  async function copyText(text, said) {
+    try {
+      await globalThis.navigator.clipboard.writeText(text);
+      ext.toast?.(said);
+      return true;
+    } catch {
+      ext.toast?.("The browser would not copy it.", { tone: "error" });
+      return false;
+    }
+  }
+
+  /** A new conversation in the project the finding was seen in most, with the message box filled; nothing is sent. */
+  async function fixThis(f) {
+    const got = await findingText(f);
+    if (!got) return;
+    if (typeof ext.conversation?.start === "function") ext.conversation.start({ space: got.project ?? null, text: got.prompt });
+    else await copyText(got.prompt, "Copied. Paste it into a new conversation.");
+  }
+
+  async function copyIssue(f) {
+    const got = await findingText(f);
+    if (got) await copyText(got.issue, "Copied as an issue.");
+  }
+
+  function findingActions(f) {
+    if (f.state === "closed") return null;
+    return el(
+      "div",
+      { class: "rfl-actions" },
+      btn("Fix this", () => fixThis(f), "primary", "A new conversation with this in its message box. Nothing is sent until you send it."),
+      btn("Copy", () => copyIssue(f), "quiet", "Copy it as an issue, in Markdown, with the events it cites"),
+      btn("Close", () => act(() => call("finding-close", { id: f.id })), "quiet", "Fixed, or not worth fixing. It opens again if it is seen in a newer version."),
+    );
+  }
 
   // ---- conversations ----
 
@@ -182,7 +391,7 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
   function spendLine() {
     if (!list?.spend) return null;
     const unknown = list.spend.unknown ? `; ${list.spend.unknown} reported no cost` : "";
-    return note(`Today (UTC): ${money(list.spend.usd) || "$0.00"} of the ${money(list.cap)} cap for automatic reflections${unknown}.`);
+    return note(`Today (UTC): ${money(list.spend.usd) || "$0.00"} of the ${money(list.cap)} daily limit for automatic reflections${unknown}.`);
   }
 
   function listView() {
@@ -219,12 +428,11 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
       ["Model", r.model ?? (r.state === "done" || r.state === "failed" ? "not recorded" : null)],
       ["Cost", typeof r.costUsd === "number" ? money(r.costUsd) : r.model ? "not reported" : null],
       ["Events read", typeof r.events === "number" ? String(r.events) : null],
-      ["Finished", r.finishedAt ? new Date(r.finishedAt).toLocaleString() : null],
+      ["Finished", when(r.finishedAt)],
     ].filter(([, v]) => v);
     const actions = [
       primary(r),
       !detail.gone && ext.conversation?.open ? btn("Open conversation", () => openConversation(r.session)) : null,
-      detail.evidence ? btn("Open evidence", () => openFile(detail.evidence, "source"), "quiet", "The files the model read: the mission, the task, the numbered trajectory, the harness it ran with") : null,
     ];
     const p = detail.proposal;
     const found = detail.findings ?? [];
@@ -276,7 +484,7 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
     if (!proposals) return [note("Reading…")];
     const entries = proposals.entries ?? [];
     if (!entries.length) return [note("No proposals yet. A reflection proposes at most one change, and only when the conversation showed something worth changing.")];
-    const out = [note("A proposal changes nothing until you run a trial and adopt it.")];
+    const out = [note("A proposal changes nothing until you adopt it.")];
     for (const g of GROUPS) {
       const items = entries.filter((e) => g.states.includes(e.state)).sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")));
       if (!items.length) continue;
@@ -320,9 +528,9 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
     const e = proposal.entry;
     const facts = [
       ["When", e.cue ? inline(e.cue) : null],
-      ["Confidence", e.confidence],
-      ["Evidence", e.evidence],
-      ["Proposed", e.createdAt ? new Date(e.createdAt).toLocaleString() : null],
+      ["Confidence", e.confidence ? inline(e.confidence, "", e.from?.[0]?.session) : null],
+      ["Evidence", e.evidence ? evidenceNode(e) : null],
+      ["Proposed", when(e.createdAt)],
     ].filter(([, v]) => v);
     return [
       back,
@@ -330,10 +538,94 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
       el("p", { class: "rfl-lesson-text" }, inline(e.lesson || e.id)),
       facts.length ? ext.ui.kv(facts) : null,
       sourcesView(e),
-      changeView(e),
+      e.staleness === "mergeable" ? note("Out of date: the file changed since the proposal. Update merges the change into it.", "warn") : null,
+      e.staleness === "conflict" ? note(CONFLICT_NOTE, "warn") : null,
+      editing === e.id && canEdit(e) ? editorView(e) : changeView(e),
       trialView(e),
       decisionView(e),
     ];
+  }
+
+  const isFile = (e) => e.kind === "skill" || e.kind === "project-instructions";
+
+  function startEdit(e) {
+    editing = e.id;
+    draw();
+  }
+
+  /**
+   * The editor: a guide note's one line, a skill's or instructions' whole text with a live diff against
+   * today's file under it, or a setting's JSON. Out of date, the text starts as today's file with the change
+   * merged in, or, when it does not merge, as today's file with the proposal's change shown beside it.
+   */
+  function editorView(e) {
+    const limits = proposal.limits ?? {};
+    const file = isFile(e);
+    const initial = file && e.staleness === "mergeable" && typeof e.merged === "string" ? e.merged : file && e.staleness === "conflict" ? e.current ?? "" : e.change ?? "";
+    const box =
+      e.kind === "config"
+        ? el("input", { class: "input rfl-mono", type: "text", "aria-label": "The value, as JSON", disabled: acting })
+        : el("textarea", {
+            class: `input ${file ? "rfl-editor" : "rfl-request"}`,
+            rows: file ? "18" : "3",
+            "aria-label": file ? "The whole text" : "The note",
+            disabled: acting,
+            ...(e.kind === "guide-note" && limits.note ? { maxlength: String(limits.note) } : {}),
+          });
+    box.value = edits.get(e.id) ?? initial;
+    box.addEventListener("focus", () => (typing = true));
+    box.addEventListener("blur", () => {
+      typing = false;
+    });
+    const live = el("div", { class: "rfl-section" });
+    const showDiff = () => {
+      if (!file) return;
+      clear(live);
+      live.append(note("Against today's file:"), ...diffView(e.current ?? "", box.value));
+    };
+    box.addEventListener("input", () => {
+      edits.set(e.id, box.value);
+      showDiff();
+    });
+    showDiff();
+    const save = () =>
+      act(
+        async () => {
+          editRefusals.delete(e.id);
+          await call("edit", { id: e.id, change: box.value });
+          edits.delete(e.id);
+          editing = null;
+        },
+        null,
+        (sentence) => editRefusals.set(e.id, sentence),
+      );
+    const cancelEdit = () => {
+      edits.delete(e.id);
+      editRefusals.delete(e.id);
+      editing = null;
+      typing = false;
+      draw();
+    };
+    const now = e.current === null || e.current === undefined ? "not set" : e.current;
+    const hint =
+      e.kind === "guide-note"
+        ? `One line, at most ${limits.note ?? 300} characters, read after the guide in every conversation.`
+        : e.kind === "config"
+          ? `The value as JSON. It is ${now} now.`
+          : e.staleness === "conflict"
+            ? "Today's file. Put the proposal's change into it; the change is below."
+            : e.staleness === "mergeable"
+              ? "Today's file with the proposal's change merged in."
+              : "The whole file, as it will be written.";
+    const refusal = editRefusals.get(e.id);
+    return section(
+      "Edit the change",
+      ext.ui.field(e.kind === "guide-note" ? "Note" : e.kind === "config" ? "Value" : "Text", box, hint),
+      file ? live : null,
+      e.staleness === "conflict" ? section("The proposal's change", ...diffView(e.before ?? "", e.change ?? "")) : null,
+      el("div", { class: "rfl-actions" }, btn("Save", save, "primary"), btn("Cancel", cancelEdit)),
+      refusal ? note(refusal, "err") : null,
+    );
   }
 
   function sourcesView(e) {
@@ -371,7 +663,8 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
     } else if (e.kind === "guide-note") {
       shown = [note("A line added after the guide, in every conversation:"), el("pre", { class: "rfl-pre" }, e.change ?? "")];
     } else {
-      const now = e.before === null || e.before === undefined ? "not set" : e.before;
+      const value = e.current !== undefined ? e.current : e.before;
+      const now = value === null || value === undefined ? "not set" : value;
       shown = [ext.ui.kv([["Setting", e.target ?? ""], ["Now", String(now)], ["Proposed", String(e.change ?? "")]])];
     }
     return section("The change", where, ...[].concat(shown));
@@ -396,13 +689,17 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
   function trialView(e) {
     const t = proposal.trial;
     const parts = [];
-    if (e.state === "adopted" && e.recheck) parts.push(note(`Re-check: ${e.recheck.reason}. Run the trial again to see if it still helps.`, "warn"));
+    if (e.state === "adopted" && e.recheck) parts.push(note(`Re-check: ${e.recheck.reason}. Try it again to see if it still helps.`, "warn"));
     if (e.state === "trialling" && !t?.state) parts.push(note("Starting the trial."));
     else if (t && (e.state === "trialling" || t.state === "queued" || t.state === "running")) parts.push(...runningView(t));
     else if (e.verdict) parts.push(...verdictView(e, t));
-    if (canTrial(e).ok && (e.state !== "adopted" || e.recheck)) parts.push(...requestView(e));
+    const offline = e.trialable === false;
+    if (tryable(e) && !offline) parts.push(...requestView(e));
+    if (tryable(e) && offline) parts.push(note(OFFLINE_NOTE));
     if (!parts.length) return null;
-    return section("Trial", note("A trial runs the request with the change and without it, in a copy of your space that is thrown away after. The runs cannot reach the network, Docker or SSH."), ...parts);
+    // Offline with nothing else to show, the note alone says it; how a trial works would not apply.
+    const about = offline && parts.length === 1 && tryable(e) ? null : note("A trial runs the request with the change and without it, in a copy of your space that is thrown away after. The runs cannot reach the network, Docker or SSH.");
+    return section("Trial", about, ...parts);
   }
 
   function runningView(t) {
@@ -441,7 +738,8 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
     const seen = seenLine(v.seen);
     const cost = typeof v.costUsd === "number" ? `It cost ${money(v.costUsd)}.` : null;
     return [
-      el("div", { class: "rfl-detail-head" }, chip(proposalChip(e)), v.at ? el("span", { class: "rfl-row-facts" }, when(v.at)) : null),
+      el("div", { class: "rfl-detail-head" }, chip({ label: `Trial: ${v.result}`, tone: verdictTone(v.result) }), v.at ? el("span", { class: "rfl-row-facts" }, when(v.at)) : null),
+      v.stale ? note("Trial was for the earlier text.", "warn") : null,
       v.why ? note(v.why) : null,
       seen || cost ? note([seen, cost].filter(Boolean).join(" ")) : null,
       e.lastTrial?.why ? note(`A later trial did not finish (${e.lastTrial.why}), so this verdict stands.`, "err") : null,
@@ -482,7 +780,7 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
     return [
       ext.ui.field("Request", box, hint),
       note("The trial runs on your files as they are now, not as they were in the conversation. Edit the request if it depends on how things were."),
-      el("div", { class: "rfl-actions" }, btn(trialLabel(e, s), run, e.verdict ? "quiet" : "primary", "Costs up to the trial cap in Settings", empty)),
+      el("div", { class: "rfl-actions" }, btn(trialLabel(e, s), run, "quiet", "Costs up to the trial cap in Settings", empty)),
       empty ? note("Write a request first.") : null,
     ];
   }
@@ -491,13 +789,14 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
     const adopt = adoptButton(e);
     const refusal = refusals.get(e.id);
     const buttons = [];
-    if (e.state === "trialling") buttons.push(btn("Stop trial", (event) => doCancelTrial(e, event?.currentTarget), "quiet", "Stop the runs; what they spent so far is spent"));
-    if (adopt) buttons.push(btn(adopt.label, (event) => doAdopt(e, event?.currentTarget), adopt.label === "Adopt" ? "primary" : "quiet", adopt.reason ?? undefined, adopt.disabled));
-    if (e.state === "proposed" || e.state === "trialled") buttons.push(btn("Reject", (event) => doReject(e, event?.currentTarget)));
-    if (e.state === "adopted") buttons.push(btn("Retire", (event) => doRetire(e, event?.currentTarget), "quiet", "Undo the change: what was there before comes back"));
+    if (e.state === "trialling") buttons.push(btn("Stop trial", (event) => doCancelTrial(e, anchorOf(event)), "quiet", "Stop the runs; what they spent so far is spent"));
+    if (adopt && !(adopt.action === "edit" && editing === e.id)) buttons.push(mainButton(e, adopt, () => startEdit(e)));
+    if (canEdit(e) && adopt?.action !== "edit" && editing !== e.id) buttons.push(btn("Edit", () => startEdit(e)));
+    if (e.state === "proposed" || e.state === "trialled") buttons.push(btn("Reject", (event) => doReject(e, anchorOf(event))));
+    if (e.state === "adopted") buttons.push(btn("Retire", (event) => doRetire(e, anchorOf(event)), "quiet", "Undo the change: what was there before comes back"));
     const said =
       e.state === "adopted"
-        ? note(`Adopted${e.applied?.at ? ` ${when(e.applied.at)}` : ""}. It is in every conversation it applies to.`)
+        ? note(`Adopted${e.applied?.at ? ` ${when(e.applied.at)}` : ""}${e.applied?.untried ? " without a trial" : ""}. It applies to new conversations.`)
         : e.state === "rejected"
           ? note("Rejected. It stays here so it is not proposed again.")
           : e.state === "retired"
@@ -515,15 +814,20 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
   }
 
   async function doAdopt(e, anchor) {
-    const ok = await confirmed(anchor, {
-      title: "Adopt this change?",
-      lines: [["Change", changeLabel(e)], ...(e.verdict?.result ? [["Trial", e.verdict.result]] : [])],
-      note: "It is written to your space now and used from the next message on. Retire undoes it.",
-      confirmLabel: e.verdict?.result?.startsWith("helped") ? "Adopt" : "Adopt anyway",
-    });
-    if (!ok) return;
+    if (!(await confirmed(anchor, adoptPopover(e)))) return;
     refusals.delete(e.id);
-    await act(() => call("adopt", { id: e.id }), null, (sentence) => refusals.set(e.id, sentence));
+    const untried = adoptButton(e)?.untried === true;
+    let done = false;
+    await act(async () => {
+      await call("adopt", { id: e.id, ...(untried ? { untried: true } : {}) });
+      done = true;
+    }, null, (sentence) => refusals.set(e.id, sentence));
+    if (done) ext.toast?.("Adopted. New conversations use it from now on.");
+  }
+
+  async function doUpdate(e) {
+    refusals.delete(e.id);
+    await act(() => call("rebase", { id: e.id }), null, (sentence) => refusals.set(e.id, sentence));
   }
 
   async function doCancelTrial(e, anchor) {
@@ -546,7 +850,7 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
   // ---- findings ----
 
   function findingsView() {
-    const intro = note("Problems with packages that reflections noticed. They are never shown to the assistant.");
+    const intro = note("Problems with packages that reflections noticed. The assistant sees one only when you send it with Fix this.");
     if (findingsError) return [intro, note(findingsError, "err")];
     if (!findings) return [intro, note("Reading…")];
     const all = findings.findings ?? [];
@@ -554,21 +858,26 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
     return [intro, ...groupFindings(all).map(([name, items]) => section(name, ...items.map(findingCard)))];
   }
 
-  function findingCard(f) {
+  /** A finding: what happened, its sightings (`brief`: counted in a line, as To review shows it) and its buttons. */
+  function findingCard(f, { brief = false } = {}) {
     const seen = f.seen ?? [];
+    const head = brief
+      ? el("span", { class: "rfl-card-kind" }, el("code", { class: "rfl-code" }, f.package), " · ", el("code", { class: "rfl-code" }, f.component))
+      : el("code", { class: "rfl-code rfl-card-kind" }, f.component);
     return el(
       "div",
       { class: "rfl-card" },
-      el("div", { class: "rfl-card-head" }, chip(findingChip(f)), el("code", { class: "rfl-code rfl-card-kind" }, f.component)),
-      el("p", { class: "rfl-card-text" }, inline(f.what)),
-      seen.length
+      el("div", { class: "rfl-card-head" }, chip(findingChip(f)), head),
+      el("p", { class: "rfl-card-text" }, inline(f.what, "", seen[0]?.session)),
+      brief ? el("p", { class: "rfl-row-facts" }, findingSeen(f)) : null,
+      !brief && seen.length
         ? el(
             "ul",
             { class: "rfl-list" },
             ...seen.map((x) =>
               el(
                 "li",
-                { class: "rfl-row" },
+                { class: "rfl-row is-wrap" },
                 el(
                   "button",
                   { type: "button", class: "rfl-row-main", title: "Its reflection", onClick: () => go("conversations", { session: x.session }) },
@@ -576,11 +885,12 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
                   el("span", { class: "rfl-row-facts" }, [x.version && `version ${x.version}`, x.at && when(x.at), x.gone && "conversation forgotten"].filter(Boolean).join(" · ")),
                 ),
                 !x.gone && ext.conversation?.open ? btn("Open conversation", () => openConversation(x.session)) : null,
+                Array.isArray(x.events) && x.events.length ? el("span", { class: "rfl-row-cites" }, ...x.events.filter(Number.isInteger).flatMap((n) => cite(n, x.session))) : null,
               ),
             ),
           )
         : null,
-      f.state !== "closed" ? el("div", { class: "rfl-actions" }, btn("Close", () => act(() => call("finding-close", { id: f.id })), "quiet", "Fixed, or not worth fixing. It opens again if it is seen in a newer version.")) : null,
+      findingActions(f),
     );
   }
 
@@ -654,14 +964,14 @@ export function openPlace(ext, root, params, { changed = () => {} } = {}) {
         ext.ui.field("Shortest conversation reflected", turns, "Fewer of your messages than this, and an archive is marked Skipped: too short. Reflect still runs it."),
       ),
       ext.ui.card(
-        "Daily cap",
+        "Daily limit",
         ext.ui.field("US dollars a day", cap, "Automatic reflections stop for the day (UTC) once this much is spent. Reflect, pressed by you, runs past it."),
         note(`Spent today: ${money(s.spend?.usd ?? 0) || "$0.00"} of ${money(s.dailyCostUsd)}.${unknown}`),
       ),
       ext.ui.card(
         "Trials",
         ext.ui.field("Runs each way", runs, "A trial runs the request this many times with the change and as many without it. From 1 to 5."),
-        ext.ui.field("Most a trial may spend, US dollars", trialCost, "The runs stop once a trial has spent this much. Trials run only when you press Run trial."),
+        ext.ui.field("Most a trial may spend, US dollars", trialCost, "The runs stop once a trial has spent this much. Trials run only when you press Try first."),
         ext.ui.field("Minutes per run", minutes, "A run still going after this long is stopped."),
         ext.ui.field("Memory for a run's changes, MB", scratch, "A run's writes are kept in memory and thrown away after. A run that writes more than this fails."),
         ext.ui.field("Trial model", trialModel, "The model the runs use."),

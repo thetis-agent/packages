@@ -1,6 +1,6 @@
 /* The project page, opened from the switcher with `{ id }` for a project's settings or `{ new: true }` for a
- * new one. Opened with neither — from the main menu — it shows the project chosen in the sidebar, and with
- * none chosen it says "Pick a project or create one": the projects as a list, and New project. An empty
+ * new one. Opened with neither — from the main menu — it shows the project you are in, and in no project
+ * it says "Pick a project or create one": the projects as a list, and New project. An empty
  * form in that case read as editing something that did not exist, with no Save in view. It asks `get` once, keeps a draft (name, directories, switched-off tools and skills, instructions) and
  * redraws the body from the draft after every edit. Typing is a draft and waits for Save; the two things
  * that change the workspace rather than the record -- a mount, and the directory list that names it -- are
@@ -14,8 +14,9 @@
  * the request to be lost and waits for the new workspace to answer instead of calling that a failure. The
  * draft is never reloaded around a bind: unsaved edits survive it, and an unsaved draft survives the place
  * being closed too, because Escape closes a place and nothing warned. Save calls `save`,
- * toasts, and refreshes the switcher; for a new project it also chooses it, so the sidebar shows the
- * conversations that join it. Delete sits behind the shell's confirm popover; after it the page becomes
+ * toasts, and refreshes the switcher; a new project is entered after it, so the sidebar, the tabs and the
+ * draft are its. An existing project's page starts with a New conversation button, which closes the place
+ * and opens the draft in that project (`ext.conversation.start`, on a gateway that has it). Delete sits behind the shell's confirm popover; after it the page becomes
  * the pick-or-create list, because the shell offers no way to close a place from inside it. `open` returns
  * an unmount that stops a late answer from drawing into a closed page. */
 
@@ -93,7 +94,7 @@ export function openPlace(ext, state, root, params) {
       const pickBtn = el(
         "button",
         { type: "button", class: "pj-pick-row", onClick: () => {
-          state.choose(p.id);
+          state.enter(p.id);
           open(p.id);
         } },
         el("span", { class: "pj-pick-name" }, p.name || p.id),
@@ -107,7 +108,7 @@ export function openPlace(ext, state, root, params) {
       el("div", { class: "pj-place" },
         el("div", { class: "pj-page pj-picker" },
           el("h2", { class: "pj-pick-title" }, "Pick a project or create one"),
-          el("p", { class: "pj-facts" }, "A project gives its conversations directories, standing instructions, and the tools and skills it switches off. Picking one also narrows the sidebar to its conversations."),
+          el("p", { class: "pj-facts" }, "A project gives its conversations directories, standing instructions, and the tools and skills it switches off. Picking one enters it: the sidebar, the tabs and new conversations follow."),
           rows.length ? el("div", { class: "pj-pick-list" }, ...rows) : el("p", { class: "pj-empty" }, "You have no projects yet."),
           el("div", { class: "pj-actions" }, newBtn)
         )
@@ -320,9 +321,17 @@ export function openPlace(ext, state, root, params) {
   }
 
   function conversationsSection() {
-    const n = facts.conversations;
-    const text = id ? `${n} ${n === 1 ? "conversation is" : "conversations are"} in this project.` : "None yet. A conversation started while this project is chosen joins it.";
+    const n = id ? facts.conversations : 0;
+    const text = n ? `${n} ${n === 1 ? "conversation is" : "conversations are"} in this project.` : "No conversations yet.";
     return el("section", { class: "pj-section" }, section("Conversations"), el("p", { class: "pj-facts" }, text));
+  }
+
+  /** "New conversation" in this project, for a project that exists, on a gateway that can open a draft in one. */
+  function startRow() {
+    if (!id || typeof ext.conversation.start !== "function") return null;
+    const project = id;
+    const start = el("button", { type: "button", class: "btn is-primary pj-start", onClick: () => ext.conversation.start({ space: project }) }, "New conversation");
+    return el("div", { class: "pj-start-row" }, start);
   }
 
   async function save(anchor) {
@@ -339,7 +348,9 @@ export function openPlace(ext, state, root, params) {
       keptDrafts.delete(created ? "new" : id);
       ext.toast(created ? `Project "${name}" created.` : `Project "${name}" saved.`, { tone: "ok" });
       await state.refresh();
-      if (created && id) state.choose(id);
+      if (created && id) state.enter(id);
+      // A new project's page opens at the top, where its "New conversation" button is.
+      if (created) toTop = true;
       if (alive) load();
     } catch (err) {
       ext.toast(err?.message || "The project could not be saved.", { tone: "error" });
@@ -364,9 +375,12 @@ export function openPlace(ext, state, root, params) {
     try {
       await ext.request("remove", { args: { id } });
       ext.toast(`Project "${draft.name}" deleted.`, { tone: "ok" });
-      if (state.chosen === id) state.choose(null);
+      const wasIn = state.chosen === id;
       id = null;
-      await state.refresh();
+      // The map first, so the conversation on screen is already in No project when the space moves there,
+      // and stays on screen rather than giving way to a draft.
+      await state.refresh({ fresh: true });
+      if (wasIn && state.chosen !== null) state.enter(null);
       if (!alive) return;
       picking = true;
       unwatch = state.watch(drawPicker);
@@ -388,6 +402,8 @@ export function openPlace(ext, state, root, params) {
     return el("div", { class: "pj-actions" }, saveBtn, note, removeBtn);
   }
 
+  let toTop = false;
+
   function draw() {
     if (!alive) return;
     const scrollTop = root.querySelector(".pj-place")?.scrollTop ?? 0;
@@ -396,6 +412,7 @@ export function openPlace(ext, state, root, params) {
       "div",
       { class: "pj-place" },
       el("div", { class: "pj-page" },
+        startRow(),
         el("section", { class: "pj-section" }, nameField()),
         directoriesSection(ext, draft, facts.states, redrawDirectories, { mount, pick, user: facts.user }),
         instructionsField(),
@@ -406,7 +423,8 @@ export function openPlace(ext, state, root, params) {
       )
     );
     root.append(page);
-    page.scrollTop = scrollTop;
+    page.scrollTop = toTop ? 0 : scrollTop;
+    toTop = false;
   }
 
   /* The browser's own warning, for the tab being closed or reloaded. It only fires for a draft the page

@@ -1,8 +1,8 @@
 {
   "name": "@thetis/projects",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "license": "MIT",
-  "description": "Named projects: zero or more project directories, standing instructions, and a per-project set of tools, chosen from a switcher in the web gateway's sidebar.",
+  "description": "Named projects: zero or more project directories, standing instructions, and a per-project set of tools. Each project is a space in the web gateway, entered from the sidebar's switcher.",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -17,6 +17,7 @@
     "label": "projects",
     "summary": "Lets you group conversations into projects, each with its own folders, instructions and tools.",
     "steps": [
+      { "id": "inherit", "phase": "history", "export": "inheritProject" },
       { "id": "project-prompt", "phase": "prompt", "export": "projectPrompt" },
       { "id": "project-tools", "phase": "call", "export": "projectTools" }
     ],
@@ -25,6 +26,7 @@
       "entry": "index.js",
       "style": "index.css",
       "sidebar": [{ "id": "head" }],
+      "composer": [{ "id": "project", "label": "Project", "hint": "Which project this conversation is in", "order": 90 }],
       "places": [
         {
           "id": "project",

@@ -6,7 +6,7 @@ import { contentText, normalizeTurnInput } from "@thetis/runtime/lib/content";
 // Sign-in lives in @thetis/gateway-login; this server only resolves the cookie it set, and the kernel
 // answers only when the token names this fence's user. What installed packages add to the page (their
 // browser files and commands) is composed and checked in ui.ts and mounted here under `ext/` and `api/`.
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -62,6 +62,8 @@ const NewSessionRequestSchema = z.looseObject({ model: z.string().trim().max(200
 const TitleRequestSchema = z.looseObject({ title: z.string().default("").transform((title) => title.replace(/\s+/g, " ").trim().slice(0, 120)) });
 const ArchiveRequestSchema = z.looseObject({ archived: z.boolean().default(true) });
 const PrefsRequestSchema = z.looseObject({ developer: z.boolean().optional() });
+/** An edit of the person's `nth` message (from 1), which must still begin with `expect`, to say `text` instead. */
+const EditRequestSchema = z.looseObject({ nth: z.number().int().min(1), expect: z.string().max(200), text: z.string() });
 /**
  * How large an uploaded avatar may be. It is a 22-pixel tile in the footer and a 34-pixel one in the
  * gutter, so half a megabyte is already far more than the picture can ever show; the number is here to
@@ -119,6 +121,32 @@ const SUBAGENT_LINE = /^\[subagent (s_[a-f0-9]+)(?: ([^\]]*))?\]/;
 
 /** The package whose marks on a message say it was cut off (`partial`) or is a tool result for a call that never ran (`notRun`). */
 const HARNESS = "@thetis/harness-core";
+
+/** The refusals of an edit, as the page shows them. */
+export const EDIT_RUNNING = "Wait for the reply to finish, or stop it.";
+export const EDIT_MOVED = "That message changed. Reload the conversation.";
+export const EDIT_NEEDS = "Editing needs @thetis/harness-core 0.9.0 or later.";
+
+/**
+ * The two hashes an edit's request is checked by, as @thetis/harness-core computes them; copied rather than
+ * imported, like the turn context line, because the gateway must still answer with an older harness there.
+ */
+export const messageHash = (m: Pick<Message, "role" | "content">): string => createHash("sha256").update(m.role + "\n" + contentText(m.content)).digest("hex");
+export const textHash = (t: string): string => createHash("sha256").update(t.trim()).digest("hex");
+
+/** The index in the conversation of the person's `nth` message, counting from 1; -1 when there are fewer. */
+export function nthUserIndex(conversation: Pick<Message, "role">[], nth: number): number {
+  let seen = 0;
+  for (let i = 0; i < conversation.length; i++) if (conversation[i].role === "user" && ++seen === nth) return i;
+  return -1;
+}
+
+/** The message an edit sends: the edited one's attachments kept, its words replaced by `text`. */
+export function editedInput(original: Message, text: string): Message {
+  const words = text.trim();
+  const kept = Array.isArray(original.content) ? original.content.filter((part) => part.type !== "text") : [];
+  return { role: "user", content: [...(words ? [{ type: "text", data: { text: words } }] : []), ...kept] };
+}
 
 /** Text made safe to put between tags or inside a double-quoted attribute of the page. */
 export function escapeHtml(text: string): string {
@@ -419,6 +447,11 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
         const run = await hub.start(user, id, [], store.model(user, id), rec.parent);
         return json(res, 202, { session: id, startedAt: run.startedAt, model: run.model ?? null });
       }
+      if (seg[3] === "edit" && seg.length === 4 && method === "POST") {
+        const body = await readJson(req, EditRequestSchema);
+        const { run, at } = await editMessage(who!, id, body);
+        return json(res, 202, { session: id, startedAt: run.startedAt, model: run.model ?? null, at });
+      }
       if (seg[3] === "model" && seg.length === 4 && method === "POST") {
         await kernel.sessions.inspect(id);
         const { model, remember } = await readJson(req, ModelRequestSchema);
@@ -456,6 +489,46 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
       }
     }
     throw new HttpError(404, "not found");
+  }
+
+  /**
+   * Rewinds a conversation to the person's `nth` message and sends `text` in its place. The gateway cannot
+   * cut a saved record; harness-core's rewind step does, when the turn begins, from a request this writes
+   * through its `rewind-request` command. What the gateway keeps about the replaced replies goes here, and
+   * comes back if the turn could not be started.
+   */
+  async function editMessage(who: { id: string; role: UserRole }, id: string, body: z.infer<typeof EditRequestSchema>): Promise<{ run: RunningTurn; at: number }> {
+    const user = who.id;
+    const rec = await kernel.sessions.inspect(id);
+    const all = await kernel.sessions.list();
+    const below = descendants(all, id);
+    const busy = (sid: string) => Boolean(hub.runningOf(user, sid)) || Boolean(all.find((s) => s.id === sid)?.running);
+    if (rec.status === "running" || busy(id) || below.some(busy)) throw new HttpError(409, EDIT_RUNNING);
+    if (rec.parent) throw new HttpError(400, "A subagent's messages cannot be edited.");
+    const at = nthUserIndex(rec.conversation, body.nth);
+    if (at < 0 || !withoutTurnContext(contentText(rec.conversation[at].content)).startsWith(body.expect)) throw new HttpError(409, EDIT_MOVED);
+    const input = editedInput(rec.conversation[at], body.text);
+    if (!input.content.length) throw new HttpError(400, "An edited message needs words or an attachment.");
+    const ctx = hookContext();
+    if (!ctx) throw new HttpError(409, EDIT_NEEDS);
+    const harness = (verb: string, args: Record<string, unknown>) =>
+      runCommand(ctx, who, "@thetis", "harness-core", verb, { session: id, args }).catch((err: unknown) => {
+        // An older harness-core does not declare the verb; with none installed there is no extension to ask.
+        if (err instanceof HttpError && err.status === 404) throw new HttpError(409, EDIT_NEEDS);
+        throw err;
+      });
+    await harness("rewind-request", { session: id, at, expect: messageHash(rec.conversation[at]), input: textHash(body.text) });
+    const kept = store.snapshot(user, id);
+    store.truncate(user, id, at);
+    try {
+      const run = await hub.start(user, id, [input], store.model(user, id));
+      return { run, at };
+    } catch (err) {
+      store.restore(user, id, kept);
+      await harness("rewind-cancel", { session: id }).catch((e: Error) => log(`[gateway-web] the rewind request of ${id} was not withdrawn: ${e.message}`));
+      if ((err as { code?: string }).code === "busy") throw new HttpError(409, EDIT_RUNNING);
+      throw err;
+    }
   }
 
   /** What a package's code runs with here, or undefined when this gateway was started without a fence env to run it in. */
@@ -587,7 +660,7 @@ export function createGateway(kernel: KernelClient, store: GatewayStore, opts: G
     for (const child of children) child.label = labels.get(child.id) ?? null;
     // `turn` is the hub's, never the record's marker: a marker left by an interrupted turn would put the
     // page in a turn nothing will end, while its message is in the conversation already.
-    return { ...rec, archived: store.archived(user).has(id), archivedAt: store.archivedAt(user, id) ?? null, turn, usage: store.usage(user, id), model: store.model(user, id) ?? null, title: store.title(user, id) ?? null, resumed: store.resumed(user, id), stopped: store.stopped(user, id) ?? null, children };
+    return { ...rec, archived: store.archived(user).has(id), archivedAt: store.archivedAt(user, id) ?? null, turn, usage: store.usage(user, id), model: store.model(user, id) ?? null, title: store.title(user, id) ?? null, resumed: store.resumed(user, id), stopped: store.stopped(user, id) ?? null, edited: store.edited(user, id), children };
   }
 
   /** Retry when a turn starts or ends during the RPC, so saved history and its live overlay agree. */

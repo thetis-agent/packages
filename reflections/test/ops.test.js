@@ -1,12 +1,16 @@
 // The UI command: the list with archived conversations that have no record, Reflect and Cancel, the
-// proposals and their trials, Adopt, Reject and Retire, the findings, and the settings written at the
+// proposals and their trials, Adopt (untried too), Edit, Update, Reject and Retire, the findings with Fix
+// this and Copy, To review and its ranking, Reflect them, a cited event, and the settings written at the
 // person's layer. Also the words of the chip and the place, which are pure, and the line diff.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { uiCall } from "../index.js";
 import { OPS } from "../lib/ops.js";
 import { lineDiff, folded } from "../ui/diff.js";
-import { adoptButton, canTrial, chipVisible, describe, explain, findingChip, groupFindings, proposalChip, seenLine, shortReason, trialLabel } from "../ui/state.js";
+import {
+  GROUPS, adoptButton, adoptPopover, canEdit, canTrial, chipVisible, describe, explain, findingChip, findingSeen, groupFindings, proposalChip, reflectSkippedLabel, reviewLine, seenIn, seenLine,
+  shortReason, skippedLine, trialLabel, whereLabel,
+} from "../ui/state.js";
 import { fakeKernel, get, put, sampleSession, tempHome } from "./helpers.js";
 
 const A = "s_aaaa1111";
@@ -109,7 +113,10 @@ const library = (home, entries) => put(home, "reflections/library.json", { entri
 const stateOf = async (home, id) => (await get(home, "reflections/library.json")).entries.find((e) => e.id === id)?.state;
 
 test("the ops: forget-lesson is gone, the proposal and finding ops are there, and index.js allows each", async () => {
-  assert.deepEqual([...OPS], ["list", "get", "reflect", "cancel", "settings", "set-setting", "project-switch", "proposals", "proposal", "trial", "trial-cancel", "adopt", "reject", "retire", "findings", "finding-close"]);
+  assert.deepEqual([...OPS], [
+    "list", "get", "reflect", "cancel", "settings", "set-setting", "project-switch", "review", "reflect-skipped", "event",
+    "proposals", "proposal", "trial", "trial-cancel", "adopt", "edit", "rebase", "reject", "retire", "findings", "finding-close", "finding-text",
+  ]);
   const t = await setup();
   try {
     await assert.rejects(() => uiCall({ op: "forget-lesson", id: "x" }, t.env), /There is no op named "forget-lesson"/);
@@ -283,18 +290,22 @@ test("trial-cancel stops a running trial and the proposal goes back to where it 
     const after = (await get(t.home, "reflections/library.json")).entries[0];
     assert.equal(after.state, "proposed");
     assert.equal(after.verdict.result, "inconclusive");
-    assert.deepEqual(adoptButton(after), { label: "Adopt", disabled: true, reason: "Run a trial first." }, "a cancelled trial judged nothing");
-    await assert.rejects(() => t.call("adopt", { id: "L-aa11bb" }), /Run a trial first/);
+    assert.deepEqual(adoptButton(after), { label: "Adopt", action: "adopt", untried: true, disabled: false, reason: null }, "a cancelled trial judged nothing");
+    await assert.rejects(() => t.call("adopt", { id: "L-aa11bb" }), /It has not been tried/);
   } finally {
     await t.done();
   }
 });
 
-test("adopt is refused before a trial; after one it writes the change, and retire takes it back", async () => {
+test("adopt needs untried before a trial; after one it writes the change, and retire takes it back", async () => {
   const t = await setup();
   try {
     await library(t.home, [entry("L-aa11bb")]);
-    await assert.rejects(() => t.call("adopt", { id: "L-aa11bb" }), /Run a trial first/);
+    await assert.rejects(() => t.call("adopt", { id: "L-aa11bb" }), /It has not been tried/);
+    await t.call("adopt", { id: "L-aa11bb", untried: true });
+    assert.equal(await get(t.home, "skills/check-the-generator/SKILL.md"), SKILL);
+    assert.equal((await get(t.home, "reflections/library.json")).entries[0].applied.untried, true);
+    await t.call("retire", { id: "L-aa11bb" });
 
     await library(t.home, [entry("L-aa11bb", { state: "trialled", trials: [T], verdict: verdict() })]);
     await t.call("adopt", { id: "L-aa11bb" });
@@ -309,12 +320,12 @@ test("adopt is refused before a trial; after one it writes the change, and retir
   }
 });
 
-test("adopt is refused when the file changed since the proposal", async () => {
+test("adopt is refused when the file changed in the same place since the proposal", async () => {
   const t = await setup();
   try {
     await library(t.home, [entry("L-aa11bb", { state: "trialled", trials: [T], verdict: verdict() })]);
     await put(t.home, "skills/check-the-generator/SKILL.md", "written by hand meanwhile");
-    await assert.rejects(() => t.call("adopt", { id: "L-aa11bb" }), /changed since the proposal/);
+    await assert.rejects(() => t.call("adopt", { id: "L-aa11bb" }), /changed in the same place since; edit the proposal/);
     assert.equal(await get(t.home, "skills/check-the-generator/SKILL.md"), "written by hand meanwhile");
   } finally {
     await t.done();
@@ -398,10 +409,14 @@ test("the chip's words follow the state", () => {
   assert.equal(describe({ state: "queued" }).label, "Queued");
   assert.equal(describe({ state: "running" }).label, "Reflecting…");
   assert.equal(describe({ state: "skipped", reason: "too short (2 turns)" }).label, "Skipped: too short");
+  assert.equal(describe({ state: "skipped", skip: "cap", reason: "daily cost cap reached" }).label, "Not reflected: daily limit");
+  assert.equal(describe({ state: "skipped", reason: "daily cost cap reached" }).label, "Not reflected: daily limit", "a record from before skip");
+  assert.match(explain({ state: "skipped", skip: "cap", reason: "daily cost cap reached" }), /^Not reflected: the daily limit was reached\. Reflect runs it anyway\.$/);
   assert.equal(describe({ state: "failed" }).label, "Failed · Retry");
   assert.equal(describe({ state: "none" }).label, "Not reflected · Reflect");
   assert.equal(describe(null).action, "reflect");
-  assert.equal(shortReason("daily cost cap reached"), "daily cap reached");
+  assert.equal(shortReason("daily cost cap reached"), "daily limit");
+  assert.match(explain({ state: "done", proposal: "L-aa11bb" }), /nothing changes until you adopt it\.$/);
   assert.equal(chipVisible({ state: "none" }, true), true);
   assert.equal(chipVisible({ state: "none" }, false), false);
   assert.equal(chipVisible({ state: "cancelled" }, false), false, "a restore's cancel is no news");
@@ -410,23 +425,46 @@ test("the chip's words follow the state", () => {
   assert.match(explain({ state: "done", reason: "no proposal: the note is over 300 characters" }), /^Reflected\. No proposal: the note is over 300 characters\.$/);
 });
 
-test("the proposal's words: the pill, the Adopt button, the Run trial label, what was seen", () => {
-  assert.deepEqual(proposalChip(entry("L-1")), { label: "No trial yet", tone: "dim" });
+test("the proposal's words: the pill, the Adopt button in every state, the trial label, what was seen", () => {
+  assert.deepEqual(proposalChip(entry("L-1")), { label: "Not tried", tone: "dim" });
   assert.equal(proposalChip(entry("L-1", { state: "trialling" })).label, "Trialling…");
   assert.deepEqual(proposalChip(entry("L-1", { state: "trialled", verdict: verdict("helped (one run each: weak)") })), { label: "Trial: helped (one run each: weak)", tone: "ok" });
   assert.equal(proposalChip(entry("L-1", { verdict: { error: "the sandbox failed" } })).label, "Trial failed");
   assert.equal(proposalChip(entry("L-1", { state: "retired", verdict: verdict() })).label, "Retired");
+  assert.deepEqual(proposalChip(entry("L-1", { staleness: "mergeable" })), { label: "Out of date", tone: "warn" });
+  assert.equal(proposalChip(entry("L-1", { staleness: "conflict", verdict: verdict() })).label, "Out of date");
+  assert.equal(proposalChip(entry("L-1", { edited: { at: "x" }, verdict: verdict("helped", { stale: true }) })).label, "Edited", "a trial of the earlier text does not speak for this one");
+  assert.equal(proposalChip(entry("L-1", { rebasedAt: "x" })).label, "Updated", "Update merged it; the person did not edit it");
+  assert.equal(proposalChip(entry("L-1", { state: "adopted", applied: { untried: true } })).label, "Adopted");
 
-  assert.deepEqual(adoptButton(entry("L-1")), { label: "Adopt", disabled: true, reason: "Run a trial first." });
-  assert.equal(adoptButton(entry("L-1", { state: "trialling" })).disabled, true);
-  assert.deepEqual(adoptButton(entry("L-1", { state: "trialled", verdict: verdict() })), { label: "Adopt", disabled: false, reason: null });
-  assert.equal(adoptButton(entry("L-1", { state: "trialled", verdict: verdict("no difference") })).label, "Adopt anyway");
-  assert.equal(adoptButton(entry("L-1", { state: "adopted", verdict: verdict() })), null);
-  assert.equal(adoptButton(entry("L-1", { state: "adopted", verdict: verdict(), recheck: { reason: "x" } })).label, "Adopt");
-  assert.equal(adoptButton(entry("L-1", { state: "rejected" })), null);
+  const button = (extra) => adoptButton(entry("L-1", extra));
+  assert.deepEqual(button({}), { label: "Adopt", action: "adopt", untried: true, disabled: false, reason: null });
+  assert.deepEqual(button({ state: "trialling" }), { label: "Adopt", action: "adopt", untried: false, disabled: true, reason: "Wait for the trial to finish." });
+  assert.deepEqual(button({ state: "trialled", verdict: verdict() }), { label: "Adopt", action: "adopt", untried: false, disabled: false, reason: null });
+  assert.equal(button({ state: "trialled", verdict: verdict("no difference") }).label, "Adopt", "a trial that said nothing either way");
+  assert.equal(button({ state: "trialled", verdict: verdict("not reached") }).label, "Adopt", "a trial that could not test it");
+  assert.equal(button({ state: "trialled", verdict: verdict("hurt") }).label, "Adopt anyway");
+  assert.equal(button({ state: "trialled", verdict: verdict("inconclusive") }).label, "Adopt anyway");
+  assert.equal(button({ state: "trialled", verdict: verdict("hurt", { stale: true }) }).label, "Adopt", "a trial of the earlier text");
+  assert.deepEqual(button({ staleness: "mergeable" }), { label: "Update", action: "update", untried: false, disabled: false, reason: "The file changed since the proposal. Update merges the change into it." });
+  assert.deepEqual(button({ state: "trialled", staleness: "conflict" }), { label: "Edit", action: "edit", untried: false, disabled: false, reason: "The file changed in the same place. Edit it to include the change." });
+  assert.equal(button({ state: "adopted", verdict: verdict() }), null);
+  assert.equal(button({ state: "adopted", verdict: verdict(), recheck: { reason: "x" } }).label, "Adopt");
+  assert.equal(button({ state: "rejected" }), null);
+  assert.equal(button({ state: "retired" }), null);
+  for (const state of ["proposed", "trialled"]) assert.equal(canEdit(entry("L-1", { state })), true);
+  for (const state of ["trialling", "adopted", "rejected", "retired"]) assert.equal(canEdit(entry("L-1", { state })), false);
 
-  assert.equal(trialLabel(entry("L-1"), { runs: 2, costUsd: 5 }), "Run trial (2 runs each, up to $5)");
-  assert.equal(trialLabel(entry("L-1", { trials: [T] }), { runs: 1, costUsd: 2.5 }), "Run trial again (1 run each, up to $2.50)");
+  assert.deepEqual(adoptPopover(entry("L-1")), { title: "Adopt without trying it?", lines: [["Change", "Skill check-the-generator"]], note: "It applies to new conversations from now on. You can retire it later.", confirmLabel: "Adopt" });
+  const moved = adoptPopover(entry("L-1", { kind: "config", target: "@thetis/harness-core maxRounds", change: "60", before: "30", current: "45" }));
+  assert.equal(moved.note, "It applies to new conversations from now on. You can retire it later. It is 45 now; this sets 60.");
+  assert.equal(adoptPopover(entry("L-1", { state: "trialled", verdict: verdict("hurt") })).confirmLabel, "Adopt anyway");
+  assert.equal(whereLabel(entry("L-1", { kind: "project-instructions", target: P, targetName: "Torchship" })), "Torchship instructions");
+  assert.equal(whereLabel(entry("L-1", { kind: "guide-note", target: "-" })), "Guide note");
+
+  assert.equal(trialLabel(entry("L-1"), { runs: 2, costUsd: 5 }), "Try first (up to $5)");
+  assert.equal(trialLabel(entry("L-1", { trials: [T] }), { runs: 1, costUsd: 2.5 }), "Try again (up to $2.50)");
+  assert.deepEqual(GROUPS.map((g) => g.label), ["Not tried", "Trialling", "Ready", "Adopted", "Rejected and retired"]);
   assert.equal(canTrial(entry("L-1", { state: "trialling" })).ok, false);
   assert.equal(canTrial(entry("L-1", { state: "rejected" })).ok, false);
   assert.equal(canTrial(entry("L-1", { state: "adopted" })).ok, true);
@@ -434,6 +472,20 @@ test("the proposal's words: the pill, the Adopt button, the Run trial label, wha
   assert.equal(seenLine([true, false]), "The change was seen in 1 of 2 runs with it.");
   assert.match(seenLine([false, false]), /not seen in any run/);
   assert.equal(seenLine(undefined), null);
+});
+
+test("the words of To review: the count line, the sightings, the skipped ones", () => {
+  assert.equal(reviewLine({ proposals: 4, findings: 6, skipped: 11 }), "4 proposals · 6 findings · 11 not reflected");
+  assert.equal(reviewLine({ proposals: 1, findings: 0, skipped: 0 }), "1 proposal");
+  assert.equal(reviewLine({}), "Nothing to review.");
+  assert.equal(seenIn(entry("L-1", { from: [{}, {}, {}] })), "Seen in 3 conversations");
+  assert.equal(findingSeen(finding("F-1", { seen: Array.from({ length: 16 }, (_, i) => ({ at: `2026-10-${10 + i}T10:00:00.000Z` })) })), "Seen 16 times, last 25 Oct");
+  assert.equal(findingSeen(finding("F-1")), "Seen once, last 19 Oct");
+  assert.equal(skippedLine({ count: 11, capUsd: 5 }), "11 archived conversations were not reflected: the $5 daily limit was reached.");
+  assert.equal(skippedLine({ count: 1, capUsd: 2.5 }), "1 archived conversation was not reflected: the $2.50 daily limit was reached.");
+  assert.equal(reflectSkippedLabel({ count: 11, estimateUsd: 14.08 }), "Reflect them (about $14)");
+  assert.equal(reflectSkippedLabel({ count: 1, estimateUsd: 1.28 }), "Reflect it (about $1.28)");
+  assert.equal(reflectSkippedLabel({ count: 2, estimateUsd: null }), "Reflect them");
 });
 
 test("the findings' words and groups", () => {
@@ -452,4 +504,144 @@ test("the line diff marks what was removed and added, and folds long unchanged r
   assert.deepEqual(out[0], { op: "…", count: 7 });
   assert.equal(out.filter((l) => l.op === "+").length, 1);
   assert.deepEqual(out.at(-1), { op: "…", count: 7 });
+});
+
+const daysAgo = (d) => new Date(Date.now() - d * 86_400_000).toISOString();
+const TRAJECTORY = (s) => `# Conversation ${s}\n\n2 turns, events [1]–[5].\n\n[1] [USER] Fix the header colour\n\n[2] [ASSISTANT] I will edit it.\n\n[3] [ACTION] edit_path({"path":"dist/app.js"})\n\n[4] [OBSERVATION] ok\nsecond line of it\n\n[5] [USER] It is gone after the build\n`;
+
+test("review: what wants the person, ranked by sightings halved each week, the counts, and the cap skips with an estimate", async () => {
+  const t = await setup();
+  try {
+    await library(t.home, [
+      entry("L-aa11bb", { from: [{ session: A, at: daysAgo(3) }, { session: B, at: daysAgo(2) }, { session: C, at: daysAgo(1), project: P }] }),
+      entry("L-bb22cc", { state: "trialled", trials: [T], verdict: verdict(), from: [{ session: A, at: daysAgo(30) }] }),
+      entry("L-cc33dd", { state: "adopted", applied: { before: null, after: SKILL, at: daysAgo(5) } }),
+      entry("L-dd44ee", { state: "rejected" }),
+      entry("L-ee55ff", { kind: "config", target: "@thetis/harness-core maxRounds", change: "60", before: null, from: [{ session: B, at: daysAgo(60) }] }),
+    ]);
+    await put(t.home, "projects/p_0a1b2c3d.json", { id: P, name: "Torchship" });
+    await put(t.home, "reflections/findings.json", {
+      findings: [
+        finding("F-ff11ee", { seen: Array.from({ length: 16 }, (_, i) => ({ session: A, at: daysAgo(2 + i), version: "0.4.0", events: [4] })) }),
+        finding("F-ee22dd", { state: "closed" }),
+        finding("F-dd33cc", { state: "possibly-fixed", since: "0.5.0", seen: [{ session: B, at: daysAgo(10), events: [] }] }),
+      ],
+    });
+    await put(t.home, `reflections/${A}.json`, { session: A, state: "skipped", skip: "cap", reason: "daily cost cap reached" });
+    await put(t.home, `reflections/${B}.json`, { session: B, state: "skipped", reason: "daily cost cap reached" });
+    await put(t.home, `reflections/${C}.json`, { session: C, state: "skipped", reason: "too short (1 turn)" });
+    await put(t.home, "reflections/s_eeee5555.json", { session: "s_eeee5555", state: "done", costUsd: 1.2, finishedAt: daysAgo(1) });
+    await put(t.home, "reflections/s_ffff6666.json", { session: "s_ffff6666", state: "done", costUsd: 1.4, finishedAt: daysAgo(2) });
+    const r = await t.call("review");
+    assert.deepEqual(r.counts, { proposals: 3, findings: 2, skipped: 2 });
+    assert.deepEqual(r.cards.map((c) => c.entry?.id ?? c.finding.id), ["F-ff11ee", "L-aa11bb", "F-dd33cc", "L-bb22cc", "L-ee55ff"]);
+    assert.ok(r.cards[0].score > r.cards[1].score && r.cards[1].score > r.cards[2].score);
+    const top = r.cards[1].entry;
+    assert.deepEqual([top.project, top.projectName, top.staleness, top.trialable], [P, "Torchship", "fresh", true]);
+    assert.equal(r.cards[0].finding.lastAt.slice(0, 10), daysAgo(2).slice(0, 10), "a finding says when it was seen last");
+    assert.equal(r.cards.find((c) => c.entry?.id === "L-ee55ff").entry.current, null, "a setting says what it is now");
+    assert.deepEqual(r.skipped, { count: 2, estimateUsd: 2.6, capUsd: 5 });
+    assert.deepEqual(r.trial, { runs: 2, costUsd: 5, minutes: 20 });
+  } finally {
+    await t.done();
+  }
+});
+
+test("reflect-skipped queues only the cap skips, as pressed by the person", async () => {
+  const t = await setup();
+  try {
+    await put(t.home, `reflections/${A}.json`, { session: A, state: "skipped", skip: "cap", reason: "daily cost cap reached", archivedAt: "2026-10-19T09:00:00.000Z" });
+    await put(t.home, `reflections/${B}.json`, { session: B, state: "skipped", reason: "daily cost cap reached" });
+    await put(t.home, `reflections/${C}.json`, { session: C, state: "skipped", reason: "too short (1 turn)" });
+    await put(t.home, "reflections/s_9999aaaa.json", { session: "s_9999aaaa", state: "skipped", skip: "cap", reason: "daily cost cap reached" });
+    await put(t.home, "reflections/s_eeee5555.json", { session: "s_eeee5555", state: "done", costUsd: 1.5, finishedAt: "2026-10-19T09:00:00.000Z" });
+    assert.deepEqual(await t.call("reflect-skipped"), { count: 2, estimateUsd: 3 });
+    const [a, b, c, gone] = await Promise.all([A, B, C, "s_9999aaaa"].map((s) => get(t.home, `reflections/${s}.json`)));
+    assert.deepEqual([a.state, a.manual, a.archivedAt, a.skip], ["queued", true, "2026-10-19T09:00:00.000Z", undefined]);
+    assert.deepEqual([b.state, b.manual], ["queued", true]);
+    assert.equal(c.state, "skipped", "too short is not the cap's");
+    assert.equal(gone.state, "skipped", "a forgotten conversation is left alone");
+  } finally {
+    await t.done();
+  }
+});
+
+test("event: the block of one event from the export, a subagent's too; a bad number is refused", async () => {
+  const t = await setup();
+  try {
+    await put(t.home, `reflections/${A}/context/trajectory.md`, TRAJECTORY(A));
+    await put(t.home, `reflections/${A}/context/subagents/s_dddd4444.md`, `# Subagent s_dddd4444\n\n[6] [ACTION] read_file({"path":"${"x".repeat(3000)}"})\n`);
+    assert.deepEqual(await t.call("event", { session: A, n: 4 }), { session: A, n: 4, kind: "OBSERVATION", text: "ok\nsecond line of it", cut: 0 });
+    const long = await t.call("event", { session: A, n: 6 });
+    assert.equal(long.kind, "ACTION");
+    assert.equal(long.text.length, 2001, "at most 2,000 characters, marked");
+    assert.ok(long.cut > 0);
+    await assert.rejects(() => t.call("event", { session: A, n: 0 }), /n must be an event number/);
+    await assert.rejects(() => t.call("event", { session: A, n: "4" }), /n must be an event number/);
+    await assert.rejects(() => t.call("event", { session: A, n: 99 }), /There is no event \[99\]/);
+    await assert.rejects(() => t.call("event", { session: "../x", n: 1 }), /not a conversation id/);
+  } finally {
+    await t.done();
+  }
+});
+
+test("finding-text: the first message and the issue, in the project it was seen in most, ties to the latest", async () => {
+  const t = await setup();
+  try {
+    const Q = "p_9e8d7c6b";
+    await put(t.home, "projects/sessions.json", { [A]: P, [B]: Q, [C]: Q });
+    await put(t.home, `projects/${P}.json`, { id: P, name: "Torchship" });
+    await put(t.home, `projects/${Q}.json`, { id: Q, name: "Nova" });
+    await put(t.home, `reflections/${A}/context/trajectory.md`, TRAJECTORY(A));
+    const seen = [
+      { session: A, title: "Header fix", at: "2026-10-28T10:00:00.000Z", version: "0.4.0", events: [3, 4] },
+      { session: B, title: "Second", at: "2026-10-29T10:00:00.000Z", version: "0.4.1", events: [7] },
+      { session: C, title: "Footer fix", at: "2026-10-30T10:00:00.000Z", version: "0.4.1", events: [] },
+    ];
+    await put(t.home, "reflections/findings.json", { findings: [finding("F-ff11ee", { seen }), finding("F-ee22dd", { seen: [seen[0], { ...seen[1], at: "2026-10-27T10:00:00.000Z" }] })] });
+    const out = await t.call("finding-text", { id: "F-ff11ee" });
+    assert.deepEqual([out.project, out.projectName], [Q, "Nova"]);
+    assert.equal(out.prompt, `Fix a problem Reflections found in @thetis/tools-files (read_file):\n\nread_file cut a long line without saying so.\n\nSeen 3 times, last on 30 Oct in "Footer fix". Reproduce it first, then fix it, and show me the test that proves the fix.`);
+    assert.match(out.issue, /^# @thetis\/tools-files: read_file cut a long line without saying so\.\n\n- Package: `@thetis\/tools-files@0\.4\.1`\n- Component: `read_file`\n/);
+    assert.match(out.issue, /### 28 Oct 2026 · "Header fix" · @thetis\/tools-files@0\.4\.0\n\n\[3\] ACTION\n```\nedit_path\(\{"path":"dist\/app\.js"\}\)\n```\n\n\[4\] OBSERVATION\n```\nok\nsecond line of it\n```/);
+    assert.match(out.issue, /Cited, not copied here: \[7\]\./);
+    const tie = await t.call("finding-text", { id: "F-ee22dd" });
+    assert.equal(tie.project, P, "one sighting each: the latest one's project");
+    assert.match(tie.prompt, /Seen 2 times, last on 28 Oct in "Header fix"/);
+    await assert.rejects(() => t.call("finding-text", { id: "F-000000" }), /There is no finding F-000000/);
+  } finally {
+    await t.done();
+  }
+});
+
+test("edit, rebase and the proposal's answer: staleness, the merged text, the limits, and whether a trial can test it", async () => {
+  const t = await setup();
+  try {
+    await put(t.home, `projects/${P}.json`, { id: P, name: "Torchship" });
+    await put(t.home, `projects/${P}.md`, "# Torchship\n\nUse the live MOO.\n");
+    await library(t.home, [
+      entry("L-aa11bb", { kind: "project-instructions", target: P, path: null, before: "# Torchship\n\nUse the live MOO.\n", change: "# Torchship\n\nUse the live MOO.\n\nKey characters by .character_id.\n", evidence: "rows 1; [3]" }),
+      entry("L-bb22cc", { kind: "guide-note", target: "-", path: null, before: "[]", change: "Ask first.", state: "trialled", trials: [T], verdict: verdict() }),
+    ]);
+    await put(t.home, `reflections/${A}/context/trajectory.md`, TRAJECTORY(A).replace("edit_path(", "moo_eval("));
+    await put(t.home, `harness-core/turns/${A}.jsonl`, `${JSON.stringify({ turn: 1, tools: "abcdef01" })}\n`);
+    await put(t.home, `harness-core/snapshots/${A}/abcdef01.json`, [{ name: "moo_eval", package: "@thetis/moo" }]);
+    let p = await t.call("proposal", { id: "L-aa11bb" });
+    assert.deepEqual([p.entry.staleness, p.entry.trialable, p.entry.livePackages, p.limits], ["fresh", false, ["@thetis/moo"], { note: 300, change: 12000 }]);
+    await put(t.home, `projects/${P}.md`, "# Torchship, the ship\n\nUse the live MOO.\n");
+    p = await t.call("proposal", { id: "L-aa11bb" });
+    assert.equal(p.entry.staleness, "mergeable");
+    assert.equal(p.entry.merged, "# Torchship, the ship\n\nUse the live MOO.\n\nKey characters by .character_id.\n");
+    assert.equal((await t.call("proposals")).entries.find((e) => e.id === "L-aa11bb").staleness, "mergeable");
+    await t.call("rebase", { id: "L-aa11bb" });
+    await t.call("adopt", { id: "L-aa11bb", untried: true });
+    assert.equal(await get(t.home, `projects/${P}.md`), "# Torchship, the ship\n\nUse the live MOO.\n\nKey characters by .character_id.\n");
+
+    await assert.rejects(() => t.call("edit", { id: "L-bb22cc" }), /change is required/);
+    const e = await t.call("edit", { id: "L-bb22cc", change: "Ask before a long job." });
+    assert.deepEqual([e.state, e.change, e.verdict.stale], ["proposed", "Ask before a long job.", true]);
+    await assert.rejects(() => t.call("adopt", { id: "L-bb22cc" }), /It has not been tried/);
+  } finally {
+    await t.done();
+  }
 });

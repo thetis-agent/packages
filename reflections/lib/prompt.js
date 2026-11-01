@@ -415,7 +415,16 @@ function proposalProblem(p, { rows, visible, packages, projects, entries, skills
     return null;
   }
   if (!KINDS.includes(p.kind)) return p.kind ? `the kind ${JSON.stringify(p.kind)} is not one of ${KINDS.join(", ")}` : "it has no kind";
-  const change = p.change ?? "";
+  return changeProblem(p.kind, p.target, p.change, { packages, projects, skills });
+}
+
+/**
+ * Why a change of `kind` at `target` does not hold, or null: the guard's limits, shared with an edit by the
+ * person. `ctx` is the guard's `{ packages, projects, skills }`.
+ */
+export function changeProblem(kind, target, text, { packages = new Map(), projects = new Set(), skills = new Map() } = {}) {
+  const p = { kind, target };
+  const change = typeof text === "string" ? text : "";
   if (!change.trim()) return "it has no change";
   if (p.kind === "skill") return skillProblem(p.target, change, skills, projects);
   if (p.kind === "project-instructions") {
@@ -476,8 +485,14 @@ function cleanProposal(p) {
     out.change = null;
     return out;
   }
-  if (p.kind === "guide-note") out.change = p.change.trim();
-  if (p.kind === "config") out.change = JSON.stringify(JSON.parse(p.change.trim()));
-  if (p.kind === "skill" || p.kind === "project-instructions") out.change = p.change.endsWith("\n") ? p.change : `${p.change}\n`;
+  out.change = cleanChange(p.kind, p.change);
   return out;
+}
+
+/** A change as the library keeps it: a note trimmed, a config value as compact JSON, a file ending in a newline. */
+export function cleanChange(kind, change) {
+  if (kind === "guide-note") return change.trim();
+  if (kind === "config") return JSON.stringify(JSON.parse(change.trim()));
+  if (kind === "skill" || kind === "project-instructions") return change.endsWith("\n") ? change : `${change}\n`;
+  return change;
 }

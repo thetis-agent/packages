@@ -13,7 +13,7 @@ Six tools, declared in `thetis.tools`. Every `todo_*` tool returns the whole ren
 | `todo_mark` | `ids`, `stage` (required; `pending`, `active`, `done` or `dropped`) | Every id must exist. Only one item is active at a time: marking a second one active returns the previous one to pending, and the reply says so. |
 | `todo_order` | `ids` (required) | The listed ids come first in that order; the rest keep their relative order after them. |
 | `todo_read` | none | The plan as it is. |
-| `ask_user` | `questions` (required, 1 to 4 of `{ id?, question, options?, allow_multiple? }`; at most 500 characters per question, 12 options of 120 characters), `intro` | Records the questions and returns fixed text telling the model to end its reply with one short line saying it is waiting, and stop. The answers arrive as the next user message. |
+| `ask_user` | `questions` (required, 1 to 4 of `{ id?, question, options?, allow_multiple? }`; at most 500 characters per question, 12 options of 120 characters), `intro` | Records the questions and ends the turn: it is declared `endsTurn` and `needsPerson`, so harness-core stops the loop once it returns and does not offer it in a subagent or a conversation marked `harness-core/unattended/<session id>.json`. The answers arrive as the next user message. Called there anyway, it refuses and tells the model to decide and say what it assumed. |
 
 The web gateway UI, declared in `thetis.ui` (`dir: "ui"`, entry `index.js`, style `index.css`):
 

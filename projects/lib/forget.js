@@ -1,19 +1,42 @@
 // The forget hook: when a person forgets a conversation, the gateway asks every package that declares
 // `thetis.sessions.forget` to remove what it kept about it. This package keeps one thing per conversation:
-// its key in `projects/sessions.json`. The project itself, its instructions and its other conversations
-// are the person's and stay. The map is shared by every conversation, so it is rewritten whole beside
+// its key in `projects/sessions.json`, or for a subagent its file `projects/agents/<id>.json`. The project
+// itself, its instructions and its other conversations are the person's and stay. The map is shared by every conversation, so it is rewritten whole beside
 // itself and renamed into place: a step reading it mid-forget sees the old map or the new one, never half.
 import { randomBytes } from "node:crypto";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { assignmentsPath, readProject } from "./store.js";
+import { agentPath, assignmentsPath, isSessionId, readProject } from "./store.js";
 
 const count = (n) => `${n} conversation${n === 1 ? "" : "s"}`;
 
-/** `thetis.sessions.forget({ phase, session, sessions, options }, env)`: nothing to preview; on forget, the ids' keys. Idempotent. */
+/** `thetis.sessions.forget({ phase, session, sessions, options }, env)`: nothing to preview; on forget, the ids' keys and agents files. Idempotent. */
 export async function forgetSession(args, env) {
   if (args?.phase !== "forget") return {};
   const ids = new Set((Array.isArray(args.sessions) ? args.sessions : []).filter((s) => typeof s === "string" && s));
+  const agents = await forgetAgents(env, ids);
+  const { removed } = await forgetAssignments(env, ids);
+  return { removed: agents ? [...removed, `The project of ${agents} subagent ${agents === 1 ? "conversation" : "conversations"}.`] : removed };
+}
+
+/** Deletes the agents file of every id that has one; answers how many there were. */
+async function forgetAgents(env, ids) {
+  let n = 0;
+  for (const id of ids) {
+    if (!isSessionId(id)) continue;
+    const file = resolve(env.cwd, agentPath(id));
+    try {
+      await stat(file);
+    } catch {
+      continue;
+    }
+    await rm(file, { force: true });
+    n += 1;
+  }
+  return n;
+}
+
+async function forgetAssignments(env, ids) {
   const file = resolve(env.cwd, assignmentsPath());
   let map;
   try {

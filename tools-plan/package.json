@@ -1,6 +1,6 @@
 {
   "name": "@thetis/tools-plan",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "license": "MIT",
   "description": "Per-conversation todo list and a structured way to ask the user clarifying questions, answered as a form on the gateway page.",
   "type": "module",
@@ -172,7 +172,9 @@
       },
       {
         "name": "ask_user",
-        "description": "Record up to four clarifying questions for the user; the gateway page draws them as a form. Use it when a task is genuinely ambiguous and guessing would risk wasted work, rather than for things you could reasonably decide yourself. Precondition: 1 to 4 questions, each under 500 characters with at most 12 options of 120 characters. Returns fixed text telling you to end your turn with one short line saying you are waiting, and stop; the answers arrive as the next user message.",
+        "description": "Ask the person up to four questions, shown as a form, and end the turn. Use it only when the task is genuinely ambiguous and a wrong guess would waste work. The turn ends when this returns, so write anything they should read before calling it. Their answers arrive as the next message. Not available in subagents or workflow runs. Limits: 1 to 4 questions, each under 500 characters, at most 12 options of 120 characters.",
+        "endsTurn": true,
+        "needsPerson": true,
         "parameters": {
           "type": "object",
           "properties": {

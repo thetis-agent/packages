@@ -4,7 +4,7 @@
 import type { Message, ProviderCall, TurnEvent } from "@thetis/runtime/contracts";
 import { NAME, LEDGER_LIMIT, type CompactionEvent, type CompactionState, type Config, type LedgerRow, type Trigger } from "./schemas.js";
 import { chooseCut, dangling, estimate, shed as shedOf } from "./select.js";
-import { project } from "./project.js";
+import { messageHash, project } from "./project.js";
 import { summarize, summaryRequest, type ProviderCallFn } from "./summarize.js";
 
 /** How many rounds must pass after a compaction before another may run in the same turn. */
@@ -94,9 +94,19 @@ export function resumeState(state: CompactionState): CompactionState {
 }
 
 /** The state after a reset: nothing summarized, the failure budget fresh, the ledger remembering it happened. */
-export function resetState(state: CompactionState, at: string): CompactionState {
-  const { last: _last, lastFailure: _lastFailure, ...rest } = state;
-  return { ...rest, cut: 0, summary: null, failures: 0, projectedAt: at, ledger: ledgerWith(state.ledger, { at, kind: "reset", trigger: "manual", cut: 0, from: state.cut }) };
+export function resetState(state: CompactionState, at: string, trigger: Trigger = "manual"): CompactionState {
+  const { last: _last, lastFailure: _lastFailure, anchor: _anchor, ...rest } = state;
+  return { ...rest, cut: 0, summary: null, failures: 0, projectedAt: at, ledger: ledgerWith(state.ledger, { at, kind: "reset", trigger, cut: 0, from: state.cut }) };
+}
+
+/**
+ * Whether the summarized part is no longer the record's: the cut lies at or past the end, or the message
+ * before it is not the one compacted over. Both follow an edit (harness-core's rewind replaces the tail).
+ */
+export function editedUnder(conversation: Message[], state: Pick<CompactionState, "cut" | "anchor">): boolean {
+  if (state.cut === 0) return false;
+  if (state.cut >= conversation.length) return true;
+  return state.anchor !== undefined && messageHash(conversation[state.cut - 1]) !== state.anchor;
 }
 
 /**
@@ -121,7 +131,10 @@ export async function run(s: Situation, decision: Extract<Decision, { kind: "com
   const summaryTokens = estimate(outcome.summary);
   if (summaryTokens >= decision.shed) return fail(`the summary was not smaller than what it replaces (${summaryTokens} ≥ ${decision.shed} tokens)`, outcome.ms);
 
-  const next: CompactionState = { ...s.state, cut: decision.cut, summary: outcome.summary, failures: 0, compactions: s.state.compactions + 1, projectedAt: at };
+  const next: CompactionState = {
+    ...s.state, cut: decision.cut, summary: outcome.summary, failures: 0, compactions: s.state.compactions + 1, projectedAt: at,
+    anchor: messageHash(s.conversation[decision.cut - 1]),
+  };
   delete next.lastFailure;
   // The provider count adjusted by the estimated difference, so before and after are comparable numbers.
   const tokensAfter = Math.max(0, estimate(project(s.conversation, next)) + (s.used - estimate(project(s.conversation, s.state))));

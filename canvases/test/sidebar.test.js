@@ -1,6 +1,7 @@
-// The Canvases section with a fake ext over the shell's fake DOM: the rows the chosen project shows, the
-// badge under All, the open row marked, ＋ making a canvas in the chosen project and opening its tab, a
-// click opening a tab, and Delete asking first. The model is the real one over a fake `request`.
+// The Canvases section with a fake ext over the shell's fake DOM: the rows the space shows (and, on an older
+// gateway, the chosen project's mix and the badge under All), the open row marked, ＋ making a canvas in the
+// chosen project and opening its tab there, a click opening a tab, and Delete asking first. The model is the
+// real one over a fake `request`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { FakeNode } from "../../gateway-web/test/dom-fixture.js";
@@ -19,12 +20,34 @@ const ROWS = [
   { id: "c_00000004", title: "Orphan", project: "p_00000009", projectName: null, projectMissing: true, boards: 1, updatedAt: "2026-09-27T07:00:00Z", rev: 1 },
 ];
 
-function fakeExt() {
+/** The shell's space seam as gateway-web 0.20 gives it: `current`, `watch`, and `enter` telling watchers. */
+function fakeSpace(current = null) {
+  const fns = new Set();
+  return {
+    get current() {
+      return current;
+    },
+    enter(id) {
+      current = id;
+      for (const fn of fns) fn(id);
+    },
+    watch(fn) {
+      fns.add(fn);
+      return () => fns.delete(fn);
+    },
+    get watchers() {
+      return fns.size;
+    },
+  };
+}
+
+function fakeExt(space) {
   const requests = [];
   const opened = [];
   const closed = [];
   let confirmAnswer = true;
   const ext = {
+    ...(space ? { space } : {}),
     dom: { el, icon, clear },
     ui: { menu: (at, items) => { ext.lastMenu = items; }, confirm: async () => confirmAnswer },
     toast: () => {},
@@ -49,7 +72,36 @@ function tools() {
 const titles = (body) => body.querySelectorAll(".cv-row").map((r) => r.querySelector(".cv-row-title").textContent);
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-test("under All every canvas shows with its project badge; a chosen project shows its own, the global ones and the orphans", async () => {
+test("in a project space only its canvases show, under No project the global ones and the orphans; the list follows the space and tabs open in it", async () => {
+  const space = fakeSpace("p_00000001");
+  const { ext, opened } = fakeExt(space);
+  const model = createModel(ext);
+  model.start();
+  assert.equal(space.watchers, 1, "the model watches the space");
+  kept.set("thetis.project", "p_00000002");
+  assert.equal(model.project(), "p_00000001", "the old key is not read when the shell has spaces");
+  await model.refresh();
+  const body = new FakeNode("div");
+  const t = tools();
+  mountSidebar(ext, model, body, t);
+  assert.deepEqual(titles(body), ["Nova flow"], "the project's own only");
+  assert.equal(body.querySelector(".cv-row-badge"), null, "no badges in a space");
+  space.enter(null);
+  assert.deepEqual(titles(body), ["Loose", "Orphan"], "No project: the global one and the one whose project is gone");
+  assert.equal(t.count, 2);
+  assert.equal(body.querySelector(".cv-row-badge"), null);
+  body.querySelector('[data-canvas="c_00000004"] > .cv-row-open').click();
+  assert.deepEqual(opened.at(-1), ["canvas", "c_00000004", { id: "c_00000004" }, { space: null }], "an orphan's tab is in No project");
+  space.enter("p_00000002");
+  assert.deepEqual(titles(body), ["Orion thing"]);
+  body.querySelector('[data-canvas="c_00000003"] > .cv-row-open').click();
+  assert.deepEqual(opened.at(-1), ["canvas", "c_00000003", { id: "c_00000003" }, { space: "p_00000002" }]);
+  model.stop();
+  assert.equal(space.watchers, 0, "stop lets go of the space");
+  kept.clear();
+});
+
+test("on an older gateway: under All every canvas shows with its project badge; a chosen project shows its own, the global ones and the orphans", async () => {
   const { ext } = fakeExt();
   const model = createModel(ext);
   await model.refresh();
@@ -87,10 +139,10 @@ test("＋ makes a canvas in the chosen project and opens its tab in rename mode;
   await tick();
   await tick();
   assert.deepEqual(requests.find((r) => r.verb === "create").args, { title: "Untitled canvas", project: "p_00000002" });
-  assert.deepEqual(opened.at(-1), ["canvas", "c_00000009", { id: "c_00000009", rename: true }]);
+  assert.deepEqual(opened.at(-1), ["canvas", "c_00000009", { id: "c_00000009", rename: true }, { space: "p_00000002" }], "the tab opens in the space it was made in");
   assert.ok(titles(body).includes("Untitled canvas"), "the new row is listed at once");
   body.querySelector('[data-canvas="c_00000003"] > .cv-row-open').click();
-  assert.deepEqual(opened.at(-1), ["canvas", "c_00000003", { id: "c_00000003" }]);
+  assert.deepEqual(opened.at(-1), ["canvas", "c_00000003", { id: "c_00000003" }, { space: "p_00000002" }]);
   model.stop();
   kept.clear();
 });

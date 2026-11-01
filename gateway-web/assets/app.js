@@ -18,6 +18,7 @@ import { loadExtensions } from "./lib/loader.js";
 import { rememberChoice, shortModel } from "./lib/model-choices.js";
 import { notice } from "./lib/notice.js";
 import * as registry from "./lib/registry.js";
+import { groups, space } from "./lib/space.js";
 import { store } from "./lib/store.js";
 import { watchRestart } from "./lib/restart-notice.js";
 import { toast } from "./lib/toast.js";
@@ -78,10 +79,11 @@ function scheduleList() {
   listTimer = setTimeout(refreshList, 250);
 }
 
-async function openConversation(id) {
+/** Opens a conversation from anywhere: its tab comes on screen, and when it is in another space, that space is entered (tabs.js does it). */
+async function openConversation(id, { fromDraft = false } = {}) {
   places.close();
   closeSidebar();
-  await tabs.open(id);
+  await tabs.open(id, { fromDraft });
   composer.focus();
 }
 
@@ -100,29 +102,40 @@ async function openAgent(id) {
 }
 
 /**
- * `+`: a new conversation that is not created yet. Nothing is kept on the server until the first message,
- * which creates it on the way (`send`), so a `+` nobody types into leaves nothing behind.
+ * `+`: the draft tab, a new conversation that is not created yet, in the current space. Nothing is kept on
+ * the server until the first message, which creates it on the way (`send`), so a `+` nobody types into
+ * leaves nothing behind. A second `+` shows the same draft again.
  */
 function startNew() {
   places.close();
   closeSidebar();
-  store.set({ draftModel: undefined });
-  tabs.showNew();
+  if (tabs.openDraft()) store.set({ draftModel: undefined });
   composer.focus();
+}
+
+/** `ext.conversation.start`: the draft, in `space` when one is named, with `text` in the box and nothing sent. */
+function startConversation({ space: at, text } = {}) {
+  places.close();
+  closeSidebar();
+  if (at !== undefined) space.enter(at);
+  startNew();
+  if (typeof text === "string" && text) composer.fill(text);
 }
 
 async function createConversation() {
   if (store.get("creating")) return null;
   store.set({ creating: true });
+  // The space the draft is in when the send starts: the conversation is made for it.
+  const at = space.current;
   try {
     await extensionsReady;
     // A model picked in the draft travels with the create; the server remembers it as the next default too.
     const draftModel = store.get("draftModel");
     const { id } = await api("/api/sessions", { method: "POST", body: draftModel === undefined ? {} : { model: draftModel } });
     if (draftModel !== undefined) store.set({ draftModel: undefined, choices: rememberChoice(store.get("choices"), draftModel) });
-    await notifySessionCreated(id);
+    await notifySessionCreated(id, { space: at });
     await refreshList();
-    await openConversation(id);
+    await openConversation(id, { fromDraft: true });
     return id;
   } catch (err) {
     toast(err.message, { tone: "error" });
@@ -307,6 +320,7 @@ const composer = mountComposer({ onSend: (input, draft) => { void send(input, dr
 const sessions = mountSessions({ onOpen: openConversation, onNew: startNew, onArchive: archive, onRename: rename, onAgent: showAgent, onOpenAgent: openAgent, onForget: forget });
 const tabs = mountTabs({
   onNew: startNew,
+  onDraftClosed: () => store.set({ draftModel: undefined }),
   onClosed: (id) => { void discardClosed(id); },
   onArchive: (id) => { const s = store.session(id); if (s) void archive(id, !s.archived); },
   onForget: forget,
@@ -324,14 +338,15 @@ mountMenu({ openPlace: (key) => { closeSidebar(); places.open(key); }, currentPl
 
 bindShell({
   send,
-  openConversation,
+  openConversation: (id) => openConversation(id),
+  startConversation,
   openDock: (key) => { places.close(); dock.open(key); },
   openPlace: (key, params) => places.open(key, params),
   openShelf: (key) => { places.close(); shelf.open(key); },
   closeShelf: () => shelf.close(),
   shelfOpen: () => shelf.isOpen(),
   openPanel: (key) => places.open(registry.keyOf(registry.BUILTIN, PANEL_PLACE.id), { section: key }),
-  openTab: (key, id, params) => { places.close(); closeSidebar(); return tabs.openKind(key, id, params); },
+  openTab: (key, id, params, opts) => { places.close(); closeSidebar(); return tabs.openKind(key, id, params, opts); },
   closeTab: (key, id) => tabs.closeKind(key, id),
 });
 
@@ -695,12 +710,27 @@ function refreshPage() {
 /** Puts a kept draft back once the conversation it was typed in is on screen. A new conversation's draft reopens a new one. */
 async function restoreDraft(draft) {
   if (!draft) return;
-  if (draft.session === null) tabs.showNew();
+  if (draft.session === null) tabs.openDraft();
   else if (draft.session !== store.get("current")) return;
   composer.restore(draft.text);
 }
 
 const draftAtLoad = takeDraft();
+
+/**
+ * Resolves once the list's rows can be told apart by space: the extensions have loaded, and either nothing
+ * provides spaces, every row's space is known, or the provider has said its map changed. At most a second
+ * and a half: a provider that never answers leaves the page on the draft, not on nothing.
+ */
+async function spacesKnown() {
+  await extensionsReady;
+  if (!space.provided() || store.get("sessions").every((s) => space.of(s.id) !== undefined)) return;
+  await new Promise((resolve) => {
+    const done = () => { stop(); clearTimeout(timer); resolve(); };
+    const stop = space.onChanged(done);
+    const timer = setTimeout(done, 1500);
+  });
+}
 
 // A restart of Thetis, announced to everyone; the end of any of this person's turns asks at once.
 const restart = watchRestart();
@@ -727,8 +757,8 @@ const connection = connect({
       // The conversation the address bar names, when it still exists — archived or not, because coming back
       // to where you were is not a judgement about which conversations are interesting — or a subagent,
       // which opens in its own tab. Nothing named, or nothing by that name any more: the newest
-      // conversation, as before. A draft kept from a new conversation brings the new conversation back.
-      const sessions = store.get("sessions");
+      // conversation of the current space, else the draft. A draft kept from a new conversation brings the
+      // new conversation back.
       const wantedTab = tabInUrl();
       const wanted = conversationInUrl();
       let named = false;
@@ -737,8 +767,17 @@ const connection = connect({
         named = await openNamedTab(wantedTab.kind, wantedTab.id);
         if (!named) toast(`Nothing here opens ${wantedTab.kind} tabs.`, { tone: "error" });
       } else if (wanted && draftAtLoad?.session !== null) named = await openNamed(wanted);
-      const first = !named && draftAtLoad?.session !== null && sessions.find((s) => !s.archived);
-      if (first) await openConversation(first.id);
+      if (!named && draftAtLoad?.session !== null) {
+        // The newest conversation of the space the person was in, once the package that says which is which
+        // has loaded; the draft when that space has none.
+        await spacesKnown();
+        // Not one a package folds away (a workflow run): that is not where the person left off.
+        const folded = (s) => groups.list().some((g) => { try { return g.test(s); } catch { return false; } });
+        const mine = store.get("sessions").filter((s) => !s.archived && space.of(s.id) === space.current);
+        const first = mine.find((s) => !folded(s)) ?? mine[0];
+        if (first) await openConversation(first.id);
+        else startNew();
+      }
       await restoreDraft(draftAtLoad);
     }
     opened = true;

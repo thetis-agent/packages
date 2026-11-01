@@ -473,6 +473,15 @@ async function assignProject(ctx, session) {
   await env.writeFile("projects/sessions.json", JSON.stringify(map, null, 2) + "\n");
 }
 
+/**
+ * Marks a conversation this run opened as one nobody reads while it runs, at the path `@thetis/harness-core`
+ * reads (its `unattendedPath`): tools that need a person, such as ask_user, are not offered there.
+ */
+async function markUnattended(ctx, session) {
+  if (!/^[\w-]+$/.test(session)) return;
+  await ctx.env.writeFile(`harness-core/unattended/${session}.json`, JSON.stringify({ by: "@thetis/workflows", run: ctx.run.id, at: new Date().toISOString() }) + "\n");
+}
+
 /** The message that opens a prompt step: its prompt, with the title first when it opens a new conversation. */
 function opening(ctx, step) {
   const scope = ctx.scope();
@@ -520,6 +529,7 @@ async function promptStep(ctx, id, step, resume) {
       if (typeof conversation !== "string" || !conversation) throw new Error("the kernel opened a conversation but did not say its id.");
       run.conversations.push(conversation);
       await assignProject(ctx, conversation);
+      await markUnattended(ctx, conversation);
       // The web page names conversations itself (its store, not the kernel's record), so the title is kept
       // here for the page to apply: see the `titles` op and ui/titles.js.
       if (open.title) run.titles = { ...(run.titles ?? {}), [conversation]: open.title.replace(/\s+/g, " ").slice(0, 120) };

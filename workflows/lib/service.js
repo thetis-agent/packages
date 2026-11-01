@@ -397,6 +397,13 @@ export function createService(env, { broadcast = () => {}, user } = {}) {
       return out;
     },
 
+    /** Every conversation a run opened, `{ ids }`, so the page can fold them into "Workflow runs". */
+    async runConversations() {
+      const ids = new Set();
+      for (const r of runs.values()) for (const id of r.conversations ?? []) if (typeof id === "string") ids.add(id);
+      return { ids: [...ids] };
+    },
+
     async run({ id } = {}) {
       return structuredClone(need(id));
     },

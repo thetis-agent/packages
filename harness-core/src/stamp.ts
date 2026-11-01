@@ -29,6 +29,11 @@ export interface HarnessStamp {
   skills: { loader: string | null; pinned: { id: string; contentHash: string | null }[]; universal: string[] } | null;
   groups: string[] | null;
   project: string | null;
+  /**
+   * Set on the turn that applied an edit: the index of the edited message. Turn numbers then repeat, since
+   * the conversation was cut back; a reader takes the last stamp of each turn number.
+   */
+  rewound?: number;
 }
 
 /** A tool as its snapshot keeps it. */
@@ -50,6 +55,8 @@ const PROJECT_ID = /^p_[0-9a-f]{8}$/;
 const SKILLS = "@thetis/skills";
 const GROUPS = "@thetis/tool-groups";
 const PROJECTS_FILE = "projects/sessions.json";
+const PROJECT_AGENTS_DIR = "projects/agents";
+const NAME = "@thetis/harness-core";
 
 const logged = new Set<string>();
 /** Logs a message the first time it is seen in this process, so a broken disk is one line and not one per turn. */
@@ -89,20 +96,31 @@ function groupsOf(harness: HarnessState): string[] | null {
   return Array.isArray(active) ? strings(active) : null;
 }
 
-/** The project the projects side file assigns this session to, or null. Read, never imported. */
+/** One JSON file under the home, or null when it is missing or unreadable. */
+async function readJson(home: string, rel: string): Promise<unknown> {
+  try {
+    return JSON.parse(await readFile(resolve(home, rel), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+const projectId = (v: unknown): string | null => (typeof v === "string" && PROJECT_ID.test(v) ? v : null);
+
+/**
+ * The project of this session, by the projects package's one rule: its own entry in `projects/sessions.json`,
+ * else the project a subagent inherited (`projects/agents/<s>.json`), else null. Read, never imported.
+ */
 async function projectOf(home: string, session: string): Promise<string | null> {
-  let text: string;
-  try {
-    text = await readFile(resolve(home, PROJECTS_FILE), "utf8");
-  } catch {
-    return null;
-  }
-  try {
-    const id = obj(JSON.parse(text))?.[session];
-    return typeof id === "string" && PROJECT_ID.test(id) ? id : null;
-  } catch {
-    return null;
-  }
+  const mapped = projectId(obj(await readJson(home, PROJECTS_FILE))?.[session]);
+  if (mapped) return mapped;
+  return SESSION_ID.test(session) ? projectId(obj(await readJson(home, `${PROJECT_AGENTS_DIR}/${session}.json`))?.project) : null;
+}
+
+/** The index of the edited message when this turn applied an edit (see rewind.ts), else undefined. */
+function rewoundAt(ctx: PackageStepContext): number | undefined {
+  const rewound = obj(obj(ctx.harness?.[NAME])?.rewound);
+  return rewound?.turn === ctx.turn.id && typeof rewound.at === "number" ? rewound.at : undefined;
 }
 
 function versionsOf(ctx: PackageStepContext): Record<string, string> {
@@ -162,6 +180,8 @@ export async function stampTurn(ctx: PackageStepContext, call: ProviderCall): Pr
     groups: groupsOf(ctx.harness),
     project: await projectOf(home, session),
   };
+  const rewound = rewoundAt(ctx);
+  if (rewound !== undefined) stamp.rewound = rewound;
   const dir = resolve(home, snapshotsPath(session));
   await mkdir(dir, { recursive: true });
   await writeOnce(resolve(dir, `${stamp.system}.md`), system);

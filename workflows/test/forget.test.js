@@ -64,6 +64,7 @@ test("forget through the service removes the titles from memory and disk, keeps 
   const c = await connect(f.home);
   t.after(() => c.close());
   assert.deepEqual(Object.keys(await c.request("conversations")).sort(), ["s_keep", "s_other"], "the service no longer names them");
+  assert.deepEqual((await c.request("runConversations")).ids.sort(), ["s_a", "s_child", "s_keep", "s_other"], "the runs still say which conversations they opened");
   assert.deepEqual((await readRun(f.home, "r_0000000001")).titles, { s_keep: "Title of s_keep" });
   assert.deepEqual((await readRun(f.home, "r_0000000002")).titles, {});
   assert.deepEqual((await readRun(f.home, "r_0000000001")).conversations, ["s_a", "s_keep"], "the run's record of its work stays");

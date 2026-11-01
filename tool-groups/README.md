@@ -63,7 +63,7 @@ Vectors come from `POST <baseUrl>/embeddings`, 64 texts per request, 20 seconds 
 
 On every later turn the step reads the pin back: the active ids that are still installed, in the current table order, plus the always-on groups forced back in, plus what `tool_search` wrote to `env.storage("sessions")` under the session id, plus any group whose tool was called while withheld (a `tool` message in the conversation with that name), reason `call`. A group that appears later, from a package installed mid-conversation, joins the catalogue as available; one that vanished is dropped with a note. No re-routing, ever.
 
-The scoping step runs in the `call` phase, after every `tools`-phase step, and only removes. A project's `tools.disable` (`@thetis/projects`) applies in the same phase and in either order; a tool the project switched off is never named in `withheld`, so it stays refused. The call step of `@thetis/harness-core` (phase `execute`) resolves a call to a name in `withheld` against the installed packages and runs it: scoping is an attention and token optimisation, never a permission boundary. The next turn's pin then carries the group.
+The scoping step runs in the `call` phase, after every `tools`-phase step, and only removes. A project's `tools.disable` (`@thetis/projects`; a subagent's project is read from `projects/agents/<id>.json`) applies in the same phase and in either order; a tool the project switched off is never named in `withheld`, so it stays refused. The call step of `@thetis/harness-core` (phase `execute`) resolves a call to a name in `withheld` against the installed packages and runs it: scoping is an attention and token optimisation, never a permission boundary. The next turn's pin then carries the group.
 
 ## Benchmarks
 

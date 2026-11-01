@@ -1,11 +1,15 @@
-/* The conversation sidebar. Rows are grouped by recency, most recent first, with the archive folded into a
- * section at the foot. A working row carries a pulsing dot, the live step under a sheen, and a clock that
- * counts up; the clocks tick in place so a hover or a sheen is never dropped by a redraw. Search filters
- * as you type. The row menu renames, archives and restores, and, last and apart, forgets. A package may narrow the list further
- * with a filter (`store.sessionFilter`, set through `ext.sessions.filter`).
+/* The conversation sidebar. It lists the current space's conversations (lib/space.js; all of them when
+ * nothing provides spaces), grouped by recency, most recent first; then a folder for each group a package
+ * claimed (`ext.sessions.group`: workflow runs, say); then the archive, folded at the foot. A row whose
+ * space is not known yet is left out until it is. A working row carries a pulsing dot, the live step under
+ * a sheen, and a clock that counts up; the clocks tick in place so a hover or a sheen is never dropped by a
+ * redraw. Search filters as you type, and looks in every space: matches elsewhere follow under "Other
+ * projects", each naming its project, and opening one takes you there. The row menu renames, archives and
+ * restores, and, last and apart, forgets. A package may narrow the list further with a filter
+ * (`store.sessionFilter`, set through `ext.sessions.filter`).
  *
- * The list is built whole only when the list itself changes: the sessions, the filter, the search, the
- * archive fold. What one conversation is doing changes many times a second while it works, and that
+ * The list is built whole only when the list itself changes: the sessions, the space, the groups, the
+ * filter, the search, the archive fold. What one conversation is doing changes many times a second while it works, and that
  * reaches the sidebar through `store.watchSession`, which redraws the inside of that one row and the
  * agent rows under it; the row node and its buttons stay, so a hover, a focus or a click in flight is not
  * lost under the reader. The bucket's working count, the title and the clock ticker follow. A row with
@@ -19,6 +23,8 @@
 import { applyActivityPhase, fmtAgo, fmtCost, fmtDuration, shortModel, countWorking } from "../lib/activity.js";
 import { agentName, watchAgent } from "../lib/agent.js";
 import { $, clear, el, icon, onClickOutside } from "../lib/dom.js";
+import * as registry from "../lib/registry.js";
+import { groups, space } from "../lib/space.js";
 import { store } from "../lib/store.js";
 
 const dot = (y) => `M10 ${y}a1.35 1.35 0 1 1 0-2.7 1.35 1.35 0 0 1 0 2.7z`;
@@ -44,6 +50,26 @@ function bucket(iso) {
 }
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+const FOLDER_KEY = (key) => `thetis.sidebar.folder:${key}`;
+
+/** A folder is folded unless the person opened it last time. */
+function folderOpen(key) {
+  try {
+    return localStorage.getItem(FOLDER_KEY(key)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function rememberFolder(key, open) {
+  try {
+    if (open) localStorage.setItem(FOLDER_KEY(key), "1");
+    else localStorage.removeItem(FOLDER_KEY(key));
+  } catch {
+    /* no storage: the fold lasts the page */
+  }
+}
 
 export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onOpenAgent, onForget }) {
   const list = $("session-list");
@@ -95,14 +121,14 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
     return el("div", { class: "session-line" }, el("span", {}, session.preview || "No messages yet"));
   }
 
-  /** Turns · cost · model: the facts a person wants without opening the conversation. */
-  function factsLine(session) {
-    const facts = [];
+  /** Turns · cost · model: the facts a person wants without opening the conversation. `where` leads them: the project of a row from another space. */
+  function factsLine(session, where) {
+    const facts = where ? [where] : [];
     if (session.turns > 0) facts.push(plural(session.turns, "turn"));
     if (typeof session.cost === "number" && session.cost > 0) facts.push(fmtCost(session.cost));
     if (session.model) facts.push(shortModel(session.model));
     if (!facts.length) return null;
-    return el("div", { class: "session-meta", title: session.model ? `Model: ${session.model}` : undefined }, ...facts.map((f, i) => [i ? el("span", { class: "session-sep" }, "·") : null, el("span", { class: f === shortModel(session.model) && session.model ? "mono" : "" }, f)]));
+    return el("div", { class: "session-meta", title: session.model ? `Model: ${session.model}` : undefined }, ...facts.map((f, i) => [i ? el("span", { class: "session-sep" }, "·") : null, el("span", { class: where && i === 0 ? "session-where" : f === shortModel(session.model) && session.model ? "mono" : "" }, f)]));
   }
 
   function renameField(session) {
@@ -195,6 +221,13 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
     return [row(session), ...agentRows(session)];
   }
 
+  /** The project a row of another space is in, named before its facts; nothing for a row of this space. */
+  function whereOf(session) {
+    if (!space.provided()) return "";
+    const at = space.of(session.id);
+    return at === undefined || at === space.current ? "" : space.name(at);
+  }
+
   function row(session) {
     const activity = store.activityOf(session.id);
     const state = activity?.state ?? "idle";
@@ -210,8 +243,8 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
       "div",
       { class: `session is-${state}${session.id === activeRoot ? " is-active" : ""}${session.archived ? " is-archived" : ""}`, "data-session": session.id },
       renaming
-        ? el("div", { class: "session-open is-inert" }, title, statusLine(session, activity), factsLine(session))
-        : el("button", { type: "button", class: "session-open", title: `${titleOf(session)}${session.preview ? ` · ${session.preview}` : ""}`, onClick: () => onOpen(session.id) }, title, statusLine(session, activity), factsLine(session)),
+        ? el("div", { class: "session-open is-inert" }, title, statusLine(session, activity), factsLine(session, whereOf(session)))
+        : el("button", { type: "button", class: "session-open", title: `${titleOf(session)}${session.preview ? ` · ${session.preview}` : ""}`, onClick: () => onOpen(session.id) }, title, statusLine(session, activity), factsLine(session, whereOf(session))),
       renaming ? null : more
     );
     more.addEventListener("click", (event) => {
@@ -229,20 +262,61 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
 
   // ---- the list ----
 
+  /** In the current space (a row not known yet is not), kept by a package's filter, and found by the search. */
   function matches(session) {
+    return space.of(session.id) === space.current && kept(session);
+  }
+
+  /** A row of another, known space that the search finds: the second pass. */
+  function matchesElsewhere(session) {
+    if (!query || !space.provided()) return false;
+    const at = space.of(session.id);
+    return at !== undefined && at !== space.current && kept(session);
+  }
+
+  function kept(session) {
     const filter = store.get("sessionFilter");
     if (filter && !filter(session)) return false;
     if (!query) return true;
     return `${session.title} ${session.preview}`.toLowerCase().includes(query);
   }
 
+  /** The group that claims a row: the first, by declared order, whose test keeps it. A throwing test claims nothing. */
+  function claimOf(session, list) {
+    for (const g of list) {
+      try {
+        if (g.test(session)) return g;
+      } catch (err) {
+        console.error(`${g.package}'s sessions group "${g.id}" threw:`, err);
+      }
+    }
+    return null;
+  }
+
+  /** A group's rows, folded under "<label> · n"; open while it holds the open conversation or a search hit. */
+  function folder(g, sessions) {
+    const holdsActive = sessions.some((s) => s.id === activeRoot);
+    const open = Boolean(query) || holdsActive || folderOpen(g.key);
+    return el(
+      "details",
+      {
+        class: "session-folder",
+        "data-group": g.key,
+        open: open ? "" : null,
+        onToggle: (event) => { if (!query && !holdsActive) rememberFolder(g.key, event.target.open); },
+      },
+      el("summary", {}, el("span", { class: "session-group" }, g.label, el("span", { class: "session-count" }, sessions.length), el("span", { class: "session-count is-working", hidden: true }))),
+      ...sessions.flatMap(rows)
+    );
+  }
+
   function group(label, sessions) {
     return el("section", { class: "session-bucket", "aria-label": label }, el("div", { class: "session-group" }, label, el("span", { class: "session-count is-working", hidden: true })), ...sessions.flatMap(rows));
   }
 
-  /** The "n working" beside a bucket's label, from the rows it holds right now. */
+  /** The "n working" beside a bucket's or a folder's label, from the rows it holds right now. */
   function countBucket(section) {
-    const count = section?.querySelector(":scope > .session-group > .session-count");
+    const count = section?.querySelector(":scope > .session-group > .session-count, :scope > summary > .session-group > .session-count.is-working");
     if (!count) return;
     const n = section.querySelectorAll(":scope > .session.is-working").length;
     count.textContent = n ? `${n} working` : "";
@@ -251,11 +325,33 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
 
   function draw() {
     if (busy?.mode === "menu") release();
-    const sessions = store.get("sessions").filter(matches);
-    const live = sessions.filter((s) => !s.archived);
+    const all = store.get("sessions");
+    const sessions = all.filter(matches);
+    const elsewhere = all.filter(matchesElsewhere);
+    const claims = groups.list();
+    const live = [];
+    const folders = new Map(); // group key -> { group, sessions }
+    for (const s of sessions) {
+      if (s.archived) continue;
+      const g = claims.length ? claimOf(s, claims) : null;
+      if (!g) live.push(s);
+      else {
+        if (!folders.has(g.key)) folders.set(g.key, { group: g, sessions: [] });
+        folders.get(g.key).sessions.push(s);
+      }
+    }
     const archived = sessions.filter((s) => s.archived);
     clear(list);
-    if (!live.length) list.append(el("p", { class: "session-empty" }, query ? "Nothing matches — try fewer words, or clear the search." : "No conversations yet — start one with the + button."));
+    if (!live.length && !folders.size) {
+      if (query) {
+        if (!elsewhere.length) list.append(el("p", { class: "session-empty" }, "Nothing matches — try fewer words, or clear the search."));
+      } else {
+        list.append(
+          el("p", { class: "session-empty" }, "Nothing here yet."),
+          el("button", { type: "button", class: "ghost-btn is-primary session-start", onClick: () => onNew() }, "New conversation")
+        );
+      }
+    }
     const buckets = new Map();
     for (const session of live) {
       const key = bucket(session.updatedAt);
@@ -263,6 +359,7 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
       buckets.get(key).push(session);
     }
     for (const [label, sessions] of buckets) list.append(group(label, sessions));
+    for (const g of claims) if (folders.has(g.key)) list.append(folder(g, folders.get(g.key).sessions));
     if (archived.length) {
       list.append(
         el(
@@ -273,7 +370,10 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
         )
       );
     }
-    for (const section of list.querySelectorAll(".session-bucket")) countBucket(section);
+    if (elsewhere.length) {
+      list.append(el("section", { class: "session-bucket is-elsewhere", "aria-label": "Other projects" }, el("div", { class: "session-group" }, "Other projects", el("span", { class: "session-count is-working", hidden: true })), ...elsewhere.flatMap(rows)));
+    }
+    for (const section of list.querySelectorAll(".session-bucket, .session-folder")) countBucket(section);
     settle();
   }
 
@@ -296,7 +396,7 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
     applyActivityPhase(node, store.activityOf(id));
     for (const agent of list.querySelectorAll(`.session-agent[data-parent="${CSS.escape(id)}"]`)) agent.remove();
     node.after(...agentRows(session));
-    countBucket(node.closest(".session-bucket"));
+    countBucket(node.closest(".session-bucket") ?? node.closest(".session-folder"));
     settle();
   }
 
@@ -306,6 +406,9 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
     activeRoot = current ? store.rootOf(current) : null;
     if (was && was !== activeRoot) refresh(was);
     if (activeRoot) refresh(activeRoot);
+    // A folder holding the open conversation is open: drawn again, it opens itself.
+    const folded = activeRoot && list.querySelector(`.session[data-session="${CSS.escape(activeRoot)}"]`)?.closest(".session-folder");
+    if (folded && !folded.open && folded.getAttribute("open") === null) return draw();
     settle();
   }
 
@@ -365,6 +468,11 @@ export function mountSessions({ onOpen, onNew, onArchive, onRename, onAgent, onO
   // The tab says the agent's name: a rename shows without a reload.
   watchAgent(() => setTitle(countWorking()));
   store.watch("sessionFilter", redraw);
+  space.watch(redraw);
+  space.onChanged(redraw);
+  groups.watch(redraw);
+  // A package that claims a group redraws it with `ext.redraw`, when the rows it claims changed.
+  registry.watch((change) => { if (change.kind === "redraw" && groups.has(change.package)) redraw(); });
   store.watch("current", moveActive);
   store.watchSession(refresh);
   moveActive(store.get("current"));

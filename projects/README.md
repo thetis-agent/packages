@@ -1,26 +1,28 @@
 # @thetis/projects
 
-Named projects for one person. A project is a name, zero or more project directories, standing instructions, and a set of tools and skills switched off; a conversation belongs to at most one project. The package is a `loader` with a `ui`: two pipeline steps that run inside the person's own fence on every turn, and a switcher and a settings place in the web gateway, which `@thetis/gateway-web` serves and whose commands it calls as the person. Its files live under `projects/` in the person's home. It has no build step and one dependency, the `@thetis/skills` library, imported only when the page asks for the skill list (a person without it still has their projects). It changes no kernel code and decides no mount: `browse` and `mount` go through `host.grants`, which lets a person bind any host directory into their own fence except the blocked ones and lets an admin bind anything.
+Named projects for one person. A project is a name, zero or more project directories, standing instructions, and a set of tools and skills switched off; a conversation belongs to at most one project. The package is a `loader` with a `ui`: three pipeline steps that run inside the person's own fence on every turn, and in the web gateway the space provider, a switcher, a composer pill and a settings place, which `@thetis/gateway-web` serves and whose commands it calls as the person. Its files live under `projects/` in the person's home. It has no build step and one dependency, the `@thetis/skills` library, imported only when the page asks for the skill list (a person without it still has their projects). It changes no kernel code and decides no mount: `browse` and `mount` go through `host.grants`, which lets a person bind any host directory into their own fence except the blocked ones and lets an admin bind anything.
 
 ## What it provides
 
-The manifest declares `type: "loader"`, two `steps`, and a `ui` block with `dir: "ui"`, `entry: "index.js"` and `style: "index.css"`.
+The manifest declares `type: "loader"`, three `steps`, and a `ui` block with `dir: "ui"`, `entry: "index.js"` and `style: "index.css"`.
 
 | Step | Phase | Export | Effect |
 |---|---|---|---|
-| `project-prompt` | `prompt` | `projectPrompt` | Finds the session's project through `projects/sessions.json`. Without one, returns nothing. With one, appends to `call.system` a section `## Project: <name>`, one line per project directory with what the agent can do with it (`(mounted rw)`, or `NOT USABLE` and why, with the command an admin would run), one line telling the model to say so rather than work around it, and the instructions under `### Instructions` when there are any. |
+| `inherit` | `history` | `inheritProject` | For a subagent (`ctx.session.parent`) with no `projects/agents/<id>.json`: resolves the parent's project and, when there is one, writes `{"project":"p_…","parent":"s_…"}` there. Returns nothing. History runs before every other phase, so the steps below and other packages find it, and a grandchild chains through its parent's file. |
+| `project-prompt` | `prompt` | `projectPrompt` | Finds the session's project (see the resolver below). Without one, returns nothing. With one, appends to `call.system` a section `## Project: <name>`, one line per project directory with what the agent can do with it (`(mounted rw)`, or `NOT USABLE` and why, with the command an admin would run), one line telling the model to say so rather than work around it, and the instructions under `### Instructions` when there are any. |
 | `project-tools` | `call` | `projectTools` | Without a project, or with nothing switched off, returns nothing. Otherwise returns `call` with the switched-off tools removed from `call.tools`. The `call` phase runs after every `tools`-phase step, so it sees the full list. |
 
 | Slot | Id | Label | Notes |
 |---|---|---|---|
 | `sidebar` | `head` | | The switcher, under the ≡ menu button. |
+| `composer` | `project` | Project | The project pill, beside the model pill. Hint: "Which project this conversation is in". |
 | `places` | `project` | Project | Hint: "This project's directories, tools and instructions". |
 
 Nine commands, all any signed-in person's. `browse` and `mount` reach `host.grants`, which pins a person's call to them and refuses the blocked paths. Each answers `{ data }`, and a refusal is a thrown error the gateway answers as `400 { error }`.
 
 | Verb | Export | Arguments | Answer |
 |---|---|---|---|
-| `list` | `uiList` | none | The projects with their directory and conversation counts, the session-to-project map, and `current`: the project of the conversation the page named, or `null`. |
+| `list` | `uiList` | none | The projects with their directory and conversation counts (root conversations only: the map), the session-to-project map, and `current`: the project of the conversation the page named, or `null`. |
 | `get` | `uiGet` | `id?` | The project, its directories with the state of each (see below), the instructions, the conversation count, this fence's mounts, the operator's mount list for an admin, every installed package's tools with a `disabled` flag, and `skills`: every skill `loadSkills` finds (`id`, `brief`, `short`, `package`, `universal`, `disabled`), a nested skill counting as disabled when its parent is. Without `id`, the template a new project starts from. |
 | `save` | `uiSave` | `id?`, `name`, `directories?`, `disable?`, `disableSkills?`, `instructions?` | Creates without `id`, updates with one. `disable` is tool names for `tools.disable`; `disableSkills` is skill ids for `skills.disable`. `instructions` left out keeps the file; an empty string empties it. |
 | `remove` | `uiRemove` | `id` | Deletes the record, the instructions, and the project's assignments. |
@@ -32,8 +34,11 @@ Nine commands, all any signed-in person's. `browse` and `mount` reach `host.gran
 
 `save` checks: a name of 1 to 80 characters; each directory absolute and normalized, with no `..` and no NUL; at most 64 directories, 256 tool names of at most 64 characters, 256 skill ids in the library's shape (lowercase words and dashes, up to three levels joined by `/`), 32768 characters of instructions; at most 32 projects per person. Duplicates are dropped.
 
-The files are `projects/<id>.json` (the record), `projects/<id>.md` (the instructions) and `projects/sessions.json` (the assignments). An id is `p_` and 8 hexadecimal characters.
-When a person forgets a conversation, `forgetSession` (declared as `thetis.sessions.forget`) drops it and its subagent conversations from `projects/sessions.json`, rewritten whole and renamed into place. The project stays.
+The files are `projects/<id>.json` (the record), `projects/<id>.md` (the instructions), `projects/sessions.json` (the assignments of root conversations) and `projects/agents/<session>.json` (a subagent's inherited project). An id is `p_` and 8 hexadecimal characters.
+
+A session's project is found by one rule, and every package that reads these files uses the same one: `map[id] ?? agents/<id>.json?.project ?? null`. `lib/store.js` has it as `projectIdOf`, and `projectOfSession` reads the record. Subagents are kept out of the map so five running in parallel never race a page's write, and so the counts stay roots only.
+
+When a person forgets a conversation, `forgetSession` (declared as `thetis.sessions.forget`) drops it and its subagent conversations from `projects/sessions.json`, rewritten whole and renamed into place, and deletes their agents files. The project stays.
 
 A project directory does not open the fence, and a mount over it is not enough on its own. `lib/mounts.js` folds four questions — does the path lie under the home, is a mount over it, what does the fence find there, and is a mount written down that the fence did not take — into one state, and every surface says the same one:
 
@@ -49,11 +54,15 @@ A project directory does not open the fence, and a mount over it is not enough o
 
 ## Use
 
-**The switcher** sits at the head of the sidebar: a row `Project <name>` with a caret. It opens a list: All conversations, each project with how many conversations it holds, Settings for the chosen project, and New project…. Choosing a project narrows the conversation list to the conversations assigned to it; the choice is kept in `localStorage` under `thetis.project`. While a project is chosen, a conversation created in this browser tab is assigned to it through `ext.sessions.onCreate`, before the conversation opens or its first message is sent. A conversation arriving in the list from another tab or the command line is never assigned by this page.
+**A project is a space you are in.** The page's state (`ui/state.js`) is the gateway's space provider: `ext.space.provide({ of, name })`, where `of(id)` is a root conversation's project, `null` for none, or `undefined` until the map has been read with that conversation in it (an unknown id makes the map be read again once, because a workflow's service may have assigned it). The shell keeps the current space in `localStorage` under `thetis.space` and swaps the sidebar list, the tab strip and the draft when it changes; this package tells it `ext.space.changed()` after every read and every assignment. The key used before, `thetis.project`, is entered once and removed. A current space whose project is gone becomes No project. On a gateway without `ext.space` the old key and `ext.sessions.filter` stand in.
 
-**The place** is opened three ways. From the switcher's Settings it is the chosen project's settings (`{ id }`), and from New project… it is the empty form (`{ new: true }`). From the main menu (no arguments) it is the settings of the project chosen in the sidebar, and with none chosen it is **Pick a project or create one**: every project as a row with how many conversations and directories it has, and a **New project** button. Picking a row chooses that project in the sidebar and opens its settings; nothing is asked of the server until then. An empty form in that case read as editing something that did not exist, with no Save in view. After **Delete project** the place returns to that list.
+**The switcher** sits at the head of the sidebar: a row `Project <name>`, or `Project No project`, with a caret, and a dot while something works in another project. The list holds each project with how many conversations it has ("2 working" while some run), No project with its count, then Project settings and New project…. The counts come from the sidebar's own list through the same `of`. Picking one enters that space.
 
-The settings page: a name input; the project directories; a text area for the instructions; the conversation count; every installed package's tools with a switch each, off meaning switched off for the project; every skill the loaders see, grouped by the package it comes from (the home's own last), with the same switch, a nested skill greyed and off when its parent is off; and **Save** and **Delete project**, the latter behind a confirm popover. People read "your space" where this page used to say "workspace". A new project is chosen after its first save.
+**The pill** in the composer reads "● Torchship" or "No project". On the draft, picking another project enters it and the typed text stays. On a conversation the list is headed "Move to": picking moves the conversation (`assign`), and the space follows it. A subagent's pill only names its root's project. A conversation started on this page joins the space of its draft, which the shell passes to `ext.sessions.onCreate`. One arriving from another tab or the command line is never assigned here.
+
+**The place** is opened three ways. From Project settings it is the current project's settings (`{ id }`), and from New project… it is the empty form (`{ new: true }`). From the main menu (no arguments) it is the settings of the project you are in, and in No project it is **Pick a project or create one**: every project as a row with how many conversations and directories it has, and a **New project** button. Picking a row enters that project and opens its settings. After **Delete project** the place returns to that list.
+
+The settings page starts with **New conversation**, which closes the place and opens the draft in that project (`ext.conversation.start`). Then: a name input; the project directories; a text area for the instructions; the conversation count ("No conversations yet." for none); every installed package's tools with a switch each, off meaning switched off for the project; every skill the loaders see, grouped by the package it comes from (the home's own last), with the same switch, a nested skill greyed and off when its parent is off; and **Save** and **Delete project**, the latter behind a confirm popover. A new project is entered after its first save.
 
 The name, the instructions and the switches are a draft and wait for Save. The directory list does not: adding or removing a directory saves the list at once, on its own, leaving every other field of the record as it was. A directory is bound into the workspace as soon as it is chosen, so a list that waited for Save was a list that could name a bind nobody had recorded -- which is how a person lost two directories they had just chosen and bound, and found an empty page with the binds still in place. A project that has not been created yet has nowhere to save to, so its list waits for **Create project**, and a save the workspace refuses leaves the draft alone and says so. Whatever the record does not hold yet is named beside the button ("Not saved yet: the name and the instructions."), the browser warns before the tab closes on it, and closing the place -- Escape, the ✕, opening a conversation -- keeps the draft for as long as the page is loaded, so coming back finds it.
 
@@ -67,17 +76,17 @@ The tool switch shows in the page after the first turn: the Tools dock of `@thet
 
 | File | Content |
 |---|---|
-| `package.json` | The two steps, the two slots, the nine commands. |
+| `package.json` | The three steps, the slots, the nine commands. |
 | `index.js` | The commands, and the re-exported steps. |
-| `lib/steps.js` | `projectPrompt`, `projectTools`, `projectSection`. |
-| `lib/store.js` | The records, the instructions, the assignments, the validation. |
+| `lib/steps.js` | `inheritProject`, `projectPrompt`, `projectTools`, `projectSection`. |
+| `lib/store.js` | The records, the instructions, the assignments, the agents files and the resolver, the validation. |
 | `lib/mounts.js` | `THETIS_MOUNTS` parsing, `stateOf` for one directory, and the line the prompt shows. |
 | `lib/forget.js` | `forgetSession`, the forget hook. |
-| `ui/index.js` | `install(ext)`: the state, the switcher in the sidebar's head slot, the place. |
-| `ui/switcher.js`, `ui/place.js`, `ui/place-parts.js`, `ui/state.js` | The switcher, the settings page and its sections, the page's project state. |
+| `ui/index.js` | `install(ext)`: the state, the switcher in the sidebar's head slot, the pill in the composer, the place. |
+| `ui/switcher.js`, `ui/pill.js`, `ui/place.js`, `ui/place-parts.js`, `ui/state.js` | The switcher, the pill, the settings page and its sections, the page's project state and space provider. |
 | `ui/index.css` | The styles, under `.pj-`. |
-| `test/store.test.js`, `test/steps.test.js`, `test/commands.test.js`, `test/helpers.js` | The tests. |
+| `test/*.test.js`, `test/helpers.js` | The tests. |
 
 ## Tests
 
-`npm test` from the runtime root runs `test/store.test.js` (create, read, update, assign, remove, the limit, every validation rule), `test/steps.test.js` (nothing for an unassigned or stale session, the prompt section with mount states and instructions, the tool filter, `THETIS_MOUNTS` parsing), `test/commands.test.js` (every verb against a fake environment over a temporary home, and that the browser modules parse), `test/state.test.js` (the page state) and `test/place.test.js` (the place over a fake seam: the pick-or-create list with no project chosen, picking one, New project, and the three ways it opens a page). The browser checklist is `packages/gateway-web/test/BROWSER.md`.
+`npm test` from the runtime root runs `test/store.test.js` (create, read, update, assign, remove, the limit, every validation rule), `test/steps.test.js` (nothing for an unassigned or stale session, the prompt section, the tool filter, `THETIS_MOUNTS` parsing, `inheritProject` for a child, a grandchild, no parent and a parent in no project, and the resolver), `test/commands.test.js` (every verb against a fake environment over a temporary home, counts that leave out subagents, and that the browser modules parse), `test/forget.test.js` (the map and the agents files), `test/state.test.js` (the space provider, creation in the draft's space, the key migration, working counts, the older-gateway filter), `test/pill.test.js` (the pill on the draft, on a conversation, on a subagent) and `test/place.test.js` (the pick-or-create list, picking one, New project, the three ways it opens a page, New conversation). The browser checklist is `packages/gateway-web/test/BROWSER.md`.

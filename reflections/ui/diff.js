@@ -1,6 +1,8 @@
 /* A line diff, for a proposal's change against what was there before it. Pure, so a test needs no DOM.
  * The longest common subsequence of lines; past LIMIT lines on either side it gives up and answers the
- * whole of each, removed then added, which is still true, only less helpful. */
+ * whole of each, removed then added, which is still true, only less helpful. The three-way merge of an
+ * out-of-date proposal (`lib/merge.js`) is built on the same diff: the browser reads only `ui/`, so the one
+ * copy is here. */
 
 const LIMIT = 2000;
 export const CONTEXT = 3;

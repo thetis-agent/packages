@@ -1,4 +1,7 @@
-// The two pipeline steps, thin on purpose: each finds the session's project through the assignments
+// The pipeline steps, thin on purpose. `inheritProject` runs in the `history` phase, before every other
+// phase, and gives a subagent its parent's project: it writes `projects/agents/<id>.json` once, from the
+// parent's assignment or the parent's own agents file, so grandchildren chain and every later reader finds
+// it. The other two each find the session's project through the assignments
 // file and returns nothing when there is none, so a person without projects pays one small read per
 // turn and no change to the call. `projectPrompt` runs in the `prompt` phase and appends the project's
 // section to `call.system`: the name, each project directory with whether the fence has it mounted (from
@@ -6,7 +9,17 @@
 // in the `call` phase, after every `tools`-phase step whatever the install order, and drops the tools the
 // project switched off from `call.tools`. Both read through `ctx.env.readFile` and tolerate missing files.
 import { currentMounts, describeDirectory, isWithin, mountModeOf } from "./mounts.js";
-import { projectOfSession, readInstructions } from "./store.js";
+import { agentPath, isSessionId, projectIdOf, projectOfSession, readAgent, readInstructions, readProject } from "./store.js";
+
+/** history: a subagent with no agents file takes its parent's project, if the parent has one. Returns nothing. */
+export async function inheritProject(ctx) {
+  const { id, parent } = ctx.session ?? {};
+  if (!parent || !isSessionId(id) || !isSessionId(parent)) return;
+  if (await readAgent(ctx.env, id)) return;
+  const project = await projectIdOf(ctx.env, parent);
+  if (!project || !(await readProject(ctx.env, project))) return;
+  await ctx.env.writeFile(agentPath(id), JSON.stringify({ project, parent }) + "\n");
+}
 
 /**
  * The text appended for a project: heading, directories, instructions. Each directory says what the agent

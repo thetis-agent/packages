@@ -8,7 +8,7 @@ The manifest declares `type: "tool"`, `skills: "skills"`, nine `tools`, and a `u
 
 | Tool | Arguments | Effect |
 |---|---|---|
-| `sheet_create` | `title`, `project?`, `tabs?`, `rows?` | A new sheet, its tabs (default one, Sheet1), and optionally a first block of rows from A1 of the first tab. `project` is a project id, `"none"` for global, or omitted for the conversation's own project (from `projects/sessions.json`). Answers the id. |
+| `sheet_create` | `title`, `project?`, `tabs?`, `rows?` | A new sheet, its tabs (default one, Sheet1), and optionally a first block of rows from A1 of the first tab. `project` is a project id, `"none"` for global, or omitted for the conversation's own project (from `projects/sessions.json`, or `projects/agents/<id>.json` for a subagent). Answers the id. |
 | `sheet_list` | `project?` | One line per sheet: id, title, tab count, project, last change, revision. |
 | `sheet_read` | `sheet`, `tab?`, `range?`, `formulas?`, `styles?` | A header line (id, title, project, revision, each tab with its used range and cell count); the person's edits of the last day (newest first, up to 8); the range (default the used range) as a Markdown table of the values the person sees, with row numbers and column letters; every formula with its result; every error with its message; with `styles`, the formatting as runs, widths and heights. About 40,000 characters at most; a cut answer names the range to read next. |
 | `sheet_write` | `sheet`, `tab?`, `cells?`, `at?` + `rows?`, `literal?` | Writes cells by address and/or a block of rows from one cell, parsed as typed (below). Grows the tab when a write lands past its size. Answers the range written, each formula's result, the errors, errors it caused elsewhere, and "The person changed B4, C7 in the last 10 minutes; you replaced them." when it did. |
@@ -26,7 +26,7 @@ The `skills/sheets` skill carries the policy the tools expect: read before writi
 
 | Slot | Id | Notes |
 |---|---|---|
-| `sidebar` (`slot: "section"`) | `sheets` | The Sheets section, order 21. Its rows are the chosen project's sheets and the global ones; under "All", every sheet with its project as a badge. ＋ makes one in the chosen project. Row menu: Rename, Move to a project, Make global, Download .xlsx, Download CSV, Delete. |
+| `sidebar` (`slot: "section"`) | `sheets` | The Sheets section, order 21. Its rows are the current space's: a project's own sheets, or under No project the global ones and those whose project is gone. ＋ makes one in the space; a sheet's tab opens in its project's space. On a gateway without spaces it shows the chosen project's sheets with the global ones and the orphans, and under "All" every sheet with its project as a badge. Row menu: Rename, Move to a project, Make global, Download .xlsx, Download CSV, Delete. |
 | `tabs` | `sheet` | A sheet as a tab: toolbar, formula bar, the virtualized grid, the tabs strip, the status strip. |
 
 | Verb | Export | Arguments | Answer |
@@ -60,7 +60,7 @@ The page holds one `watch` subscription. The watcher in the gateway watches `she
 
 ## Projects
 
-`project` in the workbook names a project by its id. The package reads `projects/<id>.json` and `projects/sessions.json` directly, as `@thetis/canvases` does, so it works without `@thetis/projects` (everything is global then). The chosen project is `@thetis/projects`' own, read from `localStorage["thetis.project"]`; a sheet whose project was deleted shows everywhere until it is moved.
+`project` in the workbook names a project by its id. The package reads `projects/<id>.json`, `projects/sessions.json` and, for a subagent, `projects/agents/<id>.json` directly, as `@thetis/canvases` does, so it works without `@thetis/projects` (everything is global then). The chosen project is the shell's current space (`ext.space`); on a gateway without spaces it is `localStorage["thetis.project"]`, polled. A sheet whose project was deleted shows under No project until it is moved.
 
 ## The formula engine
 
@@ -77,4 +77,4 @@ On the way out a tab name longer than Excel's 31 characters is shortened (number
 
 ## Tests
 
-`node --test test/*.test.js`: the shared core (`test/core-*.test.js`); the store (ids, the change log, two writers at once both landing, a stale lock taken over and a live one refused after five seconds, atomic writes leaving no temporary file); the nine tools over a temporary home, with and without project files; the commands, including the raw export (CSV, TSV, JSON, xlsx) and import; the xlsx writer, read back through its own zip directory (`test/xlsx.test.js`); the watcher (it leans on inotify); and the sidebar section over the shell's fake DOM. `test/browser.mjs` drives the real page in Chromium against an in-memory home.
+`node --test test/*.test.js`: the shared core (`test/core-*.test.js`); the store (ids, the change log, two writers at once both landing, a stale lock taken over and a live one refused after five seconds, atomic writes leaving no temporary file); the nine tools over a temporary home, with and without project files; the project of a subagent; the commands, including the raw export (CSV, TSV, JSON, xlsx) and import; the xlsx writer, read back through its own zip directory (`test/xlsx.test.js`); the watcher (it leans on inotify); and the sidebar section over the shell's fake DOM. `test/browser.mjs` drives the real page in Chromium against an in-memory home.

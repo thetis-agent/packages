@@ -412,6 +412,9 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .session-meta .session-sep { color: var(--hairline-strong); flex: none; }
 .session-meta .mono { color: var(--text-dim); }
 .session-empty { padding: 10px 11px; font-size: var(--text-xs); color: var(--text-faint); }
+.session-start { margin: 0 11px var(--gap-2); }
+/* A row from another project, under a search: its project leads the facts. */
+.session-meta .session-where { color: var(--text-dim); }
 
 /* A working row: a brighter band glides through the step, and a faint accent wash sweeps the whole row.
  * Both share one clock; --phase is set by the view so a redraw does not restart them. */
@@ -537,6 +540,20 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .session-archived[open] > summary .session-group::before { transform: rotate(45deg); }
 .session-archived > summary:hover .session-group { color: var(--text-dim); }
 .session-archived .session-open { opacity: .75; }
+/* A group a package claimed (workflow runs): folded like the archive, between the buckets and it. */
+.session-folder { margin-top: var(--gap-2); }
+.session-folder > summary { list-style: none; cursor: pointer; }
+.session-folder > summary::-webkit-details-marker { display: none; }
+.session-folder > summary .session-group::before {
+  content: "";
+  width: 5px; height: 5px;
+  border-right: 1.4px solid currentColor;
+  border-bottom: 1.4px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--med) var(--ease);
+}
+.session-folder[open] > summary .session-group::before { transform: rotate(45deg); }
+.session-folder > summary:hover .session-group { color: var(--text-dim); }
 
 /* A subagent's row, under the conversation that owns it: indented behind a rail with an elbow into each
  * row, sized down, because a subagent is work inside a conversation and not a peer of it. Like `.session`,
@@ -711,6 +728,15 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .tab.is-kind .tab-open svg { flex: none; width: 13px; height: 13px; color: var(--text-faint); }
 .tab.is-kind.is-active .tab-open svg { color: var(--accent); }
 .pane.is-kind > .kind-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+/* The draft's tab: a new conversation not made yet, in italics until its first send makes it one. A second
+ * `+` flashes it rather than making another. */
+.tab.is-draft .tab-title { font-style: italic; }
+.tab.is-draft.is-flash { animation: draft-flash 700ms var(--ease); }
+@keyframes draft-flash { 0%, 100% { background: transparent; } 30% { background: var(--accent-wash); } }
+.pane.is-draft > .draft-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--gap-6) var(--gap-5) var(--gap-4); }
+.draft-head { display: grid; justify-items: center; gap: 2px; }
+.draft-title { color: var(--text); font-size: var(--text-lg); font-weight: 600; }
+.draft-where { color: var(--text-faint); font-size: var(--text-sm); }
 
 /* Panes stack in one cell; only the active one is visible. A hidden pane skips layout and paint
  * (`content-visibility: hidden` keeps its DOM and scroll position), so a forced layout in the active one
@@ -1195,7 +1221,7 @@ button.chip-quiet:hover { color: var(--text); border-color: var(--hairline); bac
 .msg.is-user.is-brief::before { content: "brief"; font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
 
 @media (prefers-reduced-motion: reduce) {
-  .msg, .tool-run, .transcript-empty, .jump-latest, .agent { animation: none; }
+  .msg, .tool-run, .transcript-empty, .jump-latest, .agent, .tab.is-draft { animation: none; }
   .tool.is-running .tool-status, .chat-state::before, .status.is-busy::before, .pending-note::before { animation: none; }
   .agent.is-running > .agent-head > .agent-dot, .agent.is-running > .agent-head > .agent-state, .tab.is-agent.is-working .tab-dot, .chat-dot.is-working { animation: none; }
 }

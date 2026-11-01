@@ -1,8 +1,9 @@
-// ask_user tests: the fixed return text, the 1-4 question bound, and that the record
-// lands on disk under questions/<session id>.json.
+// ask_user tests: the fixed return text, the 1-4 question bound, that the record lands on disk under
+// questions/<session id>.json, and the refusal where nobody can answer (a subagent, an unattended marker).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { askUser } from "../lib/ask-user.js";
@@ -12,14 +13,33 @@ async function makeEnv() {
   return { home, env: { cwd: home, session: { id: "s-ask" } } };
 }
 
-test("ask_user returns the fixed resumption text", async () => {
+test("ask_user returns the fixed text, which ends the turn and never says waiting", async () => {
   const { home, env } = await makeEnv();
   const out = await askUser({ questions: [{ question: "Which color?", options: ["red", "blue"] }] }, env);
-  assert.equal(
-    out,
-    "Questions recorded; the page shows them as a form. End your reply with one short line " +
-      "saying you are waiting for the answers, and stop. They arrive as the next user message."
-  );
+  assert.equal(out, "Shown to the person as a form. The turn ends here; their answers come as the next message.");
+  assert.doesNotMatch(out, /wait/i);
+  await rm(home, { recursive: true, force: true });
+});
+
+const NOBODY = { message: "Nobody reads this conversation while it runs, so no one can answer. Decide, and say what you assumed in your reply." };
+
+test("ask_user refuses in a subagent and records nothing", async () => {
+  const { home, env } = await makeEnv();
+  env.session.parent = "s-root";
+  await assert.rejects(askUser({ questions: [{ question: "Proceed?" }] }, env), NOBODY);
+  assert.equal(existsSync(resolve(home, "questions", "s-ask.json")), false);
+  await rm(home, { recursive: true, force: true });
+});
+
+test("ask_user refuses when harness-core marks the conversation unattended", async () => {
+  const { home, env } = await makeEnv();
+  await mkdir(resolve(home, "harness-core", "unattended"), { recursive: true });
+  await writeFile(resolve(home, "harness-core", "unattended", "s-ask.json"), JSON.stringify({ by: "@thetis/workflows", run: "r1" }));
+  await assert.rejects(askUser({ questions: [{ question: "Proceed?" }] }, env), NOBODY);
+  assert.equal(existsSync(resolve(home, "questions", "s-ask.json")), false);
+  // Another conversation's marker does not count.
+  const other = { ...env, session: { id: "s-other" } };
+  assert.match(await askUser({ questions: [{ question: "Proceed?" }] }, other), /^Shown to the person/);
   await rm(home, { recursive: true, force: true });
 });
 

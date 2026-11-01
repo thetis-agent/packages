@@ -86,6 +86,27 @@ test("a full run: tool, parse, prompt on a new conversation, the same conversati
   assert.equal(run.cost, 5.25);
 });
 
+test("every conversation the engine opens is marked unattended for harness-core, and only those", async (t) => {
+  const { readdir } = await import("node:fs/promises");
+  const { resolve } = await import("node:path");
+  const definition = def({
+    plan: { type: "prompt", model: "fable", conversation: "new", prompt: "Plan.", next: "impl" },
+    impl: { type: "prompt", model: "opus", conversation: "plan", prompt: "Do it.", next: "check" },
+    check: { type: "prompt", model: "sonnet", conversation: "new", prompt: "Check.", next: "finish" },
+    finish: { type: "done", summary: "ok" },
+  });
+  const { run, env, home } = await go(t, definition, () => reply("ok"));
+  assert.equal(run.state, "done", run.reason);
+  assert.equal(run.conversations.length, 2);
+  const marked = (await readdir(resolve(home, "harness-core/unattended"))).sort();
+  assert.deepEqual(marked, run.conversations.map((s) => `${s}.json`).sort(), "the two it opened; continuing one writes nothing new");
+  const marker = JSON.parse(await env.readFile(`harness-core/unattended/${run.conversations[0]}.json`));
+  assert.equal(marker.by, "@thetis/workflows");
+  assert.equal(marker.run, "r_0000000001");
+  assert.ok(Number.isFinite(Date.parse(marker.at)));
+  await assert.rejects(env.readFile("projects/sessions.json"), /ENOENT/, "no project, no assignment");
+});
+
 test("parse from a list reads whichever listed step finished last", async (t) => {
   const definition = def({
     impl: { type: "prompt", model: "opus", prompt: "Do it.", budget: { toolCalls: 9 }, next: "check" },

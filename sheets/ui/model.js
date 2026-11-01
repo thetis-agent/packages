@@ -3,9 +3,9 @@
  * subscription is reopened with a backoff when it drops, and each reopening's snapshot resyncs the list.
  * Echoes are told apart by revision: a save from this page records the revision it produced, and a
  * `changed` event with that revision is this page's own (`own: true`), so a tab does not re-read a sheet it
- * just wrote. The chosen project is `@thetis/projects`' own, read from the key it keeps in localStorage
- * (`thetis.project`) — a coupling in one function, watched by the storage event and a slow poll, and
- * swapped for a shell seam in one place when there is one. */
+ * just wrote. The chosen project is the shell's current space (`ext.space`, watched); on
+ * an older gateway it is the key `@thetis/projects` keeps in localStorage (`thetis.project`), watched by
+ * the storage event and a slow poll. */
 
 const PROJECT_KEY = "thetis.project";
 const POLL_MS = 1000;
@@ -19,6 +19,7 @@ export function createModel(ext) {
   let stop = null;
   let timer = null;
   let poll = null;
+  let unspace = null;
   let retries = 0;
   let closed = false;
   const watchers = new Set();
@@ -105,8 +106,10 @@ export function createModel(ext) {
     }
   }
 
-  /** The project the sidebar's switcher chose, as `@thetis/projects` keeps it; null for all. */
+  /** The space the person is in, null for "No project". On an older gateway: the project the sidebar's
+   *  switcher chose, as `@thetis/projects` keeps it, null for all. */
   function project() {
+    if (ext.space) return ext.space.current ?? null;
     try {
       return localStorage.getItem(PROJECT_KEY) || null;
     } catch {
@@ -155,6 +158,10 @@ export function createModel(ext) {
       return active;
     },
     project,
+    /** True when the shell has spaces: the lists are then strict, one space at a time. */
+    get spaced() {
+      return Boolean(ext.space);
+    },
     projectName: nameOf,
     row: (id) => sheets.find((s) => s.id === id) ?? null,
     refresh,
@@ -223,6 +230,10 @@ export function createModel(ext) {
     start() {
       open();
       void refresh();
+      if (ext.space?.watch) {
+        unspace = ext.space.watch(() => notify());
+        return;
+      }
       window.addEventListener("storage", onStorage);
       poll = setInterval(() => {
         const now = project();
@@ -237,6 +248,8 @@ export function createModel(ext) {
       clearTimeout(timer);
       clearInterval(poll);
       window.removeEventListener("storage", onStorage);
+      unspace?.();
+      unspace = null;
       stop?.();
       stop = null;
     },

@@ -14,7 +14,7 @@ export { forgetSession } from "./lib/forget.js";
 /** How long a watching stream may hear nothing before it asks the service whether it is still there. */
 export const HEARTBEAT_MS = 20_000;
 
-export const OPS = new Set(["list", "get", "create", "save", "publish", "remove", "validate", "enqueue", "runs", "run", "cancel", "retry", "approve", "queue", "catalog", "conversations", "forget", "forgetConversations"]);
+export const OPS = new Set(["list", "get", "create", "save", "publish", "remove", "validate", "enqueue", "runs", "run", "cancel", "retry", "approve", "queue", "catalog", "conversations", "runConversations", "forget", "forgetConversations"]);
 
 /**
  * The service. `env` is the `ServiceEnv`. Resolves as soon as the socket listens: the runs are loaded, and

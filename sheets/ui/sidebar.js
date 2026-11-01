@@ -1,7 +1,8 @@
-/* The Sheets section of the sidebar: one row per sheet the chosen project shows — its own and the global
- * ones, or every sheet under "All" — with the project's name as a badge when it has one, the open one
- * marked, a ＋ in the section's actions that makes "Untitled sheet" in the chosen project and opens it with
- * its title in rename, and a row menu: Rename (in place), Move to a project or Make global, Download .xlsx, Download CSV,
+/* The Sheets section of the sidebar: one row per sheet in the space the person is in — the project's own,
+ * or under No project the global ones and those whose project is gone (an older gateway without spaces
+ * shows today's mix, with the project's name as a badge under "All") — the open one marked, a ＋ in the
+ * section's actions that makes "Untitled sheet" in the space and opens its tab there with its title in
+ * rename, and a row menu: Rename (in place), Move to a project or Make global, Download .xlsx, Download CSV,
  * Delete (confirmed). Everything is built with `ext.dom.el`; the shell's tokens and the `.sht-` rules in
  * index.css do the drawing. */
 
@@ -40,7 +41,7 @@ export function mountSidebar(ext, model, body, tools) {
     plus.disabled = true;
     try {
       const sheet = await model.create({ title: "Untitled sheet" });
-      if (sheet) await ext.open.tab(TAB, sheet.id, { id: sheet.id, rename: true });
+      if (sheet) await ext.open.tab(TAB, sheet.id, { id: sheet.id, rename: true }, { space: sheet.project ?? null });
     } catch (err) {
       ext.toast(`The sheet was not created: ${err.message}`, { tone: "error" });
     } finally {
@@ -48,11 +49,16 @@ export function mountSidebar(ext, model, body, tools) {
     }
   }
 
-  /** The rows the chosen project shows: its own, the global ones, and the ones whose project is gone. */
+  /** The rows the space shows: a project's own, or under No project the global ones and the ones whose
+   *  project is gone. On an older gateway a chosen project also shows those two, and All shows every row. */
   function visible() {
     const chosen = model.project();
+    if (model.spaced) return model.sheets.filter((s) => (chosen ? s.project === chosen : !s.project || s.projectMissing));
     return chosen ? model.sheets.filter((s) => s.project === chosen || !s.project || s.projectMissing) : model.sheets;
   }
+
+  /** The space a row's tab belongs to: its project, or No project when it has none or that one is gone. */
+  const spaceOf = (row) => (row.project && !row.projectMissing ? row.project : null);
 
   function menu(anchor, row) {
     const items = [{ label: "Rename", run: () => { renaming = row.id; draw(); } }];
@@ -120,13 +126,13 @@ export function mountSidebar(ext, model, body, tools) {
   }
 
   function rowNode(row) {
-    const showBadge = !model.project() && row.project;
+    const showBadge = !model.spaced && !model.project() && row.project;
     const title = renaming === row.id ? renameField(row) : el("span", { class: "sht-row-title" }, row.title);
     const more = el("button", { type: "button", class: "icon-btn sm sht-row-more", title: "More", "aria-label": `More for ${row.title}`, onClick: (event) => { event.stopPropagation(); menu(more, row); } }, icon(MORE, { size: 14, width: 2 }));
     const node = el(
       "div",
-      { class: `sht-row${model.active === row.id ? " is-active" : ""}${row.projectMissing ? " is-orphan" : ""}`, role: "listitem", "data-sheet": row.id, title: row.projectMissing ? `${row.title} · its project is gone, so it shows everywhere` : row.title },
-      el("button", { type: "button", class: "sht-row-open", onClick: () => void ext.open.tab(TAB, row.id, { id: row.id }) },
+      { class: `sht-row${model.active === row.id ? " is-active" : ""}${row.projectMissing ? " is-orphan" : ""}`, role: "listitem", "data-sheet": row.id, title: row.projectMissing ? `${row.title} · its project is gone, so it shows ${model.spaced ? "under No project" : "everywhere"}` : row.title },
+      el("button", { type: "button", class: "sht-row-open", onClick: () => void ext.open.tab(TAB, row.id, { id: row.id }, { space: spaceOf(row) }) },
         title,
         showBadge ? el("span", { class: "sht-row-badge" }, row.projectName ?? row.project) : null,
         el("span", { class: "sht-row-when" }, when(row.updatedAt))),

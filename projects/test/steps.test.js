@@ -5,8 +5,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { projectPrompt, projectSection, projectTools } from "../lib/steps.js";
-import { assignSession, saveProject, validateProject } from "../lib/store.js";
+import { readFile, readdir } from "node:fs/promises";
+import { inheritProject, projectPrompt, projectSection, projectTools } from "../lib/steps.js";
+import { assignSession, projectIdOf, projectOfSession, readAssignments, saveProject, validateProject } from "../lib/store.js";
 import { describeDirectory, mountsFromEnv, mountModeOf, stateOf } from "../lib/mounts.js";
 import { makeEnv } from "./helpers.js";
 
@@ -110,4 +111,54 @@ test("state: a directory inside the person's own space needs no mount, and the p
   // A project whose directories are all inside the space carries no warning line for the model.
   const section = projectSection({ name: "Home", directories: [here] }, "", [], "alice", home);
   assert.doesNotMatch(section, /NOT USABLE/);
+});
+
+// ---- inheritProject: a subagent takes its parent's project through projects/agents/<id>.json ----
+
+const historyCtx = (env, id, parent) => ({ session: { id, user: "alice", ...(parent ? { parent } : {}) }, conversation: [], harness: {}, env });
+const agentFile = async (home, id) => JSON.parse(await readFile(resolve(home, "projects", "agents", `${id}.json`), "utf8"));
+
+test("inherit: a child takes the parent's project, and a grandchild chains through the child's file", async () => {
+  const { env, home, done } = await makeEnv();
+  const p = await saveProject(env, null, validateProject({ name: "Torchship", instructions: "Rooms." }));
+  await assignSession(env, "s_root", p.id);
+  assert.equal(await inheritProject(historyCtx(env, "s_child", "s_root")), undefined, "the step returns nothing");
+  assert.deepEqual(await agentFile(home, "s_child"), { project: p.id, parent: "s_root" });
+  await inheritProject(historyCtx(env, "s_grand", "s_child"));
+  assert.deepEqual(await agentFile(home, "s_grand"), { project: p.id, parent: "s_child" });
+  assert.deepEqual(await readAssignments(env), { s_root: p.id }, "the shared map is not touched");
+  // Every later reader finds it: the prompt step sees the project in the grandchild.
+  const out = await projectPrompt({ ...ctxFor(env, "s_grand") });
+  assert.match(out.call.system, /## Project: Torchship/);
+  assert.equal((await projectOfSession(env, "s_grand")).id, p.id);
+  await done();
+});
+
+test("inherit: no parent, or a parent in no project, writes nothing; an existing file is kept", async () => {
+  const { env, home, done } = await makeEnv();
+  const p = await saveProject(env, null, validateProject({ name: "A" }));
+  const q = await saveProject(env, null, validateProject({ name: "B" }));
+  await inheritProject(historyCtx(env, "s_root"));
+  await inheritProject(historyCtx(env, "s_child", "s_lonely"));
+  await assert.rejects(readdir(resolve(home, "projects", "agents")), { code: "ENOENT" });
+  await assignSession(env, "s_root", p.id);
+  await env.writeFile("projects/agents/s_kept.json", JSON.stringify({ project: q.id, parent: "s_root" }));
+  await inheritProject(historyCtx(env, "s_kept", "s_root"));
+  assert.equal((await agentFile(home, "s_kept")).project, q.id, "written once, never rewritten");
+  await done();
+});
+
+test("the resolver: the map first, then the agents file, then none", async () => {
+  const { env, done } = await makeEnv();
+  const p = await saveProject(env, null, validateProject({ name: "A" }));
+  const q = await saveProject(env, null, validateProject({ name: "B" }));
+  await env.writeFile("projects/agents/s_1.json", JSON.stringify({ project: q.id, parent: "s_0" }));
+  assert.equal(await projectIdOf(env, "s_1"), q.id);
+  await assignSession(env, "s_1", p.id);
+  assert.equal(await projectIdOf(env, "s_1"), p.id);
+  assert.equal(await projectIdOf(env, "s_2"), null);
+  await env.writeFile("projects/agents/s_3.json", "{ not json");
+  assert.equal(await projectIdOf(env, "s_3"), null);
+  assert.equal(await projectIdOf(env, "../sessions"), null, "an id never names a path outside agents/");
+  await done();
 });

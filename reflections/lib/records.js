@@ -12,7 +12,16 @@ export const DIR = "reflections";
 export const STATES = Object.freeze(["queued", "running", "done", "skipped", "failed", "cancelled"]);
 export const ACTIVE = Object.freeze(["queued", "running"]);
 
-export const DEFAULTS = Object.freeze({ maxTokens: 16000, minTurns: 3, observationChars: 20000, inputChars: 600000, dailyCostUsd: 5, enabled: true, trialRuns: 2, trialCostUsd: 5, trialMinutes: 20, trialScratchMb: 8192 });
+/**
+ * The packages whose tools reach live services, which a trial (offline) cannot: a proposal whose cited
+ * actions used one is not trialable. A fork counts as the package it forks (the name after the scope).
+ */
+export const LIVE_ONLY = Object.freeze([
+  "@thetis/moo", "@thetis/moor", "@thetis/moo-build", "@thetis/moo-puppet",
+  "@thetis/exa", "@thetis/browser", "@thetis/gh", "@thetis/notion",
+  "@thetis/portainer", "@thetis/bigquery", "@thetis/gcloud", "@thetis/vikunja", "@thetis/grafana",
+]);
+export const DEFAULTS = Object.freeze({ maxTokens: 16000, minTurns: 3, observationChars: 20000, inputChars: 600000, dailyCostUsd: 5, enabled: true, trialRuns: 2, trialCostUsd: 5, trialMinutes: 20, trialScratchMb: 8192, liveOnly: LIVE_ONLY });
 /** Below this an observation loses the error at the end of a build log, so the setting is never allowed under it. */
 export const OBSERVATION_FLOOR = 10000;
 /** A transcript budget under this cannot hold the mission and a conversation worth reading. */
@@ -55,6 +64,7 @@ export function settingsOf(config = {}) {
     trialMinutes: Math.max(1, number(c.trialMinutes, DEFAULTS.trialMinutes)),
     trialScratchMb: Math.max(256, Math.floor(number(c.trialScratchMb, DEFAULTS.trialScratchMb))),
     trialModel: typeof c.trialModel === "string" && c.trialModel.trim() ? c.trialModel.trim() : "",
+    liveOnly: Array.isArray(c.liveOnly) ? c.liveOnly.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim()) : [...LIVE_ONLY],
   };
 }
 
@@ -80,6 +90,12 @@ export async function readRecords(home) {
  * A record that starts over: the facts of the conversation kept, everything a previous attempt said
  * dropped, so a stale error or cost never shows beside a new state.
  */
+/** The reason text a cap skip carries beside `skip: "cap"`. */
+export const CAP_REASON = "daily cost cap reached";
+
+/** Whether a record was skipped by the daily cap. A record from before `skip` existed carries the reason alone. */
+export const isCapSkip = (r) => r?.state === "skipped" && (r.skip === "cap" || r.reason === CAP_REASON);
+
 export function freshRecord(base, state, extra = {}) {
   const now = new Date().toISOString();
   const kept = { session: base.session, title: base.title ?? null, project: base.project ?? null };

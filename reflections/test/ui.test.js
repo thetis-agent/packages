@@ -82,7 +82,7 @@ async function setup() {
   };
   kernel.packages ??= { list: async () => [] };
   const env = { cwd: home, kernel, user: "u1", role: "user", config: {} };
-  const reg = { chips: {}, places: {}, opened: [], conversations: [] };
+  const reg = { chips: {}, places: {}, opened: [], conversations: [], toasts: [], started: [] };
   let current = A;
   const sessions = [{ id: A, archived: true }, { id: B, archived: false }];
   const ext = {
@@ -99,14 +99,14 @@ async function setup() {
     redraw: () => {},
     chip: (id, impl) => (reg.chips[id] = impl),
     place: (id, impl) => (reg.places[id] = impl),
-    conversation: { get current() { return current; }, watch: () => {}, open: (s) => reg.conversations.push(s) },
+    conversation: { get current() { return current; }, watch: () => {}, open: (s) => reg.conversations.push(s), start: (o) => reg.started.push(o) },
     sessions: { list: () => sessions, watch: () => {} },
     open: { place: (id, params) => reg.opened.push({ id, params }) },
-    toast: () => {},
+    toast: (message, opts) => reg.toasts.push({ message, ...(opts ?? {}) }),
   };
   install(ext);
   const library = (entries) => put(home, "reflections/library.json", { entries });
-  return { home, env, ext, reg, started, allow, library, done, setCurrent: (s) => (current = s) };
+  return { home, env, ext, reg, started, allow, library, done, asked: [], setCurrent: (s) => (current = s) };
 }
 
 /** Opens the place and waits until `ready(root)`; answers the root and the close function. */
@@ -153,15 +153,15 @@ test("the chip counts the proposal and the findings of a done reflection", async
   }
 });
 
-test("the place has four tabs, lists, opens a detail, queues a Reflect, and shows the model pickers", async () => {
+test("the place has five tabs, lists, opens a detail, queues a Reflect, and shows the model pickers", async () => {
   const t = await setup();
   let close = null;
   try {
     await put(t.home, `gateway-web/sessions/u1/${A}.json`, { archived: true, title: "Header fix", archivedAt: "2026-10-19T09:00:00.000Z" });
     await put(t.home, `reflections/${B}.json`, { session: B, title: "Done one", state: "done", costUsd: 0.04, proposal: null, findings: ["F-ff11ee", "F-ee22dd"] });
     let root;
-    ({ root, close } = await opened(t, {}, (r) => r.textContent.includes("Header fix") && r.textContent.includes("Done one")));
-    assert.deepEqual(root.querySelectorAll(".rfl-tab").map((b) => b.textContent), ["Conversations", "Proposals", "Findings", "Settings"]);
+    ({ root, close } = await opened(t, { tab: "conversations" }, (r) => r.textContent.includes("Header fix") && r.textContent.includes("Done one")));
+    assert.deepEqual(root.querySelectorAll(".rfl-tab").map((b) => b.textContent), ["To review", "Proposals", "Findings", "Conversations", "Settings"]);
     assert.equal(root.querySelector("h1"), null, "the shell's place header is the only title");
     assert.ok(root.textContent.includes("Not reflected · Reflect"));
     assert.ok(root.textContent.includes("Reflected · 2 findings · $0.04"));
@@ -200,8 +200,7 @@ test("a conversation's detail shows its proposal, which opens in Proposals", asy
     ({ root, close } = await opened(t, { session: B }, (r) => r.textContent.includes("Its proposal")));
     assert.ok(root.textContent.includes("Reflected · 1 proposal · $0.04"));
     assert.ok(root.textContent.includes("Skill check-the-generator"));
-    buttonNamed(root, "Open evidence").click();
-    assert.deepEqual(t.reg.opened.at(-1), { id: "workspace", params: { path: `reflections/${B}/context/trajectory.md`, view: "source" } });
+    assert.equal(buttonNamed(root, "Open evidence"), undefined, "citations unfold in place; the raw files are not offered");
     buttonNamed(root, "Open proposal").click();
     await until(() => root.textContent.includes("← All proposals"));
   } finally {
@@ -223,9 +222,9 @@ test("Proposals groups by state, with the rejected collapsed", async () => {
       entry("L-ff66aa", { kind: "guide-note", target: "-", change: "Say which file you changed.", lesson: "Name the `dist/` file you changed." }),
     ]);
     let root;
-    ({ root, close } = await opened(t, { tab: "proposals" }, (r) => r.textContent.includes("Needs a trial")));
+    ({ root, close } = await opened(t, { tab: "proposals" }, (r) => r.textContent.includes("Not tried")));
     const heads = root.querySelectorAll(".rfl-h3").map((h) => h.textContent);
-    assert.deepEqual(heads, ["Needs a trial", "Trialling", "Ready to decide", "Adopted"]);
+    assert.deepEqual(heads, ["Not tried", "Trialling", "Ready", "Adopted"]);
     assert.ok(root.textContent.includes("Re-check"));
     assert.ok(root.textContent.includes("Trial: helped"));
     assert.ok(root.textContent.includes("From 1 conversation · proposed just now"), "a row says when it was proposed");
@@ -244,20 +243,18 @@ test("Proposals groups by state, with the rejected collapsed", async () => {
   }
 });
 
-test("a proposal before a trial: Adopt is disabled with the reason, and Run trial sends the edited request", async () => {
+test("a proposal before a trial: Adopt goes ahead without one, and Try first sends the edited request", async () => {
   const t = await setup();
   let close = null;
   try {
     await t.library([entry("L-aa11bb")]);
     let root;
-    ({ root, close } = await opened(t, { proposal: "L-aa11bb" }, (r) => buttonStarting(r, "Run trial")));
-    const run = buttonStarting(root, "Run trial");
-    assert.equal(run.textContent, "Run trial (2 runs each, up to $5)");
-    const adopt = buttonNamed(root, "Adopt");
-    assert.ok(disabled(adopt), "Adopt is disabled before a trial");
-    assert.equal(adopt.getAttribute("title"), "Run a trial first.");
-    assert.ok(root.textContent.includes("Run a trial first."), "the reason is shown, not only hovered");
-    assert.ok(buttonNamed(root, "Reject"));
+    ({ root, close } = await opened(t, { proposal: "L-aa11bb" }, (r) => buttonStarting(r, "Try first")));
+    const run = buttonStarting(root, "Try first");
+    assert.equal(run.textContent, "Try first (up to $5)");
+    assert.ok(!disabled(buttonNamed(root, "Adopt")), "a trial is optional");
+    assert.ok(!root.textContent.includes("Run a trial first."));
+    assert.ok(buttonNamed(root, "Reject") && buttonNamed(root, "Edit"));
     assert.ok(root.textContent.includes("+ # Check the generator") || root.textContent.includes("# Check the generator"), "the change is shown");
 
     assert.ok(root.textContent.includes("The trial runs on your files as they are now, not as they were in the conversation. Edit the request if it depends on how things were."));
@@ -278,43 +275,53 @@ test("a proposal before a trial: Adopt is disabled with the reason, and Run tria
     assert.equal((await get(t.home, "reflections/library.json")).entries[0].state, "trialling");
     t.allow.cancel = true;
     buttonNamed(root, "Stop trial").click();
-    await until(() => buttonStarting(root, "Run trial again"));
+    await until(() => buttonStarting(root, "Try again"));
     assert.equal((await get(t.home, "reflections/library.json")).entries[0].state, "proposed");
     assert.ok(!buttonNamed(root, "Stop trial"));
     assert.ok(!root.textContent.includes("The trials host could not stop it."), "the old refusal is gone");
-    assert.ok(disabled(buttonNamed(root, "Adopt")), "a cancelled trial judged nothing");
+
+    // A cancelled trial judged nothing: Adopt is the untried one, after the popover.
+    t.ext.ui.confirm = async (anchor, options) => (t.asked.push(options), true);
+    buttonNamed(root, "Adopt").click();
+    await until(() => buttonNamed(root, "Retire"));
+    assert.equal(t.asked[0].title, "Adopt without trying it?");
+    assert.equal(t.asked[0].note, "It applies to new conversations from now on. You can retire it later.");
+    const adopted = (await get(t.home, "reflections/library.json")).entries[0];
+    assert.deepEqual([adopted.state, adopted.applied.untried], ["adopted", true]);
+    assert.ok(root.textContent.includes("without a trial. It applies to new conversations."));
   } finally {
     close?.();
     await t.done();
   }
 });
 
-test("a trialled proposal that did not help reads Adopt anyway, opens its runs and judgement, and shows a refusal", async () => {
+test("a trialled proposal that hurt reads Adopt anyway, opens its runs and judgement, and shows a refusal", async () => {
   const t = await setup();
   let close = null;
   try {
-    await t.library([entry("L-aa11bb", { state: "trialled", trials: [T], verdict: verdict("no difference (one run each: weak)") })]);
+    await t.library([entry("L-aa11bb", { state: "trialled", trials: [T], verdict: verdict("hurt (one run each: weak)") })]);
     await put(t.home, `trials/${T}/trial.json`, { id: T, state: "done", costUsd: 0.5, runs: [{ arm: "base", n: 1, state: "done", costUsd: 0.2 }, { arm: "change", n: 1, state: "done", costUsd: 0.3 }] });
     await put(t.home, `reflections/trials/${T}/base-1.md`, "x");
     await put(t.home, `reflections/trials/${T}/change-1.md`, "x");
     await put(t.home, `reflections/trials/${T}/judge.md`, "# Judgement");
-    // Written by hand after the proposal: adopt must refuse, and the place must say why.
-    await put(t.home, "skills/check-the-generator/SKILL.md", "mine");
     let root;
     ({ root, close } = await opened(t, { proposal: "L-aa11bb" }, (r) => buttonNamed(r, "Adopt anyway")));
-    assert.ok(root.textContent.includes("Trial: no difference (one run each: weak)"));
+    assert.ok(root.textContent.includes("Trial: hurt (one run each: weak)"));
     assert.ok(root.textContent.includes("The change was seen in 2 of 2 runs with it."));
-    assert.equal(buttonStarting(root, "Run trial").textContent, "Run trial again (2 runs each, up to $5)");
+    assert.equal(buttonStarting(root, "Try again").textContent, "Try again (up to $5)");
 
     root.querySelectorAll("button").filter((b) => b.textContent === "Open run")[1].click();
     assert.deepEqual(t.reg.opened.at(-1), { id: "workspace", params: { path: `reflections/trials/${T}/change-1.md`, view: "source" } });
     buttonNamed(root, "Open judgement").click();
     assert.deepEqual(t.reg.opened.at(-1), { id: "workspace", params: { path: `reflections/trials/${T}/judge.md` } });
 
+    // Written by hand after the place was drawn: adopt must refuse, and the place must say why.
+    await put(t.home, "skills/check-the-generator/SKILL.md", "mine");
     assert.ok(!disabled(buttonNamed(root, "Adopt anyway")));
     buttonNamed(root, "Adopt anyway").click();
-    await until(() => root.textContent.includes("changed since the proposal; run the trial again"));
+    await until(() => root.textContent.includes("skills/check-the-generator/SKILL.md changed in the same place since; edit the proposal."));
     assert.equal(await get(t.home, "skills/check-the-generator/SKILL.md"), "mine");
+    await until(() => buttonNamed(root, "Edit") && root.textContent.includes("Out of date"), 4000);
   } finally {
     close?.();
     await t.done();
@@ -331,7 +338,7 @@ test("an adopted proposal shows its re-check with Run trial again, and Retire ta
     buttonNamed(root, "Adopt").click();
     await until(() => buttonNamed(root, "Retire"));
     assert.equal(await get(t.home, "skills/check-the-generator/SKILL.md"), SKILL);
-    assert.ok(!buttonStarting(root, "Run trial"), "an adopted entry without a re-check offers no trial");
+    assert.ok(!buttonStarting(root, "Try"), "an adopted entry without a re-check offers no trial");
 
     const lib = await get(t.home, "reflections/library.json");
     lib.entries[0].recheck = { reason: "@thetis/skills-thetis changed 0.10.0 → 0.10.1 since adoption", at: "2026-10-20T00:00:00.000Z" };
@@ -340,7 +347,7 @@ test("an adopted proposal shows its re-check with Run trial again, and Retire ta
     await until(() => root.textContent.includes("Re-check"));
     root.querySelectorAll(".rfl-row-main")[0].click();
     await until(() => root.textContent.includes("Re-check: @thetis/skills-thetis changed 0.10.0 → 0.10.1 since adoption"));
-    assert.equal(buttonStarting(root, "Run trial").textContent, "Run trial again (2 runs each, up to $5)");
+    assert.equal(buttonStarting(root, "Try again").textContent, "Try again (up to $5)");
 
     buttonNamed(root, "Retire").click();
     await until(() => root.textContent.includes("Retired."));
@@ -383,7 +390,8 @@ test("Findings: the intro, grouped by package, each with its chip and sightings;
     });
     let root;
     ({ root, close } = await opened(t, { tab: "findings" }, (r) => r.textContent.includes("The prompt was cut by")));
-    assert.ok(root.textContent.includes("Problems with packages that reflections noticed. They are never shown to the assistant."));
+    assert.ok(root.textContent.includes("Problems with packages that reflections noticed. The assistant sees one only when you send it with Fix this."));
+    assert.equal(root.querySelectorAll("button").filter((b) => b.textContent === "Fix this").length, 2, "every finding not closed has Fix this and Copy");
     assert.deepEqual(root.querySelectorAll(".rfl-h3").map((h) => h.textContent), ["@thetis/terminal", "@thetis/tools-files"]);
     const chips = root.querySelectorAll(".rfl-state").map((c) => c.textContent);
     assert.deepEqual(chips, ["Possibly fixed in 0.5.0", "Open", "Closed"]);
@@ -396,6 +404,166 @@ test("Findings: the intro, grouped by package, each with its chip and sightings;
     root.querySelectorAll("button").filter((b) => b.textContent === "Close")[1].click();
     await until(async () => (await get(t.home, "reflections/findings.json")).findings.find((f) => f.id === "F-ff11ee").state === "closed");
     await until(() => root.querySelectorAll(".rfl-state").filter((c) => c.textContent === "Closed").length === 2);
+  } finally {
+    close?.();
+    await t.done();
+  }
+});
+
+const daysAgo = (d) => new Date(Date.now() - d * 86_400_000).toISOString();
+
+/** The clipboard as the place reaches it, kept for the test to read. */
+function clipboard() {
+  const was = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const copied = [];
+  Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async (text) => void copied.push(text) } }, configurable: true, writable: true });
+  return { copied, restore: () => (was ? Object.defineProperty(globalThis, "navigator", was) : delete globalThis.navigator) };
+}
+
+test("To review is first: the count line, the ranked cards, Adopt without a trial, and Reflect them", async () => {
+  const t = await setup();
+  let close = null;
+  try {
+    await t.library([
+      entry("L-aa11bb", { kind: "guide-note", target: "-", path: null, before: "[]", change: "Ask first.", lesson: "Ask before a long job.", from: [{ session: A, at: daysAgo(1), project: "p_0a1b2c3d" }, { session: B, at: daysAgo(2) }] }),
+      entry("L-bb22cc", { state: "rejected" }),
+    ]);
+    await put(t.home, "projects/p_0a1b2c3d.json", { id: "p_0a1b2c3d", name: "Torchship" });
+    await put(t.home, "reflections/findings.json", { findings: [finding("F-ff11ee", { seen: Array.from({ length: 16 }, (_, i) => ({ session: A, at: daysAgo(1 + i), events: [] })) })] });
+    await put(t.home, `reflections/${A}.json`, { session: A, title: "Header fix", state: "skipped", skip: "cap", reason: "daily cost cap reached" });
+    await put(t.home, `reflections/${B}.json`, { session: B, title: "Done", state: "done", costUsd: 1.25, finishedAt: daysAgo(1) });
+    let root;
+    ({ root, close } = await opened(t, {}, (r) => r.querySelector(".rfl-review-line")));
+    assert.equal(root.querySelector(".rfl-tab.is-active").textContent, "To review");
+    assert.equal(root.querySelector(".rfl-review-line").textContent, "1 proposal · 1 finding · 1 not reflected");
+    const cards = root.querySelectorAll(".rfl-card");
+    assert.ok(cards[0].textContent.includes("read_file cut a long line") && cards[0].textContent.includes("Seen 16 times, last"), "the finding seen most is first");
+    assert.ok(cards[1].textContent.includes("Guide note") && cards[1].textContent.includes("Not tried") && cards[1].textContent.includes("Seen in 2 conversations · Torchship"));
+    assert.ok(buttonNamed(cards[1], "Edit") && buttonNamed(cards[1], "Reject") && buttonStarting(cards[1], "Try first (up to $5)"));
+    assert.ok(buttonNamed(cards[0], "Fix this") && buttonNamed(cards[0], "Copy") && buttonNamed(cards[0], "Close"));
+    assert.ok(cards[2].textContent.includes("1 archived conversation was not reflected: the $5 daily limit was reached."));
+
+    t.ext.ui.confirm = async (anchor, options) => (t.asked.push(options), true);
+    buttonNamed(cards[1], "Adopt").click();
+    await until(() => t.env.kernel.layers["@thetis/harness-core"]?.guideNotes?.includes("Ask first."));
+    assert.equal(t.asked[0].title, "Adopt without trying it?");
+    await until(() => root.querySelector(".rfl-review-line")?.textContent === "1 finding · 1 not reflected");
+
+    buttonStarting(root, "Reflect it (about $1.25)").click();
+    await until(async () => (await get(t.home, `reflections/${A}.json`))?.state === "queued");
+    assert.equal((await get(t.home, `reflections/${A}.json`)).manual, true);
+    assert.equal(t.asked[1].title, "Reflect 1 conversation?");
+
+    await put(t.home, `reflections/${A}.json`, { session: A, state: "skipped", skip: "cap", reason: "daily cost cap reached" });
+    buttonNamed(root, "Proposals").click();
+    buttonNamed(root, "To review").click();
+    await until(() => buttonNamed(root, "Change the limit"));
+    buttonNamed(root, "Change the limit").click();
+    await until(() => root.textContent.includes("Daily limit") && root.querySelector(".rfl-tab.is-active").textContent === "Settings");
+  } finally {
+    close?.();
+    await t.done();
+  }
+});
+
+test("Fix this opens a draft in the project it was seen in most; without the seam it copies; Copy copies the issue", async () => {
+  const t = await setup();
+  const clip = clipboard();
+  let close = null;
+  try {
+    await put(t.home, "projects/sessions.json", { [A]: "p_0a1b2c3d" });
+    await put(t.home, "reflections/findings.json", { findings: [finding("F-ff11ee")] });
+    let root;
+    ({ root, close } = await opened(t, {}, (r) => buttonNamed(r, "Fix this")));
+    buttonNamed(root, "Fix this").click();
+    await until(() => t.reg.started.length === 1);
+    assert.equal(t.reg.started[0].space, "p_0a1b2c3d");
+    assert.match(t.reg.started[0].text, /^Fix a problem Reflections found in @thetis\/tools-files \(read_file\):/);
+    assert.equal(clip.copied.length, 0, "nothing is copied, and nothing is sent");
+
+    delete t.ext.conversation.start;
+    buttonNamed(root, "Fix this").click();
+    await until(() => clip.copied.length === 1);
+    assert.match(clip.copied[0], /^Fix a problem Reflections found/);
+    assert.equal(t.reg.toasts.at(-1).message, "Copied. Paste it into a new conversation.");
+
+    buttonNamed(root, "Copy").click();
+    await until(() => clip.copied.length === 2);
+    assert.match(clip.copied[1], /^# @thetis\/tools-files: read_file cut a long line/);
+    assert.equal(t.reg.toasts.at(-1).message, "Copied as an issue.");
+  } finally {
+    clip.restore();
+    close?.();
+    await t.done();
+  }
+});
+
+test("a citation unfolds its event in place; Edit saves and the chip reads Edited; a live-only action hides Try first", async () => {
+  const t = await setup();
+  let close = null;
+  try {
+    await put(t.home, `reflections/${A}/context/trajectory.md`, `# Conversation ${A}\n\n[3] [ACTION] moo_eval({"code":"1"})\n\n[4] [OBSERVATION] the build overwrote it\n`);
+    await put(t.home, `harness-core/turns/${A}.jsonl`, `${JSON.stringify({ turn: 1, tools: "abcdef01" })}\n`);
+    await put(t.home, `harness-core/snapshots/${A}/abcdef01.json`, [{ name: "moo_eval", package: "@thetis/moo" }]);
+    await t.library([entry("L-aa11bb", { kind: "guide-note", target: "-", path: null, before: "[]", change: "Ask first.", evidence: "rows 1; [3], [4]", state: "trialled", trials: [T], verdict: verdict("helped") })]);
+    let root;
+    ({ root, close } = await opened(t, { proposal: "L-aa11bb" }, (r) => r.querySelector(".rfl-cite")));
+    assert.deepEqual(root.querySelectorAll(".rfl-cite").map((b) => b.textContent), ["[3]", "[4]"]);
+    assert.ok(root.textContent.includes("A trial runs offline, so it cannot test this."));
+    assert.ok(!buttonStarting(root, "Try"), "moo_eval reaches the live MOO");
+    root.querySelectorAll(".rfl-cite")[1].click();
+    await until(() => root.querySelector(".rfl-event")?.textContent.includes("the build overwrote it"));
+    assert.equal(root.querySelector(".rfl-event-kind").textContent, "OBSERVATION");
+    root.querySelectorAll(".rfl-cite")[1].click();
+    assert.equal(root.querySelector(".rfl-event"), null, "a second click folds it");
+
+    buttonNamed(root, "Edit").click();
+    const box = root.querySelector("textarea");
+    assert.equal(box.value, "Ask first.");
+    assert.equal(box.getAttribute("maxlength"), "300");
+    box.value = "two\nlines";
+    box.dispatchEvent({ type: "input" });
+    buttonNamed(root, "Save").click();
+    await until(() => root.textContent.includes("That does not hold: a guide note is one line"));
+    root.querySelector("textarea").value = "Ask before a long job.";
+    root.querySelector("textarea").dispatchEvent({ type: "input" });
+    buttonNamed(root, "Save").click();
+    await until(() => !root.querySelector("textarea") && root.querySelectorAll(".rfl-state").some((c) => c.textContent === "Edited"));
+    assert.ok(root.textContent.includes("Trial was for the earlier text."));
+    const saved = (await get(t.home, "reflections/library.json")).entries[0];
+    assert.deepEqual([saved.change, saved.state, saved.verdict.stale], ["Ask before a long job.", "proposed", true]);
+  } finally {
+    close?.();
+    await t.done();
+  }
+});
+
+test("a project file changed under a proposal: Out of date, Update, then Adopt writes the merged text", async () => {
+  const t = await setup();
+  let close = null;
+  try {
+    const P = "p_0a1b2c3d";
+    await put(t.home, `projects/${P}.json`, { id: P, name: "Torchship" });
+    await put(t.home, `projects/${P}.md`, "# Torchship, the ship\n\nUse the live MOO.\n");
+    await t.library([entry("L-aa11bb", { kind: "project-instructions", target: P, path: null, before: "# Torchship\n\nUse the live MOO.\n", change: "# Torchship\n\nUse the live MOO.\n\nKey characters by .character_id.\n" })]);
+    let root;
+    ({ root, close } = await opened(t, {}, (r) => buttonNamed(r, "Update")));
+    assert.ok(root.textContent.includes("Torchship instructions") && root.textContent.includes("Out of date"));
+    buttonNamed(root, "Update").click();
+    await until(() => buttonNamed(root, "Adopt") && !root.textContent.includes("Out of date"));
+    buttonNamed(root, "Adopt").click();
+    await until(async () => (await get(t.home, `projects/${P}.md`)) === "# Torchship, the ship\n\nUse the live MOO.\n\nKey characters by .character_id.\n");
+
+    // Changed in the same place: the main button is Edit, and the editor starts from today's file.
+    await t.library([entry("L-bb22cc", { kind: "project-instructions", target: P, path: null, before: "# Torchship\n\nUse the live MOO.\n", change: "# Torchship\n\nUse the live MOO only.\n" })]);
+    await put(t.home, `projects/${P}.md`, "# Torchship\n\nUse the MOO.\n");
+    buttonNamed(root, "Proposals").click();
+    buttonNamed(root, "To review").click();
+    await until(() => root.textContent.includes("The file changed in the same place. Edit it to include the change."));
+    buttonNamed(root, "Edit").click();
+    await until(() => root.querySelector("textarea.rfl-editor"));
+    assert.equal(root.querySelector("textarea.rfl-editor").value, "# Torchship\n\nUse the MOO.\n");
+    assert.ok(root.textContent.includes("The proposal's change") && root.textContent.includes("Against today's file:"));
   } finally {
     close?.();
     await t.done();

@@ -2,14 +2,18 @@
 // `thetis.sessions.forget` to remove what it kept about it. This package keeps three things per
 // conversation, all under the person's home: the context snapshot and usage ledger the Context dock reads
 // (`harness-core/context/<s>.json`), a "retry now" request that was never taken (`harness-core/retry/<s>.json`),
-// the effort chosen for it (its key in `effort/sessions.json`), and what each turn ran with (the stamps in
-// `harness-core/turns/<s>.jsonl` and the prompt and tool snapshots under `harness-core/snapshots/<s>/`). The
-// preview lists the last, which is the one a person would not guess is kept. Nothing here blocks a forget,
+// the effort chosen for it (its key in `effort/sessions.json`), what each turn ran with (the stamps in
+// `harness-core/turns/<s>.jsonl` and the prompt and tool snapshots under `harness-core/snapshots/<s>/`), the
+// earlier versions of edited messages (`harness-core/edits/<s>.jsonl`), an edit request never taken
+// (`harness-core/rewind/<s>.json`) and the unattended marker (`harness-core/unattended/<s>.json`). The
+// preview lists the stamps and the earlier versions, which are the ones a person would not guess are kept. Nothing here blocks a forget,
 // and every part is idempotent: a file already gone is not an error and is not reported as removed.
 import { access, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { effortSessionsPath } from "./effort.js";
+import { unattendedPath } from "./index.js";
 import { retryRequestPath } from "./retry.js";
+import { editsPath, liveEdits, rewindRequestPath, type EditRecord } from "./rewind.js";
 import { snapshotsPath, turnsPath } from "./stamp.js";
 
 /** What the gateway passes: the phase, the conversation forgotten, its whole subtree (root first) and this package's dialog choices. */
@@ -72,27 +76,60 @@ async function removeTurns(home: string, s: string): Promise<boolean> {
   return (await removeFile(resolve(home, turnsPath(s)))) || had;
 }
 
-/** The one preview item: what each turn ran with, never optional. */
+/** The preview items: what each turn ran with, and earlier versions of edited messages; never optional. */
 export const TURNS_ITEM = { id: "turns", label: "What each turn ran with (versions, prompt and tools)" } as const;
+export const EDITS_ITEM = { id: "edits", label: "Earlier versions of edited messages" } as const;
+
+/** How many messages of one conversation have earlier versions, counted once each however often edited. */
+async function editedMessages(home: string, s: string): Promise<number> {
+  let text: string;
+  try {
+    text = await readFile(resolve(home, editsPath(s)), "utf8");
+  } catch {
+    return 0;
+  }
+  const records: EditRecord[] = [];
+  for (const line of text.split("\n")) {
+    try {
+      const r = JSON.parse(line) as EditRecord;
+      if (r && typeof r.at === "number") records.push(r);
+    } catch {
+      // A blank or torn line.
+    }
+  }
+  return new Set(liveEdits(records).map((r) => r.at)).size;
+}
 
 /**
  * `thetis.sessions.forget`: the preview names what each turn ran with when any of the conversations has it;
- * on forget, the snapshot, the retry request, the effort choice and the stamps of every id.
+ * the earlier versions too when there are any; on forget, the snapshot, the retry request, the effort choice,
+ * the stamps, the earlier versions, an untaken edit request and the unattended marker of every id.
  */
 export async function forgetSession(args: ForgetArgs, env: { cwd: string }): Promise<ForgetAnswer> {
   const ids = (Array.isArray(args?.sessions) ? args.sessions : []).filter((s): s is string => typeof s === "string" && SESSION_ID.test(s));
   if (args?.phase === "preview") {
-    for (const s of ids) if ((await exists(resolve(env.cwd, turnsPath(s)))) || (await exists(resolve(env.cwd, snapshotsPath(s))))) return { items: [{ ...TURNS_ITEM }] };
-    return {};
+    let turns = false;
+    let edits = false;
+    for (const s of ids) {
+      turns ||= (await exists(resolve(env.cwd, turnsPath(s)))) || (await exists(resolve(env.cwd, snapshotsPath(s))));
+      edits ||= await exists(resolve(env.cwd, editsPath(s)));
+    }
+    const items = [...(turns ? [{ ...TURNS_ITEM }] : []), ...(edits ? [{ ...EDITS_ITEM }] : [])];
+    return items.length ? { items } : {};
   }
   if (args?.phase !== "forget") return {};
   let snapshots = 0;
   let retries = 0;
   let turns = 0;
+  let edited = 0;
   for (const s of ids) {
     if (await removeFile(resolve(env.cwd, "harness-core/context", `${s}.json`))) snapshots++;
     if (await removeFile(resolve(env.cwd, retryRequestPath(s)))) retries++;
     if (await removeTurns(env.cwd, s)) turns++;
+    const versions = await editedMessages(env.cwd, s);
+    if (await removeFile(resolve(env.cwd, editsPath(s)))) edited += versions;
+    await removeFile(resolve(env.cwd, rewindRequestPath(s)));
+    await removeFile(resolve(env.cwd, unattendedPath(s)));
   }
   const efforts = await dropEfforts(env.cwd, new Set(ids));
   const removed: string[] = [];
@@ -100,5 +137,6 @@ export async function forgetSession(args: ForgetArgs, env: { cwd: string }): Pro
   if (retries) removed.push(`${plural(retries, "retry request")} that had not been taken.`);
   if (efforts) removed.push(`The effort chosen for ${plural(efforts, "conversation")}.`);
   if (turns) removed.push(`What each turn ran with (versions, prompt and tools) in ${plural(turns, "conversation")}.`);
+  if (edited) removed.push(`Earlier versions of ${plural(edited, "message")}.`);
   return { removed };
 }

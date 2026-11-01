@@ -25,6 +25,9 @@ Everything lives under `workflows/` in the person's home, written only by the se
 | `workflows/runs/<run>.json` | One run: its state, variables and step history. |
 | `workflows/queue.json` | `{ paused: boolean, reason? }` — the queue's one setting, and why it paused itself when it did. |
 
+Outside it, for each conversation a run opens: the entry in `projects/sessions.json` and the marker
+`harness-core/unattended/<id>.json` (see Runs).
+
 Ids: a workflow id is `wf_` + 8 hex; a run id is `r_` + 10 hex; a step id is `[a-z][a-z0-9_]{0,31}`.
 
 ## The definition (the shared contract)
@@ -161,6 +164,13 @@ reply unmarked) is sent *"Carry on with the task. Your last reply did not finish
 to go on from, and a turn with no input would ask the model to go on from its own last word. No message
 like "Your previous turn was interrupted" is ever sent.
 
+Each conversation a run opens is assigned to the definition's `project` (`projects/sessions.json`) and
+marked unattended for `@thetis/harness-core`: `harness-core/unattended/<id>.json`,
+`{ "by": "@thetis/workflows", "run": "r_…", "at": "…" }`. Tools that need a person, such as `ask_user`, are
+not offered there, also later when a person talks in it; harness-core's forget removes the marker.
+Editing a person's message in an idle run conversation between steps is allowed, but it can shift the
+`at` a resume compares against.
+
 ## The service socket
 
 The service listens on `<root>/run/workflows.sock` and speaks JSON lines, the terminal package's shape:
@@ -184,6 +194,7 @@ a request `{ "i": 1, "op": "…", ...args }`, an answer `{ "i": 1, "ok": true, "
 | `approve` | `id`, `decision` (`approved`/`rejected`), `note?` | the run |
 | `queue` | `paused?` | `{ paused, reason?, running: [run ids], queued: n }`; `reason` only when the queue paused itself |
 | `conversations` | — | `{ "<conversation id>": { title?, model? } }` for every conversation a run opened: the title it gave and the model its last prompt step ran on there |
+| `runConversations` | — | `{ ids }`: every conversation a run opened, for the sidebar's "Workflow runs" group |
 | `forget` | `id` | `{}`; deletes a finished run's record (a run still going is refused) and broadcasts `{ ev: "forgotten", id }` |
 | `forgetConversations` | `sessions` (conversation ids) | `{ titles, runs: [{ id, name, number, state }] }`; removes the title each run gave those conversations and answers the runs that used them. The forget hook calls it |
 | `catalog` | — | `{ models: [{ id, label? }], defaultModel, projects: [{ id, name }], tools: [{ package, export, name, description }] }` |
@@ -209,6 +220,10 @@ what is missing to the page's own `api/sessions/<id>/title` and `api/sessions/<i
 `remember: false`, so the person's default for new conversations is untouched). A name or model the person
 chose is never changed (`ui/titles.js`).
 
+On a gateway with `ext.sessions.group`, the conversations runs opened are folded into one **Workflow runs**
+group of the sidebar (`ui/folder.js`). The set comes from `runConversations`, asked again whenever the list
+shows a conversation the page has not seen.
+
 Two UI verbs, both thin clients of the socket:
 
 - `call` — `args: { op, ...args }`, answers `{ data: result }` or a 400 with the service's sentence;
@@ -229,4 +244,4 @@ prompt → parse → branch → loop → done with a model per step, a budget br
 `onBreach`, the cost cap, a follow-up on a parse miss, an approval, resume after a restart: a cut turn
 goes on with no input, a turn that gave way waits for `turns.yielding`, a running turn is waited for and
 never cancelled, a busy send takes the other turn's reply, a Retry after a reply sends the carry-on
-message), and the socket.
+message, the unattended marker on each conversation it opens), the sidebar group, and the socket.
