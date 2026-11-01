@@ -94,8 +94,8 @@ const tools = [
 const tool = ([name, exp, reads, description, parameters]) => ({ name, description, parameters, export: exp, reads });
 
 const pkg = {
-  name: "@bitmuse/moo-maps",
-  version: "0.1.0",
+  name: "@thetis/moo-maps",
+  version: "0.3.0",
   private: true,
   description: "Maps of MOO areas you and the agent build together: a cartographer tab with the maps in progress in the sidebar, map_* tools for editing them in chat, and map_publish to write a map into the MOO and keep it linked for later updates.",
   type: "module",
@@ -127,6 +127,7 @@ const pkg = {
         { verb: "create", export: "uiCreate", label: "Create a map" },
         { verb: "rename", export: "uiRename", label: "Rename a map" },
         { verb: "remove", export: "uiRemove", label: "Delete a map" },
+        { verb: "assign", export: "uiAssign", label: "Move a map to a project, or out of one" },
         { verb: "focus", export: "uiFocus", label: "Tell the agent what is selected in the map tab" },
         { verb: "watch", export: "uiWatch", label: "Follow the maps as they change", stream: true },
         { verb: "editor", export: "uiEditor", label: "Serve the map editor to its sandboxed frame", kind: "frame" },

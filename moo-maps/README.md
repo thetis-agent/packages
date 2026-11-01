@@ -1,4 +1,4 @@
-# @bitmuse/moo-maps
+# @thetis/moo-maps
 
 Maps of MOO areas that you and the agent build together.
 
@@ -25,4 +25,16 @@ skill `moo-maps` tells the agent how to work with it.
 
 Maps are files in your home: `maps/<id>/map.json`.
 
-Tests: `npm test`. The manifest's tool schemas are written by `node tools/manifest.mjs`.
+## Projects
+
+A map belongs to one project or none (`project` in `map.json`). **Maps** follows the shell's current
+space (`ext.space`): in a project it lists that project's maps only; under No project, the maps with none
+and those whose project was deleted. ＋ makes a map in the space, and a map's tab opens in its project's
+space. The row menu moves a map to another project or out of one (the `assign` command). A map the agent
+makes (`map_create`, or `map_import` without `map`) gets its conversation's project: `projects/sessions.json`,
+or `projects/agents/<id>.json` for a subagent. The package reads those files directly, so without
+`@thetis/projects` every map is in none. On a gateway without spaces the section lists every map.
+
+Tests: `npm test`: the tools and the sync over a simulated world, the commands, the projects rules
+(`test/projects.test.js`) and the sidebar over the shell's fake DOM (`test/sidebar.test.js`, which needs
+`../gateway-web` next to this package). The manifest is written by `node tools/manifest.mjs`.

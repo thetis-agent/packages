@@ -1,6 +1,7 @@
 // The files of one map, all under `maps/<id>/` in the person's home:
 //
-//   map.json    the record: { id, rev, createdAt, updatedAt, doc, link, changes }
+//   map.json    the record: { id, project, rev, createdAt, updatedAt, doc, link, changes }; `project` is a
+//               project id (lib/projects.js) or null
 //   focus.json  what the person has selected in the tab, so the agent can be told "this room"
 //   .lock/      a directory that exists while one writer holds the map
 //
@@ -168,9 +169,9 @@ export async function createMap(env, { doc, link, project = null, by = "agent", 
 
 /**
  * The one way to change a map that exists: under the lock, read it fresh, `fn(record)` answers
- * `{ doc?, link?, what }` (or throws a sentence, and nothing is written), the document is checked, the
- * revision bumped, the change logged. A result with neither a changed doc nor a link writes nothing and
- * answers the record as it was, with `unchanged: true`.
+ * `{ doc?, link?, project?, what }` (or throws a sentence, and nothing is written), the document is checked,
+ * the revision bumped, the change logged. A result with neither a changed doc, a link nor another project
+ * writes nothing and answers the record as it was, with `unchanged: true`.
  */
 export async function mutate(env, id, fn, { by = "agent", session } = {}) {
   mapDir(env, id);
@@ -180,13 +181,15 @@ export async function mutate(env, id, fn, { by = "agent", session } = {}) {
     const result = await fn(current);
     const doc = result?.doc ? completeDoc({ ...result.doc, nextId: Math.max(result.doc.nextId ?? 1, current.doc.nextId) }) : current.doc;
     const docChanged = Boolean(result?.doc) && !isEmptyPatch(diffDocs(current.doc, doc));
-    if (!docChanged && !result?.link) return { ...current, unchanged: true };
+    const project = result?.project !== undefined ? result.project || null : current.project;
+    if (!docChanged && !result?.link && project === current.project) return { ...current, unchanged: true };
     const problems = checkDoc(doc);
     if (problems.length) fail(`That would leave the map inconsistent, so nothing was written: ${problems.slice(0, 5).join(" ")}`);
     const now = new Date().toISOString();
     const rev = current.rev + 1;
     const next = {
       ...current,
+      project,
       rev,
       updatedAt: now,
       doc,

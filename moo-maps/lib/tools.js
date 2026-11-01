@@ -11,6 +11,7 @@ import * as ops from "./ops.js";
 import { Book, exitLines, nameOf, at } from "./ops.js";
 import { createMap, emptyLink, fail, isMapId, listMaps, mutate, needMap, publishState, readFocus, removeMap, summary } from "./store.js";
 import * as moo from "./moo.js";
+import { projectOfSession, readProject } from "./projects.js";
 import { describeOp, linkAfter, mergePull, planPublish, project, remoteDoc, resolveOp } from "./sync.js";
 import { areaBuild, header, textMap } from "./view.js";
 
@@ -25,6 +26,13 @@ const runOps = (c, areas, list) => world.runOps(c, areas, list);
 const agent = (env) => ({ by: "agent", session: env.session?.id });
 const plural = (n, word) => `${n} ${n === 1 ? word : /(ch|sh|s|x)$/.test(word) ? `${word}es` : `${word}s`}`;
 const given = (v) => v !== undefined && v !== null && v !== "";
+
+/** A new map's project: the conversation's own (lib/projects.js), and how its answer says so. */
+async function ownProject(env) {
+  const project = await projectOfSession(env, env.session?.id);
+  const record = project ? await readProject(env, project) : null;
+  return { project, where: record ? `, in project ${JSON.stringify(record.name)} (this conversation's)` : "" };
+}
 
 function bounded(text) {
   if (text.length <= MAX_OUTPUT) return text;
@@ -112,9 +120,10 @@ export async function mapCreate(args, env) {
     doc = res.doc;
     lines.push(...res.lines);
   }
-  const record = await createMap(env, { doc, ...agent(env), what: `created "${name}"` });
+  const { project, where } = await ownProject(env);
+  const record = await createMap(env, { doc, project, ...agent(env), what: `created "${name}"` });
   return bounded([
-    `Created map ${record.id} "${name}", rev ${record.rev}, with area${doc.areas.length === 1 ? "" : "s"} ${doc.areas.map((a) => `${a.id} "${a.name}"`).join(", ")}. The person opens it from Maps in the sidebar. It is a draft: nothing is in the world until map_publish.`,
+    `Created map ${record.id} "${name}"${where}, rev ${record.rev}, with area${doc.areas.length === 1 ? "" : "s"} ${doc.areas.map((a) => `${a.id} "${a.name}"`).join(", ")}. The person opens it from Maps in the sidebar. It is a draft: nothing is in the world until map_publish.`,
     ...lines.map((l) => `- ${l}`),
     ...(doc.rooms.length ? ["", textMap(record)] : []),
   ].join("\n"));
@@ -321,12 +330,15 @@ export async function mapImport(args, env) {
   const snap = existing ? await snapshot(conn, [...new Set([...Object.values(existing.link.areas), ...probe.areas.map((a) => a.id)])], Object.values(existing.link.elevators ?? {})) : probe;
 
   let record;
+  let where = "";
   if (existing) {
     record = existing;
   } else {
     const name = String(args.name ?? probe.areas.map((a) => a.name).join(" + ")).slice(0, 200);
     // Made with a placeholder area a1, which becomes the first imported one below.
-    record = await createMap(env, { doc: completeDoc({ name, areas: [{ id: "a1", name: probe.areas[0].name }] }), ...agent(env), what: `imported ${ids.join(", ")}` });
+    const own = await ownProject(env);
+    where = own.where;
+    record = await createMap(env, { doc: completeDoc({ name, areas: [{ id: "a1", name: probe.areas[0].name }] }), project: own.project, ...agent(env), what: `imported ${ids.join(", ")}` });
   }
   const fresh = !given(args.map);
   const next = await mutate(env, record.id, async (cur) => {
@@ -345,7 +357,7 @@ export async function mapImport(args, env) {
     return { doc: pulled.doc, link: pulled.link, what: `imported ${probe.areas.map((a) => a.name).join(", ")}` };
   }, agent(env));
   return bounded([
-    `${fresh ? "Made" : "Added to"} map ${next.id} "${next.doc.name}" from the world, rev ${next.rev}: ${plural(next.doc.rooms.length, "room")}, ${plural(next.doc.exits.length, "exit")}. It is linked: map_publish writes your edits back to these areas, map_pull brings in changes made in the world.`,
+    `${fresh ? "Made" : "Added to"} map ${next.id} "${next.doc.name}"${where} from the world, rev ${next.rev}: ${plural(next.doc.rooms.length, "room")}, ${plural(next.doc.exits.length, "exit")}. It is linked: map_publish writes your edits back to these areas, map_pull brings in changes made in the world.`,
     ...record.lines.map((l) => `- ${l}`),
     "",
     textMap(next),

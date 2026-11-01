@@ -2,14 +2,15 @@
 // map_* tools do (lib/store.js), through `mutate`, so the person's edits in the tab and the agent's in the
 // chat land on top of each other instead of over each other.
 //
-//   list    (json)       the maps, one summary row each
+//   list    (json)       the maps, one summary row each, and every project there is (for the menus)
 //   doc     (raw GET)    one map's document whole, its revision and its publish state: raw because a large
 //                        map is more than the 256 KiB a JSON answer may be
 //   save    (raw PUT)    a patch (ui/core/doc.js diffDocs) from the revision the tab last read, applied on
 //                        top of whatever is on disk now; answers the new revision and any cell conflicts
-//   create  (json)       a new map with one area and one room
+//   create  (json)       a new map with one area and one room, in the project the page is in or none
 //   rename  (json)       the map's title
 //   remove  (json)       the map, for good (the world is not touched)
+//   assign  (json)       the map's project, or null for none
 //   focus   (json)       what the person has selected, so the agent can be told "this room"
 //   watch   (stream)     a snapshot, then a `changed` or `removed` event per change, whoever made it
 //   editor  (frame)      the cartographer itself, served into a sandboxed iframe
@@ -19,6 +20,7 @@ import { mkdir, readFile, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applyPatch, completeDoc } from "../ui/core/doc.js";
+import { isProjectId, projectExists, projectNames, readProject } from "./projects.js";
 import { createMap, DIR, fail, isMapId, listMaps, mapPath, mutate, needMap, publishState, readMap, removeMap, summary, writeFocus } from "./store.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -26,12 +28,40 @@ const FRAME_DIR = resolve(HERE, "../frame");
 const MAX_PATCH = 24 * 1024 * 1024;
 const person = (env) => ({ by: "person", session: env.session?.id });
 
-function rowOf(record) {
-  return { ...summary(record), label: publishState(record).label, linked: Object.keys(record.link.areas).length };
+/** A sidebar row. `names` (project id → name) says which projects are still there: a map whose project
+ *  was deleted is `projectMissing`, and shows under No project until it is moved. */
+function rowOf(record, names = new Map()) {
+  const project = record.project;
+  return {
+    ...summary(record), label: publishState(record).label, linked: Object.keys(record.link.areas).length,
+    projectName: project ? names.get(project) ?? null : null, projectMissing: Boolean(project) && !names.has(project),
+  };
+}
+
+/** Every row, with the project names read once, and the projects there are. */
+async function rows(env) {
+  const all = await listMaps(env);
+  const names = await projectNames(env, all.map((m) => m.project).filter(Boolean));
+  return { maps: all.map((m) => rowOf(m, names)), projects: [...names].map(([id, name]) => ({ id, name })) };
+}
+
+/** One map's row, reading only its own project. */
+async function rowWithProject(env, record) {
+  const p = record.project ? await readProject(env, record.project) : null;
+  return rowOf(record, new Map(p ? [[p.id, p.name]] : []));
+}
+
+/** A project for a map from the page: an id that exists, or null for none. */
+async function projectArg(env, given) {
+  const project = given ?? null;
+  if (project === null) return null;
+  if (!isProjectId(project)) fail("project must be a project id, or null.");
+  if (!(await projectExists(env, project))) fail(`No project ${project}.`);
+  return project;
 }
 
 export async function uiList(_args, env) {
-  return { data: { maps: (await listMaps(env)).map(rowOf) } };
+  return { data: await rows(env) };
 }
 
 export async function uiDoc(args, env, req) {
@@ -83,8 +113,9 @@ function describe(patch) {
 export async function uiCreate(args, env) {
   const name = typeof args.name === "string" && args.name.trim() ? args.name.trim().slice(0, 200) : "Untitled map";
   const doc = completeDoc({ name, areas: [{ id: "a1", name: "Main" }], rooms: [{ id: "r2", area: "a1", x: 0, y: 0, z: 0, name: "Start" }], nextId: 3 });
-  const record = await createMap(env, { doc, ...person(env), what: "created the map in the tab" });
-  return { data: { map: rowOf(record) } };
+  const project = await projectArg(env, args.project);
+  const record = await createMap(env, { doc, project, ...person(env), what: "created the map in the tab" });
+  return { data: { map: await rowWithProject(env, record) } };
 }
 
 export async function uiRename(args, env) {
@@ -100,6 +131,12 @@ export async function uiRemove(args, env) {
   return { data: { removed: record.id } };
 }
 
+export async function uiAssign(args, env) {
+  const project = await projectArg(env, args.project);
+  const next = await mutate(env, args.map, () => ({ project, what: project ? `moved to project ${project}` : "moved out of its project" }), person(env));
+  return { data: { id: next.id, project: next.project, rev: next.rev } };
+}
+
 export async function uiFocus(args, env) {
   if (!isMapId(args.map)) fail("focus needs { map }.");
   const f = args.focus && typeof args.focus === "object" ? args.focus : {};
@@ -113,9 +150,9 @@ export async function uiFocus(args, env) {
 const DEBOUNCE_MS = 150;
 const HEARTBEAT_MS = 20_000;
 
-function changedEvent(record) {
+async function changedEvent(env, record) {
   const last = record.changes.at(-1);
-  return { ev: "changed", map: record.id, row: rowOf(record), rev: record.rev, by: last?.by ?? null, what: last?.what ?? "", ...(last?.session ? { session: last.session } : {}) };
+  return { ev: "changed", map: record.id, row: await rowWithProject(env, record), rev: record.rev, by: last?.by ?? null, what: last?.what ?? "", ...(last?.session ? { session: last.session } : {}) };
 }
 
 export async function* uiWatch(_args, env) {
@@ -147,7 +184,7 @@ export async function* uiWatch(_args, env) {
         const record = st ? await readMap(env, id) : null;
         if (st && !record) continue;
         seen.set(id, mark);
-        queue.push(record ? changedEvent(record) : { ev: "removed", map: id });
+        queue.push(record ? await changedEvent(env, record) : { ev: "removed", map: id });
       } catch {
         /* half-written: the next change says */
       }
@@ -167,18 +204,18 @@ export async function* uiWatch(_args, env) {
       timer = setTimeout(() => void flush(), DEBOUNCE_MS);
     });
   } catch {
-    yield { ev: "snapshot", maps: (await listMaps(env)).map(rowOf) };
+    yield { ev: "snapshot", ...(await rows(env)) };
     return;
   }
   watcher.on("error", stop);
   env.signal?.addEventListener("abort", stop, { once: true });
   try {
-    const all = await listMaps(env);
-    for (const r of all) {
+    const snap = await rows(env);
+    for (const r of snap.maps) {
       const st = await stat(mapPath(env, r.id)).catch(() => null);
       if (st) seen.set(r.id, `${st.mtimeMs}:${st.size}`);
     }
-    yield { ev: "snapshot", maps: all.map(rowOf) };
+    yield { ev: "snapshot", ...snap };
     for (;;) {
       if (stopped) return;
       if (!queue.length) {

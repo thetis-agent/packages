@@ -15,4 +15,4 @@ export const {
   mapList, mapCreate, mapDelete, mapGet, mapRooms, mapSearch, mapReplace, mapSetRooms, mapDeleteRooms, mapMoveRooms,
   mapLink, mapUnlink, mapEdge, mapElevator, mapBlocks, mapAreas, mapRender, mapWorldAreas, mapImport, mapPull, mapPublish, mapStatus,
 } = w;
-export { uiList, uiDoc, uiSave, uiCreate, uiRename, uiRemove, uiFocus, uiWatch, uiEditor } from "./lib/commands.js";
+export { uiList, uiDoc, uiSave, uiCreate, uiRename, uiRemove, uiAssign, uiFocus, uiWatch, uiEditor } from "./lib/commands.js";

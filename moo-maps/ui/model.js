@@ -1,17 +1,21 @@
 /* What the page holds about maps: the list, kept live by one `watch` subscription for the whole page (the
  * sidebar and every open map tab read from it), and the calls. The subscription reopens with a backoff
  * when it drops, and each reopening's snapshot resyncs the list. A save from this page records the
- * revision it produced, so a `changed` event carrying it is known as this page's own echo. */
+ * revision it produced, so a `changed` event carrying it is known as this page's own echo. The space the
+ * person is in is the shell's (`ext.space`, watched); on an older gateway without spaces there is none and
+ * every map shows. */
 
 const RETRY_MAX_MS = 15_000;
 
 export function createModel(ext) {
   let maps = [];
+  let projects = []; // [{ id, name }]
   let status = "connecting";
   let lastError = null;
   let active = null;
   let stop = null;
   let timer = null;
+  let unspace = null;
   let retries = 0;
   let closed = false;
   const watchers = new Set();
@@ -34,6 +38,7 @@ export function createModel(ext) {
     if (!event || typeof event !== "object") return;
     if (event.ev === "snapshot") {
       maps = Array.isArray(event.maps) ? [...event.maps] : [];
+      projects = Array.isArray(event.projects) ? event.projects : [];
       sort();
       retries = 0;
       status = "live";
@@ -88,7 +93,9 @@ export function createModel(ext) {
 
   async function refresh() {
     try {
-      maps = (await data("list")).maps ?? [];
+      const out = await data("list");
+      maps = out.maps ?? [];
+      projects = Array.isArray(out.projects) ? out.projects : [];
       sort();
       notify();
     } catch (err) {
@@ -96,9 +103,21 @@ export function createModel(ext) {
     }
   }
 
+  /** The space the person is in, null for "No project" (and always null on an older gateway). */
+  const project = () => ext.space?.current ?? null;
+
   return {
     get maps() {
       return maps;
+    },
+    /** Every project there is, as the last list or snapshot named them: for the row menu. */
+    get projects() {
+      return projects;
+    },
+    project,
+    /** True when the shell has spaces: the list is then strict, one space at a time. */
+    get spaced() {
+      return Boolean(ext.space);
     },
     get status() {
       return status;
@@ -146,7 +165,7 @@ export function createModel(ext) {
       return out;
     },
     async create(name) {
-      const { map } = await data("create", { name });
+      const { map } = await data("create", { name, project: project() });
       if (map && !maps.some((m) => m.id === map.id)) {
         maps.push(map);
         sort();
@@ -160,14 +179,22 @@ export function createModel(ext) {
       return out;
     },
     remove: (id) => data("remove", { map: id }),
+    assign: async (id, to) => {
+      const out = await data("assign", { map: id, project: to });
+      remember(id, out.rev);
+      return out;
+    },
     focus: (id, focus) => data("focus", { map: id, focus }).catch(() => {}),
     start() {
       open();
       void refresh();
+      if (ext.space?.watch) unspace = ext.space.watch(() => notify());
     },
     stop() {
       closed = true;
       clearTimeout(timer);
+      unspace?.();
+      unspace = null;
       stop?.();
       stop = null;
     },
