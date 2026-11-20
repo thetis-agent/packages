@@ -36,8 +36,12 @@ barrier.
 | flyweight | An immutable, value-typed, lightweight entity with slots, a contents list, and a delegate object that answers its verb calls. It has no object number and is not stored in the object table. Use it where an object would be too heavy. |
 | error as value | A MOO error is an ordinary value that can be returned, stored, and tested, as well as raised. |
 | opcode | One instruction of the compiled form of a verb. |
-| program | The compiled form of a verb, as stored in the database. |
+| program | The compiled form of a verb, as stored in the database. A verb's program is MOO bytecode, or a native program that names a library function. |
+| native verb | A verb whose body is a function in a native library the administrator lists at daemon start. Only wizards bind one. It runs as the verb owner, and a crash in it stops the server. |
 | objdef | The directory-based, version-controllable source format for a database. |
+| package | An objdef directory with a `package.moo`: a name, an `objdef_version`, `depends`, and its own constant namespace (`pkg::NAME` from outside). Cowbell is a world of packages. |
+| baseline | The `objdef_base` metadata on an object: per verb, the fingerprint of the program last accepted from source. Review compares source and live code against it. |
+| review | `preview_objdef_changes()` then `apply_objdef_changes()`: a guarded update of verb programs from source, which tells upstream changes from local edits and conflicts. Not the same as direct `load_object()`. |
 | textdump | The single-file LambdaMOO database format. |
 
 ## Execution
@@ -45,6 +49,9 @@ barrier.
 | Term | Meaning here |
 |---|---|
 | task | The unit of execution *and* the unit of transaction. Almost every question about correctness in this system reduces to where a task begins and ends. |
+| task outcome | `TaskOutcome`: how a task ended (`TaskEnding`: completed, suspended, aborted, result lost) together with `Kept`, whether its last transaction committed (yes, no, unknown). The two are independent: an uncaught error keeps changes; a cancel does not. Every RPC reply for a task that ran carries one. |
+| abort reason | `AbortReason`: why an aborted task stopped, such as a limit, an uncaught exception, verb not found, command failed, cancelled, killed, `rollback()`, conflict retries exhausted, a deadline, or an internal error. |
+| native schedule | A deadline or cadence held by the kernel scheduler (`schedule_at()`, `schedule_every()`) that starts a verb when due. It survives restart and uses no task while idle. |
 | tick | The unit of execution cost. A task has a budget in ticks and in seconds. |
 | activation | One frame of the call stack inside the VM. |
 | suspend | A task stops and gives up its place, to be resumed later. |
@@ -66,11 +73,15 @@ barrier.
 | presentation | Structured content a verb sends to a client for display beyond plain text. A rich client renders it; a line-oriented client degrades it. |
 | enrollment | The procedure by which a host or a worker proves it may talk to a daemon and receives its credentials. |
 | event log | The daemon's durable record of what was sent to participants, used to replay history to a client that reconnects. |
+| ephemeral event | Data sent with `emit_data(..., ['ephemeral -> true])`. It is never written to the event log, and is delivered best-effort over the fastest transport. |
+| transient connection | A connection the daemon opens for one captured call or system handler, so output the verb sends to its player's connections returns to the caller. It closes when the call ends. |
 
 ## Development
 
 | Term | Meaning here |
 |---|---|
 | Moot | The declarative test harness. A Moot file states MOO input and expected output, and runs against a real world. |
-| checkpoint | A durable snapshot of the database taken while the server runs. |
+| checkpoint | An objdef export of the whole database, written from a read-only snapshot while the server runs. |
+| mootop | The tool that shows a running daemon's CPU use by verb, builtin and task, through bpftrace and USDT probes. |
+| metrics file | The Prometheus text file the daemon writes with `--metrics-file`. The same snapshot is also served by RPC and to `mootop`. |
 | single-process | The build that puts daemon and hosts in one binary. Convenient for development. It does not change the architecture; it only removes the process boundaries. |

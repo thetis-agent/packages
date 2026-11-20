@@ -4,7 +4,7 @@ description: "How a line a player types becomes a verb call: $do_command, word s
 metadata:
   title: The mooR command parser
   tags: [moor, command-parser, do-command, dobj, iobj, prepstr, argstr, preposition-tables, object-matching, aliases, huh, parse-command, find-command-verb, dispatch-command-verb, ambiguous-match, complex-match, verb-argument-specs]
-  version: 2
+  version: 3
 ---
 
 # The mooR command parser
@@ -37,8 +37,19 @@ Step 4 is worth reading twice. The punctuation aliases are applied **inside** th
 built-in parser, which runs only after `$do_command` declines. A `$do_command` verb
 therefore sees `;2+2`, not `eval 2+2`.
 
-Word splitting honours double quotes and backslash escapes. A quoted run is one
-word; a backslash makes the next character literal.
+Word splitting is one scanner, `util::command_words` in
+`crates/common/src/util/mod.rs` (9052ddc4b), shared by the parser, the
+`$do_command` arguments (`parse_into_words`) and the `command_words()` builtin.
+Each word keeps its decoded text, its byte and character ranges, and whether any
+part of it was quoted or escaped:
+
+- A quoted run is one word; a backslash makes the next character literal.
+- An empty quoted argument (`""`) is kept as an empty word.
+- An unfinished quote takes the rest of the line; a final backslash is ignored.
+- A quoted word is never a preposition, so `put "in" in box` has `in` as the
+  direct object string.
+- `argstr` is the exact text after the verb and the one character that separates
+  them. Quotes, backslashes and inner spacing are kept as typed.
 
 ## Object matching
 
@@ -55,8 +66,12 @@ Before searching it handles three special cases:
 The name match runs over each candidate's name and its aliases. mooR's default
 matcher, the one commands use, is the "complex" matcher: it classifies each
 candidate as an exact, prefix, or substring match, in that precedence, and can
-also fall back to an edit-distance fuzzy tier. It understands ordinals, so
-"second lamp" or "3rd book" selects among equal-tier matches.
+also fall back to an edit-distance fuzzy tier. The command path builds it with
+`fuzzy_threshold: 0.5` in `setup_start_parse_command`
+(`crates/kernel/src/tasks/task/start.rs`). It understands ordinals, so "second
+lamp" or "3rd book" selects among equal-tier matches. A whole string that equals a
+candidate name exactly (case-insensitive) is matched as a name before it is read
+as an ordinal, so an object named "first aid kit" still matches.
 
 The outcomes are the LambdaMOO ones:
 
@@ -86,6 +101,11 @@ Each preposition has a canonical multi-form string used in verb definitions and 
 single-word form used where space separation is required, such as objdef files.
 A preposition can also be named by its numeric id. Lookup falls back to an
 edit-distance match, so a near-miss spelling in a verb definition still resolves.
+Command parsing does not use that fallback or numeric ids
+(`find_preposition_for_command`). `seek_preposition` in `command_parse.rs` takes
+the earliest unquoted word that starts a preposition, compares forms without
+regard to ASCII case, and prefers the longest multi-word form there, so
+`in front of` beats `in`.
 
 The set is not extensible from the database. Adding one is a Rust change, and it
 changes stored verb argument specs, so treat it as a compatibility change.
@@ -103,16 +123,20 @@ the parsed command **relative to that target**:
 The verb name must match — verb names may use `*` as a wildcard — and the
 argument spec and preposition spec must fit. The first target with a fit wins.
 
-Command lookup differs from ordinary method dispatch in one way that changes the
-failure mode. Method dispatch filters on the `x` flag during resolution, so a verb
-without `x` is simply not found. Command lookup does not filter; it resolves the
-verb and then applies the authorisation rule, which still needs `x`, ownership,
-the wizard bit, or a `verb_call` grant. A command verb without `x` therefore
-produces a permission error and stops the search, rather than falling through to
-the next target.
+Command lookup differs from ordinary method dispatch in the `x` flag (9d290bc55).
+Method dispatch filters on `x` during resolution, so a verb without `x` is not
+found unless the task holds a `verb_call` grant for it. Command lookup
+(`VerbLookup::command`) has no flag filter, and `dispatch_verb` in
+`crates/db/src/api/world_state.rs` skips the `x` authorisation when the lookup has
+an argument spec. A command-only verb without `x`, owned by anyone, is therefore
+found and runs. The `x` flag controls only whether the verb can also be called as
+a method.
 
-The activation runs as the verb's owner. A permission failure at any step of
-parsing or lookup becomes a command-level permission error, not a MOO exception.
+The program of the selected verb is read with the verb owner's permissions
+(`TaskPermissions::new(owner, flags)` in `find_verb_for_command`), not the
+player's. The activation runs as the verb's owner. A permission failure at any
+step of parsing or lookup becomes a command-level permission error, not a MOO
+exception.
 
 ## What the verb receives
 
@@ -174,9 +198,9 @@ Line handling before the command reaches the server — the flush command, the
    state, so a matching failure can be a permission failure.
 2. **`$do_command` returning false does not restart the task.** The same task, the
    same task id, and the same transaction continue into the built-in parser.
-3. **`x` is checked differently for a command verb.** Method dispatch filters on
-   it during resolution; command dispatch resolves first and then authorises, so a
-   missing `x` denies rather than skips.
+3. **`x` does not apply to a command verb.** Method dispatch filters on it; command
+   lookup matches on name and argument spec only, and reads the program as the
+   verb's owner.
 4. **The matcher never raises.** Ambiguity and failure are sentinel object values
    that flow into verb lookup. Do not convert them into errors in the parser.
 5. **The parser is one implementation behind one trait.** `CommandParser` and
@@ -206,9 +230,12 @@ Line handling before the command reaches the server — the flush command, the
 | `crates/common/src/matching/match_env.rs` | The simpler exact-and-prefix matcher. |
 | `crates/common/src/matching/ws_match_env.rs` | The world state as a matching environment: names, surroundings, location. |
 | `crates/common/src/model/world_state.rs` | `command_verb_argspec` and the verb lookup request types. |
-| `crates/kernel/src/tasks/task.rs` | `$do_command`, the parse phase, the four-target verb search, `:huh`. |
+| `crates/kernel/src/tasks/task/start.rs` | `$do_command`, the parse phase, `find_verb_for_command` (the four-target search), `:huh`. |
+| `crates/db/src/api/world_state.rs` | `dispatch_verb`: the `x` check for method lookups only, and the flags a dispatch runs with. |
 | `crates/kernel/src/vm/builtins/bf_objects.rs` | `parse_command`, `find_command_verb`, `dispatch_command_verb`. |
-| `crates/common/src/util/mod.rs` | Word splitting with quotes and escapes. |
+| `crates/kernel/src/vm/builtins/bf_list_sets.rs` | `complex_match`. |
+| `crates/kernel/src/vm/builtins/bf_strings.rs` | `command_words`. |
+| `crates/common/src/util/mod.rs` | `command_words` (`CommandWord`) and `parse_into_words`: the one word scanner. |
 
 ## Read first / read next
 

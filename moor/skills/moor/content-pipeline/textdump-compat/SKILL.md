@@ -158,6 +158,7 @@ An empty program is not a working verb. Treat the warning list as the work queue
 | `Incompatible major moor version` | A mooR-written dump from a different major release | Only the major version must match. Use the matching server, or convert with a build of that major version. |
 | Import aborts on one verb | Default compile policy | Re-run with `--continue-on-errors` to collect every bad verb at once, then repair them. |
 | `assignment to type literal ... valid in LambdaMOO/ToastStunt, but not in mooR` | Old code assigns to a bare type constant | Edit the verb. `--legacy-type-constants` makes the constants parse but does not make the assignment legal. |
+| `invalid float` at one line | The dump holds an infinite or NaN float. `read_float` in `crates/textdump/src/read.rs` refuses it, as LambdaMOO does | Fix the value in the dump. mooR floats are always finite. |
 | Warnings about WAIF values | The dump is from ToastStunt and uses waifs | Every site is listed. Each becomes `none`. Replace them by hand or drop the feature. |
 | "Skipping N queued tasks" and similar | Task state is not migrated | Expected. Restart the work from a `server_started` hook. |
 | The daemon panics part way through an import | The loader path uses direct unwraps on several database calls, so a structurally inconsistent dump aborts the process rather than returning an error | Import with `moorc` first, where the failure is contained, and check the last log line for the object being processed. |

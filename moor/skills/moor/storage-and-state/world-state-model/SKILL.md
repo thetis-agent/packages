@@ -4,7 +4,7 @@ description: "How mooR stores objects, properties, verbs and inheritance as rela
 metadata:
   title: The world-state model
   tags: [moor, worldstate, loaderinterface, snapshotinterface, dbworldstate, taskpermissions, relations, objects, properties, verbs, inheritance, parent, propdef, verbdef, permissions, resolution-cache, ancestry, moor-db]
-  version: 2
+  version: 3
 ---
 
 # The world-state model
@@ -27,11 +27,11 @@ Read it before you believe any list, including this one.
 | `object_parent` | object | object | The single parent. Secondary indexed. |
 | `object_location` | object | object | The container. Secondary indexed. |
 | `object_verbdefs` | object | verb definition set | Every verb defined *on* this object: names, owner, flags, argument spec |
-| `object_verbs` | (object, uuid) | program | The compiled verb program |
+| `object_verbs` | `VerbKey` (object, uuid) | `ProgramType` | The verb program: `MooR(Program)`, compiled MOO, or `Native(NativeProgram)`, a library name and a function name |
 | `object_propdefs` | object | property definition set | Every property *defined* on this object |
-| `object_propvalues` | (object, uuid) | value | One property value held by one object |
-| `object_propflags` | (object, uuid) | owner and flags | Property permissions for one holder |
-| `entity_metadata` | (tag, object, uuid, key) | value | Side metadata on an object, property or verb |
+| `object_propvalues` | `PropertyKey` (object, uuid) | value | One property value held by one object. Stored as a record chain; see `storage-engine`. |
+| `object_propflags` | `PropertyKey` (object, uuid) | owner and flags | Property permissions for one holder. The flags are `r`, `w`, `c`, and the wizard-only `o` (overwrite). |
+| `entity_metadata` | (object, tag, uuid, key) | value | Side metadata on an object, property or verb. Secondary indexed by value (2b53cc126). |
 | `object_last_move` | object | value | The last move record |
 | `anonymous_object_metadata` | object | timestamps | Creation and last-access time of an anonymous object |
 
@@ -56,8 +56,15 @@ set. A value exists per holder, keyed by the holder object and the definition's 
 An object with no value row for a UUID is *clear* for that property.
 
 **A verb definition and a verb program are different rows.** The definition lives in
-the definer's `object_verbdefs` set. The compiled program is keyed by the definer and
-the definition's UUID.
+the definer's `object_verbdefs` set. The program is keyed by the definer and the
+definition's UUID. A native verb has the same definition row; only its program row
+is different.
+
+**The metadata value index is built in memory.** `objects_with_metadata(key, value)`
+walks only the keys for that value, and also matches the transaction's own
+uncommitted writes with MOO equality. The one-argument form scans. Nothing about the
+index is on disk; it is built when the database opens. `DbWorldState` leaves out
+objects that the caller may not read.
 
 ## How resolution works
 
@@ -95,8 +102,9 @@ world does this many times per verb call. Three caches remove most of that work.
 
 They are not ordinary caches. They are versioned along with the world:
 
-- Each transaction **forks** the published caches at start, so a transaction sees only
-  its own invalidations plus what was published before it started.
+- Each transaction **forks** the published caches the first time it uses each one, so
+  a transaction sees only its own invalidations plus what was published before it
+  started.
 - A committing transaction publishes its forked caches with its snapshot. A read-only
   transaction may publish cache updates alone, through a separate atomic plane, and
   only if the root has not moved.
@@ -104,11 +112,20 @@ They are not ordinary caches. They are versioned along with the world:
   verb, recycling, and renumbering all invalidate the affected object and, where the
   change is structural, the whole descendant branch.
 
+A fourth cache is outside the database. The kernel keeps a task-local cache of verb
+programs (`crates/kernel/src/tasks/task_program_cache.rs`). Its key includes
+`WorldState::verb_program_cache_token()`: the transaction timestamp and the
+transaction's `verb_program_revision`. Every verb edit, object removal or renumber
+inside the transaction increases the revision (`edit` in
+`crates/db/src/engine/relation_defs.rs`). So a verb that the task programs is read
+again on its next call in the same task (d04c93d5d).
+
 The rule for a change: **if you add a code path that changes ancestry, a property
-definition set, or a verb definition set, you must invalidate.** A missed
-invalidation does not fail a test on the same object. It shows up later as a verb or
-property that resolves to a stale definition, or resolves on an object that should no
-longer have it.
+definition set, or a verb definition set, you must invalidate.** If it changes a
+verb program, it must also go through an `EditScope` that increases the revision.
+A missed invalidation does not fail a test on the same object. It shows up later as a
+verb or property that resolves to a stale definition, or resolves on an object that
+should no longer have it.
 
 ## The API boundary and permissions
 
@@ -189,7 +206,10 @@ care.
 | Path | Responsibility |
 |---|---|
 | `crates/db/src/engine/moor_db.rs` | The relation declaration. The authority for the relation list. |
-| `crates/db/src/engine/ws_transaction.rs` | The unchecked relational operations, and the resolution walks |
+| `crates/db/src/engine/ws_transaction.rs`, `ws_transaction/edit.rs` | The unchecked relational operations, the resolution walks, and the edit scopes that invalidate caches |
+| `crates/db/src/model/mod.rs` | `PropertyKey`, `VerbKey`, `EntityMetadataKey` |
+| `crates/var/src/program/mod.rs` | `ProgramType` and `NativeProgram` |
+| `crates/common/src/model/props.rs` | `PropFlag`, including `Clobber` (`o`) |
 | `crates/db/src/api/world_state.rs` | The `WorldState` adapter, with permission checks and counters |
 | `crates/db/src/api/auth.rs` | The authorization rules and the resolved principal |
 | `crates/db/src/api/loader_adapter.rs` | The unchecked loader and snapshot surfaces |

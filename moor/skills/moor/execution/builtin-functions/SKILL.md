@@ -3,8 +3,8 @@ name: builtin-functions
 description: "How bf_* builtins are numbered, registered, and called; the argument and error conventions; and the steps to add one with its docs and tests. Use when adding, changing, or debugging a builtin function in the mooR server: a bf_* module, the builtin id table, argument and error conventions, a builtin trampoline that calls MOO verbs, or a builtin-signature decode error. Not for the opcode loop or activation stack, the scheduler, the permission model in general, or the compiler. Not for the Torchship database or Thetis's own internals."
 metadata:
   title: mooR builtin functions
-  tags: [moor, builtin, bf, crates/kernel/src/vm/builtins, crates/common/src/builtinsrs, bfcallstate, bfret, bferr, e-args, e-type, e-perm, function-help, function-info, call-function, bf-name-override-verb, trampoline, adding-a-builtin, builtin-signature-mismatch]
-  version: 2
+  tags: [moor, builtin, bf, bf-modules, builtins-rs, bfcallstate, bfret, bferr, e-args, e-type, e-perm, function-help, function-info, call-function, bf-name-override-verb, trampoline, adding-a-builtin, builtin-signature-mismatch, native-verbs, task-local, suspend-if-needed, ctime]
+  version: 3
 ---
 
 # mooR builtin functions
@@ -34,9 +34,16 @@ list/set/regex, map, object/command, object load and dump, verbs, properties,
 flyweights, documents/formats, cryptography, algorithms. Group size is a constant
 in that file; read it there rather than from here.
 
-Stored programs carry a hash over the ids they use. If the table changes under a
-stored program, decoding fails with a builtin signature mismatch rather than
-silently calling the wrong function.
+Stored programs carry a fingerprint of the builtins they use
+(`builtin_signature_for_ids`). Since d5f986817, programs are stored as version 7,
+and the fingerprint covers only each used builtin's id, name, override name and
+flags, not its declared argument counts or types. So a declaration can widen
+without breaking stored programs. If an id comes to mean a different builtin,
+decoding fails with a builtin signature mismatch rather than silently calling the
+wrong function. Version 6 and older programs are checked against a frozen copy of
+the old table and the declarations each later change replaced
+(`crates/common/src/builtins/legacy.rs`, `legacy_table.rs`). Older builds refuse
+version 7.
 
 `crates/kernel/src/vm/builtins/ADDING-BUILTINS.md` is the short in-repo version of
 this rule. Follow it.
@@ -66,9 +73,10 @@ Every builtin has the same Rust shape: it takes a `BfCallState` and returns eith
 a `BfRet` or a `BfErr`.
 
 `BfCallState` gives the builtin its name, its arguments, the whole `ExecState`,
-and the feature config. It does **not** carry the world state, the session, or the
-scheduler client. Those come from the task's thread-local context through
-`with_current_transaction` and its mutable form.
+the feature config, and the native verb libraries the daemon loaded. It does
+**not** carry the world state, the session, or the scheduler client. Those come
+from the task's thread-local context through `with_current_transaction` and its
+mutable form.
 
 | Return | Meaning |
 |---|---|
@@ -120,8 +128,11 @@ also honour capability grants. See `permissions-and-security`.
   the task loop acts on after it has committed.
 - **It may not loop unboundedly without paying ticks.** Opcode ticks are counted
   by the interpreter, not inside native code. A builtin with an unbounded internal
-  loop must charge the task through the tick budget helper, or it escapes the task
-  limits entirely.
+  loop must charge the task through `bf_args.tick_budget().consume_ticks(n)`, which
+  raises `E_MAXREC` "Task exceeded ticks limit" when the budget runs out, or it
+  escapes the task limits entirely. Recent bulk builtins charge a tick per unit of
+  work: `noise_grid()` one per row, the `binary_*` field builtins one per 256
+  fields.
 - **It may not assume it runs once.** A conflict retry re-runs the task from its
   last commit point, so a builtin with an external side effect can run twice.
 - **It may not hold a reference across a suspension.** Only what is stored in the
@@ -137,6 +148,21 @@ same builtin, which takes the trampoline number back out and continues.
 `create()`, `recycle()`, `move()`, and `eval()` all work this way. A builtin that
 returns with no trampoline set is assumed finished, and its recorded return value
 is unwound immediately. An unrecognised trampoline number is a panic, deliberately.
+
+## Builtins whose rules are not obvious from their names
+
+| Builtin | Rule to keep |
+|---|---|
+| `noise_2d()`, `noise_grid()`, `random_at()` (`bf_algorithms.rs`, `noise.rs`) | Their results are a contract with every world generated from them: they depend only on their arguments, on every platform and in every release. Unit tests pin exact values. Do not change the algorithm. |
+| `binary_pack()`, `binary_unpack()`, `binary_field()`, `binary_set_field()`, `binary_set_fields()` (`bf_values.rs`) | Unsigned fields of 1 to 32 bits, lowest bit first, which may cross bytes. |
+| `term_match()`, `term_query()` (`bf_algorithms.rs`) | `term_match` takes a list of binding maps as well as one map; `term_query` indexes facts on their first two scalar elements. `['return -> 'detail]` returns rows with whether the search was complete. |
+| `objects_with_metadata(key [, value])` (`bf_objects.rs`) | Leaves out objects the caller may not read. With a value it uses the value index on `entity_metadata`; without one it scans. |
+| `command_words()` (`bf_strings.rs`) | The same scanner as the command parser (`util::command_words`). |
+| `suspend_if_needed([ticks [, seconds [, mode]]])` (`bf_task.rs`) | Commits and resumes only when fewer than `ticks` (default 4000) ticks or `seconds` (default the smaller of 1 s and half the time limit) remain; `mode` picks ticks, time or both. Returns true when it committed. |
+| `task_local()`, `set_task_local()` (`bf_task.rs`) | Wizard-only, or with a builtin-call grant. The value is in `ExecState.task_local`, so it survives suspension and restart, a retry restores it from the last commit, and a fork does not inherit it. `task_local()` returns an empty map when unset. |
+| `set_verb_native()`, `native_libraries()` (`bf_verbs.rs`) | Wizard-only. `verb_native()` needs the permission to read the verb's code. A library must have been loaded at startup; a native verb whose library is not loaded raises `E_VERBNF`. `verb_code()` of a native verb raises `E_INVARG`; `verb_code_hash()` hashes its `native "<library>" "<function>"` binding line. `set_verb_code()` makes it a MOO verb again. |
+| `ctime([time])` (`bf_server.rs`) | Formats in the host's system time zone through jiff (`TimeZone::system()`), which falls back to UTC; it does not panic on a host with no detectable zone. The zone abbreviation is taken at the exact instant. A time out of range raises `E_INVARG` "ctime() time is out of range" (ad50ae0c4). |
+| `dump_database(1)`, `db_compact()` (`bf_server.rs`) | Wizard-only. Both suspend the caller until the maintenance finishes; see `task-scheduler`. |
 
 ## Documentation is generated from the source
 
@@ -177,7 +203,9 @@ generated table and `function_info()` are the authority for what exists.
 
 Adding a builtin is a database-compatibility change in one direction only: an old
 server cannot decode a program that calls a new builtin. Appending never breaks an
-existing program.
+existing program. Widening an existing builtin's declared arguments is also safe,
+because version 7 fingerprints do not include them; renaming it or changing its
+flags is not.
 
 ## Invariants
 
@@ -197,7 +225,7 @@ existing program.
 
 | Symptom | Cause | Action |
 |---|---|---|
-| "Stored program builtin signature mismatch" on load | The builtin table changed under a stored program | Revert the reorder. If the change is intended, the database must be re-imported. |
+| "Stored program builtin signature mismatch; program data is corrupt or builtin table changed" on load | An id now names a different builtin, a builtin's name or flags changed, or the program data is corrupt. Widening argument counts or types no longer causes it for version 7 programs | Revert the reorder or rename. For a version 6 program, check that `legacy.rs` covers the declaration that changed. |
 | `E_INVIND` naming a builtin, at runtime | The id is declared in the table but nothing registered an implementation | Add the registration. |
 | Panic: "Unknown builtin: <name>" at startup | A registration names a builtin absent from the table | The table entry and the registration disagree. |
 | `function_help()` returns nothing for a new builtin | The function is not registered, or the registration pattern is not the one the macro recognises | Register it with the name-to-offset helper in a `register_bf_*` function. |
@@ -210,6 +238,7 @@ existing program.
 | Path | Responsibility |
 |---|---|
 | `crates/common/src/builtins.rs` | The id table, the group padding, the signature hash. |
+| `crates/common/src/builtins/legacy.rs`, `legacy_table.rs` | Fingerprint checks for programs stored before version 7. Do not edit for new builtins. |
 | `crates/kernel/src/vm/builtins/mod.rs` | The registry, `BfCallState`, `BfRet`, `BfErr`, the permission helpers, per-builtin counters. |
 | `crates/kernel/src/vm/builtins/bf_*.rs` | One module per group. Implementations and their registration functions. |
 | `crates/kernel/src/vm/builtins/ADDING-BUILTINS.md` | The in-repo checklist. |

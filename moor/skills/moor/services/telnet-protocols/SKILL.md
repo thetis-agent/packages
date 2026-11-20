@@ -3,9 +3,9 @@ name: telnet-protocols
 description: "How the mooR telnet host negotiates telnet options and carries GMCP, MSDP, MSSP, NAWS, TTYPE/MTTS, CHARSET, EOR/GA, MXP and MCCP2, and how structured client data reaches MOO through do_client_data, including before login. Use when enabling or debugging a telnet protocol, sending emit_data to a MUD client, handling do_client_data, reading connection_options attributes such as columns or utf8, or writing telnet socket tests. Not for line framing in general or the Session abstraction (read hosts-and-sessions), and not for how to change the schema (read wire-schema)."
 metadata:
   title: Telnet option negotiation and out-of-band protocols
-  tags: [moor, moor-telnet-host, telnet, gmcp, msdp, mssp, naws, ttype, mtts, charset, utf-8, latin-1, eor, go-ahead, prompt, mxp, mccp2, compression, rfc-1143, q-method, do_client_data, clientdata, emit_data, set_connection_option, connection_options, client-attributes, out-of-band, iac, subnegotiation]
+  tags: [moor, moor-telnet-host, telnet, gmcp, msdp, mssp, naws, ttype, mtts, charset, utf-8, latin-1, eor, go-ahead, prompt, mxp, mccp2, compression, rfc-1143, q-method, do_client_data, clientdata, emit_data, set_connection_option, connection_options, client-attributes, out-of-band, iac, subnegotiation, listener-kind, termjot]
   related: [moor/services/hosts-and-sessions, moor/services/wire-schema, moor/services/daemon-and-rpc]
-  version: 1
+  version: 2
 ---
 
 # Telnet option negotiation and out-of-band protocols
@@ -63,6 +63,7 @@ restart.
 | Codec | `session/codec.rs` | IAC parsing into `TelnetEvent`, IAC escaping on output, subnegotiation cap and resync, text charset, prompt marks, MCCP2 compression |
 | Action application | `session/protocol.rs` | Turns negotiator actions into frames and daemon requests without I/O. Also holds the rate limiter and the `Event::Data` encoder. Unit-tested directly |
 | Session | `session/mod.rs` | Applies the plan: writes frames, sends RPC requests, maps `set_connection_option` names |
+| Rendering | `session/djot_formatter.rs` | djot and markdown to the terminal through the `termjot` crate (feature `mxp`), with MOO code highlighting; MXP markup comes from `termjot::Markup` |
 | Value <-> JSON | `crates/var/src/json.rs` (`moor_var::json`, feature `json`) | The one MOO/JSON mapping, shared with `generate_json` and `parse_json` |
 | RPC | `runtime-api`, `schema`, `daemon` | `ClientData`, optional-auth `SetClientAttribute`, `GetServerStatus` |
 
@@ -93,7 +94,8 @@ It is fire and forget. The daemon replies `TaskSubmitted` and does not register
 the task with the task monitor. So a missing verb or a task error produces no
 output to the client. The scheduler path is `submit_client_data_task` in
 `crates/kernel/src/tasks/scheduler_client.rs`. That function shares
-`submit_handler_task_inner` with the out-of-band path. The daemon side is
+`submit_handler_task_inner` (`crates/kernel/src/tasks/scheduler/admission.rs`)
+with the out-of-band path. The daemon side is
 `client_data_identity` in `crates/daemon/src/rpc/daemon_api_impl.rs`.
 
 What the host delivers:
@@ -155,7 +157,8 @@ Wire forms:
 Inbound JSON maps back as `parse_json` does: null gives `#-1`, an object gives
 a MAP with STR keys, and booleans follow `use_boolean_returns`. The SYM-to-string
 row is new: before this change, `generate_json` raised `E_TYPE` on SYM.
-`moor-mcp-host` has its own, different converters. It does not use this module.
+The web host uses the same module for its client data, action and data-channel
+payloads.
 
 ## Connection attributes the telnet host owns
 
@@ -239,7 +242,7 @@ EOR, SB.
   `DONT MCCP2` ends the stream. The dependency is `flate2` with the `zlib-rs`
   backend.
 - **MXP**: when enabled, the host sends `ESC[7z` (locked). djot and markdown
-  output escape `& < > "`. A `moo://cmd/...` link becomes `<SEND>` and an http(s)
+  output, rendered by `termjot`, escape `& < > "`. A `moo://cmd/...` link becomes `<SEND>` and an http(s)
   link becomes `<A>`, on lines opened with `ESC[1z`. A command link whose decoded
   text holds a control character or a renderer delimiter is not rendered as a
   link. Plain text is never in secure mode. MXP output has not been tested
@@ -261,15 +264,16 @@ All changes are appended to `crates/schema/schema/moor_rpc.fbs`:
 - `GetServerStatus` and `ServerStatus`, on the host-to-daemon unions.
 
 The merged commit is marked breaking: rebuild the daemon and hosts together.
-The Dart bindings under `clients/meadow_flutter` were not regenerated in the
-PR. Check them before relying on Flutter.
+The Dart bindings under `clients/meadow_flutter/lib/fbs/` have since been
+regenerated with these tables, but lag later schema changes (`ValidateAuth`,
+listener kinds); see `wire-schema`.
 
 ## Tests
 
 | Where | What |
 |---|---|
 | `crates/telnet-host/src/session/**` unit tests | Codec forms and split buffers, the RFC 1143 table and loop tests, every protocol module, action application, MXP rendering |
-| `crates/telnet-host/tests/telnet_protocols.rs` | 30 tests over real TCP sockets. One daemon and four hosts: passive, offers at connect, everything on (from a YAML file), and a 64-byte subneg cap. Covers every section above |
+| `crates/telnet-host/tests/telnet_protocols.rs` | 33 tests over real TCP sockets. One daemon and four hosts: passive, offers at connect, everything on (from a YAML file), and a 64-byte subneg cap. Covers every section above |
 | `crates/telnet-host/tests/common/mod.rs` | Shared daemon and host launch, also used by `integration_test.rs` |
 | `crates/daemon/src/testing/rpc_integration_test.rs` | `ClientData` before and after login, auth refusals, a missing verb is silent, pre-login `SetClientAttribute` |
 | `crates/kernel/testsuite/moot/json.moot` | `generate_json` and `parse_json` |
@@ -287,8 +291,12 @@ the raw socket helper in `telnet_protocols.rs` for anything below the text layer
   `publish_narrative_events` is that connection's client. Do not change routing
   without a reproducer.
 - **`Event::Data` in the event log.** It is still logged, if the event log is
-  enabled for the player.
-- **GMCP input from the browser** through the web host.
+  enabled for the player, unless the world marks it ephemeral. The telnet host
+  ignores the ephemeral flag and sends either kind the same way.
+- **GMCP from the browser.** The web host has its own client data path (frame
+  `0x05` or a WebRTC data channel) that reaches the same `do_client_data` with
+  namespace `'web` and any kind; it does not speak GMCP. See
+  `clients-and-web-ui`.
 - **Plain-text `MSSP-REQUEST`.**
 
 ## Failure branches

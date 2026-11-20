@@ -49,6 +49,11 @@ whitespace, newlines and comments become trivia tokens. The token vector covers 
 whole input, byte for byte, and always ends with `Eof`. This is what makes the tree
 above it lossless.
 
+Two lexer details matter. `$` can end an expression, so `a[1..$-1]` parses without
+spaces. `pkg::NAME` is one `QualifiedName` token (see "Package constants" below).
+A non-ASCII character outside a string or comment is a parse error, not a panic:
+the error position rounds down to a character boundary.
+
 ### Two trees, and why
 
 The parser builds a **concrete syntax tree**: a rowan green tree of `SyntaxKind`
@@ -87,6 +92,28 @@ shapes:
   LambdaMOO's rule. Inside a lambda body it binds to the enclosing lexical scope.
 - It calls `annotate_line_numbers`, which is described below.
 
+Scope rules that lowering and capture analysis apply:
+
+- **A comprehension variable has its own name scope**, which covers its producer and
+  its filter. It may reuse a name the verb already uses. Its slot is stored with the
+  variables of the enclosing scope.
+- **A lambda captures every outer variable its body reads**, the callee of a call
+  included (`{y} => g(y)` captures `g`). A lambda with no parameters captures
+  variables of enclosing `for`, `if`, `try` and `begin` blocks too. The rule uses the
+  number of scopes open at lambda entry, which is stored in the program as
+  `lambda_entry_scope_count`. See `program-and-opcodes`.
+
+### Package constants
+
+In objdef verb code, `pkg::NAME` names an object constant of a package. Lowering
+(`lower_package_constant`) looks the name up in `CompileOptions.package_constants`
+and emits an ordinary object literal. The program holds only the object. When that
+option is `None`, as it is everywhere except objdef compilation, the error is
+"package constants such as `X` can only be used in objdef source". A name that is
+not bound gives "`X` is not an object constant". On export the objdef writer prints
+the object literal as the constant's name again, except for `#0` and negative
+numbers. Read `moor/content-pipeline/objdef-format` for packages.
+
 ### Code generation
 
 `backend/` splits code generation into small pieces that share one `CodegenState`:
@@ -105,6 +132,15 @@ Two behaviours matter beyond the obvious:
   `eq_case_sensitive`, not with `==`. MOO string equality ignores case, so pooling on
   `==` would silently replace `"Foo"` with `"foo"` in the program's literal table.
   See `value-model`.
+- **Every scope block emits `BeginScope` and `EndScope`,** also a block that
+  declares nothing. Variables are numbered by counting every enclosing block, so a
+  skipped empty block would make a nested variable point at a scope that was never
+  pushed.
+- **A comprehension's result list is on the value stack.** The stack count includes
+  it, so `$` inside a comprehension indexes the list the author wrote.
+
+Verbs compiled before a codegen fix keep their old bytecode until they are compiled
+again. A fix in this stage does not repair stored programs.
 
 Code generation ends with two assertions: the value stack must be empty and the scope
 stack must be empty. Both panic if not. A panic here means a codegen bug, not bad
@@ -128,6 +164,18 @@ and indent. `bf_verb_code` exposes both to MOO. Parenthesisation uses
 `precedence.rs`, which is deliberately shared with the parser. One table drives both
 directions, so the unparser adds a parenthesis exactly where the parser would need
 one.
+
+Three printing rules that affect round trips:
+
+- **A lambda body prints without `begin`.** The body is one scope statement; printing
+  it as a `begin` block would add a scope when the text is compiled again.
+- **A multi-line `fn ... endfn` body prints as an indented block,** not on one line.
+- **String literals keep printable text.** `write_quoted_str` in
+  `crates/common/src/util/mod.rs` writes printable characters, non-ASCII included,
+  as they are. It escapes control characters, and writes invisible format characters
+  and line or paragraph separators as `\uXXXX`, or `\u{X}` (one to six hex digits)
+  above U+FFFF. The parser reads both escape forms. The same writer serves
+  `toliteral()`, `verb_code()` and the objdef exporter.
 
 ## The round trip, stated precisely
 

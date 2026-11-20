@@ -3,8 +3,8 @@ name: services
 description: "The mooR process topology: what the daemon owns, what a telnet or web host owns, and which child skill covers the RPC, the schema, workers, history or MCP. Use when the task crosses a process boundary in mooR: deciding whether work belongs in the daemon or a host, or tracing how an event reaches a player. Then read the child skill it points at. Not for MOO verb code inside a game database, not for the object store or the VM (read moor/storage-and-state or moor/execution), and not for Thetis's own internals."
 metadata:
   title: "mooR processes, RPC and hosts"
-  tags: [moor, daemon, rpc, zeromq, flatbuffers, telnet-host, gmcp, telnet-protocols, web-host, workers, event-log, mcp, processes, architecture, moor-daemon, moor-telnet-host, moor-web-host, curl-worker, file-worker, moor-mcp-host, curve, enrollment, paseto]
-  version: 2
+  tags: [moor, daemon, rpc, zeromq, flatbuffers, telnet-host, gmcp, telnet-protocols, web-host, workers, event-log, mcp, processes, architecture, moor-daemon, moor-telnet-host, moor-web-host, curl-worker, file-worker, git-worker, moor-web-mcp, metrics, curve, enrollment, paseto]
+  version: 3
 ---
 
 # mooR processes, RPC and hosts
@@ -39,9 +39,10 @@ common to all its children. Each child holds one layer.
   history is stored, why it is encrypted, and how a reconnecting client
   replays it. Reach for it when working on scrollback or on data retention
   and deletion.
-- `moor/services/mcp-host` — what the MCP host exposes to an
-  AI assistant, and the safety boundary. Reach for it when wiring an
-  assistant into a MOO, or auditing what one can reach.
+- `moor/services/mcp-host` — what the web-backed MCP bridge
+  (`moor-web-mcp`) exposes to an AI assistant, and the safety boundary.
+  Reach for it when wiring an assistant into a MOO, or auditing what one
+  can reach.
 - `moor/services/clients-and-web-ui` — what lives
   under `clients/`, and the contract the web host offers a browser or app
   client. Reach for it when building or debugging a client, or deciding what
@@ -53,13 +54,19 @@ common to all its children. Each child holds one layer.
 |---|---|---|
 | Daemon | `moor-daemon` | The database, the scheduler, the VM, connection records, the task registry, the event log, host and worker registration, and the RPC server |
 | Telnet host | `moor-telnet-host` | TCP and TLS listeners, line framing, telnet negotiation, and text rendering |
-| Web host | `moor-web-host` | HTTP endpoints, WebSocket and WebRTC sessions, OAuth2, and the browser-facing encoding |
-| Worker | `moor-curl-worker`, `moor-file-worker`, any third-party worker | One capability the daemon deliberately does not have |
-| MCP host | `moor-mcp-host` | A stdio Model Context Protocol server that logs in as an ordinary player |
-| Single process | `moor` | All of the above in one process, with the RPC replaced by typed in-process calls |
+| Web host | `moor-web-host` | HTTP endpoints, WebSocket and SSE sessions, WebRTC data channels, OAuth2, webhooks, and the browser-facing encoding |
+| Worker | `moor-curl-worker`, `moor-git-worker`, `moor-file-worker`, any third-party worker | One capability the daemon deliberately does not have |
+| Single process | `moor` | The daemon and both hosts in one process, plus the curl and Git workers when enabled, with the RPC replaced by typed in-process calls. The file worker never embeds |
 
 The web frontend (Meadow, in `clients/meadow`) is a static browser application. It
-is not a mooR process. It talks only to the web host.
+is not a mooR process. It talks only to the web host. The same holds for the MCP
+bridge `clients/moor-web-mcp`: a Node stdio process an AI assistant spawns, which
+logs in through the web host as an ordinary player. The old Rust `moor-mcp-host`,
+which spoke ZeroMQ RPC directly, was removed in October 2026.
+
+Every process exports Prometheus metrics: the daemon and the workers to a
+`--metrics-file`, the telnet host on its health port, the web host on an optional
+private `--metrics-listen` address.
 
 ## The rule that decides the side
 
@@ -88,9 +95,8 @@ the same session semantics, and only swaps the adapter under them.
 | `crates/zmq-client` | The peer side of the ZeroMQ protocol: RPC client, subscriptions, enrollment client, worker loop |
 | `crates/telnet-host`, `crates/web-host` | The two shipped hosts |
 | `crates/server` | The single-process `moor` binary and its in-process adapters |
-| `crates/curl-worker`, `crates/file-worker` | The two shipped workers |
-| `crates/mcp-host` | The Model Context Protocol server |
-| `clients/meadow`, `clients/web-sdk`, `clients/moor-web-mcp` | Browser client, shared TypeScript protocol layer, and a web-backed MCP server. Separate npm workspaces, not server processes |
+| `crates/curl-worker`, `crates/git-worker`, `crates/file-worker` | The three shipped workers |
+| `clients/meadow`, `clients/meadow_flutter`, `clients/web-sdk`, `clients/moor-web-mcp` | React browser client, Flutter client, shared TypeScript protocol layer, and the MCP bridge. Not server processes |
 
 `runtime-api` is the seam that makes the rest coherent. Daemon logic is written
 against its typed enums; FlatBuffers and ZeroMQ appear only in adapters at the
@@ -99,7 +105,7 @@ process.
 
 ## Shared configuration
 
-Every peer — both hosts, every worker, and the MCP host — takes the same
+Every peer — both hosts and every Rust worker — takes the same
 connection arguments, defined once as `RpcClientArgs` in `moor-runtime-api`: the
 RPC address, the events address, the two worker addresses, the enrollment
 address, a data directory for its identity and CURVE keys, and an enrollment
@@ -115,7 +121,7 @@ do not trust a copy.
 |---|---|---|
 | A host | The world, the player's object, the persisted connection record, the event log | The socket to the user, and the live subscription. The user must reconnect. The daemon drops the host's listeners after the host timeout |
 | A worker | The world | Every request that worker had in flight; the daemon fails those tasks with a worker-detached error |
-| The daemon | The world state, the connections database, the persistent task database (if enabled), and the event log, all on disk | Every host and worker registration, every live session, and the whole in-memory retention buffer of unacknowledged client events |
+| The daemon | The world state, the connections database (less up to a second of recent changes), the persistent task database (if enabled), and the event log, all on disk | Every host and worker registration, every live session, every pending captured call, and the whole in-memory retention buffer of unacknowledged client events |
 
 The daemon holds an exclusive lock on its data directory. A second daemon on the
 same directory refuses to start.
@@ -127,8 +133,11 @@ Before you change anything under `crates/daemon`, `crates/runtime-api`,
 
 1. **The MOO value model.** Every request and event carries `Var`, `Obj` and
    `Symbol`. Read `moor/language-and-compiler/value-model`.
-2. **Task submission and suspension.** An RPC that runs MOO code returns a task
-   id immediately, not a result. Read `moor/execution/task-scheduler`.
+2. **Task submission and suspension.** A typed command returns a task id
+   immediately and its outcome arrives later as an event; an eval or captured
+   call is answered with the task's outcome. Either way the reply says how the
+   task ended and whether its changes were kept. Read
+   `moor/execution/task-scheduler`.
 3. **Transactions.** Output is buffered until the world-state transaction
    commits. Read `moor/storage-and-state/transactions`.
 4. **Who is allowed to do what.** The RPC layer authenticates a player; it does
@@ -145,5 +154,6 @@ output under retry.
   packaging and backups.
 - Read `moor/working-in-the-repo/testing` before you change a message type; the
   RPC integration tests in `crates/daemon/src/testing` are the fast check.
-- `doc/messaging.md` and `doc/RPC_API_SPEC.md` are the prose overview. Both are
-  behind the code in places; the children say where.
+- The old prose overviews (`doc/messaging.md`, `doc/RPC_API_SPEC.md`) were
+  removed upstream. The operator-facing prose is in `book/src/the-system/` and
+  `book/src/web-client/`; the HTTP contract is `crates/web-host/openapi.yaml`.

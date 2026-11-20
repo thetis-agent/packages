@@ -4,7 +4,7 @@ description: "How mooR creates, recycles, renumbers and collects objects, what m
 metadata:
   title: Object lifecycle and garbage collection
   tags: [moor, objects, create, recycle, renumber, object-number-allocation, anonymous-objects, garbage-collection, gc, gc-interval, mark-and-sweep, gc-mark-thread, sweep-pause, object-numbers, uuid-objects, reachability, gcinterface, moor-db]
-  version: 2
+  version: 3
 ---
 
 # Object lifecycle and garbage collection
@@ -99,10 +99,15 @@ and for the whole new branch.
 
 The collector is mark and sweep, and it is only for anonymous objects.
 
-**Roots** are two sets:
+**Roots** are three sets:
 
 - References found in the virtual machine state of **suspended** tasks, both the live
-  state and the retry state.
+  state and the retry state. This includes every frame (MOO, builtin and native; the
+  native frame's `state` and return value), activation arguments, capability grant
+  targets, the task's `task_local` value, and a pending resume value or error.
+- References in the persistent schedule queue: the target, the arguments, the
+  `state` value and the last fault of each entry
+  (`collect_anonymous_object_references` in `crates/kernel/src/tasks/schedule_q.rs`).
 - References held by any non-anonymous object in the database.
 
 **Database references** are found by scanning, not by a reference count:
@@ -125,16 +130,24 @@ references. Anything not reached is unreachable.
 
 | Phase | Where | Blocking |
 |---|---|---|
-| Trigger | The scheduler, on a `gc_interval`, or forced by a MOO builtin | No |
-| Mark | A separate thread, on its own read transaction | No. Tasks keep running. |
-| Sweep | The scheduler | Yes. New tasks are blocked and the scheduler waits for every active task to finish. |
+| Trigger | The scheduler, on a `gc_interval`, or forced by `gc_collect()` | No |
+| Prepare | The scheduler, under the lifecycle lock: collect roots and the last mutation timestamp | Briefly. Tried up to 3 times. |
+| Mark | The `moor-gc` thread, on its own transaction | No. Tasks keep running. |
+| Sweep | The `moor-gc` thread | Yes. A new task is admitted suspended on `GCComplete`, and the sweep waits for every active task to finish. |
 
-The sweep is guarded twice. It records the last mutation timestamp before it waits
-for active tasks, and compares it after. If any mutation happened while it waited,
-the mark result may be stale and the sweep is abandoned for this cycle. The sweep
-then recycles the still-valid unreachable objects in one batch transaction. If that
-transaction conflicts, the cycle is retried a small number of times and then given
-up.
+One `GcCycle` (`crates/kernel/src/tasks/scheduler/gc.rs`) owns each cycle through
+the phases `Preparing`, `Marking` and `Sweeping`. When the cycle ends, for any
+reason, its `Drop` sets the phase to `Idle` and wakes the `GCComplete` tasks. A mark
+that finds no unreachable objects does not sweep.
+
+The sweep is guarded twice. It compares the last mutation timestamp with the value
+recorded at preparation before it waits for active tasks, and again on each check
+while it waits. If they differ, the mark result may be stale. The log says "GC mark
+invalidated by a world-state mutation" or "GC sweep invalidated while waiting for
+active tasks", and the cycle ends with no sweep. Otherwise the sweep collects the
+unreachable objects in one transaction. If that transaction conflicts, the log says
+"GC sweep failed" and the cycle ends. It is not retried; the next interval tries
+again.
 
 Note what this implies: **only suspended tasks contribute virtual-machine roots.**
 The design is safe because the sweep waits for every active task to end and abandons
@@ -180,7 +193,8 @@ This is the part that bites verb authors and server code alike.
 | An anonymous object disappeared while still in use | A reference lives somewhere the scan does not look | Add that place to the reference scan. Check value shapes first: flyweights, lambdas, error values. |
 | Anonymous objects accumulate and are never collected | The collector never runs, or the mark is always invalidated | Check the GC interval setting. Under constant mutation the sweep abandons itself every cycle. |
 | A visible pause on a busy server | The sweep waits for every active task | Expected. It is bounded by the slowest running task. |
-| "GC transaction conflict" in the log | The sweep's own transaction lost | It retries a few times. Repeated failure means the world mutates faster than the sweep can commit. |
+| "GC sweep failed" with "GC transaction conflict" in the log | The sweep's own transaction lost | The cycle ends. The next interval tries again. Repeated failure means the world mutates faster than the sweep can commit. |
+| Tasks wait for a moment during a sweep | New tasks are admitted suspended on `GCComplete` | Expected while the phase is `Sweeping` or a forced collection is pending. They wake when the cycle ends. |
 | `E_INVARG` from `recycle` | The argument was an anonymous object, or not valid | Anonymous objects are collector-only. |
 | Object numbers jump | Retries and failed transactions consumed sequence values | Expected. |
 | Code breaks after a renumber | Stored references were not rewritten | Expected LambdaMOO behaviour. Use symbolic references. |
@@ -194,9 +208,12 @@ This is the part that bites verb authors and server code alike.
 | `crates/db/src/api/gc.rs` | The `GCInterface` trait and its errors |
 | `crates/db/src/api/world_state.rs` | The permission-checked create, recycle and renumber |
 | `crates/db/src/model/mod.rs` | Extraction of object references from a value, including nested shapes |
-| `crates/kernel/src/tasks/gc_thread.rs` | The mark phase and the transitive closure |
-| `crates/kernel/src/tasks/scheduler/scheduler_gc.rs` | Triggering, the sweep pause, the mutation-timestamp guards, and the retry |
-| `crates/kernel/src/tasks/task_q.rs` | Collecting virtual-machine roots from suspended tasks |
+| `crates/kernel/src/tasks/gc_thread.rs` | The `moor-gc` mark thread and the transitive closure |
+| `crates/kernel/src/tasks/scheduler/gc.rs` | `GcCycle` and its phases, triggering, the sweep wait, the mutation-timestamp guards |
+| `crates/kernel/src/tasks/scheduler/admission.rs` | Admitting new tasks suspended on `GCComplete` during a sweep |
+| `crates/kernel/src/tasks/registry/mod.rs`, `registry/suspension.rs` | Collecting virtual-machine roots and resume values from suspended tasks; the `GCComplete` waiters |
+| `crates/kernel/src/vm/mod.rs` | Extraction of anonymous references from frames, activations and `task_local` |
+| `crates/kernel/src/tasks/schedule_q.rs` | Schedule queue roots |
 | `crates/kernel/src/vm/builtins/bf_objects.rs` | `create`, `recycle`, `renumber` and the lifecycle verb calls |
 | `crates/db/src/api/gc_tests.rs` | Reachability tests for the collector |
 | `crates/testing/load-tools/src/anonymous-object-load-test.rs` | Load exercise for anonymous objects |

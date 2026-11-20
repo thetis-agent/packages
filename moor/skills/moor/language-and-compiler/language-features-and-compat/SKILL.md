@@ -41,7 +41,10 @@ Read both `Default` implementations before you rely on either.
 
 ## The compile options
 
-Only these six things change what the compiler accepts.
+Six switches change what the compiler accepts. A seventh field,
+`package_constants`, is not a switch: it carries the object constants that objdef
+verb code may name as `pkg::NAME`. Only the objdef compiler sets it; elsewhere it is
+`None` and `pkg::NAME` is refused. See `compiler-pipeline`.
 
 | Option | Effect when off | Failure the author sees |
 |---|---|---|
@@ -144,7 +147,7 @@ default in `crates/vm/src/config.rs` before you quote one.
   anonymous object ids, rich `notify`, through the runtime switches.
 
 **Different in kind, not a language feature:** multiversion concurrency with
-serializable isolation replaces LambdaMOO's single global lock. This changes what a
+snapshot isolation replaces LambdaMOO's single global lock. This changes what a
 verb can assume about the world between two statements far more than any syntax does.
 Read `moor/storage-and-state/transactions`.
 
@@ -159,7 +162,6 @@ Outside a lambda it binds globally, as in LambdaMOO.
 | The `features:` section of the daemon config | A YAML file, for example `moor-dev.yaml` |
 | Per-run overrides | Daemon CLI flags, defined in `crates/daemon/src/feature_args.rs` |
 | Import and migration | `tools/moorc/src/main.rs`, which takes the same feature flags plus `--legacy-type-constants` |
-| Ad-hoc evaluation | The MCP host's eval tool, which exposes `legacy_type_constants` |
 
 CLI flags are merged over the config file. Deprecated flags are normalised after the
 merge. There is no per-object or per-verb feature selection; the setting is
@@ -178,6 +180,8 @@ Guaranteed:
 - The standard error codes keep their integer values, so `tonum()` on them still
   works.
 - The standard global variables exist in every verb frame.
+- Operators follow LambdaMOO 1.8 type rules: mixed int/float ordering and
+  arithmetic raise `E_TYPE`, and floats are always finite. See `value-model`.
 - Undeclared assignment still creates a verb-global variable.
 - A textdump from LambdaMOO or ToastStunt can be imported, with unknown builtins
   rewritten and legacy type constants recognised.
@@ -228,7 +232,7 @@ Not guaranteed:
 
 | Path | Responsibility |
 |---|---|
-| `crates/compiler/src/compile_options.rs` | The six compile options and their defaults |
+| `crates/compiler/src/compile_options.rs` | The six compile switches, `package_constants`, and their defaults |
 | `crates/vm/src/config.rs` | `FeaturesConfig`, its defaults, deprecation normalisation, and the projection to `CompileOptions` |
 | `crates/daemon/src/feature_args.rs` | The CLI flags and how they merge over the config file |
 | `crates/daemon/src/args.rs` | Config file loading and merge order |

@@ -3,7 +3,7 @@ name: content-pipeline
 description: "Choose the right part of mooR's import and export path: objdef source directories, LambdaMOO textdump import, and the cores bundled in the repository. Use when a mooR database must be created, exported, updated or moved, or when a world starts but nobody can log in. Use it to pick the child skill. Not for the MOO language or the compiler, not for the transaction engine, not for the Torchship game database (the torchship skills own that), not for in-world verb authoring for a specific game, and not for Thetis's own internals."
 metadata:
   title: Getting a world into and out of mooR
-  tags: [moor, moo, objdef, textdump, import, export, core, cowbell, lambdacore, lambda-moor, minimal-core, moorc, moor-emh, checkpoint, load-object, constantsmoo, bootstrap, database, import-format, objdef-moo-directories, import-export-id, reload-object, dump-object, lambdamoo-textdump, toaststunt-textdump]
+  tags: [moor, moo, objdef, textdump, import, export, core, cowbell, lambdacore, lambda-moor, minimal-core, moorc, moor-emh, checkpoint, load-object, constantsmoo, bootstrap, database, import-format, objdef-moo-directories, import-export-id, reload-object, dump-object, lambdamoo-textdump, toaststunt-textdump, package-moo, objdef-packages, preview-objdef-changes, apply-objdef-changes, objdef-base, git-upstream, snore]
   related: [moor/working-in-the-repo/build-and-run, moor/storage-and-state/world-state-model]
   version: 2
 ---
@@ -22,8 +22,9 @@ Read this page to choose a child. Do not act from this page alone.
 ## Which child to read
 
 - `moor/content-pipeline/objdef-format` — what is in a
-  `.moo` object file, how a directory becomes a world, what survives a dump and
-  a re-import, and how to load or replace one object in a live world.
+  `.moo` object file and a package, how a directory becomes a world, what survives
+  a dump and a re-import, how to load or replace one object in a live world, and how
+  to review source updates against accepted baselines.
 - `moor/content-pipeline/textdump-compat` — reading an
   old LambdaMOO or ToastStunt database, and which textdump features are
   dropped, approximated, or refused.
@@ -60,7 +61,8 @@ import path. Editing source files does not change a world that already exists.
 | Parse | `.moo` text | compiled object definitions | `crates/compiler/src/objdef_literal.rs` |
 | Stage | object definitions | one proposed object graph | `crates/objdef/src/set.rs` |
 | Apply | proposed graph | database mutations | `crates/objdef/src/load.rs` |
-| Collect | database snapshot | object definitions | `crates/objdef/src/dump.rs` |
+| Collect | database snapshot, or the task's own transaction | object definitions | `crates/objdef/src/dump.rs`, `collect.rs` |
+| Review | sources plus live programs and `objdef_base` baselines | a preview report, then guarded writes | `crates/objdef/src/review.rs` |
 | Write | object definitions | `.moo` files in a directory | `crates/objdef/src/write.rs` |
 | Read textdump | one dump file | in-memory `Textdump` | `crates/textdump/src/read.rs` |
 | Load textdump | `Textdump` | database mutations | `crates/textdump/src/load_textdump.rs` |
@@ -74,13 +76,16 @@ import path. Editing source files does not change a world that already exists.
 | Core | A starter database: the objects and code that make a world usable. |
 | Import | Building a new database from a source format. |
 | Export, checkpoint | Writing the live database out as an objdef directory. |
-| Conflict (here) | Incoming state differs from state already in the database. Not a transaction conflict. |
-| Constant | A symbolic name for an object, declared in `constants.moo`. |
+| Conflict (here) | In a review, both the source and the live verb changed since the baseline. Not a transaction conflict. |
+| Constant | A symbolic name for an object, declared in `constants.moo` or `package.moo`. |
+| Package | A source directory with a `package.moo`: a name, an `objdef_version`, `depends` and its own constant namespace. |
+| Baseline | The `objdef_base` metadata: per verb, the fingerprint of the program last accepted from source. |
 | `import_export_id` | Object metadata that fixes an object's constant name and file name. |
 
 Note the two meanings of *conflict*. A transaction conflict is a commit failure and
-belongs to `moor/storage-and-state/transactions`. A loader conflict is a difference
-between an objdef and the database, and is handled by a `ConflictMode`.
+belongs to `moor/storage-and-state/transactions`. A review conflict is a row of
+`preview_objdef_changes()` where the source and the live program both moved away from
+the baseline. Direct `load_object()` has no conflict handling: it applies the source.
 
 ## Knowledge barriers
 
@@ -103,8 +108,8 @@ statements no longer match the code, and the code is correct.
 |---|---|
 | `server-assumptions-about-the-database.md` lists two checkpoint formats, objdef and textdump | Checkpoints are always objdef. No textdump writer exists. |
 | `objdef-file-format.md` tells you to run `make migrate` in a core directory | No core `Makefile` has a `migrate` target. Run `moorc` with `--legacy-type-constants` instead. |
-| `cores/lambda-moor/README.md` and its `Makefile` offer a `gen.moo-textdump` target | `moorc` has no `--out-textdump` option. That target fails. |
-| `object-loading.md` says a dry run makes no changes | The loader still mutates the transaction it was given. See `objdef-format`. |
+| `cores/lambda-moor/README.md`, its `Makefile` and `cores/make/core.mk` offer a `gen.moo-textdump` target | `moorc` has no `--out-textdump` option. That target fails. |
+| `cores/cowbell/README.md` says Cowbell needs the `main` branch | For the 2.0 line, use `v2.0-release` or later. |
 
 ## Read next
 

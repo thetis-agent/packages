@@ -3,8 +3,8 @@ name: workers
 description: "Why blocking or untrusted work runs outside the daemon in mooR, how worker_request() dispatches to a worker process, and how to write a new one. Use when MOO code must reach something outside the database — outbound HTTP, files, or any new capability — or a task hangs or a worker never answers. Not for the RPC between hosts and the daemon (read daemon-and-rpc), and not for the FlatBuffer message definitions (read wire-schema) or scheduler internals (read moor/execution/task-scheduler)."
 metadata:
   title: mooR out-of-process workers
-  tags: [moor, workers, worker-request, moor-curl-worker, moor-file-worker, moor-runtime-api, moor-zmq-client, attach, ping, detach, e-invarg, outbound-http, filesystem, capability, sandbox, python-worker, zeromq]
-  version: 2
+  tags: [moor, workers, worker-request, moor-curl-worker, moor-git-worker, git-worker, gix, moor-file-worker, moor-runtime-api, moor-zmq-client, attach, ping, detach, e-invarg, outbound-http, filesystem, capability, sandbox, python-worker, zeromq, metrics, builtin-grant]
+  version: 3
 ---
 
 # mooR out-of-process workers
@@ -29,7 +29,9 @@ Three reasons, in order of weight.
 3. **Refusability.** An operator must be able to say no. A capability that lives
    in a separate binary is off by default simply by not being started. The file
    worker is the clearest case: it is not embedded in the single-process `moor`
-   binary and a normal installation does not run it.
+   binary and a normal installation does not run it. The curl and Git workers
+   can run inside `moor`, but only with `--enable-curl-worker` or
+   `--enable-git-worker` (or the matching `services:` keys).
 
 The corollary is a rule: **never add an outbound network call or a filesystem
 call to the daemon on behalf of MOO code.** If you want a new capability, you
@@ -42,18 +44,21 @@ Two ZeroMQ sockets, mirroring the host protocol.
 | Direction | Pattern | Endpoint (daemon side) | Carries |
 |---|---|---|---|
 | Daemon to worker | PUB/SUB on the worker broadcast topic | `--workers-request-listen` | Ping, work requests, "please die" |
-| Worker to daemon | REQ/REP | `--workers-response-listen` | Attach, pong, result, error, detach |
+| Worker to daemon | REQ/REP | `--workers-response-listen` | Attach, pong, result, error, detach. A frame the daemon cannot decode is answered `WorkerRejected` |
 
 Security follows the endpoint scheme exactly as it does for hosts: `tcp://` gets
 CURVE and requires enrollment, anything else does not. See `daemon-and-rpc`.
 
 The life of a request:
 
-1. MOO code calls `worker_request(worker_type, args [, options])`. It is
-   wizard-only.
+1. MOO code calls `worker_request(worker_type, args [, options])`. It needs a
+   wizard, or a task authority with an explicit builtin-call grant for
+   `worker_request` (`require_wizard_or_builtin_call`).
 2. The VM returns a suspend instruction. The scheduler **commits the task's
    world-state transaction**, then mints a request UUID and hands the request to
-   the workers server, and parks the task on that UUID.
+   the workers server, and parks the task on that UUID. If the daemon has no
+   worker channel at all, the task aborts with an internal reason, "no workers
+   are configured".
 3. The daemon picks an attached worker whose type symbol matches, preferring the
    one with the fewest queued requests. If there is none, the task is failed
    immediately with a no-worker-available error.
@@ -64,6 +69,11 @@ The life of a request:
    its own UUID.
 6. The worker does the work and sends a result or an error back over REQ/REP.
 7. The daemon wakes the parked task with the result, in a **new** transaction.
+
+In the single-process binary the same steps run over in-process channels
+instead of sockets. The daemon counts requests per worker type and outcome
+(`ok`, `error`, `no_worker`, `detached`) and exports attached-worker and
+pending-request gauges with its other metrics.
 
 Workers are pinged on the same cadence as hosts. A worker that misses the worker
 timeout is dropped from the registry and every request it had outstanding is
@@ -83,7 +93,7 @@ Very little, and this is the part people get wrong.
 - **The `authority_principal` is context, not authority.** It is the object the
   calling task's permissions derive from. The daemon does not use it to authorise
   the worker; the worker may use it to log or to make its own policy decision.
-  The real gate already happened: `worker_request()` is wizard-only.
+  The real gate already happened in `worker_request()`'s permission check.
 - **The timeout is advisory and the worker enforces it.** The daemon parks the
   task on a wake condition that has no deadline. If a worker accepts a request
   and never answers, and keeps answering pings, the task waits forever.
@@ -96,6 +106,7 @@ Very little, and this is the part people get wrong.
 | Worker | Type symbol | Capability | Notes |
 |---|---|---|---|
 | `crates/curl-worker` | `curl` | Outbound HTTP | Embeddable in the single-process binary; the usual default worker |
+| `crates/git-worker` | `git` | Read-only access to public HTTP(S) Git repositories through `gix`: `capabilities`, `refs`, `tree`, `read`, `snapshot` | Embeddable with `--enable-git-worker`. Each job runs in a child process (`--git-job`) on a disposable bare repository, under byte, entry, memory, time and concurrency limits; no checkout, hooks, credentials, local paths or redirects. A full slot answers a `busy` error value, not a `WorkerError` |
 | `crates/file-worker` | `file` | Reads and writes inside one directory | Opt-in only. Requires `--sandbox-dir` and never embeds in `moor` |
 | `tools/example-python-worker` | `echo` in the sample | Nothing; it is a protocol proof | Shows that the protocol is language-neutral |
 
@@ -103,7 +114,11 @@ The file worker's sandbox is worth studying as the model for any worker that
 touches the host. It opens the sandbox root once as a directory capability and
 resolves every request path through it, so lookup stays confined even if
 directories or symlinks change underneath. Its error messages mention only the
-caller's relative path, so host layout does not leak back to MOO code.
+caller's relative path, so host layout does not leak back to MOO code. The Git
+worker is the model for a network worker: it checks the URL itself, bounds
+every resource, and does the blocking work in a child process it can kill at
+the deadline. Its request protocol is versioned (`"schema" -> 1`) and is
+documented in `book/src/the-system/server-configuration.md`.
 
 ## Writing a new worker
 
@@ -122,8 +137,11 @@ caller's relative path, so host layout does not leak back to MOO code.
    timeout yourself.
 6. **Run `worker_loop`** from `moor-zmq-client` with a fresh worker UUID. It
    handles attach, ping, addressing, decoding and replying.
-7. **Add a health endpoint** if the deployment expects one. The existing workers
-   expose a trivial TCP port that reports unhealthy once the daemon's pings stop.
+7. **Add a health endpoint and metrics** if the deployment expects them. The
+   curl and file workers expose a trivial TCP port that reports unhealthy once
+   the daemon's pings stop. Flatten `MetricsFileArgs` from
+   `moor_zmq_client::metrics` to get `--metrics-file` and
+   `--metrics-interval-seconds`, as the curl and Git workers do.
 8. **Choose the right `WorkerError`.** The variants are the vocabulary MOO code
    sees: permission denied, invalid request, internal error, request timed out,
    request error, worker detached, no worker available. Do not collapse
@@ -146,8 +164,8 @@ working reference, including its regeneration command.
 3. **A worker answers with exactly one result or one error per request id.** The
    daemon matches on that id; a second answer has nowhere to go.
 4. **A worker enforces its own timeout.** The scheduler will not rescue it.
-5. **`worker_request()` is wizard-only.** Do not add a path that reaches a worker
-   without that check.
+5. **`worker_request()` needs a wizard or an explicit builtin-call grant.** Do
+   not add a path that reaches a worker without that check.
 6. **A worker ignores requests not addressed to its own UUID.** Dispatch is a
    broadcast.
 7. **A worker confines its capability itself.** The daemon passes no policy. The
@@ -157,23 +175,27 @@ working reference, including its regeneration command.
 
 | Path | Responsibility |
 |---|---|
-| `crates/kernel/src/vm/builtins/bf_connection.rs` | The `worker_request()` builtin: wizard check, option parsing, suspend |
-| `crates/kernel/src/tasks/scheduler/scheduler_task_callbacks.rs` | Turning the suspend into a request and parking the task |
+| `crates/kernel/src/vm/builtins/bf_connection.rs` | The `worker_request()` builtin: permission check, option parsing, suspend |
+| `crates/kernel/src/tasks/scheduler/transitions/suspend.rs` | Turning the suspend into a request and parking the task |
+| `crates/kernel/src/tasks/scheduler/services.rs` | The response loop that wakes parked tasks |
 | `crates/kernel/src/tasks/workers.rs` | The scheduler-side request and response types |
-| `crates/daemon/src/workers/message_handler.rs` | The worker registry, selection, dispatch, ping and expiry |
+| `crates/daemon/src/workers/message_handler.rs` | The worker registry, selection, dispatch, ping, expiry and metrics, including in-process workers |
 | `crates/daemon/src/workers/server.rs`, `transport.rs` | The workers REP socket and its loop |
 | `crates/runtime-api/src/worker.rs`, `worker_messages.rs` | The typed worker vocabulary and message builders |
-| `crates/zmq-client/src/worker_loop.rs`, `worker_rpc_client.rs` | The reusable worker main loop |
-| `crates/curl-worker/`, `crates/file-worker/` | The two shipped workers |
+| `crates/zmq-client/src/worker_loop.rs`, `worker_rpc_client.rs`, `metrics.rs` | The reusable worker main loop and its metrics file |
+| `crates/curl-worker/`, `crates/git-worker/`, `crates/file-worker/` | The three shipped workers |
+| `crates/server/src/main.rs`, `local_services.rs` | Embedding the curl and Git workers in `moor` |
 | `tools/example-python-worker/` | Cross-language reference implementation |
 | `book/src/the-system/file-worker.md` | The operator-facing case for why this is opt-in |
+| `book/src/the-system/server-configuration.md` | Git worker setup, limits and request protocol |
 
 ## Failure branches
 
 | Symptom | Cause | Action |
 |---|---|---|
 | `worker_request()` fails immediately, no worker available | No worker of that type is attached | Start the worker; check its type symbol matches the call exactly |
-| The whole task aborts with no useful error | The daemon was started with workers disabled, so there is no worker channel at all | Enable the worker transport on the daemon |
+| The task aborts with "no workers are configured" | The daemon was started with workers disabled, so there is no worker channel at all | Enable the worker transport on the daemon, or `--enable-curl-worker`/`--enable-git-worker` on `moor` |
+| A Git request returns a `busy` error value | Every Git job slot is in use | Retry later or raise `--max-concurrent-requests`. It is a value; the task did not fail |
 | The task suspends and never returns | The worker accepted the request, is still answering pings, and never replied | Look at the worker's own logs. The scheduler has no deadline for this; kill the task |
 | Tasks fail with worker detached | The worker missed the ping timeout, or exited | Every request it held was failed. Restart it; consider running more than one worker of that type |
 | Requests reach the wrong worker | Two workers share a type symbol, which is legal, and the work is not idempotent | Selection is by queue depth, not by affinity. Do not assume one worker |
@@ -187,5 +209,6 @@ working reference, including its regeneration command.
   worker request is one wake condition among several.
 - Read `moor/storage-and-state/transactions` to understand what "the transaction
   already committed" costs you.
-- Read `moor/execution/permissions-and-security` for the wizard check.
+- Read `moor/execution/permissions-and-security` for the wizard check and
+  builtin-call grants.
 - Read `daemon-and-rpc` for enrollment and CURVE, which are shared with hosts.

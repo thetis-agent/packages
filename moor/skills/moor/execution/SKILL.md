@@ -4,7 +4,7 @@ description: "The parts of the mooR server that execute MOO code: tasks, the sch
 metadata:
   title: Running verbs in mooR
   tags: [moor, execution, task, scheduler, vm, builtin, permissions, command-parser, suspend, fork, kill, ticks, seconds-limits, e-maxrec, activation-stack, wizard, programmer-bits, set-task-perms, capability-grants, verb-call]
-  version: 3
+  version: 4
 ---
 
 # Running verbs in mooR
@@ -52,8 +52,15 @@ starts a new one:
 | `fork` statement dispatch | Commit, then begin a new one | Publish |
 | Tick or seconds limit reached | Commit by default; roll back if `$server_options.rollback_on_task_limit` is true | Follows the world state |
 | `rollback()` builtin | Roll back | Discard, unless the argument asks to keep it |
-| `kill_task()` takes effect | Roll back | Discard |
-| Commit conflicts with another task | Roll back, then retry | Discard |
+| `kill_task(task_id())`, a task killing itself | Commit | Publish, then "Aborted." |
+| `kill_task()` from another task, or a disconnect | Roll back the open transaction; earlier commit points stand | Discard what is unpublished |
+| Commit conflicts with another task | Roll back, then retry | Discard what was told since the last commit point |
+
+Every task ends with a `TaskOutcome` (`crates/common/src/tasks/outcome.rs`): an ending
+(`Completed`, `Suspended`, `Aborted(AbortReason)`, `ResultLost`) and `Kept`, which says
+whether the task's last transaction was committed (`Yes`, `No`, `Unknown`). Task effects
+that wait for a commit, such as `task_send()` messages and schedule changes, are
+published only when `Kept` is `Yes`.
 
 Committing an exception is deliberate. LambdaMOO commits the work a failing command
 already did, and mooR keeps that behaviour.
@@ -82,10 +89,10 @@ decide which child owns the stage you are looking at.
 |---|---|---|
 | A host turns a connection line into a task submission | `crates/daemon`, the telnet and web hosts | `moor/services/hosts-and-sessions` |
 | The scheduler assigns a task id, opens a transaction, and hands the task to a pool worker | `crates/kernel/src/tasks` | `task-scheduler` |
-| `$do_command`, then the built-in parser, resolve the line to a verb and a target | `crates/kernel/src/tasks/task.rs`, `crates/common/src/matching` | `command-parsing` |
+| `$do_command`, then the built-in parser, resolve the line to a verb and a target | `crates/kernel/src/tasks/task/start.rs`, `crates/common/src/matching` | `command-parsing` |
 | The verb is resolved and an activation is pushed with the verb owner's authority | `crates/db`, `crates/vm` | `permissions-and-security`, `virtual-machine` |
-| Opcodes run; builtins are called; errors raise or are pushed | `crates/vm`, `crates/kernel/src/vm` | `virtual-machine`, `builtin-functions` |
-| The VM yields; the task commits, suspends, forks, or dies | `crates/kernel/src/tasks/task.rs` | `task-scheduler` |
+| Opcodes run, or a native verb runs its steps; builtins are called; errors raise or are pushed | `crates/vm`, `crates/kernel/src/vm`, `crates/kernel/src/native_verbs.rs` | `virtual-machine`, `builtin-functions` |
+| The VM yields; the task commits, suspends, forks, or dies | `crates/kernel/src/tasks/task/dispatch.rs`, `crates/kernel/src/tasks/scheduler/transitions/` | `task-scheduler` |
 
 ## Numbers that drift
 
@@ -124,8 +131,9 @@ for hosts and `moor/services/workers` for out-of-process work.
 
 | Path | Responsibility |
 |---|---|
-| `crates/kernel/src/tasks/` | The task, the scheduler, the queues, the tasks database, telemetry. |
+| `crates/kernel/src/tasks/` | The task (`task/`), the scheduler (`scheduler/`), the task registry (`registry/`), the tasks database, telemetry. The module docs in `tasks/mod.rs` give reading paths. |
 | `crates/kernel/src/vm/` | The VM host, the builtin registry, all `bf_*` modules. |
+| `crates/kernel/src/native_verbs.rs`, `native_api.rs` | Native verb libraries: loading, the C ABI host side, and running a native frame. |
 | `crates/kernel/src/task_context.rs` | The thread-local transaction, session, and scheduler client for the running task. |
 | `crates/vm/src/` | The interpreter: `ExecState`, `Activation`, `MooStackFrame`, `moo_execute`, `vm_unwind`. |
 | `crates/common/src/matching/` | The command parser and the object name matchers. |
@@ -137,7 +145,8 @@ for hosts and `moor/services/workers` for out-of-process work.
 | Symptom | Cause | Action |
 |---|---|---|
 | A verb's changes vanish, and the log says "Transaction conflict" | Two tasks wrote the same relation | Nothing to fix in most cases; the scheduler retries. If it repeats, reduce the write set or split the task at a `commit()`. |
-| "Task retry limit exhausted" and `TaskAbortedError` reaches the caller | Retries exceeded `$server_options.max_task_retries` | A hot contended write. Split the task, or narrow what it writes. |
+| "Task retry limit exhausted; aborting task", and the outcome is `Aborted(ConflictRetriesExhausted)` with `Kept::No` | Consecutive retries since the last commit point exceeded `$server_options.max_task_retries` | A hot contended write. Split the task, narrow what it writes, or ask whether the property should have the `o` flag (`moor/storage-and-state/transactions`). |
+| A task aborts with `E_QUOTA` "Database writer remained overloaded ... The transaction was not committed." | The commit waited longer than `$server_options.db_commit_queue_timeout_seconds` for the batch writer | Storage cannot keep up. See `moor/storage-and-state/storage-engine`. |
 | A verb runs twice, and an external effect happens twice | A retry replayed work that had a non-transactional side effect | Move the side effect after the last commit point, or make it idempotent. |
 | Panic: "Task has empty activation stack" | Kernel code reached the VM stack when no activation was pushed | A bug in the caller, not in the VM. Find who called into the VM host outside a running task. |
 

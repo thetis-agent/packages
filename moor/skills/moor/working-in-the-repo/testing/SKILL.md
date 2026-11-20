@@ -10,7 +10,7 @@ metadata:
 
 # Testing mooR
 
-mooR has four test kinds and they are not interchangeable. Choosing wrongly
+mooR has four main test kinds and they are not interchangeable. Choosing wrongly
 produces a test that is slow, fragile, or that does not exercise the thing you
 changed. This skill tells you which to pick.
 
@@ -82,7 +82,8 @@ exception: it compares raw text and does no evaluation.
 | Runner | Where | Transport | Exact-line assertions |
 |---|---|---|---|
 | Scheduler runner | `moor-kernel`, test target `moot-suite` | Calls the scheduler in process | Not supported |
-| Telnet runner | `moor-telnet-host` integration test, and `moor-moot`'s own LambdaMOO comparison test | A real TCP socket to a real host process | Supported, and preferred there |
+| Telnet runner | `moor-telnet-host` integration test, and `moor-moot`'s ignored `moot_lmoo` test against a real LambdaMOO 1.8.1 binary (`MOOT_MOO_PATH`) | A real TCP socket to a real host process | Supported, and preferred there |
+| Core session runner | `cores/tools/session-runner` (`core-session-runner`), from the Cowbell and Snore makefiles | Mock sessions through the real command parser, over an imported core | Supported, on captured narrative output |
 
 The scheduler runner is the one you will use for almost every new moot file. It
 starts a scheduler over a fresh database, with no session and no network, so it
@@ -99,7 +100,7 @@ line handling, narrative delivery, `read()` against a real client, output
 ordering. Use it only for those. Each such test starts a daemon and a telnet
 host as child processes, so it is slow and it holds a fixed port.
 
-`moorc` is a third way to run moot files: it can compile an objdef source tree
+`moorc` is another way to run moot files: it can compile an objdef source tree
 and then run `.moot` files against it. That is how a core's own tests run, and
 it is the right tool when the behaviour under test depends on the core rather
 than on the server.
@@ -113,15 +114,17 @@ than on the server.
 | `crates/kernel/testsuite/moot/` | The main moot suite, discovered by directory walk |
 | `crates/kernel/testsuite/regression_suite.rs` | Rust-level regression cases that moot cannot express |
 | `crates/kernel/src/testing/` | Helpers the kernel's own tests share: VM and scheduler drivers |
-| `crates/daemon/src/testing/` | Daemon test environment, RPC and scheduler integration tests, event-log backend parity |
-| `crates/db/tests/` | Save and restore, and replay of recorded concurrent histories |
+| `crates/daemon/src/testing/` | Daemon test environment, RPC and scheduler integration tests, disconnects, property updates, event-log backend parity |
+| `crates/db/tests/` | Save and restore, and replay of recorded concurrent histories (`jepsen_history.rs` with `.edn` datasets) |
 | `crates/telnet-host/tests/` | Daemon plus host, over a real socket: `integration_test.rs` drives `.moot` files; `telnet_protocols.rs` asserts raw telnet bytes (negotiation, GMCP, CHARSET, prompts, MCCP2); `common/` launches both |
-| `crates/server/tests/` | A smoke test that starts the single-process binary, connects by telnet and by HTTP, and shuts it down |
+| `crates/server/tests/` | A smoke test that starts the single-process binary, connects by telnet and by HTTP, and shuts it down; TLS; a git worker job |
 | `crates/textdump/tests/`, `crates/compiler/tests/` | Format round trips and deep-structure cases |
 | `crates/*/benches/` | Benches for value types, the store, the compiler and dispatch paths. See `moor/working-in-the-repo/performance-and-profiling` |
 | `crates/testing/load-tools/` | Load generators and Elle history producers |
-| `crates/testing/lambdamoo-harness/` | Optional comparison against the original C LambdaMOO |
-| `cores/cowbell/tests/` | MOO-level tests for the Cowbell core, run by `moorc` through its Makefile |
+| `crates/testing/edn/` | `moor-edn`, the EDN subset the history tools write and read |
+| `tools/moor-loadsim/` | Player-visible load scenarios against a throwaway daemon and telnet host |
+| `cores/cowbell/tests/` | MOO-level tests for the Cowbell core: headless, session, wire, git worker, baseline and change-review tests, run through its Makefile |
+| `cores/make/tests/` | Tests of the shared core makefile rules |
 
 The kernel's moot suite carries a `README.md` that tracks which Stunt test files
 have been ported and which are deliberately not. Read it before adding a moot
@@ -129,8 +132,8 @@ file that duplicates one.
 
 ## Running tests
 
-Whole workspace: `cargo test --workspace`. Add `--exclude lambdamoo-harness`, as
-CI does, unless you have fetched the C sources.
+Whole workspace: `cargo test --workspace`. No crate needs to be excluded; the C
+LambdaMOO harness crate is gone.
 
 One crate: `cargo test -p moor-kernel`. One target: `cargo test -p moor-kernel
 --test moot-suite`. One test by name: append the name after the target.
@@ -142,11 +145,12 @@ invocation; read the tail of the kernel moot suite source when you need it.
 Debug output: `cargo test -- --nocapture`. The moot runners print the exchange
 they drive, which is usually enough to see where a file went wrong.
 
-Consistency runs are two steps: a workload binary from `moor-model-checker`
-writes an EDN history, and the external `elle-cli` checker verifies it is
-serializable. CI does this for the list-append and read-write-register models.
-The scripts in `crates/testing/load-tools` and `Dockerfile.elle` run the same
-thing locally.
+Consistency runs are two steps: the `list-append` binary from
+`moor-model-checker` writes an EDN history, and the external `elle-cli` checker
+verifies it under the `snapshot-isolation` model. CI runs the workload twice:
+against the database directly, and with `--target scheduler` through real tasks.
+`run-elle-test.sh` in `crates/testing/load-tools` and `Dockerfile.elle` run the
+same thing locally.
 
 ## Testing something that spans the daemon and a host
 
@@ -158,8 +162,8 @@ Three levels, cheapest first.
    host's test tree, driven by the telnet runner. The test starts a daemon and a
    host for you.
 3. **Does it depend on the process boundary itself** — enrolment, reconnection,
-   worker routing, event delivery? Then it is a Rust integration test in
-   `crates/daemon/tests` or the daemon's testing module, or the single-process
+   worker routing, event delivery? Then it is a Rust integration test in the
+   daemon's testing module, `crates/daemon/src/testing/`, or the single-process
    smoke test in `crates/server/tests` if it is about the combined binary.
 
 Note the shape of the second level, because it has a trap. The telnet host test
@@ -175,12 +179,13 @@ CI runs the following. Match it locally before you submit.
 
 | Job | What it runs |
 |---|---|
-| Build and tests | A `--all-features --all-targets` build, then the workspace test run, then documentation tests. Excludes `lambdamoo-harness` |
+| Build and tests | On Rust 1.98.1: a `--workspace --all-features --all-targets` build, then the workspace test run, then documentation tests |
 | Formatting and clippy | Nightly rustfmt in check mode with the project's import settings, then clippy across all targets and features with warnings denied |
-| Web | Builds and type-checks the npm workspace, and checks repository formatting |
-| Cowbell core | Builds and tests the Cowbell core through its Makefile |
+| Web | Builds the npm workspace, tests the MCP bridge, checks Meadow versions, bundle budgets and lint, type-checks, and checks repository formatting |
+| Cowbell core | `make -C cores/cowbell check-full`: style, method and headless tests, then session, wire, round-trip, git worker and build-inventory integration |
 | Licence headers | Runs `licensure` in check mode over tracked files |
-| Elle consistency | Generates two workloads and verifies both histories are serializable |
+| Elle consistency (`elle.yml`) | Runs list-append against the database and through the scheduler, and checks both histories for snapshot isolation |
+| Dependency audit (`dependency-audit.yml`) | `cargo deny check advisories sources bans` against `deny.toml`, on dependency changes and weekly |
 | Deployment validation | Shell syntax, rendering of every compose file and the Kubernetes manifests, and a frontend image build |
 
 Documentation tests are a separate CI step. A doc comment with a fenced Rust
@@ -195,9 +200,8 @@ example is compiled and run. Take care when you add one.
 | An exact-line assertion is reported unimplemented | The file runs under the scheduler runner, which has no network | Move the file to the telnet host suite, or change to a value assertion |
 | A test passes alone and fails in the workspace run | Shared state: a fixed port, a fixed socket path, a shared temporary file | Cargo runs tests in threads. Use a unique port or path, or mark the test serial as the existing socket-bound tests do |
 | A telnet host test shows behaviour you already fixed | It reused a stale `moor-daemon` binary from the target directory | Rebuild `moor-daemon`, or delete it so the test builds a fresh one |
-| A test in `lambdamoo-harness` will not compile | The external LambdaMOO sources were never fetched | Run its setup script, or exclude the crate |
 | Clippy fails only in CI | CI passes `--all-targets --all-features` and denies warnings | Run clippy with the same flags before submitting |
-| An Elle run reports a cycle | Either a real isolation bug, or a workload bug | Do not dismiss it. Keep the EDN history; it is the evidence. Read `moor/storage-and-state/transactions` |
+| An Elle run reports an anomaly | Either a real isolation bug, or a workload bug | Do not dismiss it. Keep the EDN history; it is the evidence. Read `moor/storage-and-state/transactions` |
 | A bench result moves a lot between runs | Machine noise, or a debug build | Read `moor/working-in-the-repo/performance-and-profiling`, which owns measurement method and its failure branches |
 
 ## Read first / read next

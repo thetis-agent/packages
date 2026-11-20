@@ -5,7 +5,7 @@ metadata:
   title: The mooR object store
   tags: [moor, moo, database, transactions, worldstate, loaderinterface, moor-db, mvcc, conflict, commitresultconflictretry, retry, objects, properties, verbs, anonymous-objects, fjall, snapshot, checkpoint, garbage-collection, storage]
   related: [moor/execution/task-scheduler, moor/execution/permissions-and-security]
-  version: 2
+  version: 3
 ---
 
 # The mooR object store
@@ -28,7 +28,7 @@ Read this page to choose a child. Do not act from this page alone.
   permissions.
 - `moor/storage-and-state/storage-engine` — what is in
   memory, what is on disk, what survives a crash, and what a snapshot,
-  checkpoint or migration is.
+  checkpoint, compaction or format version is.
 - `moor/storage-and-state/object-lifecycle-and-gc`
   — how an object is created, recycled or collected, and whether it is safe
   to hold a reference across a transaction.
@@ -41,9 +41,9 @@ Read this page to choose a child. Do not act from this page alone.
 |---|---|---|
 | Public handle | `crates/db/src/lib.rs` | `TxDB`, the `Database` trait, opening the database |
 | API adapters | `crates/db/src/api` | `DbWorldState`, permission checks, the loader and GC adapters |
-| Engine | `crates/db/src/engine` | `MoorDB`, the relation set, the transaction type, the commit pipeline |
+| Engine | `crates/db/src/engine` | `MoorDB`, the relation set, the transaction type, the commit pipeline, the property `o` flag policy |
 | Transaction machinery | `crates/db/src/tx` | Per-relation transactions, indexes, conflict check, resolvers |
-| Providers | `crates/db/src/provider` | Encoding to and from the on-disk key-value store |
+| Providers | `crates/db/src/provider` | Encoding to and from the on-disk key-value store, the format version, property value record chains, the batch writer |
 | Caches | `crates/db/src/cache` | Verb, property and ancestry resolution caches |
 
 **One word, one meaning.** These four skills use these terms as follows.
@@ -56,7 +56,7 @@ Read this page to choose a child. Do not act from this page alone.
 | Root snapshot | The published in-memory version of every relation index. Readers start from one. |
 | Snapshot interface | A read-only on-disk view used for export. A different thing from the root snapshot. |
 | Transaction abort | The database refused the commit. The caller must run again. |
-| Task abort | The scheduler stopped a task. See `moor/execution/task-scheduler`. |
+| Task abort | The scheduler stopped a task. The task outcome is `Aborted` with a reason. See `moor/execution/task-scheduler`. |
 
 **Two calls, one word.** `checkpoint` on the scheduler writes an objdef export to a
 directory. `TxDB::checkpoint` is a separate trait method and currently does nothing.

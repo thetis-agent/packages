@@ -3,7 +3,7 @@ name: conventions
 description: "The rules a mooR patch must satisfy: licence headers, formatting, clippy, dependency and export policy, no legacy shims, and commit and pull-request norms. Use before writing or submitting a change to mooR: which formatter to run, why a module is not public, what the licence header must say, or what the project asks an AI coding partner not to do. Use it when a formatting or licence check fails. Not for compiling, starting a server, or choosing a test, and not for the Torchship database or Thetis's own internals."
 metadata:
   title: mooR contribution rules
-  tags: [moor, conventions, style, rustfmt, dprint, clippy, licence-header, licensure, dependencies, dependency-version, commit-message, pull-request, code-review, agentsmd, ai-coding-partner]
+  tags: [moor, conventions, style, rustfmt, dprint, clippy, licence-header, licensure, dependencies, dependency-version, commit-message, gitlint, pull-request, code-review, agentsmd, ai-coding-partner, branch-policy, v2-0-release]
   related: [moor/storage-and-state/storage-engine]
   version: 3
 ---
@@ -24,12 +24,14 @@ CI fails on any of these. Run each before you submit.
 
 | Gate | Command | Notes |
 |---|---|---|
-| Build | `cargo build --workspace --exclude lambdamoo-harness --all-features --all-targets` | CI builds all features and all targets, so benches and tests compile too |
-| Tests | `cargo test --workspace --exclude lambdamoo-harness`, then the documentation tests | See `moor/working-in-the-repo/testing` |
+| Build | `cargo build --workspace --all-features --all-targets` | CI builds all features and all targets on Rust 1.98.1, so benches and tests compile too |
+| Tests | `cargo test --workspace --all-features --lib --bins --tests`, then `--doc` | See `moor/working-in-the-repo/testing` |
 | Rust formatting | `scripts/format-rust.sh`, or `--check` for the check | Nightly rustfmt, with three import settings |
 | Clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` | Every warning is an error |
 | Other formatting | `npx dprint fmt <files>`, or `npm run format:check` (`dprint check`, run by the CI "Web workspace" job) | JSON, TOML, Markdown, TypeScript and Dockerfiles. Needs `npm ci` first |
-| Licence headers | `licensure --check -p`, or `scripts/licensure-project.sh --check` | Install `licensure` with cargo |
+| Licence headers | `licensure --check -p`, or `scripts/licensure-project.sh --check` | Install `licensure` with cargo; CI uses 0.8.1 |
+| Dependency audit | `cargo deny --all-features --locked check advisories sources bans` | Run when you change a `Cargo.toml` or `Cargo.lock`. `deny.toml` holds the policy and any advisory ignores |
+| Commit messages (local) | `scripts/install-commit-hook.sh`, with `gitlint-core==0.19.1` | Checks `scripts/gitlint.cfg`: Conventional Commit types, 50/70 limits, a body of at least 20 characters. Fixup commits pass |
 
 ### Why nightly rustfmt
 
@@ -48,13 +50,15 @@ licence, by path:
 | Path | Licence in the header |
 |---|---|
 | Everything by default | AGPL-3.0 |
+| `crates/native-verb/` | LGPL-3.0-or-later |
 | `crates/schema/schema/` (the `.fbs` files) | LGPL-3.0-or-later |
 | `clients/web-sdk/` | LGPL-3.0-or-later |
 | `clients/meadow/` | GPL-3.0 |
 
 The differences are deliberate. The server is AGPL so that a network deployment
 stays reciprocal. The schema and the browser SDK are LGPL so that a third-party
-client can link them. Do not change a header to match a neighbouring file
+client can link them, and the native verb interface is LGPL so that a native verb
+library can use it. Do not change a header to match a neighbouring file
 without checking which rule applies.
 
 `AGENTS.md` now says only "use licensure, following `.licensure.yml`". Older
@@ -70,15 +74,19 @@ untracked scratch files are not touched.
 1. **Every third-party version is declared once,** in `[workspace.dependencies]`
    in the root `Cargo.toml`. A member crate writes `.workspace = true` and no
    version. The reason is that one workspace-wide version prevents two crates in
-   the same process from linking two copies of the same library.
+   the same process from linking two copies of the same library. Three
+   declarations break this today: `gix` and `tiny_http` in `crates/git-worker`,
+   and `termjot` in `crates/telnet-host`. Do not copy them.
 2. **Prefer a dependency with a small transitive tree.** The project states this
    directly. A crate that pulls in dozens of others costs build time for every
    contributor and widens the licence and supply-chain surface.
 3. **Do not violate the AGPL, in letter or in spirit.** A dependency whose
    licence is incompatible cannot go in.
-4. **Adding a dependency is a decision, not a detail.** Propose it. The
-   workspace already patches two dependencies to forks; that is the level of
-   care the project takes with them.
+4. **Adding a dependency is a decision, not a detail.** Propose it. The project
+   removes dependencies it can replace with a small local crate: `moor-edn`
+   replaced `edn-format`, the web host dropped `oauth2` for its own client, and
+   `jiff` replaced `chrono`, `chrono-tz`, `iana-time-zone` and `humantime`. The
+   root `Cargo.toml` has no `[patch]` section now.
 5. **Avoid async and tokio unless the crate you are working in already uses
    them.** The core runtime crates are synchronous and threaded on purpose. The
    hosts are async because network servers are. Do not carry async into a crate
@@ -96,7 +104,8 @@ public and reach in.
 **No legacy-compatibility scaffolding.** The project has no installed base to
 protect. Do not write migration paths, shims, compatibility bridges, or code
 whose comment says it supports an older way. Change the thing and delete the old
-one. This is stated as an anti-pattern in `AGENTS.md`. It does not apply to
+one. The earlier `AGENTS.md` named this an anti-pattern; the October 2026 rewrite
+dropped the text, but reviews still apply it. It does not apply to
 LambdaMOO compatibility, which is a product requirement, not scaffolding: mooR
 aims to behave like LambdaMOO 1.8.x and 1.9.x, and includes some ToastStunt
 behaviours without aiming for full ToastStunt compliance.
@@ -141,8 +150,9 @@ hot crate.
   something, and no comment that dates itself.
 - Major functions and modules carry Rustdoc.
 - No laudatory or advertising language anywhere: not in code, not in comments,
-  not in documentation, not in a reply. "Comprehensive" is named as forbidden.
-  Do not claim anything is "production ready".
+  not in documentation, not in a reply. `AGENTS.md` now says "avoid praise,
+  marketing claims, and filler"; the earlier text named "comprehensive" and
+  "production ready" as examples, and they are still good examples.
 
 ### TypeScript and other files
 
@@ -195,12 +205,18 @@ and list the commands you ran.
 **Keep artefacts out of the diff.** Generated exports, database directories and
 signing keys must not appear unless the rotation is the point of the change.
 
-**Branches.** The project runs a development line and a stable release line, and
-bug fixes land on development first and are back-ported when safe. The exact
-branch names have changed during the 2.0 cycle and the release tooling and
-`CONTRIBUTING.md` do not use the same name. Read `CONTRIBUTING.md` and the
-release workflow rather than trusting a name written here, and ask if it
-matters.
+**Branches.** The README "Branch policy" section is current:
+
+- `v2.0-release` is the 2.0 release line, in code freeze. Database formats,
+  network APIs and MOO language behaviour are frozen there. Release tags, packages
+  and images for 2.0 come from it.
+- `main` is `2.1.0-dev`, development after 2.0.
+- Bug fixes land on `main` first and are cherry-picked to `v2.0-release` when safe.
+- The 1.0 line is no longer supported.
+
+`CONTRIBUTING.md` still describes a `main` and `1.0` policy, and claims a
+`rust-toolchain.toml` that does not exist. Follow the README and the release
+workflow, which accepts only a tag reachable from `v${major}.0-release`.
 
 ## What the project asks of an AI coding partner
 

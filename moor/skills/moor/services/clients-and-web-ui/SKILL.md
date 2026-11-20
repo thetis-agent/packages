@@ -3,8 +3,8 @@ name: clients-and-web-ui
 description: "What lives under clients/, and the contract the web host offers them: HTTP, WebSocket frames, auth, and history resume. Use when building or debugging a mooR client, or its HTTP/WebSocket contract with the web host: auth, reattach, or history resume. Use it when a frame is not understood or a token expires mid-session. Not for the web host's own internals (read hosts-and-sessions), not for the RPC between processes (read daemon-and-rpc), and not for the .fbs files (read wire-schema) or Thetis's own internals."
 metadata:
   title: mooR clients and the web UI contract
-  tags: [moor, meadow, meadow-flutter, web-client, web-sdk, moor-web-mcp, flutter, websocket, openapiyaml, http-api, oauth2, x-moor, presentations, typescript, npm-workspace, vite, client]
-  version: 2
+  tags: [moor, meadow, meadow-flutter, web-client, web-sdk, moor-web-mcp, flutter, websocket, openapiyaml, http-api, oauth2, x-moor, presentations, typescript, npm-workspace, vite, client, sse, task-outcome, client-data, do-action, webrtc, error-codes]
+  version: 3
 ---
 
 # mooR clients and the web UI contract
@@ -21,7 +21,7 @@ the clients that consume it.
 | `clients/meadow` | The React and Vite web client, also packaged as a Tauri desktop app. The reference implementation | npm workspace |
 | `clients/meadow_flutter` | A Flutter client for web and Linux desktop, with Android and iOS structurally possible | Flutter, not npm |
 | `clients/web-sdk` | `@moor/web-sdk`: the shared TypeScript protocol layer. Auth headers, HTTP wrappers, WebSocket attach and dispatch, FlatBuffer decoding, narrative and presentation parsing | npm workspace |
-| `clients/moor-web-mcp` | `@moor/web-mcp`: a stdio MCP server built on the web SDK. See `mcp-host` for how it compares with `moor-mcp-host` | npm workspace |
+| `clients/moor-web-mcp` | `@moor/web-mcp`: the stdio MCP bridge for AI assistants, built on the web SDK and the official MCP SDK. See `mcp-host` | npm workspace |
 | `crates/schema/schema` | `@moor/schema`: the generated TypeScript FlatBuffer bindings. It is an npm workspace even though it lives under `crates/` | npm workspace |
 
 The Flutter client's own README states it is replacing the React client;
@@ -46,10 +46,13 @@ The shape, which is stable:
 
 - `/auth/connect` and `/auth/create` take a form and return tokens. `/auth/validate`
   and `/auth/logout` manage them.
-- `/v1/...` covers world state: eval, objects, verbs, properties, presentations,
-  history, features, and a batch endpoint that carries several world-state
-  actions in one request.
+- `/v1/...` covers world state: eval, `/v1/command`, objects (and
+  `/v1/objects/query`), verbs, properties, system properties, presentations,
+  history, the event-log key, features, the welcome message, and a batch
+  endpoint that carries several world-state actions in one request.
 - `/ws/attach/connect` and `/ws/attach/create` upgrade to a WebSocket.
+- `/v1/session`, `/v1/events/stream`, `/v1/events/ack`, `/v1/session/command`
+  and `/v1/session/input/{request_id}` are the SSE alternative to the WebSocket.
 - `/health`, `/version` and `/openapi.yaml` need no authentication.
 - `/webhooks/*` and the OAuth2 routes exist only when enabled.
 
@@ -58,9 +61,25 @@ The shape, which is stable:
 `application/json`. Neither acceptable gives 406. Send an explicit `Accept`; do
 not rely on the default staying what it is.
 
+**Errors and outcomes.** A refused request has a status that fits why and a
+JSON body `{"code", "error"}`, even when FlatBuffers were asked for: 401
+`unauthorized`, 400 `invalid_request`/`invalid_value`, 403
+`permission_denied`, 404 `object_not_found`/`verb_not_found`/`property_not_found`,
+422 `compilation_error` with the diagnostics in `compile_error`, 503
+`daemon_unavailable` or `server_busy`, 500 `internal_error`. An error status
+means **no task ran**. Once a task runs, how it ended is not an HTTP error: the
+answer is 200 with an `InvocationResponse {outcome, output}`, where
+`outcome.ending` is completed, suspended, aborted (with a reason) or result
+lost, and `outcome.kept` says whether its changes committed (`Yes`, `No`,
+`Unknown`). As in LambdaMOO, an aborted task can have `kept: Yes`. Webhooks are
+the exception: they map the abort reason to a status (408 on a time limit or
+deadline, 404 when the handler verb is missing, 503 when the task was stopped,
+400 when the command failed).
+
 Nothing verifies that `openapi.yaml` matches the router. It is currently in sync
-— every path in `crates/web-host/src/routes.rs` appears in the spec — but a route
-added without a spec edit would not fail CI.
+— every path in `crates/web-host/src/routes.rs` appears in the spec, with
+axum's `{*path}` written as `{path}` — but a route added without a spec edit
+would not fail CI.
 
 ## Authentication
 
@@ -104,6 +123,8 @@ Deliberately minimal. There is no envelope and no JSON control channel.
 | Binary, one byte `0x00` | Keepalive. Ignored |
 | Binary, one byte `0x01` | Heartbeat response |
 | Binary starting `0x03` | WebRTC signalling, a JSON envelope after the prefix byte |
+| Binary `0x04` then `{` | A structured action: JSON of at most 16 KiB, run as `do_action` on the listener's handler object. Never read as an input reply |
+| Binary starting `0x05` | Client data: JSON `{"kind","payload"}` or a FlatBuffer `ClientDataMessage`, delivered to `do_client_data(connection, 'web, kind, payload)`, rate-limited per connection |
 | Any other text or binary | A command, or a reply to a pending input request |
 
 **Server to client**
@@ -124,10 +145,27 @@ the client id and client token, with sequence zero. Store both. They are what
 makes a later reattach possible, and they are re-sent on every connection,
 including one created after a reattach failed.
 
-If WebRTC is configured, the client may offer an SDP offer over the WebSocket and
-create a data channel; the server answers and then routes `DataEvent`s whose
-domain is in the configured realtime set over that channel instead. It is an
-optimisation, never a requirement. Everything still works on the WebSocket alone.
+Commands sent while a task is running are queued by the server, not dropped,
+and the task's end is reported by one `TaskOutcomeEvent` carrying the same
+`TaskOutcome` as the HTTP replies.
+
+If WebRTC is enabled, the client may send an SDP offer over the WebSocket and
+create a data channel with sub-protocol `moor.fb` (the default) or `moor.json`;
+the server answers and then sends **ephemeral** data events
+(`emit_data(..., ['ephemeral -> true])`) over that channel, latest-wins per
+namespace and kind. Once the channel is open the connection gets the attribute
+`'realtime`. It is an optimisation, never a requirement: everything still works
+on the WebSocket alone, and neither shipped client opens a channel today.
+
+**SSE instead of a WebSocket.** Meadow switches to it with `?transport=sse`
+(`clients/web-sdk/src/sse.ts`). The browser owns acknowledgement: payloads are
+base64 FlatBuffers with a generation and sequence, acks are cumulative and
+coalesced over 100 ms, and the daemon keeps unacked events for five minutes
+(8192 events, 16 MiB per connection). An `EventsAvailableEvent` tells the
+stream to fetch more. Ephemeral events arrive as an `ephemeral` SSE event with
+no id and are never acknowledged. Past a limit or after expiry the client must
+start a fresh session and recover from history. The operator view is in
+`book/src/web-client/deployment.md`.
 
 ## Resuming after a reconnect
 
@@ -163,8 +201,9 @@ and data. Only `notify` is text. The others are the structured surface:
   `target` string, and a bag of string attributes. Re-sending the same id
   replaces the existing presentation.
 - **Unpresent** removes one by id.
-- **Data** carries a domain, a kind and a `Var` payload. It is a non-visual
-  state channel, and it is what the WebRTC realtime path is for.
+- **Data** carries a namespace, a kind and a `Var` payload. It is a non-visual
+  state channel. Marked ephemeral, it is never logged or replayed, only the
+  latest per key is delivered, and it is what the WebRTC channel carries.
 
 **`target` is a client convention, not a server contract.** The daemon stores it
 as an opaque string. Meadow defines the vocabulary — semantic targets like
@@ -196,18 +235,21 @@ a client cannot render is dropped, not approximated.**
 | The set of narrative event kinds and content types | **Grows.** Fall back, never fail |
 | Presentation targets and attributes | **A convention.** Negotiate with the world's authors, not with the server |
 | Server features: symbols, booleans, custom errors, rich notify, event log, anonymous objects and the rest | **Detect** with `GET /v1/features` |
-| WebRTC, webhooks, OAuth2, CORS, rate limiting | **Optional.** Present only if the operator enabled them |
+| WebRTC, SSE, webhooks, OAuth2, CORS, rate limiting | **Optional.** Present only if the operator enabled them, or the client chose them |
+| Error bodies `{"code","error"}` and the `TaskOutcome` shape | Stable; new codes and abort reasons may appear |
 | The FlatBuffer schema itself | Evolves under the rules in `wire-schema` |
 
 `/v1/features` is the feature-detection point. The web host caches the answer for
 the life of the process because features do not change at runtime, so a client
 may fetch it once at startup. Never infer a feature from a version string.
 
-**Unknown events must be ignored, and this is live today, not hypothetical.** The
-web SDK's dispatcher has an explicit unknown branch, and `TaskSuspendedEvent`
-already exists in the schema union with no case in the SDK, so it lands there
-now. A client that throws on an unrecognised variant will break on the next
-daemon release.
+**Unknown events must be ignored.** The web SDK's dispatcher
+(`ws-dispatch.ts`) has an explicit ignored branch (for `SetConnectionOptionEvent`
+and `DisconnectEvent`) and a `default:` unknown branch. The union has already
+changed under clients once: the per-ending `TaskErrorEvent`,
+`TaskSuccessEvent` and `TaskSuspendedEvent` were replaced by one
+`TaskOutcomeEvent`. A client that throws on an unrecognised variant will break
+on the next daemon release.
 
 ## Building and serving
 
@@ -261,11 +303,13 @@ For how that is deployed and released, read
 | `crates/web-host/openapi.yaml` | The HTTP surface, embedded and served at `/openapi.yaml` |
 | `crates/web-host/src/routes.rs` | The router, CORS, rate limits, body limits |
 | `crates/web-host/src/host/web_host.rs` | Subprotocol parsing, the attach and reattach decision, features, health, version |
-| `crates/web-host/src/host/session/mod.rs` | The WebSocket loop, the first credentials frame, realtime routing |
+| `crates/web-host/src/host/session/mod.rs` | The WebSocket loop, the first credentials frame, heartbeat, deferred commands, ephemeral routing |
 | `crates/web-host/src/host/session/websocket.rs` | Frame markers and how a client frame is classified |
-| `crates/web-host/src/host/auth/` | Login, the ephemeral extractor, OAuth2 |
-| `crates/web-host/src/host/handlers/` | The `/v1` endpoints, including history and presentations |
-| `clients/web-sdk/src/ws.ts`, `ws-session.ts`, `ws-dispatch.ts` | Attach construction, control frames, event dispatch |
+| `crates/web-host/src/host/actions.rs`, `client_data.rs` | The `0x04` and `0x05` frames |
+| `crates/web-host/src/host/daemon_errors.rs` | Error statuses and codes |
+| `crates/web-host/src/host/auth/` | Login, `StatelessAuth`, `/auth/validate`, OAuth2 |
+| `crates/web-host/src/host/handlers/` | The `/v1` endpoints, including history, presentations, SSE (`event_stream.rs`) and webhooks |
+| `clients/web-sdk/src/ws.ts`, `ws-session.ts`, `ws-dispatch.ts`, `sse.ts`, `actions.ts` | Attach construction, control frames, event dispatch, the SSE transport, action frames |
 | `clients/web-sdk/src/auth.ts`, `history.ts`, `narrative.ts`, `presentations.ts` | Headers, encrypted history parsing, content-type normalisation |
 | `clients/meadow/src/hooks/usePresentations.ts`, `src/types/presentation.ts` | The reference target vocabulary and its placement rules |
 | `clients/meadow_flutter/tool/gen_flatbuffers.sh` | The Dart binding generation and its pinned `flatc` |
@@ -276,12 +320,16 @@ For how that is deployed and released, read
 
 | Symptom | Cause | Action |
 |---|---|---|
-| A frame the client does not understand | A newer daemon sent an event variant the client has no case for | Route it to an ignore branch and log once. Never throw. `TaskSuspendedEvent` already does this to the web SDK |
+| A frame the client does not understand | A newer daemon sent an event variant the client has no case for | Route it to an ignore branch and log once. Never throw |
+| A call returns 200 but nothing changed | The task ran and aborted, or its result was lost | Read `outcome.ending` and `outcome.kept`; do not retry a write whose `kept` is `Unknown` without checking the world |
+| 422 from `/v1/eval` or verb programming | The code does not compile | Show `compile_error`; no task ran |
+| 503 `server_busy` | The daemon's call pools are full | Back off and retry; no task ran |
+| SSE stream ends with a gap or expired error | Retention ran out, or the connection expired after 30 s without liveness | Start a fresh session and recover from history and presentations |
 | The WebSocket upgrade returns 401 | The auth token is missing, malformed, or not in the subprotocol list | Check the protocol list order and that `paseto.` prefixes the token |
 | The upgrade succeeds but the session is new every time | The client sent `initial_attach.true`, or the stored client credentials were stale | Send the stored `client_id` and `client_token` and omit the initial-attach marker. Read the connect type in the reply |
 | A token expires mid-session | The player's session was invalidated, or the connection went stale | HTTP calls return 401. Re-authenticate and reattach; the credentials frame on the new connection replaces what you stored. Do not retry the same token |
 | History returns nothing at all | The player has no event-log key, or the feature is off on the server | Both are normal. Distinguish them with `/v1/features` and the pubkey endpoint before showing an error |
-| History returns blobs that will not decrypt | The password changed, or the key derivation differs from the reference client | Match the derivation in `doc/event-log-encryption-design.md`. Old records need the old key |
+| History returns blobs that will not decrypt | The password changed, or the key derivation differs from the reference client | Match the derivation in `clients/meadow/src/lib/keyDerivation.ts`. Old records need the old key |
 | Panels do not come back after reconnect | Presentation restore is encrypted too, and needs the same key | Unlock before calling `/v1/presentations` |
 | A `/v1` call returns 406 | The `Accept` header asked for something neither format satisfies | Send `application/json` or `application/x-flatbuffers` |
 | A `/v1` call returns binary when JSON was expected | No `Accept` header, so the FlatBuffers default applied | Always send `Accept` explicitly |

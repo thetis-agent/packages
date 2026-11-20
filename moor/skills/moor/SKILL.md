@@ -3,7 +3,7 @@ name: moor
 description: "Ground truth for the mooR server codebase: the Rust MOO engine, its transactional object database, compiler, VM, task scheduler, and daemon/host processes. Use for any task inside the mooR repository at workspace/moor: reading or changing the daemon, database, compiler, VM, scheduler or host processes. Start here to find the right sub-skill. Not for the Torchship game database or any other in-world MOO core, which torchship skills own. Not for writing verbs in a running world. Not for Thetis internals."
 metadata:
   title: mooR server
-  tags: [moor, moo, lambdamoo, rust, server, daemon, kernel, database, transactions, compiler, virtual-machine, scheduler, zeromq, flatbuffers, objdef, architecture, ground-truth, var, schema, hosts, workers, tasks, permissions, rpc-protocol, textdump, build, run, test]
+  tags: [moor, moo, lambdamoo, rust, server, daemon, kernel, database, transactions, compiler, virtual-machine, scheduler, zeromq, flatbuffers, objdef, architecture, ground-truth, var, schema, hosts, workers, tasks, permissions, rpc-protocol, textdump, build, run, test, v2-0-release, native-verbs, task-outcome, objdef-packages, mootop]
   related: [torchship]
   version: 2
 ---
@@ -12,7 +12,8 @@ metadata:
 
 This skill is written in ASD-STE100 Simplified Technical English.
 
-Ground truth for the mooR codebase in `workspace/moor`. mooR is a network-accessible
+Ground truth for the mooR codebase in `workspace/moor`, as on the `v2.0-release`
+branch (version `2.0.0-dev`, in code freeze; `main` is `2.1.0-dev`). mooR is a network-accessible
 virtual machine for shared, persistent, user-authored programs. It re-implements the
 LambdaMOO server in Rust, keeps compatibility with LambdaMOO 1.8.x databases, and
 replaces the parts of that design that do not scale.
@@ -58,13 +59,17 @@ each one then points down to its own leaves.
 - `moor/language-and-compiler` — changing the MOO
   language itself: parsing, compiling, decompiling, the value model, or opcodes.
 - `moor/execution` — changing how a verb runs: the scheduler, the
-  VM, a builtin function, permission checks, or command parsing.
+  VM, a builtin function, native verbs, how a task ends (`TaskOutcome`),
+  permission checks, or command parsing.
 - `moor/services` — changing anything outside the daemon: RPC,
-  the wire schema, hosts, workers, the event log, the MCP host, or the clients.
+  the wire schema, hosts, workers (curl, file, git), the event log and ephemeral
+  events, or the clients, the MCP client `clients/moor-web-mcp` among them.
 - `moor/content-pipeline` — moving a world into or out of
-  the server: objdef, textdump, or the bundled cores.
+  the server: objdef and packages, reviewed source updates, textdump, or the
+  bundled cores.
 - `moor/working-in-the-repo` — building, running,
-  testing, profiling, shipping, or following the project's own conventions.
+  testing, profiling (`mootop`, metrics), shipping, or following the project's
+  own conventions.
 
 ## References
 
@@ -124,8 +129,8 @@ you depend on it.
 
 The `book/` directory is the project's manual and the best introduction to MOO. It
 is a living document, and parts of it describe an earlier crate layout or an earlier
-behaviour. The same is true of the design notes in `doc/`, of `AGENTS.md`, and of
-several crate READMEs. Where a document and the code disagree, the code is correct.
+behaviour. The same is true of `CONTRIBUTING.md`, some core READMEs, and several
+crate READMEs. (`doc/` now holds only images.) Where a document and the code disagree, the code is correct.
 `references/doc-drift.md` lists every disagreement found so far, with what the code
 actually does. Each is also stated in the skill that owns the subject.
 

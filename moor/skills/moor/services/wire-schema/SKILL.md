@@ -3,8 +3,8 @@ name: wire-schema
 description: "How to change a .fbs schema without breaking a running cluster or existing database: the generation commands, and the rules for adding and deprecating fields. Use before editing any .fbs schema file, regenerating bindings, adding a field, a union variant or an enum value, or diagnosing a decode error or version mismatch between a daemon and a host. Not for the meaning of a particular RPC message (read daemon-and-rpc), and not for the MOO Var type itself (read moor/language-and-compiler/value-model) or Thetis internals."
 metadata:
   title: The mooR FlatBuffers wire schema
-  tags: [moor, flatbuffers, fbs, schema, planus, flatc, wire-format, compatibility, schema-evolution, moor-schema, generated-code, crates/schema, moor-rpcfbs, commonfbs, varfbs, taskfbs, moor-event-logfbs, all-schemasfbs, connectionsfbs, schemas-generatedrs, schemabuild, renumbering]
-  version: 2
+  tags: [moor, flatbuffers, fbs, schema, planus, flatc, wire-format, compatibility, schema-evolution, moor-schema, generated-code, crates/schema, moor-rpcfbs, commonfbs, varfbs, taskfbs, moor-event-logfbs, all-schemasfbs, connectionsfbs, schemas-generatedrs, schemabuild, renumbering, task-outcome, kept, listener-kind, breaking-change]
+  version: 3
 ---
 
 # The mooR FlatBuffers wire schema
@@ -38,12 +38,12 @@ cannot "just rename that field".
 |---|---|---|
 | `crates/schema/schema/common.fbs` | `Obj`, `Symbol`, `Uuid`, `ObjectRef`, errors, verb and property definitions | The world database |
 | `crates/schema/schema/var.fbs` | The `Var` union: every MOO value | The world database |
-| `crates/schema/schema/moor_program.fbs` | Compiled program representation | The world database |
-| `crates/schema/schema/task.fbs` | Suspended task state | The persistent tasks database |
+| `crates/schema/schema/moor_program.fbs` | Compiled program representation; `StoredProgramLanguage` is MOO bytecode or a `StoredNativeProgram {library, function}` | The world database |
+| `crates/schema/schema/task.fbs` | Suspended task state, including `NativeFrame` and `VMExecState.task_local` | The persistent tasks database |
 | `crates/schema/schema/moor_event_log.fbs` | Logged narrative events and presentations | The event log database |
-| `crates/schema/schema/moor_rpc.fbs` | Every RPC message, reply, event and error | Nothing (wire only) |
+| `crates/schema/schema/moor_rpc.fbs` | Every RPC message, reply, event and error, and the `TaskOutcome` vocabulary | Nothing (wire only) |
 | `crates/schema/schema/all_schemas.fbs` | The master file that includes the others | — |
-| `crates/daemon/src/connections/connections.fbs` | Connection records; daemon-private, includes the shared files by relative path | The connections database |
+| `crates/daemon/src/connections/connections.fbs` | Connection records (`StoredClient`, `StoredAttribute`); the older tables after them are kept only to migrate an old database once. Daemon-private, includes the shared files by relative path | The connections database |
 
 `moor_rpc.fbs` is the only one you can change with wire compatibility as the sole
 concern. Everything else has a database behind it.
@@ -51,6 +51,13 @@ concern. Everything else has a database behind it.
 Note that `var.fbs` distinguishes what may be *transmitted* from what may be
 *persisted*: a lambda is legal in the database encoding and refused on the wire.
 Keep that distinction when you add a variant.
+
+The reply to anything that ran a task is a `TaskOutcome {kept: Kept, ending:
+TaskEnding}`. `Kept` is `Unknown = 0, Yes = 1, No = 2`: the zero default is
+`Unknown` on purpose, so a missing or unset value can never be read as
+"committed". Keep that property if you touch it. `TaskEnding` is a union of
+completed, suspended, aborted (carrying an `AbortReason` union) and result-lost;
+`crates/runtime-api/src/task_outcome.rs` converts it.
 
 ## Generating the bindings
 
@@ -140,8 +147,25 @@ either a running deployment or a database that already exists.
 10. **Add `(required)` to an existing optional field.** Every message and every
     stored record written before the change fails to decode.
 11. **Remove `(required)` from an existing field** without auditing every reader,
-    because readers were entitled to assume it was present.
+    because readers were entitled to assume it was present. `Task.retry_state`
+    in `task.fbs` is the worked example: it became optional, with a comment that
+    new suspended-task records omit it and old ones are still read.
 12. **Reorder union variants.** The variant tag is the position.
+
+**The exception is a declared breaking change to `moor_rpc.fbs`.** It stores
+nothing, so the project does sometimes remove or reorder RPC messages, union
+members and enums outright, and says so in a `BREAKING CHANGE:` footer telling
+operators to upgrade the daemon and every host together. Recent examples:
+`HostType` was removed and listener kinds became strings (`kind` on `Listener`,
+`HostBroadcastListen`, `HostBroadcastUnlisten`; `listener_kinds` on
+`RegisterHost` and `HostPong`); the task-outcome change dropped `EvalResult`,
+`SystemHandlerResponseReply`, `InvocationOutcome` and the per-ending client
+events for `InvocationResponse` and `TaskOutcomeEvent`, removed the
+`TaskAborted*` members from `SchedulerErrorUnion` and renamed error code 7 to
+`Rejected`; `RequestMetrics` and `DaemonToHostMetrics` replaced the
+performance-counter messages in their old union slots. Never do this to the five stored schemas, and prefer appending even
+in `moor_rpc.fbs`: an appended request such as `ValidateAuth` only needs the
+daemon deployed before the host that sends it.
 
 **Rename with care.** A rename does not change the wire, but it does change the
 generated Rust and TypeScript names, so it is a source-level break in every
@@ -159,6 +183,8 @@ for the tree. Say so in the commit.
 | Regenerated Rust but not the TypeScript bindings | Meadow and the web SDK break at runtime, not at build time |
 | Regenerated Rust and TypeScript but not the Dart bindings | The Flutter client breaks, and nothing in the npm or cargo build notices |
 | Reordered `HostClientToDaemonMessageUnion` | Every host at the old version sends what the daemon reads as a different message |
+| A breaking RPC change deployed to the daemon alone | Hosts decode replies such as `InvocationResponse` or `HostPong` wrongly, or the daemon answers "Could not decode request body". Roll every process together |
+| Hand-written bindings (`tools/example-python-worker/moor_schema`, the Dart files) not refreshed | That client misreads the new shape. Some commits update these by hand, so check them in review |
 
 ## Invariants
 
@@ -200,6 +226,6 @@ for the tree. Say so in the commit.
   what a client is entitled to assume when the schema grows.
 - `crates/schema/schema/README.md` holds the exact generation commands and the
   licensing note (the `.fbs` files are LGPL, unlike the rest of the server).
-- `doc/messaging.md` describes the schema directory as `crates/common/schema/`
-  and lists a `db.fbs`. Both are out of date; the code is at
-  `crates/schema/schema/` and there is no `db.fbs`.
+- The removed `doc/messaging.md` put the schema under `crates/common/schema/`
+  and listed a `db.fbs`. The code is at `crates/schema/schema/` and there is no
+  `db.fbs`.

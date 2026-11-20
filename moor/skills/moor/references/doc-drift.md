@@ -1,7 +1,8 @@
 # Where the mooR documentation disagrees with the code
 
-Observed on 2026-08-29, by reading both. Each row was checked against the source at
-that date.
+First observed on 2026-08-29. Rechecked on 2026-11-18 against `v2.0-release` at
+`e52638608` (version `2.0.0-dev`): fixed rows were removed, and new rows were added.
+Each row was checked against the source at that date.
 
 Use this list in one way only: as a warning that a specific document is not
 authority on a specific point. Do not cite a row as a current defect without
@@ -18,7 +19,7 @@ and in the skill that owns the subject.
 |---|---|---|
 | `the-system/performance-and-concurrency.md` | Serializable isolation | Snapshot isolation with write-write conflict detection. Read sets are not tracked, so write skew is possible. `the-database/transactions.md` states this correctly in the same book. |
 | `the-database/transactions.md`, `the-system/moo-tasks.md` | A conflicting task re-executes from the beginning | A retry restores the task from the state saved at its last transaction boundary. Only a task that never crossed one runs again in full. |
-| `the-system/server-assumptions-about-the-database.md` | A restart always restores the previous state | The world-state keyspace is never fsynced. An unclean stop can lose commits the batch writer had not reached. |
+| `the-system/server-assumptions-about-the-database.md` | A restart always restores the previous state | The world-state batch writer does not request an fsync. An unclean stop can lose commits it had not reached. (Not fully rechecked in 2026-11; read `moor/storage-and-state` before you cite it.) |
 | `the-system/server-assumptions-about-the-database.md` | Checkpoints can be written in two formats | Checkpoints are always objdef. The export-format option is deprecated, hidden, and ignored. |
 | `the-system/server-assumptions-about-the-database.md` | The server-options table | It omits the garbage-collection interval, and does not say that the dump and collection intervals are read from the system object itself rather than from the server-options object. |
 | `the-system/controlling-the-execution-of-tasks.md` | Tick and second limits below a floor are ignored | No floor exists. The scheduler config accepts any non-negative value. |
@@ -28,26 +29,28 @@ and in the skill that owns the subject.
 | `the-database/moo-value-types.md` | The list of value kinds | It omits booleans, which exist and are enabled by default. |
 | `the-database/flyweights.md` | Flyweights are garbage collected | They are reference counted. There is no cycle collector for them. |
 | `the-system/objdef-file-format.md` | Run the migrate target | No core provides that target. |
-| `the-system/object-loading.md` | A dry run makes no changes | The single-object loader mutates its transaction and only declines to commit. Safe on the daemon import path, where the transaction is dropped. Inside a task it commits with the task. |
-| `the-system/server-architecture.md` | Single-process components talk over in-process ZeroMQ | The local event loop is a no-op and those endpoint strings are vestigial. |
+| `the-system/server-architecture.md` | Single-process components talk over in-process ZeroMQ | `crates/server/src/main.rs` still defines `inproc://` endpoint strings, but the hosts reach the runtime through `LocalRuntimeClient` and `LocalEventBus`, not ZeroMQ. |
 | `moor-architecture.md` | Module paths inside one daemon crate | The workspace was split into many crates. The chapter is right about the shape and wrong about the paths. |
-| `single-process-deployment.md` | The single-process binary lives in the daemon crate | It is in the server crate. |
+| `single-process-deployment.md` (repository root) | The single-process binary lives in the daemon crate | It is in the server crate. |
 
 ## Design notes
 
-| Document | The claim | What the code does |
-|---|---|---|
-| `doc/messaging.md`, `doc/RPC_API_SPEC.md` (removed upstream in October 2026; only `doc/TRACING.md` remains) | Hosts and workers carry their own tokens | Those token types do not exist in the tree. Host and worker identity is the transport's CURVE key plus the allowed-hosts registry. |
-| `doc/messaging.md`, `doc/RPC_API_SPEC.md` | Schema sources live under the common crate, and include a database schema file | The schema sources are in the schema crate. That file does not exist. |
+The design notes under `doc/` were removed upstream (`doc/messaging.md` and
+`doc/RPC_API_SPEC.md` in October 2026, `doc/TRACING.md` with the `trace_events`
+feature). `doc/` now holds only README images. Do not look for them.
 
 ## Repository rules and READMEs
 
 | Document | The claim | What the repository does |
 |---|---|---|
 | `AGENTS.md` (before October 2026) | Every file carries a GPLv3 header; the client is under `web-client/`; test the harness as `moot`; root npm scripts for test, lint and typecheck | The file was rewritten upstream and no longer makes these claims. Headers follow `.licensure.yml` (AGPL-3.0 by default), the client is under `clients/`, and the harness package is `moor-moot`. |
-| `CONTRIBUTING.md` | A specific Rust version | It disagrees with the workspace `rust-version` and with CI. Trust the workspace manifest. |
-| `flake.nix`, `Dockerfile.arm64-cross`, `Dockerfile.elle` | Their pinned Rust version | Behind the workspace `rust-version`. |
-| `cores/lambda-moor` README and makefile | A textdump output option on the offline compiler | That option does not exist, so the default target fails. |
+| `CONTRIBUTING.md` | `rust-toolchain.toml` selects Rust 1.98.1 | The version is right, but no `rust-toolchain.toml` exists. The workspace `rust-version`, CI and the Dockerfiles say 1.98.1. |
+| `CONTRIBUTING.md` | Branches are `main` and `1.0`; beta tags come from `1.0` | `v2.0-release` is the release line and `main` is `2.1.0-dev`; 1.0 is unsupported. The README "Branch policy" and the release workflow (`v${major}.0-release`) agree. |
+| `CONTRIBUTING.md` | GPLv3 headers; `crates/rpc/`; `web-client/`; `cargo test -p moot`; root `npm run lint`, `typecheck`, `test` | The same stale claims `AGENTS.md` dropped. See the row above. |
+| `cores/cowbell/README.md` | Cowbell needs the `main` branch | It needs mooR 2.0: `v2.0-release` or later. |
+| `cores/lambda-moor/README.md`, `cores/make/core.mk` | `make gen.moo-textdump` (and lambda-moor's `make output`) exports a textdump | The `core.mk` rule passes `--out-textdump` to `moorc`, which has no such option, so the target fails. |
+| `deploy/README.md` | `npm run moor:traced`, `npm run full:dev-traced` | Those scripts are gone with the `trace_events` feature. |
+| `deploy/clustered/*/docker-compose.yml` and READMEs, `book/src/the-system/docker-compose-setup.md` | Pull `ghcr.io/timbran-project/moor:latest` | The README says 2.0 has no container images yet, so that tag is not a 2.0 server. Build 2.0 from the branch. |
 | `crates/kernel/testsuite/README.md` | Anonymous objects are unsupported | They exist behind a feature flag, with a collector. |
 
 ## Comments inside the source

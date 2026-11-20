@@ -86,8 +86,10 @@ State these to yourself before you start. Each child gives the detail.
 3. **The persisted format stays readable.** Opcode numbers are fixed forever, and
    the stored version has a supported range. `program-and-opcodes`.
 4. **The builtin table is part of the stored format.** A program records a signature
-   of the builtins it calls. Changing a builtin's shape invalidates stored programs
-   that call it. `program-and-opcodes`, and `moor/execution/builtin-functions`.
+   of the builtins it calls: each id, its name, its override name and its flags.
+   Changing one of these, or the order of ids, invalidates stored programs that call
+   the builtin. Argument counts and types are not in the signature, so they can widen
+   safely. `program-and-opcodes`, and `moor/execution/builtin-functions`.
 5. **A new surface syntax needs a switch, or it is not compatible.** Anything a
    LambdaMOO core would not expect is gated. `language-features-and-compat`.
 6. **A value change reaches the database.** Values are stored, so a new value type

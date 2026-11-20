@@ -37,6 +37,8 @@ index into:
 | `lambda_programs` | A complete nested `Program` for each lambda body |
 | `main_max_stack`, `main_max_scope_depth` | Frame sizing, and the same per fork vector |
 | `line_number_spans` | Opcode offset to line number, and the same per fork vector |
+| `source_declarations` | Where each explicit `let`/`const` declaration completes, so the decompiler prints declarations as written. `None` for programs stored before this field. The VM does not read it. |
+| `lambda_entry_scope_count` | For a lambda body: the scopes open at lambda entry, parameter scope included. Zero for ordinary programs. |
 
 ### Why the side tables exist
 
@@ -136,22 +138,37 @@ and program counters are the same thing.
 version, as constants. Decoding rejects anything outside that range. Read the
 constants for the current values; do not copy them into documentation.
 
-The decoder already contains one compatibility branch: below the version that
-introduced recorded stack depths, it synthesises conservative maximums from the
-instruction count instead of reading them. That is the pattern to follow. Add a new
-version constant, keep reading the old one, and derive what the old form did not
-record.
+The decoder contains compatibility branches. Below the version that introduced
+recorded stack depths, it synthesises conservative maximums from the instruction
+count. Below the version that introduced the identity-only builtin signature, it
+checks the signature against a frozen table (see below). That is the pattern to
+follow. Add a new version constant, keep reading the old one, and derive what the
+old form did not record.
 
-The top-level stored program is a union over program languages with one variant
-today. That union exists so a second language can be added without changing every
-consumer.
+The top-level stored program is a union over program languages,
+`StoredProgramLanguage` in `moor_program.fbs`. It has two variants: a MOO program,
+and `StoredNativeProgram`, which holds only a library name and a function name. In
+memory the same split is `ProgramType::MooR` and `ProgramType::Native` in
+`crates/var/src/program/mod.rs`. Code that matches on `ProgramType` must handle the
+native arm: a native verb has no bytecode to decompile, so the objdef writer and the
+review fingerprints treat it separately. Read `moor/execution` for how a native verb
+runs (`crates/kernel/src/native_verbs.rs`).
 
 ### The builtin signature
 
-Every stored program records a 64-bit signature over the builtins it calls. It is
-computed by `builtin_signature_for_ids` in `crates/common/src/builtins.rs`: an
-order-independent hash over each used builtin's id, name, override name, minimum and
-maximum argument counts, argument types, and its implemented and exposed flags.
+Every stored program records a 64-bit signature over the builtins it calls. For
+version 7 and later it is computed by `builtin_signature_for_ids` in
+`crates/common/src/builtins.rs`: an FNV-1a hash, over the used ids in sorted order,
+of each id, its name, its override name, and its implemented and exposed flags.
+Declared argument counts and types are not part of it, because each builtin checks
+its own arguments.
+
+Programs stored at version 6 or earlier have a signature that also covered argument
+counts and types. They are checked by `legacy_builtin_signature_matches` in
+`crates/common/src/builtins/legacy.rs`, against a frozen copy of the table as it was
+then (`legacy_table.rs`), plus a check that each id still has the same name. So a
+later change to a declared argument list does not break an old program. The fixtures
+are in `crates/schema/src/convert_program/tests/legacy_fixtures.rs`.
 
 On decode the signature is recomputed from the decoded program and compared. A
 mismatch is a hard decode failure with the message "Stored program builtin signature
@@ -165,9 +182,11 @@ What it means for you:
 
 - **Append new builtins at the end of their group.** A test in `builtins.rs` asserts
   one such adjacency; treat the whole table as append-only.
-- **Changing an existing builtin's arity, argument types, name, override name,
-  implemented flag or exposed flag invalidates every stored program that calls it.**
-  Not just the ones you were thinking of.
+- **Changing an existing builtin's name, override name, implemented flag or exposed
+  flag, or its id, invalidates every stored program that calls it.** Not just the
+  ones you were thinking of.
+- **Widening or changing a builtin's declared argument counts or types is safe** for
+  stored programs. Do not edit the frozen legacy table.
 - Read `moor/execution/builtin-functions` before touching that table.
 
 ## What invalidates a compiled program
@@ -200,7 +219,8 @@ change how frames hold programs, this is the code that breaks.
    program cannot be stored.
 5. **The stored version range is honoured on read and the current version is written
    on write.** Old versions are supported by deriving, not by rejecting.
-6. **The builtin table is append-only, and existing entries keep their shape.**
+6. **The builtin table is append-only, and existing entries keep their identity**:
+   id, name, override name and flags. The frozen legacy table never changes.
 7. **Jump label positions are opcode indices, not word offsets.**
 8. **Line number spans refer to unparsed output lines.** See `compiler-pipeline`.
 9. **A `Program` is immutable once built.** Everything shares it by reference count.
@@ -211,14 +231,15 @@ change how frames hold programs, this is the code that breaks.
 |---|---|---|
 | Verb fetch fails with "Failed to decode MooR program" | The stored bytes do not match the current decoder | Check the version constants first, then the word stream arms. |
 | "Stored program version N is outside supported range" | The database was written by a newer build, or by one older than the minimum | Do not lower the minimum without adding the derivation branch for that version. |
-| "Stored program builtin signature mismatch" | The builtin table changed shape since the verb was compiled | Revert the builtin change, or accept that every affected verb must be recompiled from source. |
+| "Stored program builtin signature mismatch" | A builtin the verb calls changed its id, name, override name or flags since the verb was compiled | Revert the builtin change, or accept that every affected verb must be recompiled from source. An argument-list change alone does not cause this. |
 | The VM panics on a stack underflow at a known program counter | Code generation emitted an unbalanced sequence | The bug is in `backend/`, not in the VM. |
 | A newly added opcode round-trips in tests but breaks an existing database | The opcode number collided with a retired one | Numbers are permanent. Pick the next unused one. |
 
 ### The recovery path, and its trap
 
-There is no bulk re-encode of stored programs. The database migration in
-`crates/db/src/provider/fjall_migration.rs` updates a version marker only. So the
+There is no bulk re-encode of stored programs, and there is no database migration.
+`crates/db/src/provider/fjall_format.rs` records a format version under
+`__db_version__` and accepts only an exact match with `CURRENT_DB_VERSION`. So the
 recovery from a stored-program format break is: export the world to objdef source and
 import it into a fresh database.
 
@@ -241,6 +262,7 @@ change that could break the format, not after. See
 | `crates/schema/src/convert_program.rs` | Encode, decode, version range, signature check |
 | `crates/schema/src/opcode_stream.rs` | The stable opcode numbers and the word stream |
 | `crates/common/src/builtins.rs` | The builtin table and `builtin_signature_for_ids` |
+| `crates/common/src/builtins/legacy.rs`, `legacy_table.rs` | The frozen table and the check for programs stored at version 6 or earlier |
 | `crates/kernel/src/tasks/task_program_cache.rs` | The per-task decoded program cache |
 | `crates/db/src/provider/fjall_provider.rs` | Where a stored program is decoded on fetch |
 

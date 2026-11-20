@@ -3,8 +3,8 @@ name: event-log-and-history
 description: "What mooR stores as player history, why every record is age-encrypted with a key the server never has, and how a client replays scrollback. Use when working on persistent history or scrollback in mooR, or when history is empty, cannot be decrypted, or must be deleted for a person. Not for live event delivery and sequence numbers (read daemon-and-rpc), not for the session buffers that feed it (read hosts-and-sessions), and not for the FlatBuffer record shape (read wire-schema) or Thetis internals."
 metadata:
   title: The mooR event log and history replay
-  tags: [moor, event-log, history, scrollback, encryption, age, argon2, set-pubkey, get-pubkey, v1/event-log, historyrecall, presentations, notify, player-event-log-stats, purge-player-event-log, enable-eventlog, privacy, fjall]
-  version: 2
+  tags: [moor, event-log, history, scrollback, encryption, age, argon2, set-pubkey, get-pubkey, v1/event-log, historyrecall, presentations, notify, player-event-log-stats, purge-player-event-log, enable-eventlog, privacy, fjall, ephemeral-events]
+  version: 3
 ---
 
 # The mooR event log and history replay
@@ -28,6 +28,11 @@ that is addressed to a player who has a public key registered:
   the content is encrypted like everything else. Current presentation state is
   kept separately from the event stream, so a reconnecting client can restore the
   panels it had open without replaying the whole log.
+- Data events from `emit_data()`, **unless marked ephemeral**. An ephemeral
+  event (`['ephemeral -> true]`) is filtered out at commit in
+  `crates/daemon/src/rpc/session_event_buffer.rs` and never reaches the log.
+  Use it for high-rate state such as positions, which history should not
+  hold.
 
 Each record holds an event id, a nanosecond timestamp, the player, and one
 encrypted blob. The record shape is in
@@ -56,7 +61,7 @@ The daemon has no production decryption path at all: the decrypt function in
 the daemon, nor the web host, nor an administrator with the database files can
 read what a player said, unless they have the player's password.
 
-The limits are honest ones, and the design document states them: this protects
+The limits are honest ones, and the book states them: this protects
 against stolen backups, filesystem snooping and casual administrative reading. It
 does not protect against a modified daemon binary, because the daemon must
 generate the events in the first place, and it does not protect live events in
@@ -83,7 +88,9 @@ Four recall modes exist (`HistoryRecall` in `moor_rpc.fbs`): since a given event
 id, until a given event id, since a number of seconds ago, and none. Each takes a
 limit, where zero means no limit. "Since" keeps the oldest events up to the
 limit; "until" and "since seconds" keep the most recent, because those are the
-ones a client scrolling upwards wants. The response also reports the total
+ones a client scrolling upwards wants. The cursor event itself is excluded from
+the page (a true excluded range bound in `event_log.rs`), so paging never
+repeats it. The response also reports the total
 available, whether more exist before the window, and the earliest and latest ids
 in the window, so a client can page.
 
@@ -92,8 +99,10 @@ history request, so a telnet user sees live output only. Events from a telnet
 session are still logged, encrypted, if that player has a key.
 
 Do not confuse this with the live-event replay described in `daemon-and-rpc`.
-That one recovers events a lossy PUB socket dropped seconds ago, is not
-encrypted, is bounded in memory, and disappears on daemon restart. The event log
+That one recovers events a lossy PUB socket dropped seconds ago (or, for an SSE
+session, events the browser has not acknowledged), is not encrypted, is bounded
+in memory, and disappears on daemon restart. A browser whose SSE stream expires
+recovers from this log and the presentation snapshot instead. The event log
 is durable, encrypted and unbounded. They are different mechanisms with similar
 names.
 
@@ -146,7 +155,8 @@ These are the things an operator is surprised by.
 3. **No public key means the event is dropped, silently, at commit.** This is by
    design, and it is the first thing to check when history is empty.
 4. **Events are logged at session commit, with the live batch.** A rolled-back
-   transaction logs nothing, so history and live output cannot diverge.
+   transaction logs nothing, so history and live output cannot diverge. The one
+   deliberate divergence is ephemeral data: delivered live, never logged.
 5. **The event id in history is the same id the live event carried.** The
    conversion deliberately preserves it, so a client can join the two streams.
 6. **The presentation id is plaintext; the presentation content is not.**
@@ -160,14 +170,14 @@ These are the things an operator is surprised by.
 | `crates/daemon/src/event_log/event_log.rs` | The `EventLogOps` trait, the Fjall store, the persistence thread, queries, stats and purge |
 | `crates/daemon/src/event_log/encryption.rs` | age encryption; the decrypt half is test-only |
 | `crates/daemon/src/event_log/event_log_conversions.rs` | Domain event to encrypted record, and the presentation action it extracts |
-| `crates/daemon/src/rpc/session.rs` | Where history ownership is resolved and the key looked up |
+| `crates/daemon/src/rpc/session_event_buffer.rs` | Where history ownership is resolved, the key looked up, and ephemeral events left out, for every session kind |
 | `crates/daemon/src/rpc/message_handler_history.rs` | The four recall modes and the response window |
 | `crates/schema/schema/moor_event_log.fbs` | The stored record shape |
 | `crates/web-host/src/host/handlers/event_log.rs` | The browser-facing history, pubkey and delete endpoints |
 | `crates/kernel/src/vm/builtins/bf_connection.rs` | `event_log()` |
 | `crates/kernel/src/vm/builtins/bf_server.rs` | `player_event_log_stats()`, `purge_player_event_log()` |
-| `doc/event-log-encryption-design.md` | The threat model and the client-side derivation, with parameters |
-| `book/src/the-system/event-logging.md` | The operator-facing description |
+| `book/src/the-system/event-logging.md` | The operator-facing description and the threat model |
+| `clients/meadow/src/lib/keyDerivation.ts`, `clients/meadow_flutter/lib/moor/event_log_kdf_*.dart` | The client-side Argon2id derivation, with its salt |
 
 ## Failure branches
 
@@ -177,6 +187,7 @@ These are the things an operator is surprised by.
 | History is always empty for everyone | The event log feature is off, so the daemon installed the no-op log | Enable it in the daemon's feature configuration and restart |
 | Client shows history it cannot decrypt | The password changed, or the client derived the key with different parameters | Old records need the old key. Check the derivation salt uses the player's object id |
 | A telnet user reports missing scrollback | The telnet host has no history support | Expected. Not a bug to fix in the telnet host without also solving key handling |
+| A data stream the world sends is missing from history | It is emitted as ephemeral | Expected. Drop the flag if the record matters |
 | Events appear in the wrong player's history after `switch_player` | The history owner moved with the active player | Preserve history on the switch. There is no way to move records afterwards; they are encrypted to the wrong key |
 | The events database grows faster than expected | Every event, including `event_log()`-only records, is stored and fsynced | Apply a retention policy with `purge_player_event_log()` |
 | Write latency rises under load with the log on | The per-event synchronous persist | Move the events database to faster storage, or leave the feature off |
@@ -191,6 +202,6 @@ These are the things an operator is surprised by.
 - Read `wire-schema` before changing the record shape.
 - Read `clients-and-web-ui` for the client half: the history and presentation
   endpoints, and what a client must do when it has no key.
-- `doc/event-log-encryption-design.md` is accurate about the design and states
-  its own limits; it is the right document to hand an operator asking about
-  privacy.
+- `book/src/the-system/event-logging.md` states the design and its limits; it
+  is the right document to hand an operator asking about privacy. The older
+  `doc/event-log-encryption-design.md` was removed upstream in October 2026.

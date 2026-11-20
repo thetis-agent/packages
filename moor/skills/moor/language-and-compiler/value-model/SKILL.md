@@ -47,10 +47,12 @@ Three details in the metadata bytes matter:
 - **Strings cache a pure-ASCII flag**, which is what lets case-insensitive comparison
   take a fast path.
 - **One byte holds an operation hint**: how this value was produced, such as "a list
-  append" or "a map insert". The hint is read by the transaction conflict resolver so
-  that two tasks appending to the same list can sometimes be merged rather than
-  aborted. Hints are cleared before a value is committed. Do not attach meaning to a
-  hint outside that use. See `moor/storage-and-state/transactions`.
+  append" or "a map insert". The database reads only the list-append hint: when a
+  property value is written, `crates/db/src/provider/property_value_store.rs` uses it
+  to persist an append as an append instead of a full replacement. Hints do not
+  merge conflicting writes; two tasks that write the same property conflict. Hints
+  are cleared on values that replace the whole persisted value. Do not attach meaning
+  to a hint outside that use. See `moor/storage-and-state/transactions`.
 
 ## What each kind is, and what it costs
 
@@ -73,8 +75,8 @@ counting around them.
 
 **The trap to warn authors about:** building a long list by repeated append is not
 free in aggregate. Each append is cheap, but each one produces a new value, and the
-old one stays alive as long as anything holds it. The transaction conflict hints
-exist because this pattern is common, not because it is free.
+old one stays alive as long as anything holds it. The list-append hint exists
+because this pattern is common, not because it is free.
 
 ## Equality is case-insensitive, and that has consequences
 
@@ -97,6 +99,28 @@ say so; do not accept the default without thinking.
 flyweights and other containers are rejected with `E_TYPE`. This restriction is
 inherited from ToastStunt for compatibility, not forced by the implementation.
 
+**Ordering and hashing agree with `==`.** A map is an `OrdMap`, so the key order
+decides what a lookup finds. These rules are in `variant.rs` (`float_key`,
+`int_float_cmp`) and `error.rs`:
+
+- `1` and `1.0` are not equal, so they are two separate keys. On a tie in value the
+  integer orders first.
+- `-0.0` and `0.0` are equal, so they are one key.
+- Two lambdas that are equal hash alike. All lambdas share one hash value.
+- `Var::is_identical` asks whether two values are the same scalar or share storage.
+  It is cheap and never true for different values. It can be false for equal values
+  that were made separately.
+
+**Operators follow LambdaMOO 1.8 type rules** (`crates/var/src/scalar.rs`). Ordering
+operators accept only like pairs (int/int, float/float, str/str, obj/obj, err/err);
+a mixed pair, `1 < 1.5` included, raises `E_TYPE`. Arithmetic needs operands of the
+same type, except that `+` joins strings and a float may be raised to an integer
+power. `==` and `!=` accept any pair.
+
+**Floats are always finite.** An operation or conversion that would make an infinity
+or a NaN raises `E_FLOAT`, or `E_INVARG` for a string that `tofloat()` cannot read as
+a real number. No non-finite float can enter a value.
+
 **Truthiness follows LambdaMOO.** Zero, an empty string, an empty list, an empty
 map, an empty binary and a flyweight with no contents are false. An object reference
 is always false. An error value is always false. A symbol and a lambda are always
@@ -118,9 +142,12 @@ Three consequences you must not forget:
 1. **The interner is process-global and append-only.** Nothing is ever removed. A
    symbol created from untrusted, unbounded input is a permanent leak. Never intern
    arbitrary user text in a loop.
-2. **Symbol ids are process-local.** They mean nothing in another process or after a
-   restart. Symbols serialise as their text, both in FlatBuffers and in serde. Never
-   persist or transmit an id.
+2. **Never persist or transmit a symbol id.** The *compare id* is a 32-bit FNV-1a hash
+   of the case-folded text, so it is the same in every process. When two texts hash
+   alike, the later one takes the next free id. Symbol ordering compares this id, so
+   symbol order is consistent across restarts but is not alphabetical. The *repr id*
+   comes from a counter and is process-local. Symbols serialise as their text, both
+   in FlatBuffers and in serde.
 3. **Interning is fast but not free.** There is a small thread-local cache in front of
    a lock-free global map. Prefer holding a `Symbol` you already have over making it
    again from a string.
@@ -181,8 +208,10 @@ Two equality rules will surprise you:
 
 - **Equality ignores the message.** Two errors are equal when their code and their
   attached value are equal. `E_PERM("a")` equals `E_PERM("b")`.
-- **Hashing uses only the code.** So an error used as a map key collapses its
-  variants together. This is a known wart, marked as such in the source.
+- **Ordering uses the code, then the attached value, and never the message.** So a
+  map keyed by `E_PERM` finds an `E_PERM` that carries a message. Errors with
+  different attached values are different keys. Hashing uses only the code, which is
+  consistent with equality.
 
 ### Raising is a separate decision from being
 
@@ -229,6 +258,7 @@ value to hold itself.
 | Module | Purpose |
 |---|---|
 | `crates/var/src/cbor.rs` | CBOR encoding of a `Var`, with its own version number. Used where a self-describing format is wanted. |
+| `crates/var/src/json.rs` | Behind the `json` feature. The one MOO/JSON mapping (`var_to_json`, `json_to_var`), used by `generate_json`/`parse_json` and by hosts. Symbols and symbol keys become JSON strings; errors, binaries, flyweights and lambdas are refused. |
 | `crates/var/src/encode.rs` | The `ByteSized` trait and the encode/decode error types. |
 | `crates/var/src/diff.rs` | Structural diff of two values, and a three-way merge, both bounded by depth, change count and comparison budget. Exposed to MOO and used for conflict presentation. |
 | `crates/schema/src/convert_var.rs` | The FlatBuffer form, which is what the database and the wire protocol use. See `moor/services/wire-schema`. |
@@ -247,13 +277,16 @@ below.
    returns a new `Var`.
 3. **The symbol interner never shrinks.** Interning is permanent for the life of the
    process.
-4. **Symbol ids never leave the process.** Serialisation writes the text.
-5. **String and symbol equality ignore case.** Any code path that must not must say
+4. **Symbol ids never leave the process.** Serialisation writes the text. Only the
+   compare id, and so the symbol order, is stable across processes.
+5. **Ordering and hashing agree with `==`.** Equal values are one map key; unequal
+   values, such as `1` and `1.0`, are two.
+6. **String and symbol equality ignore case.** Any code path that must not must say
    so explicitly.
-6. **A map key is a scalar or a string.** Enforced on insert with `E_TYPE`.
-7. **A flyweight slot is never named `delegate` or `slots`.** Enforced at compile
+7. **A map key is a scalar or a string.** Enforced on insert with `E_TYPE`.
+8. **A flyweight slot is never named `delegate` or `slots`.** Enforced at compile
    time in both literal parsers.
-8. **A new value kind needs a tag, a literal form, an unparser case, a FlatBuffer
+9. **A new value kind needs a tag, a literal form, an unparser case, a FlatBuffer
    encoding and a CBOR case.** Missing any one of them produces a value that exists
    at run time and cannot be stored, shown, or sent.
 
@@ -263,9 +296,11 @@ below.
 |---|---|---|
 | A verb prints a string with the wrong capitalisation | Case-insensitive equality collapsed two spellings | Find the comparison. Use `eq_case_sensitive` where spelling is meaningful. |
 | Memory grows without bound in a long-running world | Arbitrary text is being interned as symbols | Find the `Symbol::mk` on user input. Use a `Str`. |
-| Two different errors behave as one in a map | `Error` hashes on the code only | Key on the code plus whatever else you need, not on the `Error`. |
+| Two errors with different messages are one map key | Equality, ordering and hashing ignore the message | Expected. Key on the message text too if it matters. |
+| `1 < 1.5` or `1 + 1.5` raises `E_TYPE` | LambdaMOO 1.8 operand rules: no mixed int/float ordering or arithmetic | Convert one side with `tofloat()` or `toint()`. |
+| Symbol-keyed maps list keys in an order that is not alphabetical | Symbols order by the stable hash compare id | Expected. Sort by `tostr()` if alphabetical order matters. |
 | `toliteral()` raises `E_INVARG` on a function value | The lambda has captured variables | Expected. There is no literal form for a closure in that writer. |
-| A lambda property loses its parameter names after an objdef round trip | The objdef literal parser discards lambda parameter names and optional defaults, binding every parameter to the same placeholder name | Do not rely on lambda values surviving an objdef export and import. Store the source, or a verb, instead. See `moor/content-pipeline/objdef-format`. |
+| A lambda property behaves differently after an objdef round trip | The objdef literal parser compiles a lambda literal through the normal compiler (`compile_lambda_value` in `objdef_literal.rs`) and binds captures by name through its name table. A capture that no longer matches a name in the body fails | Read the parse error. Store the source, or a verb, when a lambda's captured environment matters. See `moor/content-pipeline/objdef-format`. |
 | A captured lambda literal fails to parse | Two literal writers exist. The plain one emits a flat capture list; the objdef one emits per-frame braces, and only that form is what the objdef parser accepts | Use the objdef writer for anything the objdef parser will read. |
 | A value type is fine at run time but vanishes on restart | No FlatBuffer encoding was added | Add it in `crates/schema`. See `moor/services/wire-schema`. |
 

@@ -3,8 +3,8 @@ name: permissions-and-security
 description: "Who a MOO task runs as, what the wizard and programmer bits grant, how permissions change across a verb call, and where no check is applied at all. Use when reasoning about authority in the mooR server: TaskPermissions, wizard/programmer/owner bits, object/property/verb flags, set_task_perms, capability grants, or whether an operation is checked at all. Use it before adding or changing a permission check. Not for the scheduler, opcode loop, writing a builtin, or command parsing. Not for storage, Torchship, or Thetis's internals."
 metadata:
   title: mooR task permissions and the trust model
-  tags: [moor, permissions, security, wizard, programmer, owner, task-perms, set-task-perms, caller-perms, r/w/f-object-flags, r/w/c-property-flags, r/w/x/d-verb-flags, capability-grants, property-read, verb-call, builtin-call, e-perm, authority]
-  version: 2
+  tags: [moor, permissions, security, wizard, programmer, owner, task-perms, set-task-perms, caller-perms, object-flags, property-flags, verb-flags, o-flag, native-verbs, capability-grants, property-read, verb-call, builtin-call, e-perm, authority]
+  version: 3
 ---
 
 # mooR task permissions and the trust model
@@ -35,7 +35,8 @@ the properties it reads are readable.
 | Task submission | The player, for a command or an eval. The caller-supplied authority principal, for an RPC verb invocation. |
 | Entering a verb | The **owner of the resolved verb**, not the caller and not the player. |
 | Inside a verb, after `set_task_perms(x)` | `x`, for the rest of that activation. |
-| Inside a builtin | The nearest enclosing MOO activation's principal. Builtin frames are transparent. |
+| Inside a builtin | The nearest enclosing MOO or native activation's principal. Builtin frames are transparent. |
+| Inside a native verb | The verb's owner, as for a MOO verb (`Activation::for_native_call`). Every world call the library makes through `native_api.rs` uses that activation's authority, and the frame counts for `caller()` and `caller_perms()`. |
 | A forked task | The forking activation's principal, carried in the fork record. |
 
 The single most common mistake is confusing three different objects:
@@ -77,6 +78,17 @@ Two departures from that rule are worth knowing:
 A non-programmer's `eval` does not fail with a permission error at the check
 site. The eval setup replaces the program with one that returns `E_PERM`.
 
+Some recent surfaces are wizard-only by design. Keep them that way:
+
+| Surface | Check | Where |
+|---|---|---|
+| The property `o` flag (overwrite: overlapping value writes are accepted, the last commit wins) | Wizard to set or clear it, in both `define_property` and `set_property_info` | `crates/db/src/api/world_state.rs` (`AuthRule::property_wizard`); the flag is `PropFlag::Clobber` in `crates/common/src/model/props.rs` |
+| `set_verb_native()`, `native_libraries()` | Wizard; no builtin-call grant | `bf_verbs.rs` (`require_wizard_msg`) |
+| `task_local()`, `set_task_local()`, `rollback()`, `dump_database()`, `db_compact()` | Wizard or a `builtin_call` grant | `bf_task.rs`, `bf_server.rs` (`require_wizard_or_builtin_call`) |
+
+A native verb runs machine code from a library the server loaded at startup. So
+`set_verb_native()` is a trust decision of the same weight as giving a wizard bit.
+
 ## How permissions travel through a verb call
 
 Two different principals are used at two different moments.
@@ -89,8 +101,9 @@ Two different principals are used at two different moments.
 Because the `x` flag is part of the method lookup filter, a verb without `x` is
 not found at all. The error a caller sees is `E_VERBNF`, not `E_PERM`. Do not read
 a "verb not found" as evidence that the verb does not exist. Command dispatch is
-the exception: it resolves without the filter and then authorises, so a command
-verb without `x` denies instead. See `command-parsing`.
+the exception (9d290bc55): a command lookup has no flag filter and no `x` check,
+so a command verb without `x` is found and runs as its owner, and its program is
+read with the owner's permissions. See `command-parsing`.
 
 Nothing else travels. In particular:
 
@@ -174,7 +187,7 @@ properties is refused outright, whatever the authority. Use `move()` and
 4. **Grants are per-activation and additive.** They never widen into a called
    verb, and they never substitute for the principal.
 5. **Builtin frames are transparent to identity.** Any walk of the stack for a
-   principal skips them.
+   principal skips them. Native verb frames are not builtin frames: they count.
 6. **A builtin that tests a flag it could have changed re-reads it.** The cached
    flags on `TaskPermissions` are from call setup; the live form re-reads from the
    transaction.
@@ -191,6 +204,7 @@ properties is refused outright, whatever the authority. Use `move()` and
 | A helper works as a wizard but fails after `set_task_perms(player, grants)` | The failing operation is inside a verb the helper called; grants do not propagate | Do the granted operation in the granting activation, or re-grant. |
 | Code reads an object's flags or location that it "should not" see | No check exists for those | Expected. Model any secrecy in ordinary properties. |
 | A player reaches a wizard-only builtin | A `bf_<name>` override verb on `#0` intercepted it, or the check used cached rather than live flags | Look at `#0` first; then at which authority accessor the check used. |
+| `player = x` in a wizard-owned verb doesn't reach its callees, yet the same verb reads protected properties fine | The verb was reached by `pass()` from a non-wizard-owned verb. `prepare_pass_verb` dispatches with `DispatchFlagsSource::Permissions`, so the frame keeps the caller's non-wizard *cached* flags. `player_for_frame` only passes a reassigned `player` on under cached wizard flags, while property checks use the principal's live flags. Same-owner calls from that frame (`VerbOwner`, owner == principal) keep the degraded flags. Found on Torchship 2026-11-20 (`#198:moveto` -> `pass()` -> `#1:moveto` -> `move()` -> `:enterfunc`). Workaround: own the passing verb as a wizard. Torchship did this for `#198:moveto`, and that fixed it. Not fixed in mooR. |
 | A wizard-owned verb is called by untrusted code and does too much | The verb runs as its owner regardless of caller | Test `caller_perms()` at the top, or drop to the caller's identity with `set_task_perms`. |
 
 ## Where the code lives

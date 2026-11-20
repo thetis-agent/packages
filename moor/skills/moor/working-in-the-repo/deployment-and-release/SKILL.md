@@ -3,7 +3,7 @@ name: deployment-and-release
 description: "What deploy/ and the Dockerfiles contain, how a release is gated, how keys and tokens are handled, and what an operator needs to bring a real world up. Use when you touch a compose file, a Kubernetes manifest, a Dockerfile, a deployment script or a Debian package, because CI renders all of these on every push. Use it also when planning a real deployment: which shape to pick, how keys are made, and what must never reach a diff. Not for the development loop, and not for the Torchship database."
 metadata:
   title: Deploying and releasing mooR
-  tags: [moor, deploy, deployment, release, docker, docker-compose, kubernetes, debian-package, systemd, nginx, tls, enrollment-token, signing-key, backup, ghcr]
+  tags: [moor, deploy, deployment, release, docker, docker-compose, kubernetes, debian-package, systemd, nginx, tls, enrollment-token, signing-key, backup, ghcr, v2-0-release, version-skew, upgrade]
   related: [moor/services/daemon-and-rpc, moor/content-pipeline/cores-and-bootstrap]
   version: 2
 ---
@@ -22,6 +22,14 @@ has a payload, and builds and inspects the Meadow Debian package. A change to a
 YAML file, a script or a packaging manifest can therefore fail the build without
 touching a line of Rust. If you edit any of those, render them locally first.
 
+**Which version.** New users take the `v2.0-release` branch, version
+`2.0.0-dev` in code freeze; `main` is `2.1.0-dev`. 2.0 has no release packages or
+container images yet, so the README tells users to clone the branch and run
+`scripts/start-moor-cowbell.sh` or `scripts/start-moor-lambdacore.sh`, which build
+locally. The `deploy/` examples still name `ghcr.io/timbran-project/moor:latest`,
+which is a 1.0 image until a 2.0 release is published. The 1.0 line is no longer
+supported.
+
 **The operator's concern.** Everything else on this page: which shape to pick,
 how keys and tokens are made, what to back up, and how to upgrade. A contributor
 does not need to know it to land a patch, but does need to know it before
@@ -31,11 +39,11 @@ changing a default that an installed system depends on.
 
 | Shape | Location | For |
 |---|---|---|
-| Development stacks | Root `docker-compose.yml`, `process-compose.yaml`, `bacon.toml`, the npm scripts | Local work. See `moor/working-in-the-repo/build-and-run` |
+| Development stacks | Root `docker-compose.yml` (through `scripts/start-moor-*.sh`), `scripts/dev.sh`, `bacon.toml`, the npm scripts | Local work, and the 2.0 route for new users. See `moor/working-in-the-repo/build-and-run` |
 | Single-process, basic | `deploy/single-process/basic/` | One container running the `moor` binary: telnet, the embedded web API, and the embedded curl worker |
 | Single-process, web | `deploy/single-process/web/` | The same, plus an nginx container serving the Meadow browser client |
 | Clustered, telnet only | `deploy/clustered/telnet-only/` | Separate daemon and telnet host over IPC |
-| Clustered, web | `deploy/clustered/web-basic/`, `deploy/clustered/web-ssl/` | Separate daemon, web host, worker and nginx frontend. The SSL variant adds Let's Encrypt through certbot |
+| Clustered, web | `deploy/clustered/web-basic/`, `deploy/clustered/web-ssl/` | Separate daemon, web host, workers and nginx frontend; web-basic also runs the git worker. The SSL variant adds Let's Encrypt through certbot |
 | Clustered, over TCP | `deploy/clustered/docker-compose.tcp.yml` | Demonstrates multi-machine communication: TCP sockets, CURVE encryption and enrollment tokens |
 | Kubernetes | `deploy/clustered/kubernetes/` | A stateful daemon, deployments for hosts and workers, services, ingress, network policy, autoscaling |
 | Debian packages | `deploy/debian-packages/`, and `[package.metadata.deb]` in the crate manifests | A systemd installation on Debian or Ubuntu |
@@ -54,14 +62,14 @@ CI syntax-checks.
 
 | File | Builds |
 |---|---|
-| `Dockerfile` | The backend. A Node stage builds the frontend, a Rust stage builds the workspace, a slim Debian stage takes the binaries. The `backend` target is the server binaries alone; the `default` target adds the built browser client |
-| `clients/meadow/Dockerfile` | The frontend image: a Node build stage, then nginx serving the static bundle. Its `frontend` target is what the release publishes |
+| `Dockerfile` | The backend. A Node stage builds the frontend, a `rust:1.98.1-bookworm` stage builds the workspace, a slim Debian stage takes the binaries: `moor`, daemon, hosts, and the curl, file and git workers. The `backend` target is the server binaries alone; the `default` target adds the built browser client |
+| `clients/meadow/Dockerfile` | The frontend image: a Node build stage, then `nginx:1.31.9-alpine` serving the static bundle. Its `frontend` target is what the release publishes |
 | `Dockerfile.elle` | The consistency-check environment: the workload binaries plus a JVM and the external Elle checker |
 | `Dockerfile.arm64-cross` | Cross-building for arm64 from an x86-64 host |
 | `deploy/Dockerfile-forgejo-builder` | A CI image with the toolchain, Node, a JVM, Leiningen, licensure and graphviz preinstalled |
 
 The root Dockerfile takes build arguments for the cargo profile, the job count
-and whether tracing is compiled in. Its default profile is a debug build; the
+and extra cargo flags. Its default profile is a debug build; the
 root compose file overrides that to the fast release profile, and the release
 workflow overrides it to the full release profile. Know which one you are
 getting before you judge a container's performance.
@@ -69,17 +77,19 @@ getting before you judge a container's performance.
 The build stages copy `.git` into the image because the build stamps a version
 and commit hash into every binary. That stamp is what a bug report quotes.
 
-Two of the secondary Dockerfiles pin an older Rust than the workspace requires.
-If one of them fails to build, check its base image against the workspace
-`rust-version` before looking anywhere else.
+Every Rust stage uses Rust 1.98.1, the workspace `rust-version`. Every nginx
+image, in the Dockerfiles and the deploy compose files, is pinned to
+`nginx:1.31.9-alpine`, which fixes two unauthenticated HTTP/2 remote code
+execution bugs. Do not go back to a floating `nginx:alpine` tag: a cached,
+vulnerable base would be reused.
 
-### docker-compose against process-compose
+### docker-compose against scripts/dev.sh
 
 They answer different questions. `docker-compose` builds images and runs
 containers, so it tests packaging, networking and the runtime image as well as
-the code. `process-compose` runs the same processes directly on the host from
-`cargo run`, so it is much faster to iterate and tests only the process topology.
-Use process-compose while developing across the process boundary, and
+the code. `scripts/dev.sh` runs the split processes directly on the host from
+cargo, so it is much faster to iterate and tests only the process topology. Use
+`scripts/dev.sh` while developing across the process boundary, and
 docker-compose when the packaging itself is in question.
 
 ## The release
@@ -90,7 +100,8 @@ anything:
 1. The tag must be semantic version shaped, with an optional pre-release suffix.
 2. The checked-out commit must be the tag's commit.
 3. The `version` field in the root `package.json` must equal the tag exactly.
-4. The tag must be reachable from the release branch for its major version.
+4. The tag must be reachable from `v${major}.0-release`, the release branch for
+   its major version. A 2.0 tag must be on `v2.0-release`.
 
 Then it builds two images, the backend and the frontend, for both amd64 and
 arm64, pushes each architecture under its own suffixed tag, attests build
@@ -178,7 +189,16 @@ a daemon option and controls how often state is written out.
 
 **Upgrades.** Back up first, then replace the image or the packages, then
 restart. There are no migration shims in this project by design, so a database
-written by a newer server is not expected to be readable by an older one.
+written by a newer server is not expected to be readable by an older one. A
+database whose format marker differs from `CURRENT_DB_VERSION` is refused at open
+(`crates/db/src/provider/fjall_format.rs`). So 2.0 does not open a 1.0 database in
+place: export it with 1.0, then import the export into a new database.
+
+**Run one version everywhere.** The 2.0 RPC schema changed without compatibility
+(f50464d59: task replies became one `TaskOutcome` shape). Hosts, workers and the
+daemon must run the same version. In a clustered or Kubernetes shape, upgrade every
+component together; a host from another version enrols but its requests and
+replies do not decode.
 
 ## Failure branches
 
@@ -187,7 +207,9 @@ written by a newer server is not expected to be readable by an older one.
 | CI fails and you changed no Rust | You edited a compose file, a manifest, a deployment script or packaging metadata | Render the compose files, run kustomize over the Kubernetes directory, and syntax-check the scripts, exactly as the deployment job does |
 | The release workflow refuses the tag | The tag is not semantic, the commit does not match, the `package.json` version differs, or the tag is not on the release branch | All four are checked before anything builds. The failing step names which |
 | An image tag is published but `latest` does not move | The tag was a pre-release | Only stable tags get the major-and-minor alias and `latest` |
-| A container build fails on the toolchain | The Dockerfile's base image is older than the workspace `rust-version` | Check the base image. Two secondary Dockerfiles lag |
+| A container build fails on the toolchain | A Dockerfile's base image is older than the workspace `rust-version` | All Rust stages use 1.98.1 now. A local edit or a stale cache is the likely cause |
+| Hosts and the daemon fail on every request after an upgrade | The components run different versions | Upgrade all of them to one version. See "Run one version everywhere" |
+| `docker compose pull` gets a 1.0 server for a 2.0 world | The deploy examples use the `latest` tag, and no 2.0 image is published yet | Build from `v2.0-release` locally until the 2.0 release |
 | A container build takes hours | The profile argument was not set, or was set to the full release profile | The fast release profile exists for packaging. See `moor/working-in-the-repo/build-and-run` |
 | A build produces an unstamped binary | `.git` was not available in the build stage | The Dockerfiles copy it deliberately. Do not remove that |
 | A host or worker will not join the daemon | Enrollment token mismatch, or CURVE not configured for a TCP deployment | Confirm every component reads the same token. On one machine, prefer IPC and skip the whole mechanism |

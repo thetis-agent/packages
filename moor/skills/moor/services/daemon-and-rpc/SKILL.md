@@ -3,8 +3,8 @@ name: daemon-and-rpc
 description: "How moor-daemon serves hosts and workers over ZeroMQ: request/reply versus pub/sub, CURVE enrollment, PASETO tokens, and how an event reaches a player. Use when working on the daemon or the RPC between processes: an RPC message, host registration, or enrollment. Use it when a host cannot enroll, an event never arrives, or a client is dropped for a backlog. Not for the FlatBuffer definitions (read wire-schema), and not for what a host does with an event (read hosts-and-sessions) or worker dispatch (read workers)."
 metadata:
   title: The mooR daemon and its RPC layer
-  tags: [moor, daemon, rpc, zeromq, curve, zap-authentication, allowed-hosts, paseto, clienttoken, authtoken, enrollment, pub-sub, client-token, auth-token, listeners, moor-daemon, sequence-numbers, ping-timeout]
-  version: 2
+  tags: [moor, daemon, rpc, zeromq, curve, zap-authentication, allowed-hosts, paseto, clienttoken, authtoken, enrollment, pub-sub, client-token, auth-token, listeners, listener-kinds, moor-daemon, sequence-numbers, ping-timeout, deferred-calls, server-busy, task-outcome, ephemeral-events, metrics]
+  version: 3
 ---
 
 # The mooR daemon and its RPC layer
@@ -19,7 +19,9 @@ and how an event travels from a committed transaction to a connected player.
 `crates/daemon/src/lib.rs` builds the whole process in one function. It opens the
 database, optionally imports a core, starts the scheduler, starts the RPC
 transport, the workers server and (for TCP deployments) the enrollment server,
-then runs the session mailbox loop until the RPC thread exits.
+starts the metrics exporter, runs `#0:server_started` (with the JSON object from
+`--startup-config`, if given; a failure or a hook running past 30 s stops
+startup), then runs the session mailbox loop until the RPC thread exits.
 
 The daemon owns: world state, the scheduler and VM, connection records, the task
 registry, the event log, the set of registered hosts and their listeners, the set
@@ -34,7 +36,7 @@ the daemon blocks the scheduler.
 
 | Pattern | Socket | Direction | Carries |
 |---|---|---|---|
-| Request/reply | ROUTER/DEALER in front of REP workers | Host or worker calls the daemon | Every command, query, login, attach and worker result |
+| Request/reply | ROUTER for hosts; REP for workers | Host or worker calls the daemon | Every command, query, login, attach and worker result |
 | Publish/subscribe | PUB on the daemon, SUB on the peer | Daemon pushes to hosts, clients and workers | Narrative events, task results, pings, listen/unlisten, worker dispatch |
 
 There are four endpoint groups, all configurable on `moor-daemon`:
@@ -43,6 +45,16 @@ workers), `--workers-response-listen` (the REP side from workers) and
 `--enrollment-listen`. Each may be a comma-separated list. The transport splits
 the list into IPC endpoints and TCP endpoints and binds a separate socket pair
 for each group, because they have different security.
+
+The host-facing ROUTER sockets (one for IPC, one for TCP) live on the transport
+thread in `crates/daemon/src/rpc/transport.rs`. It splits each request off its
+routing envelope and queues it: pongs (`HostPong`, `ClientPong`) to a separate
+control lane served by the `moor-rpc-control` thread, everything else to the
+`moor-rpc-srv{i}` threads (`--rpc-workers`, default 7). Replies come back over an
+inproc PUSH/PULL pair and leave by the same ROUTER. Both queues are bounded; a
+full queue drops the request and the host simply times out. A wait over a second
+is logged as a backlog, at most every thirty seconds. When every endpoint is
+`inproc://` the daemon uses a direct REP path instead.
 
 The pub/sub side uses three well-known topic bytes plus one per-client topic: the
 client's UUID is the topic for events addressed to that client, and the constants
@@ -113,11 +125,14 @@ Two limits matter and are easy to get wrong:
   does not prove the object still exists or is still a player. The daemon carries
   an explicit note about this. Authorisation of the MOO operation itself happens
   in the VM; read `moor/execution/permissions-and-security`.
-- There is no host token and no worker token. Older prose (`doc/messaging.md`,
-  `doc/RPC_API_SPEC.md`) describes `HostToken` and `WorkerToken` with their own
-  footers. No such type exists in the code. A host's and a worker's identity is
-  its CURVE key over TCP, and filesystem permission over IPC. If you were
-  planning around host tokens, stop.
+- There is no host token and no worker token. Older prose (the removed
+  `doc/messaging.md` and `doc/RPC_API_SPEC.md`) described `HostToken` and
+  `WorkerToken`. No such type exists in the code. A host's and a worker's
+  identity is its CURVE key over TCP, and filesystem permission over IPC.
+
+`ValidateAuth` checks an `AuthToken` and answers with an `AttachResult` that has
+no client token: no connection is opened. The web host's `/auth/validate` uses
+it.
 
 ## How an event reaches a player
 
@@ -126,16 +141,24 @@ This is the path worth memorising.
 1. MOO code calls `notify()`. The VM hands a `NarrativeEvent` to the task's
    `Session`.
 2. `RpcSession` (in `crates/daemon/src/rpc/session.rs`) puts it in a
-   transaction-local buffer. Nothing is sent yet.
+   transaction-local `SessionEventBuffer` (`session_event_buffer.rs`). Nothing
+   is sent yet.
 3. The task's world-state transaction commits. The scheduler then calls
-   `Session::commit()`, which drains the buffer, writes each event to the event
-   log, and sends the whole batch to the daemon's session mailbox. A rollback
-   clears the buffer instead, so a retried transaction does not duplicate output.
+   `Session::commit()`, which drains the buffer, writes each non-ephemeral event
+   to the event log, and sends the whole batch to the daemon's session mailbox.
+   This happens at every in-task boundary too (`commit()`, `suspend(0)`, fork),
+   so a later conflict retries only the output of the attempt it reruns. A
+   rollback clears the buffer instead, so a retried transaction does not
+   duplicate output.
 4. The daemon's main loop takes the batch, resolves the player to its live client
    ids through the connection registry, and calls `publish_client_event` for
    each.
 5. `ClientEventBuffer` assigns the next sequence number for that client under one
-   lock, encodes the event once, and retains it.
+   lock, encodes the event once, and retains it. An **ephemeral** data event
+   (`emit_data(..., ['ephemeral -> true])`) skips this step: it is published
+   with sequence `UNSEQUENCED` (0), never retained, replayed or counted against
+   the backlog. Within one commit only the latest ephemeral event per recipient
+   and key survives.
 6. The transport publishes the encoded bytes on the PUB socket with the client's
    UUID as the topic.
 7. The host's subscription delivers it to the user.
@@ -159,18 +182,60 @@ until the host acknowledges a later sequence number.
   rather than trusting a number written here.
 - A client that exceeds a limit is disconnected. This is deliberate: an
   unbounded backlog would be a memory attack.
+- An SSE session (see `hosts-and-sessions`) moves acknowledgement to the
+  browser: the daemon keeps the payloads until the browser acks them, any web
+  host may serve the stream, and an unacked payload expires after five minutes.
 - The retention buffer is in memory only. A daemon restart loses it.
 - Broadcasts to all clients are *not* covered by this protocol. A ping may be
   dropped.
 
+## Calls that wait for a task
+
+Most requests that run MOO code are answered with a task id and the outcome
+arrives later as a `TaskOutcomeEvent`. Captured calls (web API eval, verb
+invoke and command; webhooks), logins and welcome messages, batch requests and
+connected eval instead wait for the task and answer with an
+`InvocationResponse {outcome, output}`. They do not hold an RPC worker while
+they wait. `crates/daemon/src/rpc/deferred_calls.rs` parks each one; the
+`TaskMonitor` reports the result, the `moor-rpc-finish` thread sends the reply,
+and the `moor-rpc-sweep` thread (every 50 ms) cancels tasks past their deadline.
+Removing the call from the map decides which outcome wins, so each call gets
+exactly one reply.
+
+Three pools bound them, each refusing with `ServerBusy` when full, which is safe
+to retry because no task started: `--max-captured-calls` (256),
+`--max-pending-logins` (16, logins and welcome messages) and
+`--max-webhook-calls` (16, calls without credentials). The deadline a caller may
+ask for is capped by `--max-capture-deadline-seconds` (60), which also bounds
+login verbs.
+
+The reply always says what happened to the world. A `TaskOutcome` carries an
+ending (`Completed`, `Suspended`, `Aborted(AbortReason)`, `ResultLost`) and
+`kept` (`Yes`, `No`, `Unknown`): whether the task's last transaction committed.
+When the deadline wins, a task that never committed reports `Aborted(Deadline)`
+with `kept: No`; one that had committed reports `ResultLost` with `kept: Yes`;
+when the daemon cannot tell, `ResultLost` with `kept: Unknown`. An **error**
+reply (`Rejected(SchedulerError)`, `ServerBusy`, `PermissionDenied`, …) means
+no task ran.
+
+A captured call or system-handler call may also carry a
+`TransientConnection {content_types}`. The task then runs on a connection
+object taken from the registry's count-down id sequence but never registered:
+`connection()` returns it, `connections()` lists it first, output to it is
+captured, it closes with the call, and a conflict retry keeps it while a fork
+does not. Without one, a captured call has no connection. The shipped web host
+does not send the field yet.
+
 ## Liveness
 
 A background thread pings every five seconds. Hosts answer with a pong that
-re-sends their listener list; a host that misses the host timeout has all its
-listeners removed from the daemon's registry, which is how `listeners()` in MOO
-stops advertising a dead host. Clients answer through their host, and a client
-that stops answering is removed from the connection registry. Workers ping on the
-same cadence; see `workers`.
+re-sends their listener kinds and listeners; a host that misses `HOST_TIMEOUT`
+(10 s, `rpc/message_handler.rs`) has all its listeners removed, which is how
+`listeners()` in MOO stops advertising a dead host. Clients answer through
+their host, and a client silent for `PING_TIMEOUT` (30 s,
+`connections/snapshot_registry.rs`) is removed from the connection registry.
+Pongs travel on the control lane, so a backlog of ordinary requests does not
+expire healthy hosts. Workers ping on the same cadence; see `workers`.
 
 ## Durability inside the daemon's data directory is not uniform
 
@@ -182,7 +247,7 @@ backup or a shutdown procedure.
 |---|---|---|
 | World state (`world.db`) | The transaction engine | **Never.** Nothing in `crates/db` requests a synchronous persist outside its own tests |
 | Event log (`--events-db`) | The event log's background persistence thread | **After every narrative event.** The thread writes the record and then persists with a full sync |
-| Connections (`--connections-file`) | The connection registry | On open, and on the periodic compaction the daemon runs roughly every five minutes |
+| Connections (`--connections-file`) | The connection registry's single writer thread | In batches, at most once a second, and on flush. A crash can lose up to a second of connection changes. Ids are reserved on disk in blocks of 65536, so none is reused |
 | Persistent tasks (`--tasks-db`) | The suspended-task store | On compaction |
 
 The consequence is counter-intuitive. On an unclean kill, the *history* of what
@@ -226,11 +291,25 @@ legitimate repair. Deleting either of the first two is not.
 
 ## Listeners are pushed, not pulled
 
-MOO code calling `listen()` reaches `SystemControlHandle::listen`, which
-broadcasts a listen event to every host. Each host decides whether it is the
-right host type and opens the socket. `unlisten()` is the mirror. Note that the
-in-world `listen()` currently accepts only the `tcp` host type; a websocket
-listener cannot be created this way.
+MOO code calling `listen(obj, port, [... 'kind -> "http" ...])` reaches
+`SystemControlHandle::listen`, which broadcasts a listen event carrying a
+listener **kind** to every host. A kind is an open string (1–32 characters of
+`a-z 0-9 - _`, `ListenerKind` in `crates/runtime-api`), not an enum. Each host
+registers the kinds it can open (`listener_kinds` on `RegisterHost` and
+`HostPong`) and acts only on events of those kinds: the telnet host takes
+`telnet` (the default), the web host `http`. The daemon logs a warning when no
+registered host offers the kind (`Hosts::offers` in `rpc/hosts.rs`).
+`unlisten(port [, kind])` is the mirror, and `listeners()` entries carry the
+kind.
+
+## Metrics
+
+`crates/daemon/src/metrics.rs` runs a `MetricsExporter` always. With
+`--metrics-file` it writes Prometheus text atomically every
+`--metrics-interval-seconds` (10) and deletes the file on shutdown; with a
+tracer attached it fires USDT probes (`moor:metrics_begin`, `moor:metric`,
+`moor:metrics_end`) that `tools/mootop` reads. The same snapshot answers the
+`RequestMetrics` host RPC, which only the load tools and tests send today.
 
 ## Invariants
 
@@ -248,6 +327,11 @@ listener cannot be created this way.
    endpoint without an enrolled key is refused by ZAP, silently, at connect time.
 6. **The daemon holds an exclusive lock on its data directory.** Do not point two
    daemons at one directory.
+7. **An error reply means no task ran; a task that ran is answered with its
+   outcome.** Do not report a task's abort as an RPC error, and do not report
+   `kept` as `Yes` unless the commit is known.
+8. **A waiting call never holds an RPC worker.** Park it in `DeferredCalls` and
+   bound it by a pool, or one slow verb starves every host.
 
 ## Where the code lives
 
@@ -255,18 +339,22 @@ listener cannot be created this way.
 |---|---|
 | `crates/daemon/src/lib.rs` | Process construction: database, scheduler, transports, servers, shutdown |
 | `crates/daemon/src/args.rs`, `feature_args.rs` | Command line and YAML configuration; the source of truth for endpoint defaults |
-| `crates/daemon/src/rpc/transport.rs` | ZMQ sockets, the proxy and worker threads, message framing, error encoding |
+| `crates/daemon/src/rpc/transport.rs` | ZMQ sockets, the ROUTER loop, the control and worker queues, backlog logging, error encoding |
 | `crates/daemon/src/rpc/server.rs` | The coordinator: ping thread, session mailbox loop, background session factory |
 | `crates/daemon/src/rpc/message_handler.rs` | The `MessageHandler` trait and shared state; publishing and session events |
-| `crates/daemon/src/rpc/daemon_api_impl.rs` | The typed `RuntimeApi` implementation: one arm per request |
+| `crates/daemon/src/rpc/daemon_api_impl.rs` | The typed `RuntimeApi` implementation: one arm per request, and `prepare_capture` for captured calls |
+| `crates/daemon/src/rpc/deferred_calls.rs` | Calls waiting for their tasks: pools, deadlines, the finish and sweep threads |
+| `crates/daemon/src/rpc/session.rs`, `session_event_buffer.rs`, `output_capture_session.rs` | `RpcSession`, the commit/log rules shared by sessions, and the capturing session with its transient connection |
 | `crates/daemon/src/rpc/message_handler_auth.rs` | PASETO minting and validation |
 | `crates/daemon/src/rpc/message_handler_history.rs` | History recall queries |
-| `crates/daemon/src/rpc/client_event_buffer.rs` | Sequence numbers, retention, replay, backlog limits |
-| `crates/daemon/src/rpc/hosts.rs` | Registered hosts and their listeners, with timeout expiry |
-| `crates/daemon/src/connections/` | Connection records, player association, Fjall persistence |
+| `crates/daemon/src/rpc/client_event_buffer.rs` | Sequence numbers, retention, replay, backlog limits, browser-acked SSE streams |
+| `crates/daemon/src/rpc/hosts.rs` | Registered hosts, their listener kinds and listeners, with timeout expiry |
+| `crates/daemon/src/connections/` | The connection registry: immutable in-memory snapshots (`snapshot_registry.rs`, `state.rs`), the write-behind Fjall store (`store.rs`), migration from old layouts |
+| `crates/daemon/src/metrics.rs` | Every exported metric family, the file writer and the tracer probes |
 | `crates/daemon/src/enrollment/`, `zap_auth.rs`, `allowed_hosts.rs`, `curve_keys.rs` | The CURVE trust chain |
 | `crates/daemon/src/system_control.rs` | What the scheduler may ask of the RPC layer: shutdown, listen, switch player, worker info |
-| `crates/runtime-api/src/api.rs` | The typed, transport-neutral request/reply/event vocabulary |
+| `crates/runtime-api/src/api.rs` | The typed, transport-neutral request/reply/event vocabulary; `ClientEventMessage`, `UNSEQUENCED` |
+| `crates/common/src/tasks/outcome.rs` | `TaskOutcome`, `Kept`, `TaskEnding`, `AbortReason` |
 | `crates/runtime-api/src/api_codec.rs` | Typed enum to FlatBuffer and back |
 | `crates/zmq-client/` | The peer side: `RpcClient`, subscriptions, enrollment client, worker loop |
 
@@ -286,14 +374,19 @@ lets the single-process binary skip ZeroMQ entirely.
 | "client ... event backlog exceeded its limit" and the client is dropped | The host stopped acknowledging while the daemon kept producing | The host is stuck or has died without closing. Restart it; the user reconnects |
 | Replay returns "requested sequence, but replay starts at" | The client asked for events already evicted, or the daemon restarted | The session cannot be recovered. The host must establish a new connection |
 | `listeners()` in MOO shows a port nothing answers on | A host died and the timeout has not elapsed | Wait for the host timeout, or restart the host |
+| "No connected host opens this kind of listener" | `listen()` named a kind no registered host lists in `listener_kinds` | Start the host for that kind, or fix the `'kind` option. The listen event is still broadcast |
+| Web API or webhook calls return 503 `server_busy` | A deferred-call pool is full | Raise `--max-captured-calls`, `--max-pending-logins` or `--max-webhook-calls`, or find the slow verb holding the slots. Retrying is safe |
+| "RPC requests are waiting for workers" | Every `moor-rpc-srv` thread is busy | Raise `--rpc-workers` only if they are not all waiting on a stalled scheduler |
+| Hosts time out with no daemon error | A full request queue dropped the request | Same backlog; the drop count is in the log line and the metrics |
 | Daemon refuses to start, "Directory lock acquisition failed" | Another daemon has the data directory | Stop it, or use a different `data-dir` |
 
 ## Read first / read next
 
 - Read `moor/execution/task-scheduler` before you add a request that runs MOO
-  code. Most such requests return a task id, not a result.
+  code, and decide whether it answers with a task id or waits as a deferred
+  call.
 - Read `wire-schema` before you touch a message shape.
 - Read `hosts-and-sessions` for the other end of every path here.
-- `doc/RPC_API_SPEC.md` lists the messages. It is useful, but it still describes
-  host and worker PASETO tokens that do not exist, and it points at
-  `crates/common/schema/`, which moved to `crates/schema/schema/`.
+- `doc/RPC_API_SPEC.md` and `doc/messaging.md` were removed upstream in October
+  2026. The message list is `crates/schema/schema/moor_rpc.fbs` itself; the
+  HTTP contract is `crates/web-host/openapi.yaml`.

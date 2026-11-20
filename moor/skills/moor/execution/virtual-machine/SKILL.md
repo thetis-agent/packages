@@ -4,7 +4,7 @@ description: "How the MOO interpreter runs a verb: activations and frames, verb 
 metadata:
   title: The mooR bytecode VM
   tags: [moor, vm, interpreter, activation, frame, execstate, moostackframe, value-stack, scope-stack, unwind, traceback, e-maxrec, verb-d-flag, opcode, tick, try-catch-finally, program-cache, executionresult]
-  version: 2
+  version: 3
 ---
 
 # The mooR bytecode VM
@@ -39,16 +39,18 @@ An activation carries the things that are the same for the whole call: `this`,
 the player, the verb name, the resolved verb definition, and the task permissions
 under which it runs.
 
-Inside the activation is a `Frame`, of one of two kinds.
+Inside the activation is a `Frame`, of one of three kinds (`crates/vm/src/activation.rs`).
 
 | Frame | Holds |
 |---|---|
 | `Moo` | A `MooStackFrame`: the program, the program counter, the variable environment, the value stack, the scope stack, and scratch space. |
 | `Bf` | A `BuiltinFrame`: the builtin id, its arguments, an optional trampoline number and argument, and a return value slot. |
+| `Native` | A `NativeFrame`, for a verb whose program is `ProgramType::Native`: the library and function, `caller`, the arguments, the next step number, an optional state value, the return value of the verb or builtin it called, and the inherited parsing globals. |
 
 Builtin frames are transient. Anything that asks "who am I running as" walks past
-them to the nearest MOO frame. That is why `caller_perms()`, `task_perms()`, and
-`this()` all skip `Bf` frames.
+them to the nearest MOO or native frame. That is why `caller_perms()`, `task_perms()`, and
+`this()` all skip `Bf` frames. A native frame is a real verb activation: it runs
+as the verb owner, and `callers()` and `caller_perms()` see it.
 
 A `MooStackFrame` keeps scopes in a separate stack from values. Entering a scope
 records the value stack height; leaving it truncates back. That is what makes
@@ -63,14 +65,17 @@ Two things happen, in this order, and they use different principals.
    `x` flag, so a verb without `x` is not found at all.
 2. **Activation.** The new activation runs as the *resolved verb's owner*, with
    the flags dispatch selected. `Activation::for_call` builds the frame and sets
-   the authority.
+   the authority; `Activation::for_native_call` does the same for a native verb.
 
 The program itself is not looked up by the interpreter. The interpreter yields
 `DispatchVerb` with a `VerbExecutionRequest`, and the VM host resolves the program
 through the task program cache. The cache is task-local, keyed by verb definer and
-verb uuid, and valid only for the life of the task's transaction. Frames may hold
-a raw pointer into it, which is why a frame handed to another task, or to
-persistence, must materialise its program first.
+verb uuid, and valid only for the life of the task's transaction. Since d04c93d5d
+a lookup is also guarded by the transaction identity and a local verb-edit
+revision, so a `set_verb_code()` (or a loader edit) in the same task is seen by the
+next call. Slots that active or retry frames still use are kept until explicitly
+reclaimed. Frames may hold a raw pointer into it, which is why a frame handed to
+another task, or to persistence, must materialise its program first.
 
 Command dispatch is the same shape with `DispatchCommandVerb`, which additionally
 seeds `dobj`, `iobj`, `prepstr`, `argstr`, and the rest.
@@ -81,9 +86,19 @@ rebuilds the captured environment into the new frame's scopes.
 ## The execution loop
 
 The task loop calls into the VM host, which calls `moo_frame_execute` for a MOO
-frame or re-enters the builtin for a `Bf` frame. `moo_frame_execute` runs opcodes
+frame, re-enters the builtin for a `Bf` frame, or calls `NativeVerbs::run_frame`
+(`crates/kernel/src/native_verbs.rs`) for a `Native` frame. `moo_frame_execute` runs opcodes
 until one of three things happens: the tick slice is spent, the program ends, or
 an opcode yields a result the frame cannot handle alone.
+
+A native verb runs in steps, like a builtin with trampolines. Each step returns a
+value, or asks to call a verb or a builtin and resume at a given step with a
+given state. A step cannot be interrupted, so the host checks the tick and time
+limits after each step returns (`limit_passed` in `vm_host.rs`), before its result
+takes effect. Each world request the library makes costs one tick. A conflict
+reported by the library becomes `TaskRollbackRestart`, so the task retries.
+Because the step number and state live in the frame, a native frame can be
+suspended and persisted like any other.
 
 Tick accounting has three separate numbers. Do not confuse them.
 
@@ -106,7 +121,13 @@ The VM host then interprets the interpreter's `ExecutionResult`:
 | `DispatchBuiltin` | Call the builtin. |
 | `TaskStartFork`, `TaskSuspend`, `TaskNeedInput` | Yield to the scheduler. |
 | `Complete`, `Exception` | Finish the task. |
-| `TaskRollbackRestart`, `TaskRollback` | Roll back; retry or die. |
+| `TaskRollbackRestart`, `TaskRollback` | Roll back; retry or die. A retry starts from the snapshot through `VmHost::retry_from`, which also marks the VM running again, since a native verb's conflict may have stopped it. |
+
+The task loop then sees one `VMHostResponse` (`ContinueOk`, `DispatchFork`,
+`Suspend`, `SuspendNeedInput`, `AbortLimit`, `CompleteSuccess`, `CompleteAbort`
+for a task that killed itself, `CompleteException`, `CompleteRollback`,
+`RollbackRetry`, `Stopped`), which `crates/kernel/src/tasks/task/dispatch.rs`
+handles.
 
 Stack depth is checked before each entry into the interpreter. Exceeding
 `max_stack_depth` raises `E_MAXREC` unconditionally, ignoring the `d` flag,
@@ -154,7 +175,9 @@ Unwinding walks activations from the top:
 2. A `TryFinally` scope jumps to its finally label, pushes the reason, and stops.
    The reason is re-thrown when the finally block ends.
 3. A `TryCatch` scope whose catch list matches the raised error jumps to the catch
-   label, pushes the catch value, and stops.
+   label, pushes the catch value, and stops. The match compares error codes only
+   (d4dfb0e0d), so an error raised with a message or a value is still caught by
+   `except (E_PERM)`, and the handler gets the original message and value.
 4. Otherwise the scope is discarded and the walk continues. When the frame runs
    out of scopes, the activation pops.
 5. A `Return` reason that pops an activation sets the return value in the caller
@@ -182,8 +205,10 @@ inlining of MOO into MOO. The reasons are structural, not laziness:
 - Every property and verb access must pass a permission check against the current
   transaction. There is nothing to hoist out of the loop.
 - The whole VM state must be snapshotted for conflict retry and serialised for
-  suspension. Anything that hid state in native frames or in generated code would
-  break both.
+  suspension. Anything that hid state in machine stack frames or in generated code
+  would break both. Native verbs (e02087027) keep to this rule: a library function
+  holds nothing between steps except the step number and state value it hands
+  back to its `NativeFrame`.
 
 The optimisations that are present are narrow: a cached opcode pointer for the
 duration of one execute call, cold-path helpers for error construction, a
@@ -224,13 +249,15 @@ inside that shape.
 |---|---|
 | `crates/vm/src/lib.rs` | The `VmHost` trait: everything the interpreter needs from outside. |
 | `crates/vm/src/exec_state.rs` | The activation stack, call setup, principal lookup, `set_task_perms`, error entry points. |
-| `crates/vm/src/activation.rs` | `Activation`, `BuiltinFrame`, `Frame`, and how a call's authority is chosen. |
+| `crates/vm/src/activation.rs` | `Activation`, `BuiltinFrame`, `NativeFrame`, `Frame`, and how a call's authority is chosen. |
+| `crates/vm/src/probes.rs` | USDT probes (`frame_enter`, `frame_top`, `task_off`, `commit_start`, `commit_done`) for `tools/mootop`. With no tracer attached each costs a load and a branch. |
 | `crates/vm/src/moo_frame.rs` | `MooStackFrame`, scopes, the environment, the program slot. |
 | `crates/vm/src/moo_execute.rs` | The opcode loop, `ExecutionResult`, `TaskSuspend`, `Fork`. |
 | `crates/vm/src/vm_unwind.rs` | `FinallyReason`, unwinding, stack lists and backtraces. |
 | `crates/vm/src/environment.rs` | Variable scopes and their widths. |
 | `crates/vm/src/scatter_assign.rs` | Scatter assignment semantics. |
-| `crates/kernel/src/vm/vm_host.rs` | Limits, program cache resolution, translating interpreter results. |
+| `crates/kernel/src/vm/vm_host.rs` | Limits, program cache resolution, translating interpreter results, `retry_from`. |
+| `crates/kernel/src/native_verbs.rs`, `native_api.rs` | Loading native verb libraries, running a native frame's step, and the functions the C ABI gives a library. |
 | `crates/kernel/src/vm/kernel_host.rs` | `VmHost` implemented against the task's transaction. |
 | `crates/kernel/src/vm/vm_call.rs` | Calling and re-entering builtins, and the `bf_*` proxy check. |
 | `crates/kernel/src/tasks/task_program_cache.rs` | The task-local verb program cache. |
