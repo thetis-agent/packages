@@ -1,0 +1,387 @@
+{
+  "name": "@thetis/moo-build",
+  "version": "0.2.1",
+  "private": true,
+  "description": "Build Torchship areas on a grid: list, create, read and draw builds, and set, create or delete rooms by coordinate. Exits follow from the directions you list, and the MOO-specific work (room types, exit twins, aliases, area links, route caches) is done for you. Connects through the moo package's client and character.",
+  "type": "module",
+  "main": "index.js",
+  "thetis": {
+    "type": "tool",
+    "tools": [
+      {
+        "name": "moo_build_list",
+        "description": "List the builds the MOO character can author: the areas in its .builds list. Each has an id to pass as `build` to the other moo_build_* tools. With all: true, also lists every other area that has rooms, which can be read with moo_build_get but not changed.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "all": {
+              "type": "boolean",
+              "description": "Also list areas that are not builds of this character. Default false."
+            }
+          },
+          "additionalProperties": false
+        },
+        "export": "list"
+      },
+      {
+        "name": "moo_build_create",
+        "description": "Create a new build: an area owned by the character and added to its .builds, so the moo_build_* tools can author it. Optionally makes its first room. Returns the build's id. Building it out is done with moo_build_set_rooms. A new build is an island until moo_build_link joins it to a room elsewhere in the world.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "The area's name."
+            },
+            "first_room": {
+              "type": "object",
+              "description": "A first room to create with it. Coordinates default to (0,0,0).",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "x": {
+                  "type": "integer"
+                },
+                "y": {
+                  "type": "integer"
+                },
+                "z": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        "export": "create"
+      },
+      {
+        "name": "moo_build_get",
+        "description": "Read a build, or any area, as a grid: a map of each level with its exits drawn, then one line per room with its id, name, (x,y,z) and exits. x grows east, y grows south, z grows down (0 is ground level). Exits that leave the area, and ones whose direction does not match the grid, are listed under the map. Read the build before changing it.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "build": {
+              "type": "string",
+              "description": "The area id, e.g. #123, from moo_build_list."
+            },
+            "z": {
+              "type": "integer",
+              "description": "Show only this level."
+            },
+            "descriptions": {
+              "type": "boolean",
+              "description": "Include every room's description. Default false."
+            },
+            "json": {
+              "type": "boolean",
+              "description": "Return the raw structure instead of the map."
+            }
+          },
+          "required": [
+            "build"
+          ],
+          "additionalProperties": false
+        },
+        "export": "get"
+      },
+      {
+        "name": "moo_build_render",
+        "description": "Draw a build, or any area, as images: one per populated level, in the style of the website's map editor. Each room shows its name and its label from moo_build_get, exits are lines coloured by type, and up/down exits are triangles in the room's corner. The margins are numbered with x and y. The images come back to you and are shown in the conversation. Use it to check a layout by eye; moo_build_get is the cheaper text view.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "build": {
+              "type": "string",
+              "description": "The area id, e.g. #123."
+            },
+            "z": {
+              "type": "integer",
+              "description": "Draw only this level. Without it, every populated level is drawn, up to six."
+            },
+            "ghost": {
+              "type": "boolean",
+              "description": "Show the rooms of the level below as dashed outlines, as the editor does. Default true."
+            }
+          },
+          "required": [
+            "build"
+          ],
+          "additionalProperties": false
+        },
+        "export": "render"
+      },
+      {
+        "name": "moo_build_set_rooms",
+        "description": "Set one or more rooms of a build by coordinate. An empty cell gets a new room, which needs a name; an existing room has its name and description updated. A room can also be named by id. Exits: list a room's directions (n ne e se s sw w nw up down) and each one connects to the room in the neighbouring cell, e.g. `e` from (2,3,0) goes to (3,3,0). The list is that room's complete set of exits to its neighbours in this build: missing pairs are added, unlisted ones are removed, and omitting `exits` leaves them as they are. Exits that leave the build are never touched here. Every room in the call is created before any exit is made, so a whole area can be laid out in one call. The request is checked in full before anything changes; any error means nothing ran. Returns what was done and the map afterwards.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "build": {
+              "type": "string",
+              "description": "The build's area id, from moo_build_list or moo_build_create."
+            },
+            "rooms": {
+              "type": "array",
+              "minItems": 1,
+              "description": "One entry per room. Give x and y (z defaults to 0), or room.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "integer"
+                  },
+                  "y": {
+                    "type": "integer"
+                  },
+                  "z": {
+                    "type": "integer",
+                    "description": "Level. 0 is ground, -1 is one floor up, 1 is one floor down."
+                  },
+                  "room": {
+                    "type": "string",
+                    "description": "An existing room's id, instead of coordinates."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Required for a new room."
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "What a player sees on look. Separate paragraphs with a newline."
+                  },
+                  "exits": {
+                    "type": "array",
+                    "description": "Directions to connect to neighbouring rooms: \"n\", or {\"dir\": \"e\", \"type\": \"door\", \"hidden\": true}. Types: open (default), door, climb, swim.",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "dir": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "open",
+                                "door",
+                                "climb",
+                                "swim"
+                              ]
+                            },
+                            "hidden": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "dir"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "dry_run": {
+              "type": "boolean",
+              "description": "Check and plan without changing anything."
+            },
+            "z": {
+              "type": "integer",
+              "description": "Draw only this level in the map afterwards."
+            }
+          },
+          "required": [
+            "build",
+            "rooms"
+          ],
+          "additionalProperties": false
+        },
+        "export": "setRooms"
+      },
+      {
+        "name": "moo_build_delete_rooms",
+        "description": "Delete rooms of a build, by coordinate or id. A deleted room takes its exits with it, including the twin of each one in the neighbouring room, and the build's jump edges that start or land in it. A room with a player in it is refused. Objects in a room are moved to their owners. Returns the map afterwards.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "build": {
+              "type": "string",
+              "description": "The build's area id."
+            },
+            "rooms": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "integer"
+                  },
+                  "y": {
+                    "type": "integer"
+                  },
+                  "z": {
+                    "type": "integer"
+                  },
+                  "room": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "dry_run": {
+              "type": "boolean",
+              "description": "Check and plan without changing anything."
+            }
+          },
+          "required": [
+            "build",
+            "rooms"
+          ],
+          "additionalProperties": false
+        },
+        "export": "deleteRooms"
+      },
+      {
+        "name": "moo_build_link",
+        "description": "Make one exit pair from a room of the build. Without `to` it joins the neighbouring cell in `dir`, as moo_build_set_rooms does. With `to` it can join any room, including one outside the build: this is how a build is connected to the rest of the world, e.g. a street door into it. The far room gets the opposite exit (an east exit comes back as west). Both rooms must be free in those directions.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "build": {
+              "type": "string",
+              "description": "The build's area id."
+            },
+            "from": {
+              "type": "object",
+              "description": "The room in this build: x and y (z defaults to 0), or room.",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                },
+                "y": {
+                  "type": "integer"
+                },
+                "z": {
+                  "type": "integer"
+                },
+                "room": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "dir": {
+              "type": "string",
+              "description": "n ne e se s sw w nw up down"
+            },
+            "to": {
+              "type": "string",
+              "description": "A room id to link to instead of the neighbouring cell."
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "open",
+                "door",
+                "climb",
+                "swim"
+              ]
+            },
+            "hidden": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "build",
+            "from",
+            "dir"
+          ],
+          "additionalProperties": false
+        },
+        "export": "link"
+      },
+      {
+        "name": "moo_build_unlink",
+        "description": "Remove one exit pair from a room of the build: the exit and its twin on the far side, whether the far room is in this build or outside it. Name it by room and direction, or by exit id. Use this for exits that moo_build_set_rooms leaves alone: ones leaving the build, and in or out.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "build": {
+              "type": "string",
+              "description": "The build's area id."
+            },
+            "from": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                },
+                "y": {
+                  "type": "integer"
+                },
+                "z": {
+                  "type": "integer"
+                },
+                "room": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "dir": {
+              "type": "string",
+              "description": "The exit's direction, including in and out."
+            },
+            "exit": {
+              "type": "string",
+              "description": "An exit id, instead of from and dir."
+            }
+          },
+          "required": [
+            "build"
+          ],
+          "additionalProperties": false
+        },
+        "export": "unlink"
+      }
+    ],
+    "config": {
+      "moo_package": {
+        "type": "string",
+        "help": "Which installed package holds the connection to the MOO. These tools use its client and log in as its character with its username and password. Default: @thetis/moo, else @bitmuse/moo."
+      },
+      "room_parent": {
+        "type": "string",
+        "help": "The parent of new rooms, e.g. #3282. Default: the Shaper Feature's @dig room type (#272.default_room_type)."
+      },
+      "area_parent": {
+        "type": "string",
+        "help": "The parent of new builds, e.g. #273. Default: the character's @build area type (.default_build_area)."
+      }
+    }
+  },
+  "dependencies": {
+    "@resvg/resvg-js": "2.6.2"
+  }
+}
