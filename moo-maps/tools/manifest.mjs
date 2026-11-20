@@ -15,17 +15,18 @@ const SCOPE = {
   area: AREA,
   z: Z,
 };
+const STATION = { type: "object", properties: { room: ROOMREF, name: { type: "string", description: "The station's name. Default: the platform room's name." }, travel: { type: "integer", description: "Seconds from this station to the next one round the loop (10-1800). Default 240." }, warning: { type: "integer", description: "The last seconds of that leg, when the car chimes the next stop (0 to travel-1). Default 60." } }, required: ["room"] };
 const obj = (properties, required = []) => ({ type: "object", properties, ...(required.length ? { required } : {}), additionalProperties: false });
 
 const tools = [
-  ["map_list", "mapList", true, "List the maps in progress, one line each: id, title, rooms, exits, areas, whether it is a draft, published or changed since its last publish, and its last change. The person sees the same list under Maps in the sidebar.", obj({})],
+  ["map_list", "mapList", true, "List the maps in progress, one line each: id, title, rooms, exits, areas, how many areas are draft, changed, out of date or published, and its last change. The person sees the same list under Maps in the sidebar.", obj({})],
   ["map_create", "mapCreate", false, "Start a new map: a draft of one or more areas, kept in Thetis and opened by the person from Maps in the sidebar. Nothing is made in the MOO until map_publish. Optionally lays out rooms at once, as map_set_rooms does. Read the moo-maps skill first.", obj({
     name: { type: "string", description: "The map's title, as the sidebar shows it." },
     areas: { type: "array", items: { type: "string" }, description: "Area names, in order (a1, a2, …). Default: one area named like the map." },
     rooms: { type: "array", description: "Rooms to make, as map_set_rooms takes them.", items: { type: "object" } },
   }, ["name"])],
   ["map_delete", "mapDelete", false, "Delete a map from Thetis for good. The world is not touched: areas it published stay in the MOO and map_import can bring them back. Needs confirm: true.", obj({ map: MAP, confirm: { type: "boolean" } }, ["map"])],
-  ["map_get", "mapGet", true, "Read a map as a grid: a header (publish state, what the person has selected in the map tab), its recent changes, then a drawing of each level with exits and a line per room with id, name, (x,y,z), exits and MOO id. x grows east, y grows south, z grows down. Read before changing.", obj({
+  ["map_get", "mapGet", true, "Read a map as a grid: a header (each area's publish state, what the person has selected in the map tab), its recent changes, then a drawing of each level with exits and a line per room with id, name, (x,y,z), exits and MOO id. x grows east, y grows south, z grows down. Read before changing.", obj({
     map: MAP, area: AREA, z: Z, descriptions: { type: "boolean", description: "Include each room's description." }, json: { type: "boolean", description: "The raw document and link instead." },
   })],
   ["map_rooms", "mapRooms", true, "Get rooms in detail: one room (by id, MOO id, or cell x/y/z), or every room matching a filter (area, level, a box, a name/description query), each with its exits, MOO id, notes and (for one room, or with descriptions) its description.", obj({
@@ -77,6 +78,22 @@ const tools = [
     remove: { type: "boolean", description: "Remove the elevator from the map; publishing then recycles its carriage and lobby exits." },
     dry_run: DRY,
   })],
+  ["map_transit", "mapTransit", false, "Make, change or remove a transit line (a maglev train on a fixed timetable): one train is its own area, with a car room on that area's grid, and stations in loop order, each a platform room in another area with the leg's travel time to the next station and its warning (the last seconds of that leg, when the car announces the next stop). Making one needs area (an area of the map, or a new area's name) and two stations; car is a room of that area, else a car room is made at (0,0,0). Publishing makes the area a $maglev_line and hands it the spec; the car's `out` and each platform's `in` belong to the line, never drawn as exits. A platform serves one line and cannot be an elevator lobby. Changes the map only; map_publish writes it to the MOO.", obj({
+    map: MAP,
+    transit: { type: "string", description: "An existing line: t3, its name, its area (id or name), or the area's MOO id. Omitted: make a new one." },
+    area: { type: "string", description: "For a new line: the train's area — an area of the map with no line yet, or the name of a new area to add." },
+    car: { ...ROOMREF, description: "The car: a room in the line's own area. Omitted on a new line: a car room is made at (0,0,0)." },
+    line: { type: "string", description: "The line's name, e.g. \"Red Line\". Default: the area's name." },
+    dwell: { type: "integer", description: "Seconds the doors stay open at each station (10-300). Default 45." },
+    offset: { type: "integer", description: "Seconds the fixed clock is shifted by (0-86399). Default 0." },
+    running: { type: "boolean", description: "Whether the line runs. Default true." },
+    stations: { type: "array", description: "The whole loop, in order.", items: STATION },
+    add: { type: "array", description: "Stations to add; at (0-based) places one, else it goes at the end of the loop.", items: { ...STATION, properties: { ...STATION.properties, at: { type: "integer" } } } },
+    drop: { type: "array", description: "Stations to remove, by platform room or station name.", items: ROOMREF },
+    set: { type: "array", description: "Change stations in place: each names one (station: its room or name) and gives name, travel and/or warning.", items: { type: "object", properties: { station: ROOMREF, name: { type: "string" }, travel: { type: "integer" }, warning: { type: "integer" } }, required: ["station"] } },
+    remove: { type: "boolean", description: "Remove the line from the map; publishing clears it in the MOO (its exits go; the area and the car room stay)." },
+    dry_run: DRY,
+  })],
   ["map_blocks", "mapBlocks", false, "Block out or clear cells: impassable solid space in an area, which no room may take. Published to the area's mapper blocks.", obj({ map: MAP, add: { type: "array", items: CELL }, remove: { type: "array", items: CELL }, dry_run: DRY })],
   ["map_areas", "mapAreas", false, "Add, rename or remove a map's areas, or rename the map (name). An area must be empty to remove. Publishing makes new areas in the MOO and renames linked ones; a removed area is only unlinked, never recycled.", obj({
     map: MAP, add: { type: "array", items: { type: "string" } }, rename: { type: "object", additionalProperties: { type: "string" }, description: "{ \"a2\": \"New name\" }" }, remove: { type: "array", items: { type: "string" } }, name: { type: "string", description: "A new title for the map." }, dry_run: DRY,
@@ -87,15 +104,15 @@ const tools = [
     areas: { type: "array", minItems: 1, items: { type: "string" }, description: "MOO area ids, from map_world_areas." }, map: MAP, name: { type: "string", description: "The new map's title. Default: the areas' names." }, allow_shared: { type: "boolean" },
   }, ["areas"])],
   ["map_pull", "mapPull", false, "Bring changes made in the MOO since the last publish or pull into a linked map: rooms, exits and edges added, changed or recycled in the world. Where the map and the world both changed the same thing, the map's version is kept and said so.", obj({ map: MAP })],
-  ["map_publish", "mapPublish", false, "Write a map to the MOO: make its areas and rooms that are not there yet, update the ones that are (name, description, cell, area), make and remove exits and edges, set blocks, and recycle linked rooms deleted from the map. Remembers every MOO id so later publishes update the same objects. Leaves alone anything in the world the map never had. Run with dry_run first and show the person the plan. A room with a player in it is not recycled unless force.", obj({ map: MAP, dry_run: DRY, force: { type: "boolean", description: "Recycle rooms even with players in them (they are sent home)." } })],
-  ["map_status", "mapStatus", true, "Compare a map with the MOO now: what publishing would change, what changed in the world since the last sync, rooms and exits in the world the map does not have, rooms with players in them, and exits leading out of the map.", obj({ map: MAP })],
+  ["map_publish", "mapPublish", false, "Write a map, or some of its areas, to the MOO: make its areas and rooms that are not there yet, update the ones that are (name, description, cell, area), make and remove exits and edges, set blocks, and recycle linked rooms deleted from the map. Remembers every MOO id so later publishes update the same objects. Leaves alone anything in the world the map never had. Run with dry_run first and show the person the plan. A room with a player in it is not recycled unless force.", obj({ map: MAP, areas: { type: "array", items: { type: "string" }, description: "Publish only these areas (ids, names or MOO ids): what touches them is written, the rest of the map waits. An exit into an area not in the world yet waits until that area is published too. Default: every area." }, dry_run: DRY, force: { type: "boolean", description: "Recycle rooms even with players in them (they are sent home)." } })],
+  ["map_status", "mapStatus", true, "Compare a map with the MOO now, area by area: which areas are draft, changed, out of date or published, what publishing would change, what changed in the world since the last sync, rooms and exits in the world the map does not have, rooms with players in them, and exits leading out of the map.", obj({ map: MAP })],
 ];
 
 const tool = ([name, exp, reads, description, parameters]) => ({ name, description, parameters, export: exp, reads });
 
 const pkg = {
-  name: "@thetis/moo-maps",
-  version: "0.3.0",
+  name: "@bitmuse/moo-maps",
+  version: "0.3.1",
   private: true,
   description: "Maps of MOO areas you and the agent build together: a cartographer tab with the maps in progress in the sidebar, map_* tools for editing them in chat, and map_publish to write a map into the MOO and keep it linked for later updates.",
   type: "module",
@@ -107,6 +124,7 @@ const pkg = {
   peerDependenciesMeta: { "@thetis/moo": { optional: true } },
   thetis: {
     type: "tool",
+    publishedAs: "@thetis/moo-maps",
     label: "MOO maps",
     summary: "Lets your assistant sketch, edit and publish MOO areas with you on a map you both edit.",
     skills: "skills",

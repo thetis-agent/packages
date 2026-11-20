@@ -8,11 +8,12 @@ const READS = { open: "open", door: "door", locked: "door", climb: "climb", swim
 
 export function fakeWorld() {
   let n = 1000;
-  const W = { areas: new Map(), rooms: new Map(), exits: new Map(), edges: new Map(), cars: new Map(), elevatorApi: true, calls: [], fail: null };
+  const W = { areas: new Map(), rooms: new Map(), exits: new Map(), edges: new Map(), cars: new Map(), elevatorApi: true, transitApi: true, calls: [], fail: null };
   const id = () => `#${n++}`;
   const err = (m) => { throw new Error(m); };
 
-  W.addArea = (name) => { const a = id(); W.areas.set(a, { name, rooms: [], blocks: [] }); return a; };
+  // kind "transit" is a $maglev_line; its `line` is the spec mapper_transit_get answers (null: unconfigured).
+  W.addArea = (name, kind = "area") => { const a = id(); W.areas.set(a, { name, rooms: [], blocks: [], kind, line: null }); return a; };
   W.addRoom = (area, x, y, z, name, description = "") => {
     const r = id();
     W.rooms.set(r, { area, x, y, z, name, description, exits: [], edges: [], players: 0 });
@@ -32,6 +33,7 @@ export function fakeWorld() {
     for (const e of [...room.exits]) W.unjoin(e);
     for (const g of room.edges) W.edges.delete(g);
     for (const c of W.cars.values()) c.stops = c.stops.filter((x) => x.room !== r);
+    for (const a of W.areas.values()) if (a.line) a.line.stations = a.line.stations.filter((x) => x.room !== r);
     const a = W.areas.get(room.area);
     a.rooms = a.rooms.filter((x) => x !== r);
     W.rooms.delete(r);
@@ -76,24 +78,50 @@ export function fakeWorld() {
   };
   const needApi = () => { if (!W.elevatorApi) err("the MOO has no elevator system yet ($elevator:mapper_set)"); };
 
+  // Transit lines per plans/maglev.md §4: the line is the train's area; the car's `out` is a
+  // $maglev_carriage_exit and each platform's `in` a $maglev_platform_exit (flagged `maglev` here). Set
+  // reconciles in place: the out is made once, platform exits are kept, made or recycled by room.
+  const needTransit = () => { if (!W.transitApi) err("the MOO has no transit system yet ($maglev_line:mapper_transit_set)"); };
+  const dropExit = (e) => { const x = W.exits.get(e); if (!x) return; const r = W.rooms.get(x.loc); if (r) r.exits = r.exits.filter((y) => y !== e); W.exits.delete(e); };
+  W.transitSets = 0;
+  const setLine = (areaId, op, allowed) => {
+    const a = W.areas.get(areaId);
+    if (a.kind !== "transit") err(`${a.name} (${areaId}) is not a $maglev_line`);
+    const car = room(op.car, allowed);
+    if (car.area !== areaId) err("the car is not in the line's area");
+    for (const s of op.stations) room(s.room, allowed);
+    W.transitSets++;
+    const had = a.line ?? { stations: [], out: null, platforms: {} };
+    const platforms = {};
+    for (const [r, e] of Object.entries(had.platforms ?? {})) if (op.stations.some((s) => s.room === r)) platforms[r] = e; else dropExit(e);
+    for (const s of op.stations) if (!platforms[s.room]) { const e = id(); W.exits.set(e, { loc: s.room, twin: "#-1", dir: "in", type: "open", hidden: 0, maglev: "platform" }); W.rooms.get(s.room).exits.push(e); platforms[s.room] = e; }
+    let out = had.out;
+    if (out && W.exits.get(out)?.loc !== op.car) { dropExit(out); out = null; }
+    if (!out) { out = id(); W.exits.set(out, { loc: op.car, twin: "#-1", dir: "out", type: "open", hidden: 0, maglev: "carriage" }); W.rooms.get(op.car).exits.push(out); }
+    a.line = { line: op.line, car: op.car, dwell: op.dwell, offset: op.offset, running: op.running ? 1 : 0, stations: op.stations.map((s) => ({ name: s.name, room: s.room, travel: s.travel, warning: s.warning })), out, platforms };
+  };
+  const lineSpec = (a) => (a.line ? { line: a.line.line, car: a.line.car, dwell: a.line.dwell, offset: a.line.offset, running: a.line.running, stations: a.line.stations.map((s) => [s.name, s.room, s.travel, s.warning]) } : []);
+
   W.snapshot = async (_conn, ids, carriages = []) => {
-    W.calls.push({ snapshot: ids });
+    W.calls.push({ snapshot: ids, carriages });
     const cars = new Set(W.elevatorApi ? carriages.filter((c) => W.cars.has(c)) : []);
     for (const a of ids) for (const r of W.areas.get(a)?.rooms ?? []) for (const e of W.rooms.get(r).exits) { const x = W.exits.get(e); if (x.carriage && W.elevatorApi) cars.add(x.carriage); }
     return {
-      character: "#9", shaper: 1, elevator_api: W.elevatorApi ? 1 : 0,
+      character: "#9", shaper: 1, elevator_api: W.elevatorApi ? 1 : 0, transit_api: W.transitApi ? 1 : 0,
       elevators: [...cars].map((c) => ({ id: c, ...carSpec(W.cars.get(c)) })),
       carriages_gone: carriages.filter((c) => !W.cars.has(c)),
       areas: ids.map((a) => {
         const area = W.areas.get(a);
         if (!area) return { id: a, missing: 1 };
         return {
-          id: a, name: area.name, blocks: area.blocks.map((b) => [...b]),
+          id: a, name: area.name, blocks: area.blocks.map((b) => [...b]), kind: area.kind,
+          ...(area.kind === "transit" ? (W.transitApi ? { transit: lineSpec(area) } : { transit_error: "Verb not found" }) : {}),
           rooms: area.rooms.map((r) => {
             const o = W.rooms.get(r);
             return {
               id: r, x: o.x, y: o.y, z: o.z, name: o.name, description: o.description, players: o.players,
-              exits: o.exits.filter((e) => !(W.elevatorApi && W.exits.get(e).carriage)).map((e) => {
+              // The line's own exits are skipped first, whatever the API says; then elevator lobbies.
+              exits: o.exits.filter((e) => !W.exits.get(e).maglev).filter((e) => !(W.elevatorApi && W.exits.get(e).carriage)).map((e) => {
                 const x = W.exits.get(e), t = W.exits.get(x.twin), d = t ? t.loc : "#-1", dr = W.rooms.get(d);
                 return { id: e, twin: x.twin, to: d, to_name: dr?.name ?? "", to_area: dr?.area ?? "#-1", to_area_name: dr ? W.areas.get(dr.area).name : "", dir: x.dir, type: x.type, hidden: x.hidden };
               }),
@@ -106,7 +134,17 @@ export function fakeWorld() {
   };
 
   const OPS = {
-    area_create: (op, allowed) => { const a = W.addArea(op.name); allowed.push(a); return a; },
+    area_create: (op, allowed) => {
+      if (op.kind === "transit") needTransit();
+      const a = W.addArea(op.name, op.kind === "transit" ? "transit" : "area"); allowed.push(a); return a;
+    },
+    transit_set: (op, allowed) => { needTransit(); if (!allowed.includes(op.area)) err("that area is not one of this map's"); setLine(op.area, op, allowed); return op.area; },
+    transit_clear: (op, allowed) => {
+      needTransit(); if (!allowed.includes(op.area)) err("that area is not one of this map's");
+      const a = W.areas.get(op.area);
+      if (a.line) { dropExit(a.line.out); for (const e of Object.values(a.line.platforms)) dropExit(e); a.line = null; }
+      return op.area;
+    },
     area_rename: (op, allowed) => { if (!allowed.includes(op.area)) err("that area is not one of this map's"); W.areas.get(op.area).name = op.name; return op.area; },
     room_create: (op, allowed) => {
       if (!allowed.includes(op.area)) err("that area is not one of this map's");
@@ -170,6 +208,7 @@ export function fakeWorld() {
   W.connect = async () => ({ fake: true });
   W.listAreas = async () => ({ character: "#9", character_name: "Zero", shaper: 1, areas: [...W.areas].map(([id, a]) => ({ id, name: a.name, rooms: a.rooms.length, yours: 0 })) });
   W.roomAt = (area, x, y, z) => [...W.rooms].find(([, r]) => r.area === area && r.x === x && r.y === y && r.z === z)?.[0];
+  W.maglevExits = () => [...W.exits.values()].filter((x) => x.maglev).length;
   W.exitDirs = (r) => W.rooms.get(r).exits.map((e) => W.exits.get(e).dir).sort();
   return W;
 }

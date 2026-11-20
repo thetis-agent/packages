@@ -14,6 +14,24 @@ work. The MOO is not touched until `map_publish`. From then on the map stays **l
 the MOO object of every area, room, exit and edge, and the next publish updates those objects instead of
 making new ones.
 
+## One map, many areas
+
+Keep **one map for the whole game** and add each new build to it as an area, next to the world's areas
+(`map_import` with `map` adds areas to an existing map). Publish state is tracked **per area**:
+
+| state | meaning |
+|---|---|
+| `draft` | not in the MOO yet: no MOO area is linked to it |
+| `changed` | in the MOO, with edits on the map not yet published (an exit across two areas counts for both) |
+| `outdated` | the MOO changed there since the map last looked (seen by `map_status`; `map_pull` takes it in) |
+| `published` | in step with the MOO as last seen |
+
+`map_get` and `map_status` list the areas that need something and count the rest; on a big map
+`map_get` without `area` gives that index instead of drawing every area, so name the area you want.
+`map_publish areas: ["Lopatin Creche", "a3"]` writes only what touches those areas; an exit into an area
+still in draft waits (the plan says "held back") until that area is published too. The tab's area
+picker groups areas by state, and its badge shows the state of the area on screen.
+
 ## The loop
 
 1. **Find or start the map.** `map_list` shows the maps in progress. `map_create` starts a draft.
@@ -22,11 +40,11 @@ making new ones.
    **what the person has selected in the tab right now** ("selected: room r12 …"). When the person says
    "this room" or "here", the selection is what they mean. Every reply ends with the map after the change.
 3. **Edit** with `map_set_rooms` (most work), `map_link` / `map_unlink`, `map_move_rooms`,
-   `map_delete_rooms`, `map_replace`, `map_edge`, `map_blocks`, `map_areas`. All of them take `dry_run`.
+   `map_delete_rooms`, `map_replace`, `map_edge`, `map_elevator`, `map_transit`, `map_blocks`, `map_areas`. All of them take `dry_run`.
    Each call is checked in full before it writes anything: an error means nothing changed.
 4. **Look** with `map_render` when the layout matters: it draws what the tab draws.
-5. **Publish.** `map_publish dry_run: true` first, show the person the plan in a few lines, then publish
-   when they agree. Report the counts and any failures from the reply, not from the plan.
+5. **Publish.** `map_publish dry_run: true` first (with `areas` for just the build at hand), show the
+   person the plan in a few lines, then publish when they agree. Report the counts and any failures from the reply, not from the plan.
 6. **Keep in sync.** `map_status` compares the map with the world. If someone built in the game since,
    `map_pull` brings it in before you publish again.
 
@@ -100,6 +118,41 @@ lobby of one elevator only: the MOO gives it a single `in`, and publish refuses 
   `:mapper_create/mapper_set/mapper_get/mapper_destroy`). Until that exists the publish makes everything
   else and says the elevators wait: publish again once it does. The contract is in `plans/elevators-app.md`.
 
+## Transit lines
+
+A transit line (`map_transit`, id `t…`) is one maglev train on a fixed timetable. Its train is an
+**area of its own** (one line per area; publishing makes it a `$maglev_line`, and that area's MOO id is
+the line's identity), with a **car** room on that area's grid. Its **stations**, in loop order, are
+platform rooms in other areas, each `{room, name, travel, warning}`: `travel` is the leg from that
+station to the next one round the loop, `warning` the last seconds of that leg, when the car announces the
+next stop. The loop's period is Σ(dwell + travel_i); `offset` shifts the clock.
+
+- Make one: `map_transit {area: "Red Line", stations: [{room, name?, travel?, warning?}, …]}`. `area` is
+  an area of the map without a line, or the name of a new area; `car` is a room of that area, else a car
+  room is made at (0,0,0). Two stations or more.
+- Change it with `transit: "t3"` (or its line name, its area): `stations` replaces the loop, `add` puts
+  stations in (`at` 0-based, else at the end), `drop` takes them out by room or name, `set: [{station,
+  name?, travel?, warning?}]` retimes a leg in place; `dwell`, `offset`, `running`, `line`, `car`.
+  `remove: true` removes it: publishing clears the line; the area and car room stay.
+- Rules: dwell 10–300 s, travel 10–1800 s, 0 ≤ warning < that leg's travel, offset 0–86399 s; station
+  names unique in the line; a platform is not in the train's area, serves one line only and is not an
+  elevator lobby (each needs the room's one `in`). Defaults: dwell 45, travel 240, warning 60.
+- Deleting a platform room drops its station (refused if it would leave fewer than two). The car room
+  cannot be deleted while it is a car, and the train's area cannot be removed while a line runs in it.
+- Do not draw the track, the tunnel or the car's door as rooms or exits. The car's `out` and each
+  platform's `in` belong to the line (`$maglev_carriage_exit`, `$maglev_platform_exit`): the map never
+  shows them, and an import does not bring them in as exits.
+- `map_get` lists the lines at the end ("Transit lines"); a car shows `out → … car of transit tN`, a
+  platform `in → transit tN … station "X"`. The tab and `map_render` draw an amber `⇄` badge: the line's
+  name on the car, the station's name on a platform.
+- Publishing writes lines last, after elevators: the whole spec goes in one `transit_set` whenever any
+  part differs (a retime, a reorder, a new offset is one op), and a removed line's `transit_clear` runs
+  before any room is deleted. Without the MOO's transit system (`$maglev_line:mapper_transit_set`)
+  the lines **and their train areas** wait, with a note, so a train area is never made as a plain `$area`.
+  A linked area that is not a `$maglev_line` is never re-parented: publish notes it and skips the line.
+- `map_pull`/`map_import` adopt a line from the world when its car and every platform are on the map;
+  otherwise status lists it as a line the map does not have.
+
 ## Publishing
 
 What `map_publish` does, in order: makes or renames areas; removes what the map deleted (edges, exits,
@@ -129,6 +182,8 @@ published state.
   `moo_build_link` (from `@bitmuse/moo-build`, `to` the street room's id) or `@dig`/`@open` in the game,
   then `map_pull` so the map knows the exit out. Exits leaving the map are remembered and shown, never
   drawn or changed.
+- Exits imported from the world keep their own names even where they disagree with the rooms' cells;
+  publish renames an exit's sides to match the grid only when the map changed that exit or moved an end.
 - Two maps publishing the same area undo each other's work. `map_import` refuses an area that is
   already on a map unless `allow_shared`.
 

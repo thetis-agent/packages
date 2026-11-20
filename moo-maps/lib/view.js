@@ -3,10 +3,11 @@
 // exits { id, twin, to, compass, type, hidden, adjacent } and edges { dir, success }. Exits into another
 // area of the map, or into the world beyond it, are drawn as portal stubs.
 
-import { elevatorLines } from "./ops.js";
+import { elevatorLines, transitLines } from "./ops.js";
 import { exitDirFrom, stepDir } from "../ui/core/doc.js";
 import { renderLevels, legend, labelled } from "./grid.js";
 import { publishState } from "./store.js";
+import { areaStates, STATE_ORDER } from "./areastate.js";
 
 export function areaBuild(doc, areaId, link) {
   const area = doc.areas.find((a) => a.id === areaId);
@@ -15,6 +16,10 @@ export function areaBuild(doc, areaId, link) {
   const rooms = doc.rooms.filter((r) => r.area === areaId).map((r) => ({
     id: r.id, name: r.name, x: r.x, y: r.y, z: r.z, color: r.color, description: r.description,
     lifts: (doc.elevators ?? []).flatMap((v) => v.stops.filter((st) => st.room === r.id).map((st) => ({ elevator: v.id, name: v.name, label: st.label }))),
+    transits: (doc.transits ?? []).flatMap((t) => [
+      ...(t.car === r.id ? [{ transit: t.id, line: t.line, car: true }] : []),
+      ...t.stations.filter((st) => st.room === r.id).map((st) => ({ transit: t.id, line: t.line, station: st.name })),
+    ]),
     exits: [], edges: doc.edges.filter((g) => g.from === r.id).map((g) => ({ id: g.id, dir: g.dir, success: g.success, fail: g.fail, hidden: g.hidden })),
   }));
   const mine = new Map(rooms.map((r) => [r.id, r]));
@@ -44,14 +49,22 @@ export function areaBuild(doc, areaId, link) {
 export function header(record) {
   const s = publishState(record);
   const d = record.doc;
-  const where = Object.keys(record.link.areas).length
-    ? d.areas.map((a) => `${a.id} "${a.name}"${record.link.areas[a.id] ? ` → ${record.link.areas[a.id]}` : " (not in the world yet)"}`).join("; ")
-    : d.areas.map((a) => `${a.id} "${a.name}"`).join("; ");
-  return [
-    `${record.id} "${d.name}" · rev ${record.rev} · ${d.rooms.length} rooms, ${d.exits.length} exits${d.edges.length ? `, ${d.edges.length} edges` : ""}${d.blocks.length ? `, ${d.blocks.length} blocks` : ""}`,
+  const rows = areaStates(record);
+  const tag = (r) => `${r.id} "${r.name}"${r.moo ? ` → ${r.moo}` : ""}`;
+  // In step areas are many on a whole-world map: count them, and name only the ones that need something.
+  const busy = rows.filter((r) => r.state !== "published");
+  const calm = rows.length - busy.length;
+  const lines = [
+    `${record.id} "${d.name}" · rev ${record.rev} · ${d.areas.length} areas, ${d.rooms.length} rooms, ${d.exits.length} exits${d.edges.length ? `, ${d.edges.length} edges` : ""}${d.blocks.length ? `, ${d.blocks.length} blocks` : ""}`,
     `state: ${s.label}`,
-    `areas: ${where}`,
-  ].join("\n");
+  ];
+  for (const st of STATE_ORDER) {
+    if (st === "published") continue;
+    const list = busy.filter((r) => r.state === st);
+    if (list.length) lines.push(`${st}: ${list.map((r) => `${tag(r)}${r.label ? ` (${r.label})` : ""}`).join("; ")}`);
+  }
+  if (calm) lines.push(calm <= 12 ? `published: ${rows.filter((r) => r.state === "published").map(tag).join("; ")}` : `published: ${calm} areas in step with the world (map_status lists every area)`);
+  return lines.join("\n");
 }
 
 /** Text grid and legend of every area (or one), with world links and players marked. */
@@ -59,7 +72,7 @@ export function textMap(record, { area, z, descriptions = false } = {}) {
   const d = record.doc;
   const out = [];
   for (const a of d.areas) {
-    if (area && a.id !== area) continue;
+    if (area && (Array.isArray(area) ? !area.includes(a.id) : a.id !== area)) continue;
     const b = areaBuild(d, a.id, record.link);
     out.push(`── area ${a.id} "${a.name}"${record.link.areas[a.id] ? ` (${record.link.areas[a.id]})` : ""} ──`);
     if (!b.rooms.length) { out.push("(no rooms yet)", ""); continue; }
@@ -80,5 +93,7 @@ export function textMap(record, { area, z, descriptions = false } = {}) {
   }
   const ev = elevatorLines(d, record.link);
   if (ev.length) out.push("Elevators (each a carriage off the grid; a lobby's `in` opens on it):", ...ev, "");
+  const tl = transitLines(d, record.link);
+  if (tl.length) out.push("Transit lines (each train its own area; the car's `out` and each platform's `in` belong to the line, not the map):", ...tl, "");
   return out.join("\n").trimEnd();
 }

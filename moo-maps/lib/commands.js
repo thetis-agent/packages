@@ -32,8 +32,9 @@ const person = (env) => ({ by: "person", session: env.session?.id });
  *  was deleted is `projectMissing`, and shows under No project until it is moved. */
 function rowOf(record, names = new Map()) {
   const project = record.project;
+  const ps = publishState(record);
   return {
-    ...summary(record), label: publishState(record).label, linked: Object.keys(record.link.areas).length,
+    ...summary(record), label: ps.label, areaStates: ps.areas, linked: Object.keys(record.link.areas).length,
     projectName: project ? names.get(project) ?? null : null, projectMissing: Boolean(project) && !names.has(project),
   };
 }
@@ -68,7 +69,7 @@ export async function uiDoc(args, env, req) {
   if (req?.method && req.method !== "GET") fail("doc is read with GET.");
   const record = await needMap(env, args.map);
   const ps = publishState(record);
-  const body = JSON.stringify({ id: record.id, rev: record.rev, doc: record.doc, state: ps.state, label: ps.label, linked: record.link.rooms, by: record.changes.at(-1)?.by ?? null });
+  const body = JSON.stringify({ id: record.id, rev: record.rev, doc: record.doc, state: ps.state, label: ps.label, areas: ps.areas, linked: record.link.rooms, by: record.changes.at(-1)?.by ?? null });
   return { headers: { "content-type": "application/json; charset=utf-8", "content-length": String(Buffer.byteLength(body)) }, body };
 }
 
@@ -94,12 +95,12 @@ export async function uiSave(args, env, req) {
     return { doc: out.doc, what: describe(patch) };
   }, person(env));
   const ps = publishState(next);
-  return { rev: next.rev, unchanged: Boolean(next.unchanged), conflicts, renumbered, state: ps.state, label: ps.label, base: Number(args.base) || 0 };
+  return { rev: next.rev, unchanged: Boolean(next.unchanged), conflicts, renumbered, state: ps.state, label: ps.label, areas: ps.areas, base: Number(args.base) || 0 };
 }
 
 function describe(patch) {
   const parts = [];
-  for (const c of ["areas", "rooms", "exits", "edges", "elevators"]) {
+  for (const c of ["areas", "rooms", "exits", "edges", "elevators", "transits"]) {
     const p = patch[c];
     if (!p) continue;
     const bits = [p.add?.length ? `+${p.add.length}` : "", p.put?.length ? `~${p.put.length}` : "", p.del?.length ? `-${p.del.length}` : ""].filter(Boolean);

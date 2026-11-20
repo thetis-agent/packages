@@ -6,7 +6,7 @@
 // changes back, map_import starts a map from areas that already exist. The link between them (local id →
 // MOO object) lives in the map file and is kept up to date by those three.
 
-import { completeDoc, countsOf, DEFAULT_COLOR } from "../ui/core/doc.js";
+import { completeDoc, countsOf, DEFAULT_COLOR, diffDocs } from "../ui/core/doc.js";
 import * as ops from "./ops.js";
 import { Book, exitLines, nameOf, at } from "./ops.js";
 import { createMap, emptyLink, fail, isMapId, listMaps, mutate, needMap, publishState, readFocus, removeMap, summary } from "./store.js";
@@ -14,6 +14,15 @@ import * as moo from "./moo.js";
 import { projectOfSession, readProject } from "./projects.js";
 import { describeOp, linkAfter, mergePull, planPublish, project, remoteDoc, resolveOp } from "./sync.js";
 import { areaBuild, header, textMap } from "./view.js";
+import { attribute, areaStates, areasOfOp, driftRecord, mergePublished, sameDrift, stateCounts, countsText } from "./areastate.js";
+
+const BIG_MAP_AREAS = 12;
+
+/** One line per area: id, name, MOO id, rooms, publish state. */
+function areaIndex(record, { only } = {}) {
+  const rows = areaStates(record).filter((r) => !only || only.includes(r.state));
+  return [`areas (${countsText(stateCounts(areaStates(record)))}):`, ...rows.map((r) => `- ${r.id} "${r.name}"${r.moo ? ` ${r.moo}` : ""} · ${r.rooms} room${r.rooms === 1 ? "" : "s"} · ${r.state}${r.label ? `: ${r.label}` : ""}`)].join("\n");
+}
 
 const MAX_OUTPUT = 60_000;
 
@@ -21,7 +30,7 @@ const MAX_OUTPUT = 60_000;
 export const world = { connect: moo.connect, listAreas: moo.listAreas, snapshot: moo.snapshot, runOps: moo.runOps };
 const connect = (env) => world.connect(env);
 const listAreas = (c, q) => world.listAreas(c, q);
-const snapshot = (c, ids) => world.snapshot(c, ids);
+const snapshot = (c, ids, cars) => world.snapshot(c, ids, cars);
 const runOps = (c, areas, list) => world.runOps(c, areas, list);
 const agent = (env) => ({ by: "agent", session: env.session?.id });
 const plural = (n, word) => `${n} ${n === 1 ? word : /(ch|sh|s|x)$/.test(word) ? `${word}es` : `${word}s`}`;
@@ -64,18 +73,20 @@ async function edit(env, args, what, fn, { show = true } = {}) {
   }
   let lines = [];
   let extra;
+  let touched = [];
   const next = await mutate(env, record.id, (cur) => {
     const res = fn(cur.doc, cur.link);
     lines = res.lines;
     extra = res;
+    touched = [...attribute(diffDocs(cur.doc, res.doc), cur.doc, res.doc).keys()].filter((a) => res.doc.areas.some((x) => x.id === a));
     return { doc: res.doc, what: `${what}: ${lines.slice(0, 3).join("; ")}`.slice(0, 240) };
   }, agent(env));
   if (next.unchanged) return `${record.id}: nothing changed (rev ${next.rev}).`;
-  const out = [`${record.id} "${next.doc.name}" is now rev ${next.rev}. ${publishState(next).state === "draft" ? "Not in the world until map_publish." : "map_publish writes it to the world."}`, ...lines.map((l) => `- ${l}`)];
+  const out = [`${record.id} "${next.doc.name}" is now rev ${next.rev}. map_publish writes it to the world (areas not there yet are made).`, ...lines.map((l) => `- ${l}`)];
   if (extra?.total !== undefined) out.push(`${plural(extra.total, "replacement")} in all.`);
   if (show) {
-    const areas = new Set(extra?.touched ?? []);
-    out.push("", textMap(next, { area: areas.size === 1 ? [...areas][0] : undefined, z: args.z }));
+    const areas = [...new Set([...(extra?.touched ?? []), ...touched])];
+    if (areas.length || next.doc.areas.length <= BIG_MAP_AREAS) out.push("", textMap(next, { area: areas.length ? areas : undefined, z: args.z }));
   }
   return bounded(out.join("\n"));
 }
@@ -148,7 +159,9 @@ export async function mapGet(args, env) {
     out.push(`the person, in the map tab: ${focusLine(book, focus)}`);
   }
   const recent = record.changes.slice(-5).reverse().map((c) => `rev ${c.rev} ${c.by}: ${c.what}`);
-  out.push(`recent: ${recent.join(" | ")}`, "", textMap(record, { area, z: args.z, descriptions: args.descriptions }));
+  out.push(`recent: ${recent.join(" | ")}`, "");
+  if (!area && record.doc.areas.length > BIG_MAP_AREAS) out.push(areaIndex(record), "", "Many areas: name one with area to draw it.");
+  else out.push(textMap(record, { area, z: args.z, descriptions: args.descriptions }));
   return bounded(out.join("\n"));
 }
 
@@ -199,6 +212,7 @@ export const mapLink = (args, env) => edit(env, args, "linked", (doc, link) => o
 export const mapUnlink = (args, env) => edit(env, args, "unlinked", (doc, link) => ops.unlink(doc, link, args));
 export const mapEdge = (args, env) => edit(env, args, "edge", (doc, link) => ops.edge(doc, link, args));
 export const mapElevator = (args, env) => edit(env, args, "elevator", (doc, link) => ops.elevator(doc, link, args), { show: false });
+export const mapTransit = (args, env) => edit(env, args, "transit", (doc, link) => ops.transit(doc, link, args), { show: false });
 export const mapBlocks = (args, env) => edit(env, args, "blocks", (doc, link) => ops.blocks(doc, link, args));
 export async function mapAreas(args, env) {
   if (given(args.name)) {
@@ -239,7 +253,7 @@ export async function mapRender(args, env) {
     }
   }
   if (!assets.length) return `${record.id}: nothing to draw${args.z !== undefined ? ` on level z=${args.z}` : ""}.`;
-  const text = [header(record), ...lines, "", "Lines are exits coloured by type (grey open, orange door, red locked, green climb, blue swim), dashed when hidden; a triangle in a corner is an exit up or down (a straight one, or a vertical diagonal such as nu, whose line also points along its bearing); a dashed tag names where an exit leaves the area; a pink arc is a jump edge. The small label in each room matches map_get's legend."].join("\n");
+  const text = [header(record), ...lines, "", "Lines are exits coloured by type (grey open, orange door, red locked, green climb, blue swim), dashed when hidden; a triangle in a corner is an exit up or down (a straight one, or a vertical diagonal such as nu, whose line also points along its bearing); a dashed tag names where an exit leaves the area; a pink arc is a jump edge; a teal ⇕ badge is an elevator lobby's button; an amber ⇄ badge is a transit line's car (the line's name) or one of its platforms (the station's name). The small label in each room matches map_get's legend."].join("\n");
   return { type: "tool-result", content: [{ type: "text", data: { text } }, ...assets] };
 }
 
@@ -270,7 +284,7 @@ function pullInto(snap, record) {
   merged.nextId = Math.max(merged.nextId, next);
   const link = { ...record.link, ...proj.link, external: proj.external, character: snap.character ?? record.link.character };
   // A thing adopted now that did not make it into the map (its cell was taken) is not the map's.
-  const inDoc = { rooms: new Set(merged.rooms.map((r) => r.id)), exits: new Set(merged.exits.map((e) => e.id)), edges: new Set(merged.edges.map((g) => g.id)), elevators: new Set(merged.elevators.map((v) => v.id)) };
+  const inDoc = { rooms: new Set(merged.rooms.map((r) => r.id)), exits: new Set(merged.exits.map((e) => e.id)), edges: new Set(merged.edges.map((g) => g.id)), elevators: new Set(merged.elevators.map((v) => v.id)), transits: new Set((merged.transits ?? []).map((t) => t.id)) };
   const liveIds = new Set([...proj.live.rooms.keys()]);
   for (const c of ["rooms", "exits", "edges", "elevators"]) {
     for (const id of Object.keys(link[c])) {
@@ -282,24 +296,27 @@ function pullInto(snap, record) {
   for (const local of proj.gone.areas) delete link.areas[local];
   for (const local of proj.gone.elevators) delete link.elevators[local];
   link.published = world;
+  link.drift = { at: new Date().toISOString(), areas: {}, foreign: {} };
   const lines = [];
-  const n = (c) => [...adopted].filter((id) => inDoc[c].has(id) && id[0] === { rooms: "r", exits: "e", edges: "j", elevators: "v" }[c]).length;
-  const nr = n("rooms"), ne = n("exits"), nj = n("edges"), nv = n("elevators");
-  if (nr || ne || nj || nv) lines.push(`brought in ${[nr && plural(nr, "room"), ne && plural(ne, "exit"), nj && plural(nj, "edge"), nv && plural(nv, "elevator")].filter(Boolean).join(", ")} from the world`);
+  const n = (c) => [...adopted].filter((id) => inDoc[c].has(id) && id[0] === { rooms: "r", exits: "e", edges: "j", elevators: "v", transits: "t" }[c]).length;
+  const nr = n("rooms"), ne = n("exits"), nj = n("edges"), nv = n("elevators"), nt = n("transits");
+  if (nr || ne || nj || nv || nt) lines.push(`brought in ${[nr && plural(nr, "room"), ne && plural(ne, "exit"), nj && plural(nj, "edge"), nv && plural(nv, "elevator"), nt && plural(nt, "transit line")].filter(Boolean).join(", ")} from the world`);
   // What the world changed that the map took: renames, new descriptions, moves, retypes, removals.
-  for (const c of ["areas", "rooms", "exits", "edges", "elevators"]) {
+  for (const c of ["areas", "rooms", "exits", "edges", "elevators", "transits"]) {
     const p = theirs[c];
     if (!p) continue;
     const put = p.put.filter((o) => !adopted.has(o.id)), del = p.del;
     const add = p.add.filter((o) => !adopted.has(o.id));
     const label = (o) => (o.name ? `${o.id} "${o.name}"` : o.id);
     if (put.length) lines.push(`took the world's changes to ${put.length === 1 ? c.slice(0, -1) : c} ${put.slice(0, 8).map(label).join(", ")}${put.length > 8 ? ", …" : ""}`);
-    if (add.length) lines.push(`took ${plural(add.length, c.slice(0, -1))} the world added: ${add.slice(0, 8).map(label).join(", ")}`);
+    const label2 = (o) => (o.line ? `${o.id} "${o.line}"` : label(o));
+    if (add.length) lines.push(`took ${plural(add.length, c.slice(0, -1))} the world added: ${add.slice(0, 8).map(label2).join(", ")}`);
     if (del.length) lines.push(`removed ${del.length === 1 ? c.slice(0, -1) : c} ${del.slice(0, 8).join(", ")}${del.length > 8 ? ", …" : ""}, gone from the world`);
   }
   if (kept.length) lines.push(`kept the map's own version of ${kept.join(", ")} (changed here and in the world; map_publish writes the map's)`);
   lines.push(...conflicts);
   if (proj.gone.areas.length) lines.push(`area${proj.gone.areas.length === 1 ? "" : "s"} ${proj.gone.areas.join(", ")} no longer exist in the world; unlinked (publishing makes them again)`);
+  if (proj.foreign.transits?.length) lines.push(`transit line${proj.foreign.transits.length === 1 ? "" : "s"} ${proj.foreign.transits.map((f) => `"${f.line}" in ${f.area}`).join(", ")} could not be brought in: ${proj.foreign.transits.length === 1 ? "its car or a platform is" : "a car or platform is"} not on the map (import the platforms' areas too, then pull again)`);
   if (proj.external.length) lines.push(`${plural(proj.external.length, "exit")} lead out of the map's areas: ${proj.external.slice(0, 6).map((x) => `${x.room ?? x.moo} ${x.dir} → "${x.to_name}" (${x.to_area_name || x.to_area})`).join(", ")}${proj.external.length > 6 ? ", …" : ""}`);
   return { doc: merged, link, lines, proj };
 }
@@ -406,6 +423,24 @@ export function orderMoves(moves, occupied) {
   return out;
 }
 
+/** A list argument, also when it came as JSON text or "a1, a2". */
+function listArg(v) {
+  if (v === undefined || v === null || v === "") return [];
+  if (Array.isArray(v)) return v.map(String);
+  const t = String(v).trim();
+  if (t.startsWith("[")) {
+    try { const j = JSON.parse(t); if (Array.isArray(j)) return j.map(String); } catch { /* fall through */ }
+  }
+  return t.split(",").map((x) => x.trim()).filter(Boolean);
+}
+
+/** The drift left after a publish of `only` areas (all, when null): theirs is cleared, the rest kept. */
+function clearDrift(drift, only) {
+  if (!only || !drift) return { at: new Date().toISOString(), areas: {}, foreign: {} };
+  const keep = (m) => Object.fromEntries(Object.entries(m ?? {}).filter(([a]) => !only.has(a)));
+  return { at: drift.at, areas: keep(drift.areas), foreign: keep(drift.foreign) };
+}
+
 async function saveLink(env, id, link, what) {
   return mutate(env, id, () => ({ link, what }), agent(env));
 }
@@ -419,11 +454,34 @@ export async function mapPublish(args, env) {
   const proj = project(snap, record.link, { keep: doc });
   const plan = planPublish(doc, proj, record.link, record.link.published);
   const out = [];
+  // Some areas only: every op that touches one of them, unless it also needs an area not in the world yet.
+  const book = new Book(doc, record.link);
+  const wanted = listArg(args.areas);
+  const only = wanted.length ? new Set(wanted.map((a) => book.area(a).id)) : null;
+  const scope = only ?? new Set(doc.areas.map((a) => a.id));
+  if (only) {
+    const willExist = (a) => !a || (record.link.areas[a] && !proj.gone.areas.includes(a)) || only.has(a);
+    const held = [];
+    for (const [phase, list] of Object.entries(plan.phases)) {
+      plan.phases[phase] = list.filter((op) => {
+        const as = areasOfOp(op, doc, proj.remote).filter(Boolean);
+        if (!as.some((a) => only.has(a))) return false;
+        if (as.every(willExist)) return true;
+        held.push(`${describeOp(op, doc)} (it needs ${as.filter((a) => !willExist(a)).map((a) => `${a} "${book.area(a).name}"`).join(", ")}, not in the world yet: publish that area too)`);
+        return false;
+      });
+    }
+    plan.counts = Object.fromEntries(Object.entries(plan.phases).map(([k, v]) => [k, v.length]));
+    plan.total = Object.values(plan.counts).reduce((n, v) => n + v, 0);
+    if (held.length) plan.notes.push(`held back: ${held.slice(0, 12).join("; ")}${held.length > 12 ? "; …" : ""}`);
+    out.push(`Only ${[...only].map((a) => `${a} "${book.area(a).name}"`).join(", ")}: the other ${doc.areas.length - only.size} areas are left as they are.`);
+  }
   const foreign = [
     ...proj.foreign.rooms.filter((f) => !Object.values(plan.adopt.rooms).includes(f.moo)).map((f) => `room ${f.moo} "${f.name}" (${f.x},${f.y},${f.z}) in ${f.area}`),
     ...proj.foreign.exits.filter((f) => !Object.values(plan.adopt.exits).includes(f.moo)).map((f) => `exit ${f.moo} ${f.dir} between ${f.a} and ${f.b}`),
     ...proj.foreign.edges.map((f) => `edge ${f.moo} ${f.dir} from ${f.from}`),
     ...proj.foreign.elevators.map((f) => `elevator ${f.moo} "${f.name}" (${f.stops.join(", ")})`),
+    ...(proj.foreign.transits ?? []).map((f) => `transit line "${f.line}" of area ${f.area} (${f.stations.join(", ")})`),
   ];
   const all = Object.values(plan.phases).flat();
   if (args.dry_run || !all.length) {
@@ -432,7 +490,9 @@ export async function mapPublish(args, env) {
     if (plan.notes.length) out.push("notes:", ...plan.notes.map((n) => `- ${n}`));
     if (foreign.length) out.push(`in the world but not on the map (publish leaves them; map_pull brings them in): ${foreign.slice(0, 20).join("; ")}${foreign.length > 20 ? "; …" : ""}`);
     if (!all.length && !args.dry_run) {
-      const link = { ...record.link, published: remoteDoc(proj, doc), publishedRev: record.rev, publishedAt: new Date().toISOString(), external: proj.external, character: snap.character };
+      const fresh = remoteDoc(proj, doc);
+      const published = only ? mergePublished(record.link.published, fresh, scope) : fresh;
+      const link = { ...record.link, published, publishedRev: record.rev, publishedAt: new Date().toISOString(), external: proj.external, character: snap.character, drift: clearDrift(record.link.drift, only) };
       await saveLink(env, record.id, link, "checked against the world");
     }
     return bounded(out.join("\n"));
@@ -475,6 +535,7 @@ export async function mapPublish(args, env) {
     await run("rooms", plan.phases.rooms);
     await run("joins", plan.phases.joins);
     await run("elevators", plan.phases.elevators);
+    await run("transits", plan.phases.transits);
   } catch (e) {
     stopped = e.message;
   }
@@ -483,8 +544,9 @@ export async function mapPublish(args, env) {
   const after = await snapshot(conn, Object.values(link.areas), Object.values(link.elevators));
   const now = await needMap(env, record.id);
   const proj2 = project(after, { ...now.link, ...link }, { keep: doc });
-  const published = remoteDoc(proj2, doc);
-  const saved = await saveLink(env, record.id, { ...now.link, ...link, published, publishedRev: record.rev, publishedAt: new Date().toISOString(), external: proj2.external, character: after.character }, `published rev ${record.rev}: ${done.length} done${failed.length ? `, ${failed.length} failed` : ""}`);
+  const fresh = remoteDoc(proj2, doc);
+  const published = only ? mergePublished(now.link.published, fresh, scope) : fresh;
+  const saved = await saveLink(env, record.id, { ...now.link, ...link, published, publishedRev: record.rev, publishedAt: new Date().toISOString(), external: proj2.external, character: after.character, drift: clearDrift(now.link.drift, only) }, `published rev ${record.rev}: ${done.length} done${failed.length ? `, ${failed.length} failed` : ""}`);
   const state = publishState({ ...saved, doc });
   out.push(`Published ${record.id} "${doc.name}" rev ${record.rev} to the world: ${plural(done.length, "change")} made${failed.length ? `, ${failed.length} FAILED` : ""}. ${state.label}.`);
   if (stopped) out.push(`STOPPED: ${stopped}`);
@@ -492,16 +554,17 @@ export async function mapPublish(args, env) {
   out.push("done:", ...done.map((d) => `- ${d}`));
   if (plan.notes.length) out.push("notes:", ...plan.notes.map((n) => `- ${n}`));
   if (foreign.length) out.push(`left alone, in the world but not on the map: ${foreign.slice(0, 20).join("; ")}`);
-  out.push(`areas in the world: ${doc.areas.map((a) => `${a.id} "${a.name}" = ${link.areas[a.id] ?? "(not made)"}`).join(", ")}`);
+  const shown = doc.areas.filter((a) => scope.has(a.id) && (only || !record.link.areas[a.id] || record.link.areas[a.id] !== link.areas[a.id]));
+  if (shown.length) out.push(`areas: ${shown.slice(0, 40).map((a) => `${a.id} "${a.name}" = ${link.areas[a.id] ?? "(not made)"}`).join(", ")}`);
   if (proj2.external.length === 0 && doc.rooms.length) out.push("No exit joins these areas to the rest of the world yet: they are an island until one does (moo_build_link, or @dig in the game).");
   return bounded(out.join("\n"));
 }
 
 export async function mapStatus(args, env) {
-  const record = await resolveMap(env, args.map);
-  const out = [header(record)];
+  let record = await resolveMap(env, args.map);
+  const out = [];
   if (!Object.keys(record.link.areas).length) {
-    out.push("Not in the world yet. map_publish (dry_run first) shows what it would make.");
+    out.push(header(record), "Not in the world yet. map_publish (dry_run first) shows what it would make.");
     return out.join("\n");
   }
   const conn = await connect(env);
@@ -509,25 +572,40 @@ export async function mapStatus(args, env) {
   const proj = project(snap, record.link, { keep: record.doc });
   const plan = planPublish(record.doc, proj, record.link, record.link.published);
   const world = remoteDoc(proj, record.doc);
-  // Drift: what changed in the world since the map last saw it.
+  // Drift: what changed in the world since the map last saw it, kept on the link so every view shows it.
   const drift = [];
+  const dr = driftRecord(record.link.published, world, proj, record.doc);
+  if (!sameDrift(dr, record.link.drift) || !record.link.drift?.at) {
+    record = await mutate(env, record.id, (cur) => ({ link: { ...cur.link, drift: dr }, what: "checked the world" }), agent(env));
+  }
+  out.push(header(record));
   if (record.link.published) {
     const { theirs } = mergePull(record.doc, record.link.published, world);
-    for (const c of ["areas", "rooms", "exits", "edges", "elevators"]) {
+    for (const c of ["areas", "rooms", "exits", "edges", "elevators", "transits"]) {
       const p = theirs[c];
       if (p) for (const [k, list] of [["added", p.add], ["changed", p.put]]) if (list.length) drift.push(`${list.length} ${c} ${k} (${list.slice(0, 5).map((o) => o.id).join(", ")})`);
       if (p?.del?.length) drift.push(`${p.del.length} ${c} gone (${p.del.slice(0, 5).join(", ")})`);
     }
   }
+  const perArea = new Map();
+  for (const op of Object.values(plan.phases).flat()) for (const a of new Set(areasOfOp(op, record.doc, proj.remote))) if (a) perArea.set(a, (perArea.get(a) ?? 0) + 1);
+  const rows = areaStates(record).filter((r) => r.state !== "published" || perArea.get(r.id));
+  if (rows.length) out.push("areas needing something:", ...rows.map((r) => `- ${r.id} "${r.name}" · ${r.state}${r.label ? `: ${r.label}` : ""}${perArea.get(r.id) ? ` · publishing makes ${plural(perArea.get(r.id), "change")} here` : ""}`));
+  out.push(plan.total ? `publishing now would make ${plural(plan.total, "change")} (${Object.entries(plan.counts).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(", ")}); map_publish dry_run lists them, and areas: [...] publishes only some.` : "the world matches the map.");
   const nf = proj.foreign.rooms.length + proj.foreign.exits.length + proj.foreign.edges.length;
-  out.push(`world: ${snap.areas.filter((a) => !a.missing).map((a) => `${a.id} "${a.name}" ${plural(a.rooms.length, "room")}`).join(", ")}`);
-  out.push(plan.total ? `publishing now would make ${plural(plan.total, "change")} (${Object.entries(plan.counts).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(", ")}); map_publish dry_run lists them.` : "the world matches the map.");
   if (drift.length) out.push(`changed in the world since the last sync: ${drift.join("; ")}. map_pull brings it in.`);
   if (nf) out.push(`in the world, not on the map: ${plural(proj.foreign.rooms.length, "room")}, ${plural(proj.foreign.exits.length, "exit")}, ${plural(proj.foreign.edges.length, "edge")}. map_pull brings them in.`);
   if (proj.gone.areas.length) out.push(`linked areas gone from the world: ${proj.gone.areas.join(", ")}`);
   if (proj.foreign.elevators.length) out.push(`elevators stopping here that the map does not have: ${proj.foreign.elevators.map((f) => `${f.moo} "${f.name}" (${f.stops.join(", ")})`).join("; ")}. map_pull brings them in.`);
   if (proj.gone.elevators.length) out.push(`linked elevators gone from the world: ${proj.gone.elevators.join(", ")} (publishing makes them again)`);
   if (record.doc.elevators.length && !snap.elevator_api) out.push(`the MOO has no elevator system yet, so the map's ${plural(record.doc.elevators.length, "elevator")} wait${record.doc.elevators.length === 1 ? "s" : ""} for it.`);
+  const lines = record.doc.transits ?? [];
+  if (lines.length && !snap.transit_api) out.push(`the MOO has no transit system yet ($maglev_line:mapper_transit_set), so the map's ${plural(lines.length, "transit line")} wait${lines.length === 1 ? "s" : ""} for it.`);
+  for (const t of lines) {
+    if (record.link.areas[t.area] && !proj.gone.areas.includes(t.area) && proj.kinds?.get(t.area) !== "transit") out.push(`transit ${t.id} "${t.line}": its area ${t.area} (${record.link.areas[t.area]}) is not a $maglev_line in the world, so the line cannot be published there.`);
+  }
+  for (const rt of proj.remote.transits ?? []) if (rt.unreadable) out.push(`transit ${rt.id}: the world's line in ${rt.area} could not be read (${rt.unreadable}).`);
+  if (proj.foreign.transits?.length) out.push(`transit lines in the world the map does not have: ${proj.foreign.transits.map((f) => `"${f.line}" in ${f.area} (${f.stations.join(", ")})`).join("; ")}. map_pull brings them in once their car and platforms are on the map.`);
   const players = proj.remote.rooms.filter((r) => r.players);
   if (players.length) out.push(`players are in: ${players.map((r) => `${r.id} "${r.name}" (${r.players})`).join(", ")}`);
   if (proj.external.length) out.push(`exits out of the map: ${proj.external.slice(0, 10).map((x) => `${x.room ?? x.moo} ${x.dir} → ${x.to} "${x.to_name}" (${x.to_area_name || x.to_area})`).join(", ")}`);

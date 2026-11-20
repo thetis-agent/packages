@@ -82,3 +82,32 @@ test("focus is shown to the agent; rename, remove, watch and the editor frame", 
   assert.equal((await uiList({}, e)).data.maps.length, 0);
   await rm(e.cwd, { recursive: true });
 });
+
+test("a tab's transit made on ids the agent took meanwhile is renumbered, its refs with it", async () => {
+  const e = await env();
+  const { map } = (await uiCreate({ name: "Line clash", areas: ["Up"] }, e)).data;
+  const first = await docOf(e, map.id);
+  const n = first.doc.nextId;
+  // The tab, on rev 1, adds a train area, its car, two platforms and the line, on ids n..n+4.
+  const mine = completeDoc(JSON.parse(JSON.stringify(first.doc)));
+  const [ta, car, p1, p2, t] = [`a${n}`, `r${n + 1}`, `r${n + 2}`, `r${n + 3}`, `t${n + 4}`];
+  mine.areas.push({ id: ta, name: "Red Line" });
+  const room = (id, area, x, name) => ({ id, area, x, y: 5, z: 0, name, color: "#2a3140", description: "", notes: "" });
+  mine.rooms.push(room(car, ta, 0, "Car"), room(p1, "a1", 3, "P1"), room(p2, "a1", 4, "P2"));
+  mine.transits.push({ id: t, area: ta, car, line: "Red", dwell: 45, offset: 0, running: true, stations: [{ room: p1, name: "One", travel: 240, warning: 60 }, { room: p2, name: "Two", travel: 240, warning: 60 }] });
+  mine.nextId = n + 5;
+  // Meanwhile the agent takes ids n.. with rooms of its own.
+  await mapSetRooms({ map: map.id, rooms: [{ x: 7, y: 0, name: "A1" }, { x: 8, y: 0, name: "A2" }, { x: 9, y: 0, name: "A3" }, { x: 10, y: 0, name: "A4" }, { x: 11, y: 0, name: "A5" }] }, e);
+  const out = await put(e, map.id, diffDocs(first.doc, completeDoc(mine)), 1);
+  assert.equal(out.renumbered.filter((x) => x.startsWith("r")).length, 3, JSON.stringify(out.renumbered));
+  const now = (await docOf(e, map.id)).doc;
+  assert.equal(now.transits.length, 1);
+  const line = now.transits[0];
+  const byId = new Map(now.rooms.map((r) => [r.id, r]));
+  assert.equal(byId.get(line.car).name, "Car");
+  assert.equal(byId.get(line.car).area, line.area);
+  assert.equal(now.areas.find((a) => a.id === line.area).name, "Red Line");
+  assert.deepEqual(line.stations.map((s) => byId.get(s.room).name), ["P1", "P2"]);
+  assert.equal(now.rooms.filter((r) => /^A\d$/.test(r.name)).length, 5, "the agent's rooms are kept");
+  await rm(e.cwd, { recursive: true });
+});

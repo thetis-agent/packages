@@ -9,6 +9,9 @@ Maps of MOO areas that you and the agent build together.
 - `map_publish` writes a map to the MOO (dry run first), making what is missing and updating what is
   there, and keeps the map linked to those objects for later publishes. `map_import` and `map_pull` bring
   the world in.
+- One map can hold the whole world: publish state is kept per area (draft, changed, out of date,
+  published). The sidebar shows the tally, the tab's area picker groups areas by state, and
+  `map_publish areas: [...]` publishes some areas and leaves the rest.
 
 - A map saves to Thetis as you edit it, whether you edit in the tab or the agent edits with tools. There is no
   file import or export.
@@ -19,6 +22,12 @@ Maps of MOO areas that you and the agent build together.
   area. Make one in the tab from a room's **⇕ New elevator**, or with `map_elevator`. Lobbies get a teal
   `⇕L` badge; click it to edit the elevator. Publishing elevators needs the MOO's `$elevator`
   with `:mapper_create/set/get/destroy`. Until then publish skips them and says so.
+- Transit lines: a maglev train on a fixed clock. The train is an area of its own (published as a
+  `$maglev_line`) with a car room on its grid; its stations, in loop order, are platform rooms in other
+  areas, each with the leg's travel time to the next station and a warning (the last seconds of that leg).
+  Make one in the tab from a platform room's **⇄ New line**, or with `map_transit`. The car and platforms
+  get an amber `⇄` badge. Publishing needs `$maglev_line:mapper_transit_get/set/clear`; until then the
+  line and its train area wait, and publish says so.
 
 Needs `@thetis/moo` (or the package named by the `moo_package` setting) for the MOO connection. The
 skill `moo-maps` tells the agent how to work with it.

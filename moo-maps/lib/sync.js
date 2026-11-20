@@ -14,7 +14,16 @@
 //   - Colour and notes are the map's own; the MOO does not keep them.
 //   - An exit whose side is named something other than a compass word (in, out, a custom name) keeps it.
 
+import { areasOfOp } from "./areastate.js";
 import { DIRS, OPPOSITE, LONG, applyPatch, completeDoc, diffDocs, dirOf, exitDirFrom, cellKey, DEFAULT_COLOR } from "../ui/core/doc.js";
+
+/** A transit as the MOO and the map both read it, for an exact compare: local ids, integers, running a boolean, loop order. */
+export function canonTransit(t) {
+  if (!t) return null;
+  return JSON.stringify({ line: String(t.line ?? ""), car: t.car ?? null, dwell: t.dwell, offset: t.offset, running: Boolean(t.running), stations: (t.stations ?? []).map((s) => ({ room: s.room ?? null, name: String(s.name ?? ""), travel: s.travel, warning: s.warning })) });
+}
+/** A MOO spec map that holds a configured line (mapper_transit_get answers [] for an unconfigured one). */
+const configured = (sp) => sp && typeof sp === "object" && !Array.isArray(sp) && Object.keys(sp).length > 0;
 
 const invert = (m) => Object.fromEntries(Object.entries(m).map(([k, v]) => [v, k]));
 const pairKey = (x, y) => [String(x), String(y)].sort().join("|");
@@ -36,19 +45,24 @@ export function project(snap, linkIn, { adopt = false, alloc, keep } = {}) {
   const link = { areas: { ...linkIn.areas }, rooms: { ...linkIn.rooms }, exits: { ...linkIn.exits }, edges: { ...linkIn.edges }, elevators: { ...(linkIn.elevators ?? {}) } };
   const rev = { areas: invert(link.areas), rooms: invert(link.rooms), exits: invert(link.exits), edges: invert(link.edges), elevators: invert(link.elevators) };
   const remote = { name: keep?.name ?? "", areas: [], rooms: [], exits: [], edges: [], blocks: [], elevators: [] };
-  const foreign = { rooms: [], exits: [], edges: [], elevators: [] };
+  const foreign = { rooms: [], exits: [], edges: [], elevators: [], transits: [] };
   const external = [];
-  const gone = { areas: [], elevators: [] };
+  const gone = { areas: [], elevators: [], transits: [] };
+  const kinds = new Map(); // local area id -> "transit" | "area", as the world has it
   const liveRooms = new Map(); // moo id -> { room, area local id, local id or null }
   const keepRoom = new Map((keep?.rooms ?? []).map((r) => [r.id, r]));
 
   for (const a of snap.areas ?? []) {
     const local = rev.areas[a.id];
     if (a.missing) {
-      if (local) gone.areas.push(local);
+      if (local) {
+        gone.areas.push(local);
+        for (const t of keep?.transits ?? []) if (t.area === local) gone.transits.push(t.id);
+      }
       continue;
     }
     if (!local) continue; // asked about but not linked: not this map's
+    kinds.set(local, a.kind === "transit" ? "transit" : "area");
     remote.areas.push({ id: local, name: String(a.name ?? "") });
     const cells = new Set();
     for (const r of a.rooms ?? []) {
@@ -142,7 +156,38 @@ export function project(snap, linkIn, { adopt = false, alloc, keep } = {}) {
     const outside = stops.filter((x) => !x.room);
     remote.elevators.push({ id, name: String(c.name ?? ""), description: joinDesc(c.description), door: c.door, travel: c.travel, stops: stops.filter((x) => x.room).map(({ label, room }) => ({ label, room })), ...(outside.length ? { outside: outside.map((x) => ({ label: x.label, moo: x.moo })) } : {}) });
   }
-  return { remote, foreign, external, gone, link, elevatorApi, live: { rooms: liveRooms, exitsByPair } };
+  // Transit lines: an area that is a $maglev_line is one train, and its spec is the line. Its local id is the
+  // map's transit for that area (or the one it was last published as); a line the map never had is foreign
+  // until a pull adopts it.
+  const transitApi = Boolean(snap.transit_api);
+  remote.transits = [];
+  const known = (list, local) => (list ?? []).find((t) => t.area === local)?.id;
+  for (const a of snap.areas ?? []) {
+    const local = rev.areas[a.id];
+    if (!local || a.missing || a.kind !== "transit") continue;
+    let id = known(keep?.transits, local) ?? known(linkIn.published?.transits, local) ?? null;
+    if (a.transit_error) {
+      if (id) remote.transits.push({ id, area: local, unreadable: String(a.transit_error), line: "", car: null, dwell: 0, offset: 0, running: false, stations: [] });
+      continue;
+    }
+    const sp = a.transit;
+    if (!configured(sp)) continue;
+    const carLive = liveRooms.get(String(sp.car ?? ""));
+    const stations = (Array.isArray(sp.stations) ? sp.stations : []).map((x) => {
+      const [name, room, travel, warning] = Array.isArray(x) ? x : [x?.name, x?.room, x?.travel, x?.warning];
+      return { room: liveRooms.get(String(room ?? ""))?.id ?? null, moo: String(room ?? ""), name: String(name ?? ""), travel: Number(travel), warning: Number(warning) };
+    });
+    if (!id && adopt && carLive?.id && stations.length && stations.every((x) => x.room)) id = alloc("t");
+    if (!id) { foreign.transits.push({ area: local, moo: a.id, line: String(sp.line ?? ""), stations: stations.map((x) => `${x.name}=${x.room ?? x.moo}`) }); continue; }
+    const outside = stations.filter((x) => !x.room);
+    remote.transits.push({
+      id, area: local, car: carLive?.id ?? null, line: String(sp.line ?? ""), dwell: Number(sp.dwell), offset: Number(sp.offset), running: Boolean(Number(sp.running)),
+      stations: stations.filter((x) => x.room).map(({ room, name, travel, warning }) => ({ room, name, travel, warning })),
+      ...(outside.length ? { outside: outside.map((x) => ({ name: x.name, moo: x.moo })) } : {}),
+      ...(!carLive?.id && sp.car ? { carMoo: String(sp.car) } : {}),
+    });
+  }
+  return { remote, foreign, external, gone, link, elevatorApi, transitApi, kinds, live: { rooms: liveRooms, exitsByPair } };
 }
 
 /** A projection made into a plain mudmap document (for `link.published` and for pull). */
@@ -169,7 +214,8 @@ export function remoteDoc(proj, keep) {
     return e;
   });
   const elevators = proj.remote.elevators.filter((v) => !v.unreadable);
-  const doc = completeDoc({ ...proj.remote, name: keep?.name ?? proj.remote.name, exits, elevators, nextId: keep?.nextId ?? 1 });
+  const transits = (proj.remote.transits ?? []).filter((t) => !t.unreadable).map(({ outside, carMoo, ...t }) => t);
+  const doc = completeDoc({ ...proj.remote, name: keep?.name ?? proj.remote.name, exits, elevators, transits, nextId: keep?.nextId ?? 1 });
   return doc;
 }
 
@@ -177,7 +223,7 @@ export function remoteDoc(proj, keep) {
 // Publish
 // ---------------------------------------------------------------------------
 
-const PHASES = ["areas", "removals", "moves", "rooms", "joins", "elevators"];
+const PHASES = ["areas", "removals", "moves", "rooms", "joins", "elevators", "transits"];
 
 /**
  * What publishing `doc` does to the world, given the projection of the world and the link. Answers
@@ -209,7 +255,8 @@ export function planPublish(doc, proj, link, base) {
   for (const a of doc.areas) {
     if (!link.areas[a.id] || goneAreas.has(a.id)) {
       if (goneAreas.has(a.id)) notes.push(`area ${a.id} "${a.name}" was linked to ${link.areas[a.id]}, which no longer exists; a new area is made.`);
-      phases.areas.push({ op: "area_create", name: a.name, local: a.id });
+      const kind = (doc.transits ?? []).some((t) => t.area === a.id) ? { kind: "transit" } : {};
+      phases.areas.push({ op: "area_create", name: a.name, local: a.id, ...kind });
     } else if (R.areas.get(a.id) && R.areas.get(a.id).name !== a.name) {
       phases.areas.push({ op: "area_rename", ref: { area: a.id }, name: a.name, local: a.id });
     }
@@ -262,6 +309,17 @@ export function planPublish(doc, proj, link, base) {
     return { adir: exitDirFrom(doc, e, a, D.rooms), bdir: exitDirFrom(doc, e, b, D.rooms) };
   };
   const liveByPair = new Map(remote.exits.map((x) => [pairKey(x.a, x.b), x]));
+  const B = base ? { rooms: new Map(base.rooms.map((r) => [r.id, r])), exits: new Map(base.exits.map((x) => [x.id, x])) } : null;
+  const movedRoom = (id) => {
+    const was = B?.rooms.get(id), now = D.rooms.get(id);
+    return !was || !now || was.area !== now.area || was.x !== now.x || was.y !== now.y || was.z !== now.z;
+  };
+  const touchedExit = (e) => {
+    if (!B) return true;
+    const was = B.exits.get(e.id);
+    if (!was || was.adir !== e.adir || was.bdir !== e.bdir || pairKey(was.a, was.b) !== pairKey(e.a, e.b)) return true;
+    return movedRoom(e.a) || movedRoom(e.b);
+  };
   for (const [id, x] of R.exits) {
     const e = D.exits.get(id);
     const ends = e && pairKey(e.a, e.b) === pairKey(x.a, x.b);
@@ -278,8 +336,12 @@ export function planPublish(doc, proj, link, base) {
       const upd = { op: "exit_update", ref: { exit: e.id, a: e.a }, local: e.id };
       if (liveType(x.type) !== liveType(e.type)) upd.type = e.type;
       if (x.hidden !== e.hidden) upd.hidden = e.hidden;
-      if (xa && w.adir && xa !== w.adir) upd.adir = w.adir;
-      if (xb && w.bdir && xb !== w.bdir) upd.bdir = w.bdir;
+      // Side names follow the grid only when the map touched this exit or moved an end since the last sync:
+      // an imported world has exits whose names disagree with the rooms' cells, and those are the game's.
+      if (touchedExit(e)) {
+        if (xa && w.adir && xa !== w.adir) upd.adir = w.adir;
+        if (xb && w.bdir && xb !== w.bdir) upd.bdir = w.bdir;
+      }
       if (Object.keys(upd).length > 4) phases.joins.push(upd);
       continue;
     }
@@ -355,8 +417,48 @@ export function planPublish(doc, proj, link, base) {
     }
   }
 
-  // Removals in a safe order: elevators, edges, then exits, then blocks, then rooms.
-  const rank = { elevator_delete: -1, edge_delete: 0, exit_delete: 1, block_remove: 2, room_delete: 3 };
+  // Transit lines, last of all: the car and every platform must exist first. The spec goes whole and the MOO
+  // reconciles it in place, so any difference at all is one transit_set. A line dropped from the map is
+  // cleared before any room is deleted (its car and its platforms' `in` go with it); the area and the car
+  // room stay. An area that is not a $maglev_line is never changed into one: that is the game's call.
+  const RT = new Map((remote.transits ?? []).map((t) => [t.id, t]));
+  const wantLines = doc.transits ?? [];
+  const goneLines = new Set(proj.gone.transits ?? []);
+  if (wantLines.length && !proj.transitApi) {
+    notes.push(`${wantLines.length === 1 ? "1 transit line is" : `${wantLines.length} transit lines are`} on the map, but the MOO has no transit system yet ($maglev_line:mapper_transit_set), so ${wantLines.length === 1 ? "it waits" : "they wait"}: publish again once it does.`);
+  } else if (proj.transitApi) {
+    for (const [id, t] of RT) {
+      if (wantLines.some((x) => x.id === id) || !D.areas.has(t.area) || goneAreas.has(t.area)) continue;
+      phases.removals.push({ op: "transit_clear", ref: { area: t.area }, local: id, line: t.line });
+    }
+    for (const t of wantLines) {
+      const tag = `transit ${t.id} "${t.line}"`;
+      const linked = link.areas[t.area] && !goneAreas.has(t.area);
+      if (linked && proj.kinds?.get(t.area) !== "transit") {
+        notes.push(`${tag} runs in area ${t.area}, linked to ${link.areas[t.area]}, which is not a $maglev_line in the world, so the line is not published. The map never changes an area's class: make the line's area anew (remove it from the map and add a fresh one) or have the game re-parent it.`);
+        continue;
+      }
+      if (t.stations.length < 2 || !t.car) { notes.push(`${tag} ${!t.car ? "has no car" : `has ${t.stations.length} station${t.stations.length === 1 ? "" : "s"}; a line needs two or more`}, so it is not published.`); continue; }
+      const live = linked ? RT.get(t.id) : undefined;
+      if (goneLines.has(t.id)) notes.push(`${tag}'s area ${t.area} is gone from the world; a new $maglev_line is made for it.`);
+      if (live?.outside?.length) notes.push(`${tag} also stops at ${live.outside.map((x) => `"${x.name}" (${x.moo})`).join(", ")}, outside this map; publishing it drops ${live.outside.length === 1 ? "that station" : "those stations"}.`);
+      if (live && !live.unreadable && canonTransit(live) === canonTransit(t) && !live.outside?.length && !live.carMoo) continue;
+      phases.transits.push({ op: "transit_set", ref: { area: t.area, car: t.car }, local: t.id, line: t.line, dwell: t.dwell, offset: t.offset, running: Boolean(t.running), stations: t.stations.map((x) => ({ room: x.room, name: x.name, travel: x.travel, warning: x.warning })) });
+    }
+  }
+
+  // Without the MOO's transit system a train area not in the world yet waits whole: made now it would be a
+  // plain $area, and the map never re-parents one. Everything else publishes.
+  if (!proj.transitApi) {
+    const waiting = new Set(wantLines.map((t) => t.area).filter((a) => !link.areas[a] || goneAreas.has(a)));
+    if (waiting.size) {
+      for (const [k, list] of Object.entries(phases)) phases[k] = list.filter((op) => !areasOfOp(op, doc, remote).some((a) => waiting.has(a)));
+      notes.push(`area${waiting.size === 1 ? "" : "s"} ${[...waiting].map((a) => `${a} "${D.areas.get(a)?.name}"`).join(", ")} ${waiting.size === 1 ? "is a train and waits" : "are trains and wait"} with ${waiting.size === 1 ? "its line" : "their lines"}, with every room and exit in ${waiting.size === 1 ? "it" : "them"}: ${waiting.size === 1 ? "it is" : "they are"} made as a $maglev_line once the MOO has one.`);
+    }
+  }
+
+  // Removals in a safe order: transit lines and elevators, edges, then exits, then blocks, then rooms.
+  const rank = { transit_clear: -2, elevator_delete: -1, edge_delete: 0, exit_delete: 1, block_remove: 2, room_delete: 3 };
   phases.removals.sort((p, q) => rank[p.op] - rank[q.op]);
   // Rooms before their joins: exits and edges need both ends.
   const counts = Object.fromEntries(Object.entries(phases).map(([k, v]) => [k, v.length]));
@@ -378,6 +480,14 @@ export function resolveOp(op, link) {
     out[field] = id;
   }
   if (out.op === "exit_update" && op.ref?.a) out.a = link.rooms[op.ref.a];
+  if (op.op === "transit_set") {
+    out.stations = [];
+    for (const x of op.stations ?? []) {
+      const id = link.rooms[x.room];
+      if (!id) return { error: `station "${x.name}"'s platform ${x.room} has no counterpart in the world (it was not made)` };
+      out.stations.push({ ...x, room: id });
+    }
+  }
   if (op.stops) {
     out.stops = [];
     for (const x of op.stops) {
@@ -414,6 +524,8 @@ export function describeOp(op, doc) {
     case "elevator_create": return `make elevator ${op.local} "${op.name}": a carriage and ${op.stops.length} lobby exit${op.stops.length === 1 ? "" : "s"} (${op.stops.map((x) => `${x.label}=${room(x.room)}`).join(", ")})`;
     case "elevator_update": return `update elevator ${op.local} "${op.name}": stops ${op.stops.map((x) => `${x.label}=${x.room}`).join(", ")}, door ${op.door}s, travel ${op.travel}s`;
     case "elevator_delete": return `delete elevator ${op.local}: its carriage and lobby exits`;
+    case "transit_set": return `set transit ${op.local} "${op.line}" in ${op.ref.area}: car ${room(op.ref.car)}, dwell ${op.dwell}s, offset ${op.offset}s, ${op.running ? "running" : "stopped"}, ${op.stations.length} stations (${op.stations.map((x) => `"${x.name}"=${x.room} ${x.travel}s/w${x.warning}s`).join(" → ")})`;
+    case "transit_clear": return `clear transit ${op.local}${op.line ? ` "${op.line}"` : ""} in ${op.ref.area}: the car's door and the platforms' \`in\` go; the area and car room stay`;
     default: return JSON.stringify(op);
   }
 }
@@ -450,11 +562,11 @@ export { PHASES, LONG, OPPOSITE };
  */
 export function mergePull(doc, base, world) {
   const ignore = ["color", "notes"];
-  const from = base ?? { ...world, areas: [], rooms: [], exits: [], edges: [], blocks: [], elevators: [] };
+  const from = base ?? { ...world, areas: [], rooms: [], exits: [], edges: [], blocks: [], elevators: [], transits: [] };
   const theirs = diffDocs(from, world, { ignore });
   const mine = base ? diffDocs(base, doc, { ignore }) : {};
   const kept = [];
-  for (const c of ["areas", "rooms", "exits", "edges", "elevators"]) {
+  for (const c of ["areas", "rooms", "exits", "edges", "elevators", "transits"]) {
     const p = theirs[c];
     if (!p) continue;
     const touched = new Set([...(mine[c]?.add ?? []), ...(mine[c]?.put ?? [])].map((o) => o.id).concat(mine[c]?.del ?? []));

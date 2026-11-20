@@ -3,7 +3,7 @@
  * in this document's fragment:
  *
  *   page → frame   { type: "load", seq, doc, rev, state, label, linked, message? }   the map as it is on disk
- *                  { type: "state", state, label, rev? }                         the publish badge, a save's answer
+ *                  { type: "state", state, label, areas?, rev? }                 the publish badge, a save's answer
  *                  { type: "saved", rev, ok, error? }                            how the last save went
  *                  { type: "flush" }                                             send any edit still waiting
  *                  { type: "select", room }                                      show one room
@@ -23,11 +23,22 @@
     try { window.parent.postMessage(msg, "*"); } catch (e) { /* opened on its own */ }
   }
 
-  var STATE_TEXT = { draft: "draft", linked: "linked", published: "published", changed: "unpublished changes" };
-  function showState(state, label) {
-    pub.textContent = STATE_TEXT[state] || state || "…";
-    pub.className = "st-" + (state || "none");
-    pub.title = (label || "") + "\n\nThe map is saved to Thetis as you edit. Ask the agent to publish it (map_publish) to write it to the MOO.";
+  // The badge speaks for the area on screen; its tooltip adds the whole map's tally.
+  var STATE_TEXT = { draft: "draft", linked: "linked", published: "published", changed: "unpublished changes", outdated: "out of date" };
+  var mapState = null, mapLabel = "", areaStates = {}, shownArea = null;
+  function showState(state, label, areas) {
+    mapState = state; mapLabel = label || "";
+    if (areas && typeof areas === "object") areaStates = areas;
+    paint();
+    if (mapper && mapper.areas) mapper.areas();
+  }
+  function paint() {
+    var a = shownArea && areaStates[shownArea];
+    var st = a ? a.state : mapState;
+    pub.textContent = (a ? "area: " : "") + (STATE_TEXT[st] || st || "…");
+    pub.className = "st-" + (st || "none");
+    pub.title = (a ? "This area: " + (a.label || a.state) + "\n" : "") + "The map: " + mapLabel +
+      "\n\nThe map is saved to Thetis as you edit. Ask the agent to publish it (map_publish, all areas or some) to write it to the MOO.";
   }
 
   function reloadFromPage() {
@@ -45,6 +56,8 @@
       map: msg.doc,
       reload: reloadFromPage,
       save: function (doc) { saving = "saving…"; post({ type: "save", doc: doc, seq: seq }); },
+      areaState: function (id) { return areaStates[id] || null; },
+      onArea: function (id) { if (id !== shownArea) { shownArea = id; paint(); } },
       status: function (waiting) {
         if (waiting) return "editing…";
         return saving;
@@ -72,7 +85,7 @@
       if (mapper) mapper.flush(); // an edit still waiting goes out first, so it is merged and not lost
       linked = msg.linked || {};
       seq = msg.seq || 0;
-      showState(msg.state, msg.label);
+      showState(msg.state, msg.label, msg.areas);
       if (pendingReload) {
         var r = pendingReload; pendingReload = null; r(msg.doc); // the engine's own Reload adopts it
         return;
@@ -81,7 +94,7 @@
       if (!mapper) start(msg);
       else { mapper.load(msg.doc, { undoable: false, message: msg.message }); mapper.status(); }
     } else if (msg.type === "state") {
-      showState(msg.state, msg.label);
+      showState(msg.state, msg.label, msg.areas);
     } else if (msg.type === "saved") {
       saving = msg.ok ? "saved · rev " + msg.rev : "not saved: " + (msg.error || "error");
       if (!msg.ok && mapper) mapper.toast("The map was not saved: " + (msg.error || "error"), "err");

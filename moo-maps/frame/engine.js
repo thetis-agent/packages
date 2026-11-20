@@ -80,7 +80,7 @@ const SVGNS = "http://www.w3.org/2000/svg";
 const el = (tag, attrs={}) => { const n=document.createElementNS(SVGNS,tag);
   for(const k in attrs) n.setAttribute(k,attrs[k]); return n; };
 
-function blankState(){ return {name:"Untitled Map", nextId:1, areas:{}, rooms:{}, exits:{}, edges:{}, blocks:{}, elevators:{}}; }
+function blankState(){ return {name:"Untitled Map", nextId:1, areas:{}, rooms:{}, exits:{}, edges:{}, blocks:{}, elevators:{}, transits:{}}; }
 function key(a,x,y,z){ return a+":"+x+","+y+","+z; }
 function isBlocked(x,y,z,area){ return !!state.blocks[key(area,x,y,z)]; }
 function rebuildIdx(){ coordIdx.clear();
@@ -185,6 +185,7 @@ function deleteRoom(rid, opts={}){
   for(const id in state.edges){ const g=state.edges[id];
     if(g.from===rid||g.success===rid||g.fail===rid) delete state.edges[id]; }
   for(const id in state.elevators){ const v=state.elevators[id]; v.stops=v.stops.filter(st=>st.room!==rid); }
+  for(const id in state.transits){ const t=state.transits[id]; t.stations=t.stations.filter(st=>st.room!==rid); if(t.car===rid) t.car=""; }
   delete state.rooms[rid];
   if(!opts.silent) enqueueLive(async()=>{ await api.deleteRoom(canon(doomed)); });
 }
@@ -657,6 +658,20 @@ function drawRoom(r){
     b.addEventListener("click",ev=>{ev.stopPropagation(); select({kind:"elevator",id:v.id});});
     g.appendChild(b);
   });
+  // Transit: ⇄ and the line's name on its car, the station's name on a platform; top-left corner.
+  transitsAt(r.id).forEach(({t,st},i)=>{
+    const label=String(st?st.name:t.line).slice(0,7);
+    const bx=w.x-ROOM/2+3, by=w.y-ROOM/2+3+i*14, bw=14+label.length*6;
+    const seldT=sel&&sel.kind==="transit"&&sel.id===t.id;
+    const b=el("g"); b.style.cursor="pointer"; b.style.pointerEvents="all"; b.classList.add("transitBadge");
+    b.appendChild(el("rect",{x:bx,y:by,width:bw,height:12,rx:3,fill:"#2e2410",stroke:seldT?"var(--accent)":TRANSIT_HEX,["stroke-width"]:seldT?2:1.2}));
+    const tx=el("text",{x:bx+bw/2,y:by+9,["text-anchor"]:"middle",fill:TRANSIT_HEX,["font-size"]:"8.5","font-weight":"700"});
+    tx.textContent="⇄"+label; b.appendChild(tx);
+    const tt=el("title"); tt.textContent=st?`${t.line}: station ${st.name} — click to edit the line`:`${t.line}: the train car (${t.stations.length} stations, ${transitPeriod(t)}s loop) — click to edit the line`; b.appendChild(tt);
+    b.addEventListener("pointerdown",ev=>ev.stopPropagation());
+    b.addEventListener("click",ev=>{ev.stopPropagation(); select({kind:"transit",id:t.id});});
+    g.appendChild(b);
+  });
 
   g.addEventListener("pointerdown",ev=>startRoomDrag(ev,r.id));
   g.addEventListener("dblclick",ev=>{ ev.stopPropagation();
@@ -688,13 +703,28 @@ function renderFloorGauge(){
     b.onclick=()=>{ view.floor=z; sel=null; render(); };
     rail.appendChild(b); });
 }
+const AREA_GROUPS=[["draft","Draft — not in the MOO yet"],["changed","Unpublished changes"],["outdated","Out of date — changed in the MOO"],["linked","Linked"],["published","Published"]];
+const AREA_MARK={draft:"○",changed:"●",outdated:"◆",linked:"◌",published:"✓"};
 function renderAreaSel(){
   const s=$("areaSel"); s.innerHTML="";
-  for(const id in state.areas){ const o=document.createElement("option");
-    o.value=id; o.textContent=areaName(id);
-    if(id===view.area) o.selected=true; s.appendChild(o); }
+  const st=typeof options.areaState==="function"?options.areaState:null;
+  const ids=Object.keys(state.areas);
+  const opt=(id)=>{ const o=document.createElement("option"); o.value=id;
+    const a=st&&st(id); o.textContent=(a?AREA_MARK[a.state]+" ":"")+areaName(id);
+    if(a&&a.label) o.title=a.label;
+    if(id===view.area) o.selected=true; return o; };
+  // Few areas, or no states yet: one plain list in the map's order. Many: grouped by publish state, A–Z.
+  if(!st||ids.length<=8){ ids.forEach(id=>s.appendChild(opt(id))); }
+  else {
+    const by={}; ids.forEach(id=>{ const k=(st(id)||{}).state||"draft"; (by[k]=by[k]||[]).push(id); });
+    for(const [k,label] of AREA_GROUPS){ const list=by[k]; if(!list) continue;
+      const g=document.createElement("optgroup"); g.label=label+" ("+list.length+")";
+      list.sort((p,q)=>areaName(p).localeCompare(areaName(q))).forEach(id=>g.appendChild(opt(id)));
+      s.appendChild(g); }
+  }
   const nu=document.createElement("option");
   nu.value="__new"; nu.textContent="＋ New area…"; s.appendChild(nu);
+  if(typeof options.onArea==="function") options.onArea(view.area);
 }
 let hoverCell=null;
 function renderStatus(){
@@ -741,6 +771,7 @@ function renderSide(){
   if(sel&&sel.kind==="exit"&&state.exits[sel.id]){ renderExitPanel(side,state.exits[sel.id]); return; }
   if(sel&&sel.kind==="edge"&&state.edges[sel.id]){ renderEdgePanel(side,state.edges[sel.id]); return; }
   if(sel&&sel.kind==="elevator"&&state.elevators[sel.id]){ renderElevatorPanel(side,state.elevators[sel.id]); return; }
+  if(sel&&sel.kind==="transit"&&state.transits[sel.id]){ renderTransitPanel(side,state.transits[sel.id]); return; }
   side.innerHTML=`
    <div class="section"><h3>Quick reference</h3>
     <div class="cheat">
@@ -760,6 +791,7 @@ function renderSide(){
    <div class="section"><h3>Exit legend</h3><div class="legend">${legendHTML()}</div></div>
    <div class="section"><span class="hint">Select a room or an exit to edit it here. Exit lines are easiest to click near their middle.</span></div>`;
   side.appendChild(elevatorListSection());
+  side.appendChild(transitListSection());
 }
 function legendHTML(){
   let h="";
@@ -773,6 +805,7 @@ function legendHTML(){
   h+=`<svg width="34" height="14"><rect x="1" y="1" width="32" height="12" fill="#171c24" stroke="#2b3444"/><line x1="4" y1="12" x2="14" y2="2" stroke="#2b3444" stroke-width="1.5"/><line x1="14" y1="12" x2="24" y2="2" stroke="#2b3444" stroke-width="1.5"/></svg><span>Blocked-out cell (impassable)</span>`;
   h+=`<span style="color:var(--muted)">→</span><span>One-way (arrow points where it leads)</span>`;
   h+=`<svg width="34" height="14"><rect x="2" y="1" width="28" height="12" rx="3" fill="#132a2e" stroke="${LIFT_HEX}"/><text x="16" y="10" text-anchor="middle" fill="${LIFT_HEX}" font-size="8.5" font-weight="700">⇕G</text></svg><span>Elevator lobby — the stop's button; click to edit the elevator</span>`;
+  h+=`<svg width="34" height="14"><rect x="2" y="1" width="30" height="12" rx="3" fill="#2e2410" stroke="${TRANSIT_HEX}"/><text x="17" y="10" text-anchor="middle" fill="${TRANSIT_HEX}" font-size="8.5" font-weight="700">⇄Red</text></svg><span>Transit line — on the car its name, on a platform the station's; click to edit the line</span>`;
   return h;
 }
 
@@ -833,6 +866,7 @@ function renderRoomPanel(side,r){
   sec.querySelector("#delRoom").onclick=()=>{ pushUndo(); deleteRoom(r.id); sel=null; commit(); toast("Room deleted"); };
 
   side.appendChild(roomElevatorSection(r));
+  side.appendChild(roomTransitSection(r));
 
   // exits list
   const ex=document.createElement("div"); ex.className="section";
@@ -1378,6 +1412,7 @@ function deleteSelection(){
     enqueueLive(async()=>{ await api.deleteExit(canon(doomed)); });
   }
   else if(sel.kind==="elevator"&&state.elevators[sel.id]){ delete state.elevators[sel.id]; toast("Elevator deleted"); }
+  else if(sel.kind==="transit"&&state.transits[sel.id]){ delete state.transits[sel.id]; toast("Transit line deleted"); }
   else if(sel.kind==="edge"&&state.edges[sel.id]){
     const doomed=sel.id; delete state.edges[sel.id]; toast("Edge deleted");
     enqueueLive(async()=>{ await api.deleteEdge(canon(doomed)); });
@@ -1562,6 +1597,182 @@ function renderElevatorPanel(side,v){
     if(v.stops.some(x=>x.room===r.id)){ toast(`${r.name||"That room"} is already a stop`,"err"); return; }
     const bad=stopLabelOk(v,lsL.value); if(bad){ toast(bad,"err"); return; }
     pushUndo(); insertStop(v,r.id,lsL.value.trim()); commit(); toast(`Stop ${lsL.value.trim()} added`);
+  };
+}
+
+/* ---------- transit lines ----------
+   A transit line is one maglev train on a fixed clock: an area of its own (the $maglev_line), a car room
+   on that area's grid, and stations in loop order, each a platform in another area with the leg's travel
+   to the next station and its warning (the last seconds of that leg). period = Σ(dwell + travel). The
+   car's `out` and each platform's `in` belong to the line: they are never drawn as exits. */
+const TRANSIT_HEX="#f0b44c";
+const TR={dwell:[10,300],travel:[10,1800],offset:[0,86399]};
+function transitPeriod(t){ return (t.stations||[]).reduce((n,s)=>n+(+t.dwell||0)+(+s.travel||0),0); }
+function fmtSecs(n){ const m=Math.floor(n/60), s=n%60; return m?`${m}m${s?` ${s}s`:""}`:`${s}s`; }
+function transitsAt(rid){ const out=[];
+  for(const id in state.transits){ const t=state.transits[id];
+    if(t.car===rid) out.push({t,st:null});
+    const st=t.stations.find(x=>x.room===rid); if(st) out.push({t,st}); }
+  return out; }
+function transitOfArea(aid){ return Object.values(state.transits).find(t=>t.area===aid); }
+function lobbyRooms(){ return new Set(Object.values(state.elevators).flatMap(v=>v.stops.map(x=>x.room))); }
+function platformProblem(t,r){
+  if(!r) return "Pick a platform room.";
+  if(r.area===t.area) return "A platform is a room in another area, not in the train's own.";
+  if(t.stations.some(x=>x.room===r.id)) return `${r.name||"That room"} is already a station of this line.`;
+  const other=Object.values(state.transits).find(x=>x!==t&&x.stations.some(y=>y.room===r.id));
+  if(other) return `${r.name||"That room"} is a platform of ${other.line}: a platform serves one line.`;
+  if(lobbyRooms().has(r.id)) return `${r.name||"That room"} is an elevator lobby; it cannot be a platform too.`;
+  return null;
+}
+function stationName(t,r){
+  const used=new Set(t.stations.map(x=>x.name.toLowerCase()));
+  let base=String(r?.name||"Station").replace(/\s+platform$/i,"").trim()||"Station";
+  if(!used.has(base.toLowerCase())) return base;
+  for(let i=2;i<100;i++){ const c=`${base} ${i}`; if(!used.has(c.toLowerCase())) return c; }
+  return base+"?";
+}
+function newStation(t,r){ return {room:r.id,name:stationName(t,r),travel:240,warning:60}; }
+/* A new line: a fresh area of its own and a car room at (0,0,0) in it; `first` its first platform. */
+function createTransit(name,first){
+  const a=createArea(name||"Line");
+  const car=createRoom(0,0,0,`${a.name} Car`,a.id);
+  const id="t"+(state.nextId++);
+  const t={id,area:a.id,car:car?car.id:"",line:a.name,dwell:45,offset:0,running:true,stations:[]};
+  state.transits[id]=t;
+  if(first&&!platformProblem(t,first)) t.stations.push(newStation(t,first));
+  return t;
+}
+function transitListSection(){
+  const sec=document.createElement("div"); sec.className="section";
+  const list=Object.values(state.transits||{});
+  sec.innerHTML=`<h3>Transit lines (${list.length})</h3>`+(list.length?"":`<span class="hint">None yet. Select a platform room and press <b>⇄ New line</b>.</span>`);
+  list.forEach(t=>{
+    const b=document.createElement("button"); b.style.cssText="display:block;width:100%;text-align:left;margin-top:4px";
+    b.innerHTML=`<span style="color:${TRANSIT_HEX}">⇄</span> ${escapeHTML(t.line)} <span class="hint">· ${t.stations.map(x=>escapeHTML(x.name)).join(" → ")||"no stations"} · ${fmtSecs(transitPeriod(t))}${t.running?"":" · stopped"}</span>`;
+    b.onclick=()=>select({kind:"transit",id:t.id});
+    sec.appendChild(b);
+  });
+  return sec;
+}
+function roomTransitSection(r){
+  const sec=document.createElement("div"); sec.className="section";
+  const here=transitsAt(r.id);
+  const others=Object.values(state.transits).filter(t=>!platformProblem(t,r));
+  sec.innerHTML=`<h3>Transit (${here.length})</h3>`+
+    (here.length?"":`<span class="hint">A platform: while the train is here, its <code>in</code> opens on the car. The car is a room in the line's own area.</span>`);
+  here.forEach(({t,st})=>{
+    const row=document.createElement("div"); row.className="row tight"; row.style.marginTop="4px";
+    row.innerHTML=`<button class="tgo" style="flex:1;text-align:left"><span style="color:${TRANSIT_HEX}">⇄ ${escapeHTML(st?st.name:"car")}</span> ${escapeHTML(t.line)} <span class="hint">· ${t.stations.length} stations</span></button>`+(st?`<button class="trm danger" title="Remove this station">✕</button>`:"");
+    row.querySelector(".tgo").onclick=()=>select({kind:"transit",id:t.id});
+    const rm=row.querySelector(".trm");
+    if(rm) rm.onclick=()=>{ pushUndo(); t.stations=t.stations.filter(x=>x!==st); commit(); toast(`Station ${st.name} removed from ${t.line}`); };
+    sec.appendChild(row);
+  });
+  const act=document.createElement("div"); act.className="row"; act.style.marginTop="8px";
+  const canPlat=!transitOfArea(r.area)&&!lobbyRooms().has(r.id)&&!Object.values(state.transits).some(t=>t.stations.some(x=>x.room===r.id));
+  act.innerHTML=canPlat?`<button id="trNew" title="Make a transit line (a new area with its car) with this room as its first station">⇄ New line</button>`:"";
+  sec.appendChild(act);
+  if(others.length&&canPlat){ const row=document.createElement("div"); row.className="row tight"; row.style.marginTop="6px";
+    row.innerHTML=`<select id="trPick" style="flex:1;min-width:0">${others.map(t=>`<option value="${t.id}">${escapeHTML(t.line)}</option>`).join("")}</select><button id="trAdd" title="Make this room a station of that line">＋ Station here</button>`;
+    sec.appendChild(row); }
+  const nb=act.querySelector("#trNew");
+  if(nb) nb.onclick=()=>{ pushUndo(); const t=createTransit("New Line",r); sel={kind:"transit",id:t.id}; commit(); toast("Line made — add its other stations"); };
+  const add=sec.querySelector("#trAdd");
+  if(add) add.onclick=()=>{ const t=state.transits[sec.querySelector("#trPick").value]; if(!t) return;
+    const bad=platformProblem(t,r); if(bad){ toast(bad,"err"); return; }
+    pushUndo(); t.stations.push(newStation(t,r)); commit(); toast(`${r.name||"Room"} is now a station of ${t.line}`); };
+  return sec;
+}
+function renderTransitPanel(side,t){
+  const sec=document.createElement("div"); sec.className="section";
+  const area=state.areas[t.area];
+  const cars=Object.values(state.rooms).filter(r=>r.area===t.area);
+  sec.innerHTML=`<h3><button class="sideClose" title="Close panel">✕</button>Transit line <span class="coordChip" style="color:${TRANSIT_HEX}">⇄ ${t.id} · area ${escapeHTML(short(area?.name||t.area))}</span></h3>
+    <label class="fld" for="tlName">Line name</label>
+    <input type="text" id="tlName" maxlength="200" placeholder="e.g. Red Line">
+    <label class="fld" for="tlCar">Car (a room of the line's area)</label>
+    <div class="row tight"><select id="tlCar" style="flex:1;min-width:0">${cars.length?"":`<option value="">(no rooms in ${escapeHTML(area?.name||t.area)})</option>`}${cars.map(r=>`<option value="${r.id}"${r.id===t.car?" selected":""}>${escapeHTML(r.name||"(unnamed)")} (${r.x}, ${r.y}, fl ${r.z})</option>`).join("")}</select><button id="tlCarGo" title="Go to the car">→</button></div>
+    <div class="row tight" style="margin-top:6px">
+      <label class="fld" style="flex:1">Dwell (s)<input type="number" id="tlDwell" min="10" max="300" style="width:100%"></label>
+      <label class="fld" style="flex:1">Offset (s)<input type="number" id="tlOffset" min="0" max="86399" style="width:100%"></label>
+    </div>
+    <label class="fld" style="margin-top:6px"><input type="checkbox" id="tlRun"> Running</label>
+    <div class="hint" id="tlPeriod" style="margin-top:6px"></div>
+    <div class="row" style="margin-top:10px"><span class="spacer"></span><button id="tlDel" class="danger" title="Delete the line (Del): publishing clears it; the area and the car room stay">Delete line</button></div>`;
+  side.appendChild(sec);
+  const period=()=>{ sec.querySelector("#tlPeriod").textContent=`One loop: ${fmtSecs(transitPeriod(t))} (${t.stations.length} × ${t.dwell}s dwell + ${t.stations.reduce((n,x)=>n+x.travel,0)}s travel)`; };
+  period();
+  sec.querySelector(".sideClose").onclick=()=>{ sel=null; render(); };
+  const nm=sec.querySelector("#tlName"); nm.value=t.line;
+  nm.addEventListener("focus",()=>pushUndo());
+  nm.addEventListener("input",()=>{ t.line=nm.value||area?.name||"Line"; scheduleSave(); });
+  nm.addEventListener("change",()=>render());
+  const car=sec.querySelector("#tlCar");
+  if(!t.car&&cars.length) car.value="";
+  car.addEventListener("change",()=>{ if(!car.value) return; pushUndo(); t.car=car.value; commit(); });
+  sec.querySelector("#tlCarGo").onclick=()=>{ const r=state.rooms[t.car]; if(r){ jumpToRoom(r); ensureVisible(r); } };
+  for(const [idn,k] of [["#tlDwell","dwell"],["#tlOffset","offset"]]){
+    const [lo,hi]=TR[k]; const i=sec.querySelector(idn); i.value=t[k];
+    i.addEventListener("focus",()=>pushUndo());
+    i.addEventListener("change",()=>{ const n=Math.round(+i.value); if(n>=lo&&n<=hi){ t[k]=n; scheduleSave(); period(); render(); } else { i.value=t[k]; toast(`${lo} to ${hi} seconds`,"err"); } });
+  }
+  const run=sec.querySelector("#tlRun"); run.checked=!!t.running;
+  run.addEventListener("change",()=>{ pushUndo(); t.running=run.checked; commit(); });
+  sec.querySelector("#tlDel").onclick=()=>{ pushUndo(); delete state.transits[t.id]; sel=null; commit(); toast("Transit line deleted"); };
+
+  const st=document.createElement("div"); st.className="section";
+  st.innerHTML=`<h3>Stations, in loop order (${t.stations.length})</h3>`+
+    (t.stations.length<2?`<span class="hint">A line needs two stations or more; it is published once it has them. Platforms are rooms in other areas.</span>`:
+    `<span class="hint">Each row: the station, then its leg to the next one round the loop — travel, and the warning (the last seconds of the leg, when the car chimes the next stop).</span>`);
+  t.stations.forEach((s,i)=>{
+    const r=state.rooms[s.room], nx=t.stations[(i+1)%t.stations.length];
+    const row=document.createElement("div"); row.style.cssText="margin-top:6px;border-top:1px solid var(--line);padding-top:4px";
+    row.innerHTML=`<div class="row tight"><input type="text" class="tsName" maxlength="200" style="flex:1;min-width:0;color:${TRANSIT_HEX};font-weight:700" title="The station's name">
+      <button class="tsGo" title="Go to this platform">→</button>
+      <button class="tsUp" title="Earlier in the loop"${i===0?" disabled":""}>↑</button>
+      <button class="tsDn" title="Later in the loop"${i===t.stations.length-1?" disabled":""}>↓</button>
+      <button class="tsRm danger" title="Remove this station">✕</button></div>
+      <div class="hint">${escapeHTML(r?.name||"(unnamed)")} · ${r?escapeHTML(short(areaName(r.area))):""}</div>
+      <div class="row tight"><label class="fld" style="flex:1">to ${escapeHTML(nx?.name||"?")} (s)<input type="number" class="tsTravel" min="10" max="1800" style="width:100%"></label>
+      <label class="fld" style="flex:1">warning (s)<input type="number" class="tsWarn" min="0" style="width:100%"></label></div>`;
+    const ni=row.querySelector(".tsName"); ni.value=s.name;
+    ni.addEventListener("focus",()=>pushUndo());
+    ni.addEventListener("change",()=>{ const v=ni.value.trim(); if(!v){ ni.value=s.name; toast("A station needs a name","err"); return; }
+      if(t.stations.some(x=>x!==s&&x.name.toLowerCase()===v.toLowerCase())){ ni.value=s.name; toast(`Another station is already named "${v}"`,"err"); return; }
+      s.name=v; commit(); });
+    const tv=row.querySelector(".tsTravel"), wv=row.querySelector(".tsWarn"); tv.value=s.travel; wv.value=s.warning; wv.max=s.travel-1;
+    tv.addEventListener("focus",()=>pushUndo()); wv.addEventListener("focus",()=>pushUndo());
+    tv.addEventListener("change",()=>{ const n=Math.round(+tv.value); const [lo,hi]=TR.travel;
+      if(!(n>=lo&&n<=hi)){ tv.value=s.travel; toast(`${lo} to ${hi} seconds`,"err"); return; }
+      s.travel=n; if(s.warning>=n){ s.warning=n-1; wv.value=s.warning; toast(`Warning cut to ${s.warning}s: it is shorter than the leg`); }
+      wv.max=n-1; scheduleSave(); period(); });
+    wv.addEventListener("change",()=>{ const n=Math.round(+wv.value);
+      if(!(n>=0&&n<s.travel)){ wv.value=s.warning; toast(`0 to ${s.travel-1} seconds: less than the leg's travel`,"err"); return; }
+      s.warning=n; scheduleSave(); });
+    row.querySelector(".tsGo").onclick=()=>{ if(r){ jumpToRoom(r); ensureVisible(r); } };
+    row.querySelector(".tsUp").onclick=()=>{ pushUndo(); t.stations.splice(i-1,0,t.stations.splice(i,1)[0]); commit(); };
+    row.querySelector(".tsDn").onclick=()=>{ pushUndo(); t.stations.splice(i+1,0,t.stations.splice(i,1)[0]); commit(); };
+    row.querySelector(".tsRm").onclick=()=>{ pushUndo(); t.stations.splice(i,1); commit(); };
+    st.appendChild(row);
+  });
+  const add=document.createElement("div");
+  add.innerHTML=`<label class="fld" style="margin-top:10px">Add a station (at the end of the loop)</label>
+    <div class="row tight"><select id="tsA" style="flex:1"></select><select id="tsR" style="flex:2"></select></div>
+    <div class="row tight" style="margin-top:4px"><span class="spacer"></span><button id="tsAdd" class="primary">＋ Add station</button></div>`;
+  st.appendChild(add);
+  side.appendChild(st);
+  const seedArea=Object.keys(state.areas).find(a=>a!==t.area);
+  const seed=t.stations.length?state.rooms[t.stations[t.stations.length-1].room]:(seedArea?{area:seedArea,id:null}:null);
+  const tsR=add.querySelector("#tsR");
+  const prune=()=>{ for(const o of [...tsR.options]) if(platformProblem(t,state.rooms[o.value])) o.remove();
+    if(!tsR.options.length) tsR.innerHTML=`<option value="">(no free platform here)</option>`; };
+  wireRoomPicker(add.querySelector("#tsA"),tsR,seed?{area:seed.area,id:null}:null);
+  prune();
+  add.querySelector("#tsA").addEventListener("change",prune);
+  add.querySelector("#tsAdd").onclick=()=>{
+    const r=state.rooms[tsR.value]; const bad=platformProblem(t,r); if(bad){ toast(bad,"err"); return; }
+    pushUndo(); t.stations.push(newStation(t,r)); commit(); toast(`Station ${t.stations[t.stations.length-1].name} added`);
   };
 }
 
@@ -1763,6 +1974,7 @@ function openManageArea(){
     pushUndo();
     Object.values(state.rooms).filter(r=>r.area===doomed).forEach(r=>deleteRoom(r.id,{silent:true}));
     for(const k in state.blocks) if(k.startsWith(doomed+":")) delete state.blocks[k];
+    for(const id in state.transits) if(state.transits[id].area===doomed) delete state.transits[id];
     delete state.areas[doomed]; delete viewMem[doomed];
     view.area=Object.keys(state.areas)[0]; view.floor=0; sel=null;
     closeModal(); commit(); fitView();
@@ -1787,6 +1999,7 @@ function exportJSON(){
     exits:Object.values(state.exits),
     edges:Object.values(state.edges),
     elevators:Object.values(state.elevators||{}),
+    transits:Object.values(state.transits||{}),
     blocks:Object.keys(state.blocks).map(k=>parseBlockKey(k)).filter(Boolean)},null,2);
 }
 function parseImport(text){
@@ -1879,6 +2092,24 @@ function parseImport(text){
     const secs=(n,dflt,lo,hi)=>Number.isInteger(n)&&n>=lo&&n<=hi?n:dflt;
     s.elevators[id]={id,name:String(v.name||"Elevator"),description:String(v.description??""),door:secs(v.door,8,2,120),travel:secs(v.travel,3,1,60),stops};
     const m=/^v(\d+)$/.exec(id); if(m) maxN=Math.max(maxN,+m[1]);
+  }
+  // transit lines: an area of their own, a car, stations in loop order (absent before transits — skipped)
+  const int=(n,dflt)=>Number.isFinite(Number(n))?Math.round(Number(n)):dflt;
+  for(const t of asArr(d.transits)){
+    if(t==null||typeof t!=="object") continue;
+    const id=String(t.id??""), area=String(t.area??"");
+    if(!id||s.transits[id]||!s.areas[area]||Object.values(s.transits).some(x=>x.area===area)) continue;
+    const seen=new Set(), stations=[];
+    for(const st of asArr(t.stations)){
+      const room=String(st?.room??"");
+      if(!s.rooms[room]||seen.has(room)) continue;
+      seen.add(room);
+      const travel=int(st.travel,240);
+      stations.push({room,name:String(st.name??"").trim().slice(0,200)||s.rooms[room].name||"Station",travel,warning:int(st.warning,Math.min(60,Math.max(0,travel-1)))});
+    }
+    const car=s.rooms[String(t.car??"")]?String(t.car):"";
+    s.transits[id]={id,area,car,line:String(t.line||s.areas[area].name||"Line"),dwell:int(t.dwell,45),offset:int(t.offset,0),running:t.running===undefined||t.running===null?true:!!t.running,stations};
+    const m=/^t(\d+)$/.exec(id); if(m) maxN=Math.max(maxN,+m[1]);
   }
   if(!Object.keys(s.areas).length) ensureDefault();
   s.nextId=Math.max(maxN+1, Number.isInteger(d.nextId)?d.nextId:1);
@@ -2017,7 +2248,7 @@ function load(doc,{undoable=true,message}={}){
   else { undoStack.length=0; redoStack.length=0; syncUndoBtns(); } // a snapshot from before would undo the other writer's work too
   state=s;
   if(!state.areas[view.area]){ view.area=Object.keys(state.areas)[0]; view.floor=defaultFloor(view.area); }
-  if(sel){ const bag=sel.kind==="room"?state.rooms:sel.kind==="exit"?state.exits:sel.kind==="elevator"?state.elevators:state.edges; if(!bag[sel.id]) sel=null; }
+  if(sel){ const bag=sel.kind==="room"?state.rooms:sel.kind==="exit"?state.exits:sel.kind==="elevator"?state.elevators:sel.kind==="transit"?state.transits:state.edges; if(!bag||!bag[sel.id]) sel=null; }
   rebuildIdx(); render();
   if(message) toast(message);
   return true;
@@ -2027,5 +2258,5 @@ function selectRoom(id){
   if(r.area!==view.area) switchArea(r.area);
   view.floor=r.z; sel={kind:"room",id}; render(); ensureVisible(r); return true;
 }
-  return { destroy, load, flush:flushSave, status:renderStatus, selectRoom, toast, fit:fitView, current:()=>JSON.parse(exportJSON()) };
+  return { destroy, load, flush:flushSave, status:renderStatus, selectRoom, toast, fit:fitView, areas:renderAreaSel, area:()=>view.area, current:()=>JSON.parse(exportJSON()) };
 }

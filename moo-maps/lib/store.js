@@ -19,6 +19,7 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readdir, readFile, rename, rm, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { checkDoc, completeDoc, countsOf, diffDocs, isEmptyPatch } from "../ui/core/doc.js";
+import { areaStates, countsText, stateCounts } from "./areastate.js";
 
 export const DIR = "maps";
 const MAX_MAPS = 500;
@@ -96,7 +97,15 @@ function completeLink(l) {
     publishedAt: typeof src.publishedAt === "string" ? src.publishedAt : null,
     character: typeof src.character === "string" ? src.character : null,
     external: Array.isArray(src.external) ? src.external.slice(0, 2000) : [],
+    drift: completeDrift(src.drift),
   };
+}
+
+/** What the last look at the world found it had changed since the map's picture of it, per area. */
+function completeDrift(d) {
+  if (!d || typeof d !== "object") return null;
+  const areas = Object.fromEntries(Object.entries(d.areas && typeof d.areas === "object" ? d.areas : {}).filter(([k, v]) => /^a\d+$/.test(k) && Number.isInteger(v) && v > 0));
+  return { at: typeof d.at === "string" ? d.at : null, areas, foreign: d.foreign && typeof d.foreign === "object" ? Object.fromEntries(Object.entries(d.foreign).filter(([k, v]) => /^a\d+$/.test(k) && Number.isInteger(v) && v > 0)) : {} };
 }
 
 export function completeRecord(r) {
@@ -224,20 +233,16 @@ export async function removeMap(env, id) {
 
 /** Whether the doc differs from what was last published, and how. */
 export function publishState(record) {
-  const { link, doc } = record;
-  const linkedAreas = Object.keys(link.areas).length;
-  if (!link.published) {
-    return linkedAreas
-      ? { state: "linked", pending: null, label: "linked to the world, never published from here" }
-      : { state: "draft", pending: null, label: "draft: nothing in the world yet; map_publish makes it" };
-  }
-  const p = diffDocs(link.published, doc, { ignore: ["color", "notes"] });
-  const n = (c) => (p[c] ? p[c].add.length + p[c].put.length + p[c].del.length : 0);
-  const pending = { areas: n("areas"), rooms: n("rooms"), exits: n("exits"), edges: n("edges"), elevators: n("elevators"), blocks: p.blocks ? p.blocks.add.length + p.blocks.del.length : 0, name: p.name !== undefined };
-  const any = pending.areas + pending.rooms + pending.exits + pending.edges + pending.elevators + pending.blocks > 0;
-  const parts = ["areas", "rooms", "exits", "edges", "elevators", "blocks"].filter((k) => pending[k]).map((k) => `${pending[k]} ${pending[k] === 1 ? k.slice(0, -1) : k}`);
-  const when = link.publishedAt ? ` (last synced ${link.publishedAt.slice(0, 16).replace("T", " ")} UTC, rev ${link.publishedRev})` : "";
-  return { state: any ? "changed" : "published", pending, label: any ? `changed since publish: ${parts.join(", ")}${when}` : `published, in step with the world as last seen${when}` };
+  const { link } = record;
+  const rows = areaStates(record);
+  const counts = stateCounts(rows);
+  const areas = Object.fromEntries(rows.map((r) => [r.id, { state: r.state, pending: r.pending, drift: r.drift, label: r.label }]));
+  const when = link.publishedAt ? ` (last synced ${link.publishedAt.slice(0, 16).replace("T", " ")} UTC)` : "";
+  const checked = link.drift?.at ? `; world last checked ${link.drift.at.slice(0, 16).replace("T", " ")} UTC` : "";
+  // The map's own state is its worst area's, so the sidebar badge says whether anything needs doing.
+  const state = ["changed", "outdated", "draft", "linked"].find((s) => counts[s]) ?? (rows.length ? "published" : "draft");
+  const pending = rows.reduce((n, r) => n + (r.moo ? r.pending : 0), 0);
+  return { state, counts, areas, pending, label: `${countsText(counts) || "no areas"}${when}${checked}` };
 }
 
 /** One row for a list. */
@@ -246,7 +251,7 @@ export function summary(record) {
   const last = record.changes[record.changes.length - 1];
   return {
     id: record.id, title: record.doc.name, project: record.project, rev: record.rev, updatedAt: record.updatedAt,
-    ...countsOf(record.doc), state: ps.state, pending: ps.pending, publishedAt: record.link.publishedAt,
+    ...countsOf(record.doc), state: ps.state, counts: ps.counts, pending: ps.pending, publishedAt: record.link.publishedAt,
     by: last?.by ?? null, ...(last?.session ? { session: last.session } : {}),
   };
 }

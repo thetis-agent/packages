@@ -43,7 +43,7 @@ export function openMapTab(ext, model, root, handle) {
     rev = out.rev;
     handle.setTitle(out.doc.name);
     const linked = { ...(out.linked ?? {}) };
-    frame?.post({ type: "load", seq, doc: out.doc, rev: out.rev, state: out.state, label: out.label, linked, message });
+    frame?.post({ type: "load", seq, doc: out.doc, rev: out.rev, state: out.state, label: out.label, areas: out.areas, linked, message });
   }
 
   /** One step at a time: saves and reloads never overlap, so each patch is taken against a known base. */
@@ -78,7 +78,7 @@ export function openMapTab(ext, model, root, handle) {
       const behind = out.rev !== rev + 1 && !out.unchanged; // someone else wrote in between: theirs was merged in
       if (!out.unchanged) rev = out.rev;
       frame?.post({ type: "saved", ok: true, rev, conflicts: out.conflicts });
-      frame?.post({ type: "state", state: out.state, label: out.label });
+      frame?.post({ type: "state", state: out.state, label: out.label, areas: out.areas });
       if (behind || from !== seq || out.conflicts?.length || out.renumbered?.length) await load(behind ? "Merged with changes made elsewhere" : undefined);
     });
   }
@@ -100,6 +100,8 @@ export function openMapTab(ext, model, root, handle) {
       return;
     }
     if (event.row) handle.setTitle(event.row.title);
+    // A publish or a world check changes only the link: the doc is the same, the area states are not.
+    if (event.row?.areaStates) frame?.post({ type: "state", state: event.row.state, label: event.row.label, areas: event.row.areaStates });
     if (event.kind !== "changed" || event.own || event.rev <= rev) return;
     if (pendingReload) return;
     pendingReload = true;

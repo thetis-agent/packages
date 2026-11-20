@@ -7,8 +7,8 @@
 //   { x, y, z?, area? }         the room on that cell; area defaults to the map's first area
 
 import {
-  DIRS, OPPOSITE, LONG, PLANAR, EXIT_TYPES, DEFAULT_COLOR, LIMITS, ELEVATOR_DEFAULTS,
-  cellKey, completeDoc, checkDoc, dirOf, exitDirFrom, stepDir,
+  DIRS, OPPOSITE, LONG, PLANAR, EXIT_TYPES, DEFAULT_COLOR, LIMITS, ELEVATOR_DEFAULTS, TRANSIT_DEFAULTS, TRANSIT_RANGE,
+  cellKey, completeDoc, checkDoc, dirOf, exitDirFrom, stepDir, transitPeriod,
 } from "../ui/core/doc.js";
 
 const clone = (doc) => JSON.parse(JSON.stringify(doc));
@@ -178,6 +178,11 @@ export function setRooms(doc, link, specs) {
 export function deleteRooms(doc, link, refs) {
   const b = book(doc, link);
   const gone = new Set(refs.map((ref) => b.room(ref).id));
+  for (const t of b.doc.transits ?? []) {
+    if (gone.has(t.car)) throw new Error(`${nameOf(b.rooms.get(t.car))} is the car of transit ${t.id} "${t.line}": give the line another car (map_transit car) or remove the line (map_transit remove) first.`);
+    const left = t.stations.filter((s) => !gone.has(s.room)).length;
+    if (left < 2 && left < t.stations.length) throw new Error(`deleting ${t.stations.filter((s) => gone.has(s.room)).map((s) => `${s.room} (station "${s.name}")`).join(", ")} would leave transit ${t.id} "${t.line}" with ${left} station${left === 1 ? "" : "s"}; a line needs two. Add another station first, or remove the line.`);
+  }
   const ex = b.doc.exits.filter((e) => gone.has(e.a) || gone.has(e.b)).length;
   const eg = b.doc.edges.filter((g) => gone.has(g.from) || gone.has(g.success) || gone.has(g.fail)).length;
   const names = b.doc.rooms.filter((r) => gone.has(r.id)).map(nameOf);
@@ -186,7 +191,9 @@ export function deleteRooms(doc, link, refs) {
   b.doc.edges = b.doc.edges.filter((g) => !gone.has(g.from) && !gone.has(g.success) && !gone.has(g.fail));
   let st = 0;
   for (const v of b.doc.elevators) { const n = v.stops.length; v.stops = v.stops.filter((x) => !gone.has(x.room)); st += n - v.stops.length; }
-  return b.done([`deleted ${names.join(", ")}`, ...(ex ? [`and ${plural(ex, "exit")}`] : []), ...(eg ? [`and ${plural(eg, "edge")}`] : []), ...(st ? [`and ${plural(st, "elevator stop")}`] : [])]);
+  let ts = 0;
+  for (const t of b.doc.transits ?? []) { const n = t.stations.length; t.stations = t.stations.filter((x) => !gone.has(x.room)); ts += n - t.stations.length; }
+  return b.done([`deleted ${names.join(", ")}`, ...(ex ? [`and ${plural(ex, "exit")}`] : []), ...(eg ? [`and ${plural(eg, "edge")}`] : []), ...(st ? [`and ${plural(st, "elevator stop")}`] : []), ...(ts ? [`and ${plural(ts, "transit station")}`] : [])]);
 }
 
 /**
@@ -417,6 +424,145 @@ export function elevatorLines(doc, lnk) {
 }
 
 // ---------------------------------------------------------------------------
+// Transit lines
+// ---------------------------------------------------------------------------
+
+/** A transit by local id, its area's MOO id, its line name, or its area (id or name). */
+export function findTransit(b, ref) {
+  const s = String(ref ?? "");
+  const list = b.doc.transits ?? [];
+  const t = list.find((x) => x.id === s || (b.link?.areas?.[x.area] && b.link.areas[x.area] === s))
+    ?? list.find((x) => x.line.toLowerCase() === s.toLowerCase())
+    ?? list.find((x) => x.area === s || b.areas.get(x.area)?.name.toLowerCase() === s.toLowerCase());
+  if (!t) throw new Error(`the map has no transit line ${s}. Its lines: ${list.map((x) => `${x.id} "${x.line}"`).join(", ") || "none"}.`);
+  return t;
+}
+
+const tsecs = (v, what, [lo, hi]) => {
+  if (!Number.isInteger(v) || v < lo || v > hi) throw new Error(`${what} is a whole number of seconds from ${lo} to ${hi}.`);
+  return v;
+};
+const isRoomRef = (d) => (d && typeof d === "object") || (typeof d === "string" && (d.startsWith("#") || /^r\d+$/.test(d)));
+
+/** The station of `t` a ref names: a room (id, MOO id, cell), a station name, or a 0-based index. */
+function stationOf(b, t, ref) {
+  let st;
+  if (Number.isInteger(ref)) st = t.stations[ref];
+  else if (isRoomRef(ref)) { const r = b.room(ref, { required: false }); st = r && t.stations.find((x) => x.room === r.id); }
+  else st = t.stations.find((x) => x.name.toLowerCase() === String(ref ?? "").trim().toLowerCase());
+  if (!st) throw new Error(`transit ${t.id} "${t.line}" has no station ${typeof ref === "object" ? JSON.stringify(ref) : ref}. Its stations: ${t.stations.map((x) => `"${x.name}" (${x.room})`).join(", ") || "none"}.`);
+  return st;
+}
+
+/** One station from a spec, its name defaulting to the platform room's. */
+function stationSpec(b, s) {
+  if (!s || typeof s !== "object") throw new Error("a station is { room, name?, travel?, warning? }.");
+  const r = b.room(s.room);
+  const name = text(String(s.name ?? r.name ?? "").trim(), LIMITS.name, "a station's name") || "Station";
+  const travel = s.travel === undefined ? TRANSIT_DEFAULTS.travel : tsecs(s.travel, "travel", TRANSIT_RANGE.travel);
+  const warning = s.warning === undefined ? Math.min(TRANSIT_DEFAULTS.warning, travel - 1) : s.warning;
+  if (!Number.isInteger(warning) || warning < 0 || warning >= travel) throw new Error(`the warning on the leg from "${name}" is ${warning}; it is a whole number of seconds, 0 or more and less than the leg's travel (${travel}s).`);
+  return { room: r.id, name, travel, warning };
+}
+
+const loopLine = (b, t) => t.stations.length
+  ? `${t.stations.map((s) => `"${s.name}"=${nameOf(b.rooms.get(s.room) ?? { id: s.room, name: "?" })} ${s.travel}s (warn ${s.warning}s)`).join(" → ")} → back to "${t.stations[0].name}"`
+  : "no stations";
+
+/**
+ * Make, change or remove a transit line: one train, an area of its own with a car room on its grid, and
+ * stations in loop order, each a platform in another area. Making one takes `area` (an area of the map,
+ * or the name of a new one) and `car` (a room of that area; omitted, a car room is made at (0,0,0)).
+ * `stations` replaces the loop; `add` puts stations in (at `at`, 0-based, else at the end); `drop` takes
+ * them out by room or name; `set` changes one station's name, travel or warning.
+ */
+export function transit(doc, lnk, { transit: ref, area, car, line, dwell, offset, running, stations, add, drop, set, remove }) {
+  const b = book(doc, lnk);
+  b.doc.transits ??= [];
+  const lines = [];
+  let t = ref !== undefined && ref !== null && ref !== "" ? findTransit(b, ref) : undefined;
+  if (remove) {
+    if (!t) throw new Error("name the transit line to remove.");
+    b.doc.transits = b.doc.transits.filter((x) => x !== t);
+    return b.done([`removed transit ${t.id} "${t.line}" (publishing clears the line: its car's door and the platforms' \`in\` go; area ${t.area} and its car room stay)`]);
+  }
+  if (!t) {
+    if (area === undefined || area === null || area === "") throw new Error("a new transit line needs `area`: an area of the map for the train (one area per train), or the name of a new one.");
+    let a = b.area(area, { required: false });
+    if (!a) {
+      const name = text(String(area).trim(), LIMITS.name, "area name");
+      if (!name) throw new Error("a new area needs a name.");
+      a = { id: b.id("a"), name };
+      b.doc.areas.push(a);
+      b.areas.set(a.id, a);
+      lines.push(`added area ${a.id} "${name}" for the train`);
+    }
+    const other = b.doc.transits.find((x) => x.area === a.id);
+    if (other) throw new Error(`area ${a.id} "${a.name}" already runs transit ${other.id} "${other.line}"; each train is its own area.`);
+    let carRoom;
+    if (car !== undefined && car !== null && car !== "") carRoom = b.room(car);
+    else {
+      const k = cellKey(a.id, 0, 0, 0);
+      if (b.cells.has(k)) throw new Error(`give car: the room of area ${a.id} that is the train car ((0,0,0) is taken by ${nameOf(b.cells.get(k))}, so no car can be made there).`);
+      if (b.blocks.has(k)) throw new Error(`give car: (0,0,0) in ${a.id} is blocked out, so no car can be made there.`);
+      const lineName = String(line ?? a.name).trim() || a.name;
+      carRoom = { id: b.id("r"), area: a.id, x: 0, y: 0, z: 0, name: text(`${lineName} Car`.slice(0, LIMITS.name), LIMITS.name, "name"), color: DEFAULT_COLOR, description: "", notes: "" };
+      b.doc.rooms.push(carRoom);
+      b.rooms.set(carRoom.id, carRoom);
+      b.cells.set(k, carRoom);
+      lines.push(`made the car ${nameOf(carRoom)} at (0,0,0) in ${a.id}`);
+    }
+    t = { id: b.id("t"), area: a.id, car: carRoom.id, line: a.name, dwell: TRANSIT_DEFAULTS.dwell, offset: TRANSIT_DEFAULTS.offset, running: TRANSIT_DEFAULTS.running, stations: [] };
+    b.doc.transits.push(t);
+    lines.push(`made transit ${t.id} in area ${a.id} "${a.name}"`);
+  } else if (area !== undefined && area !== null && area !== "" && b.area(area).id !== t.area) {
+    throw new Error(`transit ${t.id} runs in area ${t.area}; a line does not move to another area. Remove it and make a new one.`);
+  }
+  if (line !== undefined) t.line = text(String(line).trim(), LIMITS.name, "line") || b.areas.get(t.area)?.name || "Line";
+  if (car !== undefined && car !== null && car !== "" && b.room(car).id !== t.car) t.car = b.room(car).id;
+  if (dwell !== undefined) t.dwell = tsecs(dwell, "dwell", TRANSIT_RANGE.dwell);
+  if (offset !== undefined) t.offset = tsecs(offset, "offset", TRANSIT_RANGE.offset);
+  if (running !== undefined) t.running = Boolean(running);
+  if (stations !== undefined) {
+    if (!Array.isArray(stations)) throw new Error("stations is a list of { room, name?, travel?, warning? }, in loop order.");
+    t.stations = stations.map((s) => stationSpec(b, s));
+  }
+  for (const d of drop ?? []) {
+    const st = stationOf(b, t, d);
+    t.stations = t.stations.filter((x) => x !== st);
+  }
+  for (const s of add ?? []) {
+    const st = stationSpec(b, s);
+    if (t.stations.some((x) => x.room === st.room)) throw new Error(`${nameOf(b.rooms.get(st.room))} is already a station of ${t.id}.`);
+    if (Number.isInteger(s.at)) t.stations.splice(Math.max(0, Math.min(s.at, t.stations.length)), 0, st);
+    else t.stations.push(st);
+  }
+  for (const s of set ?? []) {
+    if (!s || typeof s !== "object") throw new Error("set is a list of { station, name?, travel?, warning? }.");
+    const st = stationOf(b, t, s.station ?? s.room);
+    if (s.name !== undefined) st.name = text(String(s.name).trim(), LIMITS.name, "a station's name") || st.name;
+    if (s.travel !== undefined) st.travel = tsecs(s.travel, "travel", TRANSIT_RANGE.travel);
+    if (s.warning !== undefined) st.warning = s.warning;
+    if (!Number.isInteger(st.warning) || st.warning < 0 || st.warning >= st.travel) throw new Error(`the warning on the leg from "${st.name}" is ${st.warning}; it is a whole number of seconds, 0 or more and less than the leg's travel (${st.travel}s).`);
+  }
+  lines.push(`transit ${t.id} "${t.line}" in ${t.area}: car ${nameOf(b.rooms.get(t.car))}, dwell ${t.dwell}s, offset ${t.offset}s, ${t.running ? "running" : "stopped"}, period ${transitPeriod(t)}s; loop: ${loopLine(b, t)}`);
+  if (t.stations.length < 2) throw new Error(`transit ${t.id} "${t.line}" needs two stations or more: give stations (or add) in the same call.`);
+  const res = b.done(lines);
+  res.transit = t.id;
+  return res;
+}
+
+/** One line per transit. */
+export function transitLines(doc, lnk) {
+  const b = new Book(doc, lnk);
+  return (b.doc.transits ?? []).map((t) => {
+    const a = b.areas.get(t.area);
+    const car = b.rooms.get(t.car);
+    return `${t.id} "${t.line}" · area ${t.area}${a ? ` "${a.name}"` : ""}${lnk?.areas?.[t.area] ? ` ${lnk.areas[t.area]}` : ""} · car ${car ? nameOf(car) : t.car} · dwell ${t.dwell}s · offset ${t.offset}s · ${t.running ? "running" : "stopped"} · period ${transitPeriod(t)}s\n   loop: ${loopLine(b, t)}`;
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Areas and blocks
 // ---------------------------------------------------------------------------
 
@@ -438,6 +584,8 @@ export function areas(doc, lnk, { add = [], rename = {}, remove = [] }) {
   }
   for (const ref of remove) {
     const a = b.area(ref);
+    const tr = (b.doc.transits ?? []).find((t) => t.area === a.id);
+    if (tr) throw new Error(`area ${a.id} "${a.name}" is the train of transit ${tr.id} "${tr.line}": remove the line (map_transit remove) first.`);
     const n = b.doc.rooms.filter((r) => r.area === a.id).length;
     if (n) throw new Error(`area ${a.id} "${a.name}" still has ${plural(n, "room")}: delete or move them first.`);
     if (b.doc.areas.length === 1) throw new Error("a map keeps at least one area.");
@@ -561,6 +709,11 @@ export function exitLines(b, r) {
   for (const g of b.doc.edges.filter((x) => x.from === r.id)) out.push(`edge ${g.dir} → success ${nameOf(b.rooms.get(g.success))}, fail ${nameOf(b.rooms.get(g.fail))} [${g.id}]${g.hidden ? " hidden" : ""}`);
   for (const g of b.doc.edges.filter((x) => x.from !== r.id && (x.success === r.id || x.fail === r.id))) out.push(`landing of edge ${g.id} from ${nameOf(b.rooms.get(g.from))}`);
   for (const v of b.doc.elevators) { const st = v.stops.find((x) => x.room === r.id); if (st) out.push(`in → elevator ${v.id} "${v.name}", stop ${st.label}`); }
+  for (const t of b.doc.transits ?? []) {
+    if (t.car === r.id) out.push(`out → the platform the train is at: car of transit ${t.id} "${t.line}" (${plural(t.stations.length, "station")}, period ${transitPeriod(t)}s)`);
+    const i = t.stations.findIndex((x) => x.room === r.id);
+    if (i >= 0) { const st = t.stations[i], nx = t.stations[(i + 1) % t.stations.length]; out.push(`in → transit ${t.id} "${t.line}" car, when it is here: station "${st.name}", ${st.travel}s to "${nx?.name}" (warning ${st.warning}s)`); }
+  }
   return out;
 }
 

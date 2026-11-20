@@ -10,14 +10,21 @@
 //     exits:  [{ id, a, b, type, hidden, dir: "both"|"ab"|"ba", adir?, bdir? }],
 //     edges:  [{ id, from, dir, success, fail, hidden }],
 //     blocks: [{ area, x, y, z }],
-//     elevators: [{ id, name, description, door, travel, stops: [{ label, room }] }] }
+//     elevators: [{ id, name, description, door, travel, stops: [{ label, room }] }],
+//     transits: [{ id, area, car, line, dwell, offset, running, stations: [{ room, name, travel, warning }] }] }
 //
 // An elevator is one carriage room that lives off the grid, and its stops in shaft order, top first: each
 // a button label ("10", "G", "B2") and the lobby room on this map whose `in` exit opens on it. Lobbies may be
 // in any area. door is how long the doors stay open (seconds), travel the time per floor.
 //
 // Coordinates are Torchship's: x grows east, y grows SOUTH, z grows DOWN (0 is ground, up is negative).
-// One room per cell per area. Local ids are a<n>, r<n>, e<n>, j<n>, v<n> (elevators).
+// A transit (a maglev line, Torchship's $maglev_line) is one train: an area of its own whose MOO object is
+// the line (its identity is the area's link, there is no separate link table), a car room on that area's
+// grid, and stations in loop order, each a platform room in another area with the leg's travel time to the
+// next station and the warning: the last `warning` seconds of that leg, when the car chimes the next stop.
+// The line runs on a fixed clock: period = sum(dwell + travel_i), offset shifts it.
+//
+// One room per cell per area. Local ids are a<n>, r<n>, e<n>, j<n>, v<n> (elevators), t<n> (transits).
 
 export const PLANAR = ["n", "ne", "e", "se", "s", "sw", "w", "nw"];
 const PLANAR_STEP = { n: [0, -1], ne: [1, -1], e: [1, 0], se: [1, 1], s: [0, 1], sw: [-1, 1], w: [-1, 0], nw: [-1, -1] };
@@ -45,10 +52,16 @@ export const EXIT_TYPES = ["open", "door", "locked", "climb", "swim", "special"]
 export const ROOM_COLORS = ["#2a3140", "#4a3038", "#4a4028", "#2c4436", "#283a4a", "#3c3050", "#233"];
 export const DEFAULT_COLOR = ROOM_COLORS[0];
 
-export const LIMITS = { rooms: 5000, exits: 20000, edges: 2000, blocks: 20000, areas: 200, name: 200, description: 20000, notes: 4000, elevators: 200, stops: 100, label: 16 };
+export const LIMITS = { rooms: 5000, exits: 20000, edges: 2000, blocks: 20000, areas: 2000, name: 200, description: 20000, notes: 4000, elevators: 200, stops: 100, label: 16, transits: 200, stations: 64 };
 export const ELEVATOR_DEFAULTS = { door: 8, travel: 3 };
 /** The MOO's own bounds ($elevator:set_timings): doors 2-120 s, travel 1-60 s per floor. */
 export const ELEVATOR_RANGE = { door: [2, 120], travel: [1, 60] };
+/** A transit line's defaults: doors open `dwell` s at each station, each leg `travel` s, the last `warning` s of it the approach. */
+export const TRANSIT_DEFAULTS = { dwell: 45, offset: 0, running: true, travel: 240, warning: 60 };
+/** Seconds. warning is 0 <= warning < that leg's travel. */
+export const TRANSIT_RANGE = { dwell: [10, 300], travel: [10, 1800], offset: [0, 86399] };
+/** One loop of a line, in seconds: every station's dwell plus every leg's travel. */
+export const transitPeriod = (t) => (t?.stations ?? []).reduce((n, s) => n + (Number(t.dwell) || 0) + (Number(s.travel) || 0), 0);
 
 // Every spelling $building_utils.cardinals accepts, ship words included, so an exit dug as `fore` reads as n.
 const SPELLINGS = {
@@ -90,9 +103,9 @@ export function exitDirFrom(doc, e, r, byId) {
 /** The highest number used by any local id, plus one, never below `doc.nextId`. */
 export function nextIdOf(doc) {
   let max = 0;
-  for (const list of [doc.areas, doc.rooms, doc.exits, doc.edges, doc.elevators]) {
+  for (const list of [doc.areas, doc.rooms, doc.exits, doc.edges, doc.elevators, doc.transits]) {
     for (const o of list ?? []) {
-      const m = /^[arejv](\d+)$/.exec(String(o.id));
+      const m = /^[arejvt](\d+)$/.exec(String(o.id));
       if (m) max = Math.max(max, Number(m[1]));
     }
   }
@@ -106,7 +119,7 @@ export function nextIdOf(doc) {
  */
 export function completeDoc(d) {
   const src = d && typeof d === "object" ? d : {};
-  const doc = { format: "mudmap", version: 4, name: str(src.name || "Untitled map", LIMITS.name), nextId: 1, areas: [], rooms: [], exits: [], edges: [], blocks: [], elevators: [] };
+  const doc = { format: "mudmap", version: 4, name: str(src.name || "Untitled map", LIMITS.name), nextId: 1, areas: [], rooms: [], exits: [], edges: [], blocks: [], elevators: [], transits: [] };
   const areas = new Set();
   for (const a of asArr(src.areas)) {
     const id = str(a?.id, 64);
@@ -178,6 +191,14 @@ export function completeDoc(d) {
     elevIds.add(id);
     doc.elevators.push(completeElevator(v, id, byId));
   }
+  const transitIds = new Set();
+  const areaName = new Map(doc.areas.map((a) => [a.id, a.name]));
+  for (const t of asArr(src.transits)) {
+    const id = str(t?.id, 64);
+    if (!id || transitIds.has(id) || !areas.has(str(t?.area, 64))) continue;
+    transitIds.add(id);
+    doc.transits.push(completeTransit(t, id, byId, areaName));
+  }
   if (!doc.areas.length) doc.areas.push({ id: "a1", name: "Main" });
   doc.nextId = Math.max(nextIdOf(doc), int(src.nextId) || 1);
   return doc;
@@ -195,6 +216,42 @@ function completeElevator(v, id, byId) {
     stops.push({ label, room });
   }
   return { id, name: str(v?.name || "Elevator", LIMITS.name), description: str(v?.description, LIMITS.description), door: secs(v?.door, ELEVATOR_DEFAULTS.door, ELEVATOR_RANGE.door), travel: secs(v?.travel, ELEVATOR_DEFAULTS.travel, ELEVATOR_RANGE.travel), stops };
+}
+
+const intOr = (v, d) => { const n = Number(v); return Number.isFinite(n) ? Math.round(n) : d; };
+/**
+ * A transit made whole, loop order kept: stations on rooms the map has, each platform once. Numbers are
+ * made integers (defaults when missing) but not clamped: checkDoc says when one is out of range.
+ */
+function completeTransit(t, id, byId, areaName) {
+  const area = str(t.area, 64);
+  const car = byId.has(str(t.car, 64)) ? str(t.car, 64) : "";
+  const stations = [];
+  const rooms = new Set();
+  for (const s of asArr(t.stations)) {
+    const room = str(s?.room, 64);
+    if (!byId.has(room) || rooms.has(room)) continue;
+    rooms.add(room);
+    const travel = intOr(s.travel, TRANSIT_DEFAULTS.travel);
+    stations.push({ room, name: str(s.name, LIMITS.name).trim() || byId.get(room).name || "Station", travel, warning: intOr(s.warning, Math.min(TRANSIT_DEFAULTS.warning, Math.max(0, travel - 1))) });
+  }
+  return {
+    id, area, car, line: str(t.line, LIMITS.name).trim() || areaName.get(area) || "Line",
+    dwell: intOr(t.dwell, TRANSIT_DEFAULTS.dwell), offset: intOr(t.offset, TRANSIT_DEFAULTS.offset),
+    running: t.running === undefined || t.running === null ? TRANSIT_DEFAULTS.running : Boolean(t.running),
+    stations,
+  };
+}
+
+/** The transits a room belongs to: as the car (`station` undefined) or as a platform (with its station). */
+export function transitsAt(doc, roomId) {
+  const out = [];
+  for (const t of doc.transits ?? []) {
+    if (t.car === roomId) out.push({ transit: t, car: true });
+    const st = t.stations.find((s) => s.room === roomId);
+    if (st) out.push({ transit: t, station: st, index: t.stations.indexOf(st) });
+  }
+  return out;
 }
 
 /** The elevators with a stop in this room, each with that stop. */
@@ -232,12 +289,59 @@ export function checkDoc(doc) {
       seen.add(st.room); labels.add(st.label.toLowerCase());
     }
   }
+  out.push(...checkTransits(doc));
+  return out;
+}
+
+const inRange = (v, [lo, hi]) => Number.isInteger(v) && v >= lo && v <= hi;
+/** The transit rules, as sentences. */
+export function checkTransits(doc) {
+  const out = [];
+  const list = doc.transits ?? [];
+  if (list.length > LIMITS.transits) out.push(`${list.length} transit lines; at most ${LIMITS.transits}.`);
+  const areas = new Set(doc.areas.map((a) => a.id));
+  const rooms = new Map(doc.rooms.map((r) => [r.id, r]));
+  const lobbies = new Set((doc.elevators ?? []).flatMap((v) => v.stops.map((s) => s.room)));
+  const byArea = new Map();
+  const platformOf = new Map();
+  for (const t of list) {
+    const tag = `transit ${t.id} "${t.line}"`;
+    if (!areas.has(t.area)) out.push(`${tag} runs in area ${t.area}, which the map does not have.`);
+    if (byArea.has(t.area)) out.push(`${tag} and transit ${byArea.get(t.area)} both run in area ${t.area}; an area is one train, so it has one line.`);
+    byArea.set(t.area, t.id);
+    const car = rooms.get(t.car);
+    // No car is a line being laid out in the tab (its car room was deleted): publish holds it back.
+    if (!car && t.car) out.push(`${tag}'s car ${t.car} is not a room of the map.`);
+    else if (car && car.area !== t.area) out.push(`${tag}'s car ${t.car} is in area ${car.area}, not in the line's own area ${t.area}.`);
+    if (car && lobbies.has(car.id)) out.push(`${tag}'s car ${t.car} is an elevator lobby; the car's only way out is the train's door.`);
+    // Fewer than two stations is a line still being laid out (the tab adds them one by one): map_transit
+    // refuses to leave one so, and publish holds it back with a note, as an elevator with no stops.
+    if (t.stations.length > LIMITS.stations) out.push(`${tag} has ${t.stations.length} stations; at most ${LIMITS.stations}.`);
+    if (!inRange(t.dwell, TRANSIT_RANGE.dwell)) out.push(`${tag}: dwell ${t.dwell} is not a whole number of seconds from ${TRANSIT_RANGE.dwell[0]} to ${TRANSIT_RANGE.dwell[1]}.`);
+    if (!inRange(t.offset, TRANSIT_RANGE.offset)) out.push(`${tag}: offset ${t.offset} is not a whole number of seconds from ${TRANSIT_RANGE.offset[0]} to ${TRANSIT_RANGE.offset[1]}.`);
+    const names = new Set(), seen = new Set();
+    for (const s of t.stations) {
+      const r = rooms.get(s.room);
+      if (!r) { out.push(`${tag} stops at room ${s.room}, which the map does not have.`); continue; }
+      if (seen.has(s.room)) out.push(`${tag} stops at room ${s.room} twice.`);
+      seen.add(s.room);
+      if (r.area === t.area) out.push(`${tag}'s station "${s.name}" is room ${s.room}, inside the train's own area; a platform is a room in another area.`);
+      if (platformOf.has(s.room) && platformOf.get(s.room) !== t.id) out.push(`room ${s.room} is a platform of transit ${platformOf.get(s.room)} and of ${t.id}; a platform has one \`in\`, so it serves one line.`);
+      platformOf.set(s.room, t.id);
+      if (lobbies.has(s.room)) out.push(`room ${s.room} is both an elevator lobby and a platform of ${tag}; each needs the room's one \`in\`.`);
+      if (!s.name) out.push(`${tag} has a station with no name.`);
+      if (names.has(s.name.toLowerCase())) out.push(`${tag} has two stations named "${s.name}".`);
+      names.add(s.name.toLowerCase());
+      if (!inRange(s.travel, TRANSIT_RANGE.travel)) out.push(`${tag}: the leg from "${s.name}" takes ${s.travel}s; travel is ${TRANSIT_RANGE.travel[0]} to ${TRANSIT_RANGE.travel[1]} seconds.`);
+      else if (!Number.isInteger(s.warning) || s.warning < 0 || s.warning >= s.travel) out.push(`${tag}: the warning on the leg from "${s.name}" is ${s.warning}s; it is 0 or more and less than that leg's travel (${s.travel}s).`);
+    }
+  }
   return out;
 }
 
 // ---- patches: what one writer changed, applied on top of what another wrote ----
 
-const COLLECTIONS = ["areas", "rooms", "exits", "edges", "elevators"];
+export const COLLECTIONS = ["areas", "rooms", "exits", "edges", "elevators", "transits"];
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const blockKey = (b) => cellKey(b.area, b.x, b.y, b.z);
 
@@ -288,7 +392,7 @@ export function applyPatch(doc, patchIn, { renumber = false } = {}) {
  * reference to it inside the patch follows.
  */
 function renumberAdds(doc, patch) {
-  const PREFIX = { areas: "a", rooms: "r", exits: "e", edges: "j", elevators: "v" };
+  const PREFIX = { areas: "a", rooms: "r", exits: "e", edges: "j", elevators: "v", transits: "t" };
   let next = Math.max(nextIdOf(doc), Number.isInteger(patch.nextId) ? patch.nextId : 0);
   const map = {};
   const renumbered = [];
@@ -312,6 +416,7 @@ function renumberAdds(doc, patch) {
       if (c === "exits") { n.a = ref("rooms", o.a); n.b = ref("rooms", o.b); }
       if (c === "edges") { n.from = ref("rooms", o.from); n.success = ref("rooms", o.success); n.fail = ref("rooms", o.fail); }
       if (c === "elevators") n.stops = (o.stops ?? []).map((st) => ({ ...st, room: ref("rooms", st.room) }));
+      if (c === "transits") { n.area = ref("areas", o.area); n.car = ref("rooms", o.car); n.stations = (o.stations ?? []).map((st) => ({ ...st, room: ref("rooms", st.room) })); }
       return n;
     };
     out[c] = { add: (patch[c].add ?? []).map((o) => ({ ...fix(o), id: ref(c, o.id) })), put: (patch[c].put ?? []).map(fix), del: patch[c].del ?? [] };
@@ -349,5 +454,5 @@ function applyPatchAs(doc, patch) {
 
 /** Counts for a list row. */
 export function countsOf(doc) {
-  return { areas: doc.areas.length, rooms: doc.rooms.length, exits: doc.exits.length, edges: doc.edges.length, blocks: doc.blocks.length, elevators: doc.elevators?.length ?? 0 };
+  return { areas: doc.areas.length, rooms: doc.rooms.length, exits: doc.exits.length, edges: doc.edges.length, blocks: doc.blocks.length, elevators: doc.elevators?.length ?? 0, transits: doc.transits?.length ?? 0 };
 }

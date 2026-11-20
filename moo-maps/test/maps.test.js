@@ -7,7 +7,7 @@ import * as T from "../lib/tools.js";
 import { needMap } from "../lib/store.js";
 import { completeDoc } from "../ui/core/doc.js";
 import * as ops from "../lib/ops.js";
-import { batchSource, OP_KINDS, snapshot } from "../lib/moo.js";
+import { batchSource, OP_KINDS, snapshot, snapshotSource } from "../lib/moo.js";
 import { fakeWorld } from "./fakeworld.js";
 
 async function space() {
@@ -343,4 +343,269 @@ test("elevators: stops across areas, publish waits for the MOO side, then makes,
   } finally {
     await done();
   }
+});
+
+test("one map, many areas: state per area, publish some areas, world drift marks an area out of date", async () => {
+  const { env, W, done } = await space();
+  try {
+    const dock = W.addArea("Dock");
+    const pier = W.addRoom(dock, 0, 0, 0, "Pier");
+    const id = idOf(await T.mapImport({ areas: [dock] }, env));
+    await T.mapAreas({ map: id, add: ["Mall", "Hotel"] }, env);
+    await T.mapSetRooms({ map: id, rooms: [
+      { area: "Mall", x: 0, y: 0, name: "Atrium" }, { area: "Hotel", x: 0, y: 0, name: "Lobby" },
+      { area: "Dock", x: 0, y: 0, name: "Long Pier" },
+    ] }, env);
+    await T.mapLink({ map: id, from: { area: "Mall", x: 0, y: 0 }, to: { area: "Hotel", x: 0, y: 0 }, adir: "e", bdir: "w" }, env);
+    let got = await T.mapGet({ map: id }, env);
+    assert.match(got, /state: 2 draft · 1 changed/);
+    assert.match(got, /changed: a1 "Dock"/);
+    // Only the mall: the exit to the hotel waits, since the hotel is not in the world yet.
+    const out = await T.mapPublish({ map: id, areas: ["Mall"] }, env);
+    assert.doesNotMatch(out, /FAILED/, out);
+    assert.match(out, /held back: make exit/);
+    assert.equal(W.areas.size, 2, "the mall is made, the hotel is not");
+    assert.equal(W.rooms.get(pier).name, "Pier", "the dock's edit waits");
+    let rec = await needMap(env, id);
+    const { publishState } = await import("../lib/store.js");
+    let ps = publishState(rec);
+    // The mall is in the world, but its exit to the hotel is still unpublished, so it reads changed.
+    assert.deepEqual(ps.counts, { changed: 2, draft: 1 }, JSON.stringify(ps.areas));
+    assert.equal(ps.areas.a3.pending, 1);
+    // The rest.
+    await T.mapPublish({ map: id }, env);
+    rec = await needMap(env, id);
+    assert.deepEqual(publishState(rec).counts, { published: 3 });
+    assert.equal(W.rooms.get(pier).name, "Long Pier");
+    // The world changes under the dock: status sees it and marks it.
+    W.rooms.get(pier).name = "Pier (renamed in game)";
+    assert.match(await T.mapStatus({ map: id }, env), /a1 "Dock" · outdated/);
+    rec = await needMap(env, id);
+    assert.equal(publishState(rec).areas.a1.state, "outdated");
+    await T.mapPull({ map: id }, env);
+    rec = await needMap(env, id);
+    assert.deepEqual(publishState(rec).counts, { published: 3 });
+  } finally {
+    await done();
+  }
+});
+
+test("a carriage recycled in the world is seen as gone (snapshot passes the carriages on)", async () => {
+  const { env, W, done } = await space();
+  try {
+    const id = idOf(await T.mapCreate({ name: "Lift", rooms: [{ x: 0, y: 0, z: 0, name: "Ground" }, { x: 0, y: 0, z: -1, name: "Upper" }] }, env));
+    await T.mapElevator({ map: id, name: "Lift", add: [{ label: "1", room: { x: 0, y: 0, z: -1 } }, { label: "G", room: { x: 0, y: 0 } }] }, env);
+    await T.mapPublish({ map: id }, env);
+    const [car] = W.cars.keys();
+    // Recycled in the game: the carriage and its lobby exits go.
+    for (const x of W.cars.get(car).stops) { const r = W.rooms.get(x.room); r.exits = r.exits.filter((e) => e !== x.exit); W.exits.delete(x.exit); }
+    W.cars.delete(car);
+    const st = await T.mapStatus({ map: id }, env);
+    assert.match(st, /linked elevators gone from the world: v\d+/, st);
+    const calls = W.calls.filter((c) => c.snapshot);
+    assert.ok(calls.length);
+  } finally {
+    await done();
+  }
+});
+
+// A map with two station areas and a train, the train made by map_transit with its car at (0,0,0).
+async function lineMap(env) {
+  const id = idOf(await T.mapCreate({ name: "Maglev", areas: ["Uptown", "Downtown"], rooms: [
+    { x: 0, y: 0, name: "Uptown Platform", exits: ["e"] }, { x: 1, y: 0, name: "Uptown Concourse" },
+    { x: 0, y: 0, area: "a2", name: "Downtown Platform" }, { x: 2, y: 0, area: "a2", name: "Harbour Platform" },
+  ] }, env));
+  const out = await T.mapTransit({ map: id, area: "Red Line", line: "Red Line", stations: [
+    { room: { x: 0, y: 0 }, name: "Uptown", travel: 300, warning: 45 },
+    { room: { x: 0, y: 0, area: "a2" }, name: "Downtown", travel: 200, warning: 30 },
+  ] }, env);
+  return { id, out };
+}
+
+test("transit: map_transit makes a train area and car; publish makes a $maglev_line and sets it once", async () => {
+  const { env, W, done } = await space();
+  try {
+    const { id, out } = await lineMap(env);
+    assert.match(out, /added area a\d+ "Red Line"/);
+    assert.match(out, /made the car r\d+ "Red Line Car" at \(0,0,0\)/);
+    assert.match(out, /period 590s/, "45+300 + 45+200");
+    let rec = await needMap(env, id);
+    const t = rec.doc.transits[0];
+    assert.equal(t.id[0], "t");
+    assert.equal(rec.doc.rooms.find((r) => r.id === t.car).area, t.area);
+    assert.deepEqual([t.dwell, t.offset, t.running], [45, 0, true]);
+    // Refusals: one line per area, two stations, warning < travel, platform not in the train.
+    await assert.rejects(T.mapTransit({ map: id, area: t.area, stations: [{ room: { x: 0, y: 0 } }, { room: { x: 0, y: 0, area: "a2" } }] }, env), /already runs transit/);
+    await assert.rejects(T.mapTransit({ map: id, area: "Blue", stations: [{ room: { x: 1, y: 0 } }] }, env), /two stations or more/);
+    await assert.rejects(T.mapTransit({ map: id, transit: t.id, set: [{ station: "Uptown", warning: 300 }] }, env), /less than the leg's travel/);
+    await assert.rejects(T.mapTransit({ map: id, transit: t.id, add: [{ room: t.car }] }, env), /inside the train's own area/);
+    await assert.rejects(T.mapTransit({ map: id, area: "Blue", stations: [{ room: { x: 0, y: 0 } }, { room: { x: 1, y: 0 } }] }, env), /serves one line/);
+    await assert.rejects(T.mapDeleteRooms({ map: id, rooms: [t.car] }, env), /is the car of transit/);
+    await assert.rejects(T.mapAreas({ map: id, remove: [t.area] }, env), /is the train of transit/);
+    // Text views.
+    assert.match(await T.mapGet({ map: id, area: t.area }, env), /Transit lines[\s\S]*t\d+ "Red Line"[\s\S]*"Uptown"=r\d+ "Uptown Platform" 300s \(warn 45s\)/);
+    assert.match(await T.mapRooms({ map: id, x: 0, y: 0 }, env), /in → transit t\d+ "Red Line" car, when it is here: station "Uptown", 300s to "Downtown"/);
+
+    let pub = await T.mapPublish({ map: id, dry_run: true }, env);
+    assert.match(pub, /set transit t\d+ "Red Line"/);
+    pub = await T.mapPublish({ map: id }, env);
+    assert.doesNotMatch(pub, /FAILED/, pub);
+    rec = await needMap(env, id);
+    const moo = rec.link.areas[t.area];
+    assert.equal(W.areas.get(moo).kind, "transit", "the train area is made a $maglev_line");
+    assert.equal(W.areas.get([...W.areas.keys()][0]).kind, "area");
+    const line = W.areas.get(moo).line;
+    assert.equal(line.car, rec.link.rooms[t.car]);
+    assert.deepEqual(line.stations.map((s) => [s.name, s.room, s.travel, s.warning]), [["Uptown", rec.link.rooms[t.stations[0].room], 300, 45], ["Downtown", rec.link.rooms[t.stations[1].room], 200, 30]]);
+    assert.equal(line.running, 1);
+    assert.equal(W.transitSets, 1);
+    assert.equal(W.maglevExits(), 3, "the car's out and two platform ins");
+    // The line's own exits are not the map's: nothing to publish, nothing out of the map.
+    assert.match(await T.mapPublish({ map: id }, env), /nothing to publish/);
+    const st = await T.mapStatus({ map: id }, env);
+    assert.match(st, /the world matches the map/, st);
+    assert.equal(W.transitSets, 1);
+  } finally {
+    await done();
+  }
+});
+
+test("transit: a retime, reorder or offset is one transit_set; deleting a platform drops its station", async () => {
+  const { env, W, done } = await space();
+  try {
+    const { id } = await lineMap(env);
+    await T.mapPublish({ map: id }, env);
+    let rec = await needMap(env, id);
+    const t = rec.doc.transits[0];
+    const moo = rec.link.areas[t.area];
+    const base = W.transitSets;
+    // Retime one leg.
+    await T.mapTransit({ map: id, transit: "Red Line", set: [{ station: "Downtown", travel: 260, warning: 0 }] }, env);
+    let plan = await T.mapPublish({ map: id, dry_run: true }, env);
+    assert.equal((plan.match(/set transit/g) ?? []).length, 1, plan);
+    await T.mapPublish({ map: id }, env);
+    assert.equal(W.transitSets, base + 1);
+    assert.equal(W.areas.get(moo).line.stations[1].travel, 260);
+    assert.equal(W.areas.get(moo).line.stations[1].warning, 0);
+    // Add a third station and reorder, with an offset, in one call: still one set.
+    await T.mapTransit({ map: id, transit: t.id, offset: 120, add: [{ room: { x: 2, y: 0, area: "a2" }, name: "Harbour", travel: 90, warning: 20, at: 0 }] }, env);
+    await T.mapPublish({ map: id }, env);
+    assert.equal(W.transitSets, base + 2);
+    assert.deepEqual(W.areas.get(moo).line.stations.map((s) => s.name), ["Harbour", "Uptown", "Downtown"]);
+    assert.equal(W.areas.get(moo).line.offset, 120);
+    assert.equal(W.maglevExits(), 4);
+    assert.match(await T.mapPublish({ map: id }, env), /nothing to publish/);
+    // Stop the line.
+    await T.mapTransit({ map: id, transit: t.id, running: false }, env);
+    await T.mapPublish({ map: id }, env);
+    assert.equal(W.areas.get(moo).line.running, 0);
+    // Deleting a platform room takes its station with it.
+    const out = await T.mapDeleteRooms({ map: id, rooms: [{ x: 2, y: 0, area: "a2" }] }, env);
+    assert.match(out, /1 transit station/);
+    plan = await T.mapPublish({ map: id, dry_run: true }, env);
+    assert.match(plan, /set transit[\s\S]*delete room|delete room[\s\S]*set transit/, plan);
+    await T.mapPublish({ map: id }, env);
+    assert.deepEqual(W.areas.get(moo).line.stations.map((s) => s.name), ["Uptown", "Downtown"]);
+    assert.equal(W.maglevExits(), 3);
+    // Below two stations is refused.
+    await assert.rejects(T.mapDeleteRooms({ map: id, rooms: [{ x: 0, y: 0 }] }, env), /a line needs two/);
+  } finally {
+    await done();
+  }
+});
+
+test("transit: without the MOO's transit system the line and its train area wait; the rest publishes", async () => {
+  const { env, W, done } = await space();
+  try {
+    const { id } = await lineMap(env);
+    W.transitApi = false;
+    let out = await T.mapPublish({ map: id }, env);
+    assert.match(out, /no transit system yet/, out);
+    assert.match(out, /is a train and waits/, out);
+    assert.doesNotMatch(out, /FAILED/, out);
+    assert.equal(W.areas.size, 2, "Uptown and Downtown only: the train area is not made a plain $area");
+    assert.ok([...W.areas.values()].every((a) => a.kind === "area"));
+    assert.match(await T.mapStatus({ map: id }, env), /no transit system yet/);
+    W.transitApi = true;
+    out = await T.mapPublish({ map: id }, env);
+    assert.doesNotMatch(out, /FAILED/, out);
+    assert.equal(W.areas.size, 3);
+    assert.equal([...W.areas.values()].filter((a) => a.kind === "transit" && a.line).length, 1);
+    assert.match(await T.mapPublish({ map: id }, env), /nothing to publish/);
+  } finally {
+    await done();
+  }
+});
+
+test("transit: import adopts a line from the world, without stray in/out exits; clear runs before room deletes", async () => {
+  const { env, W, done } = await space();
+  try {
+    const up = W.addArea("Uptown"), dn = W.addArea("Downtown"), tr = W.addArea("Green Line", "transit");
+    const p1 = W.addRoom(up, 0, 0, 0, "Up Platform"), p2 = W.addRoom(dn, 0, 0, 0, "Down Platform");
+    const car = W.addRoom(tr, 0, 0, 0, "Green Car");
+    // Configured in the game.
+    const r = await W.runOps({}, [up, dn, tr], [{ op: "transit_set", area: tr, car, line: "Green", dwell: 30, offset: 10, running: 1, stations: [{ name: "Up", room: p1, travel: 120, warning: 20 }, { name: "Down", room: p2, travel: 100, warning: 10 }] }]);
+    assert.ok(r.every((x) => x.ok), JSON.stringify(r));
+    assert.equal(W.maglevExits(), 3);
+    const imp = await T.mapImport({ areas: [up, dn, tr] }, env);
+    assert.match(imp, /brought in[\s\S]*1 transit line/, imp);
+    const id = idOf(imp);
+    let rec = await needMap(env, id);
+    assert.equal(rec.doc.exits.length, 0, "the line's out and ins are not drawn as exits");
+    const t = rec.doc.transits[0];
+    assert.deepEqual({ line: t.line, dwell: t.dwell, offset: t.offset, running: t.running, stations: t.stations.map((s) => [s.name, s.travel, s.warning]) },
+      { line: "Green", dwell: 30, offset: 10, running: true, stations: [["Up", 120, 20], ["Down", 100, 10]] });
+    assert.equal(rec.link.rooms[t.car], car);
+    assert.match(await T.mapStatus({ map: id }, env), /the world matches the map/);
+    assert.match(await T.mapPublish({ map: id }, env), /nothing to publish/);
+    // The game retimes it: a pull takes the change.
+    W.areas.get(tr).line.dwell = 60;
+    assert.match(await T.mapPull({ map: id }, env), /took the world's changes to transit/);
+    rec = await needMap(env, id);
+    assert.equal(rec.doc.transits[0].dwell, 60);
+    // Remove the line and a platform room in one publish: the clear goes first.
+    await T.mapTransit({ map: id, transit: "Green", remove: true }, env);
+    await T.mapDeleteRooms({ map: id, rooms: [{ x: 0, y: 0, area: "a2" }] }, env);
+    const before = W.calls.length;
+    const out = await T.mapPublish({ map: id }, env);
+    assert.doesNotMatch(out, /FAILED/, out);
+    const kinds = W.calls.slice(before).filter((c) => c.ops).flatMap((c) => c.ops);
+    assert.ok(kinds.indexOf("transit_clear") >= 0 && kinds.indexOf("transit_clear") < kinds.indexOf("room_delete"), kinds.join(","));
+    assert.equal(W.areas.get(tr).line, null);
+    assert.equal(W.maglevExits(), 0);
+    assert.ok(W.rooms.has(car), "the car room stays");
+  } finally {
+    await done();
+  }
+});
+
+test("transit: a linked area that is not a $maglev_line is noted, never re-parented", async () => {
+  const { env, W, done } = await space();
+  try {
+    const up = W.addArea("Uptown"), plain = W.addArea("Plain Train");
+    W.addRoom(up, 0, 0, 0, "P1"); W.addRoom(up, 1, 0, 0, "P2");
+    W.addRoom(plain, 0, 0, 0, "Car");
+    const id = idOf(await T.mapImport({ areas: [up, plain] }, env));
+    await T.mapTransit({ map: id, area: "Plain Train", car: { x: 0, y: 0, area: "a2" }, stations: [{ room: { x: 0, y: 0 } }, { room: { x: 1, y: 0 } }] }, env);
+    const out = await T.mapPublish({ map: id }, env);
+    assert.match(out, /not a \$maglev_line in the world/, out);
+    assert.equal(W.areas.get(plain).kind, "area");
+    assert.equal(W.transitSets, 0);
+    assert.match(await T.mapStatus({ map: id }, env), /is not a \$maglev_line in the world/);
+  } finally {
+    await done();
+  }
+});
+
+test("the snapshot program skips maglev exits before the elevator test, and asks for the transit API", () => {
+  const src = snapshotSource(["#1"], []);
+  const skip = src.indexOf("$ou:isa(e, mpe)"), lobby = src.indexOf("$ou:isa(e, lob)");
+  assert.ok(skip > 0 && skip < lobby, "maglev exits are skipped before the lobby test");
+  assert.match(src, /`\$maglev_platform_exit ! ANY => \$nothing'/);
+  assert.match(src, /"transit_api" -> tapi/);
+  assert.match(src, /area:mapper_transit_get\(\)/);
+  const b = batchSource(["#1"], [{ op: "transit_set" }, { op: "transit_clear" }, { op: "area_create", kind: "transit" }]);
+  assert.match(b, /mapper_transit_set\(spec\)/);
+  assert.match(b, /mapper_transit_clear\(\)/);
+  assert.match(b, /\$maglev_line/);
 });

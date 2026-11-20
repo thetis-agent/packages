@@ -130,7 +130,7 @@ export function legend(build) {
       if (e.to === "#-1") return `${name}${tag}→nowhere (broken twin)`;
       return `${name}${tag}→${e.to} "${e.to_name}" (outside this build, area ${e.to_area})`;
     });
-    const extra = [r.players ? `${r.players} player${r.players === 1 ? "" : "s"} here` : "", r.edges?.length ? `${r.edges.length} edge${r.edges.length === 1 ? "" : "s"}` : "", ...(r.lifts ?? []).map((l) => `in → elevator ${l.elevator} stop ${l.label}`)].filter(Boolean);
+    const extra = [r.players ? `${r.players} player${r.players === 1 ? "" : "s"} here` : "", r.edges?.length ? `${r.edges.length} edge${r.edges.length === 1 ? "" : "s"}` : "", ...(r.lifts ?? []).map((l) => `in → elevator ${l.elevator} stop ${l.label}`), ...(r.transits ?? []).map((t) => (t.car ? `⇄ car of transit ${t.transit} "${t.line}"` : `⇄ in → transit ${t.transit} "${t.line}" station "${t.station}"`))].filter(Boolean);
     return `${labels.get(r.id)} ${r.id} "${r.name}" (${r.x},${r.y},${r.z})  exits: ${exits.join(" ") || "none"}${extra.length ? "  · " + extra.join(", ") : ""}`;
   }).join("\n");
 }

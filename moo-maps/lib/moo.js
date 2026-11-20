@@ -61,8 +61,20 @@ function explain(r, mod) {
 export async function call(conn, source, timeoutMs = 30_000) {
   const r = await conn.client.captured("/v1/eval", source, timeoutMs);
   if (r.timed_out) {
-    const e = new Error("the task hit its time limit. A timeout is not a rollback: what it did before the limit is committed. Run map_status to see where the world is before trying again.");
+    // mooR (after f50464d59) says in `kept` whether the task's last
+    // transaction committed; an older client gives no `kept`.
+    const kept = {
+      No: "It was rolled back: its last transaction did not commit, though anything it committed at a suspend() stands.",
+      Yes: "It committed: what it did before the limit stands.",
+      Unknown: "Whether it committed is unknown.",
+    }[r.kept];
+    const e = new Error(
+      kept
+        ? `the task hit its time limit. ${kept} Run map_status to see where the world is before trying again.`
+        : "the task hit its time limit. A timeout is not a rollback: what it did before the limit is committed. Run map_status to see where the world is before trying again.",
+    );
     e.timedOut = true;
+    if (r.kept) e.kept = r.kept;
     throw e;
   }
   if (!r.success) throw new Error(explain(r, conn.mod));
@@ -110,6 +122,11 @@ export function snapshotSource(areaIds, carriages = []) {
     // $elevator off the grid. Those exits are read as stops, not as exits leaving the map; the carriages are
     // read whole with :mapper_get().
     `gen = \`$elevator ! ANY => $nothing'; api = $recycler:valid(gen) && respond_to(gen, "mapper_set") ? 1 | 0; lob = \`$elevator_lobby_exit ! ANY => $nothing'; cars = {}; ` +
+    // Transit lines (plans/maglev.md §4): a train is an area that isa $maglev_line, read whole with
+    // :mapper_transit_get(). A platform's \`in\` ($maglev_platform_exit) and the car's \`out\`
+    // ($maglev_carriage_exit) belong to the line, not to the map: they are skipped, before the elevator test.
+    `ml = \`$maglev_line ! ANY => $nothing'; tapi = $recycler:valid(ml) && respond_to(ml, "mapper_transit_set") ? 1 | 0; ` +
+    `mpe = \`$maglev_platform_exit ! ANY => $nothing'; mce = \`$maglev_carriage_exit ! ANY => $nothing'; ` +
     `for s in (data["carriages"]) c = ${R("s")}; if ($recycler:valid(c) && api && $ou:isa(c, gen)) cars = setadd(cars, c); endif endfor ` +
     `out = {}; ` +
     `for s in (data["areas"]) ` +
@@ -121,6 +138,7 @@ export function snapshotSource(areaIds, carriages = []) {
     `ex = {}; ` +
     `for e in (\`r.exits ! ANY => {}') ` +
     `if (!$recycler:valid(e) || !$ou:isa(e, $exit) || $ou:isa(e, $room_edge)) continue; endif ` +
+    `if (($recycler:valid(mpe) && $ou:isa(e, mpe)) || ($recycler:valid(mce) && $ou:isa(e, mce))) continue; endif ` +
     `if (api && $ou:isa(e, lob)) dd = \`e.carriage ! ANY => $nothing'; if ($recycler:valid(dd) && $ou:isa(dd, gen)) cars = setadd(cars, dd); continue; endif endif ` +
     `t = \`e.twin ! ANY => $nothing'; d = $recycler:valid(t) ? \`t.location ! ANY => $nothing' | $nothing; ` +
     `da = $recycler:valid(d) ? \`d:area() ! ANY => $nothing' | $nothing; ` +
@@ -138,14 +156,21 @@ export function snapshotSource(areaIds, carriages = []) {
     `rooms = {@rooms, ["id" -> tostr(r), "x" -> \`r.x ! ANY => 0', "y" -> \`r.y ! ANY => 0', "z" -> \`r.z ! ANY => 0', "name" -> r.name, ` +
     `"description" -> $netsat:_mapper_description(r), "exits" -> ex, "edges" -> eg, "players" -> people]}; ` +
     `endfor ` +
-    `out = {@out, ["id" -> tostr(area), "name" -> area.name, "blocks" -> \`area.mapper_blocks ! ANY => {}', "rooms" -> rooms]}; ` +
+    `rec = ["id" -> tostr(area), "name" -> area.name, "blocks" -> \`area.mapper_blocks ! ANY => {}', "rooms" -> rooms, "kind" -> "area"]; ` +
+    `if ($recycler:valid(ml) && $ou:isa(area, ml)) rec["kind"] = "transit"; ` +
+    `try tr = area:mapper_transit_get(); tsp = []; ` +
+    `if (typeof(tr) == TYPE_MAP && maphaskey(tr, "car")) st = {}; for x in (\`tr["stations"] ! ANY => {}') st = {@st, {x[1], tostr(x[2]), x[3], x[4]}}; endfor ` +
+    `tsp = ["line" -> tr["line"], "car" -> tostr(tr["car"]), "dwell" -> tr["dwell"], "offset" -> tr["offset"], "running" -> tr["running"] ? 1 | 0, "stations" -> st]; endif ` +
+    `rec["transit"] = tsp; ` +
+    `except err (ANY) rec["transit_error"] = tostr(err[2]); endtry endif ` +
+    `out = {@out, rec}; ` +
     `endfor ` +
     `ev = {}; for c in (cars) ` +
     `try sp = c:mapper_get(); st = {}; for x in (\`sp["stops"] ! ANY => {}') st = {@st, {tostr(x[1]), tostr(x[2])}}; endfor ` +
     `ev = {@ev, ["id" -> tostr(c), "name" -> \`sp["name"] ! ANY => c.name', "description" -> \`sp["description"] ! ANY => ""', "door" -> \`sp["door"] ! ANY => 0', "travel" -> \`sp["travel"] ! ANY => 0', "stops" -> st]}; ` +
     `except err (ANY) ev = {@ev, ["id" -> tostr(c), "error" -> tostr(err[2])]}; endtry endfor ` +
     `gone = {}; for s in (data["carriages"]) c = ${R("s")}; if (!$recycler:valid(c)) gone = {@gone, s}; endif endfor ` +
-    `return ["character" -> tostr(player), "shaper" -> $netsat:is_shaper(player) ? 1 | 0, "areas" -> out, "elevator_api" -> api, "elevators" -> ev, "carriages_gone" -> gone];`
+    `return ["character" -> tostr(player), "shaper" -> $netsat:is_shaper(player) ? 1 | 0, "areas" -> out, "elevator_api" -> api, "elevators" -> ev, "carriages_gone" -> gone, "transit_api" -> tapi];`
   );
 }
 
@@ -170,9 +195,15 @@ const ELEV_SPEC =
   `for x in (op["stops"]) lob = ${R('x["room"]')}; if (!$recycler:valid(lob) || !$ou:isa(lob, $room)) ${FAIL('tostr("lobby ", x["room"], " is gone")')}endif ` +
   IN_SCOPE("lob", '"lobby"') + `spec["stops"] = {@spec["stops"], {x["label"], lob}}; endfor `;
 
+const TRANSIT_GEN =
+  `ml = \`$maglev_line ! ANY => $nothing'; if (!$recycler:valid(ml) || !respond_to(ml, "mapper_transit_set")) raise(E_INVARG, "the MOO has no transit system yet ($maglev_line:mapper_transit_set)"); endif `;
+
 const OPS = {
+  // A train's area is made a $maglev_line: the parent is one of two fixed classes, never a caller's object.
   area_create:
-    `area = $recycler:create($area); area:set_name(op["name"]); ` +
+    `parent = $area; if (\`op["kind"] ! ANY => ""' == "transit") parent = \`$maglev_line ! ANY => $nothing'; ` +
+    `if (!$recycler:valid(parent) || !$ou:isa(parent, $area) || !respond_to(parent, "mapper_transit_set")) raise(E_INVARG, "the MOO has no transit system yet ($maglev_line:mapper_transit_set), so a train's area cannot be made"); endif endif ` +
+    `area = $recycler:create(parent); area:set_name(op["name"]); ` +
     `if (typeof(\`player.builds ! ANY => 0') == TYPE_LIST) player.builds = setadd(player.builds, area); endif ` +
     `allowed = {@allowed, area}; value = tostr(area); `,
   area_rename:
@@ -253,6 +284,20 @@ const OPS = {
     `spec = ${ELEV_SPEC}car:mapper_set(spec); value = tostr(car); `,
   elevator_delete:
     `${ELEV_GEN}car = ${R('op["elevator"]')}; if ($recycler:valid(car) && $ou:isa(car, gen)) car:mapper_destroy(); endif value = op["elevator"]; `,
+  // Transit lines: the line ($maglev_line, the train's area) owns how the train runs; these hand it the spec,
+  // with the car and every platform resolved and checked to be in the map's areas.
+  transit_set:
+    `${TRANSIT_GEN}area = ${R('op["area"]')}; if (!(area in allowed)) raise(E_PERM, "that area is not one of this map's"); endif ` +
+    `if (!$ou:isa(area, ml)) ${FAIL('tostr(area.name, " (", area, ") is not a $maglev_line; the map does not change an area\'s class")')}endif ` +
+    ROOM("car", "car") +
+    `if (car:area() != area) ${FAIL('tostr("the car ", car.name, " (", car, ") is not in the line\'s area ", area.name, " (", area, ")")')}endif ` +
+    `spec = ["line" -> op["line"], "car" -> car, "dwell" -> op["dwell"], "offset" -> op["offset"], "running" -> op["running"] ? 1 | 0, "stations" -> {}]; ` +
+    `for x in (op["stations"]) plat = ${R('x["room"]')}; if (!$recycler:valid(plat) || !$ou:isa(plat, $room)) ${FAIL('tostr("platform ", x["room"], " is gone")')}endif ` +
+    IN_SCOPE("plat", '"platform"') + `spec["stations"] = {@spec["stations"], {x["name"], plat, x["travel"], x["warning"]}}; endfor ` +
+    `area:mapper_transit_set(spec); value = tostr(area); `,
+  transit_clear:
+    `${TRANSIT_GEN}area = ${R('op["area"]')}; if (!(area in allowed)) raise(E_PERM, "that area is not one of this map's"); endif ` +
+    `if ($ou:isa(area, ml)) area:mapper_transit_clear(); endif value = tostr(area); `,
   block_add:
     `area = ${R('op["area"]')}; if (!(area in allowed)) raise(E_PERM, "that area is not one of this map's"); endif ` +
     `if ($recycler:valid(area:get_room_at(op["x"], op["y"], op["z"]))) ${FAIL('"a room occupies that cell"')}endif ` +

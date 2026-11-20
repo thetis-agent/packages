@@ -14,6 +14,7 @@
 import { fileURLToPath } from "node:url";
 import { DIRS, dirOf, labelled } from "./grid.js";
 
+const TRANSIT_HEX = "#f0b44c";
 const CELL = 104;
 const ROOM = 62;
 const EXIT_HEX = { open: "#9aa8bd", door: "#d98e3f", locked: "#e26666", climb: "#5fc08b", swim: "#58b7e8", special: "#b48bf2" };
@@ -204,6 +205,13 @@ export function levelSvg(build, z, { ghost = true } = {}) {
       const bx = w.x + ROOM / 2 - 3 - bw, by = w.y + ROOM / 2 - 15 - i * 14;
       g += tag("rect", { x: bx, y: by, width: bw, height: 12, rx: 3, fill: "#132a2e", stroke: "#5fd3c6", "stroke-width": 1.2 });
       g += tag("text", { x: bx + bw / 2, y: by + 9, "text-anchor": "middle", fill: "#5fd3c6", "font-size": 8.5, "font-weight": 700 }, esc(label));
+    });
+    // Transit: ⇄ and the line's name on its car, the station's name on a platform; top left.
+    (r.transits ?? []).forEach((t, i) => {
+      const label = `⇄${String(t.car ? t.line : t.station).slice(0, 7)}`, bw = 8 + label.length * 5.5;
+      const bx = w.x - ROOM / 2 + 3, by = w.y - ROOM / 2 + 3 + i * 14;
+      g += tag("rect", { x: bx, y: by, width: bw, height: 12, rx: 3, fill: "#2e2410", stroke: TRANSIT_HEX, "stroke-width": 1.2 });
+      g += tag("text", { x: bx + bw / 2, y: by + 9, "text-anchor": "middle", fill: TRANSIT_HEX, "font-size": 8.5, "font-weight": 700 }, esc(label));
     });
     let gy = w.y - ROOM / 2 + 11;
     for (const gl of glyphs) {

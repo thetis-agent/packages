@@ -1,13 +1,23 @@
 /* The Maps section of the sidebar: the maps of the space the person is in — a project's own, or under No
  * project those with none and those whose project is gone (a gateway without spaces shows every map) —
- * newest first, with its publish state as a badge (draft, linked, published, changed), its room count, and
+ * newest first, with its publish state as a badge (draft, linked, published, changed, out of date; a map of many areas shows
+ * how many are in each), its room count, and
  * how long ago it changed. ＋ makes a map in the space and opens its tab there; a row's menu renames it,
  * moves it to a project or out of one, copies its id for a chat, or deletes it (the world is never touched). */
 
 const TAB = "map";
 const PLUS = "M10 4v12M4 10h12";
 const MORE = "M5 10h.01M10 10h.01M15 10h.01";
-const BADGE = { draft: "draft", linked: "linked", published: "live", changed: "changed" };
+const BADGE = { draft: "draft", linked: "linked", published: "live", changed: "changed", outdated: "out of date" };
+// A map of many areas shows its tally (3 changed · 7 draft) rather than one word: what needs doing first.
+const TALLY = [["changed", "changed"], ["outdated", "out of date"], ["draft", "draft"], ["linked", "linked"]];
+function badges(el, row) {
+  const c = row.counts;
+  const n = c ? Object.values(c).reduce((s, v) => s + v, 0) : 0;
+  if (!c || n <= 1) return [el("span", { class: `mm-badge is-${row.state}` }, BADGE[row.state] ?? row.state)];
+  const out = TALLY.filter(([k]) => c[k]).map(([k, word]) => el("span", { class: `mm-badge is-${k}`, title: `${c[k]} area${c[k] === 1 ? "" : "s"} ${word}` }, `${c[k]} ${word}`));
+  return out.length ? out : [el("span", { class: "mm-badge is-published", title: `all ${n} areas published` }, "live")];
+}
 
 function when(iso) {
   const ms = Date.now() - Date.parse(iso);
@@ -134,7 +144,7 @@ export function mountSidebar(ext, model, body, tools) {
       el("button", { type: "button", class: "mm-row-open", onClick: () => openTab(row) },
         el("span", { class: `mm-dot is-${row.state}` }),
         title,
-        el("span", { class: `mm-badge is-${row.state}` }, BADGE[row.state] ?? row.state),
+        ...badges(el, row),
         el("span", { class: "mm-row-when" }, `${row.rooms}r · ${when(row.updatedAt)}`)),
       more
     );
