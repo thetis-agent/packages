@@ -19,7 +19,8 @@
 import {
   createClient, bounded, report, compactWire, mooLiteral, mooObjectExpr,
   objectPathSegment, pathSegment, verbName, dynamicTools, objdefLinesLiteral,
-  OBJDEF_CONSTANTS_BUILDER, MAX_TIMEOUT_MS, clip, parseJson, decodeCaptured,
+  OBJDEF_CONSTANTS_BUILDER, MAX_TIMEOUT_MS, clip, parseJson, decodeCaptured, explainStatus,
+  wireVarUnion,
 } from "./client.js";
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -43,7 +44,7 @@ async function evalSource(env, source, timeoutMs, extra) {
 async function getCompact(env, p, extra = {}) {
   const moo = createClient(env);
   const res = await moo.authenticated("GET", p);
-  if (!res.ok) throw new Error(`${p} returned HTTP ${res.status}: ${clip(res.text, 400)}`);
+  if (!res.ok) throw new Error(explainStatus(res, p));
   let body;
   try {
     body = parseJson(res.text);
@@ -120,7 +121,9 @@ export async function command(args, env) {
   try {
     r = await moo.captured("/v1/command", line, args.timeout_ms);
   } catch (e) {
-    if (/HTTP 404/.test(String(e.message))) {
+    // A route the host does not have is a bare 404; a 404 with a code
+    // (object_not_found) is the daemon refusing this command, not the route.
+    if (/HTTP 404: \(empty body\)/.test(String(e.message))) {
       throw new Error(
         "this server does not expose /v1/command, so a parsed command cannot be run through it. " +
           "Use moo_eval, or moo_invoke_verb, instead.",
@@ -140,12 +143,29 @@ export async function invokeVerb(args, env) {
   const obj = objectPathSegment(need(args, "object"));
   const verb = pathSegment(verbName(need(args, "verb")));
   const moo = createClient(env);
-  const body = JSON.stringify(Array.isArray(args.args) ? args.args : []);
-  const res = await moo.authenticated("POST", `/v1/verbs/${obj}/${verb}/invoke`, {
-    contentType: "application/json",
-    body,
-  });
-  return report(decodeCaptured(res, "invoke"));
+  // The JSON body is {"args": [VarUnion, ...]}, each argument in mooR's
+  // tagged form ({"VarInt": {"value": 7}}). A bare JSON array is refused with
+  // an empty HTTP 400, which is what this tool sent before 0.4.0.
+  const body = JSON.stringify({ args: invokeArgs(args.args).map(wireVarUnion) });
+  const ms = Number(args.timeout_ms ?? 0);
+  if (ms > MAX_TIMEOUT_MS) throw new Error(`timeout_ms exceeds mooR's ${MAX_TIMEOUT_MS} ms protocol ceiling`);
+  const p = `/v1/verbs/${obj}/${verb}/invoke${ms > 0 ? `?timeout_ms=${ms}` : ""}`;
+  const res = await moo.authenticated("POST", p, { contentType: "application/json", body });
+  return report(decodeCaptured(res, p));
+}
+
+// The arguments for moo_invoke_verb: a JSON array, or a string holding one
+// (some callers send array parameters as JSON text). Anything else is refused:
+// silently calling the verb with no arguments is how a wrong call looks right.
+function invokeArgs(value) {
+  if (value === undefined || value === null) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    let parsed;
+    try { parsed = JSON.parse(value); } catch { parsed = undefined; }
+    if (Array.isArray(parsed)) return parsed;
+  }
+  throw new Error(`args must be a JSON array of arguments, got ${JSON.stringify(value)}`);
 }
 
 export async function dispatchCommandVerb(args, env) {
@@ -267,7 +287,10 @@ function programError(res) {
   try {
     const pe = findKeyDeep(parseJson(res.text), "ParseError");
     if (pe && typeof pe === "object") {
-      const pos = pe.error_position ? ` at line ${pe.error_position.line}, column ${pe.error_position.col}` : "";
+      // mooR's CompileContext is {line_col: [line, column]}; older hosts sent {line, col}.
+      const ep = pe.error_position;
+      const [line, col] = Array.isArray(ep?.line_col) ? ep.line_col : [ep?.line, ep?.col];
+      const pos = line !== undefined ? ` at line ${line}, column ${col}` : "";
       detail = `parse error${pos}: ${pe.message ?? "unknown"}`;
     } else {
       const ce = findKeyDeep(parseJson(res.text), "VerbCompilationError");
@@ -545,7 +568,7 @@ export async function listObjects(args, env) {
   const moo = createClient(env);
   const p = args.parent ? `/v1/objects/query?parent=${objectPathSegment(args.parent)}` : "/v1/objects";
   const res = await moo.authenticated("GET", p);
-  if (!res.ok) throw new Error(`${p} returned HTTP ${res.status}: ${clip(res.text, 400)}`);
+  if (!res.ok) throw new Error(explainStatus(res, p));
   let body;
   try {
     body = parseJson(res.text);
@@ -901,7 +924,17 @@ export async function serverInfo(_args, env) {
     // Must ask for JSON explicitly: with no Accept header this answers with a
     // FlatBuffers blob, and with a wrong one it answers 406.
     const f = await moo.getJson("/v1/features");
-    out.features = compactWire(parseJson(f.text));
+    if (!f.ok || !f.text?.trim()) {
+      // The host asks the daemon for features on first use and answers a bare
+      // 500 (no body) when it cannot reach it, e.g. while the daemon is still
+      // starting or recovering its database.
+      out.features_error =
+        `/v1/features answered HTTP ${f.status}${f.text?.trim() ? `: ${clip(f.text, 300)}` : " with an empty body"}. ` +
+        `The web host fetches features from its daemon and answers this way when it cannot reach it ` +
+        `(starting, recovering its database, or down); authenticated calls will fail the same way until it is back.`;
+    } else {
+      out.features = compactWire(parseJson(f.text));
+    }
   } catch (e) {
     out.features_error = e.message;
   }

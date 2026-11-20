@@ -215,16 +215,49 @@ function unreachable(baseUrl, e) {
   );
 }
 
-/** Explain a non-2xx reply from a capturing endpoint, with the body clipped. */
-function explainStatus(res, path) {
-  const body = clip(res.text ?? "", 800);
+/**
+ * The web host's refusal body, `{"code": "...", "error": "..."}`, as words.
+ * Every non-2xx answer from mooR's handlers uses it, even when FlatBuffers
+ * were asked for; some (a bad CURIE, a bad timeout) answer with no body at all.
+ */
+export function refusal(res) {
+  let body;
+  try {
+    body = res.text ? parseJson(res.text) : undefined;
+  } catch {
+    body = undefined;
+  }
+  if (body && typeof body === "object" && typeof body.code === "string") {
+    return { code: body.code, message: typeof body.error === "string" ? body.error : "", body };
+  }
+  return { code: undefined, message: clip(res.text ?? "", 800), body };
+}
+
+/**
+ * Explain a non-2xx reply. An error status means the daemon refused the
+ * request and no task ran, so none of these say "may have committed" except
+ * the gateway timeouts, which come from a proxy in front of the host and not
+ * from mooR itself.
+ */
+export function explainStatus(res, path) {
+  const { code, message } = refusal(res);
+  const said = code ? `${code}${message ? `: ${message}` : ""}` : message || "(empty body)";
   if (res.status === 401 || res.status === 403) {
-    return `${path} refused with HTTP ${res.status}: the auth token was rejected. moo_reconnect logs in again. ${body}`;
+    return `${path} refused with HTTP ${res.status} (${said}). The auth token or the character was rejected; moo_reconnect logs in again.`;
   }
   if (res.status === 408 || res.status === 504) {
-    return `${path} timed out at the host (HTTP ${res.status}). The task may have committed before the deadline: read state back before retrying. ${body}`;
+    return (
+      `${path} timed out in front of the host (HTTP ${res.status}): a proxy gave up before mooR answered, so ` +
+      `whether the task ran or committed is unknown. Read state back before retrying. ${said}`
+    );
   }
-  return `${path} returned HTTP ${res.status}: ${body}`;
+  if (res.status === 503) {
+    return `${path}: the web host could not reach its daemon (HTTP 503, ${said}). No task ran. moo_server_info shows whether /health agrees.`;
+  }
+  if (res.status === 400 && !code && !message) {
+    return `${path} returned HTTP 400 with no body: the host rejected the request itself (an object reference it cannot parse, a bad timeout_ms, or a malformed body). No task ran.`;
+  }
+  return `${path} returned HTTP ${res.status}: ${said}. No task ran.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,15 +265,39 @@ function explainStatus(res, path) {
 // ---------------------------------------------------------------------------
 
 /**
- * Decode a captured invocation, tolerating both wire shapes.
+ * Decode the reply to a call that ran (or would have run) a task.
  *
- * Current hosts return a bare InvocationResponse with an
- * InvocationSuccess/InvocationError outcome. Older deployed hosts wrap a
- * successful captured eval as ReplyResult -> ClientSuccess -> EvalResult.
- * Both are accepted, and a genuine error is never mistaken for either.
+ * mooR answers every call that ran a task with HTTP 200 and an
+ * InvocationResponse, whatever became of the task:
+ *
+ *   { outcome: { kept: "Yes"|"No"|"Unknown",
+ *                ending: { TaskCompleted: { result: Var } }
+ *                      | { TaskSuspended: {} }
+ *                      | { TaskAborted: { reason: { Aborted<Kind>: {...} } } }
+ *                      | { TaskResultLost: {} } },
+ *     output: [NarrativeEvent] }
+ *
+ * `kept` says whether the task's last transaction committed, which MOO leaves
+ * independent of how it ended: an uncaught error or running out of ticks keeps
+ * the changes, a cancellation does not. Code that does not compile runs no task
+ * and is HTTP 422 `{code: "compilation_error", compile_error, error}`; it is
+ * returned here as a failed result (kept "No") rather than thrown, so a caller
+ * reads it the way it reads any other failure. Every other non-2xx is thrown.
+ *
+ * Returns { success, value, error, output, timed_out, cancelled, kept, ending,
+ * reason }. `ending` is completed | suspended | aborted | result_lost |
+ * not_run; `reason` is the abort kind (exception, limit, verb_not_found,
+ * command_failed, cancelled, killed, rolled_back, conflict_retries_exhausted,
+ * deadline, internal) or null.
  */
 export function decodeCaptured(res, path) {
-  if (!res.ok) throw new Error(explainStatus(res, path));
+  if (!res.ok) {
+    if (res.status === 422) {
+      const { code, message, body } = refusal(res);
+      if (code === "compilation_error") return notCompiled(body, message);
+    }
+    throw new Error(explainStatus(res, path));
+  }
   let body;
   try {
     body = parseJson(res.text);
@@ -248,40 +305,204 @@ export function decodeCaptured(res, path) {
     throw new Error(`${path} did not return JSON: ${clip(res.text, 600)}`);
   }
 
-  const explicit = findKey(body, ["InvocationSuccess", "InvocationError", "VerbCallSuccess", "VerbCallError"]);
-  const legacySuccess = (() => {
-    const n = findNamed(body, "EvalResult");
-    return n ? findNamed(n, "result") : undefined;
-  })();
-  const legacyError = findKey(body, ["ClientFailure", "TaskError", "SchedulerError"]);
-
-  let success, node;
-  if (explicit) {
-    success = explicit.key === "InvocationSuccess" || explicit.key === "VerbCallSuccess";
-    node = explicit.value;
-  } else if (legacySuccess !== undefined) {
-    success = true;
-    node = legacySuccess;
-  } else if (legacyError) {
-    success = false;
-    node = legacyError.value;
-  } else {
-    throw new Error(`${path} returned an unrecognised captured-invocation envelope: ${clip(JSON.stringify(body), 1200)}`);
+  const outcome = body && typeof body === "object" ? body.outcome : undefined;
+  const endingNode = outcome && typeof outcome === "object" ? outcome.ending : undefined;
+  const [endingKey, endingBody] = endingNode && typeof endingNode === "object" ? Object.entries(endingNode)[0] ?? [] : [];
+  if (!endingKey) {
+    // EvalResult, InvocationSuccess and InvocationError are gone since mooR
+    // f50464d59 ("report how tasks ended and what they kept"), and hosts and
+    // daemons must run the same version, so an old envelope means an old host.
+    throw new Error(
+      `${path} returned a reply that is not an InvocationResponse {outcome: {kept, ending}, output}; a web host ` +
+        `older than mooR f50464d59 answers that way. ${clip(JSON.stringify(body), 1200)}`,
+    );
   }
+  const kept = ["Yes", "No", "Unknown"].includes(outcome.kept) ? outcome.kept : "Unknown";
+  // A core may also send its own copy of an uncaught error's traceback as a
+  // data event (Torchship's GMCP `Bug.Traceback`). When the outcome is that
+  // exception, the copy says nothing `error` does not, so it is dropped too.
+  const raisedHere = endingKey === "TaskAborted" && endingBody?.reason && "AbortedException" in endingBody.reason;
+  const events = Array.isArray(body.output) ? body.output : [];
+  const output = events
+    .filter((ev) => !(raisedHere && isTracebackData(ev)))
+    .map(summarizeEvent)
+    .filter((x) => x !== undefined);
+  const base = { output, kept, timed_out: false, cancelled: false, reason: null };
 
-  const outputRaw = findNamed(body, "output");
-  const output = Array.isArray(outputRaw) ? outputRaw.map(summarizeEvent).filter((x) => x !== undefined) : [];
-  const text = JSON.stringify(node).toLowerCase();
+  switch (endingKey) {
+    case "TaskCompleted":
+      return { ...base, success: true, value: decodeWireValue(endingBody?.result), error: null, ending: "completed" };
+    case "TaskSuspended":
+      // A captured call waits past suspensions, so this should not reach a
+      // caller; if it does, there is no value and the task is still running.
+      return {
+        ...base,
+        success: false,
+        value: null,
+        ending: "suspended",
+        error: { reason: "suspended", message: "The task suspended and continues in the background; it returned no value." },
+      };
+    case "TaskResultLost":
+      // The daemon reports this at a call deadline when the task had already
+      // committed (kept Yes) or it cannot tell (kept Unknown).
+      return {
+        ...base,
+        success: false,
+        value: null,
+        ending: "result_lost",
+        timed_out: true,
+        error: { reason: "result_lost", message: "The task ended, but its result did not reach the web host." },
+      };
+    case "TaskAborted": {
+      const error = summarizeAbort(endingBody?.reason);
+      const timed = error.reason === "deadline" || (error.reason === "limit" && (error.limit === "ticks" || error.limit === "seconds"));
+      return {
+        ...base,
+        success: false,
+        value: null,
+        ending: "aborted",
+        reason: error.reason,
+        error,
+        timed_out: timed,
+        cancelled: error.reason === "cancelled" || error.reason === "deadline",
+      };
+    }
+    default:
+      throw new Error(`${path} returned an unknown task ending ${JSON.stringify(endingKey)}: ${clip(JSON.stringify(body), 1200)}`);
+  }
+}
 
+function isTracebackData(ev) {
+  const data = ev?.event?.event?.DataEvent;
+  return Boolean(data) && /(^|\.)traceback$/i.test(symbolText(data.kind) ?? "");
+}
+
+/** A 422 compilation_error as a failed result: no task ran, nothing changed. */
+function notCompiled(body, fallback) {
+  const ce = body?.compile_error;
+  const [variant, detail] = ce && typeof ce === "object" ? Object.entries(ce)[0] ?? [] : [];
+  // mooR's CompileContext serializes as {line_col: [line, col]}, wherever the
+  // variant puts it (a named field for ParseError, a tuple slot for the rest).
+  const lc = findNamed(detail, "line_col");
+  const error = { reason: "compilation_error" };
+  if (variant) error.kind = variant;
+  if (Array.isArray(lc)) [error.line, error.column] = lc;
+  const display = typeof body?.error === "string" ? body.error : fallback;
+  // ParseError carries the bare problem; the other variants only have their
+  // Display text ("Unknown built-in function @ 1/8: foo"), which is kept whole.
+  error.message =
+    variant === "ParseError" && typeof detail?.message === "string" ? detail.message : String(display ?? "does not compile");
+  const expected = detail?.details?.expected_tokens;
+  if (Array.isArray(expected) && expected.length) error.expected = expected;
+  const notes = detail?.details?.notes;
+  if (Array.isArray(notes) && notes.length) error.notes = notes;
   return {
-    success,
-    value: success ? decodeWireValue(findNamed(node, "result") ?? node) : null,
-    error: success ? null : summarizeError(node),
-    output,
-    // A task killed for exceeding ticks or seconds reports itself this way.
-    timed_out: text.includes("taskabortedlimit") || text.includes("timeout") || text.includes("time limit"),
-    cancelled: text.includes("cancel"),
+    success: false,
+    value: null,
+    error,
+    output: [],
+    timed_out: false,
+    cancelled: false,
+    kept: "No",
+    ending: "not_run",
+    reason: "compilation_error",
   };
+}
+
+// AbortReason variant -> the short name reported in `reason`.
+const ABORT_NAMES = {
+  AbortedLimit: "limit",
+  AbortedException: "exception",
+  AbortedVerbNotFound: "verb_not_found",
+  AbortedCommandFailed: "command_failed",
+  AbortedCancelled: "cancelled",
+  AbortedKilled: "killed",
+  AbortedRolledBack: "rolled_back",
+  AbortedConflictRetriesExhausted: "conflict_retries_exhausted",
+  AbortedDeadline: "deadline",
+  AbortedInternal: "internal",
+};
+
+/** mooR's wire ErrorCode (`EVerbnf`) the way MOO code spells it (`E_VERBNF`). */
+export function errorCodeName(code, customSymbol) {
+  if (code === "ErrCustom") return symbolText(customSymbol) ?? "ErrCustom";
+  if (typeof code === "string" && /^E[A-Z][a-z]*$/.test(code)) return `E_${code.slice(1).toUpperCase()}`;
+  return code;
+}
+
+function symbolText(s) {
+  if (typeof s === "string") return s;
+  if (s && typeof s === "object" && typeof s.value === "string") return s.value;
+  return undefined;
+}
+
+/**
+ * A TaskAborted reason as the few fields a caller acts on, with `reason` and
+ * a `message` always present. An unknown variant keeps its name and body.
+ */
+export function summarizeAbort(reasonNode) {
+  const [key, body] = reasonNode && typeof reasonNode === "object" ? Object.entries(reasonNode)[0] ?? [] : [];
+  const reason = ABORT_NAMES[key];
+  switch (reason) {
+    case "exception":
+      return { reason, ...summarizeError(body) };
+    case "limit": {
+      const l = body?.limit ?? {};
+      switch (l.reason) {
+        case "Ticks":
+          return { reason, limit: "ticks", ticks: l.ticks, message: `Task ran out of ticks (${l.ticks})` };
+        case "Time": {
+          const seconds = Number(l.time_nanos) / 1e9;
+          return { reason, limit: "seconds", seconds, message: `Task ran out of seconds (${seconds}s)` };
+        }
+        case "OutputBytes":
+          return { reason, limit: "output_bytes", output_bytes: l.output_bytes, message: "Task produced too much captured output" };
+        case "OutputEvents":
+          return { reason, limit: "output_events", output_events: l.output_events, message: "Task produced too many captured output events" };
+        default:
+          return { reason, limit: l.reason ?? null, message: "Task hit a limit", detail: compactWire(l) };
+      }
+    }
+    case "verb_not_found": {
+      // planus names the Rust field `where_` (a keyword) and serde keeps that
+      // name, so the JSON key is `where_`; `where` is accepted in case it is
+      // ever renamed.
+      const object = decodeWireValue(body?.where_ ?? body?.where);
+      const verb = symbolText(body?.what);
+      return { reason, object, verb, message: `Verb not found: ${object}:${verb}` };
+    }
+    case "command_failed": {
+      // CommandError { error: CommandErrorUnion }: the variant name is the cause.
+      const inner = body?.error?.error ?? body?.error;
+      const [kind, detail] = inner && typeof inner === "object" ? Object.entries(inner)[0] ?? [] : [];
+      const words = {
+        CouldNotParseCommand: "Could not parse command",
+        NoObjectMatch: "Could not find object match for command",
+        NoCommandMatch: "Could not find verb match for command",
+        DatabaseError: "Could not start transaction due to database error",
+        PermissionDenied: "Permission denied",
+      };
+      const out = { reason, command_error: kind ?? null, message: words[kind] ?? "Command failed" };
+      if (kind === "DatabaseError") out.detail = compactWire(detail);
+      return out;
+    }
+    case "cancelled":
+      return { reason, message: "Task cancelled" };
+    case "killed":
+      return { reason, message: "Task killed itself" };
+    case "rolled_back":
+      return { reason, message: "Task rolled back" };
+    case "conflict_retries_exhausted":
+      return { reason, message: "Task could not commit after repeated conflicts" };
+    case "deadline": {
+      const ms = Number(body?.deadline_nanos) / 1e6;
+      return { reason, deadline_ms: ms, message: `Task passed its call deadline of ${ms} ms and was cancelled` };
+    }
+    case "internal":
+      return { reason, message: `Task failed: ${body?.message ?? "internal error"}` };
+    default:
+      return { reason: key ?? "unknown", message: "Task aborted", detail: compactWire(decodeWireValue(body)) };
+  }
 }
 
 /**
@@ -292,17 +513,16 @@ export function decodeCaptured(res, path) {
  * like an exception is decoded and compacted as before, never dropped.
  */
 export function summarizeError(node) {
-  const exc = findNamed(node, "exception");
+  const exc = node && typeof node === "object" && "exception" in node ? node.exception : findNamed(node, "exception");
   const err = exc && typeof exc === "object" ? exc.error : undefined;
   if (err && typeof err === "object" && (err.err_type !== undefined || err.msg !== undefined)) {
-    const out = { code: err.err_type, message: err.msg };
+    const out = { code: errorCodeName(err.err_type, err.custom_symbol), message: err.msg };
     if (err.value !== null && err.value !== undefined) out.value = compactWire(decodeWireValue(err.value));
-    if (err.custom_symbol) out.symbol = err.custom_symbol;
-    if (Array.isArray(exc.backtrace)) out.backtrace = exc.backtrace;
+    if (Array.isArray(exc.backtrace)) out.backtrace = exc.backtrace.map(decodeWireValue);
     return out;
   }
-  // decodeWireValue only: compactWire would strip the variant names
-  // (TaskError, SchedulerError, ...) that say what kind of failure this was.
+  // decodeWireValue only: compactWire would strip the variant names that say
+  // what kind of failure this was.
   return decodeWireValue(node);
 }
 
@@ -667,6 +887,38 @@ export function dynamicTools(value) {
   return tools;
 }
 
+const VAR_TAGS = new Set([
+  "VarNone", "VarBool", "VarInt", "VarFloat", "VarStr", "VarObj", "VarErr", "VarList", "VarMap",
+  "VarSym", "VarBinary", "VarFlyweight",
+]);
+
+/**
+ * A JSON value as one mooR `VarUnion` in its serde form, for the JSON body of
+ * POST /v1/verbs/{obj}/{verb}/invoke: `{"args": [VarUnion, ...]}`. The mapping
+ * is mooLiteral's, so a value means the same here as in moo_eval source: a
+ * string stays a string (even "#36"), null is 0, an object is a string-keyed
+ * map. An object whose one key is a Var tag (`{"VarObj": {...}}`) is already
+ * in wire form and is passed through, which is how to send an object, error
+ * or symbol.
+ */
+export function wireVarUnion(value) {
+  const wrap = (v) => ({ variant: wireVarUnion(v) });
+  if (value === null || value === undefined) return { VarInt: { value: 0 } };
+  if (typeof value === "boolean") return { VarBool: { value } };
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new Error("cannot encode a non-finite number as a MOO value");
+    return Number.isInteger(value) ? { VarInt: { value } } : { VarFloat: { value } };
+  }
+  if (typeof value === "string") return { VarStr: { value } };
+  if (Array.isArray(value)) return { VarList: { elements: value.map(wrap) } };
+  if (typeof value === "object") {
+    const keys = Object.keys(value);
+    if (keys.length === 1 && VAR_TAGS.has(keys[0])) return value;
+    return { VarMap: { pairs: keys.map((k) => ({ key: wrap(k), value: wrap(value[k]) })) } };
+  }
+  throw new Error(`cannot encode ${typeof value} as a MOO value`);
+}
+
 /** Each line of an objdef as a MOO list literal. */
 export function objdefLinesLiteral(text) {
   return `{${String(text).split(/\r?\n/).map(mooLiteral).join(", ")}}`;
@@ -707,19 +959,50 @@ export function bounded(text, maxBytes = MAX_OUTPUT_BYTES) {
   );
 }
 
+/**
+ * What `kept` means for a task that did not complete, in one sentence. mooR
+ * reports whether the task's last transaction committed; changes committed
+ * earlier, at a suspend(), fork or read(), stand either way.
+ */
+export function keptNote(r) {
+  if (r.ending === "not_run") return "Nothing ran, so nothing changed.";
+  const earlier = " Anything it committed earlier, at a suspend() or read(), stands either way.";
+  switch (r.kept) {
+    case "No":
+      return "Its last transaction was NOT committed: what it did since it started (or last suspended) was rolled back." + earlier;
+    case "Yes":
+      return "Its changes WERE committed: what it did up to this point stands. Read the state it touched before retrying.";
+    default:
+      return (
+        "Whether its changes were committed is unknown. Read back every state field this call could have changed " +
+        "before retrying."
+      );
+  }
+}
+
 /** The uniform shape a captured invocation is reported in. */
 export function report(r, extra = {}) {
   const out = { success: r.success, ...extra };
   if (r.value !== null && r.value !== undefined) out.value = r.value;
   if (r.error) out.error = r.error;
   if (r.output?.length) out.output = r.output;
+  if (!r.success && r.ending) {
+    out.ending = r.ending;
+    if (r.kept) out.kept = r.kept;
+  }
   if (r.timed_out) {
     out.timed_out = true;
-    // The single most expensive misconception in this group.
-    out.warning =
-      "The task exceeded its tick or time limit. A timeout is NOT a rollback: side effects " +
-      "committed before the limit are still committed. Do not retry blindly — read back every " +
-      "state field this call could have changed, reconcile it, then run a smaller test.";
+    // The single most expensive misconception in this group, now answered by
+    // the server: kept says whether the timed-out task's work stands.
+    const what =
+      r.reason === "deadline"
+        ? "The task was still running at the call's deadline and was cancelled."
+        : r.ending === "result_lost"
+          ? "The call's deadline passed and the task's result was lost."
+          : "The task exceeded its tick or time limit.";
+    out.warning = `${what} ${r.kept ? keptNote(r) : "A timeout is NOT a rollback: read state back before retrying."} Do not retry blindly; run a smaller test.`;
+  } else if (!r.success && r.kept) {
+    out.note = keptNote(r);
   }
   if (r.cancelled) out.cancelled = true;
   if (!r.success && !r.error) {

@@ -1,6 +1,6 @@
 {
   "name": "@thetis/moo",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "The live mooR world as tools: evaluate, run commands, read and program verbs and properties, create and recycle objects, objdef round-trips, command parsing, task control and MOO-declared tools — sharing one client module instead of fifty copies of it.",
   "type": "module",
@@ -12,7 +12,7 @@
     "tools": [
       {
         "name": "moo_eval",
-        "description": "Evaluate a MOO expression in the live world and return its value, with anything the task printed. This MUTATES world state if the expression does. A timeout can occur AFTER side effects have committed, so never blindly retry a mutating call — read state back first.",
+        "description": "Evaluate a MOO expression in the live world and return its value, with anything the task printed. This MUTATES world state if the expression does. A failed or timed-out result says in `kept` whether the task's changes committed (Yes, No, or Unknown); when it is not No, read state back before retrying a mutating call.",
         "parameters": {
           "type": "object",
           "properties": {

@@ -63,12 +63,25 @@ These are the properties that were learned the hard way; each has a test.
   becomes `sysobj:name`. A `$name` has to be a dotted identifier path, so
   `$you; recycle(#1)` is refused rather than spliced into source. `moo_grep`
   reports the resolved `scope` so you can see what `$you` actually was.
-- **A timeout is reported as "may have committed"**, never as a failure, with
-  the instruction to read state back before retrying.
-- **Both wire shapes are accepted**: a modern bare `InvocationSuccess`, and the
-  older `ReplyResult -> ClientSuccess -> EvalResult`. A genuine error is never
-  mistaken for either, and an unrecognised envelope is an error rather than a
-  silent success.
+- **What a task kept is told, not guessed.** mooR answers every call that ran a
+  task (`/v1/eval`, `/v1/command`, `/v1/verbs/{obj}/{verb}/invoke`) with an
+  `InvocationResponse { outcome: { kept, ending }, output }`, HTTP 200 even
+  when the task aborted. `ending` is `TaskCompleted { result }`,
+  `TaskSuspended`, `TaskAborted { reason }` or `TaskResultLost`; `kept` is
+  `Yes`, `No` or `Unknown` and says whether the task's last transaction
+  committed. Every failed result carries `ending` and `kept`, and a timeout's
+  warning is built from `kept`: `No` means it was rolled back, `Yes` means its
+  changes stand, `Unknown` means read state back. A result with no `kept` (a
+  fake in a test) is still "a timeout is NOT a rollback".
+- **An error status means no task ran.** A compile error is HTTP 422
+  `compilation_error` and is reported as a failed result with `kind`, `line`,
+  `column` and `message`, `ending: "not_run"`, `kept: "No"`. Any other non-2xx
+  throws with the host's `code` and message and "No task ran". An empty-bodied
+  400 (a bad object reference or request body) and a 503 (daemon unreachable)
+  say so.
+- **Only the current wire shape is read.** A reply without `outcome` is
+  refused as coming from a web host older than mooR `f50464d59`; an unknown
+  ending is an error rather than a silent success.
 - **FlatBuffers union wrappers are stripped**, so an owner reads as `#36` rather
   than five levels of nesting, and a `UuObjId` is rendered `#0011E5-9CB7359F34`
   the way mooR itself renders one — so an id a listing shows can be handed
@@ -94,6 +107,36 @@ semantics is worse than not having it.
 
 **`moo_test_compile` is absent**, as it was: built once in the original and
 deleted in `ae89aad8`.
+
+## 0.4.0
+
+For the mooR web host after `f50464d59` ("report how tasks ended and what they
+kept"). 0.3.0 against that host fails every eval and command with
+"unrecognised captured-invocation envelope".
+
+- **Results are decoded from `InvocationResponse`.** `decodeCaptured` keeps
+  its `{success, value, error, output, timed_out, cancelled}` and adds `kept`,
+  `ending` (`completed`, `suspended`, `aborted`, `result_lost`, `not_run`) and
+  `reason`. Each abort reason gets a compact error: an exception stays
+  `{code, message, backtrace}` (codes read `E_DIV`, not `EDiv`; a custom error
+  reads its symbol); a limit gives which one and its value; a verb not found
+  names `#obj:verb`; a deadline gives `deadline_ms`; cancelled, killed, rolled
+  back, conflict retries and internal errors each say what happened.
+  `timed_out` is set for a deadline, a lost result and a tick or seconds limit;
+  `cancelled` for a cancellation or a deadline.
+- **Compile errors are readable**: `{kind, line, column, message}` from the
+  422, not an HTTP error.
+- **`moo_invoke_verb` works.** It sent a bare JSON array, which the host
+  refuses with an empty 400. It now sends `{"args": [VarUnion…]}` (each
+  argument tagged, `{"VarInt": {"value": 7}}`), takes `args` given as JSON text
+  as well as an array (the tool runner was passing the array as a string, and
+  the old code silently called the verb with no arguments), refuses any other
+  `args`, and honours `timeout_ms`.
+- **`moo_server_info` explains an empty `/v1/features`.** The host fetches
+  features from its daemon and answers a bare 500 when it cannot; that used to
+  surface as "Unexpected end of JSON input".
+- **Refusals name the host's `code`** in every tool that reads a REST reply,
+  and a program parse error reads its position from mooR's `line_col`.
 
 ## 0.3.0
 
@@ -122,7 +165,7 @@ deleted in `ae89aad8`.
 ## Tests
 
 ```
-node test.unit.mjs      # 54: encoding, Var decoding, both wire shapes, injection
+node test.unit.mjs      # 77: encoding, Var decoding, InvocationResponse outcomes, refusals, injection
 node test.wiring.mjs    # manifest vs module, and the diff applier
 node test.confine.mjs   # 18: objdef path confinement, including symlink escapes
 ```
